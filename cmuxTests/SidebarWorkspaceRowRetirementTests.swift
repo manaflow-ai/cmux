@@ -8,6 +8,43 @@ import Testing
 @MainActor
 struct SidebarWorkspaceRowRetirementTests {
     @Test
+    func selectionChromeObserverStoreRemovesObserversWhenOwnerDeallocates() {
+        let notificationCenter = NotificationCenter()
+        let workspaceNotificationCenter = NotificationCenter()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let probe = SidebarWorkspaceObserverDeliveryProbe()
+        var store: SidebarWorkspaceRowSelectionChromeObserverStore? =
+            SidebarWorkspaceRowSelectionChromeObserverStore(
+                notificationCenter: notificationCenter,
+                workspaceNotificationCenter: workspaceNotificationCenter
+            )
+        store?.install(on: window) { _ in
+            MainActor.assumeIsolated { probe.count += 1 }
+        }
+
+        notificationCenter.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        workspaceNotificationCenter.post(
+            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil
+        )
+        #expect(probe.count == 2)
+
+        store = nil
+        notificationCenter.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        workspaceNotificationCenter.post(
+            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil
+        )
+        #expect(probe.count == 2)
+        window.close()
+    }
+
+    @Test
     func tableRetirementInvalidatesDescriptionLinkAccessibility() async throws {
         let url = try #require(URL(string: "https://cmux.com"))
         let model = SidebarWorkspaceRowSuspensionTests.makeModel(
@@ -313,6 +350,11 @@ struct SidebarWorkspaceRowRetirementTests {
     private func descendants(of view: NSView) -> [NSView] {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
     }
+}
+
+@MainActor
+private final class SidebarWorkspaceObserverDeliveryProbe {
+    var count = 0
 }
 
 @MainActor

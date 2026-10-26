@@ -6,6 +6,70 @@ import CmuxSidebar
 import CmuxWorkspaces
 import SwiftUI
 
+/// Owns the block-based notifications used to repaint a selected row when
+/// window or accessibility emphasis changes. The owner is separate from the
+/// cell so its lifetime cleanup is explicit and testable.
+@MainActor
+final class SidebarWorkspaceRowSelectionChromeObserverStore {
+    private let notificationCenter: NotificationCenter
+    private let workspaceNotificationCenter: NotificationCenter
+    private var observers: [NSObjectProtocol] = []
+    private var workspaceObserver: NSObjectProtocol?
+
+    init(
+        notificationCenter: NotificationCenter = .default,
+        workspaceNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter
+    ) {
+        self.notificationCenter = notificationCenter
+        self.workspaceNotificationCenter = workspaceNotificationCenter
+    }
+
+    func install(
+        on window: NSWindow,
+        repaint: @escaping @Sendable (Notification) -> Void
+    ) {
+        invalidate()
+        observers = [
+            notificationCenter.addObserver(
+                forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main, using: repaint
+            ),
+            notificationCenter.addObserver(
+                forName: NSWindow.didResignKeyNotification, object: window, queue: .main, using: repaint
+            ),
+            notificationCenter.addObserver(
+                forName: NSWindow.didBecomeMainNotification, object: window, queue: .main, using: repaint
+            ),
+            notificationCenter.addObserver(
+                forName: NSWindow.didResignMainNotification, object: window, queue: .main, using: repaint
+            ),
+            notificationCenter.addObserver(
+                forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main, using: repaint
+            ),
+            notificationCenter.addObserver(
+                forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main, using: repaint
+            ),
+            notificationCenter.addObserver(
+                forName: NSApplication.didResignActiveNotification, object: nil, queue: .main, using: repaint
+            ),
+        ]
+        workspaceObserver = workspaceNotificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil,
+            queue: .main,
+            using: repaint
+        )
+    }
+
+    func invalidate() {
+        observers.forEach(notificationCenter.removeObserver)
+        observers.removeAll()
+        if let workspaceObserver {
+            workspaceNotificationCenter.removeObserver(workspaceObserver)
+            self.workspaceObserver = nil
+        }
+    }
+}
+
 /// Pure-AppKit workspace row cell: renders every TabItemView slot without
 /// SwiftUI hosting. Subviews are created once (dynamic slots use view pools),
 /// content applies in configure, and geometry resolves in one manual
@@ -63,8 +127,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var lastStatusPopoverModel: SidebarWorkspaceStatusPopoverModel?
 
     private var model: SidebarWorkspaceRowModel?
-    private var selectionChromeObservers: [NSObjectProtocol] = []
-    private var workspaceSelectionChromeObserver: NSObjectProtocol?
+    private let selectionChromeObserverStore = SidebarWorkspaceRowSelectionChromeObserverStore()
     private var actions: SidebarAppKitRowActions?
     private var isPointerHovering = false
     private var contextMenuVisible = false
@@ -267,43 +330,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        selectionChromeObservers.forEach { NotificationCenter.default.removeObserver($0) }
-        selectionChromeObservers.removeAll()
-        workspaceSelectionChromeObserver.map { NSWorkspace.shared.notificationCenter.removeObserver($0) }
-        workspaceSelectionChromeObserver = nil
+        selectionChromeObserverStore.invalidate()
         guard let window else { return }
         let repaint: @Sendable (Notification) -> Void = { [weak self] _ in
             MainActor.assumeIsolated { self?.repaintSelectionChrome() }
         }
-        selectionChromeObservers = [
-            NotificationCenter.default.addObserver(
-                forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main, using: repaint
-            ),
-            NotificationCenter.default.addObserver(
-                forName: NSWindow.didResignKeyNotification, object: window, queue: .main, using: repaint
-            ),
-            NotificationCenter.default.addObserver(
-                forName: NSWindow.didBecomeMainNotification, object: window, queue: .main, using: repaint
-            ),
-            NotificationCenter.default.addObserver(
-                forName: NSWindow.didResignMainNotification, object: window, queue: .main, using: repaint
-            ),
-            NotificationCenter.default.addObserver(
-                forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main, using: repaint
-            ),
-            NotificationCenter.default.addObserver(
-                forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main, using: repaint
-            ),
-            NotificationCenter.default.addObserver(
-                forName: NSApplication.didResignActiveNotification, object: nil, queue: .main, using: repaint
-            ),
-        ]
-        workspaceSelectionChromeObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
-            object: nil,
-            queue: .main,
-            using: repaint
-        )
+        selectionChromeObserverStore.install(on: window, repaint: repaint)
         repaintSelectionChrome()
     }
 
