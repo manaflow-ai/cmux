@@ -5,9 +5,9 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// `debug.energy` (p14-energy-007, 008): the exact top-level keys, the idle histogram, the wake queue's wakes, the ledger's top
-/// owners, the process counters Chrome's way (interrupt wakeups, not summed with package-idle ones),
-/// and sampling off the main thread.
+/// `debug.energy` (p14-energy-007, 008): the exact top-level keys, the idle histogram, the field names the idle bench reads, the
+/// wake queue's wakes, the ledger's top owners, the process counters Chrome's way (interrupt wakeups, not
+/// summed with package-idle ones) from one sample, and sampling off the main thread.
 @Suite(.timeLimit(.minutes(1)))
 struct EnergyReportTests {
     private final class Threads: Sendable {
@@ -16,58 +16,50 @@ struct EnergyReportTests {
         var seen: [Bool] { onMain.withLock { $0 } }
     }
 
+    private static let inputs = EnergyReport.Inputs(
+        featureEnabled: true, lowPowerMode: false, onBattery: true, hasBattery: true, batteryPercent: 15,
+        thermal: .nominal, setting: .auto, sessionOverride: false
+    )
+
     private static let state = EnergyReport.State(
         policy: EnergyPolicy(saverReason: .battery, onBattery: true),
-        inputs: .init(lowPowerMode: false, onBattery: true, hasBattery: true, batteryPercent: 15, thermal: .nominal,
-                      setting: .auto, sessionOverride: false),
-        wakeQueue: .init(entries: 3),
+        inputs: inputs,
+        wakeQueue: .init(entries: 3, coalescedFires: 2),
         cef: .init(saver: .unsupported, earlyPasses: nil)
     )
 
-    private static func report(ledger: WakeupLedger = WakeupLedger(),
-                               processes: @escaping @Sendable () -> [ProcessEnergy] = { [] }) async -> JSONValue {
-        await EnergyReport(state: { Self.state }, ledger: ledger, processes: processes).report()
+    private static func report(state: EnergyReport.State = Self.state, ledger: WakeupLedger = WakeupLedger(),
+                               processes: @escaping @Sendable () -> [EnergyReport.ProcessSample] = { [] }) async -> JSONValue {
+        await EnergyReport(state: { state }, ledger: ledger, processes: processes).report()
     }
 
-    @Test func topLevelKeysAreExactlyTheSixAndIdle() async throws {
+    private static func usage(pid: pid_t, interrupt: UInt64, packageIdle: UInt64, energy: UInt64) -> ProcessUsage {
+        ProcessUsage(pid: pid, parent: 0, path: "/Applications/cmux NEXT.app/Contents/MacOS/cmux", cpuNanos: 0,
+                     wakeups: interrupt &+ packageIdle, interruptWakeups: interrupt, packageIdleWakeups: packageIdle,
+                     energyNanojoules: energy, physFootprint: 0, uptimeNanos: 0)
+    }
+
+    @Test func topLevelKeysAreExactlyTheSeven() async throws {
         let report = await Self.report()
         let object = try #require(report.objectValue)
         #expect(Set(object.keys) == ["policy", "inputs", "wake_queue", "ledger_top", "processes", "cef", "idle"])
-        #expect(object["policy"]?["is_saver"]?.boolValue == true)
         #expect(object["policy"]?["reason"]?.stringValue == "battery")
-        #expect(object["policy"]?["wake_alignment_ms"]?.doubleValue == 32)
-        #expect(object["policy"]?["web_frame_rate"]?.intValue == 30)
-        #expect(object["policy"]?["poll_stretch"]?.intValue == 4)
-        #expect(object["inputs"]?["has_battery"]?.boolValue == true)
-        #expect(object["inputs"]?["battery_percent"]?.intValue == 15)
+        #expect(object["policy"]?["wakeAlignmentMs"]?.doubleValue == 32)
+        #expect(object["policy"]?["webFrameRate"]?.intValue == 30)
+        #expect(object["policy"]?["pollStretch"]?.intValue == 4)
+        #expect(object["inputs"]?["featureEnabled"]?.boolValue == true)
+        #expect(object["inputs"]?["hasBattery"]?.boolValue == true)
+        #expect(object["inputs"]?["batteryPercent"]?.intValue == 15)
         #expect(object["inputs"]?["thermal"]?.stringValue == "nominal")
         #expect(object["inputs"]?["setting"]?.stringValue == "auto")
+        #expect(object["inputs"]?["sessionOverride"]?.boolValue == false)
         #expect(object["inputs"]?["suspended"]?.boolValue == false)
-        #expect(object["inputs"]?["screens_asleep"]?.boolValue == false)
-        #expect(object["inputs"]?["reason"]?.stringValue == "battery")
+        #expect(object["inputs"]?["screensAsleep"]?.boolValue == false)
         #expect(object["wake_queue"]?["entries"]?.intValue == 3)
-        #expect(object["wake_queue"]?["alignment_ms"]?.doubleValue == 32)
-        #expect(object["cef"]?["energy_saver"]?.stringValue == "unsupported")
-        #expect(object["cef"]?["early_passes"] == JSONValue.null)
-    }
-
-    @Test func saverOffReportsNullReasonsAndNoCaps() async {
-        let off = EnergyReport.State(policy: .normal, inputs: Self.state.inputs, wakeQueue: .init(entries: 0),
-                                     cef: Self.state.cef)
-        let report = await EnergyReport(state: { off }, ledger: WakeupLedger(), processes: { [] }).report()
-        #expect(report["policy"]?["reason"] == JSONValue.null)
-        #expect(report["policy"]?["ambient_max_fps"] == JSONValue.null)
-        #expect(report["policy"]?["wake_alignment_ms"]?.doubleValue == 8)
-        #expect(report["inputs"]?["reason"] == JSONValue.null)
-    }
-
-    @Test func wakeQueueFiresComeFromTheQueuesOwnLedgerRecord() async {
-        let ledger = WakeupLedger(uptime: { 100_000_000_000 })
-        ledger.record(MainWakeUpQueue.ledgerOwner, reason: "fire", count: 7)
-        ledger.record(MainWakeUpQueue.ledgerOwner, reason: "other", count: 9)
-        ledger.record("DemandTimer", reason: "fire", count: 50)
-        let report = await Self.report(ledger: ledger)
-        #expect(report["wake_queue"]?["fires"]?.intValue == 7)
+        #expect(object["wake_queue"]?["coalescedFires"]?.intValue == 2)
+        #expect(object["wake_queue"]?["alignmentMs"]?.doubleValue == 32)
+        #expect(object["cef"]?["energySaver"]?.stringValue == "unsupported")
+        #expect(object["cef"]?["earlyPasses"] == JSONValue.null)
     }
 
     @Test func idleReportsTheHistogramAndItsPercentiles() async throws {
@@ -84,13 +76,13 @@ struct EnergyReportTests {
         }
         var state = Self.state
         state.idle = idle
-        let report = await EnergyReport(state: { [state] in state }, ledger: WakeupLedger(), processes: { [] }).report()
+        let report = await Self.report(state: state)
         let section = try #require(report["idle"])
-        #expect(section["scope"]?.stringValue == "main_process")
-        #expect(section["idle_after_s"]?.intValue == 60)
-        #expect(section["window_s"]?.intValue == 60)
+        #expect(section["scope"]?.stringValue == "mainProcess")
+        #expect(section["idleAfterSeconds"]?.intValue == 60)
+        #expect(section["windowSeconds"]?.intValue == 60)
         #expect(section["samples"]?.intValue == 3)
-        #expect(section["windows_with_input"]?.intValue == 0)
+        #expect(section["windowsWithInput"]?.intValue == 0)
         #expect(section["p50"]?.doubleValue == 0.25)
         #expect(section["p99"]?.doubleValue == 0.25)
         let buckets = try #require(section["buckets"]?.arrayValue)
@@ -105,6 +97,50 @@ struct EnergyReportTests {
         #expect(report["idle"]?["max"] == JSONValue.null)
     }
 
+    /// scripts/cmux-next/idle-budget.py `saver_state` reads `policy.isSaver` (a bool) and then
+    /// `policy.reason` or `inputs.reason`; with another key every saver session is refused.
+    @Test func idleBudgetReadsPolicyIsSaverAndTheReason() async {
+        let report = await Self.report()
+        #expect(report["policy"]?["isSaver"] == JSONValue.bool(true))
+        #expect(report["policy"]?["is_saver"] == nil)
+        #expect(report["policy"]?["reason"]?.stringValue == "battery")
+        #expect(report["inputs"]?["reason"]?.stringValue == "battery")
+    }
+
+    @Test func saverOffReportsNullReasonsAndNoCaps() async {
+        let off = EnergyReport.State(policy: .normal, inputs: Self.inputs, wakeQueue: .init(entries: 0, coalescedFires: 0),
+                                     cef: Self.state.cef)
+        let report = await Self.report(state: off)
+        #expect(report["policy"]?["isSaver"] == JSONValue.bool(false))
+        #expect(report["policy"]?["reason"] == JSONValue.null)
+        #expect(report["policy"]?["ambientMaxFPS"] == JSONValue.null)
+        #expect(report["policy"]?["wakeAlignmentMs"]?.doubleValue == 8)
+        #expect(report["inputs"]?["reason"] == JSONValue.null)
+    }
+
+    /// The default build: the `energySaver` feature is off, so low battery in `auto` leaves the saver off,
+    /// and the report says why.
+    @Test func featureOffWithLowBatteryReportsWhyTheSaverIsOff() async {
+        var inputs = Self.inputs
+        inputs.featureEnabled = false
+        let state = EnergyReport.State(policy: EnergyPolicy(onBattery: true), inputs: inputs,
+                                       wakeQueue: .init(entries: 0, coalescedFires: 0), cef: Self.state.cef)
+        let report = await Self.report(state: state)
+        #expect(report["policy"]?["isSaver"] == JSONValue.bool(false))
+        #expect(report["inputs"]?["featureEnabled"] == JSONValue.bool(false))
+        #expect(report["inputs"]?["batteryPercent"]?.intValue == 15)
+        #expect(report["inputs"]?["setting"]?.stringValue == "auto")
+    }
+
+    @Test func wakeQueueFiresComeFromTheQueuesOwnLedgerRecord() async {
+        let ledger = WakeupLedger(uptime: { 100_000_000_000 })
+        ledger.record(MainWakeUpQueue.ledgerOwner, reason: "fire", count: 7)
+        ledger.record(MainWakeUpQueue.ledgerOwner, reason: "other", count: 9)
+        ledger.record("DemandTimer", reason: "fire", count: 50)
+        let report = await Self.report(ledger: ledger)
+        #expect(report["wake_queue"]?["fires"]?.intValue == 7)
+    }
+
     @Test func goneServicesReportNull() async {
         let report = await EnergyReport(state: { nil }, ledger: WakeupLedger(), processes: { [] }).report()
         #expect(report == JSONValue.null)
@@ -115,17 +151,18 @@ struct EnergyReportTests {
         let threads = Threads()
         let report = await Self.report {
             threads.note()
-            return [ProcessEnergy(kind: "app", pid: 1, name: "cmux", energyNanojoules: 5,
-                                  interruptWakeups: 10, packageIdleWakeups: 4)]
+            return [.init(kind: "app", usage: Self.usage(pid: 1, interrupt: 10, packageIdle: 4, energy: 5))]
         }
         #expect(threads.seen == [false], "sampled on: \(threads.seen) (true = the main thread)")
         let process = report["processes"]?.arrayValue?.first
-        #expect(process?["interrupt_wakeups"]?.intValue == 10, "interrupt wakeups are not summed with package-idle ones")
-        #expect(process?["pkg_idle_wakeups"]?.intValue == 4)
-        #expect(process?["energy_nj"]?.intValue == 5)
+        #expect(process?["kind"]?.stringValue == "app")
+        #expect(process?["name"]?.stringValue == "cmux")
+        #expect(process?["interruptWakeups"]?.intValue == 10, "interrupt wakeups are not summed with package-idle ones")
+        #expect(process?["packageIdleWakeups"]?.intValue == 4)
+        #expect(process?["energyNj"]?.intValue == 5)
     }
 
-    @Test func ledgerTopSumsReasonsPerOwnerAndKeepsTen() {
+    @Test func ledgerTopSumsReasonsPerOwnerAndKeepsTen() async {
         // A still clock: every rate is 0, so owners rank by count.
         let ledger = WakeupLedger(uptime: { 100_000_000_000 })
         ledger.record("CEFMessagePump", reason: "delayed", count: 20)
@@ -138,6 +175,9 @@ struct EnergyReportTests {
         #expect(top.first?.count == 30)
         #expect(top.first?.reasons == ["delayed", "now"])
         #expect(top.last?.owner == "owner5")
+        let rendered = await Self.report(ledger: ledger)["ledger_top"]?.arrayValue?.first
+        #expect(rendered?["count"]?.intValue == 30)
+        #expect(rendered?["perSecond"]?.doubleValue != nil)
     }
 
     @Test func thermalStatesHaveStableNames() {
@@ -145,9 +185,12 @@ struct EnergyReportTests {
         #expect(names == ["nominal", "fair", "serious", "critical"])
     }
 
-    @Test func samplesThisProcess() throws {
-        let me = try #require(ProcessEnergy.sample(kind: "app", pid: getpid(), name: "test"))
+    /// One `RUSAGE_INFO_V6` sample carries CPU, the wakeups and the energy, so `debug.energy` and
+    /// `debug.wakeups` read the same instant.
+    @Test func oneSampleOfThisProcessCarriesTheEnergyCounters() throws {
+        let me = try #require(ProcessUsage.sample(getpid()))
         #expect(me.pid == getpid())
-        #expect(me.kind == "app")
+        #expect(me.cpuNanos > 0)
+        #expect(me.wakeups == me.interruptWakeups &+ me.packageIdleWakeups)
     }
 }

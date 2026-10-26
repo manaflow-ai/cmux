@@ -107,6 +107,9 @@ final class AppServices {
     private(set) lazy var addDevice = AddDeviceCard(services: .app(self))
     private(set) lazy var devices = DeviceDirectory.app(self)
     let machineHealth = MachineHealthStore()
+    /// The app's one fan-out of app-wide notices (`AppEvents`, p06-scheduler-021): every window's
+    /// key tracker and later adopters subscribe here, one observer per name for the whole app.
+    let appEvents = AppEvents(center: .default)
     let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
     let iphone = IPhoneHostService()

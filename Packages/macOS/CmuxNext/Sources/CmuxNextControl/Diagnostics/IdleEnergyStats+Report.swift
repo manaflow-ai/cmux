@@ -9,14 +9,14 @@ extension IdleEnergyStats {
     var json: JSONValue {
         func rate(_ value: Double?) -> JSONValue { value.map { JSONValue.number($0) } ?? .null }
         let buckets = counts.enumerated().map { index, count -> JSONValue in
-            ["le": .string(Self.label(ofBucket: index)), "count": JSONValue(Int(truncatingIfNeeded: count))]
+            ["le": .string(Self.label(ofBucket: index)), "count": EnergyReport.integer(count)]
         }
         return [
-            "scope": .string("main_process"),
-            "idle_after_s": JSONValue(Int(truncatingIfNeeded: Self.idleAfterNanos / 1_000_000_000)),
-            "window_s": JSONValue(Int(truncatingIfNeeded: Self.windowNanos / 1_000_000_000)),
-            "samples": JSONValue(Int(truncatingIfNeeded: sampleCount)),
-            "windows_with_input": JSONValue(Int(truncatingIfNeeded: windowsWithInput)),
+            "scope": .string("mainProcess"),
+            "idleAfterSeconds": EnergyReport.integer(Self.idleAfterNanos / 1_000_000_000),
+            "windowSeconds": EnergyReport.integer(Self.windowNanos / 1_000_000_000),
+            "samples": EnergyReport.integer(sampleCount),
+            "windowsWithInput": EnergyReport.integer(windowsWithInput),
             "p50": rate(percentile(0.5)),
             "p95": rate(percentile(0.95)),
             "p99": rate(percentile(0.99)),

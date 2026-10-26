@@ -1,25 +1,32 @@
 public import CmuxNextSettings
 public import CmuxNextWakeups
-public import Darwin
 public import Foundation
 
 /// `debug.energy`: the Energy Saver state and what the app costs while idle
 /// (plans/cmux-next/chrome-parity/p14-energy.md, tasks 007 and 008). The top-level keys are exactly:
 ///
 /// - `policy`: the resolved ``EnergyPolicy`` (saver on, reason, wake alignment, frame caps, poll stretch).
-/// - `inputs`: what the policy was resolved from: Low Power Mode, power source, battery, thermal state,
-///   the `energy.saver` setting, "Turn Off for Now", sleep and screen sleep, and the reason given.
+/// - `inputs`: what the policy was resolved from: the `energySaver` feature, Low Power Mode, power source,
+///   battery, thermal state, the `energy.saver` setting, "Turn Off for Now", sleep and screen sleep, and
+///   the reason given.
 /// - `wake_queue`: the main thread's ``MainWakeUpQueue``: pending entries, its wakes (the ledger's
-///   `MainWakeUpQueue`/`fire` record, one per wake) and its alignment grid.
+///   `MainWakeUpQueue`/`fire` record, one per wake), the wakes that ran more than one entry, and its
+///   alignment grid.
 /// - `ledger_top`: the 10 ``WakeupLedger`` owners that wake the app most, all reasons summed.
-/// - `processes`: CPU energy and wakeups per process of the app tree, cumulative (diff two calls for
-///   rates). Interrupt wakeups are what Chrome reports as idle wakeups
-///   (base/process/process_metrics_apple.mm, `GetIdleWakeupsPerSecond` reads `ri_interrupt_wkups`);
-///   package-idle wakeups are a subset and are reported apart, never summed.
+/// - `processes`: CPU energy and wakeups per process of the app tree from one ``ProcessUsage`` sample,
+///   cumulative (diff two calls for rates). Interrupt wakeups are what Chrome reports as idle wakeups:
+///   `GetIdleWakeupsPerSecond` (base/process/process_metrics_apple.mm) reads
+///   `task_power_info.task_interrupt_wakeups` from `task_info(TASK_POWER_INFO)`, and `ri_interrupt_wkups`
+///   is the same kernel counter read through `proc_pid_rusage` for other pids. Package-idle wakeups are
+///   a subset and are reported apart, never summed.
 /// - `cef`: whether Chromium applies the Energy Saver, and the pump's early passes.
 /// - `idle`: the main process's interrupt wakeups per second over this launch's idle minutes, as a
 ///   histogram with fixed buckets and its p50/p95/p99 (``IdleEnergyStats``, task 008). Main process
-///   only (`scope`); the helpers' counters are in `processes`, from the same ``ProcessRusage`` reading.
+///   only (`scope`); the helpers' counters are in `processes`, from the same ``ProcessUsage`` counter.
+///
+/// Top-level keys are snake_case (the spec's); the fields inside them are the camelCase names of the
+/// values they report (`policy.isSaver` is ``EnergyPolicy/isSaver``), which is what
+/// `scripts/cmux-next/idle-budget.py` (`saver_state`) reads.
 ///
 /// One main-actor turn copies ``State``; the ledger read and the process sampling run on the
 /// concurrent pool, never on the main actor (as `debug.wakeups` samples its processes). The App
@@ -34,16 +41,16 @@ public struct EnergyReport: Sendable {
     let state: @MainActor @Sendable () -> State?
     let ledger: WakeupLedger
     /// Samples the app tree; runs off the main actor.
-    let processes: @Sendable () -> [ProcessEnergy]
+    let processes: @Sendable () -> [ProcessSample]
 
     /// A report over these readers.
     ///
     /// - Parameters:
     ///   - state: Copies the energy services' state in one main-actor turn; nil once they are gone.
     ///   - ledger: The app's wakeup ledger (the wake queue records its wakes there).
-    ///   - processes: Samples the app tree (``ProcessEnergy/sample(kind:pid:name:)``); called off the main actor.
+    ///   - processes: Samples the app tree (``ProcessUsage/sample(_:)`` per process); called off the main actor.
     public init(state: @escaping @MainActor @Sendable () -> State?, ledger: WakeupLedger,
-                processes: @escaping @Sendable () -> [ProcessEnergy]) {
+                processes: @escaping @Sendable () -> [ProcessSample]) {
         self.state = state
         self.ledger = ledger
         self.processes = processes
@@ -60,12 +67,12 @@ public struct EnergyReport: Sendable {
     }
 
     @concurrent
-    private static func sample(ledger: WakeupLedger, processes: @Sendable () -> [ProcessEnergy]) async
-        -> (ledger: [WakeupLedger.Entry], processes: [ProcessEnergy]) {
+    private static func sample(ledger: WakeupLedger, processes: @Sendable () -> [ProcessSample]) async
+        -> (ledger: [WakeupLedger.Entry], processes: [ProcessSample]) {
         (ledger.snapshot(), processes())
     }
 
-    static func render(state: State, ledger: [WakeupLedger.Entry], processes: [ProcessEnergy]) -> JSONValue {
+    static func render(state: State, ledger: [WakeupLedger.Entry], processes: [ProcessSample]) -> JSONValue {
         let fire = ledger.first { $0.owner == MainWakeUpQueue.ledgerOwner && $0.reason == "fire" }
         return [
             "policy": state.policyJSON,
@@ -82,6 +89,8 @@ public struct EnergyReport: Sendable {
         let (seconds, attoseconds) = duration.components
         return .number(Double(seconds) * 1_000 + Double(attoseconds) / 1e15)
     }
+
+    static func integer(_ value: UInt64) -> JSONValue { JSONValue(Int(truncatingIfNeeded: value)) }
 }
 
 extension EnergyReport {
@@ -104,9 +113,11 @@ extension EnergyReport {
         }
     }
 
-    /// The power inputs, the setting and the session override the policy was resolved from. Sleep,
-    /// screen sleep and the reason come from the policy itself.
+    /// The feature, the power inputs, the setting and the session override the policy was resolved
+    /// from. Sleep, screen sleep and the reason come from the policy itself.
     public struct Inputs: Sendable, Equatable {
+        /// The default-off `energySaver` feature is on; off, the saver stays off whatever the rest says.
+        public var featureEnabled: Bool
         public var lowPowerMode: Bool
         public var onBattery: Bool
         public var hasBattery: Bool
@@ -117,8 +128,9 @@ extension EnergyReport {
         /// "Turn Off Energy Saver for Now" holds.
         public var sessionOverride: Bool
 
-        public init(lowPowerMode: Bool, onBattery: Bool, hasBattery: Bool, batteryPercent: Int?,
+        public init(featureEnabled: Bool, lowPowerMode: Bool, onBattery: Bool, hasBattery: Bool, batteryPercent: Int?,
                     thermal: ProcessInfo.ThermalState, setting: EnergySaverMode, sessionOverride: Bool) {
+            self.featureEnabled = featureEnabled
             self.lowPowerMode = lowPowerMode
             self.onBattery = onBattery
             self.hasBattery = hasBattery
@@ -144,9 +156,12 @@ extension EnergyReport {
     public struct WakeQueue: Sendable, Equatable {
         /// Entries waiting to run.
         public var entries: Int
+        /// Wakes that ran more than one entry (``MainWakeUpQueue/coalescedFires``).
+        public var coalescedFires: UInt64
 
-        public init(entries: Int) {
+        public init(entries: Int, coalescedFires: UInt64) {
             self.entries = entries
+            self.coalescedFires = coalescedFires
         }
 
         /// `fire` is the queue's ledger record, one per wake of its timer; `alignment` is the grid flexible
@@ -154,9 +169,10 @@ extension EnergyReport {
         func json(fire: WakeupLedger.Entry?, alignment: Duration) -> JSONValue {
             [
                 "entries": JSONValue(entries),
-                "fires": JSONValue(Int(truncatingIfNeeded: fire?.count ?? 0)),
-                "fires_per_second": .number(fire?.perSecond ?? 0),
-                "alignment_ms": EnergyReport.ms(alignment),
+                "fires": EnergyReport.integer(fire?.count ?? 0),
+                "firesPerSecond": .number(fire?.perSecond ?? 0),
+                "coalescedFires": EnergyReport.integer(coalescedFires),
+                "alignmentMs": EnergyReport.ms(alignment),
             ]
         }
     }
@@ -181,8 +197,28 @@ extension EnergyReport {
 
         var json: JSONValue {
             [
-                "energy_saver": .string(saver.rawValue),
-                "early_passes": earlyPasses.map { JSONValue($0) } ?? .null,
+                "energySaver": .string(saver.rawValue),
+                "earlyPasses": earlyPasses.map { JSONValue($0) } ?? .null,
+            ]
+        }
+    }
+
+    /// One process of the app tree: its kind (`app`, `cef-renderer`, `daemon`, ...) and one sample.
+    public struct ProcessSample: Sendable, Equatable {
+        public var kind: String
+        public var usage: ProcessUsage
+
+        public init(kind: String, usage: ProcessUsage) {
+            self.kind = kind
+            self.usage = usage
+        }
+
+        var json: JSONValue {
+            [
+                "kind": .string(kind), "pid": JSONValue(Int(truncatingIfNeeded: usage.pid)), "name": .string(usage.name),
+                "energyNj": EnergyReport.integer(usage.energyNanojoules),
+                "interruptWakeups": EnergyReport.integer(usage.interruptWakeups),
+                "packageIdleWakeups": EnergyReport.integer(usage.packageIdleWakeups),
             ]
         }
     }
@@ -198,8 +234,8 @@ extension EnergyReport {
         var json: JSONValue {
             [
                 "owner": .string(owner),
-                "count": JSONValue(Int(truncatingIfNeeded: count)),
-                "per_second": .number(perSecond),
+                "count": EnergyReport.integer(count),
+                "perSecond": .number(perSecond),
                 "reasons": .array(reasons.map(JSONValue.string)),
             ]
         }
@@ -228,15 +264,16 @@ extension EnergyReport.Inputs {
     /// With the sleep inputs and the reason of the policy these inputs resolved to.
     func json(policy: EnergyPolicy) -> EnergyReport.JSONValue {
         [
-            "low_power_mode": .bool(lowPowerMode),
-            "on_battery": .bool(onBattery),
-            "has_battery": .bool(hasBattery),
-            "battery_percent": batteryPercent.map { EnergyReport.JSONValue($0) } ?? .null,
+            "featureEnabled": .bool(featureEnabled),
+            "lowPowerMode": .bool(lowPowerMode),
+            "onBattery": .bool(onBattery),
+            "hasBattery": .bool(hasBattery),
+            "batteryPercent": batteryPercent.map { EnergyReport.JSONValue($0) } ?? .null,
             "thermal": .string(Self.name(thermal)),
             "setting": .string(setting.rawValue),
-            "session_override": .bool(sessionOverride),
+            "sessionOverride": .bool(sessionOverride),
             "suspended": .bool(policy.suspended),
-            "screens_asleep": .bool(policy.screensAsleep),
+            "screensAsleep": .bool(policy.screensAsleep),
             "reason": policy.reason.map { EnergyReport.JSONValue.string($0.rawValue) } ?? .null,
         ]
     }
@@ -245,52 +282,12 @@ extension EnergyReport.Inputs {
 extension EnergyReport.State {
     var policyJSON: EnergyReport.JSONValue {
         [
-            "is_saver": .bool(policy.isSaver),
+            "isSaver": .bool(policy.isSaver),
             "reason": policy.reason.map { EnergyReport.JSONValue.string($0.rawValue) } ?? .null,
-            "wake_alignment_ms": EnergyReport.ms(policy.wakeAlignment),
-            "ambient_max_fps": policy.ambientMaxFPS.map { EnergyReport.JSONValue($0) } ?? .null,
-            "web_frame_rate": policy.webFrameRate.map { EnergyReport.JSONValue($0) } ?? .null,
-            "poll_stretch": EnergyReport.JSONValue(policy.pollStretch),
-        ]
-    }
-}
-
-/// CPU energy and wakeups of one process of the app tree (`proc_pid_rusage`, `RUSAGE_INFO_V6`).
-public struct ProcessEnergy: Sendable, Equatable {
-    public var kind: String
-    public var pid: pid_t
-    public var name: String
-    /// CPU energy since the process started (`ri_energy_nj`); work billed to the render server is not in it.
-    public var energyNanojoules: UInt64
-    /// Chrome's idle wakeups (`ri_interrupt_wkups`).
-    public var interruptWakeups: UInt64
-    /// Wakeups out of package idle (`ri_pkg_idle_wkups`), a subset of the interrupt wakeups.
-    public var packageIdleWakeups: UInt64
-
-    public init(kind: String, pid: pid_t, name: String, energyNanojoules: UInt64, interruptWakeups: UInt64,
-                packageIdleWakeups: UInt64) {
-        self.kind = kind
-        self.pid = pid
-        self.name = name
-        self.energyNanojoules = energyNanojoules
-        self.interruptWakeups = interruptWakeups
-        self.packageIdleWakeups = packageIdleWakeups
-    }
-
-    /// Samples `pid` (``ProcessRusage``, the reading `idle` shares); nil when the process is gone or not
-    /// ours. The tree walk around it makes many syscalls: call it off the main actor.
-    public static func sample(kind: String, pid: pid_t, name: String) -> ProcessEnergy? {
-        guard let usage = ProcessRusage.sample(pid) else { return nil }
-        return ProcessEnergy(kind: kind, pid: pid, name: name, energyNanojoules: usage.energyNanojoules,
-                             interruptWakeups: usage.interruptWakeups, packageIdleWakeups: usage.packageIdleWakeups)
-    }
-
-    var json: EnergyReport.JSONValue {
-        [
-            "kind": .string(kind), "pid": .number(Double(pid)), "name": .string(name),
-            "energy_nj": EnergyReport.JSONValue(Int(truncatingIfNeeded: energyNanojoules)),
-            "interrupt_wakeups": EnergyReport.JSONValue(Int(truncatingIfNeeded: interruptWakeups)),
-            "pkg_idle_wakeups": EnergyReport.JSONValue(Int(truncatingIfNeeded: packageIdleWakeups)),
+            "wakeAlignmentMs": EnergyReport.ms(policy.wakeAlignment),
+            "ambientMaxFPS": policy.ambientMaxFPS.map { EnergyReport.JSONValue($0) } ?? .null,
+            "webFrameRate": policy.webFrameRate.map { EnergyReport.JSONValue($0) } ?? .null,
+            "pollStretch": EnergyReport.JSONValue(policy.pollStretch),
         ]
     }
 }

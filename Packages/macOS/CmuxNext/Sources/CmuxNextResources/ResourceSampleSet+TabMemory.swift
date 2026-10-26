@@ -1,5 +1,19 @@
 import Foundation
 
+/// One tab's memory estimate in a sample (``ResourceSampleSet/tabMemoryReadings(kinds:)``).
+public struct TabMemoryReading: Hashable, Sendable {
+    /// Its share of its own processes' footprint plus its app-side estimate.
+    public var bytes: UInt64
+    /// The tabs that list at least one of its own processes, itself included. Its number is a share
+    /// of those processes, so it moves when one of these tabs comes, goes or grows.
+    public var sharers: Set<String>
+
+    public init(bytes: UInt64, sharers: Set<String>) {
+        self.bytes = bytes
+        self.sharers = sharers
+    }
+}
+
 extension ResourceSampleSet {
     /// Each available tab's estimated memory in this sample, by tab id: its own processes' footprint
     /// (a process several tabs list split evenly between them) plus its app-side estimate. A shared
@@ -14,19 +28,28 @@ extension ResourceSampleSet {
     ///
     /// - Parameter kinds: The kinds of tab to list; nil lists every kind.
     public func tabMemory(kinds: Set<TabResourceKind>? = nil) -> [String: UInt64] {
+        tabMemoryReadings(kinds: kinds).mapValues(\.bytes)
+    }
+
+    /// ``tabMemory(kinds:)`` with the tabs each number is shared with: every tab, of any kind, that
+    /// lists one of the tab's own processes.
+    ///
+    /// - Parameter kinds: The kinds of tab to list; nil lists every kind.
+    public func tabMemoryReadings(kinds: Set<TabResourceKind>? = nil) -> [String: TabMemoryReading] {
         let sharedKeys = Set(shared.map(\.key))
         let owned = tabs.map { Set($0.processes).subtracting(sharedKeys) }
-        var sharers: [ProcessKey: UInt64] = [:]
-        for keys in owned { for key in keys { sharers[key, default: 0] += 1 } }
-        var bytes: [String: UInt64] = [:]
+        var sharers: [ProcessKey: Set<String>] = [:]
+        for (tab, keys) in zip(tabs, owned) { for key in keys { sharers[key, default: []].insert(tab.tabID) } }
+        var readings: [String: TabMemoryReading] = [:]
         for (tab, keys) in zip(tabs, owned) where tab.available && kinds.map({ $0.contains(tab.kind) }) ?? true {
             let own = keys.reduce(UInt64(0)) { total, key in
                 guard let memory = samples[key]?.memoryBytes else { return total }
-                return total &+ memory / max(sharers[key] ?? 1, 1)
+                return total &+ memory / UInt64(max(sharers[key]?.count ?? 1, 1))
             }
-            bytes[tab.tabID] = own &+ tab.estimatedAppBytes
+            let with = keys.reduce(into: Set([tab.tabID])) { $0.formUnion(sharers[$1] ?? []) }
+            readings[tab.tabID] = TabMemoryReading(bytes: own &+ tab.estimatedAppBytes, sharers: with)
         }
-        return bytes
+        return readings
     }
 }
 

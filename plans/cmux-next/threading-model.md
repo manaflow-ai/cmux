@@ -78,7 +78,7 @@ and changes both with the code).
 | **Per-stream lanes** | Not on feat-cmux-next yet (PL-conn, `pl-conn`) | | | Added here when it lands |
 | **Holder** (`cmux-holder`, one `poll` loop; daemon side `holder-link`) | PTYs that outlive the daemon | `poll` | not set | 1 MiB ring per terminal, 1 MiB link queue, 512 KiB credit window; daemon attached: the holder stops reading the PTY (the shell blocks); no daemon: the ring keeps the newest bytes |
 | **acpmux** (tokio multi-thread; `acpmux-socket-read` / `-write` bridges) | Agent sessions | Socket I/O on its runtime | not set | In 256 / out 4096 per connection, full outbox drops (`try_send`), oversized notices become `_acpmux/lagged`; hub broadcast 8192 with `lagged {dropped}`. Owner PL-acpmux (cmux-4f) |
-| **Chromium** (in-process browser: UI thread = the app's main thread; Chromium's own IO and worker threads; renderer, GPU and utility helper processes; out-of-process host prototype `com.cmuxterm.chromium-host.read` / `.exit`) | Web pages | Chromium's IO thread blocks on its own sockets, never the UI thread | Chromium's | Child exits on `com.cmuxterm.app.next.cef-children`; host prototype: 256 KiB send buffer, 4096 frames, over: the connection ends; in the host one frame queue (moves, wheel deltas and geometry coalesce, keys kept), over 4096: the host ends; one exit queue per launcher (kqueue process source, no thread per host) |
+| **Chromium** (in-process browser: UI thread = the app's main thread; Chromium's own IO and worker threads; renderer, GPU and utility helper processes; out-of-process host prototype `com.cmuxterm.chromium-host.read` / `.exit` / `.control`) | Web pages | Chromium's IO thread blocks on its own sockets, never the UI thread | Chromium's | Child exits on `com.cmuxterm.app.next.cef-children`; host prototype: 256 KiB send buffer, 4096 frames, over: the connection ends; in the host one frame queue (moves, wheel deltas and geometry coalesce, keys kept), over 4096: the host ends; one exit queue per launcher (kqueue process source, no thread per host); control channel `com.cmuxterm.chromium-host.control` (one reader thread per end, user-initiated, waits only in `poll`; p01-process-012): sends never block, a refused frame waits in the outbox where state ops coalesce per (op, page); over 256 KiB or 4096 waiting is counted (`quota_excess`) and ends the host only after 60 s over without a break; a malformed frame ends it; replies resume on the reader, other messages reach main as one visible task per batch, and past 4096 unread the reader stops reading until main drains |
 
 ## QoS and task priority (PL-qos, 2026-10-24)
 One priority model. Main thread: MainWorkClass (PL-main). Off main: WorkPriority, derived from it (CmuxNextWakeups).
@@ -95,9 +95,11 @@ CrashDeadline threads, LineTransport reader (daemon lines), LocalPTY read queue,
 MetalYUVRenderer. No BackgroundWork lane runs at it.
 
 Blocking work never runs on the cooperative pool: a process wait uses AsyncProcess (no thread waits); file I/O uses lane
-.files (serial per priority); a sync system call (getaddrinfo, Security, Launch Services, AX) uses lane .system (6 at
-once, Chrome kDefaultMaxSystemTasks); long CPU work uses lane .cpu (P-cores minus 1). ShutdownBehavior: skipOnShutdown
-(default), continueOnShutdown, blockShutdown (quit awaits BackgroundWork.shutdown()).
+.files (serial per priority); a sync system call (getaddrinfo, Security, Launch Services, AX, window lists) uses lane
+.system (6 at once, the width of Chrome's DNS pool kDefaultMaxSystemTasks; 1 slot reserved for uncapped userBlocking
+items, as Chrome's PrioritizedDispatcher reserved slots, counting every busy slot; host resolution through
+`runHostResolution` capped at 4, cmux's own cap since DNS shares the lane); long CPU work uses lane .cpu (P-cores
+minus 1). ShutdownBehavior: skipOnShutdown (default), continueOnShutdown, blockShutdown (quit awaits BackgroundWork.shutdown()).
 
 Donating waits (allowed for a short main-thread wait): os_unfair_lock, OSAllocatedUnfairLock, CmuxNextCompat.Mutex,
 dispatch_sync onto a serial queue (GCD sync QoS override), awaiting a Task value (Swift escalation), BackgroundWork.run
@@ -156,6 +158,8 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `cmux.remote-view.mock-host`, `cmux.next.mobile.unix-lane`
 - Browser: `com.cmuxterm.next.browser-host.provider.write`, `cmux browser-host provider reader`,
   `com.cmuxterm.chromium-host.read` (user-initiated),
+  `com.cmuxterm.chromium-host.control` (user-initiated; the control channel's reader in cmux and, same label, in the host;
+  waits only in `poll`: input, the socket taking a waiting outbox, a wake byte, the quota ceiling's one deadline),
   `com.cmuxterm.chromium-host.exit` (user-initiated serial queue for the host's exit source; a crash shows on the page),
   `com.cmuxterm.app.next.cef-children`, `com.cmuxterm.import-history-sync`,
   `com.cmuxterm.chromium-runtime.download` (the runtime download's URLSession delegate queue, utility, serial),

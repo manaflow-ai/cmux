@@ -5,9 +5,9 @@ import Testing
 
 /// The always-on cost of ``IdleEnergyMonitor/noteWake()`` per main run loop wake, in nanoseconds, over
 /// the app's real counters (`CLOCK_UPTIME_RAW`, ``ExpectedActivity``'s input count and
-/// ``ProcessRusage``) at a 120 Hz frame rate's worth of wakes. The budget is < 100 ns per wake over its
-/// uptime read (perf-hot path `idle-energy-wake`, p14-energy-008); the rusage read happens only when a
-/// window opens or closes. A measurement, not a gate: run it in a Release build on each macOS major
+/// ``ProcessUsage/interruptWakeups(of:)``) at a 120 Hz frame rate's worth of wakes. The budget is
+/// < 100 ns per wake over its uptime read (perf-hot path `idle-energy-wake`, p14-energy-008); the
+/// rusage read happens only when a window opens or closes. A measurement, not a gate: run it in a Release build on each macOS major
 /// and quote the line.
 ///
 /// ```
@@ -37,7 +37,7 @@ struct IdleEnergyMonitorBench {
         _ = Self.wakeNanos(monitor)  // warm: the first wake starts the wait for idle
         let perWake = Self.wakeNanos(monitor)
         let rusageStart = Self.now()
-        let rusage = ProcessRusage.sample(getpid())
+        let rusage = ProcessUsage.interruptWakeups(of: getpid())
         let rusageNanos = Self.now() - rusageStart
         print(String(format: "idle-energy-wake bench: macOS %@, %d wakes: %.1f ns/wake, clock read %.1f ns, %.1f ns/wake over the clock read; one rusage read %llu ns (sink %llu)",
                      ProcessInfo.processInfo.operatingSystemVersionString, Self.wakes, perWake, clockNanos,

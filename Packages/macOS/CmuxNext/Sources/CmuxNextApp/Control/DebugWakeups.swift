@@ -124,25 +124,27 @@ nonisolated enum AppProcesses {
 }
 
 extension EnergyReport {
-    /// `debug.energy` over AppServices' energy owners: the power inputs (`energyMonitor`), the policy
-    /// source and wake queue the main-work scheduler owns (p14-energy-024), ``EnergyServices``'s policy
-    /// driver and idle histogram (p14-energy-008), the app's ledger (where the main wake queue counts
-    /// its wakes) and the processes ``AppProcesses`` lists.
+    /// `debug.energy` over the energy services AppServices builds once (p14-energy-024): the monitor's
+    /// inputs, ``EnergyServices``' driver (its resolver state) and idle histogram (p14-energy-008), the
+    /// scheduler's policy and wake queue; the app's ledger (where the main wake queue counts its wakes);
+    /// and one sample of the processes ``AppProcesses`` lists.
     init(services: AppServices) {
-        self.init(state: { [weak services] in services.map { Self.state($0) } }, ledger: .shared, processes: {
-            AppProcesses.sample().compactMap { ProcessEnergy.sample(kind: $0.kind, pid: $0.usage.pid, name: $0.usage.name) }
+        self.init(state: { [weak services] in services.map(Self.state) }, ledger: .shared, processes: {
+            AppProcesses.sample().map { ProcessSample(kind: $0.kind, usage: $0.usage) }
         })
     }
 
     private static func state(_ services: AppServices) -> State {
         let inputs = services.energyMonitor.inputs
+        let driver = services.energy.driver
+        let wakeUps = services.mainWork.wakeUps
         return State(
             policy: services.mainWork.energy.policy,
-            inputs: Inputs(lowPowerMode: inputs.lowPowerMode, onBattery: inputs.onBattery, hasBattery: inputs.hasBattery,
-                           batteryPercent: inputs.batteryPercent, thermal: inputs.thermal,
+            inputs: Inputs(featureEnabled: driver.isEnabled, lowPowerMode: inputs.lowPowerMode, onBattery: inputs.onBattery,
+                           hasBattery: inputs.hasBattery, batteryPercent: inputs.batteryPercent, thermal: inputs.thermal,
                            setting: services.settings?.snapshot.energySaver ?? EnergySaverSetting.defaultValue,
-                           sessionOverride: services.energy.driver.isOffForSession),
-            wakeQueue: WakeQueue(entries: services.mainWork.wakeUps.count),
+                           sessionOverride: driver.isOffForSession),
+            wakeQueue: WakeQueue(entries: wakeUps.count, coalescedFires: wakeUps.coalescedFires),
             // No fork Energy Saver call yet (p14-energy-030) and no early-pass count yet (p14-energy-018).
             cef: CEF(saver: .unsupported, earlyPasses: nil),
             idle: services.energy.idle.stats

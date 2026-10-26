@@ -13,8 +13,8 @@ import Darwin
 /// it: every step happens at a main run loop wake that other work starts, so an idle app wakes no
 /// more often to measure itself.
 ///
-/// Main process only: the helpers' counters are in `debug.energy`'s `processes`, read through the
-/// same ``ProcessRusage``.
+/// Main process only: the helpers' counters are in `debug.energy`'s `processes`, the same
+/// ``ProcessUsage/interruptWakeups`` counter.
 ///
 /// The app is idle once ``idleAfterNanos`` pass with no input (and after launch): a window opens at
 /// the first wake after that and is recorded at the first wake ``windowNanos`` later. Input in a
@@ -146,12 +146,12 @@ public final class IdleEnergyMonitor {
             self.inputEvents = inputEvents
         }
 
-        /// This process's counters through ``ProcessRusage``, the reading `debug.energy`'s
+        /// This process's counters through ``ProcessUsage``, the counter `debug.energy`'s
         /// `processes` uses; `activity` is the one the app's input monitor notes into.
         public static func live(activity: ExpectedActivity) -> Sources {
             let pid = getpid()
             return Sources(uptimeNanos: { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) },
-                           interruptWakeups: { ProcessRusage.sample(pid)?.interruptWakeups },
+                           interruptWakeups: { ProcessUsage.interruptWakeups(of: pid) },
                            inputEvents: { activity.count(.input) })
         }
     }

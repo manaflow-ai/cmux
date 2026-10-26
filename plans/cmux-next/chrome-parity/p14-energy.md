@@ -766,12 +766,17 @@ repositories.
 - Size M. Depends: 005, 113.
 
 #### p14-energy-007 debug.energy
-- Files: `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugEnergy.swift`,
+- Files: `Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/EnergyReport.swift`
+  (the report; the app-size guardrail refuses new App files),
+  `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugWakeups.swift` (the `EnergyReport(services:)` adapter),
   `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl.swift`.
-- Change: returns `policy`, `inputs` (lowPowerMode, onBattery, hasBattery, batteryPercent, thermal, setting,
-  sessionOverride, suspended, screensAsleep, reason), `wake_queue` (entries, fires, coalesced fires, slices,
-  alignment), `ledger_top` (10 owners), `processes` (energy nJ, interrupt wakeups), `cef` (energy saver
-  applied|unsupported, pump earlyPasses). Process sampling off the main actor, as DebugWakeups.
+- Change: returns `policy` (isSaver, reason, wakeAlignmentMs, ambientMaxFPS, webFrameRate, pollStretch), `inputs`
+  (featureEnabled, lowPowerMode, onBattery, hasBattery, batteryPercent, thermal, setting, sessionOverride,
+  suspended, screensAsleep, reason), `wake_queue` (entries, fires, firesPerSecond, coalescedFires, alignmentMs;
+  the queue has no slices since the 013 fixer), `ledger_top` (10 owners), `processes` (energyNj, interruptWakeups,
+  packageIdleWakeups from the one ProcessUsage sample), `cef` (energySaver applied|unsupported, earlyPasses).
+  Top-level keys snake_case, fields camelCase (idle-budget.py reads `policy.isSaver`). Process sampling off the
+  main actor, as DebugWakeups.
 - Acceptance: registered next to debug.wakeups; top-level keys exactly policy, inputs, wake_queue, ledger_top,
   processes, cef; no main-actor await around sampling.
 - Test phase: `cmux-ci build cmux --ref SHA --tag energy-v1`; `CMUX_TAG=energy-v1 scripts/cmux-debug-cli.sh debug.energy`.
@@ -780,7 +785,8 @@ repositories.
 #### p14-energy-008 Idle wakeup histogram per launch
 - Files: `Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/IdleEnergyStats.swift`,
   `Packages/macOS/CmuxNext/Tests/CmuxNextWakeupsTests/IdleEnergyStatsTests.swift`,
-  `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugEnergy.swift`.
+  `Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/EnergyReport.swift`,
+  `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugWakeups.swift`.
 - Change: no timer of its own; at each natural main wake after 60 s with no input, record the app's interrupt
   wakeups/s (rusage delta) into buckets 0, 0.1, 0.25, 0.5, 1, 2, 5, 10, 50+; keep p50/p95/p99 per launch; expose in
   debug.energy. The PL-telemetry sink can read it later.
@@ -919,7 +925,8 @@ repositories.
 
 #### p14-energy-123 debug.energy.simulate
 - Files: `Packages/macOS/CmuxNext/Sources/CmuxNextEnergy/EnergyMonitor.swift`,
-  `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugEnergy.swift`, `scripts/cmux-next/energy-test-phase.py`.
+  `Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/EnergyReport.swift`,
+  `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugWakeups.swift`, `scripts/cmux-next/energy-test-phase.py`.
 - Change: `debug.energy.simulate {on_battery, percent, thermal, low_power, suspended}` compiled only in Debug and
   `CMUX_BENCH_HOOKS` builds; overrides EnergyMonitor inputs; clearing restores real inputs. energy-test-phase runs D7
   auto with on_battery and 15%.
@@ -1543,7 +1550,8 @@ repositories.
 #### p14-energy-124 Per-tab renderer attribution
 - Files: `fork:include/cef_cmux.h`, `Packages/macOS/CmuxNext/CEFShim/src/shim_browser.mm`,
   `.../CmuxNextBrowser/CEF/CEFShimABI.swift`, `.../CmuxNextWakeups/ProcessUsage.swift`,
-  `.../CmuxNextControl/Diagnostics/BusyWatchdog.swift`, `.../CmuxNextApp/Control/DebugEnergy.swift`.
+  `.../CmuxNextControl/Diagnostics/BusyWatchdog.swift`, `.../CmuxNextControl/Diagnostics/EnergyReport.swift`,
+  `.../CmuxNextApp/Control/DebugWakeups.swift`.
 - Change: fork API `cmux_cef_browser_renderer_pid(browser_id)` (RenderProcessHost handle) into 136; ProcessUsage groups
   renderer CPU, wakeups and energy per tab; debug.energy lists tabs; a BusyWatchdog record names the tabs of a busy
   renderer.

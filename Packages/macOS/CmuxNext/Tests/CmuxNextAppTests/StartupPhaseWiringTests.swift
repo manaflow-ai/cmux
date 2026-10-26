@@ -18,12 +18,12 @@ import Testing
     }
 
     /// The daemon's startup as `StartupReferences.watchUnavailable` reads it.
-    @MainActor @Observable private final class Daemon {
+    @MainActor @Observable final class Daemon {  // not private: the macro's conformance extension must reach it
         var isUnavailable = false
     }
 
     /// A front page whose load state is observable, as a `BrowserTab`'s is.
-    @MainActor @Observable private final class Page {
+    @MainActor @Observable final class Page {  // not private, as Daemon
         var state = BrowserTabState()
         private var machine = BrowserTabStateMachine()
         private var navigation: UInt64 = 0

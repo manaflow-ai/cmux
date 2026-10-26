@@ -10,6 +10,8 @@ use crate::daemon::{DaemonOptions, connect};
 use anyhow::Result;
 use clap::{CommandFactory, FromArgMatches};
 use std::ffi::OsString;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 pub struct Invocation {
     /// `acpmux`, or `cmux acp` inside cmux.
@@ -115,11 +117,14 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             allow_dev_origin,
             dev,
         }) => {
-            tracing_subscriber::fmt()
-                .with_env_filter(
+            // The log, and the same events as trace instants while a recording runs
+            // (`trace_layer.rs`); the filter is the log's for both.
+            tracing_subscriber::registry()
+                .with(
                     tracing_subscriber::EnvFilter::try_new(&log).unwrap_or_else(|_| "info".into()),
                 )
-                .with_target(false)
+                .with(tracing_subscriber::fmt::layer().with_target(false))
+                .with(crate::trace_layer::TraceLayer::new())
                 .init();
             crate::daemon::run(DaemonOptions {
                 ws_listen: listen,
