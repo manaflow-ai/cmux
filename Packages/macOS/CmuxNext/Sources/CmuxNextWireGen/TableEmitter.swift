@@ -7,9 +7,12 @@ import Foundation
 ///
 /// The output is one dense family array per id space (indexed by
 /// `family - range.lowerBound`), each family a dense array of ordinals, the
-/// same shape as the Rust tables of cmux-tui/crates/cmux-ipc/build.rs. Each
-/// family is its own declaration so the type checker never sees one huge
-/// literal. Two runs over the same schema write the same bytes.
+/// same shape as the Rust tables of cmux-tui/crates/cmux-ipc/build.rs, but
+/// holding only the commands and operations whose `clients` include `macos`.
+/// Each family is its own declaration so the type checker never sees one huge
+/// literal. It is one file, not one per family (p05-ipc.md, "Build time"): the
+/// tool rewrites every output on any schema edit, so split files would all
+/// recompile anyway. Two runs over the same schema write the same bytes.
 struct TableEmitter {
     /// The file name main writes `source()` to.
     static let outputFileName = "MethodTable+Schema.swift"

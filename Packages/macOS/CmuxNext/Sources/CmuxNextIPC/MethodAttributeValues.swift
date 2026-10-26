@@ -34,8 +34,8 @@ public enum MethodOrdering: Sendable, CaseIterable {
     }
 }
 
-/// The schema `durability`: what the reply waits for. Absent in the schema
-/// means `replyAfterJournal`, today's contract.
+/// The schema `durability`: what the reply waits for. Every framed command
+/// states it; there is no default.
 public enum MethodDurability: Sendable, CaseIterable {
     case readOnly
     case memory

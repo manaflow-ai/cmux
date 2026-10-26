@@ -1,5 +1,5 @@
 {
-  "$comment": "Method-table fixture (p05-ipc-023), resource-operations-v2 half. See sdk-schema.json in this directory.",
+  "$comment": "Method-table fixture (p05-ipc-023), resource-operations-v2 half. See sdk-schema.json in this directory. agent.attach_cli has no macos client, so only the Rust tables hold it.",
   "families": {
     "agent": { "id": 96, "description": "Agent operations." },
     "workspace": { "id": 98, "description": "Workspace operations." }
@@ -15,6 +15,12 @@
       "method_id": 24577,
       "priority": "control",
       "durability": "reply_before_journal"
+    },
+    "agent.attach_cli": {
+      "method_id": 24578,
+      "priority": "control",
+      "durability": "memory",
+      "clients": ["cli"]
     },
     "workspace.list": {
       "method_id": 25088,

@@ -107,6 +107,13 @@ struct MethodTableSchema: Equatable {
         let maxBytes: UInt32?
         let coalesce: Coalesce?
         let urgent: Bool
+        /// The schema's `clients`; nil (absent) is every client.
+        let clients: [String]?
+
+        /// Whether `client` calls this method.
+        func serves(_ client: String) -> Bool {
+            clients?.contains(client) ?? true
+        }
     }
 
     struct Event: Equatable {
@@ -128,24 +135,28 @@ struct MethodTableSchema: Equatable {
     static let sdkFile = "sdk-schema.json"
     static let v2File = "resource-operations-v2.json"
 
+    /// The `clients` value of the macOS app, the only client CmuxNextIPC serves.
+    static let macOSClient = "macos"
+
     let v12: [Family<Method>]
     let v2: [Family<Method>]
     let events: [Family<Event>]
 
-    /// Reads both schema files.
-    init(sdkSchema: Data, resourceOperations: Data) throws(MethodTableSchemaError) {
+    /// Reads both schema files, keeping the commands and operations `client`
+    /// calls (events have no `clients` and are all kept).
+    init(sdkSchema: Data, resourceOperations: Data, client: String = macOSClient) throws(MethodTableSchemaError) {
         let sdk = try Self.decode(sdkSchema, file: Self.sdkFile)
         let v2 = try Self.decode(resourceOperations, file: Self.v2File)
-        try self.init(sdk: sdk, v2: v2)
+        try self.init(sdk: sdk, v2: v2, client: client)
     }
 
-    init(sdk: SchemaJSON, v2: SchemaJSON) throws(MethodTableSchemaError) {
+    init(sdk: SchemaJSON, v2: SchemaJSON, client: String = macOSClient) throws(MethodTableSchemaError) {
         var sdkReader = MethodTableSchemaReader(file: Self.sdkFile, document: sdk)
         var v2Reader = MethodTableSchemaReader(file: Self.v2File, document: v2)
         try sdkReader.declareFamilies(spaces: [.v12, .events])
         try v2Reader.declareFamilies(spaces: [.v2])
-        self.v12 = try sdkReader.methods(key: "commands", space: .v12)
-        self.v2 = try v2Reader.methods(key: "operations", space: .v2)
+        self.v12 = try sdkReader.methods(key: "commands", space: .v12, client: client)
+        self.v2 = try v2Reader.methods(key: "operations", space: .v2, client: client)
         self.events = try sdkReader.events()
     }
 

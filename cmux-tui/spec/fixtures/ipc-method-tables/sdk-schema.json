@@ -1,5 +1,5 @@
 {
-  "$comment": "Method-table fixture (p05-ipc-023): only the keys the table emitters read. Rust (cmux-ipc methods_table tests) and Swift (CmuxNextWireGenTests TableEmitterTests) check their tables against it entry by entry. Ids leave gaps on purpose; a command or event without an id is not framed.",
+  "$comment": "Method-table fixture (p05-ipc-023): only the keys the table emitters read. Rust (cmux-ipc methods_table tests) and Swift (CmuxNextWireGenTests TableEmitterTests) check their tables against it entry by entry. Ids leave gaps on purpose; a command or event without an id is not framed. tab-inventory and attach-cli have no macos client: the Rust tables hold them, the Swift table leaves them out (attach-cli is the last ordinal of terminal-io, so the Swift family ends one ordinal earlier).",
   "families": {
     "terminal-io": { "id": 1, "description": "Terminal input and attached views." },
     "tabs": { "id": 3, "description": "Tabs." },
@@ -53,7 +53,22 @@
     },
     "close-tab": {
       "method_id": 771,
-      "priority": "control"
+      "priority": "control",
+      "durability": "reply_after_journal",
+      "clients": ["macos", "sdk"]
+    },
+    "tab-inventory": {
+      "method_id": 770,
+      "priority": "background",
+      "ordering": "independent",
+      "durability": "read_only",
+      "clients": ["sdk"]
+    },
+    "attach-cli": {
+      "method_id": 261,
+      "priority": "control",
+      "durability": "memory",
+      "clients": ["cli", "sdk"]
     },
     "unframed-legacy": {
       "authority": "control"

@@ -43,7 +43,7 @@ fn check_method(attrs: &MethodAttrs, name: &str, node: &Value) {
     assert_eq!(attrs.name, name);
     assert_eq!(attrs.priority.schema_name(), text("priority", ""), "{name}");
     assert_eq!(attrs.ordering.as_str(), text("ordering", "sequence"), "{name}");
-    assert_eq!(attrs.durability.as_str(), text("durability", "reply_after_journal"), "{name}");
+    assert_eq!(attrs.durability.as_str(), text("durability", ""), "{name}");
     let payload = match text("payload", "json").as_str() {
         "json" => Payload::Json,
         _ => Payload::Binary {
@@ -231,6 +231,13 @@ fn methods_table_fixture_lookups() {
         (history.id.raw(), history.priority, history.ordering),
         (0x6203, PriorityHint::Bulk, Ordering::Independent)
     );
+    // The Rust tables hold every framed method, whatever its clients: the
+    // daemon serves the CLI and the SDK too. The Swift table leaves these out.
+    let inventory = tables.v12(MethodId::new(0x0302)).unwrap();
+    assert_eq!((inventory.name, inventory.durability), ("tab-inventory", Durability::ReadOnly));
+    assert_eq!(tables.v12_id("attach-cli"), Some(MethodId::new(0x0105)));
+    assert_eq!(tables.v2_id("agent.attach_cli"), Some(MethodId::new(0x6002)));
+
     // Names are per id space: a v2 name is no v12 command.
     assert_eq!(tables.v12_id("agent.list"), None);
     assert_eq!(tables.v2_id("send"), None);
@@ -258,8 +265,8 @@ fn methods_table_refuses_a_duplicate_id() {
     let doc = sdk(
         json!({ "tabs": { "id": 3, "description": "" } }),
         json!({
-            "a": { "method_id": 0x0300, "priority": "control" },
-            "b": { "method_id": 0x0300, "priority": "control" }
+            "a": { "method_id": 0x0300, "priority": "control", "durability": "memory" },
+            "b": { "method_id": 0x0300, "priority": "control", "durability": "memory" }
         }),
         json!({}),
     );
@@ -270,14 +277,17 @@ fn methods_table_refuses_a_duplicate_id() {
 
 #[test]
 fn methods_table_refuses_an_undeclared_or_foreign_family() {
-    let undeclared =
-        sdk(json!({}), json!({ "a": { "method_id": 0x0300, "priority": "control" } }), json!({}));
+    let undeclared = sdk(
+        json!({}),
+        json!({ "a": { "method_id": 0x0300, "priority": "control", "durability": "memory" } }),
+        json!({}),
+    );
     assert!(refused(&undeclared, &v2_empty()).contains("not declared"));
 
     // An event id in the command space.
     let foreign = sdk(
         json!({ "ev": { "id": 0xC0, "description": "" } }),
-        json!({ "a": { "method_id": 0xC000, "priority": "control" } }),
+        json!({ "a": { "method_id": 0xC000, "priority": "control", "durability": "memory" } }),
         json!({}),
     );
     assert!(refused(&foreign, &v2_empty()).contains("outside families 0x01-0x5F"));
@@ -312,11 +322,28 @@ fn methods_table_refuses_attributes_it_cannot_encode() {
             json!({ "method_id": 0x0300, "priority": "input", "crosses_stream_ok": " " }),
             "non-empty reason",
         ),
-        (json!({ "method_id": 0x0300, "priority": "input", "stream_scoped": "yes" }), "boolean"),
+        (
+            json!({ "method_id": 0x0300, "priority": "input", "durability": "memory", "stream_scoped": "yes" }),
+            "boolean",
+        ),
         (json!({ "method_id": 65536, "priority": "input" }), "must be a u16"),
         (
-            json!({ "method_id": 0x0300, "priority": "input", "coalesce": { "key": [1] } }),
+            json!({ "method_id": 0x0300, "priority": "input", "durability": "memory", "coalesce": { "key": [1] } }),
             "field names",
+        ),
+        // Durability has no default: a framed command states it.
+        (json!({ "method_id": 0x0300, "priority": "control" }), "needs durability"),
+        (
+            json!({ "method_id": 0x0300, "priority": "control", "durability": "journal" }),
+            "must be one of read_only",
+        ),
+        (
+            json!({ "method_id": 0x0300, "priority": "control", "durability": "memory", "clients": [] }),
+            "$.commands.a.clients",
+        ),
+        (
+            json!({ "method_id": 0x0300, "priority": "control", "durability": "memory", "clients": "macos" }),
+            "non-empty array of client names",
         ),
     ];
     for (command, expected) in cases {
@@ -330,7 +357,7 @@ fn methods_table_refuses_attributes_it_cannot_encode() {
 fn methods_table_refuses_v2_ids_outside_the_v2_families() {
     let v2 = json!({
         "families": { "agent": { "id": 0x60, "description": "" } },
-        "operations": { "agent.list": { "method_id": 0x0100, "priority": "control" } }
+        "operations": { "agent.list": { "method_id": 0x0100, "priority": "control", "durability": "memory" } }
     });
     let message = refused(&sdk(json!({}), json!({}), json!({})), &v2);
     assert!(

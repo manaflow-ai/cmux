@@ -36,7 +36,12 @@ struct MethodTableSchemaReader {
         }
     }
 
-    func methods(key: String, space: Schema.Space) throws(MethodTableSchemaError) -> [Schema.Family<Schema.Method>] {
+    /// The framed methods under `key` that `client` calls (design 3.3: Swift
+    /// generates only methods whose `clients` include its client). Every method
+    /// is read and placed first, so this refuses what the Rust reader refuses;
+    /// the others then leave their ordinals free, and a family keeps no trailing
+    /// free ordinal and no family stays empty.
+    func methods(key: String, space: Schema.Space, client: String) throws(MethodTableSchemaError) -> [Schema.Family<Schema.Method>] {
         var grouped: [UInt8: [Schema.Method?]] = [:]
         let entries = try members(key)
         for name in entries.keys.sorted() {
@@ -46,7 +51,12 @@ struct MethodTableSchemaReader {
             let row = try method(path: path, name: name, id: id, node: node)
             try place(&grouped, path: "\(path).method_id", id: id, space: space, item: row, name: \.name)
         }
-        return finish(grouped)
+        return finish(grouped.mapValues { (slots: [Schema.Method?]) -> [Schema.Method?] in
+            slots.map { slot in
+                guard let slot, slot.serves(client) else { return nil }
+                return slot
+            }
+        })
     }
 
     func events() throws(MethodTableSchemaError) -> [Schema.Family<Schema.Event>] {
@@ -100,9 +110,13 @@ struct MethodTableSchemaReader {
         grouped[family] = slots
     }
 
+    /// Dense families in id order: trailing free ordinals dropped, empty
+    /// families left out.
     private func finish<Row: Equatable>(_ grouped: [UInt8: [Row?]]) -> [Schema.Family<Row>] {
-        grouped.keys.sorted().map { id in
-            Schema.Family(id: id, name: declared[id] ?? "", slots: grouped[id] ?? [])
+        grouped.keys.sorted().compactMap { id in
+            var slots = grouped[id] ?? []
+            while let last = slots.last, last == nil { slots.removeLast() }
+            return slots.isEmpty ? nil : Schema.Family(id: id, name: declared[id] ?? "", slots: slots)
         }
     }
 
@@ -145,19 +159,35 @@ struct MethodTableSchemaReader {
             ordering: try variant(path: path, node: node, key: "ordering",
                                   choices: [("sequence", "sequence"), ("independent", "independent")],
                                   default: "sequence"),
-            // Absent durability is today's contract: the reply waits for the journal.
+            // Durability has no default (spec/transports.md): a framed command
+            // states it, as it states its priority.
             durability: try variant(path: path, node: node, key: "durability",
                                     choices: [("read_only", "readOnly"), ("memory", "memory"),
                                               ("reply_before_journal", "replyBeforeJournal"),
                                               ("reply_after_journal", "replyAfterJournal")],
-                                    default: "replyAfterJournal"),
+                                    default: nil),
             binaryLayout: layout,
             streamScoped: try flag(path: path, node: node, key: "stream_scoped"),
             crossesStreamOK: crossesStreamOK,
             maxBytes: maxBytes,
             coalesce: try coalesce(path: path, node: node),
-            urgent: try flag(path: path, node: node, key: "urgent")
+            urgent: try flag(path: path, node: node, key: "urgent"),
+            clients: try clients(path: path, node: node)
         )
+    }
+
+    /// `clients`, when present, is a non-empty array of client names; absent
+    /// means every client (spec/transports.md).
+    private func clients(path: String, node: SchemaJSON) throws(MethodTableSchemaError) -> [String]? {
+        guard let value = node["clients"] else { return nil }
+        let refusal = error("\(path).clients", "must be a non-empty array of client names")
+        guard case .array(let items) = value, !items.isEmpty else { throw refusal }
+        var out: [String] = []
+        for item in items {
+            guard let name = item.string else { throw refusal }
+            out.append(name)
+        }
+        return out
     }
 
     private func priority(path: String, node: SchemaJSON) throws(MethodTableSchemaError) -> String {

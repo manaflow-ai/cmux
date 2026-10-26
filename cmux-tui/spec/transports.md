@@ -394,7 +394,7 @@ in a binary layout.
 `id` is one byte: commands use `0x01`-`0x5F`, events `0xC0`-`0xFE`, and
 `0x60`-`0xBF` is reserved for `resource-operations-v2.json`. Families are
 append-only: an id is never reused or renumbered. When `families` is present,
-every command needs `method_id` and `priority`, and every event needs
+every command needs `method_id`, `priority` and `durability`, and every event needs
 `event_id` and `priority`.
 
 Command attributes:
@@ -405,7 +405,7 @@ Command attributes:
 | `priority` | `input`, `control`, `bulk` or `background`. The daemon uses its own table; a frame header hint that differs is `bad_message`. |
 | `priority_changed_reason` | Why `priority` changed. Not enforced yet: `api-compat-check` will require it when `priority` changes (p05-ipc-012). |
 | `ordering` | `sequence` (default) or `independent`. Only a `read_only` command that is not `stream_scoped` may be `independent`. |
-| `durability` | `read_only`, `memory`, `reply_before_journal` or `reply_after_journal`. A `spawns_terminal` command is never `read_only`. |
+| `durability` | `read_only`, `memory`, `reply_before_journal` or `reply_after_journal`. Required, no default. A `spawns_terminal` command is never `read_only`. |
 | `payload` | `json` (default) or `binary`. A binary payload needs `layout_version`. |
 | `layout_version` | 1-255, the first byte of a binary layout; bumped on every layout change. |
 | `stream_scoped` | The command runs on the stream that names its surface, in that stream's FIFO. |
@@ -414,7 +414,7 @@ Command attributes:
 | `spawns_terminal` | The command starts a terminal host (the reply carries `starting:true` under F10). |
 | `coalesce` | `{key, additive}`: a queued unsent item with equal `key` fields is replaced; numeric `additive` fields are summed. |
 | `urgent` | Run first on the receiving sequence (Mojo `[SupportsUrgent]`). It never reorders the channel. Only `input` or `control`. |
-| `clients` | Non-empty subset of `macos`, `ios`, `cli`, `sdk`. No generator reads it yet: the client generators will emit a method only for its clients (p05-ipc-020 for Swift, p05-ipc-048 for iOS). |
+| `clients` | Non-empty subset of `macos`, `ios`, `cli`, `sdk`; absent means every client. The Rust method tables hold every framed method; the Swift method table (p05-ipc-023) holds only methods whose `clients` include `macos`, and the client generators will do the same (p05-ipc-020 for Swift, p05-ipc-048 for iOS). |
 
 Event attributes: `event_id` (u16 in a declared event family), `priority`,
 `priority_changed_reason` and `coalesce` (fields of the payload).

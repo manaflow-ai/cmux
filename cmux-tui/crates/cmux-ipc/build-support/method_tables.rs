@@ -105,8 +105,8 @@ pub struct Tables {
     pub events: Vec<Family<Event>>,
 }
 
-const SDK: &str = "sdk-schema.json";
-const V2: &str = "resource-operations-v2.json";
+pub const SDK: &str = "sdk-schema.json";
+pub const V2: &str = "resource-operations-v2.json";
 
 /// Builds the tables from the two schema documents.
 pub fn read(sdk: &Value, v2: &Value) -> Result<Tables, TableError> {
@@ -412,6 +412,10 @@ fn method(
                 })?,
         ),
     };
+    // The Rust tables hold every framed method; only the Swift table keeps
+    // just its client's. A malformed list is refused here too, so both
+    // readers refuse the same schemas.
+    check_clients(file, path, node)?;
     Ok(Method {
         id,
         name: name.to_owned(),
@@ -425,7 +429,8 @@ fn method(
             &[("sequence", "Sequence"), ("independent", "Independent")],
             Some("Sequence"),
         )?,
-        // Absent durability is today's contract: the reply waits for the journal.
+        // Durability has no default (spec/transports.md): a framed command
+        // states it, as it states its priority.
         durability: variant(
             file,
             path,
@@ -437,7 +442,7 @@ fn method(
                 ("reply_before_journal", "ReplyBeforeJournal"),
                 ("reply_after_journal", "ReplyAfterJournal"),
             ],
-            Some("ReplyAfterJournal"),
+            None,
         )?,
         binary_layout,
         stream_scoped: flag(file, path, node, "stream_scoped")?,
@@ -458,6 +463,21 @@ fn names(file: &'static str, path: &str, value: Option<&Value>) -> Result<Vec<St
             items.iter().map(|item| item.as_str().map(str::to_owned)).collect::<Option<Vec<_>>>()
         })
         .ok_or_else(|| error(file, path, "must be an array of field names"))
+}
+
+/// `clients`, when present, is a non-empty array of client names.
+fn check_clients(file: &'static str, path: &str, node: &Value) -> Result<(), TableError> {
+    let Some(value) = node.get("clients") else {
+        return Ok(());
+    };
+    let named = value
+        .as_array()
+        .is_some_and(|items| !items.is_empty() && items.iter().all(Value::is_string));
+    if named {
+        Ok(())
+    } else {
+        Err(error(file, format!("{path}.clients"), "must be a non-empty array of client names"))
+    }
 }
 
 fn coalesce(file: &'static str, path: &str, node: &Value) -> Result<Option<Coalesce>, TableError> {

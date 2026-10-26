@@ -96,8 +96,8 @@ impl Ordering {
     }
 }
 
-/// The schema `durability`: what the reply waits for. Absent in the schema
-/// means `ReplyAfterJournal`, today's contract.
+/// The schema `durability`: what the reply waits for. Every framed command
+/// states it; there is no default.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Durability {
     ReadOnly,

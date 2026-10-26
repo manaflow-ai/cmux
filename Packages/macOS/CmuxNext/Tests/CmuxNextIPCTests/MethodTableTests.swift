@@ -1,8 +1,10 @@
+import Atomics
+import Darwin
 import Foundation
 import Testing
 @testable import CmuxNextIPC
 
-// One fixture row; the defaults are the schema defaults.
+// One row of the hand-built table below; the defaults keep its rows short.
 private func attrs(
     _ raw: UInt16,
     _ name: String,
@@ -138,7 +140,8 @@ private func dense<Entry: Hashable & Sendable>(
         #expect(attrs.name == name)
         #expect(attrs.priority.schemaName == node["priority"] as? String, "\(name)")
         #expect(attrs.ordering.schemaName == (node["ordering"] as? String ?? "sequence"), "\(name)")
-        #expect(attrs.durability.schemaName == (node["durability"] as? String ?? "reply_after_journal"), "\(name)")
+        // Durability has no default: the table refuses a framed command without one.
+        #expect(attrs.durability.schemaName == node["durability"] as? String, "\(name)")
         let payload: MethodPayload = (node["payload"] as? String) == "binary"
             ? .binary(layoutVersion: UInt8(node["layout_version"] as? Int ?? 0)) : .json
         #expect(attrs.payload == payload, "\(name)")
@@ -164,6 +167,12 @@ private func dense<Entry: Hashable & Sendable>(
                 continue
             }
             let id = MethodID(rawValue: try #require(UInt16(exactly: raw)))
+            // The app's table holds only what the app calls (absent `clients` is every client).
+            if let clients = node["clients"] as? [String], !clients.contains("macos") {
+                #expect(lookup(id) == nil, "\(name) has no macos client")
+                #expect(nameLookup(name) == nil, "\(name) has no macos client")
+                continue
+            }
             let attrs = try #require(lookup(id), "\(name): \(id) missing")
             #expect(attrs.id == id)
             #expect(table.method(id) == attrs)
@@ -216,5 +225,86 @@ private func dense<Entry: Hashable & Sendable>(
                 #expect(entry.id.family == family.id && Int(entry.id.ordinal) == ordinal)
             }
         }
+        for family in table.eventFamilies.compactMap({ $0 }) {
+            #expect(family.entries.last.flatMap { $0 } != nil, "family \(family.name)")
+            for (ordinal, entry) in family.entries.enumerated() {
+                guard let entry else { continue }
+                #expect(entry.id.family == family.id && Int(entry.id.ordinal) == ordinal)
+            }
+        }
+    }
+
+    // Lookups do not allocate -------------------------------------------------
+
+    /// Every id of the u16 space through each id lookup, and hit and miss names
+    /// through each name lookup, on the generated table and the hand-built one.
+    /// Each count is compared with the same loop around a constant, because the
+    /// Debug build's loop can allocate by itself (FeatureListTests does the same).
+    @Test func lookupsAllocateNothing() throws {
+        let tables = [MethodTable.schema, Self.fixture]
+        // Names are made before counting; a native String key hashes in place.
+        let names = ["send", "close-tab", "workspace.list", "output", "", "no-such-method"]
+            + (tables.first?.v12Families.compactMap { $0?.entries.last??.name } ?? [])
+        var hits = 0
+        func allocations(_ lookup: (MethodTable, UInt16, String) -> Bool) -> Int? {
+            MallocProbe.allocations {
+                for table in tables {
+                    for raw in UInt16.min...UInt16.max where lookup(table, raw, "") { hits += 1 }
+                    for name in names where lookup(table, 0, name) { hits += 1 }
+                }
+            }
+        }
+
+        let control = MallocProbe.allocations { hits += ContiguousArray(repeating: 1, count: 64).count }
+        try #require((control ?? 0) > 0, "malloc_logger saw no allocation on this thread: the probe cannot measure here")
+        let baseline = try #require(allocations { _, _, _ in true })
+
+        let ids = allocations { table, raw, _ in
+            table.method(MethodID(rawValue: raw)) != nil || table.event(EventID(rawValue: raw)) != nil
+        }
+        let spaces = allocations { table, raw, _ in
+            table.v12(MethodID(rawValue: raw)) != nil || table.v2(MethodID(rawValue: raw)) != nil
+        }
+        let byName = allocations { table, _, name in
+            table.v12ID(named: name) != nil || table.v2ID(named: name) != nil || table.eventID(named: name) != nil
+        }
+        #expect(ids == baseline, "the loop alone made \(baseline)")
+        #expect(spaces == baseline, "the loop alone made \(baseline)")
+        #expect(byName == baseline, "the loop alone made \(baseline)")
+        #expect(hits > 0)
+    }
+}
+
+/// Counts the allocations one thread makes, through libmalloc's
+/// `malloc_logger` hook (the one malloc stack logging uses), so suites running
+/// in parallel on other threads are not counted. Nonisolated: the C hook reads its statics
+/// on whatever thread allocates, and this target defaults to the main actor.
+nonisolated private struct MallocProbe {
+    typealias Logger = @convention(c) (UInt32, UInt, UInt, UInt, UInt, UInt32) -> Void
+
+    /// `MALLOC_LOG_TYPE_ALLOCATE` (libmalloc stack_logging.h).
+    static let allocateType: UInt32 = 2
+    static let count = ManagedAtomic<Int>(0)
+    static let thread = ManagedAtomic<UInt64>(0)
+
+    /// The allocations `body` makes on this thread, or nil when the hook is missing.
+    static func allocations(_ body: () -> Void) -> Int? {
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "malloc_logger") else { return nil }
+        let slot = symbol.assumingMemoryBound(to: Logger?.self)
+        var id: UInt64 = 0
+        pthread_threadid_np(nil, &id)
+        count.store(0, ordering: .relaxed)
+        thread.store(id, ordering: .relaxed)
+        let previous = slot.pointee
+        slot.pointee = { type, _, _, _, _, _ in
+            guard type & MallocProbe.allocateType != 0 else { return }
+            var id: UInt64 = 0
+            pthread_threadid_np(nil, &id)
+            if id == MallocProbe.thread.load(ordering: .relaxed) { MallocProbe.count.wrappingIncrement(ordering: .relaxed) }
+        }
+        body()
+        slot.pointee = previous
+        thread.store(0, ordering: .relaxed)
+        return count.load(ordering: .relaxed)
     }
 }

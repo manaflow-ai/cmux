@@ -51,6 +51,35 @@ private func json(_ text: String) throws -> SchemaJSON {
         #expect(schema.events[1].slots.map { $0?.name } == ["tab-created", nil, "tab-renamed"])
     }
 
+    /// The app's table holds only `clients: macos` methods (design 3.3); the
+    /// Rust tables keep every one (cmux-ipc `methods_table_fixture_lookups`).
+    @Test func keepsOnlyTheMacOSClientsMethods() throws {
+        let schema = try Self.fixture()
+        let names = (schema.v12 + schema.v2).flatMap { $0.slots.compactMap { $0?.name } }
+        #expect(!names.contains("tab-inventory") && !names.contains("attach-cli") && !names.contains("agent.attach_cli"))
+        // attach-cli held terminal-io's last ordinal and agent.attach_cli agent's: the families end before them.
+        #expect(schema.v12.first?.slots.count == 5)
+        #expect(schema.v2.first?.slots.map { $0?.name } == ["agent.list", "agent.update"])
+        // tab-inventory's ordinal stays free.
+        #expect(schema.v12[1].slots[2] == nil)
+        // A method with no `clients` is every client's, so it is kept.
+        #expect(names.contains("new-tab") && names.contains("workspace.list"))
+
+        let sdk = try MethodTableSchema(sdkSchema: fixtureData("sdk-schema.json"),
+                                        resourceOperations: fixtureData("resource-operations-v2.json"),
+                                        client: "sdk")
+        #expect(sdk.v12[1].slots[2]?.name == "tab-inventory")
+        #expect(sdk.v12[0].slots.count == 6)
+
+        // A family whose methods are all another client's is left out.
+        let cliOnly = try MethodTableSchema(sdk: json(Self.sdk(
+            families: #"{"cli": {"id": 4}, "tabs": {"id": 3}}"#,
+            commands: #"{"a": {"method_id": 1024, "priority": "control", "durability": "memory", "clients": ["cli"]}, "#
+                + #""b": {"method_id": 768, "priority": "control", "durability": "memory", "clients": ["macos"]}}"#)),
+            v2: json(#"{"operations": {}}"#))
+        #expect(cliOnly.v12.map(\.id) == [0x03])
+    }
+
     @Test func emitsDenseSpacesAndRows() throws {
         let source = TableEmitter(schema: try Self.fixture()).source()
         #expect(source.contains("public static let schema = MethodTable(v12: schemaV12, v2: schemaV2, events: schemaEvents)"))
@@ -101,18 +130,18 @@ private func json(_ text: String) throws -> SchemaJSON {
     @Test func refusesADuplicateID() throws {
         let message = try Self.refused(sdk: Self.sdk(
             families: #"{"tabs": {"id": 3}}"#,
-            commands: #"{"a": {"method_id": 768, "priority": "control"}, "b": {"method_id": 768, "priority": "control"}}"#))
+            commands: #"{"a": {"method_id": 768, "priority": "control", "durability": "memory"}, "b": {"method_id": 768, "priority": "control", "durability": "memory"}}"#))
         #expect(message.contains("$.commands.b.method_id"), "\(message)")
         #expect(message.contains("also held by \"a\""), "\(message)")
     }
 
     @Test func refusesAnUndeclaredOrForeignFamily() throws {
         let undeclared = try Self.refused(sdk: Self.sdk(
-            families: "{}", commands: #"{"a": {"method_id": 768, "priority": "control"}}"#))
+            families: "{}", commands: #"{"a": {"method_id": 768, "priority": "control", "durability": "memory"}}"#))
         #expect(undeclared.contains("not declared"), "\(undeclared)")
 
         let foreign = try Self.refused(sdk: Self.sdk(
-            families: #"{"ev": {"id": 192}}"#, commands: #"{"a": {"method_id": 49152, "priority": "control"}}"#))
+            families: #"{"ev": {"id": 192}}"#, commands: #"{"a": {"method_id": 49152, "priority": "control", "durability": "memory"}}"#))
         #expect(foreign.contains("outside families 0x01-0x5F"), "\(foreign)")
 
         let v2InSDK = try Self.refused(sdk: Self.sdk(families: #"{"agent": {"id": 96}}"#, commands: "{}"))
@@ -123,7 +152,7 @@ private func json(_ text: String) throws -> SchemaJSON {
 
         let v2 = try Self.refused(
             sdk: Self.sdk(families: "{}", commands: "{}"),
-            v2: #"{"families": {"agent": {"id": 96}}, "operations": {"agent.list": {"method_id": 256, "priority": "control"}}}"#)
+            v2: #"{"families": {"agent": {"id": 96}}, "operations": {"agent.list": {"method_id": 256, "priority": "control", "durability": "memory"}}}"#)
         #expect(v2.hasPrefix("resource-operations-v2.json: $.operations.agent.list.method_id"), "\(v2)")
     }
 
@@ -135,10 +164,15 @@ private func json(_ text: String) throws -> SchemaJSON {
             (#"{"method_id": 768, "priority": "input", "layout_version": 1}"#, "needs payload"),
             (#"{"method_id": 768, "priority": "input", "max_bytes": 33554433}"#, "max_bytes"),
             (#"{"method_id": 768, "priority": "input", "crosses_stream_ok": " "}"#, "non-empty reason"),
-            (#"{"method_id": 768, "priority": "input", "stream_scoped": "yes"}"#, "boolean"),
-            (#"{"method_id": 768, "priority": "input", "urgent": 1}"#, "boolean"),
+            (#"{"method_id": 768, "priority": "input", "durability": "memory", "stream_scoped": "yes"}"#, "boolean"),
+            (#"{"method_id": 768, "priority": "input", "durability": "memory", "urgent": 1}"#, "boolean"),
             (#"{"method_id": 65536, "priority": "input"}"#, "must be a u16"),
-            (#"{"method_id": 768, "priority": "input", "coalesce": {"key": [1]}}"#, "field names"),
+            (#"{"method_id": 768, "priority": "input", "durability": "memory", "coalesce": {"key": [1]}}"#, "field names"),
+            // Durability has no default: a framed command states it.
+            (#"{"method_id": 768, "priority": "control"}"#, "needs durability"),
+            (#"{"method_id": 768, "priority": "control", "durability": "journal"}"#, "must be one of read_only"),
+            (#"{"method_id": 768, "priority": "control", "durability": "memory", "clients": []}"#, "$.commands.a.clients"),
+            (#"{"method_id": 768, "priority": "control", "durability": "memory", "clients": "macos"}"#, "client names"),
         ]
         for (command, expected) in cases {
             let message = try Self.refused(sdk: Self.sdk(families: #"{"tabs": {"id": 3}}"#, commands: #"{"a": \#(command)}"#))
