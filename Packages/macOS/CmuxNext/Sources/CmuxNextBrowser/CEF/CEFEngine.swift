@@ -418,7 +418,7 @@ public final class CEFEngine: BrowserEngine {
         let runtime = CEFRuntime.shared
         runtime.adopt(stores: stores, signInCallbacks: signInCallbacks, waitDeadlines: waitDeadlines,
                       hostSupervisor: runtimeSource.hostSupervisor, hostWidgets: runtimeSource.showsHostWidgets,
-                      hostDragOut: runtimeSource.dragsOutOfHostPages)
+                      hostDrags: runtimeSource.takesHostDrags, hostDragOut: runtimeSource.dragsOutOfHostPages)
         if let pagesProfileID { runtime.spareWindow.pagesProfile = pagesProfileID }
     }
 

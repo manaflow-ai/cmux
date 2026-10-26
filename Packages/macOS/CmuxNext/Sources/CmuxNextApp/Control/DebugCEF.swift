@@ -84,6 +84,8 @@ enum DebugCEF {
                     // connected) in its page view; null in process.
                     "page_cursor": ChromiumHostPageView.first(in: tab.contentView)?.pageCursorName.map(JSONValue.string) ?? .null,
                     "page_accessibility": ChromiumHostPageView.first(in: tab.contentView)?.remoteAccessibilityPhaseName.map(JSONValue.string) ?? .null,
+                    // Host mode: drags the page view sent as DragTarget calls and its page drag sessions (null in process).
+                    "page_drag": ChromiumHostPageView.first(in: tab.contentView).map { pageDrag($0.dragCounts) } ?? .null,
                 ]
                 if let panel = tab.sidePanelDiagnostic {
                     object["side_panel"] = .object(["title": .string(panel.title), "pinned": .bool(panel.pinned),
@@ -106,6 +108,13 @@ enum DebugCEF {
             }
         }
         return out
+    }
+
+    private static func pageDrag(_ counts: ChromiumHostDragCounts) -> JSONValue {
+        .object(["takes_drags": .bool(counts.takesDrags), "enters": .number(Double(counts.enters)),
+                 "drops": .number(Double(counts.drops)), "answers": .number(Double(counts.answers)),
+                 "sessions": .number(Double(counts.sessions)),
+                 "last_session_operation": counts.lastSessionOperation.map { .number(Double($0)) } ?? .null])
     }
 
     /// Runs `control` on the first shown Chromium tab with a side panel.

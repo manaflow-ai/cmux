@@ -194,6 +194,14 @@ typedef enum {
   // s1 = the image as PNG, base64; request = image pixels per DIP x 1000;
   // b = the hotspot in image pixels, x in the low 32 bits, y in the high 32.
   CMUX_SHIM_CURSOR = 54,
+  // The page answered a drag over it (cmux_shim_browser_drag_target_enter
+  // and _over; fork API 31's cmux_browser_drag_target_watch, task
+  // p01-process-172): a = the operation the page takes
+  // (cef_drag_operations_mask_t, 0 none); b = 1 when the document handles
+  // the drag itself. It may come turns after the enter or over it answers;
+  // the drag's destination returns the last one (Chrome's WebDragDest
+  // -setCurrentOperation:).
+  CMUX_SHIM_DRAG_OPERATION = 55,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -418,10 +426,20 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_drag_source_ended(int browser_id, double 
 // page's data; continue with the DragTarget* calls.
 CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_enter_source(int browser_id, int x, int y,
                                                                 int allowed_operations, int modifiers);
-// The rest of a drop target drag over the page (CefBrowserHost::DragTargetDragOver,
-// DragTargetDragLeave, DragTargetDrop): (x, y) in the page view's DIP from its top left,
-// allowed_operations the NSDragOperation bits the drag's source allows, modifiers
-// cef_event_flags_t. 0 for an unknown browser. UI thread.
+// A drag from outside the page is over it (Chrome's WebDragDest: enter, over,
+// leave, drop; content/app_shim_remote_cocoa/web_drag_dest_mac.mm). x and y
+// are page-view points from the top left; allowed_operations is the drag
+// source's cef_drag_operations_mask_t; modifiers are cef_event_flags_t. The
+// enter carries the drag's data: files (absolute paths), text, url and
+// url_title, each NULL or empty when the drag has none. Each enter and over
+// is answered by CMUX_SHIM_DRAG_OPERATION when the fork watches drags
+// (API 31). A drop grants the page the dropped files, as a native drop does.
+// The page's own drag back over it (drag_target_enter_source above) goes on
+// with the same over, leave and drop, and its enter is answered the same way.
+// Each returns 0 when the browser is gone.
+CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_enter(int browser_id, const char* const* files, int file_count,
+                                                         const char* text, const char* url, const char* url_title,
+                                                         int x, int y, int allowed_operations, int modifiers);
 CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_over(int browser_id, int x, int y, int allowed_operations,
                                                         int modifiers);
 CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_leave(int browser_id);

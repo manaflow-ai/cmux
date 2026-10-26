@@ -104,6 +104,9 @@ public final class ChromiumHostPageView: NSView {
     }
     /// The drag the page started that this view's session carries (ChromiumHostPageView+Drag.swift).
     var pageDrag: ChromiumHostPageDrag?
+    /// The sessions this view started for its page's drags, and the operation the last one ended with (`page_drag`).
+    var pageDragSessions = 0
+    var lastPageDragOperation: NSDragOperation?
     /// The shown page's accessibility (host mode; ChromiumHostPageView+Accessibility.swift).
     var remoteAccessibility = ChromiumHostRemoteAccessibility()
     /// Sends a page's accessibility request to the host and calls back with the page's token, nil
@@ -114,6 +117,8 @@ public final class ChromiumHostPageView: NSView {
     var accessibilityBridge = ChromiumHostAccessibilityBridge.system
     /// Drops the remote element when its window closes: the element holds the window.
     var accessibilityWindowClose: EventSubscription?
+    /// Drags from outside into the page (ChromiumHostPageView+Drag.swift); none until ``takeDrags(through:)``.
+    let dragDestination = ChromiumHostDragDestination()
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Where frames for the host go (``InputTarget/view`` only), synchronously
@@ -440,32 +445,6 @@ extension ChromiumHostPageView {
     /// An event time (seconds since boot) as CLOCK_UPTIME_RAW nanoseconds, the host's clock too.
     static func nanoseconds(_ seconds: TimeInterval) -> UInt64 {
         seconds > 0 ? UInt64(seconds * 1e9) : 0
-    }
-}
-#endif
-
-/// The page view's place on screen, as the host's window takes it.
-nonisolated struct ChromiumHostGeometry: Equatable, Sendable {
-    var width: Int32
-    var height: Int32
-    /// Bottom left of the view in screen points.
-    var screenX: Int32
-    var screenY: Int32
-    var scaleMilli: Int32
-
-    init(screenRect: CGRect, scale: CGFloat) {
-        width = Int32(screenRect.width.rounded())
-        height = Int32(screenRect.height.rounded())
-        screenX = Int32(screenRect.minX.rounded())
-        screenY = Int32(screenRect.minY.rounded())
-        scaleMilli = Int32((scale * 1_000).rounded())
-    }
-}
-
-#if DEBUG || CMUX_BENCH_HOOKS
-extension ChromiumHostGeometry {
-    var frame: ChromiumHostFrame {
-        ChromiumHostFrame(.geometry, v: [width, height, screenX, screenY, scaleMilli])
     }
 }
 #endif

@@ -42,8 +42,8 @@ Per mode:
            Key callbacks Chromium makes from cmux's own event dispatch are not in it (they run outside a pass).
   input    helper: typing and the caret, one blur and one focus when cmux's focus moves out and back, copy and
            paste through cmux's Edit menu, and Chromium's native UI from the host (context menu, <select>, alert,
-           file picker; each in a fresh host) with the frontmost pid and the host's activation counters; IME and
-           drag are listed as not forwarded, find as run by --find.
+           file picker; each in a fresh host) with the frontmost pid and the host's activation counters; IME is
+           listed as not forwarded, find as run by --find and drag by --modes dragin and dragout.
   ime      helper, with --ime: the host's TEXT_INPUT_STATE pushes per keystroke into the focused field against the
            fork's text input changes (ime_row; pass: <= 1 push per key).
   identity helper: the host is a second executable of cmux.app (cmux's bundle id): its LaunchServices type
@@ -77,6 +77,19 @@ Per mode:
            `debug.cef`'s `page_cursor` (the page view's cursor in host mode) must name it. In process the page window
            shows Chromium's own cursor, and until the host input route (p01-process-042) a host-mode page view has no
            pointer route to the host: the row says not_measurable with the reason instead of passing.
+  dragin   `--modes dragin` (task 050), on an input host (real HID events) with feature chromiumHostDragIn on: a
+           Chromium tab of the app's backend over a drop zone and an <input type=file>; a real drag session from
+           another app (pointer-probe.swift drag-file, as from Finder) drops one file on each. Pass: the zone's drop
+           event and the input's change event have the file's name and size, the source saw the drop taken, and
+           `debug.cef`'s `page_drag` counts one more DragTarget drop and at least one DRAG_OPERATION answer (the
+           page view, not the DevTools relay, took it). In process, or with a fork API below 31 (p01-process-178,
+           where the relay takes the drops), the row says not_measurable with the reason instead of passing.
+  dragout  `--modes dragout` (task 051), on an input host with feature chromiumHostDragOut on: a link and an <img>
+           dragged out of a Chromium tab of the app's backend by a real pointer drag (pointer-probe.swift drag) onto
+           a Finder window of an empty folder (a .webloc of the link, the image's bytes), onto a cmux terminal (the
+           URL, the image's name) and back over the page (a drop zone gets the page's own drag data; a part with no
+           drop ends the session with none). Each passes when cmux started the session (`page_drag` sessions) and
+           the page's dragend sees the dropEffect of the operation it ended with (chromium_host_dragout.py).
 
 --native-ui runs instead the hosted widget rows (chromium_host_native_ui.py, p01-process-066): date, datalist,
 popup window, DevTools docked and in a window, an extension popup and a side panel, each shown by cmux from the
@@ -108,6 +121,7 @@ sys.path.insert(0, HERE)
 from bench_launch import BenchApp, LaunchError, RecordError, build_config, build_sha, tag_of  # noqa: E402
 import browser_engine_bench_report as results  # noqa: E402
 import chromium_host_baseline  # noqa: E402
+import chromium_host_dragout  # noqa: E402
 import chromium_host_find  # noqa: E402
 import chromium_host_native_ui  # noqa: E402
 
@@ -216,6 +230,26 @@ margin:0;border:0;padding:0;display:block;box-sizing:border-box}</style>
 <div id=resize style="top:50%;cursor:col-resize;background:#dec">resize</div>
 <div id=custom style="top:75%;cursor:url(data:image/png;base64,PNG) 4 4,auto;background:#ecd">custom</div>""".replace(
     "PNG", base64.b64encode(cursor_png()).decode())
+
+# The drag-in probe (task 050): a drop zone that takes the drop (preventDefault in dragover) and a file input,
+# whose default drop sets its files. window.dragLog records what each saw.
+DRAG_PAGE = """<!doctype html><meta charset=utf-8><title>drag probe</title>
+<style>html,body{margin:0;height:100%;font:16px system-ui}#zone,#file{position:fixed;top:10%;width:40%;height:50%;
+box-sizing:border-box;margin:0}#zone{left:5%;background:#2a6}#file{left:55%;background:#ddd}</style>
+<div id=zone>drop zone</div><input id=file type=file>
+<script>
+const log = window.dragLog = {zone: [], dropped: null, file: null};
+const zone = document.getElementById('zone');
+for (const type of ['dragenter', 'dragover', 'dragleave', 'drop']) zone.addEventListener(type, event => {
+  event.preventDefault();
+  if (!log.zone.includes(type)) log.zone.push(type);
+  if (type === 'drop') log.dropped = [...event.dataTransfer.files].map(f => [f.name, f.size]);
+});
+document.getElementById('file').addEventListener('change', event => { log.file = [...event.target.files].map(f => [f.name, f.size]); });
+</script>"""
+DRAG_FILE_TEXT = "cmux drag-in probe\n" * 64
+# ChromiumHostDragDestination.forkAPI: the fork whose DragTarget calls reach a detached page (task 172).
+DRAG_TARGET_FORK_API = 31
 
 
 TUNABLES = {"version": 1, "values": {"browserHost.helper": True, "browserResize.layerHostingEveryPage": True}}
@@ -487,6 +521,10 @@ def main():
         find_page = os.path.join(opts.out, "find.html")
         open(find_page, "w").write(chromium_host_find.PAGE)
         url = pathlib.Path(find_page).as_uri()
+    if "dragin" in opts.modes.split(","):
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), "chromiumHostDragIn"]))
+    if "dragout" in opts.modes.split(","):
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), *chromium_host_dragout.FEATURES]))
     if opts.host_switches:
         env["CMUX_NEXT_CHROMIUM_HOST_SWITCHES"] = opts.host_switches
         RESULT["host_switches"] = opts.host_switches
@@ -529,6 +567,12 @@ def main():
             cursor_probe = os.path.join(opts.out, "cursor.html")
             open(cursor_probe, "w").write(CURSOR_PAGE)
             ok = run_cursor(rpc, pathlib.Path(cursor_probe).as_uri()) and ok
+        if "dragin" in modes:
+            drag_probe = os.path.join(opts.out, "drag.html")
+            open(drag_probe, "w").write(DRAG_PAGE)
+            ok = run_dragin(rpc, pathlib.Path(drag_probe).as_uri()) and ok
+        if "dragout" in modes:
+            ok = run_dragout(rpc) and ok
         if opts.stress:
             run_stress_pump(rpc, url, "helper" in modes)
         if opts.baseline:
@@ -1091,6 +1135,116 @@ def run_cursor(rpc, url):
     return True
 
 
+def build_pointer_probe():
+    """pointer-probe.swift built here (an input host's Accessibility grant posts its events); None when it fails."""
+    probe = os.path.join(tempfile.mkdtemp(prefix="pointer-probe-"), "pointer-probe")
+    built = subprocess.run(["xcrun", "swiftc", "-O", os.path.join(HERE, "pointer-probe.swift"), "-o", probe],
+                           capture_output=True, text=True, timeout=300)
+    return probe if built.returncode == 0 else None
+
+
+def run_dragin(rpc, url):
+    """The drag-in row (task 050): a real drag session from another app (pointer-probe drag-file, as from Finder)
+    of one file onto the drag probe's drop zone, then onto its <input type=file>. Each passes when the page got
+    the file with its bytes (the zone's drop event, the input's change event) and the source saw the drop taken."""
+    probe = build_pointer_probe()
+    if not probe:
+        RESULT["modes"]["dragin"] = {"error": "pointer-probe.swift did not build (xcrun swiftc)"}
+        return False
+    opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True, "origin": "script"}, timeout=120)
+    tab = {}
+
+    def page(script):
+        reply = rpc("browser.page.eval", {"script": script, **({"tab": tab["tab"]} if tab.get("tab") else {})}, timeout=20)
+        if not isinstance(reply, dict) or "error" in reply:
+            return None
+        tab.setdefault("tab", reply.get("tab"))
+        return reply.get("value")
+    if not wait(lambda: page("document.readyState === 'complete' && document.title === 'drag probe'"), 60, 0.5):
+        RESULT["modes"]["dragin"] = {"error": f"the drag probe never loaded: {json.dumps(opened)[:200]}"}
+        return False
+    border = focused_pane_border(rpc)
+    window = next((w for w in (rpc("debug.window_list") or {}).get("windows") or []
+                   if w.get("kind") == "main" and w.get("visible")), None)
+    screen_h = subprocess.run([probe, "screen"], capture_output=True, text=True, timeout=20).stdout.strip()
+    if not border or not window or not screen_h:
+        RESULT["modes"]["dragin"] = {"error": "no pane, window or screen geometry (debug.pane_chrome, debug.window_list)"}
+        return False
+    frame = window.get("frame") or {}
+    # Window points from the top left to screen points from the top left (the pane's page view fills its border).
+    left = frame.get("x", 0) + border[0]
+    top = float(screen_h) - (frame.get("y", 0) + frame.get("height", 0)) + border[1]
+    path = os.path.join(opts.out, "drag-in.txt")
+    with open(path, "w") as out:
+        out.write(DRAG_FILE_TEXT)
+    expected = [[os.path.basename(path), len(DRAG_FILE_TEXT.encode())]]
+    # The source sits left of the window when there is room, else at its top left corner (it floats above cmux).
+    source = (max(30.0, frame.get("x", 0) - 40), top + 20)
+
+    def page_drag():
+        # Only a host-mode page view has a page_drag (debug.cef): in process the DevTools relay takes file drags.
+        cef = rpc("debug.cef") or {}
+        mine = [e for e in cef.get("devtools") or [] if (e.get("url") or "").startswith(url)]
+        return (mine or [{}])[0].get("page_drag"), (cef.get("windows") or {}).get("fork_api")
+
+    counts, fork_api = page_drag()
+    row = {"backend": "host" if counts else "in_process", "fork_api": fork_api, "page_drag": counts}
+    if not counts:
+        row["not_measurable"] = "the tab runs in process, where the DevTools relay takes file drags: no DragTarget path"
+    elif not isinstance(fork_api, (int, float)) or fork_api < DRAG_TARGET_FORK_API:
+        row["not_measurable"] = (f"fork API {fork_api} is below {DRAG_TARGET_FORK_API} (p01-process-178): the page view "
+                                 "refuses the drag and the DevTools relay takes the drops")
+    elif not counts.get("takes_drags"):
+        row["error"] = "the page view takes no drags: feature chromiumHostDragIn is off or the pane never wired it"
+    for target, field in (("zone", "dropped"), ("file", "file")):
+        rect = page(f"(() => {{ const r = document.getElementById('{target}').getBoundingClientRect(); "
+                    "return [r.x + r.width / 2, r.y + r.height / 2]; })()")
+        if not rect:
+            row[target] = {"error": "no target rect", "pass": False}
+            continue
+        point = (left + rect[0], top + rect[1])
+        dragged = subprocess.run([probe, "drag-file", f"{source[0]:.0f}", f"{source[1]:.0f}", f"{point[0]:.0f}", f"{point[1]:.0f}",
+                                  "40", path], capture_output=True, text=True, timeout=60)
+        got = wait(lambda: page(f"window.dragLog.{field}"), 5, 0.1)
+        log = page("JSON.stringify(window.dragLog)")
+        before, after = counts or {}, page_drag()[0] or {}
+        # This drop went through cmux_shim_browser_drag_target_*: one more DragTarget drop, and the renderer
+        # answered the drag's enter or over through the fork's watch.
+        drag_target = {key: (after.get(key) or 0) - (before.get(key) or 0) for key in ("enters", "drops", "answers")}
+        counts = after
+        row[target] = {"point": point, "source": dragged.stdout.strip() or dragged.stderr.strip()[:200], "got": got, "log": log,
+                       "drag_target": drag_target,
+                       "pass": (got == expected and dragged.returncode == 0 and drag_target["drops"] == 1
+                                and drag_target["answers"] >= 1)}
+    if "not_measurable" not in row:
+        row["pass"] = "error" not in row and all(row[t].get("pass") for t in ("zone", "file"))
+    RESULT["modes"]["dragin"] = row
+    return True
+
+
+def run_dragout(rpc):
+    """The drag-out row (task 051, chromium_host_dragout.py): the probe page in a Chromium tab, then each drag."""
+    probe = build_pointer_probe()
+    if not probe:
+        RESULT["modes"]["dragout"] = {"error": "pointer-probe.swift did not build (xcrun swiftc)"}
+        return False
+    url = chromium_host_dragout.write_page(opts.out)
+    opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True, "origin": "script"}, timeout=120)
+    tab = {}
+
+    def page(script):
+        reply = rpc("browser.page.eval", {"script": script, **({"tab": tab["tab"]} if tab.get("tab") else {})}, timeout=20)
+        if not isinstance(reply, dict) or "error" in reply:
+            return None
+        tab.setdefault("tab", reply.get("tab"))
+        return reply.get("value")
+    if not wait(lambda: page("document.readyState === 'complete' && document.title === 'drag-out probe'"), 60, 0.5):
+        RESULT["modes"]["dragout"] = {"error": f"the drag-out probe never loaded: {json.dumps(opened)[:200]}"}
+        return False
+    RESULT["modes"]["dragout"] = chromium_host_dragout.run(rpc, wait, page, probe, opts.out, url)
+    return "error" not in RESULT["modes"]["dragout"]
+
+
 ROW_LIMIT_S = 90  # one row of the input set; a prompt on the console or a stuck reply ends the row, not the step
 
 
@@ -1116,8 +1270,9 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
     """The host page's input paths, each a pass/fail row (the page's focus is the fork's embedder-active state on fork
     API 30, DevTools focus emulation below it; no host window is ever key): typing and the caret, focus and blur when cmux's focus moves out and back, copy and paste through
     cmux's Edit menu, and Chromium's own native UI (context menu, <select>, alert, file picker) with the frontmost
-    pid and the host's activation counters. IME, find (Cmd-F) and drag are not forwarded by the prototype (slice 2,
-    section 4 of the design): rows say so instead of testing (find runs in --find, on a host-backed Chromium tab)."""
+    pid and the host's activation counters. IME is not forwarded by the prototype (slice 2, section 4 of the design):
+    rows say so instead of testing (find runs in --find and drags in --modes dragin and dragout, on a host-backed
+    Chromium tab)."""
     rows = {}
     page_state = lambda: probe_stats(title()) or {}
     counters = lambda: rpc("debug.chromium_host.measure", {"op": "input"}) or {}
@@ -1189,7 +1344,7 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
     native("file_picker", lambda: rpc("debug.mouse", click_point("f")))
     rows["not_forwarded"] = {"ime": "no NSTextInputClient in ChromiumHostPageView; windowed Ime* are DCHECK(false) in CEF (slice 2)",
                              "find": "the prototype page has no find; --find runs it on a host-backed Chromium tab",
-                             "drag": "drag and drop is not forwarded (slice 4)",
+                             "drag": "drags run in --modes dragin (into the page) and dragout (out of it)",
                              "permission_prompt": "needs a page that asks (camera/location), not in the probe"}
     return rows
 

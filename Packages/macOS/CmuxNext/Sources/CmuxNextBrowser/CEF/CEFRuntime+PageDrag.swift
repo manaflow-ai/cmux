@@ -26,7 +26,7 @@ enum CEFPageDragCallback {
 /// Host mode's drag out of a page (feature `chromiumHostDragOut`; task 051 of
 /// plans/cmux-next/chrome-parity/p01-process.md). The Chromium Host's page windows never show, so Chromium
 /// cannot start a drag session from one: the host sends each drag's data, and the page view of the drag's tab
-/// starts the session (``ChromiumHostPageView/beginPageDrag(_:route:)``), as Chrome's browser process has its
+/// starts the session (``ChromiumHostPageView/beginPageDrag(_:browser:ended:)``), as Chrome's browser process has its
 /// app shim view start it (`WebContentsViewMac::StartDragging`, content/browser/web_contents/web_contents_view_mac.mm).
 /// In process the page window is cmux's own child window and Chromium starts the session itself.
 extension CEFRuntime {
@@ -48,32 +48,20 @@ extension CEFRuntime {
 
     /// `browser`'s page started a drag: its tab's page view starts the session when the tab shows, else (or
     /// with data the shim could not read) the page's drag ends now with no drop, so the page can drag again.
+    /// Back over its page the session goes through the page view's drag destination (`CEFPaneDragWire`).
     func pageDragStarted(_ data: CEFPageDragData?, browser: Int32) {
         if let data, let host = tabsByBrowser[browser]?.host, host.visibleTab?.browserID == browser,
-           let page = host.hostedPageView, page.beginPageDrag(data, route: pageDragRoute(browser: browser)) {
+           let page = host.hostedPageView, page.beginPageDrag(data, browser: browser, ended: pageDragEnded(browser: browser)) {
             return
         }
         _ = shim?.pageDrag.sourceEnded(browser, 0, 0, 0, 0, 0)
     }
 
-    /// The shim calls for `browser`'s drag. Every call is a post: none waits for the host.
-    func pageDragRoute(browser: Int32) -> ChromiumHostPageDragRoute {
-        ChromiumHostPageDragRoute(
-            ended: { [weak self] point, screen, operation in
-                _ = self?.shim?.pageDrag.sourceEnded(browser, point.x, point.y, screen.x, screen.y, Int32(clamping: operation.rawValue))
-            },
-            entered: { [weak self] x, y, allowed, modifiers in
-                // The page view may show another tab by now: then the drag is not over its own page.
-                guard let self, let shim, let host = tabsByBrowser[browser]?.host, host.visibleTab?.browserID == browser else {
-                    return false
-                }
-                _ = shim.pageDrag.targetEnterSource(browser, x, y, Int32(clamping: allowed.rawValue), modifiers)
-                return true
-            },
-            moved: { [weak self] x, y, allowed, modifiers in
-                _ = self?.shim?.pageDrag.targetOver(browser, x, y, Int32(clamping: allowed.rawValue), modifiers)
-            },
-            left: { [weak self] in _ = self?.shim?.pageDrag.targetLeave(browser) },
-            dropped: { [weak self] x, y, modifiers in _ = self?.shim?.pageDrag.targetDrop(browser, x, y, modifiers) })
+    /// Ends `browser`'s page drag where its session ended, with the operation the destination took. A post: it
+    /// waits for nothing.
+    func pageDragEnded(browser: Int32) -> (_ point: CGPoint, _ screen: CGPoint, _ operation: NSDragOperation) -> Void {
+        { [weak self] point, screen, operation in
+            _ = self?.shim?.pageDrag.sourceEnded(browser, point.x, point.y, screen.x, screen.y, Int32(clamping: operation.rawValue))
+        }
     }
 }

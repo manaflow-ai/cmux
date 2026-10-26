@@ -27,6 +27,9 @@ public final class CEFRuntimeSource {
     /// Host mode: a page's drag starts in cmux, so it drops on Finder, a terminal or another app (feature
     /// `chromiumHostDragOut`, set by the App). Read with ``showsHostWidgets``; in process it changes nothing.
     public var dragsOutOfHostPages = false
+    /// Host mode: drags onto a page reach it with DragTarget calls (feature `chromiumHostDragIn`, set by
+    /// the App; p01-process-050). Read when the runtime adopts the source; in process it changes nothing.
+    public var takesHostDrags = false
 
     /// Creates a source.
     ///

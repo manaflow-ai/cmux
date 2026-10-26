@@ -8,8 +8,10 @@ import UniformTypeIdentifiers
 /// `cmux_drag_source_t` (read at the offsets ChromiumHost/src/host_drag.h asserts), becomes one pasteboard
 /// writer (the link with its title and as text, the text, the HTML, a dragged image as a file promise that
 /// carries the rest too), and the page view starts the session at the pointer; a drag that cannot show ends at
-/// once with no operation. The session itself (a link or an image to Finder and a terminal) is
-/// chromium-host-bench.py's drag-out row on the fleet.
+/// once with no operation. Back over its page the drag goes through task 050's drag destination, entered with
+/// `drag_target_enter_source` and answered by the page: where the page takes none, AppKit is refused and the
+/// session ends with none. The session itself (a link or an image to Finder and a terminal) is
+/// chromium-host-bench.py's dragout row on the fleet.
 @MainActor
 @Suite(.serialized) struct CEFPageDragTests {
     /// A fork struct in C layout over storage the closure may read.
@@ -150,7 +152,6 @@ import UniformTypeIdentifiers
         #expect(CEFPageDragData(allowedOperations: [.link, .move]).preferredOperation == .link)
         #expect(CEFPageDragData(allowedOperations: .move).preferredOperation == .move, "a sortable list's move-only drag")
         #expect(CEFPageDragData(allowedOperations: []).preferredOperation == [])
-        #expect(ChromiumHostPageView.cefModifiers([.shift, .command]) == (1 << 4) | (1 << 1) | (1 << 7))
     }
 
     @Test func aDragThatCannotShowEndsAtOnceWithNoOperation() throws {
@@ -164,20 +165,93 @@ import UniformTypeIdentifiers
         #expect(PageDragSpy.ended.allSatisfy { $0.operation == 0 })
 
         let page = ChromiumHostPageView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
-        let route = runtime.pageDragRoute(browser: 41)
-        #expect(!page.beginPageDrag(CEFPageDragData(allowedOperations: .copy), route: route), "a view in no window starts nothing")
-        #expect(page.pageDrag == nil)
-        route.ended(CGPoint(x: 5, y: 6), CGPoint(x: 7, y: 8), .copy)
+        let ended = runtime.pageDragEnded(browser: 41)
+        #expect(!page.beginPageDrag(CEFPageDragData(allowedOperations: .copy), browser: 41, ended: ended),
+                "a view in no window starts nothing")
+        #expect(page.pageDrag == nil && page.dragCounts.sessions == 0)
+        ended(CGPoint(x: 5, y: 6), CGPoint(x: 7, y: 8), .copy)
         #expect(PageDragSpy.ended.last.map { $0.browser == 41 && $0.operation == 1 } == true)
-        #expect(!route.entered(1, 2, .copy, 0), "the page is not shown: the drag is not over its own page")
-        #expect(PageDragSpy.entered.isEmpty)
+    }
+
+    /// Back over its page the drag enters with its own data and then takes the page's answers, as task 050's drags do.
+    @Test func theOwnDragEntersAsTheSourceAndOffersThePagesAnswer() {
+        let wire = OwnDragWire(browser: 41)
+        let destination = ChromiumHostDragDestination()
+        destination.wire = wire
+        let at = ChromiumHostDragPoint(x: 20, y: 30)
+        #expect(destination.enteredSource(browser: 41, at: at, allowed: [.copy, .move], initial: .copy, modifiers: 1 << 4) == .copy,
+                "the page's preferred operation until it answers")
+        #expect(wire.sent == [.enterSource(at, allowed: 1 | 16, modifiers: 1 << 4)])
+        destination.answered(browser: 41, operation: 16)
+        #expect(destination.updated(at: at, allowed: [.copy, .move], modifiers: 1 << 4) == .move, "a sortable list takes a move")
+        #expect(destination.dropped(at: at, modifiers: 0))
+        #expect(wire.sent.last == .drop(at, modifiers: 0))
+        #expect(destination.counts.enters == 1 && destination.counts.drops == 1 && destination.counts.answers == 1)
+    }
+
+    /// Where the page takes none (no dragover handler cancels it), AppKit is refused: the session ends with no
+    /// operation, so drag_source_ended reports none and the page's dragend sees dropEffect "none".
+    @Test func aRefusedAnswerRefusesTheDropAndTheDragLeaves() {
+        let wire = OwnDragWire(browser: 41)
+        let destination = ChromiumHostDragDestination()
+        destination.wire = wire
+        let at = ChromiumHostDragPoint(x: 20, y: 30)
+        _ = destination.enteredSource(browser: 41, at: at, allowed: .copy, initial: .copy, modifiers: 0)
+        destination.answered(browser: 41, operation: 0)
+        #expect(destination.updated(at: at, allowed: .copy, modifiers: 0) == [], "no copy cursor where the page refuses")
+
+        // AppKit may still drop when the refusal came after its last update: the drop is refused there too.
+        #expect(!destination.dropped(at: at, modifiers: 0))
+        #expect(wire.sent.last == .leave, "the page hears its drag leave, not a drop")
+        #expect(!wire.sent.contains(.drop(at, modifiers: 0)))
+        #expect(destination.counts.drops == 0 && destination.browser == nil)
+    }
+
+    @Test func theOwnDragIsRefusedOverAnotherTabAndOutsideDragsWhenOnlyDragOutIsOn() {
+        let wire = OwnDragWire(browser: 42)
+        let destination = ChromiumHostDragDestination()
+        destination.wire = wire
+        destination.takesOutsideDrags = false
+        let at = ChromiumHostDragPoint(x: 1, y: 2)
+        #expect(destination.enteredSource(browser: 41, at: at, allowed: .copy, initial: .copy, modifiers: 0) == [],
+                "the view shows another tab now: the drag is not over its own page")
+        #expect(destination.entered(ChromiumHostDropData(text: "t"), at: at, allowed: .copy, modifiers: 0) == [],
+                "feature chromiumHostDragIn is off")
+        #expect(wire.sent.isEmpty)
+        #expect(destination.enteredSource(browser: 42, at: at, allowed: .copy, initial: .copy, modifiers: 0) == .copy)
+
+        let page = ChromiumHostPageView(frame: NSRect(x: 0, y: 0, width: 200, height: 100), inputTarget: .view)
+        page.takeDrags(through: wire, outside: false)
+        #expect(page.registeredDraggedTypes == [ChromiumHostPageView.pageDragType], "only the page's own drag")
+    }
+
+    /// The shim's DragTarget ops send the own drag's enter as `cmux_shim_browser_drag_target_enter_source`.
+    @Test func theShimSendsTheEnterSource() throws {
+        PageDragSpy.reset()
+        let shim = try CEFShimLibrary.resolving(PageDragSpy.symbol)
+        shim.dragTarget.send(.enterSource(ChromiumHostDragPoint(x: 3, y: 4), allowed: 17, modifiers: 16), browser: 41)
+        #expect(PageDragSpy.entered == ["41 3,4 17 16"])
+    }
+}
+
+/// Records the destination's calls; the view shows `browser`.
+private final class OwnDragWire: ChromiumHostDragWire {
+    let dragBrowser: Int32?
+    var sent: [ChromiumHostDragEvent] = []
+
+    init(browser: Int32) {
+        dragBrowser = browser
+    }
+
+    func send(_ event: ChromiumHostDragEvent, browser: Int32) {
+        sent.append(event)
     }
 }
 
 /// Records the drag calls; every other export does nothing.
 private nonisolated enum PageDragSpy {
     nonisolated(unsafe) static var ended: [(browser: Int32, operation: Int32)] = []
-    nonisolated(unsafe) static var entered: [Int32] = []
+    nonisolated(unsafe) static var entered: [String] = []
 
     static func reset() {
         ended = []
@@ -189,8 +263,8 @@ private nonisolated enum PageDragSpy {
             PageDragSpy.ended.append((browser, operation))
             return 1
         }
-        let entered: @convention(c) (Int32, Int32, Int32, Int32, Int32) -> Int32 = { browser, _, _, _, _ in
-            PageDragSpy.entered.append(browser)
+        let entered: @convention(c) (Int32, Int32, Int32, Int32, Int32) -> Int32 = { browser, x, y, allowed, modifiers in
+            PageDragSpy.entered.append("\(browser) \(x),\(y) \(allowed) \(modifiers)")
             return 1
         }
         let nothing: @convention(c) () -> Int = { 0 }

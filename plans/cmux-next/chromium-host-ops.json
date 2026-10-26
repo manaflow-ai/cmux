@@ -634,7 +634,60 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "The page's own drag came back over the page (task 050)."
+      "reason": "The page's own drag came back over the page (task 051): an enter with the drag's own data, followed by the over, leave and drop of task 050, and answered by CMUX_SHIM_DRAG_OPERATION as an enter is."
+    },
+    {
+      "name": "cmux_shim_browser_drag_target_enter",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "files",
+          "type": "const char* const*"
+        },
+        {
+          "name": "file_count",
+          "type": "int"
+        },
+        {
+          "name": "text",
+          "type": "const char*"
+        },
+        {
+          "name": "url",
+          "type": "const char*"
+        },
+        {
+          "name": "url_title",
+          "type": "const char*"
+        },
+        {
+          "name": "x",
+          "type": "int"
+        },
+        {
+          "name": "y",
+          "type": "int"
+        },
+        {
+          "name": "allowed_operations",
+          "type": "int"
+        },
+        {
+          "name": "modifiers",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "A drag from outside the page entered the page view (task 050, Chrome's WebDragDest -draggingEntered:). One-way, in order with the over, leave and drop after it; the page's answer comes as CMUX_SHIM_DRAG_OPERATION, which the destination keeps as its last operation."
     },
     {
       "name": "cmux_shim_browser_drag_target_over",
@@ -667,7 +720,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "The page's own drag moved over the page, after drag_target_enter_source (task 051)."
+      "reason": "The drag moved over the page view (task 050, -draggingUpdated:), or the page's own drag did after drag_target_enter_source (task 051). One-way on the control channel, after its enter; the answer is CMUX_SHIM_DRAG_OPERATION, never awaited: AppKit gets the last answer at once."
     },
     {
       "name": "cmux_shim_browser_drag_target_leave",
@@ -684,7 +737,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "The page's own drag left the page (task 051)."
+      "reason": "The drag, or the page's own drag (task 051), left the page view or ended with no drop there (task 050, -draggingExited:)."
     },
     {
       "name": "cmux_shim_browser_drag_target_drop",
@@ -713,7 +766,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "The page's own drag dropped on the page (task 051)."
+      "reason": "The drag, or the page's own drag (task 051), was dropped on the page view (task 050, -performDragOperation:). AppKit gets at once whether the page's last answer took it; the renderer turns a drop after a none answer into a leave (WebFrameWidgetImpl::DragTargetDrop)."
     },
     {
       "name": "cmux_shim_set_color_chooser_handler",
@@ -4515,6 +4568,11 @@
     {
       "kind": "CMUX_SHIM_CURSOR",
       "value": 54,
+      "refreshes": []
+    },
+    {
+      "kind": "CMUX_SHIM_DRAG_OPERATION",
+      "value": 55,
       "refreshes": []
     }
   ],

@@ -1,53 +1,116 @@
 public import AppKit
 
-/// Where a page's drag reports to: the shim calls for its browser (``CEFRuntime/pageDragRoute(browser:)``).
-/// Points are the page view's, from its top left; modifiers are `cef_event_flags_t`.
-struct ChromiumHostPageDragRoute {
-    /// The session ended: where (page view and screen points, the screen's from its top left) and the
-    /// operation the destination took (none: no drop took it). `cmux_shim_browser_drag_source_ended`.
-    var ended: (_ point: CGPoint, _ screen: CGPoint, _ operation: NSDragOperation) -> Void
-    /// The drag came back over its own page: false when the page is no longer this view's.
-    /// `cmux_shim_browser_drag_target_enter_source`.
-    var entered: (_ x: Int32, _ y: Int32, _ allowed: NSDragOperation, _ modifiers: Int32) -> Bool
-    var moved: (_ x: Int32, _ y: Int32, _ allowed: NSDragOperation, _ modifiers: Int32) -> Void
-    var left: () -> Void
-    var dropped: (_ x: Int32, _ y: Int32, _ modifiers: Int32) -> Void
-}
-
-/// A drag the page view's page started, from its session's start to its end.
+/// A drag the page view's page started, from its session's start to its end (task 051).
 struct ChromiumHostPageDrag {
     let data: CEFPageDragData
-    let route: ChromiumHostPageDragRoute
+    /// The page's browser: back over the view, the drag is the page's own only while the view still shows it.
+    let browser: Int32
+    /// Ends the page's drag (`cmux_shim_browser_drag_source_ended`): where (page view and screen points, both from
+    /// the top left) and the operation the destination took (none: no drop took it).
+    let ended: (_ point: CGPoint, _ screen: CGPoint, _ operation: NSDragOperation) -> Void
     /// The session's `draggingSequenceNumber`: only that session counts as the page's own drag.
     var sequence = 0
-    /// The session is over the page view, entered as the page's own drag.
-    var isOverPage = false
-    /// The last move sent to the page (AppKit repeats updates while the pointer rests).
-    var lastMove: [Int32]?
-    /// The page's answer to the last move, once the fork pushes it (`cmux_browser_drag_target_watch`,
-    /// tasks 172 and 178); until then ``CEFPageDragData/preferredOperation``.
-    var pageOperation: NSDragOperation?
-
-    var operation: NSDragOperation { pageOperation ?? data.preferredOperation }
 }
 
-/// Dragging out of a hosted page (task 051 of plans/cmux-next/chrome-parity/p01-process.md).
+/// Drags into and out of the hosted page (tasks 050 and 051 of plans/cmux-next/chrome-parity/p01-process.md).
 ///
-/// In host mode Chromium's page window never shows, so a page's drag cannot start from it: the host sends
-/// the drag's data (DRAG_START) and this view starts the session, as Chrome's app shim view does with the
-/// drag its browser process sends (content/app_shim_remote_cocoa/web_contents_view_cocoa.mm,
+/// Into the page: this view's `NSDraggingDestination` methods feed ``ChromiumHostDragDestination``, as
+/// `RenderWidgetHostViewCocoa`'s feed Chrome's `WebDragDest`. With ``InputTarget/pageWindow`` the view takes no
+/// events: the pane's `CEFHostView` takes the drag and hands it to the same methods
+/// (`CEFFileDragRelay.hostedPage`).
+///
+/// Out of the page: in host mode Chromium's page window never shows, so a page's drag cannot start from it. The
+/// host sends the drag's data (DRAG_START) and this view starts the session, as Chrome's app shim view does with
+/// the drag its browser process sends (content/app_shim_remote_cocoa/web_contents_view_cocoa.mm,
 /// `-startDragWithDropData:`), and reports the end back (`WebDragSource`'s `-endDragAt:operation:`,
-/// content/app_shim_remote_cocoa/web_drag_source_mac.mm). The session starts over its own page, and the page
-/// is its first drop target: back over this view it goes on as the page's own drag
-/// (`cmux_shim_browser_drag_target_enter_source`), so the page keeps its custom drag data, as Chrome's
-/// WebDragDest does for a drag from the same contents.
+/// content/app_shim_remote_cocoa/web_drag_source_mac.mm). Back over this view the session is the page's own drag:
+/// the destination enters it with `cmux_shim_browser_drag_target_enter_source`, so the page keeps its custom drag
+/// data, and then goes on as for any drag, with the page's answers.
 extension ChromiumHostPageView: NSDraggingSource {
     /// The pasteboard type that names a drag of a hosted page; the view takes drags carrying it.
     static let pageDragType = NSPasteboard.PasteboardType("com.cmuxterm.chromium-page-drag")
 
-    /// Starts the session for a drag the page started; false (nothing started) when the view is in no window
-    /// or the person already let go of the button, so the caller ends the page's drag at once.
-    func beginPageDrag(_ data: CEFPageDragData, route: ChromiumHostPageDragRoute) -> Bool {
+    /// Makes this view's page take drags through `wire`; nil takes none. `outside` false takes only the page's own
+    /// drag back over it (feature `chromiumHostDragOut` without `chromiumHostDragIn`).
+    func takeDrags(through wire: (any ChromiumHostDragWire)?, outside: Bool = true) {
+        dragDestination.wire = wire
+        dragDestination.takesOutsideDrags = outside
+        if wire != nil, inputTarget == .view {
+            registerForDraggedTypes(Self.dragTypes(outside: outside))
+        } else {
+            unregisterDraggedTypes()
+        }
+    }
+
+    /// The pasteboard types a page view (or the pane's host view for it) takes: the page's own drag, and with
+    /// `outside` the types a page takes from any drag.
+    static func dragTypes(outside: Bool) -> [NSPasteboard.PasteboardType] {
+        (outside ? ChromiumHostDropData.types : []) + [pageDragType]
+    }
+
+    /// The drags this page view sent through Chromium's DragTarget calls and the page drags it started
+    /// (`debug.cef`'s `page_drag`).
+    public var dragCounts: ChromiumHostDragCounts {
+        var counts = dragDestination.counts
+        counts.takesDrags = dragDestination.wire != nil
+        counts.sessions = pageDragSessions
+        counts.lastSessionOperation = lastPageDragOperation.map { Int($0.rawValue) }
+        return counts
+    }
+
+    // MARK: The drag's destination
+
+    public override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        if let drag = ownDrag(sender) {
+            return dragDestination.enteredSource(browser: drag.browser, at: dragPoint(sender), allowed: sender.draggingSourceOperationMask,
+                                                 initial: drag.data.preferredOperation, modifiers: Self.dragModifiers())
+        }
+        return dragDestination.entered(ChromiumHostDropData(pasteboard: sender.draggingPasteboard), at: dragPoint(sender),
+                                       allowed: sender.draggingSourceOperationMask, modifiers: Self.dragModifiers())
+    }
+
+    public override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        dragDestination.updated(at: dragPoint(sender), allowed: sender.draggingSourceOperationMask, modifiers: Self.dragModifiers())
+    }
+
+    public override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        dragDestination.exited()
+    }
+
+    public override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        dragDestination.dropped(at: dragPoint(sender), modifiers: Self.dragModifiers())
+    }
+
+    /// A session that ended with no exit or drop here (the view left its window mid-drag).
+    // NSView has no `draggingEnded:` of its own: no super call.
+    public override func draggingEnded(_ sender: any NSDraggingInfo) {
+        dragDestination.exited()
+    }
+
+    /// The page's drag that `sender` is, nil for any other drag.
+    private func ownDrag(_ sender: any NSDraggingInfo) -> ChromiumHostPageDrag? {
+        guard let drag = pageDrag, sender.draggingSequenceNumber == drag.sequence,
+              (sender.draggingSource as AnyObject?) === self else { return nil }
+        return drag
+    }
+
+    /// The drag's location in the page: view points from the top left.
+    private func dragPoint(_ sender: any NSDraggingInfo) -> ChromiumHostDragPoint {
+        ChromiumHostDragPoint(unflipped: convert(sender.draggingLocation, from: nil), height: bounds.height)
+    }
+
+    /// The held keys and buttons now, as `cef_event_flags_t`.
+    static func dragModifiers() -> Int32 {
+        ChromiumHostDragDestination.modifiers(NSEvent.modifierFlags, pressedButtons: NSEvent.pressedMouseButtons)
+    }
+
+    // MARK: The page's drag out
+
+    /// Starts the session for a drag `browser`'s page started; false (nothing started) when the view is in no
+    /// window or the person already let go of the button, so the caller ends the page's drag at once. `ended`
+    /// reports the session's end (``ChromiumHostPageDrag/ended``).
+    func beginPageDrag(_ data: CEFPageDragData, browser: Int32,
+                       ended: @escaping (_ point: CGPoint, _ screen: CGPoint, _ operation: NSDragOperation) -> Void) -> Bool {
         guard pageDrag == nil, let window, NSEvent.pressedMouseButtons & 1 != 0 else { return false }
         // The drag comes after the page's mouse moves, so the current event need not be a drag: Chrome makes
         // one at the pointer for the same reason (`-startDragWithDropData:`).
@@ -55,13 +118,13 @@ extension ChromiumHostPageView: NSDraggingSource {
         guard let event = NSEvent.mouseEvent(with: .leftMouseDragged, location: location, modifierFlags: NSEvent.modifierFlags,
                                              timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                                              context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { return false }
-        registerForDraggedTypes([Self.pageDragType])
         let item = NSDraggingItem(pasteboardWriter: data.pasteboardWriter(marker: Self.pageDragType))
         let image = Self.dragImage(data)
         item.setDraggingFrame(Self.draggingFrame(image: image?.size ?? .zero, offset: data.cursorOffset,
                                                  pointer: convert(location, from: nil)), contents: image)
-        pageDrag = ChromiumHostPageDrag(data: data, route: route)
+        pageDrag = ChromiumHostPageDrag(data: data, browser: browser, ended: ended)
         pageDrag?.sequence = beginDraggingSession(with: [item], event: event, source: self).draggingSequenceNumber
+        pageDragSessions += 1
         return true
     }
 
@@ -87,85 +150,11 @@ extension ChromiumHostPageView: NSDraggingSource {
     public func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
         guard let drag = pageDrag, session.draggingSequenceNumber == drag.sequence else { return }
         pageDrag = nil
+        let taken = operation.intersection(drag.data.allowedOperations)
+        lastPageDragOperation = taken
         let local = window.map { convert($0.convertPoint(fromScreen: screenPoint), from: nil) } ?? .zero
         // Screen points from the top of the window's screen, as WebDragSource flips them.
         let screenHeight = window?.screen?.frame.height ?? NSScreen.screens.first?.frame.height ?? 0
-        drag.route.ended(CGPoint(x: local.x, y: bounds.height - local.y), CGPoint(x: screenPoint.x, y: screenHeight - screenPoint.y),
-                         operation.intersection(drag.data.allowedOperations))
-    }
-
-    // MARK: The page's own drag over the page
-
-    /// The page's drag that `sender` is, nil for any other drag.
-    private func ownDrag(_ sender: any NSDraggingInfo) -> ChromiumHostPageDrag? {
-        guard let drag = pageDrag, sender.draggingSequenceNumber == drag.sequence,
-              (sender.draggingSource as AnyObject?) === self else { return nil }
-        return drag
-    }
-
-    /// The drag's place in the page: points from the top left.
-    private func pageDragPoint(_ sender: any NSDraggingInfo) -> (x: Int32, y: Int32) {
-        let local = convert(sender.draggingLocation, from: nil)
-        return (Int32(local.x.rounded(.down)), Int32((bounds.height - local.y).rounded(.down)))
-    }
-
-    public override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard let drag = ownDrag(sender) else { return [] }
-        let point = pageDragPoint(sender)
-        let allowed = sender.draggingSourceOperationMask.intersection(drag.data.allowedOperations)
-        let modifiers = Self.cefModifiers(NSEvent.modifierFlags)
-        guard drag.route.entered(point.x, point.y, allowed, modifiers) else { return [] }
-        pageDrag?.isOverPage = true
-        pageDrag?.lastMove = [point.x, point.y, Int32(clamping: allowed.rawValue), modifiers]
-        return drag.operation.intersection(allowed)
-    }
-
-    public override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard let drag = ownDrag(sender), drag.isOverPage else { return [] }
-        let point = pageDragPoint(sender)
-        let allowed = sender.draggingSourceOperationMask.intersection(drag.data.allowedOperations)
-        let modifiers = Self.cefModifiers(NSEvent.modifierFlags)
-        let move = [point.x, point.y, Int32(clamping: allowed.rawValue), modifiers]
-        if move != drag.lastMove {
-            pageDrag?.lastMove = move
-            drag.route.moved(point.x, point.y, allowed, modifiers)
-        }
-        return drag.operation.intersection(allowed)
-    }
-
-    public override func draggingExited(_ sender: (any NSDraggingInfo)?) {
-        leavePage()
-    }
-
-    public override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard let drag = ownDrag(sender), drag.isOverPage else { return false }
-        let point = pageDragPoint(sender)
-        pageDrag?.isOverPage = false
-        drag.route.dropped(point.x, point.y, Self.cefModifiers(NSEvent.modifierFlags))
-        return true
-    }
-
-    /// The session ended over this view with no exit or drop here (the view left its window mid-drag).
-    // NSView has no `draggingEnded:` of its own: no super call.
-    public override func draggingEnded(_ sender: any NSDraggingInfo) {
-        leavePage()
-    }
-
-    private func leavePage() {
-        guard let drag = pageDrag, drag.isOverPage else { return }
-        pageDrag?.isOverPage = false
-        pageDrag?.lastMove = nil
-        drag.route.left()
-    }
-
-    /// `cef_event_flags_t` of the held modifier keys and the left button (the drag holds it).
-    static func cefModifiers(_ flags: NSEvent.ModifierFlags) -> Int32 {
-        var bits: Int32 = 1 << 4  // EVENTFLAG_LEFT_MOUSE_BUTTON
-        if flags.contains(.capsLock) { bits |= 1 << 0 }
-        if flags.contains(.shift) { bits |= 1 << 1 }
-        if flags.contains(.control) { bits |= 1 << 2 }
-        if flags.contains(.option) { bits |= 1 << 3 }
-        if flags.contains(.command) { bits |= 1 << 7 }
-        return bits
+        drag.ended(CGPoint(x: local.x, y: bounds.height - local.y), CGPoint(x: screenPoint.x, y: screenHeight - screenPoint.y), taken)
     }
 }

@@ -20,6 +20,8 @@ final class CEFHostStart {
     private(set) var remote: CEFRemoteShim?
     /// The host's widgets show in cmux (feature `chromiumHostWidgets`, ``CEFRuntimeSource/showsHostWidgets``).
     let showsWidgets: Bool
+    /// Drags onto a page reach it with DragTarget calls (feature `chromiumHostDragIn`, `CEFPaneHost.takeHostDrags(on:)`).
+    let takesDrags: Bool
     /// The host's pages' drags start in cmux (feature `chromiumHostDragOut`, ``CEFRuntimeSource/dragsOutOfHostPages``).
     let dragsOut: Bool
     /// The host's widgets in cmux panels and panes, from the start on when ``showsWidgets``
@@ -39,11 +41,12 @@ final class CEFHostStart {
     /// `helloDeadline`: how long, on `clock`, the host may take from the attach to its hello
     /// before the start fails (a host that hangs while it starts Chromium). Reply deadlines run on
     /// `clock` too.
-    init(supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false, dragsOut: Bool = false,
+    init(supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false, takesDrags: Bool = false, dragsOut: Bool = false,
          open: @escaping Open = { CEFRemoteShim.open($0) },
          helloDeadline: Duration = .seconds(30), clock: any Clock<Duration> = ContinuousClock()) {
         self.supervisor = supervisor
         self.showsWidgets = showsWidgets
+        self.takesDrags = takesDrags
         self.dragsOut = dragsOut
         self.open = open
         self.helloDeadline = helloDeadline
