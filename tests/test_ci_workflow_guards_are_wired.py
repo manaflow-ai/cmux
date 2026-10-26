@@ -46,7 +46,12 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # this test exists to prevent.
 # This regression test is intentionally local-only. The repository contract
 # forbids adding CI gates/tests; run it directly before landing delivery edits.
-UNWIRED: set[str] = {"tests/test_nightly_delivery_concurrency.py"}
+UNWIRED: set[str] = {
+    "tests/test_nightly_delivery_concurrency.py",
+    # The org-label writer has an operator-run rollout check (test-execution.toml).
+    # CI policy forbids a new gate; remove this entry if it is wired or retired.
+    "tests/test_ci_runner_label_reconcile.py",
+}
 
 
 def tracked_tests() -> list[str]:
