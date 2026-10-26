@@ -724,6 +724,20 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": text[9:].strip()})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "set-mode-after: MS X": the harness waits MS, then changes its own mode to X (a daemon may
+    # have left meanwhile: its host keeps the update for the next one).
+    if text.startswith("set-mode-after:"):
+        import time as pause
+        ms, mode = text[15:].strip().split(" ", 1)
+        pause.sleep(int(ms) / 1000)
+        update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": mode.strip()})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "whoami" replies with the harness's pid.
+    if text.startswith("whoami"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"pid={os.getpid()}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "env: NAME" replies with that environment variable, for spawn-time checks.
     if text.startswith("env:"):
         name = text[4:].strip()
@@ -1364,6 +1378,10 @@ def main():
             if os.environ.get("FAKE_MODE_OPTION") == "1":
                 if params.get("configId") == "mode":
                     MODE_OPTION[params.get("sessionId")] = v
+                # FAKE_BARE_OPTION_ANSWER=1: the answer carries no configOptions.
+                if os.environ.get("FAKE_BARE_OPTION_ANSWER") == "1":
+                    send({"jsonrpc": "2.0", "id": rid, "result": {}})
+                    continue
                 send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": mode_options(params.get("sessionId"))}})
                 continue
             send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": [{"id": "model", "name": "Model", "type": "select", "currentValue": v, "options": []}]}})

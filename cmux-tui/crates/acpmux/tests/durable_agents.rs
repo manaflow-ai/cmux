@@ -2379,3 +2379,101 @@ async fn a_full_access_host_whose_end_failed_is_never_reached_under_mdm_off() {
         unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
     }
 }
+
+/// A daemon whose person is proven (`hub/person.rs`), with `fake` as its harness: only the person
+/// sets a mode that does not ask.
+async fn proven_daemon(tag: &str, fake: Value) -> (Daemon, Rpc) {
+    const KEY: &str = "7a0e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6";
+    let mut daemon = Daemon::new(tag, "ask");
+    daemon.sigterm();
+    daemon.key = Some(KEY.to_owned());
+    let config =
+        json!({"harnesses": {"fake": fake}, "defaultHarness": "fake", "permissionPolicy": "ask"});
+    std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let init = rpc.call("initialize", json!({"protocolVersion": 1})).await;
+    let challenge = &init["_meta"]["acpmux"]["personChallenge"];
+    let proof = acpmux::hub::person::person_proof(
+        KEY,
+        acpmux::hub::person::TRANSPORT_UNIX,
+        challenge["nonce"].as_str().unwrap_or_else(|| panic!("{init}")),
+        challenge["connection"].as_str().unwrap(),
+    )
+    .unwrap();
+    let proven = rpc.call("_acpmux/person_prove", json!({"proof": proof})).await;
+    assert_eq!(proven["person"], true, "{proven}");
+    (daemon, rpc)
+}
+
+/// Review 60 of #23322: a `set_config_option` the harness took without answering its options (a
+/// bare answer) still put it in full access. Under MDM's off that agent ends, whether the off is
+/// pushed while it runs or a later daemon finds its host.
+#[tokio::test]
+async fn a_full_access_option_answered_without_options_ends_under_mdm_off() {
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1",
+                      "FAKE_MODE_OPTION": "1", "FAKE_BARE_OPTION_ANSWER": "1"}});
+    for restart in [false, true] {
+        let tag = if restart { "mdmbarerestart" } else { "mdmbarelive" };
+        let (mut daemon, mut rpc) = proven_daemon(tag, fake.clone()).await;
+        let session = new_session(&daemon).await;
+        let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+        rpc.call("session/prompt", prompt).await;
+        let set = json!({"sessionId": session, "configId": "mode", "value": "full-access"});
+        let r = rpc.reply("session/set_config_option", set).await;
+        assert!(r.get("error").is_none(), "{tag}: {r}");
+        let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+        if restart {
+            daemon.sigterm();
+            drop(rpc);
+            assert!(alive(harness_pid), "{tag}: SIGTERM ended the agent");
+            record_mdm_off(&daemon);
+            daemon.start();
+        } else {
+            let off = json!({"enabled": true, "discovery": false, "roots": [], "managedRoots": [],
+                             "allowFullAccess": false, "allowFullAccessManaged": true});
+            let pushed = rpc.call("_acpmux/chat_settings", off).await;
+            assert_eq!(pushed["applied"], true, "{tag}: {pushed}");
+        }
+        assert!(
+            gone_within(harness_pid, Duration::from_secs(10)),
+            "{tag}: the agent a bare answer put in full access ran on under the managed off"
+        );
+    }
+}
+
+/// Review 60 of #23322: a host a restart left changed its mode to full access while no daemon
+/// was attached; its host kept the update for the next daemon, which first reads it when the
+/// host replays. Under MDM's off, the prompt that adopts that host is never answered by it.
+#[tokio::test]
+async fn a_mode_a_left_host_replays_is_judged_before_its_agent_is_reached_under_mdm_off() {
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let (mut daemon, mut rpc) = proven_daemon("mdmreplay", fake).await;
+    let session = new_session(&daemon).await;
+    let first = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    rpc.call("session/prompt", first).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    let later = json!({"sessionId": session,
+                       "prompt": [{"type": "text", "text": "set-mode-after: 1500 full-access"}]});
+    rpc.send("session/prompt", later).await;
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    daemon.sigterm();
+    drop(rpc);
+    assert!(alive(harness_pid), "SIGTERM ended the agent");
+    // The harness moves into full access with no daemon attached.
+    tokio::time::sleep(Duration::from_millis(2000)).await;
+    record_mdm_off(&daemon);
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let ask = json!({"sessionId": session, "prompt": [{"type": "text", "text": "whoami"}]});
+    let r = rpc.reply("session/prompt", ask).await;
+    let said = daemon.events(&session).iter().map(Value::to_string).collect::<String>();
+    assert!(
+        !said.contains(&format!("pid={harness_pid}")),
+        "the full-access agent the host replayed answered a prompt under the managed off: {r}"
+    );
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the full-access agent the host replayed ran on under the managed off"
+    );
+}
