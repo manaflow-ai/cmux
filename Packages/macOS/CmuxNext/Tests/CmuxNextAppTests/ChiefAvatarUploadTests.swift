@@ -116,10 +116,11 @@ import UniformTypeIdentifiers
         let good = try Self.picture(.png, width: 50, height: 50, in: folder)
         let bad = folder.appending(path: "bad.png")
         try Data("not a picture".utf8).write(to: bad)
-        async let first: Void = uploads.store(from: good, for: key, over: "orb")
-        async let second: Void = uploads.store(from: bad, for: key, over: "orb")
-        try await first
-        await #expect(throws: ChiefAvatarUploads.Refusal.unreadable) { try await second }
+        // Both begin before either lands: the refused one is the newer.
+        let first = Task { try await uploads.store(from: good, for: key, over: "orb") }
+        let second = Task { try await uploads.store(from: bad, for: key, over: "orb") }
+        try await first.value
+        await #expect(throws: ChiefAvatarUploads.Refusal.unreadable) { try await second.value }
         #expect(uploads.worn(of: key, over: "orb").flatMap { Self.pixels($0.still)?.0 } == 50)
     }
 
