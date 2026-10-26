@@ -53,7 +53,7 @@ extension BrowserPageService {
                 case let refusal?:
                     throw ControlError(code: refusal, message: Self.refusalMessage(refusal), data: ["selector": .string(selector)])
                 }
-            },
+            }.withDeadline(.fixed(Self.uploadDeadline)),
             .async("browser.page.downloads") { call in
                 let limit = call.request.params["limit"]?.intValue
                 let answer = try await engine.downloads(BrowserPageDownloadQuery(tabID: try Self.downloadTab(call), limit: limit))
@@ -89,9 +89,13 @@ extension BrowserPageService {
                     result["path"] = .string(try Self.copyDownload(from: source, to: target))
                 }
                 return .object(result)
-            },
+            }.withDeadline(.fixed(.milliseconds(Self.downloadWaitMaxMs) + .seconds(5))),
         ]
     }
+
+    /// An upload's limit past the control plane's: the page's first load (15 s at most), the longest chooser
+    /// wait (60 s) and the page-script fallback. The call's own waits end it sooner.
+    static let uploadDeadline: Duration = .seconds(90)
 
     /// How long `browser.page.upload` waits for a chooser after its click: `params.timeout_ms`, 3 s by default.
     static func uploadChooserWait(_ call: ControlCall) -> Int {

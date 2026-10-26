@@ -15,15 +15,19 @@ import Testing
         let operations = Mutex<[BrowserPageOperation]>([])
         let queries = Mutex<[BrowserPageDownloadQuery]>([])
         let download: BrowserPageDownload?
+        /// How long each answer takes (a chooser that opens late, a download that runs).
+        let delay: Duration
 
-        init(chooser: String, fileInput: Bool = false, download: BrowserPageDownload? = nil) {
+        init(chooser: String, fileInput: Bool = false, download: BrowserPageDownload? = nil, delay: Duration = .zero) {
             self.chooser = chooser
             self.fileInput = fileInput
             self.download = download
+            self.delay = delay
         }
 
         func run(_ operation: BrowserPageOperation, tabID: String, url: String?) async throws -> JSONValue {
             operations.withLock { $0.append(operation) }
+            if delay > .zero { try await Task.sleep(for: delay) }
             if case .upload = operation {
                 return ["chooser": .string(chooser), "value": ["value": ["fileInput": .bool(fileInput)]]]
             }
@@ -32,6 +36,7 @@ import Testing
 
         func downloads(_ query: BrowserPageDownloadQuery) async throws -> BrowserPageDownloads {
             queries.withLock { $0.append(query) }
+            if delay > .zero { try await Task.sleep(for: delay) }
             guard query.wait != nil else { return .list([]) }
             return download.map(BrowserPageDownloads.ended) ?? .timedOut
         }
@@ -44,8 +49,9 @@ import Testing
         }
     }
 
-    func install(_ engine: ChooserEngine) -> ControlRouter {
-        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
+    func install(_ engine: ChooserEngine, requestDeadline: Duration = .seconds(2)) -> ControlRouter {
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(),
+                                   configuration: .init(requestDeadline: requestDeadline))
         BrowserPageService(engine: engine).install(on: router)
         var snapshot = ControlSnapshot.sample()
         let tab = ControlTabInfo(id: "tab_0123abcd", surface: "12", kind: "browser", title: "Form", url: "https://example.com/")
@@ -197,6 +203,22 @@ import Testing
 
         #expect(answer.controlError?.code == "io_error")
         #expect(FileManager.default.fileExists(atPath: paths[0]) && FileManager.default.fileExists(atPath: paths[1]))
+    }
+
+    /// An upload whose chooser takes its 3 s and a download that runs for minutes outlive the control plane's
+    /// request deadline (2 s in the app): both methods carry their own. Before, the router answered `timeout`
+    /// at 2 s, so a click that opened no chooser never said so and no real download could be waited for.
+    @Test func uploadAndDownloadWaitOutliveTheControlPlaneDeadline() async throws {
+        let (folder, paths) = try scratch(["a.txt"])
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let done = BrowserPageDownload(id: "AB12", filename: "a.txt", status: "finished", path: paths[0])
+        let router = install(ChooserEngine(chooser: "withdrawn", download: done, delay: .milliseconds(300)), requestDeadline: .milliseconds(50))
+
+        let upload = await call(router, "browser.page.upload", ["selector": "#nothing", "files": .array(paths.map(JSONValue.string))])
+        let wait = await call(router, "browser.page.download.wait", [:])
+
+        #expect(upload.controlError?.code == "no_file_chooser", "\(String(describing: upload.controlError))")
+        #expect(wait.controlError == nil, "\(String(describing: wait.controlError))")
     }
 
     @Test func aDownloadThatDidNotFinishFailsTheWaitWithItsRow() async throws {
