@@ -142,6 +142,7 @@ public nonisolated enum ActionCatalog {
         BackdropActionCatalog.self,
         PaneBackgroundActionCatalog.self,
         HibernationActionCatalog.self,
+        AutoArchiveActionCatalog.self,
         LayoutActionCatalog.self,
         HistoryActionCatalog.self,
         StashActionCatalog.self,

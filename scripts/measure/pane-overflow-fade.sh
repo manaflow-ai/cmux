@@ -4,7 +4,7 @@
 #     --ref <published SHA> --label measure --measurement
 #
 # The script intentionally runs no custom controller kind, host, or inline dispatch payload.
-# It discovers the red test commit from the published product branch, then captures the real
+# It selects the landed parent (or a test-first ancestor), then captures the real
 # AppKit presentation layer on a console-session measure worker. The source fence is dynamic so
 # the product fix can be rebased onto this measurement script PR without editing the proof.
 set -euo pipefail
@@ -40,25 +40,54 @@ PY_FETCH
 [ $? -eq 0 ] || die "bounded source fetch failed"
 FIXED_BLOB="$(git rev-parse "$HEAD_SHA:$PRODUCT_PATH")" || die "product path missing"
 [ "$FIXED_BLOB" = "$EXPECTED_FIXED_BLOB" ] || die "final product blob mismatch expected=$EXPECTED_FIXED_BLOB actual=$FIXED_BLOB"
-OLD_HEAD="$(git log "$HEAD_SHA" --format='%H' -- "$REGRESSION_PATH" | while read -r candidate; do
-  [ "$(git rev-parse "$candidate:$REGRESSION_PATH" 2>/dev/null || true)" = "$EXPECTED_RED_TEST_BLOB" ] || continue
-  [ "$(git rev-parse "$candidate:$PRODUCT_PATH" 2>/dev/null || true)" = "$EXPECTED_OLD_BLOB" ] || continue
-  printf '%s\n' "$candidate"
-  break
-done)"
-[ -n "$OLD_HEAD" ] || die "red regression commit with expected old test/product blobs not found"
-RED_SHA="$OLD_HEAD"
-BASE_SHA="$(git rev-parse "$RED_SHA^")" || die "red parent unavailable"
+[ "$(git rev-parse "$HEAD_SHA:$REGRESSION_PATH")" = "$EXPECTED_RED_TEST_BLOB" ] || die "final regression test blob changed"
+PARENT_SHA="$(git rev-parse "$HEAD_SHA^")" || die "final parent unavailable"
+TEST_OVERLAY_BLOB=""
+if [ "$(git rev-parse "$PARENT_SHA:$PRODUCT_PATH" 2>/dev/null || true)" = "$EXPECTED_OLD_BLOB" ]; then
+  # A normal squash has no test-first ancestor. Measure its real parent product,
+  # overlaying only the exact final regression so before/after run the same test.
+  BEFORE_MODE="parent-with-test-overlay"
+  BASE_SHA="$PARENT_SHA"
+  RED_SHA="$PARENT_SHA"
+  TEST_OVERLAY_BLOB="$EXPECTED_RED_TEST_BLOB"
+else
+  BEFORE_MODE="red-ancestor"
+  RED_SHA="$(git log "$HEAD_SHA" --format='%H' -- "$REGRESSION_PATH" | while read -r candidate; do
+    [ "$(git rev-parse "$candidate:$REGRESSION_PATH" 2>/dev/null || true)" = "$EXPECTED_RED_TEST_BLOB" ] || continue
+    [ "$(git rev-parse "$candidate:$PRODUCT_PATH" 2>/dev/null || true)" = "$EXPECTED_OLD_BLOB" ] || continue
+    printf '%s\n' "$candidate"
+    break
+  done)"
+  [ -n "$RED_SHA" ] || die "red regression commit with expected old test/product blobs not found"
+  BASE_SHA="$(git rev-parse "$RED_SHA^")" || die "red parent unavailable"
+  [ "$(git rev-parse "$RED_SHA:$REGRESSION_PATH")" = "$EXPECTED_RED_TEST_BLOB" ] || die "red test blob changed"
+fi
 RED_TREE="$(git rev-parse "$RED_SHA^{tree}")" || die "red tree unavailable"
 BASE_TREE="$(git rev-parse "$BASE_SHA^{tree}")" || die "base tree unavailable"
+BEFORE_TEST_BLOB="$(git rev-parse "$RED_SHA:$REGRESSION_PATH")" || die "before test path missing"
 [ "$(git rev-parse "$RED_SHA:$PRODUCT_PATH")" = "$EXPECTED_OLD_BLOB" ] || die "red product blob changed"
 [ "$(git rev-parse "$BASE_SHA:$PRODUCT_PATH")" = "$EXPECTED_OLD_BLOB" ] || die "base product blob changed"
-[ "$(git rev-parse "$RED_SHA:$REGRESSION_PATH")" = "$EXPECTED_RED_TEST_BLOB" ] || die "red test blob changed"
 git merge-base --is-ancestor "$RED_SHA" "$HEAD_SHA" || die "red is not an ancestor of final"
-echo "NATIVE_FADE_IDENTITIES base=$BASE_SHA base_tree=$BASE_TREE red=$RED_SHA red_tree=$RED_TREE head=$HEAD_SHA head_tree=$HEAD_TREE"
+IDENTITY_RECEIPT="NATIVE_FADE_IDENTITIES mode=$BEFORE_MODE base=$BASE_SHA base_tree=$BASE_TREE red=$RED_SHA red_tree=$RED_TREE head=$HEAD_SHA head_tree=$HEAD_TREE before_test_blob=$BEFORE_TEST_BLOB test_overlay_blob=${TEST_OVERLAY_BLOB:-none}"
+echo "$IDENTITY_RECEIPT"
+prepare_before_regression() {
+  local checkout="$1"
+  [ "$(git -C "$checkout" rev-parse HEAD)" = "$RED_SHA" ] || die "before checkout source changed"
+  [ -n "$TEST_OVERLAY_BLOB" ] || return 0
+  git show "$HEAD_SHA:$REGRESSION_PATH" > "$checkout/$REGRESSION_PATH"
+  [ "$(git -C "$checkout" hash-object "$REGRESSION_PATH")" = "$TEST_OVERLAY_BLOB" ] || die "regression overlay blob changed"
+}
+assert_measurement_checkout() {
+  local checkout="$1" source="$2"
+  [ "$(git -C "$checkout" rev-parse HEAD)" = "$source" ] || die "capture checkout HEAD changed"
+  git -C "$checkout" diff --cached --quiet || die "capture checkout index changed"
+  git -C "$checkout" diff --quiet -- . ":(exclude)$REGRESSION_PATH" || die "capture changed product or unrelated tracked files"
+  [ "$(git -C "$checkout" hash-object "$REGRESSION_PATH")" = "$EXPECTED_RED_TEST_BLOB" ] || die "capture regression test blob changed"
+}
 WORK="$(mktemp -d /tmp/nx-ellipsis-fade.XXXXXX)"
 OUT="$WORK/out"
 mkdir -p "$OUT"
+printf '%s\n' "$IDENTITY_RECEIPT" > "$OUT/source-identities.txt"
 cat > "$WORK/PaneMoreFadeFrameProbe.swift" <<'NX_FADE_PROBE'
 import AppKit
 @testable import CmuxNextApp
@@ -227,6 +256,8 @@ import Testing
 NX_FADE_PROBE
 git worktree add --detach "$WORK/before" "$RED_SHA"
 git worktree add --detach "$WORK/after" "$HEAD_SHA"
+prepare_before_regression "$WORK/before"
+assert_measurement_checkout "$WORK/before" "$RED_SHA"
 # These worktrees belong to this one attempt; keep them and their receipts on failure.
 for label in before after; do
   checkout="$WORK/$label"
@@ -239,13 +270,10 @@ for label in before after; do
     bash scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext PaneMoreFadeFrameProbe
   ) > "$OUT/$label-capture.log" 2>&1 || { cat "$OUT/$label-capture.log"; echo NATIVE_FADE_CAPTURE_FAILED; exit 1; }
   cat "$OUT/$label-capture.log"
-  (
-    cd "$checkout"
-    git diff --quiet && git diff --cached --quiet
-    [ "$(git rev-parse HEAD)" = "$source" ]
-  )
+  assert_measurement_checkout "$checkout" "$source"
 done
-# Run exactly the same behavioral regression at the test-only and fixed commits.
+# Run the exact same regression against the old and fixed products. The parent
+# mode keeps the old product intact and records its regression-only overlay.
 set +e
 (cd "$WORK/before" && bash scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext TabBarRestingControlsTests) > "$OUT/red.log" 2>&1
 RED_EXIT=$?
