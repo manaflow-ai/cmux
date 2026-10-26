@@ -5,6 +5,11 @@ import Observation
 public enum TeamRole: String, Codable, Hashable, Sendable {
     case admin, member
 
+    /// A role the server adds later reads as member: least privilege, never a failed list.
+    public init(from decoder: any Decoder) throws {
+        self = TeamRole(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .member
+    }
+
     /// The role as rows and the team page write it.
     public var title: String {
         switch self {
@@ -301,8 +306,10 @@ public enum TeamServiceError: Error, Equatable, Sendable {
         switch error?.code {
         case "team_has_active_subscription"?:
             return String(localized: "This team has an active subscription. Cancel it on cmux.com, then delete the team.")
-        case "forbidden"?, "last_admin"?:
+        case "forbidden"?:
             return String(localized: "Only team admins can do this.")
+        case "last_admin"?:
+            return String(localized: "A team must keep at least one admin.")
         case "team_not_found"?:
             return String(localized: "This team no longer exists.")
         case "unauthorized"?:

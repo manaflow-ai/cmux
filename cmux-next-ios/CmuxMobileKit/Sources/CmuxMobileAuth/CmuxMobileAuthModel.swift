@@ -230,9 +230,18 @@ public final class CmuxMobileAuthModel {
     /// Create Team, until it is `.loaded` (SPEC 7.1).
     public var teamList: TeamListState {
         var state = fetchedTeams
-        state.published(coordinator?.availableTeams.map { AppStore.AccountTeam(id: $0.id, name: $0.displayName) } ?? [])
+        // A list from the team API is the authority: the sign-in session's own
+        // list can still hold a team just deleted or its old name (its refresh
+        // keeps the last list on a failure), and every change here reads the
+        // team API again (create, join, rename, delete).
+        if !teamsFromTeamAPI {
+            state.published(coordinator?.availableTeams.map { AppStore.AccountTeam(id: $0.id, name: $0.displayName) } ?? [])
+        }
         return state
     }
+
+    /// The last team list came from the team API (not the sign-in service).
+    private var teamsFromTeamAPI = false
 
     /// This model's own team fetch: the coordinator's list starts empty and
     /// tolerates a failed fetch silently, so it cannot tell "no teams" from
@@ -256,6 +265,7 @@ public final class CmuxMobileAuthModel {
         if teamsUserID != user.id {
             teamsUserID = user.id
             fetchedTeams.reset()
+            teamsFromTeamAPI = false
         } else if fetchedTeams.isLoaded, !force {
             return
         }
@@ -278,6 +288,7 @@ public final class CmuxMobileAuthModel {
                 let directory = try await webTeams.listTeams()
                 guard teamsUserID == user.id else { return }
                 fetchedTeams.fetched(directory.teams.map(\.accountTeam))
+                teamsFromTeamAPI = true
                 return
             } catch is CancellationError {
                 return
@@ -294,6 +305,7 @@ public final class CmuxMobileAuthModel {
             }
             guard teamsUserID == user.id else { return }
             fetchedTeams.fetched(list)
+            teamsFromTeamAPI = false
         } catch {
             guard teamsUserID == user.id else { return }
             authModelLog.error("team list failed: \(String(describing: type(of: error)), privacy: .public)")
@@ -403,8 +415,22 @@ public final class CmuxMobileAuthModel {
     public func createTeam(named name: String) async throws -> AppStore.AccountTeam {
         if isMock { return AppStore.AccountTeam(id: "team-\(UUID().uuidString.prefix(8))", name: name, role: .admin) }
         guard let coordinator else { throw AuthError.unauthorized }
-        guard let webTeams else { throw TeamServiceError.unreachable }
-        let team = try await webTeams.createTeam(named: name)
+        let team: AppStore.AccountTeam
+        do {
+            guard let webTeams else { throw TeamServiceError.unreachable }
+            team = try await webTeams.createTeam(named: name)
+        } catch TeamServiceError.unreachable {
+            // No team API for this build (a staging or device build whose sign-in
+            // project's web origin is a local dev server) or it is down: the
+            // mobile service creates the team, also with you as its admin.
+            guard let apiBase else { throw TeamServiceError.unreachable }
+            authModelLog.info("team API unreachable: creating the team through the mobile service")
+            let creation = ServiceTeamCreation(apiBase: apiBase)
+            let tokens = try await coordinator.currentTokens()
+            let (data, response) = try await URLSession.shared.data(for: creation.request(accessToken: tokens.accessToken, name: name))
+            let created = try creation.team(from: data, status: (response as? HTTPURLResponse)?.statusCode ?? 0)
+            team = AppStore.AccountTeam(id: created.id, name: created.name, role: .admin)
+        }
         // The server selected it; the sign-in session's list and selection follow.
         await coordinator.refreshTeams()
         try? await coordinator.selectTeam(id: team.id)
@@ -448,6 +474,7 @@ public final class CmuxMobileAuthModel {
         guard let stack, let coordinator else { throw AuthError.unauthorized }
         try await stack.acceptTeamInvitation(code: code)
         await coordinator.refreshTeams()
+        await loadTeams(force: true)
     }
 
     /// Errors from invite-link creation.
@@ -580,6 +607,7 @@ public final class CmuxMobileAuthModel {
         }
         teamsUserID = nil
         fetchedTeams.reset()
+        teamsFromTeamAPI = false
         if isMock {
             mockSignedIn = false
             return

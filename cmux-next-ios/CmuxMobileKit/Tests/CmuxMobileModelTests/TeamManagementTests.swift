@@ -62,6 +62,24 @@ private let memberPermissions = #"{"updateTeam":false,"deleteTeam":false,"invite
         #expect(request.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == "refresh-1")
     }
 
+    @Test func anUnknownRoleReadsAsMemberNotAFailedList() async throws {
+        let server = FakeTeamServer()
+        server.answer("GET", "/api/teams", body: """
+        {"teams":[{"id":"t1","displayName":"A","profileImageUrl":null,"role":"owner","permissions":{"updateTeam":true}}],"selectedTeamId":null}
+        """)
+        let directory = try await server.client().listTeams()
+        #expect(directory.teams.first?.role == .member)
+        // A permission missing from the answer reads as not allowed.
+        #expect(directory.teams.first?.permissions == TeamPermissions(updateTeam: true))
+    }
+
+    @Test func aCancelledRequestIsCancellationNotAnOutage() async {
+        let client = WebTeamClient(base: URL(string: "https://cmux.example")!, credentials: { ("a", "r") }) { _ in
+            throw URLError(.cancelled)
+        }
+        await #expect(throws: CancellationError.self) { _ = try await client.listTeams() }
+    }
+
     @Test func createsATeamThroughTheWebBackendAsItsAdmin() async throws {
         let server = FakeTeamServer()
         server.answer("POST", "/api/teams", status: 201, body: #"{"team":{"id":"t9","displayName":"New team"}}"#)
@@ -137,6 +155,8 @@ private let memberPermissions = #"{"updateTeam":false,"deleteTeam":false,"invite
         server.answer("GET", "/api/teams", status: 404, body: "<html>Not found</html>")
         server.answer("GET", "/api/teams/t3", status: 502, body: "<html>Bad gateway</html>")
         server.failConnection("POST", "/api/teams")
+        // An outage with a team API error body is still an outage (the caller falls back).
+        server.answer("GET", "/api/teams/t4", status: 503, body: #"{"error":{"code":"service_unavailable","message":"The service is temporarily unavailable."}}"#)
         let client = server.client()
         await #expect(throws: TeamServiceError.server(status: 409, code: "team_has_active_subscription",
                                                       message: "Cancel the team subscription before deleting the team.")) {
@@ -151,6 +171,7 @@ private let memberPermissions = #"{"updateTeam":false,"deleteTeam":false,"invite
         await #expect(throws: TeamServiceError.unreachable) { _ = try await client.listTeams() }
         await #expect(throws: TeamServiceError.unreachable) { _ = try await client.team(id: "t3") }
         await #expect(throws: TeamServiceError.unreachable) { _ = try await client.createTeam(named: "x") }
+        await #expect(throws: TeamServiceError.unreachable) { _ = try await client.team(id: "t4") }
         server.answer("GET", "/api/teams", body: #"{"teams":"nope"}"#)
         await #expect(throws: TeamServiceError.malformed) { _ = try await client.listTeams() }
     }

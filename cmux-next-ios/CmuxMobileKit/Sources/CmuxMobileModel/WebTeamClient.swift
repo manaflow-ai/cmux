@@ -80,16 +80,21 @@ public struct WebTeamClient: TeamManaging {
             (data, response) = try await transport(request(method, path, body: body, tokens: tokens))
         } catch is CancellationError {
             throw CancellationError()
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
         } catch {
             throw TeamServiceError.unreachable
         }
         guard let status = (response as? HTTPURLResponse)?.statusCode else { throw TeamServiceError.malformed }
         guard (200..<300).contains(status) else {
+            // Any 5xx is an outage (`service_unavailable`, `authentication_unavailable`,
+            // a gateway page): callers fall back as for no answer.
+            if status >= 500 { throw TeamServiceError.unreachable }
             if let failure = try? JSONDecoder().decode(ErrorResponse.self, from: data) {
                 throw TeamServiceError.server(status: status, code: failure.error.code, message: failure.error.message ?? "")
             }
             // No team API answer at all (a gateway page, a server too old for the route).
-            throw status >= 500 || status == 404 ? TeamServiceError.unreachable : TeamServiceError.server(status: status, code: "", message: "")
+            throw status == 404 ? TeamServiceError.unreachable : TeamServiceError.server(status: status, code: "", message: "")
         }
         do {
             return try JSONDecoder().decode(Response.self, from: data)
