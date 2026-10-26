@@ -215,3 +215,28 @@ jobs:
           path: ${{ runner.temp }}/macos-pool-load.json
           retention-days: 1
           if-no-files-found: ignore
+
+      # CLA Assistant and CLA policy guard fail when the GITHUB_TOKEN budget is
+      # spent and stay red until someone re-runs them. Every scheduled sweep,
+      # whether or not the pool snapshot was fresh, re-runs the ones that failed
+      # for that reason once the budget is back (scripts/ci/cla_quota_rerun.py).
+      # Cost: one free rate_limit read of GITHUB_TOKEN; reads and re-runs on the
+      # App's own budget. Never fails the sweep.
+      - name: Check out the CLA quota re-run
+        if: ${{ !cancelled() && github.event_name == 'schedule' && steps.glaeda-token.outputs.token != '' }}
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: cla-quota-rerun
+          persist-credentials: false
+          sparse-checkout: scripts/ci/cla_quota_rerun.py
+          sparse-checkout-cone-mode: false
+
+      - name: Re-run CLA checks the spent budget failed
+        if: ${{ !cancelled() && github.event_name == 'schedule' && steps.glaeda-token.outputs.token != '' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+          RATE_TOKEN: ${{ github.token }}
+        run: python3 cla-quota-rerun/scripts/ci/cla_quota_rerun.py
