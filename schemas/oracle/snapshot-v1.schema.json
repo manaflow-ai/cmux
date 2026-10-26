@@ -3360,14 +3360,14 @@
           ]
         },
         "crashes": {
-          "description": "Child-process exits since case start, by kind.",
+          "description": "Child-process exits by kind: totals since the app launched (holder and daemon: since the daemon's terminal loss log began). The runner and I17 take the rise between checkpoints.",
           "x-oracle-source": {
             "method": "debug.oracle.snapshot",
             "path": "/crashes",
             "v0": null,
             "provider": "OracleCrashesFacet",
             "task": "p15-oracle-188",
-            "from": "CEFChildProcessMonitor, CrashRecoveryService and holder exit records since case start"
+            "from": "CEFChildProcessMonitor and CEF's renderer ends (BrowserCrashLog), CrashRecoveryService's previous run, and the daemon's oracle-state childExits (terminal-losses.jsonl)"
           },
           "oneOf": [
             {
@@ -3384,37 +3384,45 @@
                     "renderer": {
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/crashes/counts/renderer"},
                       "type": "integer",
-                      "minimum": 0
+                      "minimum": 0,
+                      "x-oracle-counter": "monotonic"
                     },
                     "gpu": {
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/crashes/counts/gpu"},
                       "type": "integer",
-                      "minimum": 0
+                      "minimum": 0,
+                      "x-oracle-counter": "monotonic"
                     },
                     "browser": {
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/crashes/counts/browser"},
                       "type": "integer",
-                      "minimum": 0
+                      "minimum": 0,
+                      "x-oracle-counter": "monotonic"
                     },
                     "utility": {
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/crashes/counts/utility"},
                       "type": "integer",
-                      "minimum": 0
+                      "minimum": 0,
+                      "x-oracle-counter": "monotonic"
                     },
                     "daemon": {
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/crashes/counts/daemon"},
                       "type": "integer",
-                      "minimum": 0
+                      "minimum": 0,
+                      "x-oracle-counter": "monotonic"
                     },
                     "holder": {
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/crashes/counts/holder"},
                       "type": "integer",
-                      "minimum": 0
+                      "minimum": 0,
+                      "x-oracle-counter": "monotonic"
                     }
                   }
                 },
                 "exits": {
+                  "description": "the exits the app saw, oldest first; I17 reads the entries past the previous checkpoint's from the raw checkpoint",
                   "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/crashes/exits"},
+                  "x-oracle-volatile": {"reason": "process-wide: it lists every exit since the app launched, so it depends on the cases the session ran first; only the counts' rises are per case", "task": "p15-oracle-188"},
                   "type": "array",
                   "x-oracle-order": "sequence",
                   "items": {

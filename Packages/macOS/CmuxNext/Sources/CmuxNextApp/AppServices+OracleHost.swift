@@ -3,6 +3,7 @@ import CmuxNextAgentActivity
 import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -15,14 +16,14 @@ import CmuxNextSidebar
 import CmuxNextTabs
 import CmuxNextTerminal
 import CmuxNextTerminalFind
+import CmuxNextWakeups
 import CryptoKit
 import Foundation
 
 /// The app's oracle facet providers (p15-oracle.md section 3A), registered as `debug.oracle.*` in DEV and
 /// bench builds only: a Release build compiles neither this conformance nor any provider in the list. The
 /// facet tasks (p15-oracle-027, 033 to 044, 188, 215, 216) add theirs to the list; until then each facet
-/// answers not-comparable with its task. The router adds `topology` itself (OracleTopologyFacet).
-extension AppServices: OracleHost {
+/// answers not-comparable with its task. The router adds `topology` itself (OracleTopologyFacet).extension AppServices: OracleHost {
     func makeOracleFacets() -> OracleFacets { makeOracleFacets(lanes: [AgentLaneStore.shared, AgentLaneStore.chief]) }
 
     /// - Parameter lanes: The acpmux lane mirrors the agents facet reads a session's lane from, the first that has it
@@ -77,6 +78,23 @@ extension AppServices: OracleHost {
             // Agent chat tabs with acpmux's lane for their session, and each Home Messages view's conversation.
             OracleAgentsFacet { [weak self] in
                 self?.oracleAgents { session in lanes.lazy.compactMap { $0.lane(session) }.first }
+            },
+            // Child exits by kind: the run this launch follows, Chromium's crash log, and the daemon's loss log.
+            OracleCrashesFacet(app: { [weak self] in
+                guard let self else { return nil }
+                let log = cache.chromium.built?.crashLog, previous = crashRecovery.recovery.previous
+                return OracleCrashesFacet.AppExits(previous: previous.map { .init(signal: $0.signal, raisedException: $0.exception != nil) },
+                                                   records: log?.records ?? [], total: log?.total ?? 0)
+            }, daemon: { [weak self] () async throws(OracleFacetError) -> [String: Int]? in
+                try await OracleCrashesFacet.daemonChildExits(self?.daemon.connection)
+            }),
+            // Live objects from their owners' tables; Chromium's only once it was built (the read never starts it).
+            OracleLiveObjectsFacet { [weak self] in
+                guard let self, daemon.store.isLoaded else { return nil }
+                return OracleLiveObjectsFacet.Reading(
+                    stores: machines.daemons.map(\.store), cefBrowsers: cache.chromium.built?.liveBrowserCount ?? 0,
+                    pageViews: cache.browsers.count, terminals: cache.terminals.count,
+                    subscriptions: mainWork.observations.snapshot().reduce(0) { $0 + $1.armed }, tasks: mainWork.wakeUps.count)
             },
         ])
     }

@@ -791,7 +791,8 @@ object{
   switches:map<string,string>,
   terminalAttach:object{attached:uint64,detached:uint64,dead:uint64},
   liveObjects:map<string,uint64>,
-  panicLog:object{path:string|null,bytes:uint64}
+  panicLog:object{path:string|null,bytes:uint64},
+  childExits:object{daemon:uint64,holder:uint64}
 }
 ```
 
@@ -808,11 +809,16 @@ the same locked state as `session`; `subscriptions` is read just after it.
 `terminalAttach` counts the terminal catalog: `dead`
 terminals have no process, `attached` ones are shown in at least one pane
 tab, `detached` ones are live with no placement. `liveObjects` counts runtime
-objects: `browsers`, `panes`, `screens`, `subscriptions` (live event
-subscriptions), `terminals` (the terminal catalog), `views` (pane tab
-placements) and `workspaces`. `panicLog` is the owner's panic log
-(`owner-panics-<session>.jsonl` at the state root) and its length in bytes;
-`path` is null when there is no state root. Every map has sorted keys.
+objects: `browsers`, `holders` (live terminals hosted out of process),
+`panes`, `screens`, `subscriptions` (live event subscriptions), `terminals`
+(the terminal catalog), `views` (pane tab placements) and `workspaces`.
+`panicLog` is the owner's panic log (`owner-panics-<session>.jsonl` at the
+state root) and its length in bytes; `path` is null when there is no state
+root. `childExits` counts the exits the session's `terminal-losses.jsonl`
+records, in the rotated file too (p15-oracle task 188, invariant I17):
+`holder` is each lost terminal host and each `host_replaced` line, `daemon`
+each `daemon_signal` line (an owner stopped by a termination signal); both
+are 0 with no terminal-host root. Every map has sorted keys.
 
 Errors: `oracle state requires a trusted local connection`, `bad request: ...`.
 

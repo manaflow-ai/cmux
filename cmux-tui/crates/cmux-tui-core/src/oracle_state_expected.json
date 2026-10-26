@@ -1,7 +1,12 @@
 {
+  "childExits": {
+    "daemon": 0,
+    "holder": 0
+  },
   "journal_head": true,
   "liveObjects": {
     "browsers": 0,
+    "holders": 0,
     "panes": 3,
     "screens": 2,
     "subscriptions": 0,

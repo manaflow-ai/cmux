@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 
-use super::{launch_switch_arms, oracle_state, runtime_counts};
+use super::{child_exits, launch_switch_arms, oracle_state, runtime_counts};
 use crate::{Mux, SplitDir, SurfaceOptions};
 
 const SESSION: &str = "oracle-state-script";
@@ -82,8 +82,16 @@ fn oracle_state_reports_switch_arms_and_sorted_keys() {
     let alpha = reply.find("\"alpha\"").unwrap();
     assert!(alpha < reply.find("\"zeta\"").unwrap(), "{reply}");
     let live = reply.find("\"liveObjects\":{").unwrap();
-    let keys =
-        ["browsers", "panes", "screens", "subscriptions", "terminals", "views", "workspaces"];
+    let keys = [
+        "browsers",
+        "holders",
+        "panes",
+        "screens",
+        "subscriptions",
+        "terminals",
+        "views",
+        "workspaces",
+    ];
     let found: Vec<_> =
         keys.iter().map(|key| reply[live..].find(&format!("\"{key}\"")).unwrap()).collect();
     assert!(found.windows(2).all(|pair| pair[0] < pair[1]), "{reply}");
@@ -106,4 +114,52 @@ fn a_dead_terminal_counts_as_dead_not_attached() {
     surface.mark_dead_for_test();
     let after = mux.with_state(runtime_counts).0;
     assert_eq!((after.attached, after.detached, after.dead), (0, 0, 1));
+}
+
+/// I17's daemon source (p15-oracle-188): the loss log next to the record
+/// directory counts holder losses and replaced holders as holder exits, the
+/// owner's termination signals as daemon exits, in the rotated file too; a
+/// respawn, a torn line or a missing log is no exit.
+#[test]
+fn child_exits_count_the_loss_log_by_kind() {
+    let dir = TempDir::new();
+    let root = dir.0.join("terminal-hosts-x");
+    assert_eq!(child_exits(None), BTreeMap::from([("daemon", 0), ("holder", 0)]));
+    assert_eq!(child_exits(Some(&root)), BTreeMap::from([("daemon", 0), ("holder", 0)]));
+    let line = |value: Value| format!("{value}\n");
+    let current = [
+        line(json!({"terminal_id": "t1", "end": {"kind": "host_lost"}})),
+        line(json!({"event": "terminal_respawned", "terminal_id": "t1"})),
+        line(json!({"event": "host_replaced", "terminal_id": "t2"})),
+        line(json!({"event": "daemon_signal", "signal": 15})),
+        "{\"terminal_id\": \"t3\", \"end\"".to_string(),
+    ]
+    .concat();
+    std::fs::write(dir.0.join("terminal-losses.jsonl"), current).unwrap();
+    std::fs::write(
+        dir.0.join("terminal-losses.jsonl.1"),
+        line(json!({"terminal_id": "t0", "end": {"kind": "host_lost"}})),
+    )
+    .unwrap();
+    assert_eq!(child_exits(Some(&root)), BTreeMap::from([("daemon", 1), ("holder", 3)]));
+}
+
+/// A state root of one test, removed after it.
+struct TempDir(std::path::PathBuf);
+
+impl TempDir {
+    fn new() -> Self {
+        let mut bytes = [0u8; 8];
+        getrandom::fill(&mut bytes).expect("random");
+        let name: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+        let dir = std::env::temp_dir().join(format!("cmux-oracle-state-{name}"));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        Self(dir)
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
