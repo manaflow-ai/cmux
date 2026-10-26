@@ -32,8 +32,16 @@ Launches the tagged app itself with the brief's no-activate environment and
 a scratch CMUX_NEXT_CONFIG_FILE; the tag's app must not be running. Quits
 the app it started at the end (the tag's daemon and its terminals stay; stop
 them as the brief's cleanup says). Exit 1 on any failed check.
+
+Before each quit (the quit mode and the final stop), `leaks` on the app
+(scripts/fuzz/macos-matrix/leakcheck.py) records the leaked blocks, bytes and
+top types in the scratch leaks.json, with each run's output beside it.
+Report only: a leak is never a failed check. --no-leaks skips it.
 """
 import argparse, glob, json, os, random, re, signal, socket, subprocess, sys, tempfile, time
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fuzz", "macos-matrix"))
+import leakcheck  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -45,6 +53,7 @@ parser.add_argument("--disconnect", action="store_true", help="also drop views w
 parser.add_argument("--long-top", type=float, default=0, metavar="SECONDS",
                     help="instead of relaunch rounds: a fresh top in its own workspace, compared with the daemon every 2 s for SECONDS")
 parser.add_argument("--app", help="tagged .app (default: found in DerivedData)")
+parser.add_argument("--no-leaks", action="store_true", help="skip the leaks report before each quit")
 opts = parser.parse_args()
 
 APP = opts.app or next(iter(sorted(glob.glob(os.path.expanduser(
@@ -65,6 +74,7 @@ CLI_ENV = {**BASE_ENV, "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1"}
 TOKENS = random.SystemRandom()
 failures = []
 slow = []
+leak_rows = []
 app = None
 
 
@@ -134,6 +144,17 @@ def stop(sig):
             app.wait()
 
 
+def check_leaks(label):
+    """Report only: `leaks` on the running app into the scratch leaks.json."""
+    if opts.no_leaks or not app or app.poll() is not None:
+        return
+    row = {"label": label, **leakcheck.run_local(app.pid, os.path.join(SCRATCH, f"leaks-{len(leak_rows) + 1}.txt"))}
+    leak_rows.append(row)
+    with open(os.path.join(SCRATCH, "leaks.json"), "w") as out:
+        json.dump(leak_rows, out, indent=1)
+    print(f"  {label} {leakcheck.summary_line(row)}")
+
+
 def end(mode):
     """End the app the way the mode says; the daemon keeps running."""
     if mode == "kill":
@@ -145,6 +166,7 @@ def end(mode):
         except subprocess.TimeoutExpired:
             stop(signal.SIGKILL)
     else:
+        check_leaks(f"before quit {launches}")
         rpc("action.run", {"id": "quit"})
         try:
             app.wait(20)
@@ -492,6 +514,7 @@ def main():
     launch()
     if opts.long_top:
         long_top(opts.long_top)
+        check_leaks("before the final quit")
         stop(signal.SIGTERM)
         print(f"{len(failures)} failed checks; scratch {SCRATCH}")
         sys.exit(1 if failures else 0)
@@ -517,9 +540,12 @@ def main():
             check_all(f"round {round_index + 1} after {mode}")
             if opts.disconnect:
                 check_disconnect(f"round {round_index + 1} after {mode}")
+    check_leaks("before the final quit")
     stop(signal.SIGTERM)
     for note in slow:
         print(f"  slow: {note}")
+    for row in leak_rows:
+        print(f"  {row['label']} {leakcheck.summary_line(row)}")
     print(f"{len(failures)} failed checks; scratch {SCRATCH}")
     for failure in failures:
         print(f"  {failure}")
