@@ -204,7 +204,8 @@ export class SubagentFold {
           if (update.kind === "execute") this.shellCalls.add(key);
           else this.shellCalls.delete(key);
         }
-        const shell = update.kind === "execute" || (update.kind === undefined && key !== undefined && this.shellCalls.has(key));
+        const shell =
+          update.kind === "execute" || (update.kind === undefined && key !== undefined && this.shellCalls.has(key));
         if (shell) owner.actionShell = true;
         else delete owner.actionShell;
       }

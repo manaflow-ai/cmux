@@ -804,7 +804,10 @@ describe("the tray tells the truth", () => {
     );
     expect(fold.all().find((one) => one.id === "a")!.actionShell).toBeUndefined();
     // Its own later update (no kind) keeps the shell call's provenance.
-    feed({ sessionUpdate: "tool_call", toolCallId: "t6", title: "ls", kind: "execute", status: "pending" }, { subagent: "a" });
+    feed(
+      { sessionUpdate: "tool_call", toolCallId: "t6", title: "ls", kind: "execute", status: "pending" },
+      { subagent: "a" },
+    );
     feed(
       { sessionUpdate: "tool_call_update", toolCallId: "t6", title: "ls -la", status: "in_progress" },
       { subagent: "a" },
