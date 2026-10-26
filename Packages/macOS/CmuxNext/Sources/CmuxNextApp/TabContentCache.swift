@@ -136,6 +136,9 @@ final class TabContentCache {
     var defersRestoredPages = false
     /// Tabs whose deferred page the user started.
     var startedDeferred: Set<String> = []
+    /// Tabs whose deferred page waits for the launch order (`deferredPage`), not for the person, with the tab
+    /// node that starts it when it shows: held here, as `node(for:)` holds nodes weakly.
+    var launchDeferredNodes: [String: VisibilityNode] = [:]
     /// The launch read every browser tab's page waits for before an engine makes it (the browser
     /// profiles, p08-startup-028); nil: none.
     var enginesAwait: LaunchReadEvent?
@@ -311,17 +314,18 @@ final class TabContentCache {
             return nil
         }
         if let page = appPage(for: tab, url: url) { return page }
-        if let page = deferredPage(tab, url: url) { return page }  // after crashes, or hidden at launch (p08-startup-040)
+        let origin = launchOrigin(of: tab)  // read once: the deferral and the page made now agree (p08-startup-040)
+        if let page = deferredPage(tab, url: url, origin: origin) { return page }  // after crashes, or hidden at launch
         if let read = enginesAwait, !read.isSignaled { return awaitLaunchRead(read, key) }
         guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: key, url: url), tab) }
         if let reason = browserTabs.cefUnavailable() { return fallBack(tab, url: url, reason: reason) }
-        if !pendingBrowsers.contains(key), let page = ChromiumNewTabNow(cache: self).page(tab, url: url) { return tracked(install(page, for: key), tab) }
+        if !pendingBrowsers.contains(key), let page = ChromiumNewTabNow(cache: self).page(tab, url: url, origin: origin) { return tracked(install(page, for: key), tab) }
         guard pendingBrowsers.insert(key).inserted, cef.notePoint("page_task") else { return nil }
         Task {
             defer { pendingBrowsers.remove(key) }
             let page: any BrowserTab
             do {
-                page = try await makeCEFTab(cef.noted("history", await browserTabs.historyStarts.chromium(tab, cef.noted("configured", await chromiumConfiguration(for: tab, key: key, url: url)), cache: self)))
+                page = try await makeCEFTab(cef.noted("history", await browserTabs.historyStarts.chromium(tab, cef.noted("configured", await chromiumConfiguration(for: tab, key: key, url: url, origin: origin)), cache: self)))
             } catch {
                 guard let tab = browserTabs.tabModel(key), browsers[key] == nil else { return }
                 _ = fallBack(tab, url: url, reason: browserTabs.cefUnavailable() ?? .startFailed(String(describing: error)))
@@ -371,11 +375,11 @@ final class TabContentCache {
         return RemoteRelayPolicy.remoteBrowserURL(tab.url)
     }
 
-    /// The Chromium configuration of `tab` showing `url`, with its
+    /// The Chromium configuration of `tab` showing `url`, made with `origin`, with its
     /// remote-localhost store. A failed proxy start leaves the page blank.
-    private func chromiumConfiguration(for tab: TabModel, key: String, url: URL?) async -> BrowserTabConfiguration {
+    private func chromiumConfiguration(for tab: TabModel, key: String, url: URL?, origin: BrowserTabOrigin) async -> BrowserTabConfiguration {
         await chromiumConfiguration(for: tab, base: BrowserTabConfiguration(id: BrowserTabID(rawValue: key), profile: browserProfile?(key) ?? .default,
-                                                                            initialURL: url, origin: pageOrigin(of: tab)))
+                                                                            initialURL: url, origin: origin))
     }
 
     /// Re-creates Chromium page `key` in the other remote-localhost store
@@ -388,7 +392,7 @@ final class TabContentCache {
         browsers.removeValue(forKey: key)?.close()
         Task {
             defer { pendingBrowsers.remove(key) }
-            guard let page = try? await makeCEFTab(await chromiumConfiguration(for: tab, key: key, url: url)) else { return }
+            guard let page = try? await makeCEFTab(await chromiumConfiguration(for: tab, key: key, url: url, origin: .user)) else { return }
             install(page, for: key)
             browserTabs.track(page, tabID: key)
             onBrowserReady?(key)
@@ -515,7 +519,7 @@ final class TabContentCache {
         if displacing { createTabs.released(key) }
         if let owner = ledger.remove(key), displacing { presenters[owner]?.value?.surfaceWasDisplaced(key) }
         applyLifecycle(lifecycle.send(.removed(key)))
-        pendingMounts[key] = nil; framedStandIns.remove(key); pendingBrowsers.remove(key); awaitingRead.remove(key)
+        pendingMounts[key] = nil; framedStandIns.remove(key); pendingBrowsers.remove(key); awaitingRead.remove(key); launchDeferredNodes[key] = nil
         hibernation?.forget(key); pageLifecycle?.remove(key)
         agentMarks.forget(key)
         pageRequests.services?.remoteViewPages.forget(key)

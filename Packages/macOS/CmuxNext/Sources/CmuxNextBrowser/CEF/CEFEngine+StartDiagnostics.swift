@@ -1,3 +1,5 @@
+import CmuxNextCompat
+
 /// Chromium's start steps and spare windows as `debug.cef` reports them.
 extension CEFEngine {
     /// Records `name` once in the start marks (the first Chromium page's

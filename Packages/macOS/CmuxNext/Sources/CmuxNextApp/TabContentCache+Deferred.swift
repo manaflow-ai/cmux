@@ -7,16 +7,32 @@ import CmuxNextDaemon
 /// session restore loads the visible tab first, chrome/browser/sessions/tab_loader.cc; the order is the
 /// Chromium slot's ``CEFLaunchDeferral``, one deferral path, this one).
 extension TabContentCache {
-    /// The deferred page `tab` shows now, nil when its page is made now.
-    func deferredPage(_ tab: TabModel, url: URL?) -> BrowserEntry? {
+    /// The deferred page `tab` shows now, nil when its page is made now. `origin` is ``launchOrigin(of:)`` read in
+    /// the same turn, which the page made now gets too: a page whose start was not deferred never waits for
+    /// startup complete, so it never waits on the completion its visible pane holds open.
+    func deferredPage(_ tab: TabModel, url: URL?, origin: BrowserTabOrigin) -> BrowserEntry? {
         let key = tab.id
         if defersRestoredPages, !startedDeferred.contains(key), !browserTabs.wasOpenedHere(tab) { return deferred(tab, url: url) }
-        guard tab.browserEngine == BrowserEngineTag.cef.rawValue, pageOrigin(of: tab) == .restoreHidden else { return nil }
-        let entry = deferred(tab, url: url, notice: nil), page = entry.tab
-        chromium.launchOrder.startHidden(when: node(for: key)) { [weak self, weak page] in
+        guard origin == .restoreHidden else { return nil }
+        let entry = deferred(tab, url: url, notice: nil), page = entry.tab, tabNode = node(for: key)
+        launchDeferredNodes[key] = tabNode  // its start when it shows lives with the node
+        chromium.launchOrder.startHidden(when: tabNode) { [weak self, weak page] in
             if let page, self?.existingBrowser(key)?.tab === page { page.reload() }
         }
         return entry
+    }
+
+    /// The origin of a page `browser(for:)` makes now for `tab`: ``pageOrigin(of:)`` for a Chromium tab, else `.user`.
+    func launchOrigin(of tab: TabModel) -> BrowserTabOrigin {
+        tab.browserEngine == BrowserEngineTag.cef.rawValue ? pageOrigin(of: tab) : .user
+    }
+
+    /// Starts tab `key`'s launch-deferred page now, for a command, a script or an agent (``BrowserTabOrigin/automation``
+    /// starts Chromium at once); false when its page is no launch-deferred one (a crash deferral waits for the person).
+    func startLaunchDeferred(_ key: String) -> Bool {
+        guard launchDeferredNodes[key] != nil, let page = browsers[key]?.tab as? DeferredBrowserTab else { return false }
+        page.reload()
+        return true
     }
 
     /// The origin of a page made now for `tab`: a restored tab's (in the daemon's launch snapshot, not opened
@@ -40,6 +56,7 @@ extension TabContentCache {
 
     func startDeferred(_ key: String, url: URL?) {
         startedDeferred.insert(key)
+        launchDeferredNodes[key] = nil
         browsers.removeValue(forKey: key)?.close()
         guard let tab = browserTabs.tabModel(key) else { return }
         if let entry = browser(for: tab), let url, url.absoluteString != tab.url { entry.tab.load(url) }

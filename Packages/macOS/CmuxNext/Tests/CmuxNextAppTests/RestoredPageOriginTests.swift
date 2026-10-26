@@ -46,6 +46,36 @@ import Testing
         #expect(f.made.origins == [.user], "after completion no origin waits")
     }
 
+    @Test func aPageThatShowedWhenItsStartWasDecidedKeepsThatOriginWhenItHidesBeforeItIsMade() async throws {
+        let f = RestoredPageFixture()
+        let tab = try f.restore(surface: 4_005)
+        f.show(tab)
+        #expect(f.cache.browser(for: tab) == nil, "a Chromium page is made asynchronously")
+        f.hide(tab)
+        await f.ready(tab)
+        #expect(f.made.origins == [.restoreVisible], "a page whose start was not deferred waited for startup complete")
+    }
+
+    @Test func aCommandOnAHiddenRestoredPageStartsItAtOnceAsAutomation() async throws {
+        let f = RestoredPageFixture()
+        let tab = try f.restore(surface: 4_006)
+        let deferred = try #require(f.cache.browser(for: tab)?.tab as? DeferredBrowserTab)
+        let live = try #require(await AppBrowserPage.awakePage(tab.id, page: deferred, cache: f.cache, within: .seconds(30)),
+                                "a command on a launch-deferred page got no live page")
+        #expect(!(live is DeferredBrowserTab))
+        #expect(f.made.origins == [.automation], "a command's page waited for the launch order")
+    }
+
+    @Test func aCommandLeavesACrashDeferredPageForThePerson() async throws {
+        let f = RestoredPageFixture()
+        f.cache.defersRestoredPages = true
+        let tab = try f.restore(surface: 4_007)
+        let deferred = try #require(f.cache.browser(for: tab)?.tab as? DeferredBrowserTab)
+        let page = await AppBrowserPage.awakePage(tab.id, page: deferred, cache: f.cache, within: .seconds(1))
+        #expect(page === deferred)
+        #expect(f.made.origins.isEmpty)
+    }
+
     @Test func withTheFeatureOffAHiddenRestoredPageIsMadeAtOnce() async throws {
         let f = RestoredPageFixture(featureOn: false)
         let tab = try f.restore(surface: 4_004)
@@ -62,6 +92,8 @@ private final class RestoredPageFixture {
     let cache: TabContentCache
     let made = MadeOrigins()
     private let pane = VisibilityNode(root: "pane", own: .visible)
+    /// The selected tabs' nodes, held as `PaneController.selectedTabNode` holds them (the cache holds them weakly).
+    private var shown: [String: VisibilityNode] = [:]
     private var waiting: [String: CheckedContinuation<Void, Never>] = [:]
     private var arrived: Set<String> = []
 
@@ -94,6 +126,12 @@ private final class RestoredPageFixture {
         let node = cache.node(for: tab.id)
         try? node.attach(to: pane)
         node.set(.visible)
+        shown[tab.id] = node
+    }
+
+    /// Hides `tab`'s shown node (its pane selected another tab, `PaneController.selectTabNode`).
+    func hide(_ tab: TabModel) {
+        shown[tab.id]?.set(.hidden)
     }
 
     /// Returns once `tab`'s Chromium page was installed (`onBrowserReady`).
