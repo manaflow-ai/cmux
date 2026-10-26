@@ -1,10 +1,13 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextCompat
+import CmuxNextDesign
 import CmuxNextDesignTokens
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextWakeupsTestSupport
 import Foundation
+import Observation
 import Testing
 @testable import CmuxNextApp
 
@@ -118,24 +121,96 @@ import Testing
         #expect(images.memoryUsage == .empty)
     }
 
+    // MARK: Agent pane launch read (lossy)
+
+    /// The launch read's decoded pages are counted, and a release at the full limit keeps them.
+    @Test func theLaunchReadIsCountedAndAFullLimitReleaseKeepsIt() async throws {
+        let directory = try await AgentPaneLaunchImageReadTests.saved(["tab_a", "tab_b"])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let images = AgentPaneLaunchImages(directory: directory, clock: ManualClock())
+        await images.prefetch(on: AgentPaneLaunchImageReadTests.work)?.value
+        let usage = try #require(images.memoryUsage)
+        #expect(usage.entries == 2)
+        #expect(images.releaseMemory(within: Self.slice(100)) == .done)
+        #expect(images.memoryUsage == usage, "the full limit keeps the read")
+        for key in ["tab_a", "tab_b"] {
+            #expect(images.take(key) != nil, "a page kept at the full limit is handed out")
+        }
+        // The same decode as the launch read's, off the main thread as there.
+        let pageBytes = await Task.detached {
+            ["tab_a", "tab_b"].compactMap { key in
+                LaunchFileReader().image(at: directory.appending(path: "\(key)@2x.jpg"), maximumBytes: 8 << 20)
+            }.reduce(0) { $0 + $1.bytesPerRow * $1.height }
+        }.value
+        #expect(pageBytes > 0)
+        #expect(usage.footprintBytes == pageBytes, "the read counts its decoded pages' bytes")
+    }
+
+    /// Below the full limit the read's pages go at once, with the deadline that would have dropped them.
+    @Test(.timeLimit(.minutes(1))) func aReleaseBelowTheFullLimitDropsTheLaunchReadAndItsDeadline() async throws {
+        let directory = try await AgentPaneLaunchImageReadTests.saved(["tab_a"])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let clock = ManualClock()
+        let images = AgentPaneLaunchImages(directory: directory, clock: clock)
+        await images.prefetch(on: AgentPaneLaunchImageReadTests.work)?.value
+        try await clock.waitForSleeper()
+        #expect(images.memoryUsage?.entries == 1)
+        #expect(images.releaseMemory(within: Self.slice(99)) == .done)
+        #expect(images.memoryUsage == .empty)
+        #expect(images.take("tab_a") == nil, "a released page is gone: the pane shows its loading state")
+        #expect(clock.sleeperCount == 0, "the drop deadline went with the read")
+        #expect(images.prefetch(on: AgentPaneLaunchImageReadTests.work) == nil, "a released read is not read again")
+    }
+
     // MARK: Icon assets (lossless)
+
+    private nonisolated static let svg = Data(
+        ##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M0 0h16v16H0z" fill="#2a2"></path></svg>"##.utf8)
+
+    /// Counts the owner's `get-blob` reads.
+    private actor BlobLog {
+        private(set) var reads = 0
+        func record() { reads += 1 }
+    }
 
     private static func icon(_ index: Int) -> String {
         "svg:sha256-" + String(format: "%064x", index)
     }
 
-    private static func storedIcons(_ count: Int) throws -> IconAssetImages {
-        let images = IconAssetImages()
+    private static func storedIcons(_ count: Int, clock: ManualClock = ManualClock()) throws -> IconAssetImages {
+        let images = IconAssetImages(clock: clock)
         for index in 0..<count {
             images.store(SidebarFavicon(try image()), for: icon(index))
         }
         return images
     }
 
+    /// A source that serves ``svg`` for every asset and logs each read.
+    private static func source(_ log: BlobLog) -> IconAssetSource {
+        let svg = svg
+        return IconAssetSource { _ in
+            await log.record()
+            return (svg, "image/svg+xml")
+        }
+    }
+
+    /// Reads `icon` (not decoded yet) as an observing mapping does, then what that reader reads again once
+    /// it is told the icon arrived.
+    private static func arrived(_ icon: String, in images: IconAssetImages, from source: IconAssetSource) async -> SidebarFavicon? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            withObservationTracking {
+                _ = images.image(icon, from: source)
+            } onChange: {
+                continuation.resume()
+            }
+        }
+        return images.image(icon, from: source)
+    }
+
     @Test func iconAssetsReportTheirPixelBytes() throws {
         let images = try Self.storedIcons(3)
         #expect(images.memoryUsage == MemoryUsage(footprintBytes: 3 * 8 * 8 * 4, entries: 3))
-        #expect(images.image(Self.icon(1), owner: nil) != nil)
+        #expect(images.image(Self.icon(1), from: nil) != nil)
     }
 
     @Test func aNewLimitFreesNoIconAsset() throws {
@@ -144,25 +219,73 @@ import Testing
         #expect(images.memoryUsage?.entries == 3)
     }
 
-    @Test func aCriticalReleaseDropsEveryIconAssetAndAReadStoresItAgain() throws {
-        let images = try Self.storedIcons(3)
+    @Test func aCriticalReleaseForgetsIdleIconAssetsAndKeepsThoseInUse() throws {
+        let clock = ManualClock()
+        let images = try Self.storedIcons(3, clock: clock)
+        #expect(images.releaseMemory(within: Self.slice(0)) == .done, "only decodes in use are left")
+        #expect(images.memoryUsage?.entries == 3, "a decode that just arrived is in use")
+        clock.advance(by: IconAssetImages.inUse * 2)
+        #expect(images.image(Self.icon(2), from: nil) != nil, "a mapping draws icon 2 now")
+        #expect(images.releaseMemory(within: Self.slice(0)) == .done)
+        #expect(images.memoryUsage == MemoryUsage(footprintBytes: 8 * 8 * 4, entries: 1))
+        #expect(images.image(Self.icon(2), from: nil) != nil, "the decode in use stays")
+        #expect(images.image(Self.icon(0), from: nil) == nil, "an idle decode goes")
+        clock.advance(by: IconAssetImages.inUse * 2)
+        #expect(images.releaseMemory(within: Self.slice(0)) == .done)
+        #expect(images.memoryUsage == .empty, "once idle, the last decode goes too")
+    }
+
+    /// The sidebar and the strips read icons inside their observed mappings: forgetting a decode must not map
+    /// them again (they would read nil, blank every custom icon and read them all from their owners again).
+    @Test func aReleaseTellsNoReaderOfTheIconsItForgets() throws {
+        let clock = ManualClock()
+        let images = try Self.storedIcons(2, clock: clock)
+        let told = Mutex(false)
+        let drawn = withObservationTracking {
+            images.image(Self.icon(0), from: nil)
+        } onChange: {
+            told.withLock { $0 = true }
+        }
+        #expect(drawn != nil)
+        clock.advance(by: IconAssetImages.inUse * 2)
         #expect(images.releaseMemory(within: Self.slice(0)) == .done)
         #expect(images.memoryUsage == .empty)
-        #expect(images.image(Self.icon(0), owner: nil) == nil, "a released asset is read again from its owner")
-        images.store(SidebarFavicon(try Self.image()), for: Self.icon(0))
-        #expect(images.image(Self.icon(0), owner: nil) != nil, "the read lands as before")
+        images.store(SidebarFavicon(try Self.image()), for: Self.icon(1))
+        #expect(told.withLock { $0 } == false, "forgetting icon 0, or another icon's arrival, mapped icon 0's reader again")
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aForgottenIconIsReadAgainFromItsOwnerOnItsNextRead() async throws {
+        let clock = ManualClock()
+        let images = IconAssetImages(clock: clock)
+        let log = BlobLog()
+        let source = Self.source(log)
+        let icon = Self.icon(7)
+        #expect(await Self.arrived(icon, in: images, from: source) != nil, "the first read stores the decode")
+        #expect(await log.reads == 1)
+        #expect(images.image(icon, from: source) != nil)
+        #expect(await log.reads == 1, "a kept decode is not read again")
+        clock.advance(by: IconAssetImages.inUse * 2)
+        #expect(images.releaseMemory(within: Self.slice(0)) == .done)
+        #expect(images.memoryUsage == .empty)
+        #expect(await Self.arrived(icon, in: images, from: source) != nil, "the next read after the release stores it again")
+        #expect(await log.reads == 2, "a forgotten icon is read from its owner again")
         #expect(images.memoryUsage?.entries == 1)
     }
 
-    @Test func iconAssetsKeepAtMostKeepOldestDroppedFirst() throws {
-        let images = try Self.storedIcons(IconAssetImages.keep + 1)
+    @Test func iconAssetsKeepAtMostKeepLeastRecentlyUsedDroppedFirst() throws {
+        let images = try Self.storedIcons(IconAssetImages.keep)
+        #expect(images.image(Self.icon(0), from: nil) != nil, "icon 0 is read again: now the most recently used")
+        images.store(SidebarFavicon(try Self.image()), for: Self.icon(IconAssetImages.keep))
         #expect(images.memoryUsage?.entries == IconAssetImages.keep)
-        #expect(images.image(Self.icon(0), owner: nil) == nil, "the oldest decode went")
-        #expect(images.image(Self.icon(IconAssetImages.keep), owner: nil) != nil)
+        #expect(images.image(Self.icon(1), from: nil) == nil, "the least recently used decode went")
+        #expect(images.image(Self.icon(0), from: nil) != nil)
+        #expect(images.image(Self.icon(IconAssetImages.keep), from: nil) != nil)
     }
 
     @Test func aPartialIconReleaseStopsWhenTheSliceIsSpent() throws {
-        let images = try Self.storedIcons(3)
+        let clock = ManualClock()
+        let images = try Self.storedIcons(3, clock: clock)
+        clock.advance(by: IconAssetImages.inUse * 2)
         #expect(images.releaseMemory(within: Self.slice(0, expired: true)) == .more)
         #expect(images.memoryUsage?.entries == 3)
     }

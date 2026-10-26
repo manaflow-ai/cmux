@@ -121,10 +121,11 @@ public final class AgentPaneLaunchImages {
         return Task { _ = await read.finished() }
     }
 
-    /// Drops the read's results that no pane took.
+    /// Drops the read's results that no pane took, and the deadline that would drop them.
     private func dropRead() {
         read = nil
         readDropped = true
+        discard.cancel()
     }
 
     /// `key`'s last page for its pane's first frame, at once, never waiting. A released page's frame

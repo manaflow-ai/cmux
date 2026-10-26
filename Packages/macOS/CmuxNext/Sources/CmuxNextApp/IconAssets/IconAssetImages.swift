@@ -9,16 +9,37 @@ import ImageIO
 import Observation
 import CmuxNextIcons
 
+/// Where an asset's bytes are read from: its owner daemon's `get-blob` (tests read from their own).
+struct IconAssetSource {
+    /// The stored bytes of an asset icon value and their media type.
+    let read: @Sendable (_ icon: String) async throws -> (data: Data, mediaType: String)
+
+    /// `owner`'s icon asset store; nil when there is no owner, or it does not store icon assets or is not connected.
+    init?(owner: DaemonService?) {
+        guard let owner, owner.supports(DaemonCapability.iconAssets.rawValue), let connection = owner.connection else { return nil }
+        let client = IconAssetClient(connection)
+        read = { icon in try await client.get(icon) }
+    }
+
+    init(read: @escaping @Sendable (_ icon: String) async throws -> (data: Data, mediaType: String)) {
+        self.read = read
+    }
+}
+
 /// Stored icon assets (`image:` / `svg:sha256-<hex>`) as images to draw. Each asset is read from
 /// its owner once (`get-blob`), decoded off the main actor and kept; a reader observing
-/// ``image(_:owner:)`` redraws when it arrives. An SVG is drawn as an isolated image, never
+/// ``image(_:owner:)`` redraws when that asset arrives. Each asset is observed on its own, so a
+/// reader is told about the assets it read only. An SVG is drawn as an isolated image, never
 /// put into a page. Content addressed, so one decoded image serves every owner that names it.
 ///
-/// Registered (``registerMemoryConsumer(with:)``), the decoded images are one lossless memory consumer: a
-/// dropped image is read from its owner again the next time a reader asks for it. At most ``keep`` stay,
-/// the oldest decode dropped first; a release drops down to the limit's share of ``keep``. A read that
-/// lands under a lowered limit is still kept (a reader on screen asked for it now: its working set); the
-/// next release takes it.
+/// Registered (``registerMemoryConsumer(with:)``), the decoded images are one lossless memory consumer,
+/// evicted least recently used first, as Chrome's image decode caches are
+/// (cc/tiles/software_image_decode_cache.cc on base/containers/lru_cache.h). At most ``keep`` stay. A release
+/// drops down to the limit's share of ``keep``, but never a decode read in the last ``inUse``: a mapping
+/// drawing now uses it, and Chrome never purges a decode in use. Forgetting a decode tells no reader: the
+/// strips and the sidebar keep drawing the image they hold, and the next time one maps that icon again it
+/// reads it from its owner again. A read that lands under a lowered limit is still kept (a reader asked for
+/// it now); a later release takes it once it is no longer in use.
 @MainActor @Observable
 final class IconAssetImages {
     static let shared = IconAssetImages()
@@ -28,33 +49,69 @@ final class IconAssetImages {
     nonisolated static let scale: CGFloat = 2
     /// The most decoded assets kept: one 64 x 64 RGBA image (16 KiB) each, 16 MiB at most.
     nonisolated static let keep = 1024
+    /// How long after its last read (or its arrival) a decode is in use, which a release keeps.
+    nonisolated static let inUse: Duration = .seconds(1)
 
-    private var images: [String: SidebarFavicon] = [:]
-    /// The keys of ``images``, oldest decode first.
-    @ObservationIgnored private var order: [String] = []
-    /// The pixel bytes of ``images``, kept on every insert and removal (the memory report).
+    /// One asset, observed on its own. Forgetting it removes the slot without writing `image`, so no
+    /// reader is told; a later read makes a new slot.
+    @MainActor @Observable
+    final class Slot {
+        fileprivate(set) var image: SidebarFavicon?
+        /// The use order of the last read or arrival (higher is more recent): the LRU order.
+        @ObservationIgnored fileprivate var lastUse: UInt64 = 0
+        /// When it was last read or arrived, on the cache's clock.
+        @ObservationIgnored fileprivate var usedAt: Duration = .zero
+        /// The tab strip's wrapper of `image`, kept: a strip compares tab images by identity.
+        @ObservationIgnored fileprivate var tabImage: TabImage?
+    }
+
+    /// Every asset a reader asked for, decoded or not yet; only decoded ones are ever forgotten.
+    @ObservationIgnored private var slots: [String: Slot] = [:]
+    /// How many slots hold an image.
+    @ObservationIgnored private var decodedCount = 0
+    /// The pixel bytes of the slots' images, kept on every insert and removal (the memory report).
     @ObservationIgnored private var imageBytes = 0
+    /// The next use order (``Slot/lastUse``).
+    @ObservationIgnored private var nextUse: UInt64 = 1
     /// How many images a release keeps: ``keep`` scaled by the memory coordinator's limit.
     @ObservationIgnored private var imageLimit = IconAssetImages.keep
     @ObservationIgnored private var memoryRegistration: MemoryConsumerRegistration?
+    /// The time since the cache was made, on its clock.
+    private let elapsed: () -> Duration
     /// Assets being read, or answered but not drawable (a refused read, bytes that do not
     /// decode; never retried). A read whose transport failed (no connection yet, a timeout) is
     /// forgotten, so the next rebuild, such as the one a reconnect causes, reads it again.
     @ObservationIgnored private var requested: Set<String> = []
-    /// The tab strip's wrapper of each image, kept: a strip compares tab images by identity.
-    @ObservationIgnored private var tabImages: [String: TabImage] = [:]
+
+    /// - Parameter clock: Times how long a read decode stays in use (``inUse``); tests pass their own.
+    init(clock: any Clock<Duration> = ContinuousClock()) {
+        elapsed = Self.elapsed(on: clock)
+    }
+
+    private static func elapsed<C: Clock<Duration>>(on clock: C) -> () -> Duration {
+        let start = clock.now
+        return { start.duration(to: clock.now) }
+    }
 
     /// The image of asset icon `icon` (nil for an emoji or symbol, or until it is read).
     func image(_ icon: String, owner: DaemonService?) -> SidebarFavicon? {
+        image(icon, from: IconAssetSource(owner: owner))
+    }
+
+    /// The image of asset icon `icon`, read from `source` the first time and again after a release forgot it.
+    func image(_ icon: String, from source: @autoclosure () -> IconAssetSource?) -> SidebarFavicon? {
         guard let value = IconValue(wire: icon), Self.isAsset(value) else { return nil }
-        if let image = images[icon] { return image }
-        guard !requested.contains(icon), let owner, owner.supports(DaemonCapability.iconAssets.rawValue),
-              let connection = owner.connection else { return nil }
+        let slot = slot(icon)
+        if let image = slot.image {
+            markUsed(slot)
+            return image
+        }
+        guard !requested.contains(icon), let source = source() else { return nil }
         requested.insert(icon)
         Task { [weak self] in
             let blob: (data: Data, mediaType: String)
             do {
-                blob = try await IconAssetClient(connection).get(icon)
+                blob = try await source.read(icon)
             } catch {
                 // The owner's answer (no such asset) stands; a failed transport is retried.
                 if case DaemonError.command? = error as? DaemonError { return }
@@ -67,32 +124,65 @@ final class IconAssetImages {
         return nil
     }
 
-    /// Keeps `image` as asset `icon`'s, dropping the oldest decodes past ``keep`` (tests store a decode directly).
+    /// Keeps `image` as asset `icon`'s and tells its readers, dropping the least recently used decodes past
+    /// ``keep`` (tests store a decode directly).
     func store(_ image: SidebarFavicon, for icon: String) {
-        if let old = images.updateValue(image, forKey: icon) {
+        let slot = slot(icon)
+        if let old = slot.image {
             imageBytes -= Self.bytes(of: old)
         } else {
-            order.append(icon)
+            decodedCount += 1
         }
         imageBytes += Self.bytes(of: image)
-        dropOldest(to: Self.keep, within: nil)
+        slot.tabImage = nil
+        slot.image = image
+        markUsed(slot)
+        while decodedCount > Self.keep, let oldest = leastRecentlyUsed() { forget(oldest) }
     }
 
-    /// Drops the oldest decodes until at most `limit` stay or `slice` is spent. A dropped asset is
-    /// forgotten as read, so the next reader reads it again.
+    private func slot(_ icon: String) -> Slot {
+        if let slot = slots[icon] { return slot }
+        let slot = Slot()
+        slots[icon] = slot
+        return slot
+    }
+
+    private func markUsed(_ slot: Slot) {
+        slot.lastUse = nextUse
+        nextUse += 1
+        slot.usedAt = elapsed()
+    }
+
+    /// The decoded asset used least recently (one pass over at most ``keep`` + 1 decodes).
+    private func leastRecentlyUsed() -> String? {
+        var oldest: (icon: String, use: UInt64)?
+        for (icon, slot) in slots where slot.image != nil && slot.lastUse < (oldest?.use ?? .max) {
+            oldest = (icon, slot.lastUse)
+        }
+        return oldest?.icon
+    }
+
+    /// Forgets asset `icon`'s decode and that it was read, telling no reader (its slot goes, its image is
+    /// not written): the views keep what they hold, and the next read reads it from its owner again.
+    private func forget(_ icon: String) {
+        guard let slot = slots[icon], let image = slot.image else { return }
+        slots[icon] = nil
+        imageBytes -= Self.bytes(of: image)
+        decodedCount -= 1
+        requested.remove(icon)
+    }
+
+    /// Forgets the least recently used decodes not in use (``inUse``) until at most `limit` stay or `slice`
+    /// is spent.
     ///
-    /// - Returns: Whether at most `limit` stay.
-    @discardableResult
-    private func dropOldest(to limit: Int, within slice: MemoryReleaseSlice?) -> Bool {
-        var dropped = 0
-        defer { order.removeFirst(dropped) }
-        while order.count - dropped > max(limit, 0) {
-            if slice?.isExpired == true { return false }
-            let icon = order[dropped]
-            dropped += 1
-            if let image = images.removeValue(forKey: icon) { imageBytes -= Self.bytes(of: image) }
-            tabImages[icon] = nil
-            requested.remove(icon)
+    /// - Returns: False when `slice` ran out first; true when at most `limit` stay or only decodes in use are left.
+    private func dropIdle(to limit: Int, within slice: MemoryReleaseSlice) -> Bool {
+        let idleBefore = elapsed() - Self.inUse
+        let idle = slots.filter { $0.value.image != nil && $0.value.usedAt < idleBefore }
+            .sorted { $0.value.lastUse < $1.value.lastUse }
+        for (icon, _) in idle where decodedCount > max(limit, 0) {
+            if slice.isExpired { return false }
+            forget(icon)
         }
         return true
     }
@@ -119,10 +209,10 @@ final class IconAssetImages {
     /// ``image(_:owner:)`` of `owner`'s assets as the tab and screen strips draw them.
     func tabIcon(owner: DaemonService) -> (String) -> TabImage? {
         { [weak owner] icon in
-            guard let image = self.image(icon, owner: owner) else { return nil }
-            if let cached = self.tabImages[icon], cached.cgImage === image.image { return cached }
+            guard let image = self.image(icon, owner: owner), let slot = self.slots[icon] else { return nil }
+            if let cached = slot.tabImage, cached.cgImage === image.image { return cached }
             let tabImage = TabImage(image.image)
-            self.tabImages[icon] = tabImage
+            slot.tabImage = tabImage
             return tabImage
         }
     }
@@ -180,8 +270,8 @@ final class IconAssetImages {
 
 /// The decoded asset images as one lossless consumer (Chrome's consumer contract,
 /// base/memory_coordinator/memory_consumer.h): a new limit frees nothing; ``releaseMemory(within:)``
-/// drops the oldest decodes down to it. An image a strip or the sidebar still draws stays alive in
-/// that view; only the cache forgets it.
+/// forgets the least recently used decodes not in use, down to it, and tells no reader: an image a strip
+/// or the sidebar draws stays in that view until its next mapping of the icon reads it again.
 extension IconAssetImages: MemoryConsumer {
     /// Up to ``keep`` small images (1 to 50 MB at most); dropping one touches only memory, and reading it
     /// again is a daemon round trip (a remote one over the network), so only critical pressure acts.
@@ -198,10 +288,10 @@ extension IconAssetImages: MemoryConsumer {
 
     func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
         updateMemoryLimit(slice.limit)
-        return dropOldest(to: imageLimit, within: slice) ? .done : .more
+        return dropIdle(to: imageLimit, within: slice) ? .done : .more
     }
 
     var memoryUsage: MemoryUsage? {
-        MemoryUsage(footprintBytes: imageBytes, entries: images.count)
+        MemoryUsage(footprintBytes: imageBytes, entries: decodedCount)
     }
 }
