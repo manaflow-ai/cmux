@@ -52,7 +52,7 @@ struct HomeLoneChiefRailTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
         home.update(model(chiefs: chiefs))
-        let split = HomeSidebarSplitView(sidebar: home, content: NSView(), widths: HomeSidebarWidth(defaults: defaults))
+        let split = HomeSidebarSplitView(sidebar: home, content: NSView(), widths: HomeSidebarWidth(defaults: defaults), mainWork: linklessMainWork())
         split.windowKey = { "w" }
         if let tunables { split.tunables = tunables }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 600), styleMask: [.borderless],
@@ -112,7 +112,7 @@ struct HomeLoneChiefRailTests {
         #expect(p.listFolded, "a narrow column again keeps the lone avatar's column")
     }
 
-    @Test func theDebugToggleKeepsTheAvatarListForOneConversation() async throws {
+    @Test func theDebugToggleKeepsTheAvatarListForOneConversation() throws {
         let store = TunableStore()
         store.register([HomeTunables.loneConversationRail.descriptor])
         store.activate(file: nil)
@@ -121,12 +121,13 @@ struct HomeLoneChiefRailTests {
         defer { p.close() }
         #expect(!p.home.isHidden, "the toggle is on and the list folded")
         #expect(abs(p.split.sidebarWidth - 119) < 1, "the avatar list is \(p.split.sidebarWidth) pt")
-        // Turned off in Debug Settings: the open page folds the list without a resize.
+        // Turned off in Debug Settings: the open page folds the list without a resize, in the
+        // switch's FrameObservation apply (a main run loop pass on the test's linkless scheduler).
         store.set(HomeTunables.loneConversationRail.key, .bool(false))
-        for _ in 0..<100 where !p.listFolded {
-            await Task.yield()
+        let folded = runMainLoop {
             p.split.layoutSubtreeIfNeeded()
+            return p.listFolded
         }
-        #expect(p.listFolded, "the list stays after the toggle went off")
+        #expect(folded, "the list stays after the toggle went off")
     }
 }
