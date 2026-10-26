@@ -19,6 +19,7 @@ import {
   type RunApiClient,
 } from "./runApi";
 import { attachRunTerminal } from "./runAttach";
+import { startPageInterval } from "../../../pages/shared/pageLifecycle";
 
 export type RunBoardProps = {
   snapshot: RunBoardSnapshot;
@@ -226,10 +227,11 @@ export function RunBoard({
         if (active) setApiError(error instanceof Error ? error.message : String(error));
       }
     })();
-    const timer = pollMs > 0 ? setInterval(() => void refresh(), pollMs) : undefined;
+    // A hidden board polls nothing; it reads again at its next period after it shows.
+    const stopPolling = pollMs > 0 ? startPageInterval(() => void refresh(), pollMs) : undefined;
     return () => {
       active = false;
-      if (timer) clearInterval(timer);
+      stopPolling?.();
     };
   }, [client, disconnected, pollMs, snapshot.id]);
 
