@@ -857,6 +857,10 @@ path = "tests/test_cleanup_stale_runs.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_token_budget_sampler.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cloud_vm_skill_coverage.py"
 lane = "linux-guard"
 

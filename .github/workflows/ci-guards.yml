@@ -643,6 +643,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cleanup_stale_runs.py
 
+      - name: Validate the GITHUB_TOKEN budget sampler
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_token_budget_sampler.py
+
       - name: Validate stale agent PR verdicts
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_stale_agent_prs.py
