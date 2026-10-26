@@ -261,7 +261,7 @@ import Testing
 
     /// A removal's save, awaited: whether the new list was written and recorded.
     static func removing(_ devices: MobileHostPairedDevices, in file: MobileHostPairedDevicesFile) async -> Bool {
-        await withCheckedContinuation { done in file.saveRemovingTrust(devices) { done.resume(returning: $0) } }
+        await withCheckedContinuation { done in file.saveInBackground(devices) { done.resume(returning: $0) } }
     }
 
     /// Review 29: a removal (a revoked or unpaired phone, a sign-out) runs after the saves queued
@@ -303,7 +303,7 @@ import Testing
         let started = clock.now
         let done = SavedBox()
         let finished = DispatchSemaphore(value: 0)
-        file.saveRemovingTrust(devices) { saved in
+        file.saveInBackground(devices) { saved in
             done.saved = saved
             finished.signal()
         }

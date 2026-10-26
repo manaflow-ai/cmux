@@ -124,7 +124,7 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `com.cmuxterm.next.remote-fetch`, `cmux.remote-view.render`, `cmux.remote-view.rd-transport`,
   `cmux.remote-view.mock-host`, `cmux.next.mobile.unix-lane`, `com.cmuxterm.mobile.paired-devices` (the iPhone
   host's paired-phone list and its Keychain seal, utility, serial: its file and Keychain calls block this queue,
-  never main; one item per save or read, each from a person's action or an account change, so no back-pressure;
+  never main; one item per save, read or withdrawal, each from a person's action or an account change, so no back-pressure;
   quit waits at most 2 s for it under `terminate`)
 - Browser: `com.cmuxterm.next.browser-host.provider.write`, `cmux browser-host provider reader`,
   `com.cmuxterm.chromium-host.read`, `com.cmuxterm.chromium-host.exit`, `com.cmuxterm.app.next.cef-children`,

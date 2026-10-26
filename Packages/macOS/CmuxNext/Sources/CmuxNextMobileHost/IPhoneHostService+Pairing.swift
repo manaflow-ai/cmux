@@ -39,7 +39,7 @@ extension IPhoneHostService {
         guard let file = pairedFile else { return }
         // A sign-out forgets the phones before anything else, even while the list is still read.
         if signedOut, let previous = paired?.userID ?? pairedLoad.userID {
-            file.saveRemovingTrust(MobileHostPairedDevices(userID: previous))
+            file.saveInBackground(MobileHostPairedDevices(userID: previous))
         }
         if paired?.userID != account?.userID { resetPrompts() }
         paired = nil
@@ -55,7 +55,7 @@ extension IPhoneHostService {
             guard let self, let done = self.pairedLoad.finish(read, userID: userID, list: list) else { return }
             if done.forgot {
                 // A phone signed out or was removed while the list was read.
-                self.savePaired(done.list, removingTrust: true)
+                self.savePaired(done.list)
             } else {
                 self.paired = done.list
                 self.pushPaired()
@@ -73,12 +73,16 @@ extension IPhoneHostService {
         // task-owner: one hop to the supervisor actor; dropping a phone with no link is a no-op
         Task { await supervisor.drop(phoneDeviceIDs: [id]) }
         guard var list = paired else {
-            // The list is still being read: the phone is removed from it once it is in.
-            pairedLoad.forget(id)
+            // The list is still being read: the phone is removed from it once it is in, and the
+            // stored list stops counting now (right after the read, on the save queue).
+            if pairedLoad.userID != nil {
+                pairedLoad.forget(id)
+                pairedFile?.withdrawTrust()
+            }
             return
         }
         list.remove(id)
-        savePaired(list, removingTrust: true)
+        savePaired(list)
     }
 
     func pairingEvent(_ event: MobileHostEvent) {
@@ -225,16 +229,12 @@ extension IPhoneHostService {
         showPairDialog()
     }
 
-    /// `removingTrust`: the save takes a phone away, so the list it replaces stops counting
-    /// (``MobileHostPairedDevicesFile/saveRemovingTrust(_:then:)``).
-    private func savePaired(_ list: MobileHostPairedDevices, removingTrust: Bool = false) {
+    /// Every save (a phone added, removed or re-keyed) makes the list it replaces stop counting
+    /// (``MobileHostPairedDevicesFile/save(_:)``).
+    private func savePaired(_ list: MobileHostPairedDevices) {
         paired = list
         // Off the main actor, in order (the seal is a Keychain item); a failure is logged there.
-        if removingTrust {
-            pairedFile?.saveRemovingTrust(list)
-        } else {
-            pairedFile?.saveInBackground(list)
-        }
+        pairedFile?.saveInBackground(list)
         pushPaired()
     }
 
@@ -252,13 +252,8 @@ extension IPhoneHostService {
     /// hostd's `devices` line and acpmux's approvers follow the list.
     private func pushPaired() {
         let list = paired ?? MobileHostPairedDevices(userID: "")
-        let supervisor = supervisor
-        let previous = devicesUpdate
-        // task-owner: stored in `devicesUpdate`; each update waits for the one before it, in order
-        devicesUpdate = Task {
-            await previous?.value
-            await supervisor.setDevices(list)
-        }
+        // At once: the next hostd start or restart gets this list, never an older one.
+        supervisor.setNewestDevices(list)
         guard let directory = dependencies?.stateDirectory,
               let macDevice = try? MobileHostDeviceIdentity(directory: directory).deviceID() else { return }
         approverSync?.update(list.approversParams(macDevice: macDevice))
