@@ -166,10 +166,8 @@ final class BrowserHibernation {
     private var windowOcclusion: WindowOcclusionChecker?
     /// The page's freeze control (a seam for tests; Chromium pages only in the app).
     var freezer: (any BrowserTab) -> (any BrowserFreezing)? = { $0 as? any BrowserFreezing }
-    /// Chromium tabs take their visibility from their tab's node, before the freeze (feature `chromiumTabVisibility`),
-    /// through `follower` (a seam for tests, as `freezer`).
-    let followsTabVisibility: Bool
-    var follower: (any BrowserTab) -> (any BrowserVisibilityFollowing)? = { $0 as? any BrowserVisibilityFollowing }
+    /// Chromium tabs take their visibility from their tab's node, before the freeze (feature `chromiumTabVisibility`).
+    let tabVisibility: BrowserVisibilityFollowers
     /// Energy Saver's one change to the freeze delay: a hidden page busy at Chrome's high-CPU proportion freezes early
     /// (`SaverCPUFreeze`). `measureCPU` reads the pages' renderer CPU time off the main actor (injected by the App).
     var saverCPU = SaverCPUFreeze(), measureCPU: (([String], @escaping @MainActor @Sendable (SaverCPUFreeze.Reading) -> Void) -> Void)?
@@ -214,7 +212,7 @@ final class BrowserHibernation {
     init(cache: TabContentCache, memory: any MemoryConsumerRegistry, deadlines: MainDeadlineScheduler,
          energy: EnergyPolicySource = EnergyPolicySource(), audible: AudibleHistory? = nil, followsTabVisibility: Bool = false) {
         self.cache = cache
-        self.followsTabVisibility = followsTabVisibility
+        tabVisibility = BrowserVisibilityFollowers(isEnabled: followsTabVisibility)
         growthDeadline = MainDeadline(owner: "BrowserFrozenGrowth", workClass: .background, scheduler: deadlines)
         snapshots = HibernationSnapshots(fullCapacityBytes: cache.imageCaches.hibernationSnapshotBytes)
         self.energy = energy
@@ -368,11 +366,15 @@ final class BrowserHibernation {
         focusHistory.note(key, at: now())
     }
 
-    /// Chromium hears tab `key`'s node from its mount on (``followsTabVisibility``): the node's hide comes first, the
-    /// freeze (`freezeHiddenTabs`) after it, and a capture vote keeps the page painting and awake.
+    /// Chromium hears tab `key`'s node from its mount on (``tabVisibility``), its hide before the freeze. A capture thaws
+    /// the page; the engine refuses a freeze while it lasts, so the page freezes again `freezeSeconds` after it ends.
     func followVisibility(_ key: String, _ page: any BrowserTab) {
-        guard followsTabVisibility, let cache, let tab = follower(page) else { return }
-        tab.followVisibility(of: cache.node(for: key), capture: BrowserPageCapture.votes(on:))
+        tabVisibility.follow(key, page, node: self.cache?.node(for: key)) { [weak self] in
+            guard let self else { return }
+            thaw(key)
+            freezeKeptAt[key] = now()
+            replan()
+        }
     }
 
     /// An agent acted on tab `key` (`cmux browser`, MCP, the browser REPL):
@@ -400,6 +402,7 @@ final class BrowserHibernation {
         askedBeforeUnload.remove(key)
         exemptions[key] = nil
         frozen.remove(key)
+        tabVisibility.forget(key)
         untrackGrowth(key)
         freezeProbing.remove(key)
         freezeKeptAt[key] = nil

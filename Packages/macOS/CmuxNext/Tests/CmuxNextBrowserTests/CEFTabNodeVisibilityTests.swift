@@ -76,6 +76,26 @@ import Testing
         #expect(VisibilitySpy.calls == ["visibility 7 3 0", "visibility 7 3 2", "visibility 7 3 0", "freeze 7 1"])
     }
 
+    /// A capture of a hidden tab that is already frozen thaws it first, while Chromium still counts it hidden, then
+    /// paints it, as Chrome's freezing policy unfreezes a captured page (freezing_policy.cc `CannotFreezeReason`). The
+    /// hibernation's own thaw after it sends nothing, and the page freezes again once the capture ends.
+    @Test func aCaptureOfAFrozenHiddenTabThawsItBeforeItPaints() throws {
+        let rig = try VisibilityRig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        let node = VisibilityNode(root: "tab", own: .hidden)
+        tab.followVisibility(of: node, capture: BrowserPageCapture.votes(on:))
+        #expect(tab.setFrozen(true))
+        node.setCaptured(true)
+        #expect(VisibilitySpy.calls == ["visibility 7 3 0", "freeze 7 1", "freeze 7 0", "visibility 7 3 2"])
+        #expect(tab.setFrozen(false), "a thaw of a page that is not frozen succeeds")
+        #expect(VisibilitySpy.calls.count == 4, "and sends nothing")
+        #expect(!tab.setFrozen(true), "a captured page stays awake")
+        node.setCaptured(false)
+        #expect(tab.setFrozen(true))
+        #expect(Array(VisibilitySpy.calls.dropFirst(4)) == ["visibility 7 3 0", "freeze 7 1"])
+    }
+
     /// The capture source decides the mode: a vote that stays hidden paints the page and keeps it hidden to script.
     @Test func aStayHiddenCaptureSendsHiddenButPainting() throws {
         let rig = try VisibilityRig()

@@ -65,12 +65,13 @@ final class CEFTabNodeVisibility {
     }
 
     /// Gives Chromium the node's value when it differs from what the tab's browser took last; a new browser
-    /// (`CEFTab.attach`) hears it before it paints. A tab shown again thaws first, while Chromium still counts it
-    /// hidden: Chromium never shows a frozen page (`WebContentsImpl::SetPageFrozen`).
+    /// (`CEFTab.attach`) hears it before it paints. A frozen tab shown or captured again thaws first, while Chromium
+    /// still counts it hidden: Chromium never shows a frozen page (`WebContentsImpl::SetPageFrozen`), and a capture is
+    /// a reason not to freeze that unfreezes the page (freezing_policy.cc `CannotFreezeReason`).
     func apply() {
         guard let tab, let browser = tab.browserID, !tab.isClosed, let wanted = wanted(browser: browser),
               wanted != sent, let call = tab.runtime.shim?.tabSetVisibility else { return }
-        if wanted.visibility != .hidden, isPageFrozen { _ = setFrozen(false, of: tab) }
+        if isPageFrozen, wanted != Sent(browser: browser, visibility: .hidden, capture: .notCaptured) { _ = setFrozen(false, of: tab) }
         // One-way, in call order (a post to the Chromium Host): a freeze sent later reaches Chromium after it.
         _ = call(browser, wanted.visibility.rawValue, wanted.capture.rawValue)
         sent = wanted
@@ -84,9 +85,11 @@ final class CEFTabNodeVisibility {
 
     /// ``CEFTab/setFrozen(_:)``. A tab that follows its node freezes only after Chromium took it hidden with no
     /// capture; one that follows none freezes as before. Sent now, not from a Task: an agent call queued right after
-    /// a thaw must not reach a frozen page.
+    /// a thaw must not reach a frozen page. A thaw of a page that is not frozen sends nothing: the node's capture
+    /// thaws the page in its own turn, and the hibernation's thaw can come after it.
     func setFrozen(_ frozen: Bool, of tab: CEFTab) -> Bool {
         guard let browser = tab.browserID, !tab.isClosed, let shim = tab.runtime.shim else { return false }
+        if !frozen, !isPageFrozen { return true }
         if frozen, node != nil, sent != Sent(browser: browser, visibility: .hidden, capture: .notCaptured) { return false }
         let done: Bool
         if tab.runtime.forkFeatures.rendererPaths, let setFrozen = shim.tabSetFrozen {
