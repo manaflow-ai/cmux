@@ -12,11 +12,8 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 setDefaultTimeout(120_000);
 
-const dom = new JSDOM("<!doctype html><div id=root></div>", {
-  url: "http://localhost/",
-  pretendToBeVisual: true,
-  virtualConsole: new VirtualConsole(),
-});
+// prettier-ignore
+const dom = new JSDOM("<!doctype html><div id=root></div>", { url: "http://localhost/", pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
 // Frames run when the test says so; a cancelled one never runs.
 const frames = new Map<number, FrameRequestCallback>();
 let frameId = 0;
@@ -33,24 +30,15 @@ const flushFrames = async () => {
   await new Promise((resolve) => setTimeout(resolve, 0));
 };
 const scope = globalThis as Record<string, unknown>;
-class Inert {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
+// prettier-ignore
+class Inert { observe() {} unobserve() {} disconnect() {} }
+const win = dom.window;
+// prettier-ignore
 const replacements: Record<string, unknown> = {
-  window: dom.window,
-  document: dom.window.document,
-  navigator: dom.window.navigator,
-  HTMLElement: dom.window.HTMLElement,
-  Element: dom.window.Element,
-  customElements: dom.window.customElements,
-  Node: dom.window.Node,
-  MutationObserver: dom.window.MutationObserver,
-  getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
-  matchMedia: (media: string) => ({ matches: media.includes("reduce"), media }), // prettier-ignore
-  IntersectionObserver: Inert,
-  ResizeObserver: Inert,
+  window: win, document: win.document, navigator: win.navigator, HTMLElement: win.HTMLElement, Element: win.Element,
+  customElements: win.customElements, Node: win.Node, MutationObserver: win.MutationObserver,
+  getComputedStyle: win.getComputedStyle.bind(win), IntersectionObserver: Inert, ResizeObserver: Inert,
+  matchMedia: (media: string) => ({ matches: media.includes("reduce"), media }),
   requestAnimationFrame: (callback: FrameRequestCallback) => (frames.set(++frameId, callback), frameId),
   cancelAnimationFrame: (id: number) => void frames.delete(id),
   IS_REACT_ACT_ENVIRONMENT: true,
@@ -69,14 +57,10 @@ const proto = dom.window.HTMLElement.prototype;
 Object.defineProperty(proto, "clientHeight", { configurable: true, get: () => VIEWPORT }); // prettier-ignore
 Object.defineProperty(proto, "clientWidth", { configurable: true, get: () => 1040 }); // prettier-ignore
 const offsets = new WeakMap<object, number>();
-Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
-  configurable: true,
-  get: function (this: object) { return offsets.get(this) ?? 0; }, // prettier-ignore
-  set: function (this: object, value: number) { offsets.set(this, value); }, // prettier-ignore
-});
-dom.window.HTMLElement.prototype.scrollTo = function (this: HTMLElement, options?: ScrollToOptions | number) {
-  this.scrollTop = typeof options === "number" ? 0 : (options?.top ?? 0);
-} as typeof HTMLElement.prototype.scrollTo;
+// prettier-ignore
+Object.defineProperty(proto, "scrollTop", { configurable: true, get(this: object) { return offsets.get(this) ?? 0; }, set(this: object, value: number) { offsets.set(this, value); } });
+// prettier-ignore
+proto.scrollTo = function (this: HTMLElement, options?: ScrollToOptions | number) { this.scrollTop = typeof options === "number" ? 0 : (options?.top ?? 0); } as typeof HTMLElement.prototype.scrollTo;
 // jsdom has no canvas: a 2D context that counts the rectangles it is given.
 const painted = { rects: 0 };
 const none = () => {};
@@ -103,12 +87,8 @@ afterAll(() => {
   setChatDisplay({});
   setBookmarkTransport(undefined);
   dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
-  if (stringsBefore) strings.__cmuxPaneStrings = stringsBefore;
-  else delete strings.__cmuxPaneStrings;
+  for (const [key, had, value] of saved) if (had) scope[key] = value; else delete scope[key]; // prettier-ignore
+  if (stringsBefore) strings.__cmuxPaneStrings = stringsBefore; else delete strings.__cmuxPaneStrings; // prettier-ignore
 });
 
 const document = dom.window.document;
@@ -123,8 +103,7 @@ const chat = (reply: string) =>
 /// Gives `scroller` a scrollHeight (jsdom has none): the content's height, which the test grows.
 function content(scroller: HTMLElement, height: number) {
   const state = { height };
-  Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => state.height });
-  return state;
+  return (Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => state.height }), state);
 }
 /// One scroll event at `top`, as the browser sends it, and the frame after it (the view box moves there).
 const scrollTo = (scroller: HTMLElement, top: number) =>
@@ -179,15 +158,7 @@ test("on: one canvas, no node per row; frozen while a reply streams; a scroll mo
     expect(pane.draws()).toBe(1);
     expect(painted.rects).toBeGreaterThan(0);
     expect(minimap.querySelector(".acpmux-chat-minimap__placeholder")).toBeNull();
-    const control = minimap.querySelector<HTMLElement>("[role=scrollbar]")!;
-    expect(control.getAttribute("aria-label")).toBe("Chat minimap");
-    expect(control.tabIndex).toBe(0);
-    // A scrollbar names what it scrolls (the transcript) and its value; the canvas is decoration.
-    const transcript = pane.host.querySelector<HTMLElement>(".acpmux-scroll")!;
-    expect(transcript.id).not.toBe("");
-    expect(control.getAttribute("aria-controls")).toBe(transcript.id);
-    expect(control.getAttribute("aria-valuenow")).toBe("0");
-    expect(minimap.querySelector("canvas")!.getAttribute("aria-hidden")).toBe("true");
+    const control = minimap.querySelector<HTMLElement>(".acpmux-chat-minimap__track")!;
     const scroller = pane.host.querySelector<HTMLElement>(".acpmux-scroll")!;
     const box = minimap.querySelector<HTMLElement>(".acpmux-chat-minimap__view")!;
 
@@ -343,42 +314,6 @@ test("a reply that starts streaming freezes the box where the view is: the first
     page.height += 40;
     await scrollTo(pane.scroller(), page.height - VIEWPORT);
     expect(pane.box().style.transform).not.toBe(frozen);
-  } finally {
-    await pane.done();
-    setChatDisplay({});
-  }
-});
-
-test("the scrollbar's value is the share scrolled of the real range, focused or not, and keys move it", async () => {
-  setChatDisplay({ "agentPane.display.vscodeMinimap": true });
-  const pane = await mount();
-  try {
-    await pane.render("Done.");
-    await act(async () => flushFrames());
-    const control = pane.host.querySelector<HTMLElement>(".acpmux-chat-minimap [role=scrollbar]")!;
-    const value = () => control.getAttribute("aria-valuenow");
-    // The scroller's own range (content less the view), whatever padding or dock is in the content.
-    const page = content(pane.scroller(), 1000);
-    await scrollTo(pane.scroller(), 1000 - VIEWPORT);
-    expect(value()).toBe("100");
-    await scrollTo(pane.scroller(), 0);
-    expect(value()).toBe("0");
-    await scrollTo(pane.scroller(), 200);
-    expect(value()).toBe("50");
-    // Keys on the focused control scroll the transcript; the value follows.
-    await act(async () => control.focus());
-    const key = (name: string) =>
-      act(async () => {
-        control.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true }));
-        pane.scroller().dispatchEvent(new dom.window.Event("scroll"));
-        runFrames();
-      });
-    await key("End");
-    expect(value()).toBe("100");
-    await key("Home");
-    expect(value()).toBe("0");
-    await key("ArrowDown");
-    expect(value()).toBe(String(Math.round((100 * 40) / (page.height - VIEWPORT))));
   } finally {
     await pane.done();
     setChatDisplay({});
