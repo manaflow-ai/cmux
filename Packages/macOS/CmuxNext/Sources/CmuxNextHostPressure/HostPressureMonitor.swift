@@ -95,6 +95,8 @@ public actor HostPressureMonitor {
     private var eventPressure = HostMemoryPressure.normal
     /// The run's one reader of the feed's changes, so they apply in the order they were sent.
     private var pressureChanges: Task<Void, Never>?
+    /// The feed's changes kept while the reader catches up (the kernel changes level rarely).
+    static let pendingPressureChanges = 32
     private var reading: Task<HostBudgetVerdict, Never>?
     private var onChange: Change?
     private var running = false
@@ -132,7 +134,8 @@ public actor HostPressureMonitor {
             state += 1
             return state
         }
-        let (changes, continuation) = AsyncStream<HostMemoryPressure>.makeStream()
+        // A reader behind by `pendingPressureChanges` drops the oldest: the newest level always applies.
+        let (changes, continuation) = AsyncStream<HostMemoryPressure>.makeStream(bufferingPolicy: .bufferingNewest(Self.pendingPressureChanges))
         let subscription = memoryPressure { pressure in continuation.yield(pressure) }
         eventPressure = subscription.current
         endMemoryPressure = {

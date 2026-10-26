@@ -168,7 +168,8 @@ struct HostPressureMonitorTests {
         await monitor.start(onChange: onChange)
         await monitor.read()
 
-        let cycles = 200
+        // Every change fits the reader's buffer, so each one is delivered.
+        let cycles = HostPressureMonitor.pendingPressureChanges / 3
         for _ in 0 ..< cycles {
             feed.send(.warn)
             feed.send(.critical)
