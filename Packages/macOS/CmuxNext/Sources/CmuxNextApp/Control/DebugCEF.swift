@@ -176,6 +176,8 @@ enum DebugCEF {
             "hosting_refused": .number(Double(stats.hostingRefused)),
             "hosting_widget_fallbacks": .number(Double(stats.hostingWidgetFallbacks)),
             "hosting_without_track_a": .number(Double(stats.hostingWithoutTrackA)),
+            "pages_attached": .number(Double(stats.pagesAttached)),
+            "attach_refused": .number(Double(stats.attachRefused)),
             "geometry_skips": .number(Double(stats.geometrySkips)),
             "page_window_widget_shows": .number(Double(stats.pageWindowWidgetShows)),
             // Keyed by the fork's widget kind (CEFNativeWidget raw value): "2" autofill, "5" print preview.
