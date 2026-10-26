@@ -246,7 +246,8 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
     await page.keyboard.press("Enter");
     // Held: the tile is still loading.
     expect(await promptText(page)).toBe("look at this");
-    await page.keyboard.press("Home");
+    // To the prompt's start (Home does not move the caret in Chromium on macOS).
+    for (const _ of "look at this") await page.keyboard.press("ArrowLeft");
     await page.keyboard.press("Backspace");
     await loading.waitFor({ state: "detached" });
     // The cancel released nothing: the prompt is still there to edit or send again.
