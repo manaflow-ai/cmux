@@ -52,12 +52,13 @@ COMPILE_OR_FALLBACK = re.compile(r"compile|fallback", re.IGNORECASE)
 # (github.ref_type or inputs.profile are no key).
 HEAD_KEY = re.compile(r"(?<![\w.])(?:github\.(?:run_id|sha|head_ref|ref|ref_name)|[\w.]*\.head_sha|[\w.]*\.head\.sha"
                       r"|inputs\.(?:sha|pr)|[\w.]*\.pull_request\.number|github\.event\.number)(?![\w.])")
-# Keys under which a cancel only ever hits a superseded head of the same pull request or branch.
-SUPERSEDE_KEY = re.compile(r"(?<![\w.])(?:github\.(?:head_ref|ref|ref_name)|inputs\.pr|[\w.]*\.pull_request\.number"
+# Keys under which a cancel only ever hits a superseded head of the same pull request or branch, or the same
+# run (a group per run holds no other run).
+SUPERSEDE_KEY = re.compile(r"(?<![\w.])(?:github\.(?:head_ref|ref|ref_name|run_id)|inputs\.pr|[\w.]*\.pull_request\.number"
                            r"|github\.event\.number)(?![\w.])")
 # An alternative taken only on one named branch (`github.ref == 'refs/heads/main' && 'main'`) is a group per
 # branch tip, like a github.ref key: a newer tip of that branch is what replaces its pending run.
-PINNED_REF = re.compile(r"(?<![\w.])github\.(?:ref|ref_name)\s*==\s*'[^']+'")
+PINNED_REF = re.compile(r"github\.(?:ref|ref_name)\s*==\s*'[^']+'")
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
 
 
@@ -82,14 +83,53 @@ def split_top(text: str, operator: str) -> list[str]:
     return parts
 
 
+def wrapped(text: str) -> bool:
+    """Whether `text` is one parenthesized expression, `( ... )`."""
+    return text.startswith("(") and text.endswith(")") and len(split_top(text[1:-1], ")(")) == 1 and \
+        _closes_at_end(text)
+
+
+def _closes_at_end(text: str) -> bool:
+    depth, quoted = 0, False
+    for index, char in enumerate(text):
+        if char == "'":
+            quoted = not quoted
+        elif not quoted and char == "(":
+            depth += 1
+        elif not quoted and char == ")":
+            depth -= 1
+            if depth == 0 and index != len(text) - 1:
+                return False
+    return depth == 0
+
+
+def always_keyed(expression: str, key: re.Pattern) -> bool:
+    """Whether every value `expression` (one GitHub expression) can take carries `key`.
+
+    An `||` holds when each alternative does. An `&&` chain's value is its last operand, unless the chain is
+    taken only on one branch (a positive `github.ref == '<ref>'` operand): a group per branch tip, like a ref
+    key. format() holds when one of its arguments always does; a context path holds when it is the key; any
+    other value (a literal, a comparison, a negation, another function) does not.
+    """
+    text = expression.strip()
+    while wrapped(text):
+        text = text[1:-1].strip()
+    alternatives = split_top(text, "||")
+    if len(alternatives) > 1:
+        return all(always_keyed(alternative, key) for alternative in alternatives)
+    operands = split_top(text, "&&")
+    if len(operands) > 1:
+        return any(PINNED_REF.fullmatch(operand.strip()) for operand in operands[:-1]) or \
+            always_keyed(operands[-1], key)
+    call = re.fullmatch(r"format\s*\((.*)\)", text, re.DOTALL)
+    if call and _closes_at_end(text[text.index("("):]):
+        return any(always_keyed(argument, key) for argument in split_top(call.group(1), ",")[1:])
+    return bool(re.fullmatch(r"[\w.]+", text)) and bool(key.fullmatch(text))
+
+
 def keyed(group: str, key: re.Pattern) -> bool:
-    """Whether every value `group` can take carries `key`: in its literal text, or in the value of every
-    `||` alternative of one of its expressions (an alternative's value is its last `&&` operand)."""
-    if key.search(EXPRESSION.sub("", group)):
-        return True
-    return any(all(key.search(split_top(branch, "&&")[-1]) or PINNED_REF.search(branch)
-                   for branch in split_top(body, "||"))
-               for body in EXPRESSION.findall(group))
+    """Whether every value `group` can take carries `key` (always_keyed() over one of its expressions)."""
+    return any(always_keyed(body, key) for body in EXPRESSION.findall(group))
 
 
 # Groups shared across heads on purpose, each with why no fallback compile waits in it.
@@ -183,7 +223,7 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertIsNotNone(evicting("x.yml", {"group": "${{ github.event_name == 'workflow_dispatch' && "
                                                          "'shadow-release-compile' || 'pick' }}",
                                                 "cancel-in-progress": "false"}))
-        self.assertIsNotNone(evicting("x.yml", {"group": "compile-${{ github.run_id }}",
+        self.assertIsNotNone(evicting("x.yml", {"group": "compile-${{ github.sha }}",
                                                 "cancel-in-progress": "true"}))
         self.assertIsNone(evicting("x.yml", {"group": "compile-${{ github.event.pull_request.number }}",
                                              "cancel-in-progress": "true"}))
@@ -197,6 +237,13 @@ class RunsOnFallbackTests(unittest.TestCase):
                                                       "inputs.sha) || format('s-{0}', github.run_id) }}"}))
         self.assertIsNone(evicting("x.yml", {"group": "t-${{ github.ref == 'refs/heads/main' && 'main' || "
                                                       "format('sha-{0}', github.sha) }}"}))
+        # A key nested where a shared value can win, or a negated ref test, keys nothing.
+        self.assertIsNotNone(evicting("x.yml", {"group": "${{ format('compile-{0}', github.event_name == "
+                                                         "'workflow_dispatch' && 'shared' || github.sha) }}"}))
+        self.assertIsNotNone(evicting("x.yml", {"group": "${{ !(github.ref == 'refs/heads/main') && "
+                                                         "'other-branches' || github.sha }}"}))
+        self.assertIsNone(evicting("x.yml", {"group": "${{ format('c-{0}-{1}', github.workflow, "
+                                                      "(github.event.pull_request.number || github.sha)) }}"}))
         # A scalar `labels` is one label, and an empty or single-host alternative is no fallback.
         self.assertIn("glaeda-runner-cmux15", runs_on_text({"runs-on": {"group": "mac",
                                                                         "labels": "glaeda-runner-cmux15"}}))
