@@ -13,12 +13,19 @@
 //!   the black box) is dropped and counted. `I` is an instant. `b`/`e` (AB/AE) go on an async track
 //!   whose uuid is a hash of (machine, pid, name, async id): Chrome's
 //!   `TRACE_EVENT_NESTABLE_ASYNC_*` over `perfetto::Track(uuid)`, so overlapping intervals of one
-//!   name never misnest. `s`/`f` are instants carrying `flow_ids`, joined across threads and
-//!   processes by the flow id. `C` is a counter sample on a track per (name, track id).
+//!   name never misnest. `s` is an instant carrying `flow_ids` and `f` one carrying
+//!   `terminating_flow_ids` (Perfetto's `Flow` and `TerminatingFlow`), joined across threads,
+//!   processes and machines by the flow id; an id used again after its `f` is a new flow. `C` is
+//!   a counter sample on a track per (name, track id).
 //! - One `ClockSnapshot` per machine. The local machine's trace clock (`CLOCK_UPTIME_RAW` on macOS)
 //!   is the primary trace clock; its snapshot ties it to `BOOTTIME` (the ring's
 //!   `start_continuous_ns`, read with `start_uptime_ns`) and `REALTIME` (`start_unix_ns`). A remote
 //!   machine (task 116) gets its own clock id, tied to the local clock by its measured offset.
+//! - A remote machine's processes and threads are named tracks (`"daemon 4321 on linux-lane"`,
+//!   `"<thread> <tid>"`), not pid and tid descriptors: trace_processor resolves those on one
+//!   machine, so a remote pid or tid equal to a local one would join the local process or thread.
+//!   `TracePacket.machine_id` would keep them apart too, but trace_processor (v58) joins flows
+//!   only within one machine, and a key's flow crosses into the remote daemon.
 //! - Chromium's JSON trace ([`ChromiumInput`]) is merged on the local clock after its measured
 //!   offset ([`chromium`]).
 //!

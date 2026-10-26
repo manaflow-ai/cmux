@@ -5,10 +5,14 @@
 //!   recording (`tests/fixtures/export-golden.txt`) does not drift;
 //! - two overlapping `create.tab` intervals on main get two async tracks, each with one slice;
 //! - descriptors carry role, thread name and QoS; names are interned per sequence; flows join two
-//!   threads; counters; one ClockSnapshot per machine, the remote one tied by its offset;
-//! - Chromium's JSON merges on the local clock after its offset;
-//! - with `CMUX_TRACE_PROCESSOR=<trace_processor_shell>`, the output imports with 0 errors, the
-//!   overlapping intervals are 2 slices and the flow table is not empty.
+//!   threads and end where they arrive; counters; one ClockSnapshot per machine, the remote one
+//!   tied by its offset; a remote machine's processes and threads are named tracks, apart from
+//!   local ones with the same pid and tid;
+//! - Chromium's JSON merges on the local clock after its offset, zero-length slices included;
+//! - the `#[ignore]`d `trace_processor` tests import the output with Perfetto's
+//!   `trace_processor_shell` (`CMUX_TRACE_PROCESSOR`, else `PATH`, else the Perfetto Python
+//!   package's `~/.local/share/perfetto/prebuilts`) and fail when it is missing:
+//!   `cargo test -p cmux-trace --test export -- --include-ignored`.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -453,8 +457,13 @@ fn app_ring() -> Decoded {
 
 /// A remote daemon whose clock is 37 ms ahead: the key flow arrives there.
 fn remote_ring() -> Decoded {
-    let tracer = tracer(Role::Daemon, 4321);
-    let mut dispatch = Writer::new(&tracer, ThreadIdentity::new(303, 0, "mux-control-dispatch"));
+    daemon_ring(4321, 303)
+}
+
+/// The remote daemon's recording, as process `pid` with its dispatch thread `tid`.
+fn daemon_ring(pid: u32, tid: u64) -> Decoded {
+    let tracer = tracer(Role::Daemon, pid);
+    let mut dispatch = Writer::new(&tracer, ThreadIdentity::new(tid, 0, "mux-control-dispatch"));
     dispatch.write(record(37_000_000 + 1_400, "key.flow", Phase::FlowIn, 0, 2, FLOW));
     dispatch.write(record(37_000_000 + 1_450, "daemon.request", Phase::Begin, 0, 1, 0));
     dispatch.write(record(37_000_000 + 1_500, "daemon.request", Phase::End, 0, 0, 0));
@@ -562,7 +571,6 @@ fn export_descriptors_name_roles_threads_and_qos() {
         .collect();
     assert!(threads.contains(&("main".into(), Some("QoS: user-interactive".into()))));
     assert!(threads.contains(&("cmux-io".into(), Some("QoS: user-initiated".into()))));
-    assert!(threads.contains(&("mux-control-dispatch".into(), None)));
     assert!(threads.contains(&("CrBrowserMain".into(), None)));
     let processes: Vec<(u64, Option<String>, Vec<String>)> = parsed
         .tracks
@@ -575,16 +583,21 @@ fn export_descriptors_name_roles_threads_and_qos() {
         Some("app".into()),
         vec!["build 1.2.3 (45)".into(), "black box".into()]
     )));
-    assert!(processes.contains(&(
-        4321,
-        Some("daemon".into()),
-        vec![
-            "build 1.2.3 (45)".into(),
-            "black box".into(),
-            "remote linux-lane: clock offset 37000000 ns, error bound 2000000 ns".into()
-        ]
-    )));
     assert!(processes.contains(&(77, Some("Browser".into()), vec![])));
+    let named = |name: &str| -> Option<String> {
+        let descriptor = parsed
+            .tracks
+            .values()
+            .find(|descriptor| descriptor.text(TD_NAME).as_deref() == Some(name))
+            .unwrap_or_else(|| panic!("a track named {name}"));
+        descriptor.text(TD_DESCRIPTION)
+    };
+    assert_eq!(
+        named("daemon 4321 on linux-lane").as_deref(),
+        Some("build 1.2.3 (45); black box; clock offset 37000000 ns, error bound 2000000 ns"),
+        "a remote process is a named track with its labels"
+    );
+    assert_eq!(named("mux-control-dispatch 303"), None);
 }
 
 #[test]
@@ -625,17 +638,104 @@ fn export_names_are_interned_once_per_sequence() {
 fn export_flows_join_threads_and_machines() {
     let (trace, stats) = export_fixture();
     let parsed = parse(&trace);
-    let key: Vec<&Event> = parsed.events.iter().filter(|event| event.flows == [FLOW]).collect();
+    let key: Vec<&Event> = parsed
+        .events
+        .iter()
+        .filter(|event| event.flows == [FLOW] || event.terminating == [FLOW])
+        .collect();
     assert_eq!(key.len(), 4, "out on main, in and out on io, in on the remote daemon");
     let tracks: std::collections::HashSet<u64> = key.iter().map(|event| event.track).collect();
     assert_eq!(tracks.len(), 3);
     assert!(key.iter().all(|event| event.kind == INSTANT));
+    let shape: Vec<(bool, bool)> =
+        key.iter().map(|event| (event.flows.is_empty(), event.terminating.is_empty())).collect();
+    assert_eq!(
+        shape,
+        [(false, true), (true, false), (false, true), (true, false)],
+        "s carries flow_ids, f terminating_flow_ids (Perfetto's TerminatingFlow)"
+    );
     let chromium_out =
         parsed.events.iter().find(|event| event.name == "ThreadControllerImpl::RunTask").unwrap();
     let chromium_in = parsed.events.iter().find(|event| event.name == "Receive").unwrap();
     assert_eq!(chromium_out.flows.len(), 1);
     assert_eq!(chromium_in.terminating, chromium_out.flows, "flow v2 ends where flow_in is");
     assert!(stats.flow_events >= 6);
+}
+
+/// One id used for two flows (ids keyed by a pane or a request number repeat): the arrival ends
+/// the first, so the second never chains from it.
+fn reused_flow_ring() -> Decoded {
+    let tracer = tracer(Role::App, 1234);
+    let mut main = Writer::new(&tracer, ThreadIdentity::new(101, 0x21, "main"));
+    let mut io = Writer::new(&tracer, ThreadIdentity::new(202, 0x19, "cmux-io"));
+    main.write(record(1_000, "key.flow", Phase::FlowOut, 0, 0, FLOW));
+    io.write(record(1_100, "key.flow", Phase::FlowIn, 0, 0, FLOW));
+    main.write(record(2_000, "key.flow", Phase::FlowOut, 0, 0, FLOW));
+    io.write(record(2_100, "key.flow", Phase::FlowIn, 0, 0, FLOW));
+    drop(main);
+    drop(io);
+    decode(&tracer.snapshot_active()).expect("decodes")
+}
+
+fn export_rings(rings: &[RingInput<'_>], remotes: &[RemoteMachine]) -> (Vec<u8>, ExportStats) {
+    let mut trace = Vec::new();
+    let stats =
+        export(&ExportInput { remotes, rings, chromium: &[] }, &mut trace).expect("exports");
+    (trace, stats)
+}
+
+#[test]
+fn export_a_flow_ends_where_it_arrives() {
+    let ring = reused_flow_ring();
+    let (trace, _) = export_rings(&[RingInput { ring: &ring, machine: Machine::Local }], &[]);
+    let parsed = parse(&trace);
+    let arrivals: Vec<&Event> =
+        parsed.events.iter().filter(|event| event.terminating == [FLOW]).collect();
+    assert_eq!(arrivals.len(), 2);
+    assert!(arrivals.iter().all(|event| event.flows.is_empty()), "an arrival starts no flow");
+}
+
+/// A remote ring and a local one with the same pid and tid.
+fn same_pid_rings() -> (Decoded, Decoded) {
+    let local = {
+        let tracer = tracer(Role::App, 4321);
+        let mut main = Writer::new(&tracer, ThreadIdentity::new(303, 0x21, "main"));
+        main.write(record(1_000, "action.perform", Phase::Begin, 0, 1, 0));
+        main.write(record(1_100, "action.perform", Phase::End, 0, 0, 0));
+        drop(main);
+        decode(&tracer.snapshot_active()).expect("decodes")
+    };
+    (local, daemon_ring(4321, 303))
+}
+
+fn lane() -> RemoteMachine {
+    RemoteMachine { name: "linux-lane".into(), offset_ns: 37_000_000, error_bound_ns: 2_000_000 }
+}
+
+#[test]
+fn export_a_remote_machine_keeps_its_own_processes() {
+    let (local, remote) = same_pid_rings();
+    let rings = [
+        RingInput { ring: &local, machine: Machine::Local },
+        RingInput { ring: &remote, machine: Machine::Remote(0) },
+    ];
+    let (trace, _) = export_rings(&rings, &[lane()]);
+    let parsed = parse(&trace);
+    let processes: Vec<(u64, Option<String>)> = parsed
+        .tracks
+        .values()
+        .filter_map(|descriptor| descriptor.msg(TD_PROCESS))
+        .map(|process| (process.uint(1).unwrap(), process.text(6)))
+        .collect();
+    assert_eq!(processes, [(4321, Some("app".into()))], "only the local process has a pid");
+    let threads = parsed.tracks.values().filter(|descriptor| descriptor.msg(TD_THREAD).is_some());
+    assert_eq!(threads.count(), 1, "only the local thread has a tid");
+    let daemon = parsed.events.iter().find(|event| event.name == "daemon.request").unwrap();
+    let thread = &parsed.tracks[&daemon.track];
+    assert_eq!(thread.text(TD_NAME).as_deref(), Some("mux-control-dispatch 303"));
+    let process = &parsed.tracks[&thread.uint(TD_PARENT).expect("under its process")];
+    assert_eq!(process.text(TD_NAME).as_deref(), Some("daemon 4321 on linux-lane"));
+    assert_eq!(process.uint(TD_PARENT), None);
 }
 
 #[test]
@@ -723,6 +823,71 @@ fn export_chromium_merges_on_the_local_clock_after_its_offset() {
     assert_eq!(stats.chromium_skipped, 1, "the object event");
 }
 
+/// Zero-length Chromium slices: a `dur: 0` X inside a parent, one at the top level, and a B/E pair
+/// at one timestamp, each followed by a slice that must stay at depth 0; an instant at a slice's
+/// begin is inside it.
+const CHROMIUM_ZERO_LENGTH: &str = r#"[
+ {"ph":"X","pid":7,"tid":1,"ts":0,"dur":10,"name":"Parent"},
+ {"ph":"X","pid":7,"tid":1,"ts":5,"dur":0,"name":"Child"},
+ {"ph":"X","pid":7,"tid":1,"ts":20,"dur":0,"name":"Top"},
+ {"ph":"B","pid":7,"tid":1,"ts":30,"name":"Pair"},
+ {"ph":"E","pid":7,"tid":1,"ts":30},
+ {"ph":"i","pid":7,"tid":1,"ts":40,"name":"AtBegin","s":"t"},
+ {"ph":"X","pid":7,"tid":1,"ts":40,"dur":5,"name":"Later"}
+]"#;
+
+/// `json` merged with the app's ring, whose header ties the trace clock to BOOTTIME and REALTIME.
+fn export_chromium(json: &str) -> (Vec<u8>, ExportStats) {
+    let app = app_ring();
+    let rings = [RingInput { ring: &app, machine: Machine::Local }];
+    let chromium = [ChromiumInput { json: json.as_bytes(), offset_ns: 0 }];
+    let mut trace = Vec::new();
+    let input = ExportInput { remotes: &[], rings: &rings, chromium: &chromium };
+    let stats = export(&input, &mut trace).expect("exports");
+    (trace, stats)
+}
+
+/// Each slice of one track as (name, begin, end, depth), from its begin and end events in order.
+fn slices(events: &[&Event]) -> Vec<(String, u64, u64, usize)> {
+    let mut open: Vec<usize> = Vec::new();
+    let mut out: Vec<(String, u64, u64, usize)> = Vec::new();
+    for event in events {
+        match event.kind {
+            BEGIN => {
+                open.push(out.len());
+                out.push((event.name.clone(), event.t, u64::MAX, open.len() - 1));
+            }
+            END => out[open.pop().expect("every end has its begin")].2 = event.t,
+            _ => {}
+        }
+    }
+    assert!(open.is_empty(), "every begin has its end");
+    out
+}
+
+#[test]
+fn export_chromium_zero_length_slices_close_themselves() {
+    let (trace, stats) = export_chromium(CHROMIUM_ZERO_LENGTH);
+    assert_eq!(stats.unmatched_ends, 1, "only the app ring's lost begin");
+    let parsed = parse(&trace);
+    let chromium = parsed.events.iter().find(|event| event.name == "Parent").unwrap().track;
+    let events: Vec<&Event> =
+        parsed.events.iter().filter(|event| event.track == chromium).collect();
+    assert_eq!(
+        slices(&events),
+        [
+            ("Parent".to_owned(), 0, 10_000, 0),
+            ("Child".to_owned(), 5_000, 5_000, 1),
+            ("Top".to_owned(), 20_000, 20_000, 0),
+            ("Pair".to_owned(), 30_000, 30_000, 0),
+            ("Later".to_owned(), 40_000, 45_000, 0),
+        ]
+    );
+    let order: Vec<&str> =
+        events.iter().filter(|event| event.t == 40_000).map(|event| event.name.as_str()).collect();
+    assert_eq!(order, ["Later", "AtBegin"], "an instant at a slice's begin is inside it");
+}
+
 #[test]
 fn export_estimated_instant_is_marked() {
     let (trace, _) = export_fixture();
@@ -768,13 +933,42 @@ fn export_golden_dump_does_not_drift() {
     );
 }
 
-/// Runs `sql` queries on `trace` with the `trace_processor_shell` that `CMUX_TRACE_PROCESSOR` names;
-/// None when it is not set (the fleet sets it). Asserts the import had no error or data loss.
-fn trace_processor(name: &str, trace: &[u8], queries: &[&str]) -> Option<Vec<String>> {
-    let Some(shell) = std::env::var_os("CMUX_TRACE_PROCESSOR").map(PathBuf::from) else {
-        eprintln!("CMUX_TRACE_PROCESSOR is not set: trace_processor import not checked");
-        return None;
-    };
+/// Perfetto's `trace_processor_shell`: `CMUX_TRACE_PROCESSOR`, else `trace_processor_shell` on
+/// `PATH`, else the newest one the Perfetto Python package downloaded. Panics when there is none:
+/// the tests that need it are `#[ignore]`d, so running them means checking the import.
+fn trace_processor_shell() -> PathBuf {
+    if let Some(shell) = std::env::var_os("CMUX_TRACE_PROCESSOR") {
+        return PathBuf::from(shell);
+    }
+    let on_path = std::env::var_os("PATH").into_iter().flat_map(|path| {
+        std::env::split_paths(&path)
+            .map(|dir| dir.join("trace_processor_shell"))
+            .collect::<Vec<_>>()
+    });
+    let prebuilts = std::env::var_os("HOME")
+        .map(|home| PathBuf::from(home).join(".local/share/perfetto/prebuilts"))
+        .and_then(|dir| std::fs::read_dir(dir).ok())
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("trace_processor_shell"))
+        })
+        .max_by_key(|path| std::fs::metadata(path).and_then(|meta| meta.modified()).ok());
+    on_path.chain(prebuilts).find(|path| path.is_file()).unwrap_or_else(|| {
+        panic!(
+            "no trace_processor_shell: set CMUX_TRACE_PROCESSOR, put it on PATH, or run \
+             `python3 -m pip install perfetto` and load a trace once"
+        )
+    })
+}
+
+/// Runs `sql` queries on `trace` with [`trace_processor_shell`]. Asserts the import had no error
+/// or data loss.
+fn trace_processor(name: &str, trace: &[u8], queries: &[&str]) -> Vec<String> {
+    let shell = trace_processor_shell();
     let dir = std::env::temp_dir().join(format!("cmux-trace-export-{name}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("scratch dir");
     let file = dir.join("export.perfetto-trace");
@@ -800,7 +994,7 @@ fn trace_processor(name: &str, trace: &[u8], queries: &[&str]) -> Option<Vec<Str
     assert!(!errors.lines().any(|line| line.contains("stat:")), "import errors:\n{errors}");
     let answers = queries.iter().map(|sql| query(sql)).collect();
     let _ = std::fs::remove_dir_all(dir);
-    Some(answers)
+    answers
 }
 
 /// The one number a `select ... as n` query printed.
@@ -808,27 +1002,107 @@ fn number(answer: &str) -> u64 {
     answer.lines().filter_map(|line| line.trim().trim_matches('"').parse().ok()).next().unwrap_or(0)
 }
 
-/// The fleet's check, here when `CMUX_TRACE_PROCESSOR` names a `trace_processor_shell`: 0 import
-/// errors, the two create.tab slices on two tracks, and flows.
+/// The import check: 0 import errors, the two create.tab slices on two tracks, the flows (into
+/// the remote daemon too), and the remote daemon's slice on the local clock.
 #[test]
-fn export_imports_into_trace_processor_with_no_errors() {
+#[ignore = "needs Perfetto's trace_processor_shell: cargo test -p cmux-trace --test export -- --include-ignored"]
+fn trace_processor_imports_the_export_with_no_errors() {
     let (trace, _) = export_fixture();
     let queries = [
         "select count(*) || ' ' || count(distinct track_id) as n from slice where name = 'create.tab'",
-        "select count(*) as n from flow",
+        "select so.name || '@' || so.ts || ' -> ' || si.name || '@' || si.ts as hop from flow f \
+         join slice so on so.id = f.slice_out join slice si on si.id = f.slice_in order by so.ts",
         "select ts as n from slice where name = 'daemon.request'",
     ];
-    let Some(answers) = trace_processor("fixture", &trace, &queries) else { return };
+    let answers = trace_processor("fixture", &trace, &queries);
     assert!(answers[0].contains("\"2 2\""), "two create.tab slices on two tracks:\n{}", answers[0]);
-    assert_eq!(number(&answers[1]), 4, "main to io, io to io, io to the remote daemon; Chromium's");
+    let hops: Vec<&str> = answers[1].lines().skip(1).map(|line| line.trim_matches('"')).collect();
+    assert_eq!(
+        hops,
+        [
+            "key.flow@1160 -> key.flow@1180",
+            "key.flow@1190 -> key.flow@1400",
+            "ThreadControllerImpl::RunTask@1500 -> Receive@3500"
+        ],
+        "main to io, io to the remote daemon, Chromium's"
+    );
     assert_eq!(number(&answers[2]), 1_450, "the remote daemon's slice, on the local clock");
 }
 
-/// A black box that wrapped many times under four writers: begins lost to the overwrite, ends
-/// still open, overlapping async intervals. The export drops the ends it cannot match and imports
-/// with no error.
+/// Flows that reuse an id: two arrows, not a chain through the first arrival.
 #[test]
-fn export_a_wrapped_black_box_imports_cleanly() {
+#[ignore = "needs Perfetto's trace_processor_shell: cargo test -p cmux-trace --test export -- --include-ignored"]
+fn trace_processor_ends_a_flow_where_it_arrives() {
+    let ring = reused_flow_ring();
+    let (trace, _) = export_rings(&[RingInput { ring: &ring, machine: Machine::Local }], &[]);
+    let answers = trace_processor(
+        "reused-flow",
+        &trace,
+        &[
+            "select count(*) as n from flow",
+            "select count(*) as n from flow f \
+           join slice s on f.slice_out = s.id where s.ts = 1100",
+        ],
+    );
+    assert_eq!(number(&answers[0]), 2);
+    assert_eq!(number(&answers[1]), 0, "the first arrival starts no flow");
+}
+
+/// A remote process and thread with a local one's pid and tid stay apart.
+#[test]
+#[ignore = "needs Perfetto's trace_processor_shell: cargo test -p cmux-trace --test export -- --include-ignored"]
+fn trace_processor_keeps_a_remote_machine_apart() {
+    let (local, remote) = same_pid_rings();
+    let rings = [
+        RingInput { ring: &local, machine: Machine::Local },
+        RingInput { ring: &remote, machine: Machine::Remote(0) },
+    ];
+    let (trace, _) = export_rings(&rings, &[lane()]);
+    let answers = trace_processor(
+        "same-pid",
+        &trace,
+        &[
+            "select group_concat(name, ',') as n from process where pid = 4321",
+            "select group_concat(name, ',') as n from thread where tid = 303",
+            "select coalesce(t.name, '-') || ' ' || s.ts as n from slice s \
+             join track t on t.id = s.track_id where s.name = 'daemon.request'",
+        ],
+    );
+    assert!(answers[0].lines().any(|line| line == "\"app\""), "{}", answers[0]);
+    assert!(answers[1].lines().any(|line| line == "\"main\""), "{}", answers[1]);
+    assert!(
+        answers[2].contains("\"mux-control-dispatch 303 1450\""),
+        "the remote slice on its own track, on the local clock:\n{}",
+        answers[2]
+    );
+}
+
+/// The Chromium zero-length slices: no slice left open (dur = -1), each later slice at depth 0.
+#[test]
+#[ignore = "needs Perfetto's trace_processor_shell: cargo test -p cmux-trace --test export -- --include-ignored"]
+fn trace_processor_reads_zero_length_chromium_slices() {
+    let (trace, _) = export_chromium(CHROMIUM_ZERO_LENGTH);
+    let answers = trace_processor(
+        "zero-length",
+        &trace,
+        &[
+            "select count(*) as n from slice where dur < 0",
+            "select group_concat(name || ':' || depth || ':' || dur, ',') as n from \
+             (select s.* from slice s join thread_track tt on s.track_id = tt.id \
+              join thread t using(utid) where t.tid = 1 order by s.ts, s.depth)",
+        ],
+    );
+    assert_eq!(number(&answers[0]), 0, "no slice left open");
+    assert!(
+        answers[1].contains("Parent:0:10000,Child:1:0,Top:0:0,Pair:0:0,Later:0:5000"),
+        "{}",
+        answers[1]
+    );
+}
+
+/// A black box that wrapped many times under four writers: begins lost to the overwrite, ends
+/// still open, overlapping async intervals. The export drops the ends it cannot match.
+fn wrapped_black_box_export() -> Vec<u8> {
     let tracer = tracer(Role::App, 2222);
     std::thread::scope(|scope| {
         for thread in 1..=4u64 {
@@ -876,10 +1150,19 @@ fn export_a_wrapped_black_box_imports_cleanly() {
     let ends = parsed.events.iter().filter(|event| event.kind == END).count() as u64;
     assert!(ends <= begins, "every end written has its begin");
     assert_eq!(begins, stats.slices);
-    let Some(answers) =
-        trace_processor("wrapped", &trace, &["select count(*) as n from slice where dur < -1"])
-    else {
-        return;
-    };
+    trace
+}
+
+#[test]
+fn export_a_wrapped_black_box_drops_the_ends_it_cannot_match() {
+    wrapped_black_box_export();
+}
+
+#[test]
+#[ignore = "needs Perfetto's trace_processor_shell: cargo test -p cmux-trace --test export -- --include-ignored"]
+fn trace_processor_imports_a_wrapped_black_box_cleanly() {
+    let trace = wrapped_black_box_export();
+    let answers =
+        trace_processor("wrapped", &trace, &["select count(*) as n from slice where dur < -1"]);
     assert_eq!(number(&answers[0]), 0, "no slice with a negative duration");
 }

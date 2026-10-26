@@ -25,6 +25,14 @@ pub(crate) enum TrackKind {
     Named {
         name: String,
     },
+    /// A remote machine's process or thread. trace_processor resolves pid and tid descriptors on
+    /// one machine, so a remote pid or tid that equals a local one would join the local process
+    /// or thread. A named track keeps it apart and its flows joined to local ones, which a
+    /// `TracePacket.machine_id` would not: trace_processor joins flows within one machine.
+    Remote {
+        name: String,
+        description: Option<String>,
+    },
     Counter {
         name: String,
     },
@@ -126,6 +134,12 @@ pub(crate) fn encode(descriptor: &mut Message, uuid: u64, track: &Track) {
         }
         TrackKind::Named { name } => {
             descriptor.string(field::TRACK_NAME, name);
+        }
+        TrackKind::Remote { name, description } => {
+            descriptor.string(field::TRACK_NAME, name);
+            if let Some(description) = description {
+                descriptor.string(field::TRACK_DESCRIPTION, description);
+            }
         }
         TrackKind::Counter { name } => {
             descriptor.string(field::TRACK_NAME, name);

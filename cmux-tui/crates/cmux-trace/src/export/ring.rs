@@ -59,6 +59,8 @@ pub(super) struct RingExport<'a> {
     machine_key: u64,
     pid: u32,
     process: u64,
+    /// A remote machine's ring: its process and threads are [`TrackKind::Remote`].
+    remote: bool,
     /// (thread index, generation) to its track.
     threads: HashMap<(u32, u32), u64>,
     /// Name id to (text, category bit; `u8::MAX` for a name the table lacks).
@@ -94,6 +96,7 @@ impl<'a> RingExport<'a> {
             machine_key,
             pid,
             process,
+            remote: remote.is_some(),
             threads: HashMap::new(),
             names,
             open: HashMap::new(),
@@ -139,22 +142,29 @@ impl<'a> RingExport<'a> {
         }
         let track = match self.ring.thread_of(record) {
             Some(thread) => {
-                let (pid, process) = (self.pid, self.process);
+                let (pid, process, remote) = (self.pid, self.process, self.remote);
                 let parts: [&[u8]; 4] = [
                     b"thread",
                     &self.machine_key.to_le_bytes(),
                     &pid.to_le_bytes(),
                     &thread.tid.to_le_bytes(),
                 ];
-                builder.tracks.insert(uuid_of(&parts), || Track {
-                    parent: Some(process),
-                    kind: TrackKind::Thread {
+                let description = qos_name(thread.qos).map(|qos| format!("QoS: {qos}"));
+                let kind = if remote {
+                    let name = match thread.name.as_str() {
+                        "" => format!("thread {}", thread.tid),
+                        name => format!("{name} {}", thread.tid),
+                    };
+                    TrackKind::Remote { name, description }
+                } else {
+                    TrackKind::Thread {
                         pid: pid as i32,
                         tid: thread.tid as i64,
                         name: (!thread.name.is_empty()).then(|| thread.name.clone()),
-                        description: qos_name(thread.qos).map(|qos| format!("QoS: {qos}")),
-                    },
-                })
+                        description,
+                    }
+                };
+                builder.tracks.insert(uuid_of(&parts), || Track { parent: Some(process), kind })
             }
             None => self.unregistered_thread_track(builder, record),
         };
@@ -247,7 +257,12 @@ impl<'a> RingExport<'a> {
             Phase::FlowOut | Phase::FlowIn => {
                 event.track = self.thread_track(builder, record);
                 event.kind = field::TYPE_INSTANT;
-                event.flow_ids = Some(record.arg1);
+                // `f` ends the flow (Perfetto's `TerminatingFlow`): an id used again starts a new one.
+                if phase == Phase::FlowIn {
+                    event.terminating_flow_ids = Some(record.arg1);
+                } else {
+                    event.flow_ids = Some(record.arg1);
+                }
                 args.push(arg::ARG0, record.arg0);
                 true
             }
@@ -344,7 +359,9 @@ fn build_text(bytes: &[u8; 32]) -> String {
     String::from_utf8_lossy(&bytes[..end]).into_owned()
 }
 
-/// The process track of a ring: its role, with its build, ring kind and machine as labels.
+/// The process track of a ring: its role, with its build, ring kind and machine as labels. A
+/// remote machine's is a [`TrackKind::Remote`] named for its role, pid and machine, the labels in
+/// its description.
 fn process_track(ring: &Decoded, remote: Option<&RemoteMachine>) -> TrackKind {
     let header = &ring.header;
     let role = Role::from_raw(header.role).map_or("unknown role", Role::as_str);
@@ -356,11 +373,15 @@ fn process_track(ring: &Decoded, remote: Option<&RemoteMachine>) -> TrackKind {
     if header.ring_kind == RingKind::BlackBox as u8 {
         labels.push("black box".to_owned());
     }
-    if let Some(remote) = remote {
-        labels.push(format!(
-            "remote {}: clock offset {} ns, error bound {} ns",
-            remote.name, remote.offset_ns, remote.error_bound_ns
-        ));
+    let Some(remote) = remote else {
+        return TrackKind::Process { pid: header.pid as i32, name: Some(role.to_owned()), labels };
+    };
+    labels.push(format!(
+        "clock offset {} ns, error bound {} ns",
+        remote.offset_ns, remote.error_bound_ns
+    ));
+    TrackKind::Remote {
+        name: format!("{role} {} on {}", header.pid, remote.name),
+        description: Some(labels.join("; ")),
     }
-    TrackKind::Process { pid: header.pid as i32, name: Some(role.to_owned()), labels }
 }

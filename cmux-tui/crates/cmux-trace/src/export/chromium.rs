@@ -10,22 +10,33 @@
 //! - `C` writes one counter track per (process, name, series).
 //! - `M` names processes and threads.
 //!
-//! Other phases (objects `N`/`O`/`D`, samples `P`, marks) are counted and skipped. The events are
-//! sorted before they are written, so a complete event that Chromium wrote after its children (it
-//! writes `X` at the slice's end) still opens before them.
+//! Other phases (objects `N`/`O`/`D`, samples `P`, marks) are counted and skipped.
+//!
+//! Every slice end is paired with its begin before the events are sorted: an `X` is both, and a
+//! `B`/`E` (or async begin and end) pair is matched per track in time order, input order breaking
+//! ties, as trace_processor's JSON importer reads them. At one time the order is then the ends of
+//! slices begun earlier (innermost first), the begins of slices that last (longest first), and the
+//! rest in input order: instants, counters, flows and zero-length slices, each zero-length begin
+//! right before its own end. So a complete event that Chromium wrote after its children (it writes
+//! `X` at the slice's end) still opens before them, an instant at a slice's begin is inside it, and
+//! a `dur: 0` slice never closes its parent.
 
 use super::tracks::{Track, TrackKind, uuid_of};
 use super::{Builder, ChromiumInput, CounterValue, Event, Machine, field};
 use crate::json::{self, JsonError, Value};
 use crate::proto::Message;
 
-/// One event to write: when, the sort class (ends, then instants, then begins at one time) and
-/// the tie-break among begins (longest first) or ends (innermost first).
+/// One event to write. `partner_ns` pairs a slice's ends: a begin's end time (`u64::MAX` while
+/// none is known) or an end's begin time. `order` is the input event's index, `sub` the end of an
+/// `X` (1) after its begin (0).
 #[derive(Clone, Copy)]
 struct Pending<'a> {
     t_ns: u64,
-    class: u8,
-    tie: u64,
+    partner_ns: u64,
+    order: u32,
+    sub: u8,
+    /// A `B`/`E` (or async) begin or end, paired by [`pair_slices`]; an `X` is paired already.
+    explicit: bool,
     track: u64,
     kind: u64,
     name: &'a str,
@@ -37,8 +48,24 @@ struct Pending<'a> {
 }
 
 const CLASS_END: u8 = 0;
-const CLASS_INSTANT: u8 = 1;
-const CLASS_BEGIN: u8 = 2;
+const CLASS_BEGIN: u8 = 1;
+const CLASS_POINT: u8 = 2;
+
+impl Pending<'_> {
+    /// Where the event goes among the events at its time.
+    fn sort_key(&self) -> (u64, u8, u64, u32, u8) {
+        let (class, tie) = match self.kind {
+            field::TYPE_SLICE_END if self.partner_ns < self.t_ns => {
+                (CLASS_END, u64::MAX - self.partner_ns)
+            }
+            field::TYPE_SLICE_BEGIN if self.partner_ns > self.t_ns => {
+                (CLASS_BEGIN, u64::MAX - self.partner_ns)
+            }
+            _ => (CLASS_POINT, 0),
+        };
+        (self.t_ns, class, tie, self.order, self.sub)
+    }
+}
 
 /// Reads `input` and adds its events to `builder` as sequence `sequence_id`.
 pub(super) fn merge(
@@ -53,26 +80,16 @@ pub(super) fn merge(
         None => return Err(JsonError { offset: 0, what: "no traceEvents array" }),
     };
     let mut pending = Vec::with_capacity(events.len());
-    for event in events {
+    for (order, event) in events.iter().enumerate() {
         builder.stats.chromium_events += 1;
-        if !convert(builder, event, input.offset_ns, &mut pending) {
+        if !convert(builder, event, input.offset_ns, order as u32, &mut pending) {
             builder.stats.chromium_skipped += 1;
         }
     }
-    pending.sort_by_key(|event| (event.t_ns, event.class, event.tie));
+    pair_slices(builder, &mut pending);
+    pending.sort_by_key(Pending::sort_key);
     let sequence = builder.sequence(sequence_id, Machine::Local);
-    let mut depth = std::collections::HashMap::<u64, u32>::new();
     for event in &pending {
-        let open = depth.entry(event.track).or_insert(0);
-        match event.kind {
-            field::TYPE_SLICE_BEGIN => *open += 1,
-            field::TYPE_SLICE_END if *open == 0 => {
-                builder.stats.unmatched_ends += 1;
-                continue;
-            }
-            field::TYPE_SLICE_END => *open -= 1,
-            _ => {}
-        }
         let proto = Event {
             kind: event.kind,
             track: event.track,
@@ -88,6 +105,37 @@ pub(super) fn merge(
         builder.emit(sequence, event.t_ns, &proto, None, &|message| write_args(message, args));
     }
     Ok(())
+}
+
+/// Matches each `B`/`E` (and async begin/end) end with the latest open begin on its track, in time
+/// order and then input order; an end with nothing open is dropped and counted.
+fn pair_slices(builder: &mut Builder, pending: &mut Vec<Pending<'_>>) {
+    let mut explicit: Vec<usize> = (0..pending.len()).filter(|&at| pending[at].explicit).collect();
+    explicit.sort_unstable_by_key(|&at| (pending[at].t_ns, pending[at].order));
+    let mut open = std::collections::HashMap::<u64, Vec<usize>>::new();
+    let mut unmatched = vec![false; pending.len()];
+    for at in explicit {
+        let event = pending[at];
+        if event.kind == field::TYPE_SLICE_BEGIN {
+            open.entry(event.track).or_default().push(at);
+            continue;
+        }
+        match open.get_mut(&event.track).and_then(Vec::pop) {
+            Some(begin) => {
+                pending[begin].partner_ns = event.t_ns;
+                pending[at].partner_ns = pending[begin].t_ns;
+            }
+            None => {
+                builder.stats.unmatched_ends += 1;
+                unmatched[at] = true;
+            }
+        }
+    }
+    let mut at = 0;
+    pending.retain(|_| {
+        at += 1;
+        !unmatched[at - 1]
+    });
 }
 
 fn text<'a>(event: &'a Value<'a>, key: &str) -> &'a str {
@@ -137,6 +185,7 @@ fn convert<'a>(
     builder: &mut Builder,
     event: &'a Value<'a>,
     offset_ns: i64,
+    order: u32,
     out: &mut Vec<Pending<'a>>,
 ) -> bool {
     let phase = text(event, "ph");
@@ -152,8 +201,10 @@ fn convert<'a>(
     let args = event.get("args");
     let pending = Pending {
         t_ns,
-        class: CLASS_INSTANT,
-        tie: 0,
+        partner_ns: t_ns,
+        order,
+        sub: 0,
+        explicit: false,
         track: 0,
         kind: field::TYPE_INSTANT,
         name,
@@ -207,16 +258,24 @@ fn thread_event<'a>(
     };
     bind_flows(event, &mut pending);
     match phase {
-        "B" => begin(&mut pending, u64::MAX),
-        "E" => end(&mut pending, 0),
+        "B" => explicit_begin(&mut pending),
+        "E" => explicit_end(&mut pending),
         "X" => {
             let dur = event.get("dur").and_then(Value::as_micros_in_ns).unwrap_or(0);
             let (begin_ns, end_ns) = (pending.t_ns, pending.t_ns.saturating_add(dur));
-            begin(&mut pending, end_ns);
-            let mut closing =
-                Pending { t_ns: end_ns, flow: None, terminating: None, args: None, ..pending };
-            end(&mut closing, begin_ns);
-            out.push(closing);
+            pending.kind = field::TYPE_SLICE_BEGIN;
+            pending.partner_ns = end_ns;
+            out.push(pending);
+            pending = Pending {
+                t_ns: end_ns,
+                partner_ns: begin_ns,
+                sub: 1,
+                kind: field::TYPE_SLICE_END,
+                flow: None,
+                terminating: None,
+                args: None,
+                ..pending
+            };
         }
         _ => {}
     }
@@ -247,24 +306,24 @@ fn async_event<'a>(
     let name = pending.name.to_owned();
     pending.track = named_track(builder, (!global).then_some(process), &parts, name);
     match phase {
-        "b" | "S" => begin(&mut pending, u64::MAX),
-        "e" | "F" => end(&mut pending, 0),
+        "b" | "S" => explicit_begin(&mut pending),
+        "e" | "F" => explicit_end(&mut pending),
         _ => {}
     }
     out.push(pending);
     true
 }
 
-fn begin(pending: &mut Pending<'_>, end_ns: u64) {
+/// A begin [`pair_slices`] pairs: open-ended until its end is found.
+fn explicit_begin(pending: &mut Pending<'_>) {
     pending.kind = field::TYPE_SLICE_BEGIN;
-    pending.class = CLASS_BEGIN;
-    pending.tie = u64::MAX - end_ns;
+    pending.partner_ns = u64::MAX;
+    pending.explicit = true;
 }
 
-fn end(pending: &mut Pending<'_>, begin_ns: u64) {
+fn explicit_end(pending: &mut Pending<'_>) {
     pending.kind = field::TYPE_SLICE_END;
-    pending.class = CLASS_END;
-    pending.tie = u64::MAX - begin_ns;
+    pending.explicit = true;
 }
 
 /// Flow v2: `bind_id` with `flow_out` (and maybe `flow_in`) passes the flow on; `flow_in` alone ends it.
