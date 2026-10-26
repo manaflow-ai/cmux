@@ -75,6 +75,42 @@ import Testing
         #expect(VisibilitySpy.posts.map(\.browser) == [Self.firstBrowser, Self.firstBrowser + 1])
     }
 
+    /// Docked DevTools is a detached Chromium window of its own: its page view tells the host what
+    /// the person sees of it for the DevTools browser, from its open on, as the pane's page view does.
+    @Test func dockedDevToolsPostsItsOwnVisibility() throws {
+        let runtime = try Self.runtime()
+        let (host, tab) = try Self.livePane(runtime)
+        let window = FakeWindow()
+        try Self.watch(host, window)
+        tab.devToolsController.layout = CEFDevToolsLayout()  // docked at the bottom, not the remembered layout
+        tab.container.frame = window.container.bounds
+        window.container.addSubview(tab.container)
+        host.present(tab, in: tab.container)
+
+        tab.devToolsController.perform(.show)
+        let devToolsPage = try #require(tab.devToolsController.hostedPage)
+        devToolsPage.visibilitySource = window.source
+        runtime.handle(.devToolsWillOpen(browser: Self.firstBrowser))
+        VisibilitySpy.reset()
+        runtime.handle(.devToolsOpened(browser: Self.firstBrowser, devTools: Self.devTools, docked: true))
+        tab.setContentVisible(false)  // the workspace hides
+        Self.endTurn()
+        tab.setContentVisible(true)
+        window.change(\.isShown, false, NSWindow.didMiniaturizeNotification)
+        window.change(\.isShown, true, NSWindow.didDeminiaturizeNotification)
+
+        let devToolsPosts = VisibilitySpy.posts.filter { $0.browser == Self.devTools }.map(\.visibility)
+        #expect(devToolsPosts == [Self.visible, Self.hidden, Self.visible, Self.hidden, Self.visible])
+        #expect(VisibilitySpy.posts.first?.browser == Self.devTools, "the open posts the DevTools page's visibility first")
+
+        // Closed, nothing goes for the DevTools browser.
+        runtime.handle(.devToolsClosed(browser: Self.firstBrowser, devTools: Self.devTools))
+        VisibilitySpy.reset()
+        tab.setContentVisible(false)
+        Self.endTurn()
+        #expect(!VisibilitySpy.posts.contains { $0.browser == Self.devTools })
+    }
+
     @Test func chromesRule() {
         typealias State = ChromiumHostPageVisibility.WindowState
         #expect(State.visibility(of: nil) == .hidden, "out of every window")
@@ -107,6 +143,7 @@ import Testing
     // MARK: Fixtures
 
     private static let firstBrowser: Int32 = 1
+    private static let devTools: Int32 = 2
     private static let visible = ChromiumHostPageVisibility.visible.rawValue
     private static let hidden = ChromiumHostPageVisibility.hidden.rawValue
     private static let occluded = ChromiumHostPageVisibility.occluded.rawValue
