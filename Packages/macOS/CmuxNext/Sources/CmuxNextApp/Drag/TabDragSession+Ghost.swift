@@ -215,6 +215,7 @@ extension TabDragSession {
         drag.input = nil
         drag.moves?.cancel()
         drag.moves = nil
+        resignObserver?.cancel()
         resignObserver = nil
     }
 
