@@ -1,0 +1,17 @@
+{
+  "id": "arch-counts",
+  "tier": "linux",
+  "description": "The F13 architecture counts of the measured commit (the perf cron arch report's rows, counted by that commit's own arch_counts.py), one lower-is-better count per row.",
+  "command": ["scripts/perf-lab/stories/arch_counts.py", "--out", "{out}"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "arch\\.[a-z0-9_]+", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 60,
+  "needs": ["file:scripts/cmux-next/arch_counts.py", "file:plans/cmux-next/arch-ratchet.json"],
+  "owner": "PL-arch",
+  "component": "Architecture>Counts"
+}
