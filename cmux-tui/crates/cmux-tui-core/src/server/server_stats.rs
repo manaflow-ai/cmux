@@ -145,6 +145,9 @@ struct ProcessRow {
     role: Option<&'static str>,
     /// The raw `task_role_t` when it is outside the named set.
     role_raw: Option<i32>,
+    /// Whether PRIO_DARWIN_BG suppresses the process
+    /// (`process_role::set_role(BackgroundSuppressed)`); `None` on Linux.
+    darwin_bg: Option<bool>,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -237,6 +240,7 @@ impl LaneRow {
 fn threads_snapshot(
     uptime_ms: u64,
     role: Option<TaskRole>,
+    darwin_bg: Option<bool>,
     threads: Vec<ThreadInfo>,
     lanes: [LaneStats; 3],
 ) -> ServerThreadsSnapshot {
@@ -252,6 +256,7 @@ fn threads_snapshot(
                 Some(TaskRole::Other(raw)) => Some(raw),
                 _ => None,
             },
+            darwin_bg,
         },
         threads,
         lanes: lanes.into_iter().map(LaneRow::of).collect(),
@@ -259,12 +264,13 @@ fn threads_snapshot(
 }
 
 /// `server-threads`: the registry snapshot (one lock held for its row
-/// reads, as Chromium's `ThreadIdNameManager`), the lanes' counters and the
-/// task role, rendered after both are released.
+/// reads, as Chromium's `ThreadIdNameManager`), the lanes' counters, the
+/// task role and PRIO_DARWIN_BG, rendered after both locks are released.
 pub(super) fn server_threads(mux: &Mux) -> ServerThreadsSnapshot {
     threads_snapshot(
         uptime_ms(mux),
         process_role::current(),
+        process_role::darwin_background(),
         cmux_threads::snapshot(),
         mux.work.stats(),
     )

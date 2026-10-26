@@ -932,7 +932,7 @@ Result:
 object{
   schema:uint32,
   uptime_ms:uint64,
-  process:object{pid:uint32, role:string|null, role_raw:int32|null},
+  process:object{pid:uint32, role:string|null, role_raw:int32|null, darwin_bg:bool|null},
   threads:array<object{
     name:string, tid:uint64|null,
     declared:qos, desired:qos, effective:qos|null,
@@ -959,7 +959,9 @@ the scheduler priority now: macOS `pth_curpri` (Default 31), Linux 20 + nice
 rt_priority` for a real-time thread. `role` is the Mach task role (`reniced`,
 `unspecified`, `foreground`, `background`, `control`, `graphics-server`,
 `throttle`, `non-ui`, `default`, `darwin-bg`, or `other` with `role_raw`);
-it is null on Linux. Threads are sorted by name, then tid.
+the daemon sets `foreground` at start (Chromium's `SetCurrentTaskDefaultRole`).
+`darwin_bg` says whether PRIO_DARWIN_BG suppresses the process. Both are null
+on Linux. Threads are sorted by name, then tid.
 
 Errors: `daemon thread diagnostics require a trusted local connection`.
 
