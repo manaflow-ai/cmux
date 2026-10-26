@@ -13,7 +13,7 @@
               "chat-anim",
               "home-idle",
               "motion",
-              "new-surfaces",
+              "new-surfaces-matrix",
               "omnibar",
               "pane-stress",
               "perf-gate",
@@ -45,7 +45,7 @@
               "chat-anim",
               "home-idle",
               "motion",
-              "new-surfaces",
+              "new-surfaces-matrix",
               "omnibar",
               "pane-stress",
               "perf-gate",
@@ -69,12 +69,12 @@
         {
           "index": 0,
           "seconds": {
-            "T0": 120,
+            "T0": 330,
             "T1": 4200
           },
           "stories": {
             "T0": [
-              "launch-warm"
+              "new-surfaces"
             ],
             "T1": [
               "chat-anim",
@@ -87,14 +87,16 @@
         {
           "index": 1,
           "seconds": {
-            "T0": 0,
+            "T0": 120,
             "T1": 4020
           },
           "stories": {
-            "T0": [],
+            "T0": [
+              "launch-warm"
+            ],
             "T1": [
               "home-idle",
-              "new-surfaces",
+              "new-surfaces-matrix",
               "omnibar",
               "perf-gate",
               "sidebar",
