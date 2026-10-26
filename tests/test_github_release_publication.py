@@ -420,6 +420,8 @@ class TransportTests(unittest.TestCase):
         self.responses = list(responses)
         publisher._rate_limit_deadline = None
         publisher._secondary_waits = 0
+        publisher._waited_here = 0.0
+        self.addCleanup(setattr, publisher, "_waited_here", 0.0)
         self.addCleanup(setattr, publisher, "_rate_limit_deadline", None)
         self.addCleanup(setattr, publisher, "_secondary_waits", 0)
         waits = []
@@ -472,6 +474,18 @@ class TransportTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "did not reset within"):
                 self.rate_limited_publish(refused, refused)
         self.assertEqual(int(ledger.read_text()), 3600)
+
+    def test_an_unwritable_ledger_still_caps_the_wait(self):
+        # The cap fails closed: this process's own waits count even when the ledger cannot be written.
+        refused = (403, {}, {"message": "API rate limit exceeded"})
+        unwritable = self.root / "file" / "waited"
+        (self.root / "file").write_text("not a directory")
+        with patch.object(publisher, "_LEDGER", unwritable), patch.object(publisher, "_waited_here", 0.0), \
+                patch.dict(os.environ, {"GH_BUDGET_WAIT_MAX_SECONDS": "100"}), \
+                patch.object(publisher, "RATE_LIMIT_BUDGET_SECONDS", 1800):
+            with self.assertRaisesRegex(RuntimeError, "did not reset within"):
+                self.rate_limited_publish(refused, refused, refused)
+            self.assertEqual(publisher._waited_here, 100.0)
 
     def test_the_budget_comes_from_the_environment(self):
         script = Path(publisher.__file__)

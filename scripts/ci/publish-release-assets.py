@@ -51,26 +51,30 @@ _secondary_waits = 0
 # publisher and scripts/ci/gh_budget_wait.sh share this ledger of seconds already waited,
 # so the steps of one job never add up to more than the job's timeout leaves room for.
 _LEDGER = Path(os.environ.get("RUNNER_TEMP") or tempfile.gettempdir()) / "gh-budget-wait" / "waited"
+_waited_here = 0.0  # this process's own waits: the cap holds even if the ledger cannot be written
+
+
+def _ledger_spent() -> float:
+    try:
+        return float(_LEDGER.read_text().strip() or 0)
+    except (OSError, ValueError):
+        return 0.0
 
 
 def _job_wait_left() -> float:
-    try:
-        spent = float(_LEDGER.read_text().strip() or 0)
-    except (OSError, ValueError):
-        spent = 0.0
-    return float(os.environ.get("GH_BUDGET_WAIT_MAX_SECONDS") or 3600) - spent
+    """Seconds this job may still wait; call with _rate_limit_lock held."""
+    return float(os.environ.get("GH_BUDGET_WAIT_MAX_SECONDS") or 3600) - max(_ledger_spent(), _waited_here)
 
 
 def _record_job_wait(seconds: float) -> None:
+    """Add a wait to the job's ledger; call with _rate_limit_lock held (one writer at a time)."""
+    global _waited_here
+    _waited_here += seconds
     try:
         _LEDGER.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            spent = float(_LEDGER.read_text().strip() or 0)
-        except (OSError, ValueError):
-            spent = 0.0
-        _LEDGER.write_text(str(int(spent + seconds)))
-    except OSError:
-        pass
+        _LEDGER.write_text(str(int(max(_ledger_spent() + seconds, _waited_here))))
+    except OSError as error:
+        print(f"could not record the rate-limit wait in {_LEDGER}: {error}", file=sys.stderr, flush=True)
 _write_lock = threading.Lock()
 _last_write: float | None = None
 
@@ -145,12 +149,14 @@ def backoff(attempt: int, error: RequestError | None = None) -> None:
             _secondary_waits += 1
         else:
             wanted = error.wait
+        wait = min(max(wanted, 1.0), left)
+        # Reserve the wait before sleeping, under the lock, so concurrent waits never overrun the cap.
+        if left >= 1:
+            _record_job_wait(wait)
     if left < 1:
         raise RuntimeError(f"GitHub rate limit did not reset within {RATE_LIMIT_BUDGET_SECONDS} s: {error}") from error
-    wait = min(max(wanted, 1.0), left)
     print(f"GitHub rate limit ({error}); waiting {wait:.0f} s", file=sys.stderr, flush=True)
     _sleep(wait)
-    _record_job_wait(wait)
 
 
 @dataclass(frozen=True)
