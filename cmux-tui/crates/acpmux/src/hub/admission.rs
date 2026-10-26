@@ -309,6 +309,30 @@ fn counted(live: &std::collections::HashSet<&str>, open: &[Arc<Making>]) -> usiz
 /// conversation, to end.
 const NAME_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
 
+impl Admitting {
+    /// Waits while `still` holds of the open creates, up to `limit`. True when it
+    /// still held as the wait ended.
+    async fn wait_while(
+        &self,
+        limit: std::time::Duration,
+        still: impl Fn(&[Arc<Making>]) -> bool,
+    ) -> bool {
+        loop {
+            // Listening before the check: a create that ends between the two
+            // still wakes this wait.
+            let wake = self.1.notified();
+            tokio::pin!(wake);
+            wake.as_mut().enable();
+            if !still(&self.0.lock().unwrap_or_else(|e| e.into_inner())) {
+                return false;
+            }
+            if tokio::time::timeout(limit, wake).await.is_err() {
+                return true;
+            }
+        }
+    }
+}
+
 impl Drop for Admitted<'_> {
     fn drop(&mut self) {
         let mut open = self.admitting.0.lock().unwrap_or_else(|e| e.into_inner());
@@ -481,14 +505,8 @@ impl Hub {
         // the race for the room, not for the conversation: it waits for that create
         // and attaches to its session (`admit_adopt`).
         if let Some(c) = conversation {
-            while adopted {
-                let wake = self.admitting.1.notified();
-                tokio::pin!(wake);
-                wake.as_mut().enable();
-                adopted = adopts(&self.admitting.0.lock().unwrap_or_else(|e| e.into_inner()), c);
-                if adopted && tokio::time::timeout(NAME_WAIT, wake).await.is_err() {
-                    break;
-                }
+            if adopted {
+                self.admitting.wait_while(NAME_WAIT, |open| adopts(open, c)).await;
             }
             if self.holds_conversation(c) {
                 return Ok(None);
@@ -499,16 +517,8 @@ impl Hub {
         // race for that name, not for room: it says the name is taken, as the
         // create would, so `new --reuse` takes the session that won.
         if let Some(name) = &ask.name {
-            while held {
-                // Listening before the check: a holder that ends between the two
-                // still wakes this wait.
-                let wake = self.admitting.1.notified();
-                tokio::pin!(wake);
-                wake.as_mut().enable();
-                held = holds(&self.admitting.0.lock().unwrap_or_else(|e| e.into_inner()), name);
-                if held && tokio::time::timeout(NAME_WAIT, wake).await.is_err() {
-                    break;
-                }
+            if held {
+                self.admitting.wait_while(NAME_WAIT, |open| holds(open, name)).await;
             }
             if self.session_named(name) {
                 return Err(RpcError::invalid_params(format!("session name {name:?} is taken")));
@@ -587,6 +597,29 @@ mod tests {
             live: 0,
         });
         assert!(matches!(unreadable.0, Some(Refusal::RegistryUnreadable { .. })));
+    }
+
+    #[tokio::test]
+    async fn other_creates_ending_never_stretch_a_wait_past_its_limit() {
+        // Every create's end wakes every waiter: one held for its name or its
+        // conversation still ends at its limit, not one limit after the last wake.
+        let admitting = Arc::new(Admitting::default());
+        admitting.0.lock().unwrap().push(Arc::new(Making::default()));
+        let waker = admitting.clone();
+        let wakes = tokio::spawn(async move {
+            for _ in 0..40 {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                waker.1.notify_waiters();
+            }
+        });
+        let start = std::time::Instant::now();
+        let held = admitting
+            .wait_while(std::time::Duration::from_millis(200), |open| !open.is_empty())
+            .await;
+        let waited = start.elapsed();
+        wakes.abort();
+        assert!(held, "the holder never ended");
+        assert!(waited < std::time::Duration::from_millis(1000), "waited {waited:?}");
     }
 
     #[test]
