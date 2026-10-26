@@ -1,6 +1,9 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextPages
+import CmuxNextSettings
+import CmuxNextTasks
 import Foundation
 import Testing
 
@@ -110,6 +113,41 @@ struct InternalPageLazyAppTests {
             pane.select(id)
             try await PasswordManagerRouteTests.until({ provider.made.count == 1 }, report: { "made \(provider.made)" })
             #expect(view.content === provider.views.first)
+        }
+    }
+
+    /// Settings, the heaviest React page: an automation open builds no page out of sight, and the
+    /// page its first show makes opens on the section the open asked for.
+    @Test func settingsOpenedInTheBackgroundMakesItsPageAtItsFirstShowOnTheAskedSection() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            try services.settingsWindow.show(section: .appearance, focus: false)
+            let key = try #require(services.pages.keys(of: .settings).first, "the background open made no Settings tab")
+            #expect(services.pages.existingView(key) == nil, "a Settings tab opened in the background built its page")
+
+            try await PasswordManagerRouteTests.until({ services.paneController(showingTab: key) != nil },
+                                                      report: { "no pane lists \(key)" })
+            let pane = try #require(services.paneController(showingTab: key))
+            let id = try #require(services.pages.stripID(showing: key, in: pane))
+            #expect(services.pages.existingView(key) == nil, "an unselected Settings tab built its page")
+
+            pane.select(id)
+            try await PasswordManagerRouteTests.until({ services.pages.existingView(key) != nil },
+                                                      report: { "the selected Settings tab never built its page" })
+            let page = try #require(services.pages.existingView(key)?.content as? PageWebView)
+            #expect(page.route == SettingsWindowService.route(section: .appearance, setting: nil),
+                    "the page opened on \(page.route ?? "nil"), not the section the open asked for")
+        }
+    }
+
+    /// `tasks.showMine` with no Tasks tab yet: the tab's model is made at its first show and still
+    /// takes the scope the user run asked for (the open made no model to set it on).
+    @Test func tasksShowMineAppliesItsScopeToTheModelItsFirstShowMakes() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            #expect(services.tasks.model == nil)
+            try services.tasks.show(scope: .mine, focus: true)
+            try await PasswordManagerRouteTests.until({ services.tasks.model != nil },
+                                                      report: { "the focused Tasks tab never made its model" })
+            #expect(services.tasks.model?.scope == .mine, "the first open's scope was dropped")
         }
     }
 }

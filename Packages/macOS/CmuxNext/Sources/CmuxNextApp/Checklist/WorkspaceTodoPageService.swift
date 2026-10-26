@@ -15,9 +15,10 @@ extension InternalPageID {
 final class WorkspaceTodoPageService: InternalPageProvider {
     private weak var services: AppServices?
     private var models: [String: WorkspaceTodoPageModel] = [:]
-    /// The workspace the next new tab shows (set by a show or a restore).
+    /// The workspace a restored tab shows, by tab key.
     private var pending: [String: String] = [:]
-    private var next: String?
+    /// The workspace each show asked for, for the tab it opened or selected.
+    private let opens = PageOpenRequests<String>()
 
     init(services: AppServices) {
         self.services = services
@@ -26,11 +27,10 @@ final class WorkspaceTodoPageService: InternalPageProvider {
     /// Shows the Todo tab of the active window, else opens one, listing `workspaceID`'s checklist.
     func show(workspaceID: String, focus: Bool) throws {
         guard let services, let window = services.windows.active else { throw ActionFailure(message: RefusalStrings.noWindowOpen) }
-        next = workspaceID
-        defer { next = nil }
-        guard let view = services.pages.show(.workspaceTodo, in: window, focus: focus) else {
+        guard let view = opens.open(workspaceID, { services.pages.show(.workspaceTodo, in: window, focus: focus) }) else {
             throw ActionFailure(message: RefusalStrings.noWindowOpen)
         }
+        // A tab with no view yet lists it at its first show.
         models[view.key]?.workspaceID = workspaceID
     }
 
@@ -40,11 +40,9 @@ final class WorkspaceTodoPageService: InternalPageProvider {
     var title: String { WorkspaceChecklistStrings.pageTitle }
     var symbol: String { "checklist" }
 
-    /// The open's workspace is `next`, cleared once `show` returns, which then sets the new model's workspace.
-    var makesViewAtOpen: Bool { true }
-
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let id = pending.removeValue(forKey: key) ?? next ?? window?.state.workspaceID ?? ""
+        let restored = pending.removeValue(forKey: key)
+        let id = opens.take(for: key) ?? restored ?? opens.running ?? window?.state.workspaceID ?? ""
         let model = WorkspaceTodoPageModel(
             workspaceID: id,
             workspace: { [weak self] in self?.services?.workspace(id: $0) },
@@ -56,9 +54,10 @@ final class WorkspaceTodoPageService: InternalPageProvider {
     func tabClosed(_ key: String) {
         models.removeValue(forKey: key)
         pending.removeValue(forKey: key)
+        opens.forget(key)
     }
 
-    func route(for key: String) -> String? { models[key]?.workspaceID }
+    func route(for key: String) -> String? { models[key]?.workspaceID ?? opens.kept(for: key) ?? pending[key] }
 
     func restore(_ route: String, for key: String) { pending[key] = route }
 }

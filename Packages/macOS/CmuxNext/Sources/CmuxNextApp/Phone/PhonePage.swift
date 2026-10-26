@@ -15,8 +15,8 @@ final class PhonePageTab: InternalPageProvider {
     private let phones: PhoneService
     private var views: [String: PhoneTabView] = [:]
     private var routes: [String: PhoneDeviceID] = [:]
-    /// The phone the next new tab shows (set by `phone.show` before it opens one).
-    var nextDevice: PhoneDeviceID?
+    /// The phone each `phone.show` asked for (``show(_:_:)``), for the view of the tab it opened or selected.
+    let opens = PageOpenRequests<PhoneDeviceID>()
     /// The windows' frame-aligned pointer input for the tabs' screens (feature `pointerFrameRemoteInput`),
     /// read when a tab's view is made: the page registers at launch, before features may be read.
     private let pointerFrames: @MainActor () -> FrameInputCoalescers?
@@ -30,24 +30,24 @@ final class PhonePageTab: InternalPageProvider {
     var title: String { String(localized: "phone.tab.title", defaultValue: "Phone", table: "Phone", bundle: .module) }
     var symbol: String { "iphone" }
 
-    /// The open's device is `nextDevice`, read once; `phone.show` then selects it on the view.
-    var makesViewAtOpen: Bool { true }
+    /// Shows `device` in the tab `show` opens or selects (`phone.show`): a view made now opens on it,
+    /// a tab with no view yet shows it at its first show, and a shown tab switches to it.
+    func show(_ device: PhoneDeviceID, _ show: () -> InternalPageView?) -> InternalPageView? {
+        let shown = opens.open(device, show)
+        if let shown, shown.isBuilt { views[shown.key]?.select(device) }
+        return shown
+    }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let device: PhoneDeviceID?
-        if let known = routes[key] {
-            device = known
-        } else {
-            device = nextDevice
-            nextDevice = nil
-        }
+        // The tab's own request is newer than its route; a rebuilt tab never takes another tab's.
+        let device = opens.take(for: key) ?? routes[key] ?? opens.running
         let view = PhoneTabView(service: phones, device: device)
         view.pointerFrames = pointerFrames()
         views[key] = view
         return view
     }
 
-    func route(for key: String) -> String? { views[key]?.route ?? routes[key]?.description }
+    func route(for key: String) -> String? { views[key]?.route ?? (opens.kept(for: key) ?? routes[key])?.description }
 
     func restore(_ route: String, for key: String) {
         if let id = PhoneDeviceID(route) { routes[key] = id }
@@ -56,6 +56,7 @@ final class PhonePageTab: InternalPageProvider {
     func tabClosed(_ key: String) {
         views.removeValue(forKey: key)?.close()
         routes.removeValue(forKey: key)
+        opens.forget(key)
     }
 
     // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-028)
@@ -78,13 +79,5 @@ final class PhonePageTab: InternalPageProvider {
         guard let view = views.removeValue(forKey: key) else { return }
         if let id = view.route.flatMap({ PhoneDeviceID($0) }) { routes[key] = id }
         view.close()
-    }
-
-    /// Some open phone tab (the page keeps one per window).
-    var anyView: PhoneTabView? { views.values.first }
-
-    /// The open tab showing `id`, if any.
-    func view(showing id: PhoneDeviceID) -> PhoneTabView? {
-        views.values.first { $0.route == id.description }
     }
 }

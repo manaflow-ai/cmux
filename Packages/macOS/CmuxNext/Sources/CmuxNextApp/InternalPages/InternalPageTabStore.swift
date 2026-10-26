@@ -150,10 +150,9 @@ final class InternalPageTabStore {
     }
 
     /// Keeps tab `tab`'s view under provider key `key`; its provider makes the content at the
-    /// view's first ``InternalPageView/build()`` (its first show), unless it makes views at open
-    /// (``InternalPageProvider/makesViewAtOpen``). A tab whose view was discarded gets its route
-    /// back before the content is made, and its view state once the content can take it, under its
-    /// last picture until then.
+    /// view's first ``InternalPageView/build()`` (its first show). A tab whose view was discarded
+    /// gets its route back before the content is made, and its view state once the content can
+    /// take it, under its last picture until then.
     private func makeView(_ key: String, tab: String, page: InternalPageID, provider: any InternalPageProvider) -> InternalPageView {
         let view = InternalPageView(key: key, page: page) { [weak self] in
             let gone = self?.discardRecords.discarded.removeValue(forKey: key)
@@ -171,7 +170,6 @@ final class InternalPageTabStore {
         }
         view.navigate = navigate
         views[key] = view
-        if provider.makesViewAtOpen { view.build() }
         return view
     }
 

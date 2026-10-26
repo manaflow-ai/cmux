@@ -52,13 +52,10 @@ protocol InternalPageProvider: AnyObject {
     var symbol: String { get }
     /// The tab's cmux icon. Default: nil.
     var icon: IconName? { get }
-    /// A new view for the tab `key` (called on first show, and again after a discard).
-    /// `window` is the main window the tab is in, for its theme scope.
+    /// A new view for the tab `key` (called on the tab's first show, not at its open, and again
+    /// after a discard). What the open asked for (a route, a folder) is kept under `key` until then
+    /// (``PageOpenRequests``). `window` is the main window the tab is in, for its theme scope.
     func makeView(for key: String, in window: WindowController?) -> NSView
-    /// Whether ``makeView(for:in:)`` runs when a tab opens rather than at its first show: true for
-    /// a provider that reads what the open asked for (a route, a folder) from state it clears right
-    /// after the open, not from state kept under the tab's key. Default: false.
-    var makesViewAtOpen: Bool { get }
     /// The tab `key` closed: its view is gone.
     func tabClosed(_ key: String)
     /// The title of tab `key`, for a page whose tabs show different things
@@ -118,7 +115,6 @@ protocol InternalPageProvider: AnyObject {
 
 extension InternalPageProvider {
     var icon: IconName? { nil }
-    var makesViewAtOpen: Bool { false }
     func tabClosed(_ key: String) {}
     func title(for key: String) -> String { title }
     func history(for key: String) -> (any PageHistory)? { nil }
