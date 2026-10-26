@@ -583,6 +583,9 @@ pub struct Agents {
     pub steering: bool,
     /// Every steer delivered: (session, blocks).
     pub steers: Vec<(String, Vec<Value>)>,
+    /// Every steer's prompt id, and whether it asked to be read now (`steer_now`: the
+    /// agent's current step stops, as the pane's Send now does), in `steers` order.
+    pub steer_ids: Vec<(String, bool)>,
     /// The next this many steers fail (acpmux refused them).
     pub steer_errors: usize,
     /// Steers that failed.
@@ -629,6 +632,49 @@ pub struct FakeAgents {
 }
 
 impl FakeAgents {
+    /// A steer as acpmux takes it: `now` when it asked to be read at once (`steer_now`).
+    fn fake_steer(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+        now: bool,
+    ) -> Result<optchat_chief::acpmux::SteerWait, String> {
+        let mut inner = self.inner.lock().unwrap();
+        if !inner.steering {
+            return Err("steer.unavailable".into());
+        }
+        if inner.steer_errors > 0 {
+            inner.steer_errors -= 1;
+            inner.failed_steers += 1;
+            drop(inner);
+            self.changed.notify_all();
+            return Err("steer: the connection dropped".into());
+        }
+        inner.steers.push((session.to_owned(), blocks));
+        inner.steer_ids.push((prompt_id.to_owned(), now));
+        let at_end = inner.steer_at_end;
+        let turn = inner.answered_turns;
+        // acpmux echoes the steer (a mux `user_message`) to the turn.
+        if let Some(tx) = inner.signals.get(session) {
+            let _ = tx.send(optchat_chief::acpmux::event_signal(
+                "_acpmux/event",
+                &json!({"dir": "mux", "kind": "user_message"}),
+            ));
+        }
+        drop(inner);
+        self.changed.notify_all();
+        let me = self.me.upgrade().expect("alive");
+        Ok(Box::new(move || {
+            // codex-acp answers a steer only when the turn ends.
+            let mut inner = me.inner.lock().unwrap();
+            while at_end && inner.answered_turns == turn {
+                inner = me.changed.wait(inner).unwrap();
+            }
+            Ok(())
+        }))
+    }
+
     pub fn new(script: Script) -> Arc<FakeAgents> {
         Arc::new_cyclic(|me| FakeAgents {
             inner: Mutex::new(Agents::default()),
@@ -932,40 +978,18 @@ impl AgentPort for FakeAgents {
         &self,
         session: &str,
         blocks: Vec<Value>,
-        _prompt_id: &str,
+        prompt_id: &str,
     ) -> Result<optchat_chief::acpmux::SteerWait, String> {
-        let mut inner = self.inner.lock().unwrap();
-        if !inner.steering {
-            return Err("steer.unavailable".into());
-        }
-        if inner.steer_errors > 0 {
-            inner.steer_errors -= 1;
-            inner.failed_steers += 1;
-            drop(inner);
-            self.changed.notify_all();
-            return Err("steer: the connection dropped".into());
-        }
-        inner.steers.push((session.to_owned(), blocks));
-        let at_end = inner.steer_at_end;
-        let turn = inner.answered_turns;
-        // acpmux echoes the steer (a mux `user_message`) to the turn.
-        if let Some(tx) = inner.signals.get(session) {
-            let _ = tx.send(optchat_chief::acpmux::event_signal(
-                "_acpmux/event",
-                &json!({"dir": "mux", "kind": "user_message"}),
-            ));
-        }
-        drop(inner);
-        self.changed.notify_all();
-        let me = self.me.upgrade().expect("alive");
-        Ok(Box::new(move || {
-            // codex-acp answers a steer only when the turn ends.
-            let mut inner = me.inner.lock().unwrap();
-            while at_end && inner.answered_turns == turn {
-                inner = me.changed.wait(inner).unwrap();
-            }
-            Ok(())
-        }))
+        self.fake_steer(session, blocks, prompt_id, false)
+    }
+
+    fn start_steer_now(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+    ) -> Result<optchat_chief::acpmux::SteerWait, String> {
+        self.fake_steer(session, blocks, prompt_id, true)
     }
 
     fn prewarm(

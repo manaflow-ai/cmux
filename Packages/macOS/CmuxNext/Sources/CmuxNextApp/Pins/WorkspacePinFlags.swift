@@ -8,7 +8,7 @@ import CmuxNextDaemon
 @MainActor
 struct WorkspacePinFlags {
     let owner: (String) -> (WorkspaceModel, DaemonService)?
-    var supportsPin: (DaemonService) -> Bool = { $0.supports(DaemonCapabilities.shared.workspacePin) }
+    var supportsPin: (DaemonService) -> Bool = { $0.supports(DaemonCapability.workspacePin.rawValue) }
     let send: (DaemonService, WorkspaceKey, Bool) -> Void
 
     /// The app's flags: each workspace's daemon in `machines`, written with `set-workspace-metadata`.

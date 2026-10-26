@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
+import { PASTE_FILE_CHARS } from "./pastedText";
 import { pasteIsOnlyFileNames } from "./attachments";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
 import { liftInlineImages, withoutMarkdownImages } from "./inlineImages";
@@ -6,7 +7,8 @@ import { isImeKeyEvent } from "../../pages/shared/imeKeys";
 import { activeFormats, applyFormat, type MarkdownFormat } from "./markdownFormat";
 import "./markdownField.css";
 import { followScrollEdges } from "./summary/scrollEdges";
-import { MINIMAL_SCROLLER_ATTRIBUTE } from "../../scrollers";
+import { followActionsWidth } from "./composerScrollLane";
+import { MINIMAL_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import {
   Editor,
   defaultValueCtx,
@@ -40,7 +42,9 @@ export type MarkdownFieldHandle = {
   /// The caret's offset in the first paragraph.
   caret(): number;
   /// Replaces the prompt as typing would: the composer hears it through `onChange`.
-  type(markdown: string): void;
+  /// False when the editor is not made yet (it mounts a moment after the field): nothing changed,
+  /// and the caller sets the field's `value` instead.
+  type(markdown: string): boolean;
   /// The prompt as plain text (blocks joined by newlines) and the selection's offsets into it,
   /// for dictation, which splices words at the cursor.
   text(): PlainPrompt;
@@ -121,6 +125,42 @@ export type MarkdownFieldProps = {
   /// selection kept under one key never comes back under another, even over the same text.
   selectionKey?: string;
 };
+
+/// Streaming agent updates replace the composer's snapshot while the prompt is unchanged. The
+/// editor keeps its own ProseMirror view, so rebuilding that React subtree for every token only
+/// competes with the next key for the main thread. Event callbacks are held in `latest` below;
+/// callers may therefore update their refs without forcing the editor to reconcile.
+function sameMarkdownFieldAttributes(
+  left: MarkdownFieldProps["attributes"],
+  right: MarkdownFieldProps["attributes"],
+): boolean {
+  if (left === right) return true;
+  const leftKeys = Object.keys(left ?? {});
+  const rightKeys = Object.keys(right ?? {});
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every((key) => left?.[key] === right?.[key]);
+}
+
+function sameMarkdownFieldProps(previous: MarkdownFieldProps, next: MarkdownFieldProps): boolean {
+  return (
+    previous.value === next.value &&
+    previous.multiline === next.multiline &&
+    previous.placeholder === next.placeholder &&
+    previous.placeholderKey === next.placeholderKey &&
+    previous.className === next.className &&
+    previous.selectionKey === next.selectionKey &&
+    previous.onChange === next.onChange &&
+    previous.onCaret === next.onCaret &&
+    previous.onKeyDown === next.onKeyDown &&
+    previous.onCompositionChange === next.onCompositionChange &&
+    previous.onBeforeInput === next.onBeforeInput &&
+    previous.onSubmit === next.onSubmit &&
+    previous.onReturnInput === next.onReturnInput &&
+    previous.onFirstInput === next.onFirstInput &&
+    previous.plugins === next.plugins &&
+    sameMarkdownFieldAttributes(previous.attributes, next.attributes)
+  );
+}
 
 /** Markdown without the serializer's trailing newline, and empty for an empty document.
  * Milkdown writes an empty paragraph as `<br />`; empty lines a prompt starts or ends with
@@ -301,7 +341,7 @@ function plainPosition(doc: ProseNode, offset: number): number {
 /// and no syntax reveal. Enter is the composer's (send or pick a command); Shift-Enter starts a
 /// new block, a new list item inside a list. The composer reads and writes markdown through
 /// `value` / `onChange`, so its slash menu, mention and draft logic stay as they were.
-export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownFieldProps>(function MarkdownField(
+const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldProps>(function MarkdownFieldImpl(
   {
     value,
     onChange,
@@ -475,10 +515,32 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
               // Files copied in Finder also put their names on the clipboard as text: not a prompt.
               // With no text, ProseMirror would also move focus to a stand-in element for 50 ms to
               // capture the paste, and the keys typed then came back stripped of spaces.
+              // A drop of text past what a prompt carries (a text drag, no files) goes to the surface
+              // whole, as such a paste does, before ProseMirror lays every line of it out (Leo,
+              // 2026-10-25: "the composer should never ever freeze"). Smaller drops are ProseMirror's.
+              drop: (editorView, event) => {
+                const data = event.dataTransfer;
+                // A drag from inside the field moves its own text, as ProseMirror does.
+                if (editorView.dragging) return false;
+                if (!data || data.files.length || [...data.types].includes("Files")) return false;
+                const whole = data.getData("text/plain");
+                if (whole.length <= PASTE_FILE_CHARS || !beforeInput(editorView, whole, true)) return false;
+                event.preventDefault();
+                return true;
+              },
               paste: (editorView, event) => {
                 const data = event.clipboardData;
                 if (!data) return false;
-                const lifted = liftInlineImages(data.getData("text/plain"));
+                // Text past what a prompt carries goes to the surface whole, before anything reads
+                // or parses it (ProseMirror would lay out every line of it first): the composer
+                // attaches it as a file (pastedText.ts PASTE_FILE_CHARS).
+                const whole = data.getData("text/plain");
+                // A surface without a file intake (Home Channels) takes it as before.
+                if (whole.length > PASTE_FILE_CHARS && !data.files.length && beforeInput(editorView, whole, true)) {
+                  event.preventDefault();
+                  return true;
+                }
+                const lifted = liftInlineImages(whole);
                 if (!data.files.length && !htmlHasDataImage(data.getData("text/html")) && !lifted.attachments.length)
                   return false;
                 event.preventDefault();
@@ -749,6 +811,15 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         : undefined,
     [],
   );
+  // In the composer's box, its scrollbar runs down the box's right edge, clear of the actions
+  // (composerScrollLane.ts).
+  useEffect(
+    () => (wrapper.current && typeof ResizeObserver === "function" ? followActionsWidth(wrapper.current) : undefined),
+    [],
+  );
+  // Under the scrollbar fade (agentPane.debug.scrollerFade, on by default since Lawrence 2026-10-23)
+  // a long draft's thumb fades in and out with the scrolling marks, as the transcript's does.
+  useEffect(() => (wrapper.current ? followShownScrollerFade(wrapper.current) : undefined), []);
   const handle = useRef<MarkdownFieldHandle>(undefined);
   useImperativeHandle(
     ref,
@@ -772,7 +843,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         value: () => known.current,
         caret: () => (view.current ? caretOf(view.current) : 0),
         type: (markdown) => {
-          if (!editor.current) return;
+          if (!editor.current) return false;
           refocus.current = null;
           // Not `known`: the view plugin reports the change as the user's.
           setDocument(markdown);
@@ -781,6 +852,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
             const end = current.state.doc.content.size;
             current.dispatch(current.state.tr.setSelection(TextSelection.near(current.state.doc.resolve(end), -1)));
           }
+          return true;
         },
         text: () => {
           const current = view.current;
@@ -895,7 +967,8 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
   return (
     <div
       className={`acpmux-md-field ${className ?? ""}`}
-      // A long draft keeps its thin scrollbar while it overflows (scrollers.ts).
+      // A long draft's thin scrollbar (scrollers.ts): kept while it overflows, or under the fade
+      // shown while it scrolls and while the pointer is near its edge.
       {...{ [MINIMAL_SCROLLER_ATTRIBUTE]: "" }}
       style={{ "--acpmux-md-fade-band": `${FADE_BAND_PX}px` } as React.CSSProperties}
       ref={(element: MarkdownFieldElement | null) => {
@@ -917,3 +990,5 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     </div>
   );
 });
+
+export const MarkdownField = React.memo(MarkdownFieldImpl, sameMarkdownFieldProps);

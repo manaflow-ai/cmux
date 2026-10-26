@@ -142,6 +142,8 @@ fn main() -> std::process::ExitCode {
         on_loading_state: None,
         on_cursor: None,
         on_open_tab: None,
+        on_file_load: None,
+        on_text_input: None,
     };
     // SAFETY: argv and the strings outlive the call; the callbacks are valid.
     let code = unsafe {
