@@ -32,14 +32,16 @@ nonisolated struct ChromiumHostInputRingRegion: Sendable {
     static func make() throws(ChromiumHostInputRingError) -> ChromiumHostInputRingRegion {
         let fd = cmux_input_ring_region_create(ChromiumHostInputRing.ringBytes)
         guard fd >= 0 else { throw .region(errno) }
-        guard let base = mmap(nil, ChromiumHostInputRing.ringBytes, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0),
-              base != UnsafeMutableRawPointer(bitPattern: -1) else {
+        // SAFETY: a mapping of the region's `ringBytes`, the size it was created with; `format` writes only its
+        // header, inside them, and the mapping is unmapped once right after.
+        guard let base = unsafe mmap(nil, ChromiumHostInputRing.ringBytes, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0),
+              unsafe base != UnsafeMutableRawPointer(bitPattern: -1) else {
             let error = errno
             Darwin.close(fd)
             throw .map(error)
         }
-        ChromiumHostInputRing.format(base)
-        munmap(base, ChromiumHostInputRing.ringBytes)
+        unsafe ChromiumHostInputRing.format(base)
+        unsafe munmap(base, ChromiumHostInputRing.ringBytes)
         let token = UInt64.random(in: .min ... .max)
         return ChromiumHostInputRingRegion(
             fd: fd, doorbellName: "com.cmuxterm.chromium-host.input.\(getpid()).\(String(token, radix: 16))")

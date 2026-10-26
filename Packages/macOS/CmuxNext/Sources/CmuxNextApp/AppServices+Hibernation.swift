@@ -26,9 +26,10 @@ extension AppServices {
         cache.hibernation = hibernation
         hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }
         hibernation.isDownloading = { [weak self] key in self?.cache.pageRequests.downloads.isDownloading(tab: key) ?? false }
-        hibernation.measureMemory = { [weak self] in
-            guard let self else { return [:] }
-            return await self.resources.sample(.everything).browserPageMemory
+        hibernation.measureMemory = { [weak self] in await self?.resources.sample(.everything).browserPageMemory ?? [:] }
+        hibernation.measureCPU = { [work = self.work, mainWork = self.mainWork, renderers = cache.tabRenderers] keys, landed in
+            work.run(.bestEffort, mayBlock: .system) { SaverCPUFreeze.reading(of: Set(keys), tabs: renderers.snapshot(), renderers: ChromiumHelperProcess.tabRendererUsage()) }
+                .reply(on: mainWork, class: .background, owner: "SaverCPUFreeze", landed)
         }
         hibernation.activity.isEnabled = features.isEnabled(.memorySaverBackgroundActivity)
         hibernation.discardsGrowingFrozenPages = features.isEnabled(.frozenGrowthDiscard)
@@ -53,8 +54,7 @@ extension AppServices {
     /// p04-input-042; no warmer work on a press's input turn). The app's memory pressure, the feature's dwell
     /// and Energy Saver's inputs as its power. No feature on: no service.
     private func startIntentPrewarm(over hibernation: BrowserHibernation) {
-        let hovers = features.isEnabled(.intentPrewarmHover), steps = features.isEnabled(.directionalPrewarm)
-        let presses = features.isEnabled(.intentPrewarmPress)
+        let hovers = features.isEnabled(.intentPrewarmHover), steps = features.isEnabled(.directionalPrewarm), presses = features.isEnabled(.intentPrewarmPress)
         guard hovers || steps || presses else { return }
         let service = IntentPrewarmService<String>(
             warmer: hibernation, memoryPressure: memoryPressure,

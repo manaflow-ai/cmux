@@ -133,9 +133,11 @@ extension ChromiumHostPageView: NSTextInputClient {
     }
 
     public func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
-        actualRange?.pointee = NSRange(location: NSNotFound, length: 0)
+        // SAFETY: AppKit's out-parameter, an NSRange it owns for this call (NSTextInputClient); NULL is skipped.
+        unsafe actualRange?.pointee = NSRange(location: NSNotFound, length: 0)
         guard let requested = Self.range(range), let found = textInput.substring(of: requested) else { return nil }
-        actualRange?.pointee = Self.nsRange(found.actual)
+        // SAFETY: as above.
+        unsafe actualRange?.pointee = Self.nsRange(found.actual)
         return NSAttributedString(string: found.text)
     }
 
@@ -144,7 +146,8 @@ extension ChromiumHostPageView: NSTextInputClient {
     public func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
         let requested = Self.range(range) ?? (textInput.state.selection ?? 0..<0)
         let found = textInput.firstRect(for: requested)
-        actualRange?.pointee = Self.nsRange(found.actual)
+        // SAFETY: AppKit's out-parameter, an NSRange it owns for this call (NSTextInputClient); NULL is skipped.
+        unsafe actualRange?.pointee = Self.nsRange(found.actual)
         let page = found.rect
         // Page points have a top-left origin; this view's are bottom-left.
         let local = NSRect(x: page.minX, y: bounds.height - page.maxY, width: page.width, height: page.height)
