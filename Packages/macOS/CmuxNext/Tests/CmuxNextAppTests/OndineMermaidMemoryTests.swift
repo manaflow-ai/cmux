@@ -54,20 +54,46 @@ import Testing
         #expect(registry.traits.first?.isManaged == true)
         #expect(registry.traits.first?.retention == .lossless)
         #expect(!renderer.hasContext, "made before any diagram, it holds no engine")
-        #expect(OndineMermaidRenderer.bundled(memory: nil, appResources: resources) != nil)
+        #expect(!renderer.prewarmsAtInstall, "it loads for the first Mermaid fence")
+        let kept = try #require(OndineMermaidRenderer.bundled(memory: nil, appResources: resources))
+        #expect(kept.prewarmsAtInstall, "with the feature off it loads at install, as before")
         #expect(registry.names.count == 1)
     }
 
     @Test func theEngineLoadsOnlyForADiagramOrAPrewarm() throws {
         let renderer = OndineMermaidRenderer(script: Self.script, clock: ManualClock())
         #expect(!renderer.hasContext, "a Home with no diagram holds no engine")
+        #expect(!renderer.isReady, "a layout now would load the engine first")
         #expect(renderer.needsPrewarm)
         renderer.prewarm()
         #expect(renderer.hasContext)
+        #expect(renderer.isReady)
         #expect(!renderer.needsPrewarm)
+        _ = renderer.releaseMemory(downTo: MemoryLimit(percent: 1))
+        #expect(renderer.isReady, "a warning keeps the engine")
         _ = renderer.releaseMemory(downTo: .criticalThreshold)
-        #expect(renderer.needsPrewarm, "a released engine warms again")
+        #expect(!renderer.isReady)
+        #expect(renderer.needsPrewarm, "a released engine warms again once the limit allows it")
         #expect(renderer.layout(mermaid: Self.flowchart, maxWidth: 338) != nil)
+        #expect(renderer.hasContext)
+        #expect(renderer.isReady)
+    }
+
+    /// p07-memory-082 review: while the limit is critical nothing warms the engine again; only a diagram
+    /// a row measures or draws loads it.
+    @Test func aCriticalLimitRefusesThePrewarm() throws {
+        let renderer = OndineMermaidRenderer(script: Self.script, clock: ManualClock())
+        renderer.prewarm()
+        #expect(renderer.hasContext)
+        _ = renderer.updateMemoryLimit(.criticalThreshold)
+        _ = renderer.releaseMemory(downTo: .criticalThreshold)
+        #expect(!renderer.hasContext)
+        #expect(!renderer.needsPrewarm, "critical: no warm")
+        renderer.prewarm()
+        #expect(!renderer.hasContext, "critical: a prewarm does nothing")
+        _ = renderer.updateMemoryLimit(.default)
+        #expect(renderer.needsPrewarm)
+        renderer.prewarm()
         #expect(renderer.hasContext)
     }
 

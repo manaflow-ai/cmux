@@ -2,6 +2,8 @@ import CmuxHomeCore
 import CmuxHomeRender
 import CoreGraphics
 import Foundation
+import Observation
+import os
 import Testing
 @testable import MessagesLabHome
 
@@ -30,20 +32,42 @@ final class FakeDiagrams: HomeDiagramRendering, @unchecked Sendable {
     }
 }
 
-/// A renderer whose engine stays cold; each ``prewarm()`` is reported on ``warmed``.
-final class ColdDiagrams: HomeDiagramRendering {
-    let warmed: AsyncStream<Void>
-    private let signal: AsyncStream<Void>.Continuation
+/// A renderer whose engine loads only in ``prewarm()``; it counts the warm checks and layouts, and
+/// reports each prewarm, with whether it ran on the main thread, on ``warmed``.
+final class ColdDiagrams: HomeDiagramRendering, @unchecked Sendable {
+    // @unchecked Sendable: the counters are behind `counts`; the prewarm runs off the test's thread.
+    let warmed: AsyncStream<Bool>
+    private let signal: AsyncStream<Bool>.Continuation
+    private let counts = OSAllocatedUnfairLock(initialState: (loaded: false, warmChecks: 0, layouts: 0))
 
     init() {
-        let made = AsyncStream<Void>.makeStream()
+        let made = AsyncStream<Bool>.makeStream()
         warmed = made.stream
         signal = made.continuation
     }
 
-    var needsPrewarm: Bool { true }
-    func prewarm() { signal.yield() }
-    func layout(mermaid source: String, maxWidth: CGFloat) -> CGSize? { nil }
+    /// How often the transcript asked whether to warm (``needsPrewarm``).
+    var warmChecks: Int { counts.withLock { $0.warmChecks } }
+    var layouts: Int { counts.withLock { $0.layouts } }
+
+    var isReady: Bool { counts.withLock { $0.loaded } }
+    var needsPrewarm: Bool {
+        counts.withLock { counts in
+            counts.warmChecks += 1
+            return !counts.loaded
+        }
+    }
+
+    func prewarm() {
+        counts.withLock { $0.loaded = true }
+        signal.yield(Thread.isMainThread)
+    }
+
+    func layout(mermaid source: String, maxWidth: CGFloat) -> CGSize? {
+        counts.withLock { $0.layouts += 1 }
+        return source.hasPrefix("graph") ? CGSize(width: 150, height: 90) : nil
+    }
+
     func image(mermaid source: String, maxWidth: CGFloat, style: HomeDiagramStyle, scale: CGFloat) -> CGImage? { nil }
 }
 
@@ -71,14 +95,74 @@ final class ColdDiagrams: HomeDiagramRendering {
 
     /// p07-memory-082: the engine loads only for a transcript that holds a Mermaid fence; a fence still
     /// streaming in warms a cold renderer off the main thread, so the closed fence does not wait for it.
-    @Test(.timeLimit(.minutes(1))) func aStreamingFenceWarmsAColdRenderer() async {
+    @MainActor @Test(.timeLimit(.minutes(1))) func aStreamingFenceWarmsAColdRenderer() async {
         let cold = ColdDiagrams()
         CustomRows.unregister(HomeDiagramRowProvider.kind)
         CustomRows.register(HomeDiagramRowProvider(renderer: cold))
         var warmed = cold.warmed.makeAsyncIterator()
         let parts = mapped("Here is the flow:\n```mermaid\ngraph TD\nA-->")
         #expect(parts.allSatisfy { Self.isDiagram($0) == nil }, "an open fence stays text")
-        #expect(await warmed.next() != nil)
+        #expect(await warmed.next() == false, "the engine loads off the main thread")
+    }
+
+    /// p07-memory-082 review: a closed fence over a cold engine never loads it on the mapping's
+    /// thread (the main thread in the app): the fence maps as text, the engine loads off it, and the
+    /// fence maps as a diagram once it is loaded.
+    @MainActor @Test(.timeLimit(.minutes(1))) func aClosedFenceOnAColdRendererLoadsItOffTheCallingThread() async {
+        let cold = ColdDiagrams()
+        let provider = HomeDiagramRowProvider(renderer: cold)
+        CustomRows.unregister(HomeDiagramRowProvider.kind)
+        CustomRows.register(provider)
+        var warmed = cold.warmed.makeAsyncIterator()
+        let loads = provider.readiness.loads
+        let text = "Here is the flow:\n```mermaid\ngraph TD\nA-->B\n```\nDone."
+        let parts = mapped(text)
+        #expect(parts.allSatisfy { Self.isDiagram($0) == nil }, "a cold engine maps the fence as text")
+        #expect(cold.layouts == 0, "no layout on the calling thread: it would load the engine there")
+        #expect(await warmed.next() == false, "the engine loads off the main thread")
+        if provider.readiness.loads == loads {
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                withObservationTracking { _ = provider.readiness.loads } onChange: { done.resume() }
+            }
+        }
+        CustomRows.register(provider)
+        #expect(mapped(text).contains { Self.isDiagram($0) == "graph TD\nA-->B" }, "the loaded engine draws the fence")
+    }
+
+    /// p07-memory-082 review: the word in prose is no diagram, so it never warms the engine (it would
+    /// load it again right after a critical release dropped it).
+    @Test(arguments: ["I cannot draw a mermaid diagram here.", "Mermaid is a sea creature.\n```swift\nlet x = 1\n```"])
+    func proseThatMentionsMermaidDoesNotWarm(_ text: String) {
+        let cold = ColdDiagrams()
+        CustomRows.unregister(HomeDiagramRowProvider.kind)
+        CustomRows.register(HomeDiagramRowProvider(renderer: cold))
+        #expect(mapped(text).allSatisfy { Self.isDiagram($0) == nil })
+        #expect(cold.warmChecks == 0, "no warm for a text with no Mermaid fence")
+        #expect(cold.layouts == 0)
+    }
+
+    /// The window that shows a fence mapped as text maps again when the engine loads (HomeProjection.observeDiagrams).
+    @MainActor @Test(.timeLimit(.minutes(1))) func aPostedFenceBecomesADiagramWhenTheEngineLoads() async throws {
+        let cold = ColdDiagrams()
+        CustomRows.unregister(HomeDiagramRowProvider.kind)
+        let rig = try await HomeChatRig(history: 4, diagrams: cold)
+        defer {
+            rig.stop()
+            CustomRows.unregister(HomeDiagramRowProvider.kind)
+        }
+        var warmed = cold.warmed.makeAsyncIterator()
+        func drawn() -> Int {
+            rig.view.controller.store?.state.conversation.messages.reduce(0) { count, message in
+                count + message.parts.filter { Self.isDiagram($0) != nil }.count
+            } ?? 0
+        }
+        #expect(await rig.post("\(HomeChatRig.tag) flow:\n```mermaid\ngraph TD\nA-->B\n```", key: IdempotencyKey("run_diagram")))
+        rig.frame()
+        #expect(drawn() == 0, "the cold engine maps the fence as text")
+        #expect(cold.layouts == 0)
+        #expect(await warmed.next() == false)
+        await HomeChatRig.until { drawn() == 1 }
+        #expect(drawn() == 1, "the loaded engine's diagram replaced the text")
     }
 
     @Test func aFenceBetweenTextIsItsOwnBubble() {

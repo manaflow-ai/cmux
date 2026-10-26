@@ -27,7 +27,8 @@ public final class MessagesLabHomeView: NSView {
                 diagrams: (any HomeDiagramRendering)? = nil, replies: HomeReplyDisplay = .wholeMessages) {
         MessagesLabHomeView.liveFormatting()
         HomeMarkdownPolicy.install()
-        // Before the projection maps its first messages, so a diagram never shows as text first.
+        // Before the projection maps its first messages, so they split at their fences (a fence shows
+        // as text only until the engine has loaded, HomeDiagramRowProvider.part).
         if let diagrams { HomeDiagramRowProvider.install(diagrams) }
         // An agent's pipe tables as full-width table and plan cards (Leo 2026-10-20).
         HomeTableRowProvider.install()

@@ -10,9 +10,10 @@ import JavaScriptCore
 /// recoloured for the bubble and drawn by CoreSVG.
 ///
 /// The context loads for the first diagram (``prewarm()`` or the first layout); a render after that
-/// takes well under a millisecond. Renders and images are cached by source,
-/// width, colours and scale, so a row measured and redrawn many times renders
-/// once. Both caches are least recently used: renders up to ``renderEntries``, images up to
+/// takes well under a millisecond. ``isReady`` says, without waiting, whether a layout would load it
+/// first; the transcript then maps the fence as text and loads it off the main thread. Renders and
+/// images are cached by source, width, colours and scale, so a row measured and redrawn many times
+/// renders once. Both caches are least recently used: renders up to ``renderEntries``, images up to
 /// ``imageBytes`` of pixels.
 ///
 /// The renderer is a lossless memory consumer (``registerMemoryConsumer(with:hop:)``, Chrome's
@@ -46,6 +47,8 @@ public nonisolated final class OndineMermaidRenderer: HomeDiagramRendering, Asyn
         estimatedUsage: .medium, dataAccess: .none, retention: .lossless, recreateCost: .cheap,
         releaseCPUCost: .low, isStateful: true, supportsMemoryLimit: true)
 
+    /// True for a renderer that keeps its context for its life (no memory coordinator).
+    public let prewarmsAtInstall: Bool
     private let script: URL
     private let resolver = SVGCustomPropertyResolver()
     private let flattener = SVGTextFlattener()
@@ -58,6 +61,10 @@ public nonisolated final class OndineMermaidRenderer: HomeDiagramRendering, Asyn
     private let idleAfter: Duration
     private let contextReleased: @Sendable () -> Void
     private let memorySlot = AsyncMemoryConsumerSlot()
+    /// The context is loaded or failed to load (``isReady``); written inside the lock with each change.
+    private let answers = Atomic<Bool>(false)
+    /// The limit is critical (no ``prewarm()``); written inside the lock with each limit.
+    private let critical = Atomic<Bool>(false)
     // Lock carve-out: the transcript's custom rows call `layout` and `image` synchronously from the
     // page loader's queue and the row bitmap threads, so an actor cannot serve them. JavaScriptCore
     // runs one call at a time per context anyway; the lock also guards the caches. The script file
@@ -75,6 +82,9 @@ public nonisolated final class OndineMermaidRenderer: HomeDiagramRendering, Asyn
         var limit = MemoryLimit.default
         /// When a diagram was last drawn (or the context loaded), on ``OndineMermaidRenderer/elapsed``.
         var lastShown: Duration = .zero
+
+        /// A layout runs without loading the context first: it is loaded or failed to load.
+        var answers: Bool { render != nil || loadFailed }
     }
 
     nonisolated private struct RenderKey: Hashable {
@@ -98,15 +108,18 @@ public nonisolated final class OndineMermaidRenderer: HomeDiagramRendering, Asyn
     ///   - imageBytes: the image pixel bytes kept at the full limit.
     ///   - idleRelease: drops the context once no diagram was shown for this long; nil keeps it.
     ///   - clock: the clock of use times and the idle deadline (tests pass a manual one).
+    ///   - prewarmsAtInstall: the transcript loads the context when it installs the renderer.
     public convenience init(script: URL, imageBytes: Int = OndineMermaidRenderer.imageBytes, idleRelease: Duration? = nil,
-                            clock: any Clock<Duration> = ContinuousClock()) {
-        self.init(script: script, imageBytes: imageBytes, idleRelease: idleRelease, clock: clock, contextReleased: {})
+                            clock: any Clock<Duration> = ContinuousClock(), prewarmsAtInstall: Bool = false) {
+        self.init(script: script, imageBytes: imageBytes, idleRelease: idleRelease, clock: clock,
+                  prewarmsAtInstall: prewarmsAtInstall, contextReleased: {})
     }
 
     /// The designated init; `contextReleased` runs after an idle deadline dropped the context (tests wait on it).
-    init(script: URL, imageBytes: Int, idleRelease: Duration?, clock: any Clock<Duration>,
+    init(script: URL, imageBytes: Int, idleRelease: Duration?, clock: any Clock<Duration>, prewarmsAtInstall: Bool = false,
          contextReleased: @escaping @Sendable () -> Void) {
         self.script = script
+        self.prewarmsAtInstall = prewarmsAtInstall
         imageCap = max(imageBytes, 0)
         elapsed = Self.stopwatch(clock)
         idle = idleRelease.map { _ in DemandTimer(owner: "OndineMermaidRenderer.idle", clock: clock) }
@@ -119,16 +132,17 @@ public nonisolated final class OndineMermaidRenderer: HomeDiagramRendering, Asyn
         idle?.cancel()
     }
 
-    /// The renderer over the app bundle's `markdown-viewer/ondine.min.js`, or nil when the bundle has none.
+    /// The renderer over the app bundle's `markdown-viewer/ondine.min.js`, or nil when the bundle has
+    /// none. It keeps the context for its life, loaded when the transcript installs it.
     ///
     /// - Parameter appResources: the app bundle's resources folder.
     public static func bundled(appResources: URL? = Bundle.main.resourceURL) -> OndineMermaidRenderer? {
-        bundledScript(appResources).map { OndineMermaidRenderer(script: $0) }
+        bundledScript(appResources).map { OndineMermaidRenderer(script: $0, prewarmsAtInstall: true) }
     }
 
     /// The app's one renderer over the bundle's script: with `memory` it is the coordinator's
-    /// `home-diagrams` consumer and its context goes after ``idleRelease`` with no diagram shown;
-    /// without it, it keeps the context for its life.
+    /// `home-diagrams` consumer, loads its context for the first Mermaid fence and drops it after
+    /// ``idleRelease`` with no diagram shown; without it, it is ``bundled(appResources:)``.
     ///
     /// - Parameters:
     ///   - memory: the app's memory coordinator, or nil while the feature that registers it is off.
@@ -136,7 +150,7 @@ public nonisolated final class OndineMermaidRenderer: HomeDiagramRendering, Asyn
     @MainActor public static func bundled(memory: (any MemoryConsumerRegistry)?,
                                           appResources: URL? = Bundle.main.resourceURL) -> OndineMermaidRenderer? {
         guard let script = bundledScript(appResources) else { return nil }
-        guard let memory else { return OndineMermaidRenderer(script: script) }
+        guard let memory else { return OndineMermaidRenderer(script: script, prewarmsAtInstall: true) }
         let renderer = OndineMermaidRenderer(script: script, idleRelease: idleRelease)
         renderer.registerMemoryConsumer(with: memory)
         return renderer
@@ -189,16 +203,19 @@ public nonisolated final class OndineMermaidRenderer: HomeDiagramRendering, Asyn
     /// The image cache's pixel bytes and the render cache's entries now (tests).
     var cacheSizes: (imageBytes: Int, renders: Int) { state.withLock { ($0.images.cost, $0.renders.count) } }
 
-    /// Never waits: while another thread holds the lock (a render, a load) the engine is in use or loading.
-    public var needsPrewarm: Bool {
-        state.withLockIfAvailable { $0.render == nil && !$0.loadFailed && !$0.warming } ?? false
-    }
+    /// Never waits: one atomic load, no lock (a load holds the lock while it runs the script).
+    public var isReady: Bool { answers.load(ordering: .acquiring) }
+
+    /// Never waits, as ``isReady``. False at a critical limit: the context then loads again only for
+    /// a diagram that a row measures or draws.
+    public var needsPrewarm: Bool { !answers.load(ordering: .acquiring) && !critical.load(ordering: .acquiring) }
 
     /// Loads the script and compiles Ondine's WebAssembly now, so the first diagram does not wait for
-    /// it. Does nothing when the context is loaded, failed to load, or another prewarm reads the script.
+    /// it. Does nothing when the context is loaded, failed to load, another prewarm reads the script,
+    /// or the limit is critical.
     public func prewarm() {
         let cold = state.withLock { state -> Bool in
-            guard state.render == nil, !state.loadFailed, !state.warming else { return false }
+            guard state.render == nil, !state.loadFailed, !state.warming, !state.limit.isCritical else { return false }
             state.warming = true
             return true
         }
@@ -207,9 +224,17 @@ public nonisolated final class OndineMermaidRenderer: HomeDiagramRendering, Asyn
         let now = elapsed()
         let loaded = state.withLock { state -> Bool in
             state.warming = false
-            return Self.loadContext(&state, script: script, code: code, at: now)
+            let loaded = Self.loadContext(&state, script: script, code: code, at: now)
+            publish(state.answers, critical: state.limit.isCritical)
+            return loaded
         }
         if loaded { armIdleRelease(after: idleAfter) }
+    }
+
+    /// Mirrors what ``isReady`` and ``needsPrewarm`` read; called inside the lock after each change.
+    private func publish(_ answers: Bool, critical: Bool) {
+        self.answers.store(answers, ordering: .releasing)
+        self.critical.store(critical, ordering: .releasing)
     }
 
     /// What one pass of ``rendered(_:maxWidth:)`` under the lock found.
@@ -229,7 +254,11 @@ public nonisolated final class OndineMermaidRenderer: HomeDiagramRendering, Asyn
         if case .needsScript = outcome {
             // The script is read only when the context must load, and with the lock free; a pass with it never asks again.
             let code = readScript()
-            outcome = state.withLock { state in Self.pass(&state, key: key, script: script, code: code, at: now) }
+            outcome = state.withLock { state in
+                let outcome = Self.pass(&state, key: key, script: script, code: code, at: now)
+                publish(state.answers, critical: state.limit.isCritical)
+                return outcome
+            }
         }
         guard case .done(let result, let loadedContext) = outcome else { return nil }
         if loadedContext { armIdleRelease(after: idleAfter) }
@@ -283,30 +312,6 @@ public nonisolated final class OndineMermaidRenderer: HomeDiagramRendering, Asyn
         return Rendered(svg: svg, size: CGSize(width: width, height: height))
     }
 
-    /// A context with the shims, Ondine (`code`, the text of `script`) and the render function; nil
-    /// when the script fails.
-    private static func load(_ code: String, from script: URL) -> JSValue? {
-        guard let context = JSContext() else { return nil }
-        context.evaluateScript(ondineHostShims)
-        context.evaluateScript(code, withSourceURL: script)
-        let render = context.evaluateScript("""
-            (function () {
-              var renderer = ondine.create({ modules: { all: ondine.wasm } });
-              return function (source, maxWidth, fontSize) {
-                try {
-                  var r = renderer.render(source, { maxWidth: maxWidth, fontSize: fontSize, idPrefix: "cmux-home-" });
-                  return { svg: r.svg, width: r.width, height: r.height };
-                } catch (e) {
-                  return null;
-                }
-              };
-            })()
-            """)
-        // An uncaught exception stays in `exception`: the script or the shims did not load.
-        guard context.exception == nil, let render, render.isObject else { return nil }
-        return render
-    }
-
     // MARK: Idle release
 
     /// Arms the one idle deadline `delay` from now unless one is pending (a pending one checks the
@@ -325,6 +330,7 @@ public nonisolated final class OndineMermaidRenderer: HomeDiagramRendering, Asyn
             let idleFor = now - state.lastShown
             guard idleFor >= idleAfter else { return (false, idleAfter - idleFor) }
             Self.dropContext(&state)
+            publish(state.answers, critical: state.limit.isCritical)
             return (true, nil)
         }
         if let remaining { armIdleRelease(after: remaining) }
@@ -348,6 +354,7 @@ public nonisolated final class OndineMermaidRenderer: HomeDiagramRendering, Asyn
     public func updateMemoryLimit(_ limit: MemoryLimit) -> MemoryUsage? {
         state.withLock { state in
             state.limit = limit
+            publish(state.answers, critical: state.limit.isCritical)
             return Self.usage(of: state)
         }
     }
@@ -360,6 +367,7 @@ public nonisolated final class OndineMermaidRenderer: HomeDiagramRendering, Asyn
             if limit.isCritical {
                 state.renders.trim(toCount: 0, keepingUsedAfter: cutoff)
                 Self.dropContext(&state)
+                publish(state.answers, critical: state.limit.isCritical)
             }
             return Self.usage(of: state)
         }
