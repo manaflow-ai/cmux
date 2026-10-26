@@ -165,6 +165,7 @@ enum MacConversationRowBuilder {
                 message.text = translation.text
                 message.mentions = []
                 message.textRuns = []
+                message.links = []
             }
             if entry.showsTimestamp {
                 rows.append(.timestamp(id: "ts:\(message.rowID)", date: message.sentAt))
@@ -326,7 +327,7 @@ struct MacMessageLayout {
 @MainActor
 final class MacMessageLayoutCache {
     private var layouts: [String: (MacMessageRowModel, CGFloat, MacMessageLayout)] = [:]
-    private var texts: [String: (String, Bool, [ConversationMention], [ConversationTextRun], [ConversationTextLink], NSAttributedString)] = [:]
+    private var texts: [String: (ConversationBubbleInputs, NSAttributedString)] = [:]
 
     func layout(_ model: MacMessageRowModel, width: CGFloat) -> MacMessageLayout {
         if let (cachedModel, cachedWidth, layout) = layouts[model.rowID], cachedModel == model, cachedWidth == width {
@@ -339,19 +340,16 @@ final class MacMessageLayoutCache {
 
     func text(_ model: MacMessageRowModel) -> NSAttributedString {
         // Audio bubbles show the transcript; a link card takes its URL out of
-        // the text bubble, so mentions and formatting (ranges over the whole
-        // `text`) are re-based onto what the bubble shows.
-        let isAudio = model.message.audioAttachment != nil
-        let body = isAudio ? model.message.macBodyText : model.bodyText
-        let mentions = isAudio ? [] : model.linkSplit.map { $0.bodyMentions(model.message.mentions) } ?? model.message.mentions
-        let runs = isAudio ? [] : model.linkSplit.map { $0.bodyRuns(model.message.textRuns) } ?? model.message.textRuns
-        let links = isAudio ? [] : ConversationTextLink.bubbleLinks(model.message.links, offset: model.linkSplit?.bodyOffset ?? 0, bodyLength: body.utf16.count)
-        if let (text, outgoing, cachedMentions, cachedRuns, cachedLinks, value) = texts[model.rowID], text == body, outgoing == model.isOutgoing,
-           cachedMentions == mentions, cachedRuns == runs, cachedLinks == links {
+        // the text bubble, so mentions, formatting and links (ranges over the
+        // whole `text`) are re-based onto what the bubble shows.
+        let inputs = model.message.audioAttachment != nil
+            ? ConversationBubbleInputs(text: model.message.macBodyText, outgoing: model.isOutgoing, meID: model.meID)
+            : ConversationBubbleInputs(message: model.message, outgoing: model.isOutgoing, meID: model.meID, linkSplit: model.linkSplit)
+        if let (cachedInputs, value) = texts[model.rowID], cachedInputs == inputs {
             return value
         }
-        let value = MacMessageLayout.attributedBody(body, outgoing: model.isOutgoing, mentions: mentions, meID: model.meID, runs: runs, links: links)
-        texts[model.rowID] = (body, model.isOutgoing, mentions, runs, links, value)
+        let value = MacMessageLayout.attributedBody(inputs.text, outgoing: inputs.outgoing, mentions: inputs.mentions, meID: inputs.meID, runs: inputs.runs, links: inputs.links)
+        texts[model.rowID] = (inputs, value)
         return value
     }
 
