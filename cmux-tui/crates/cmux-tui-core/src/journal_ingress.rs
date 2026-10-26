@@ -1004,6 +1004,10 @@ impl JournalIngressSender {
                 if let Some(error) = self.state.admission_error() {
                     return Err((error, Box::new(pending)));
                 }
+                // A waiter is answered now, not at its deadline.
+                if self.state.disk_full.is_full() {
+                    return Err((disk_full::WAITER_ERROR.into(), Box::new(pending)));
+                }
                 // Count before the event is visible to the writer, which may
                 // drain it before `try_send` returns.
                 self.state.stats.enqueued(lane);

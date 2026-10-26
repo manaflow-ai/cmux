@@ -11,113 +11,49 @@
 
 use super::*;
 
-pub(super) fn load_or_create_resource_effect_pepper(
+/// Creates the pepper (see [`write_identity_file`] for `replace`).
+pub(super) fn create_pepper(
     root: &Path,
+    path: &Path,
+    replace: bool,
 ) -> anyhow::Result<ResourceEffectPepper> {
-    let root = platform::normalize_filesystem_path(root.to_path_buf());
-    fs::create_dir_all(&root).with_context(|| format!("create state root {}", root.display()))?;
-    platform::restrict_directory(&root)?;
-    let lock_path =
-        platform::normalize_filesystem_path(root.join(RESOURCE_EFFECT_PEPPER_LOCK_FILE));
-    let lock = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(&lock_path)
-        .with_context(|| format!("open resource receipt pepper lock {}", lock_path.display()))?;
-    platform::restrict_file(&lock_path)?;
-    FileExt::lock(&lock)
-        .with_context(|| format!("lock resource receipt pepper {}", lock_path.display()))?;
-
-    let path = platform::normalize_filesystem_path(root.join(RESOURCE_EFFECT_PEPPER_FILE));
-    let create = |replace: bool| -> anyhow::Result<ResourceEffectPepper> {
-        let pepper = ResourceEffectPepper::random()?;
-        write_identity_file(&root, &path, pepper.0.as_ref(), replace)
-            .with_context(|| format!("create resource receipt pepper {}", path.display()))?;
-        Ok(pepper)
-    };
-    let result = match fs::symlink_metadata(&path) {
-        Ok(metadata) => {
-            anyhow::ensure!(
-                metadata.file_type().is_file(),
-                "resource receipt pepper is corrupt: {}",
-                path.display()
-            );
-            platform::restrict_file(&path)?;
-            let mut bytes = fs::read(&path)
-                .with_context(|| format!("read resource receipt pepper {}", path.display()))?;
-            if bytes.len() < RESOURCE_EFFECT_PEPPER_BYTES {
-                // Cut by a full disk in an earlier build's in-place write.
-                // A registry at the current schema binds its receipts to
-                // the pepper, so with one present this stays corrupt.
-                bytes.zeroize();
-                match ensure_missing_pepper_can_migrate(&root, &path) {
-                    Ok(()) => create(true),
-                    Err(error) => Err(error).with_context(|| {
-                        format!("resource receipt pepper is corrupt: {}", path.display())
-                    }),
-                }
-            } else {
-                ResourceEffectPepper::from_bytes(bytes, &path)
-            }
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            ensure_missing_pepper_can_migrate(&root, &path)?;
-            create(false)
-        }
-        Err(error) => {
-            Err(error).with_context(|| format!("read resource receipt pepper {}", path.display()))
-        }
-    };
-    let _ = FileExt::unlock(&lock);
-    result
+    let pepper = ResourceEffectPepper::random()?;
+    write_identity_file(root, path, pepper.0.as_ref(), replace)
+        .with_context(|| format!("create resource receipt pepper {}", path.display()))?;
+    Ok(pepper)
 }
 
-pub(super) fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
-    let root = platform::normalize_filesystem_path(root.to_path_buf());
-    fs::create_dir_all(&root).with_context(|| format!("create state root {}", root.display()))?;
-    platform::restrict_directory(&root)?;
-    let lock_path = platform::normalize_filesystem_path(root.join(MACHINE_ID_LOCK_FILE));
-    let lock = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(&lock_path)
-        .with_context(|| format!("open machine identity lock {}", lock_path.display()))?;
-    platform::restrict_file(&lock_path)?;
-    FileExt::lock(&lock)
-        .with_context(|| format!("lock machine identity {}", lock_path.display()))?;
+/// A pepper shorter than its 32 bytes: cut by a full disk in an earlier
+/// build's in-place write. A registry from schema 7 on binds receipts to the
+/// pepper (and 9-14 carry them through migration), so with one present it
+/// stays corrupt; without one a new pepper replaces it.
+pub(super) fn replace_cut_pepper(
+    root: &Path,
+    path: &Path,
+    mut bytes: Vec<u8>,
+) -> anyhow::Result<ResourceEffectPepper> {
+    bytes.zeroize();
+    ensure_no_registry_at(root, path, RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION)
+        .with_context(|| format!("resource receipt pepper is corrupt: {}", path.display()))?;
+    create_pepper(root, path, true)
+}
 
-    let path = platform::normalize_filesystem_path(root.join(MACHINE_ID_FILE));
-    let create = |replace: bool| -> anyhow::Result<MachinePublicId> {
-        let id = MachinePublicId::random()?;
-        write_identity_file(&root, &path, format!("{}\n", id.as_str()).as_bytes(), replace)
-            .with_context(|| format!("create machine identity {}", path.display()))?;
-        Ok(id)
-    };
-    let result = match fs::read(&path) {
-        // The id is public and no registry row holds it; a cut one was
-        // never handed to a client, so a new one replaces it.
-        Ok(bytes) if is_cut_machine_id(&bytes) => create(true),
-        Ok(bytes) => {
-            platform::restrict_file(&path)?;
-            parse_machine_id_file(&path, &bytes)
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => create(false),
-        Err(error) => {
-            Err(error).with_context(|| format!("read machine identity {}", path.display()))
-        }
-    };
-    let _ = FileExt::unlock(&lock);
-    result
+/// Creates the machine id (see [`write_identity_file`] for `replace`).
+pub(super) fn create_machine_id(
+    root: &Path,
+    path: &Path,
+    replace: bool,
+) -> anyhow::Result<MachinePublicId> {
+    let id = MachinePublicId::random()?;
+    write_identity_file(root, path, format!("{}\n", id.as_str()).as_bytes(), replace)
+        .with_context(|| format!("create machine identity {}", path.display()))?;
+    Ok(id)
 }
 
 /// True for an empty file or a strict prefix of `machine_<32 hex>`: what an
 /// in-place write cut by a full disk leaves. Any other bad text (a foreign
 /// edit) stays corrupt.
-fn is_cut_machine_id(bytes: &[u8]) -> bool {
+pub(super) fn is_cut_machine_id(bytes: &[u8]) -> bool {
     let prefix = format!("{}_", MachinePublicId::PREFIX);
     let prefix = prefix.as_bytes();
     bytes.len() < prefix.len() + 32
@@ -125,22 +61,6 @@ fn is_cut_machine_id(bytes: &[u8]) -> bool {
             Some(expected) => byte == expected,
             None => byte.is_ascii_digit() || (b'a'..=b'f').contains(byte),
         })
-}
-
-fn parse_machine_id_file(path: &Path, bytes: &[u8]) -> anyhow::Result<MachinePublicId> {
-    let content = std::str::from_utf8(bytes)
-        .with_context(|| format!("machine identity is not UTF-8: {}", path.display()))?;
-    let value = content.strip_suffix('\n').unwrap_or(content);
-    anyhow::ensure!(
-        !value.is_empty()
-            && !value.contains('\n')
-            && !value.contains('\r')
-            && value.trim() == value,
-        "machine identity file is corrupt: {}",
-        path.display()
-    );
-    MachinePublicId::parse(value)
-        .with_context(|| format!("machine identity file is corrupt: {}", path.display()))
 }
 
 /// Writes `bytes` to `<path>.new`, owner-only, syncs it, and renames it to
@@ -232,8 +152,33 @@ mod tests {
         assert_eq!(again.0.as_ref(), pepper.0.as_ref(), "created once");
         assert!(!root.join("resource-effect-pepper.new").exists());
         fs::remove_dir_all(root).unwrap();
-        // With a registry at the current schema it stays corrupt
-        // (`resource_effect_pepper_missing_corrupt_and_mismatch_fail_closed`).
+
+        // A registry from schema 7 on has receipts bound to the pepper: the
+        // cut file stays, and the start fails closed. Before 7 it is replaced.
+        for (schema, replaced) in [(6, true), (7, false), (9, false), (14, false)] {
+            let root = temp_root("pepper-cut-registry");
+            let session = root.join("session");
+            fs::create_dir_all(&session).unwrap();
+            let registry = Connection::open(session.join(WORKSPACE_REGISTRY_FILE)).unwrap();
+            registry
+                .execute_batch(&format!(
+                    "CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                     INSERT INTO meta VALUES('schema_version', '{schema}');"
+                ))
+                .unwrap();
+            drop(registry);
+            fs::write(root.join(RESOURCE_EFFECT_PEPPER_FILE), b"cut").unwrap();
+            let loaded = load_or_create_resource_effect_pepper(&root);
+            let on_disk = fs::read(root.join(RESOURCE_EFFECT_PEPPER_FILE)).unwrap();
+            if replaced {
+                assert_eq!(on_disk, loaded.unwrap().0.as_ref(), "schema {schema}");
+            } else {
+                let error = format!("{:#}", loaded.err().expect("fails closed"));
+                assert!(error.contains("resource receipt pepper is corrupt"), "{schema}: {error}");
+                assert_eq!(on_disk, b"cut", "schema {schema} keeps the file");
+            }
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]

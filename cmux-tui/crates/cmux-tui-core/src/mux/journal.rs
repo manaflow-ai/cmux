@@ -291,14 +291,19 @@ impl Mux {
     /// Caps the registry database at `pages` (its current size for None),
     /// so a commit that needs a page fails with SQLITE_FULL as on a full disk.
     #[cfg(test)]
-    pub(crate) fn set_registry_max_page_count_for_test(&self, pages: Option<i64>) {
+    pub(crate) fn set_registry_max_page_count_for_test(
+        &self,
+        pages: Option<i64>,
+    ) -> rusqlite::Result<()> {
         let connection = self.registry_connection.get();
-        let pages = pages.unwrap_or_else(|| {
-            connection.query_row("PRAGMA page_count", [], |row| row.get(0)).unwrap()
-        });
-        let _: i64 = connection
-            .query_row(&format!("PRAGMA max_page_count = {pages}"), [], |row| row.get(0))
-            .unwrap();
+        let pages = match pages {
+            Some(pages) => pages,
+            None => connection.query_row("PRAGMA page_count", [], |row| row.get(0))?,
+        };
+        let _: i64 =
+            connection
+                .query_row(&format!("PRAGMA max_page_count = {pages}"), [], |row| row.get(0))?;
+        Ok(())
     }
 
     #[cfg(test)]
