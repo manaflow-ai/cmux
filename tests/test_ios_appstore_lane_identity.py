@@ -1391,8 +1391,12 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
         "App Store archive keeps crash reporting enabled",
     )
     _check(
-        "SWIFT_ACTIVE_COMPILATION_CONDITIONS=CMUX_APPSTORE" in archive_call,
-        "App Store archive compiles with the VPN-free condition",
+        "SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_APPSTORE" in archive_call,
+        "App Store archive adds the VPN-free condition on top of each target's own conditions",
+    )
+    _check(
+        "SWIFT_ACTIVE_COMPILATION_CONDITIONS=CMUX_APPSTORE" not in archive_call,
+        "App Store archive does not replace package conditions such as swift-crypto's CRYPTO_IN_SWIFTPM",
     )
     _check(
         "CMUX_APPSTORE_BUILD=YES" in archive_call,
