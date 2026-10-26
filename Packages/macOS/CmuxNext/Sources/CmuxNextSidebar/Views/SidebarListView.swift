@@ -21,6 +21,15 @@ final class SidebarListView: NSView {
     var displayed = SidebarLayout.empty
     /// Each layout `apply` draws, in order (a test records every frame the list shows, a one-hop glitch too).
     var onApply: ((SidebarLayout) -> Void)?
+    /// The feed that maps this list's rows: told which rows the list draws near its viewport (`watchRows`).
+    weak var rowFeed: SidebarRowFeed?
+    /// Something beside the list shows every row's content (the rail): the feed observes every row.
+    var observesEveryRow = false
+    /// The open group headers on screen and the members they roll up, for this layout (`watchRows`).
+    var rollUpWatch: (headers: [GroupID], members: Set<WorkspaceID>)?
+    /// Whether the list can be seen: its window's node (miniaturized, covered, the app hidden), hidden out of a
+    /// window. The row feed arms no row while it is not visible.
+    let visibility = VisibilityNode(root: "sidebar.list", own: .hidden)
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
     var tabs: [TabID: SidebarTab] = [:]
@@ -208,6 +217,8 @@ final class SidebarListView: NSView {
     // MARK: - Window
     private var observedWindow: NSWindow?
     private var faviconObserver: (any NSObjectProtocol)?
+    /// The list's window node's flips, mirrored into ``visibility``.
+    private var windowVisibility: VisibilitySubscription?
     private var settleObservers: [any NSObjectProtocol] = []
     private var focusObservers: [any NSObjectProtocol] = []
     /// The app's one input tap (the App injects it; nil hears no press or release outside the list).
@@ -244,6 +255,10 @@ final class SidebarListView: NSView {
             press = nil
         }
         // Each row's indicator follows its own visibility node (StatusIndicatorView, p06-scheduler-042).
+        // The list's node takes its window's state (WindowVisibilitySource); out of a window it is hidden.
+        let windowNode = window.map { WindowVisibilitySource.of($0).node }
+        windowVisibility = windowNode?.subscribe(owner: "SidebarListView") { [weak self] in self?.visibility.set($0) }
+        visibility.set(windowNode?.effective ?? .hidden)
     }
     private func subscribePointerEnds() {
         for subscription in pointerEnds { subscription.cancel() }
