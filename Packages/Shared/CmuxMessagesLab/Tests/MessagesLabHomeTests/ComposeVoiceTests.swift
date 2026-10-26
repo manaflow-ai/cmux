@@ -22,7 +22,7 @@ import Testing
         func cancelVoice() { cancels += 1 }
     }
 
-    @MainActor struct Pane {
+    struct Pane {
         let window: NSWindow
         let controller: ChatController
         let engine: Engine
