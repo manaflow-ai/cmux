@@ -1,0 +1,7 @@
+[Interface]
+PrivateKey=GDYq0RJ4LWL6jJhLMAlM1oHcCTdSiXPMZ4X5D8WzGdw=
+Address=10.1.0.2
+[Peer]
+PublicKey=Bo2I0OcpKnXtElGwH6EXV3MwDQctaIrFJ4tDX44DoWs=
+AllowedIPs=0.0.0.0/0
+Endpoint=vm.example:51820 # comment

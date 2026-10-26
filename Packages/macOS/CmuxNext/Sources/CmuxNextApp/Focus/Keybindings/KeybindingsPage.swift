@@ -6,8 +6,11 @@ import CmuxNextSettings
 
 extension PageDescriptor {
     /// The Keyboard Shortcuts editor (R59): cmux-page://cmux.keybindings/.
-    static let keybindings = PageDescriptor(id: "cmux.keybindings", resource: "keybindings", processGroup: .privileged, namespaces: ["cmux.keybindings."],
-                                            ownsSearchField: true)
+    static let keybindings = PageDescriptor(
+        id: "cmux.keybindings", resource: "keybindings", processGroup: .privileged, namespaces: ["cmux.keybindings."], ownsSearchField: true,
+        // KeybindingsPageProvider. Export and import go through the native file panel.
+        opTables: [PageOpTable(namespace: "cmux.keybindings.", read: ["list", "recorded", "changed"],
+                               act: ["record.start", "record.stop", "keymap.export", "keymap.import", "set", "remove", "reset"])])
 }
 
 extension InternalPageID {

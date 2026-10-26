@@ -2405,9 +2405,9 @@ async fn wait_and_reap_pty_child(
     child: &mut dyn Child,
     child_events: &mut tokio::signal::unix::Signal,
 ) -> std::io::Result<ExitOutcome> {
-    if let Some(native_child) = child.downcast_mut::<std::process::Child>() {
+    if let Some(native_child) = child.downcast_mut::<cmux_pty::NativePtyChild>() {
         loop {
-            match target.try_reap(|| native_child.try_wait()) {
+            match target.try_reap(|| native_child.try_wait_native()) {
                 Ok(Some(status)) => return Ok(exit_outcome(status)),
                 Ok(None) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,

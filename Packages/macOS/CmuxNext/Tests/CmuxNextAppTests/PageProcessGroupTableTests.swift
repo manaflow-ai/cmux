@@ -8,35 +8,28 @@ import Foundation
 import Testing
 
 /// The process group of every page the app ships (p13-webui.md 3.B, task 087), checked from each
-/// descriptor's capability (``PageCapability``). Each descriptor's ``PageDescriptor/processGroup`` is
-/// the group this table names (task 012), so a descriptor cannot change group without the audit; a
-/// change to a descriptor's ops reruns this suite. The group reaches Chromium only with the
-/// `pageProcessGroups` feature on, and only for a group that shares a renderer.
+/// descriptor's capability (``PageCapability``), which reads the descriptor's own op tables
+/// (``PageOpTable``): the router admits only the ops a table lists, so a provider's new op is
+/// reachable only once its table names it, and then this suite sees it. Each descriptor's
+/// ``PageDescriptor/processGroup`` is the group this table names (task 012), so a descriptor cannot
+/// change group without the audit. The group reaches Chromium only with the `pageProcessGroups`
+/// feature on, and only for a group that shares a renderer.
 @MainActor
 @Suite struct PageProcessGroupTableTests {
     /// The groups as the test decides them. Section 3.B as written fails (see
     /// ``theSectionTableAsWrittenFails()``): markdown saves files, home-channels loads the daemon's
-    /// credential and Settings shows museum thumbnails with its actions, so each takes its own
-    /// renderer; the icon picker shows only app data, so it shares with the privileged pages.
+    /// credential, Settings and the changelog have undeclared namespaces, and Files, Chief Views and
+    /// Agent Activity act while they show outside text (open a file, set the fleet URL and open a link,
+    /// stop a session), so each takes its own renderer; the icon picker shows only app data, so it
+    /// shares with the privileged pages.
     static let groups: [PageProcessGroup: [PageDescriptor]] = [
         .agent: [.agent],
         .privileged: [.cloud, .apps, .coderouter, .keybindings, .debugSettings, .mobilePairing, .history, .stats, .chiefUsage,
                       .iconPicker],
-        .viewer: [.files, .chiefViews, .agentActivity, .chiefInspector],
-        .solo: [.diff, .editor, .changelog, .markdown, .settings, .homeChannels],
+        .viewer: [.chiefInspector],
+        .solo: [.diff, .editor, .changelog, .markdown, .settings, .homeChannels, .files, .chiefViews, .agentActivity],
         .secrets: [.passwords],
     ]
-
-    /// The ops each page's providers answer under its namespaces, where a namespace alone hides
-    /// host power: the agent page's whole op table, the diff page's git ops, the file pages' ops.
-    static let servedOps: [String: Set<String>] = [
-        PageDescriptor.agent.id: Set(AgentPageOps.all),
-        PageDescriptor.diff.id: DiffPageProvider.gitOps.union(DiffPageProvider.revertOps),
-        PageDescriptor.markdown.id: Set(fileOps.map { FilePageKind.markdown.op($0) }),
-        PageDescriptor.editor.id: Set(fileOps.map { FilePageKind.editor.op($0) }),
-    ]
-    /// The file pages' ops (FilePageProvider.call).
-    static let fileOps = ["config", "open", "edited", "save", "setPreference", "recents", "chooseFile", "openLink"]
 
     /// Pages that show repository files or remote text their CSP and resources do not reveal: agent
     /// output, the Files tree, pull request titles, agent activity, a paired server's memory.
@@ -45,8 +38,10 @@ import Testing
         PageDescriptor.chiefInspector.id,
     ]
 
+    static var shipped: [PageDescriptor] { FirstPartyPageSchemes.descriptors + [.chiefViews] }
+
     static func capability(_ page: PageDescriptor) -> PageCapability {
-        PageCapability(page, servedOps: servedOps[page.id] ?? [], showsOutsideText: showsOutsideText.contains(page.id))
+        PageCapability(page, showsOutsideText: showsOutsideText.contains(page.id))
     }
 
     static func audit(_ table: [PageProcessGroup: [PageDescriptor]]) -> PageProcessGroupAudit {
@@ -54,11 +49,11 @@ import Testing
     }
 
     @Test func everyShippedPageHasExactlyOneGroup() {
-        let shipped = (FirstPartyPageSchemes.descriptors + [.chiefViews]).map(\.id)
         let grouped = Self.groups.values.flatMap { $0 }.map(\.id)
         #expect(grouped.count == 22)
         #expect(grouped.count == Set(grouped).count, "a page is in two groups")
-        #expect(Set(grouped) == Set(shipped), "missing: \(Set(shipped).subtracting(grouped)), extra: \(Set(grouped).subtracting(shipped))")
+        let shipped = Set(Self.shipped.map(\.id))
+        #expect(Set(grouped) == shipped, "missing: \(shipped.subtracting(grouped)), extra: \(Set(grouped).subtracting(shipped))")
     }
 
     @Test func theCapabilityGroupsPass() {
@@ -75,9 +70,96 @@ import Testing
         // Every solo page has a class no other page has: it would fail in any shared group.
         for page in Self.groups[.solo] ?? [] {
             switch Self.capability(page).capabilityClass {
-            case .hostPower, .secrets, .outsideContentWithActions: break
+            case .hostPower, .secrets, .outsideContentWithActions, .undeclaredOps: break
             case .appContent, .outsideContent: Issue.record("\(page.id) could share: \(Self.capability(page).summary)")
             }
+        }
+    }
+
+    /// A page whose namespace has no op table never shares a renderer.
+    @Test func undeclaredNamespacesAreOnlyOnPagesThatShareNothing() {
+        let sharing = Set(Self.groups.filter { $0.key.sharesRenderer }.values.flatMap { $0 }.map(\.id))
+        for page in Self.shipped where !Self.capability(page).undeclaredNamespaces.isEmpty {
+            #expect(!sharing.contains(page.id), "\(page.id) shares with undeclared \(Self.capability(page).undeclaredNamespaces)")
+        }
+        // The declared pages: every namespace of each has its table.
+        for page in Self.shipped where Self.groups[.privileged, default: []].contains(page) || page == .agent || page == .chiefInspector {
+            #expect(Self.capability(page).undeclaredNamespaces.isEmpty, "\(page.id)")
+        }
+    }
+
+    /// The tables name exactly the ops the providers dispatch, where a provider keeps its ops in one
+    /// place: a table that drifts from its provider fails here.
+    @Test func theTablesMatchTheirProviders() throws {
+        let agent = try #require(PageDescriptor.agent.opTable(for: AgentPageOps.namespace))
+        #expect(Set(agent.kinds.keys) == Set(AgentPageOps.all + [AgentPageProvider.hostEvents]))
+
+        let diff = try #require(PageDescriptor.diff.opTable(for: "cmux.diff."))
+        let diffOps = DiffPageProvider.gitOps.union(DiffPageProvider.revertOps).union(DiffPageProvider.storeOps)
+            .union(DiffPageProvider.methods.map { "cmux.diff." + $0 })
+            .union([DiffPageProvider.configOp, DiffPageProvider.languagesOp, DiffPageProvider.eventsStream, DiffPageProvider.recentsOp,
+                    DiffPageProvider.chooseFolderOp, DiffPageProvider.openOp, DiffPageProvider.openFileOp, DiffPageProvider.prefsStream])
+        #expect(Set(diff.kinds.keys) == diffOps)
+
+        let chiefViews = try #require(PageDescriptor.chiefViews.opTable(for: ChiefViewsPageProvider.prefix))
+        #expect(Set(chiefViews.kinds.keys) == [
+            ChiefViewsPageProvider.agentsOp, ChiefViewsPageProvider.agentsChanged, ChiefViewsPageProvider.fleetOp,
+            ChiefViewsPageProvider.setFleetURLOp, ChiefViewsPageProvider.landingOp, ChiefViewsPageProvider.openOp,
+            ChiefViewsPageProvider.openURLOp,
+        ])
+        #expect(chiefViews.ops(.act) == [ChiefViewsPageProvider.openOp, ChiefViewsPageProvider.openURLOp,
+                                         ChiefViewsPageProvider.setFleetURLOp].sorted())
+
+        let mobile = try #require(PageDescriptor.mobilePairing.opTable(for: "cmux.mobilePairing."))
+        #expect(Set(mobile.kinds.keys) == [MobilePairingPageProvider.statusOp, MobilePairingPageProvider.setAllowedOp,
+                                           MobilePairingPageProvider.changesStream])
+        let inspector = try #require(PageDescriptor.chiefInspector.opTable(for: "cmux.chief_inspector."))
+        #expect(Set(inspector.kinds.keys) == [ChiefInspectorPageProvider.get])
+        let activity = try #require(PageDescriptor.agentActivity.opTable(for: AgentActivityPageProvider.prefix))
+        #expect(activity.kind(of: AgentActivityPageProvider.stateStream) == .read)
+        #expect(activity.ops(.act) == [AgentActivityPageProvider.prefix + "perform"])
+        let coderouter = try #require(PageDescriptor.coderouter.opTable(for: "cmux.coderouter."))
+        #expect(coderouter.kind(of: CodeRouterPageProvider.connectOp) == .act)
+        let iconPicker = try #require(PageDescriptor.iconPicker.opTable(for: "cmux.iconPicker."))
+        #expect(iconPicker.kind(of: IconPickerProvider.sessionStream) == .read)
+    }
+
+    /// Settings and Home Channels reach the harness center's add (a person-brought command) and
+    /// doctor (a real turn on it): host power, whatever else the page is.
+    @Test func harnessRegistrationIsHostPower() {
+        for page in [PageDescriptor.settings, .homeChannels] {
+            let ops = Self.capability(page).hostPowerOps
+            #expect(ops.contains("cmux.chief.backend.add") && ops.contains("cmux.chief.backend.doctor"), "\(page.id): \(ops)")
+        }
+        #expect(Self.capability(.settings).capabilityClass == .hostPower(page: PageDescriptor.settings.id))
+    }
+
+    /// Each dynamic prefix a shipped page serves is either the app's own (tied here to the constant
+    /// its source serves) or outside content, never neither: a new prefix fails until its author
+    /// puts it in one set, and a rename of a source's prefix fails the first check.
+    @Test func everyDynamicPrefixIsClassified() {
+        #expect(PageCapability.appOnlyPrefixes == [
+            MarkdownPageResource.library, AppsPageNativeOps.glyphPrefix, IconPickerSymbols.prefix,
+            SettingsBackdropThumbnails.prefix, SettingsIconAssets.prefix,
+        ])
+        let outside: Set<String> = [
+            MarkdownPageResource.asset, MarkdownPageResource.remoteImage, DiffPatchSource.prefix, MuseumArtSession.thumbnailPrefix,
+        ]
+        let served = Set(Self.shipped.flatMap(\.dynamicPrefixes))
+        #expect(PageCapability.appOnlyPrefixes.isDisjoint(with: outside))
+        #expect(served == PageCapability.appOnlyPrefixes.union(outside), "unclassified: \(served.subtracting(PageCapability.appOnlyPrefixes.union(outside)))")
+        for page in Self.shipped {
+            let reported = Set(Self.capability(page).outsideSources.filter { $0.hasPrefix("resource ") }.map { String($0.dropFirst("resource ".count)) })
+            #expect(reported == page.dynamicPrefixes.intersection(outside), "\(page.id)")
+        }
+    }
+
+    /// Agent Activity stops live sessions: with outside content beside it, that content could.
+    @Test func agentActivityNeverSharesWithOutsideContent() {
+        for peer in [PageDescriptor.files, .chiefInspector] {
+            let audit = Self.audit([.viewer: [.agentActivity, peer]])
+            #expect(audit.violations.map(\.group) == [.viewer], "\(peer.id)")
+            #expect(audit.report.contains("cmux.agentActivity.perform (act)"), "\(audit.report)")
         }
     }
 
@@ -103,7 +185,8 @@ import Testing
             .secrets: [.passwords],
         ])
         #expect(audit.violations.map(\.group) == [.privileged, .viewer])
-        for reason in ["resource museum", "cmux.markdown.save", "cmux.host.credential."] {
+        for reason in ["cmux.chief.backend.add", "cmux.markdown.save", "cmux.host.credential.", "cmux.agentActivity.perform",
+                       "cmux.chief_views.open_url"] {
             #expect(audit.report.contains(reason), "\(reason) is not named:\n\(audit.report)")
         }
     }

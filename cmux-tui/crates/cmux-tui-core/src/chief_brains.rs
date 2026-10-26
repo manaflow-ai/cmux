@@ -979,7 +979,6 @@ impl Supervisor {
     fn launch(&self, mux: &Mux, record: &ChiefRecord) -> anyhow::Result<Process> {
         use std::io::Write as _;
         use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
-        use std::os::unix::process::CommandExt;
 
         let mux_home = brain_home(&self.config.home, &record.id);
         std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&mux_home)?;
@@ -1000,7 +999,7 @@ impl Supervisor {
             .mode(0o600)
             .open(mux_home.join("host.log"))?;
         let inherited = |key: &str| std::env::var(key).ok().filter(|v| !v.is_empty());
-        let mut command = std::process::Command::new(&self.config.executable);
+        let mut command = cmux_process::Command::new(&self.config.executable);
         command
             .arg("host")
             .arg("--daemon-socket")
@@ -1016,7 +1015,7 @@ impl Supervisor {
             ))
             .envs(record_engine_env(&record.engine))
             .current_dir(&mux_home)
-            .stdin(std::process::Stdio::null())
+            .stdin(cmux_process::Stdio::null())
             .stdout(log.try_clone()?)
             .stderr(log)
             .process_group(0);
@@ -1057,14 +1056,14 @@ impl Supervisor {
         }
         let inherited = |key: &str| std::env::var(key).ok().filter(|v| !v.is_empty());
         crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
-        let spawned = std::process::Command::new(&self.config.executable)
+        let spawned = cmux_process::Command::new(&self.config.executable)
             .arg("end-sessions")
             .env_clear()
             .envs(brain_environment(&self.config, chief, None, &inherited))
             .current_dir(&mux_home)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stdin(cmux_process::Stdio::null())
+            .stdout(cmux_process::Stdio::null())
+            .stderr(cmux_process::Stdio::null())
             .spawn();
         // Only a deleted Chief's sessions end here: its folder goes after them, unless a live
         // Chief shares it (the same id tail).
@@ -1237,7 +1236,7 @@ fn remove_old_acpmux_homes(home: &Path, acpmux_bin: Option<&Path>) {
         let acpmux = acpmux_bin.map(Path::to_path_buf).unwrap_or_else(|| "acpmux".into());
         let user = |key: &str| std::env::var(key).ok().filter(|v| !v.is_empty());
         let stop = |end_flag: bool| {
-            let mut command = std::process::Command::new(&acpmux);
+            let mut command = cmux_process::Command::new(&acpmux);
             command.args(["daemon", "shutdown"]);
             if end_flag {
                 command.arg("--end-agents");
@@ -1245,9 +1244,9 @@ fn remove_old_acpmux_homes(home: &Path, acpmux_bin: Option<&Path>) {
             command
                 .env_clear()
                 .env("ACPMUX_HOME", &old)
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null());
+                .stdin(cmux_process::Stdio::null())
+                .stdout(cmux_process::Stdio::null())
+                .stderr(cmux_process::Stdio::null());
             for key in ["PATH", "HOME", "USER", "TMPDIR"] {
                 if let Some(value) = user(key) {
                     command.env(key, value);
