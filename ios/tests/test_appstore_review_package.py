@@ -30,7 +30,13 @@ class PrivacyManifestTests(unittest.TestCase):
     def test_app_target_bundles_the_only_manifest(self):
         manifests = sorted(APP_SOURCE.rglob("PrivacyInfo.xcprivacy"))
         self.assertEqual(manifests, [PRIVACY_MANIFEST])
-        self.assertIn("PrivacyInfo.xcprivacy in Resources", PROJECT_FILE.read_text())
+        project = PROJECT_FILE.read_text()
+        self.assertRegex(
+            project,
+            r"/\* PrivacyInfo\.xcprivacy \*/ = \{isa = PBXFileReference; [^}]*path = PrivacyInfo\.xcprivacy;",
+        )
+        resources_phase = project[project.index("/* Begin PBXResourcesBuildPhase section */"):]
+        self.assertIn("PrivacyInfo.xcprivacy in Resources", resources_phase)
 
     def test_manifest_declares_no_tracking(self):
         manifest = plistlib.loads(PRIVACY_MANIFEST.read_bytes())
@@ -52,6 +58,27 @@ class PrivacyManifestTests(unittest.TestCase):
         for name in ("CrashData", "PerformanceData", "OtherDiagnosticData"):
             self.assertIn(name, types)
             self.assertFalse(types[name]["NSPrivacyCollectedDataTypeLinked"], name)
+
+
+    def test_storekit_purchases_are_declared(self):
+        types = collected_types()
+        self.assertIn("PurchaseHistory", types)
+        self.assertTrue(types["PurchaseHistory"]["NSPrivacyCollectedDataTypeLinked"])
+
+    def test_required_reason_apis_used_by_linked_packages_are_declared(self):
+        manifest = plistlib.loads(PRIVACY_MANIFEST.read_bytes())
+        prefix = "NSPrivacyAccessedAPICategory"
+        declared = {
+            entry["NSPrivacyAccessedAPIType"].removeprefix(prefix): set(entry["NSPrivacyAccessedAPITypeReasons"])
+            for entry in manifest["NSPrivacyAccessedAPITypes"]
+        }
+        # ProcessInfo.systemUptime / mach_absolute_time for in-app timings.
+        self.assertIn("35F9.1", declared.get("SystemBootTime", set()))
+        # UITextInputMode.activeInputModes picks the emoji keyboard.
+        self.assertIn("54BD.1", declared.get("ActiveKeyboards", set()))
+        # Chat caches evict app-container files by modification date.
+        self.assertIn("C617.1", declared.get("FileTimestamp", set()))
+        self.assertIn("CA92.1", declared.get("UserDefaults", set()))
 
 
 class PublicMetadataTests(unittest.TestCase):
