@@ -24,6 +24,10 @@ pub struct Capability {
 }
 
 pub const CAPABILITIES: &[Capability] = &[
+    Capability {
+        id: "durable-watches-v1",
+        wire: &[method::MUX_WATCH_ADD, method::MUX_WATCH_LS, method::MUX_WATCH_RM],
+    },
     // The base the pane needs to show and drive a chat: ACP sessions, the
     // session list and its events, attach and view, harnesses and models,
     // drafts, bookmarks, prompts, permissions and the other per-chat actions.
