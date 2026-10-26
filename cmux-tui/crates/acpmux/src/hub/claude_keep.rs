@@ -14,7 +14,13 @@
 //! leaves the file under ours, and the next start links it back. A link costs
 //! no copy and sees every line Claude appends; where the two folders cannot
 //! share a file (another volume), the kept file is a copy taken again at each
-//! turn's end. Deleting the chat deletes its folder, and the transcript with it.
+//! turn's end. Claude's companion folder (`<id>/`: tool results, subagent
+//! transcripts) is kept the same way, file by file. Deleting the chat deletes
+//! its folder, and the transcript with it.
+//!
+//! A Chief session (its turn, compactor or subagent) keeps nothing: Chief sets
+//! its own short retention, and its sessions are never deleted, so a kept
+//! transcript would outlive that retention for good.
 
 use super::*;
 use crate::no_panic::LockExt;
@@ -40,6 +46,9 @@ impl Hub {
     /// Keeps the transcript of `session`'s running Claude after a turn, off
     /// the runtime's threads: a turn's end never waits on it.
     pub(super) fn keep_claude_transcript(&self, session: &Session) {
+        if !keeps_transcript(&session.meta()) {
+            return;
+        }
         let Some(store) = session.claude_store.lock_or_recover().clone() else { return };
         let Some(sid) = session.meta().agent_session_id else { return };
         let Some(dir) = self.store.session_dir(&session.id) else { return };
@@ -63,6 +72,9 @@ impl Hub {
         sid: String,
         own: bool,
     ) {
+        if !keeps_transcript(&session.meta()) {
+            return;
+        }
         let Some(dir) = self.store.session_dir(&session.id) else { return };
         let id = session.id.clone();
         let _ = tokio::task::spawn_blocking(move || {
@@ -76,6 +88,12 @@ impl Hub {
         })
         .await;
     }
+}
+
+/// Whether a session keeps its Claude transcript past Claude's retention: not
+/// a Chief one, whose transcripts Chief's own retention must be free to delete.
+fn keeps_transcript(meta: &SessionMeta) -> bool {
+    !super::route_switch::is_chief(meta)
 }
 
 /// The folder in a chat's session dir that holds its Claude transcript.
@@ -111,6 +129,11 @@ pub(super) fn stored_with_prompt(store: &Path, sid: &str) -> bool {
 /// Claude's name points at the whole of it again.
 pub(super) fn keep(session_dir: &Path, store: &Path, sid: &str) -> io::Result<()> {
     let _one = KEEPING.lock().unwrap_or_else(|e| e.into_inner());
+    keep_transcript(session_dir, store, sid)?;
+    keep_companion(session_dir, store, sid)
+}
+
+fn keep_transcript(session_dir: &Path, store: &Path, sid: &str) -> io::Result<()> {
     // A chat deleted meanwhile: its folder is not made again for a transcript nobody keeps.
     if !crate::adopt::is_bare_id(sid) || !session_dir.is_dir() {
         return Ok(());
@@ -176,6 +199,46 @@ pub(super) fn keep(session_dir: &Path, store: &Path, sid: &str) -> io::Result<()
     append_rest(&mut from, &mut whole)
 }
 
+/// Keeps Claude's companion folder of session `sid` (`<project>/<sid>/`) next
+/// to its kept transcript: a resumed conversation reads its tool results and
+/// subagent transcripts from there.
+fn keep_companion(session_dir: &Path, store: &Path, sid: &str) -> io::Result<()> {
+    let Some(live) = crate::adopt::find_claude(store, sid) else { return Ok(()) };
+    let Some(kept) = kept_file(session_dir, sid) else { return Ok(()) };
+    let from = live.with_file_name(sid);
+    if !from.is_dir() {
+        return Ok(());
+    }
+    // A chat deleted meanwhile: its folder is not made again.
+    match mirror(&from, &kept.with_file_name(sid)) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        other => other,
+    }
+}
+
+/// Gives the folder `to` every file under the folder `from` (a link, or a
+/// copy across volumes taken again when it grew), folders included.
+fn mirror(from: &Path, to: &Path) -> io::Result<()> {
+    make_dir(to)?;
+    for entry in fs::read_dir(from)?.flatten() {
+        let (src, dst) = (entry.path(), to.join(entry.file_name()));
+        let Ok(kind) = entry.file_type() else { continue };
+        if kind.is_dir() {
+            mirror(&src, &dst)?;
+        } else if kind.is_file() && !same_file(&src, &dst) {
+            match share(&src, &dst) {
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                    if fs::metadata(&src)?.len() != fs::metadata(&dst)?.len() {
+                        fs::copy(&src, &dst)?;
+                    }
+                }
+                other => other?,
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Appends what `from` holds past its position to `to`, reading again until nothing more comes.
 fn append_rest(from: &mut File, to: &mut File) -> io::Result<()> {
     loop {
@@ -222,6 +285,10 @@ pub(super) fn restore(session_dir: &Path, store: &Path, sid: &str) -> io::Result
             let live = store.join("projects").join(project).join(file_name(sid));
             fs::create_dir_all(live.parent().unwrap_or(store))?;
             share(&kept, &live)?;
+            let companion = kept.with_file_name(sid);
+            if companion.is_dir() {
+                mirror(&companion, &live.with_file_name(sid))?;
+            }
             live
         }
     };
@@ -423,6 +490,47 @@ mod tests {
             fs::read_to_string(dirs.live()).unwrap(),
             "{\"uuid\":\"a\"}\n{\"uuid\":\"b\"}\n"
         );
+    }
+
+    /// Claude's cleanup deletes the companion folder with the transcript: a
+    /// resumed conversation's tool results and subagent transcripts come back too.
+    #[test]
+    fn the_companion_folder_is_put_back_with_the_transcript() {
+        let dirs = Dirs::new();
+        let companion = dirs.live().with_file_name(SID);
+        fs::create_dir_all(companion.join("subagents")).unwrap();
+        fs::create_dir_all(companion.join("tool-results")).unwrap();
+        append(&dirs.live(), "{\"uuid\":\"a\"}\n");
+        append(&companion.join("tool-results/t1.txt"), "output");
+        keep(&dirs.session(), &dirs.store(), SID).unwrap();
+        append(&companion.join("subagents/agent-1.jsonl"), "{\"uuid\":\"s\"}\n");
+        keep(&dirs.session(), &dirs.store(), SID).unwrap();
+        fs::remove_file(dirs.live()).unwrap();
+        fs::remove_dir_all(&companion).unwrap();
+
+        assert!(restore(&dirs.session(), &dirs.store(), SID).unwrap());
+        assert_eq!(fs::read_to_string(companion.join("tool-results/t1.txt")).unwrap(), "output");
+        assert_eq!(
+            fs::read_to_string(companion.join("subagents/agent-1.jsonl")).unwrap(),
+            "{\"uuid\":\"s\"}\n"
+        );
+    }
+
+    /// Chief sets its own short retention and never deletes its sessions: a
+    /// Chief session keeping its transcripts would keep them for good.
+    #[test]
+    fn a_chief_session_keeps_no_transcript() {
+        let meta = |name: &str| -> SessionMeta {
+            serde_json::from_value(json!({
+                "schema": "acpmux.session.v1", "id": "s", "name": name, "harness": "claude",
+                "family": "claude", "cwd": "/tmp", "status": "ready",
+                "createdAt": 0, "updatedAt": 0,
+            }))
+            .unwrap()
+        };
+        assert!(!keeps_transcript(&meta("optchat-chief-1")));
+        assert!(!keeps_transcript(&meta("optchat-sub-1-claude")));
+        assert!(keeps_transcript(&meta("Fix the sidebar")));
     }
 
     /// A chat deleted while its last keep waited: the kept folder is not made again.

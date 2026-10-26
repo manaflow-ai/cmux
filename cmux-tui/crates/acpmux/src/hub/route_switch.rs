@@ -308,7 +308,7 @@ pub struct HarnessRestarts {
 /// `cmux.chief`, or named `optchat-…`, or of an `optchat-compact-…` preset
 /// harness (the app's `AcpmuxSessionCensus.isChief`). Update Everything
 /// never counts or restarts one; only a caller naming it in `sessions` does.
-fn is_chief(meta: &SessionMeta) -> bool {
+pub(super) fn is_chief(meta: &SessionMeta) -> bool {
     live_tags(meta).get("cmux.chief").is_some()
         || meta.name.starts_with("optchat-")
         || meta.harness.starts_with("optchat-compact-")
