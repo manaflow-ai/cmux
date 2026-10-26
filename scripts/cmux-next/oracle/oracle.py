@@ -45,6 +45,11 @@ Run directory (`run --out DIR`; the format diff.py (014) reads, with the extra f
                         that is not flaky has the same hashes): {"case", "suite", "step", "index",
                         "checkpoint", "snapshot", "sha256", "attempt", "result"}
     events.jsonl       one line per attempt: phase, status, ms, message, checkpoint hashes
+receipt.json also holds "nondeterminism": {"checkpoints", "nondeterministic", "rate"} (spec 4.6:
+<= 1 %). `run --repeat 3 --flaky-out FILE` appends one cmux-oracle-flake-v1 line per flaky (case,
+step, pointer) to FILE (MQ-flakes): "kind" (value, status, missing, declared), "target" in
+Expectations syntax, "samples" [{"value", "runs"}] and "proposal" (normalize.flake_proposal: a rule
+with its reason, or fix-at-source).
 `oracle.py rebaseline --run DIR [baselines.py options]` writes the golden cases of DIR in the
 run format baselines.py (016) reads (a `cases` list, the case name without its suite) and runs
 `baselines.py rebaseline` on it.
@@ -452,7 +457,8 @@ class Attempt:
     message: str
     ms: int
     switch_hits: Dict[str, Dict[str, int]] = field(hash=False, compare=False)
-    # Snapshot rows are kept for the first attempt only: it is the one checkpoints.jsonl holds.
+    # Snapshot rows are kept for the first attempt (the one checkpoints.jsonl holds) and, with
+    # --flaky-out, for every attempt whose hashes differ from it (the samples of a flake line).
     rows: Tuple[Dict[str, Any], ...] = field(default=(), hash=False, compare=False)
 
 
@@ -645,6 +651,8 @@ def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expect
     runnable = [batch for batch in runnable if batch]
     attempts: List[Attempt] = []
     errors: List[str] = []
+    first_checkpoints: Dict[str, Checkpoints] = {}
+    keep_samples = options.flaky_out is not None
 
     def works(batch: Sequence[Case], iteration: int, attempt: int, phase: str) -> Tuple[Work, ...]:
         out = []
@@ -672,10 +680,13 @@ def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expect
         statuses = {}
         for work, result, ms in results:
             first = iteration == 0 and attempt == 0
+            if first:
+                first_checkpoints[work.case.id] = result["checkpoints"]
+            keep = first or (keep_samples and result["checkpoints"] != first_checkpoints.get(work.case.id))
             attempts.append(
                 Attempt(
                     work.case.id, iteration, attempt, phase, result["status"], result.get("step"), result["checkpoints"],
-                    result["message"], ms, result.get("switch_hits") or {}, result["rows"] if first else (),
+                    result["message"], ms, result.get("switch_hits") or {}, result["rows"] if keep else (),
                 )
             )
             statuses[work.case.id] = (result["status"], result.get("step"))
@@ -760,6 +771,138 @@ def classify(attempts: Sequence[Attempt], expected: Expected) -> Dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------------------
+# Flakes (p15-oracle-117): the MQ-flakes queue, one line per (case, step, pointer)
+#
+# blinkpy keeps every result of a flaky test (test_run_results.py, `results` per retry) so the
+# flakiness dashboard can show what changed; here the unit is the value: each line names the
+# checkpoint and JSON pointer that differed and the canonical values each run saw there.
+
+CheckpointKey = Tuple[str, str, int]
+FLAKE_SCHEMA = "cmux-oracle-flake-v1"
+SAMPLE_CHARS = 2048
+STATUS_REASON = ("the case result changes between runs of one build: fix the cause at its source (a Timeout is a "
+                 "wait that no state change ends: use waitFor or settle on the change)")
+MISSING_REASON = "a checkpoint is reached in some runs only, with the same result: the step sequence depends on timing"
+UNKEPT_REASON = "the differing snapshots were not kept, so no pointer can be named"
+DECLARED_REASON = "Expectations list several results, and every run here gave the same one: the line may be stale"
+
+
+def checkpoint_keys(checkpoints: Checkpoints) -> Dict[CheckpointKey, int]:
+    """(step, checkpoint, occurrence) -> index: a repeated step lines up with its own occurrence."""
+    seen: Dict[Tuple[str, str], int] = {}
+    keys: Dict[CheckpointKey, int] = {}
+    for index, (step, checkpoint, _) in enumerate(checkpoints):
+        n = seen.get((step, checkpoint), 0)
+        seen[(step, checkpoint)] = n + 1
+        keys[(step, checkpoint, n)] = index
+    return keys
+
+
+def nondeterministic_checkpoints(attempts: Sequence[Attempt]) -> List[CheckpointKey]:
+    """Checkpoints of the first run whose hash differs in another repeat or retry that reached them."""
+    first = next((a for a in attempts if a.iteration == 0 and a.attempt == 0), None)
+    if first is None:
+        return []
+    others = [(a, checkpoint_keys(a.checkpoints)) for a in attempts if a is not first]
+    out = []
+    for key, index in checkpoint_keys(first.checkpoints).items():
+        sha = first.checkpoints[index][2]
+        if any(key in theirs and a.checkpoints[theirs[key]][2] != sha for a, theirs in others):
+            out.append(key)
+    return out
+
+
+def run_label(a: Attempt) -> Dict[str, Any]:
+    return {"iteration": a.iteration, "attempt": a.attempt, "phase": a.phase}
+
+
+def sample_value(value: Any) -> Any:
+    text = json.dumps(value, sort_keys=True, separators=(",", ":"))
+    if len(text) <= SAMPLE_CHARS:
+        return value
+    return {"$truncated": text[:SAMPLE_CHARS], "chars": len(text), "sha256": hashlib.sha256(text.encode()).hexdigest()}
+
+
+def covering_rule(rules: Sequence[Mapping[str, str]], case_id: str, step: Optional[str], pointer: Optional[str]) -> Optional[str]:
+    """The reason of the Expectations pointer line (ExpectationStore.pointer_rules) that covers this value."""
+    if step is None or pointer is None:
+        return None
+    for rule in rules:
+        ptr = rule["pointer"]
+        if (fnmatch.fnmatchcase(case_id, rule["case"]) and fnmatch.fnmatchcase(step, rule.get("step", "*"))
+                and (ptr == "" or pointer == ptr or pointer.startswith(ptr + "/"))):
+            return rule["reason"]
+    return None
+
+
+def flake_lines(case_id: str, attempts: Sequence[Attempt], expected: Expected, rules: Sequence[Mapping[str, str]],
+                normalize: Any) -> List[Dict[str, Any]]:
+    """One case's MQ-flakes lines: what differed between its runs, where, and the values each run saw.
+
+    Kinds: `value` (a pointer inside one checkpoint, with the rule proposal of normalize.flake_pointers),
+    `status` (the result changed), `missing` (a checkpoint some runs did not reach with the same result),
+    `declared` (Expectations list several results; nothing differed here)."""
+    runs = sorted(attempts, key=lambda a: (a.iteration, a.attempt))
+    lines: List[Dict[str, Any]] = []
+
+    def add(kind: str, key: Optional[CheckpointKey], pointer: Optional[str], samples: List[Dict[str, Any]],
+            proposal: Mapping[str, Any], expected_by: Optional[str] = None) -> None:
+        step, checkpoint, occurrence = key if key else (None, None, None)
+        target = case_id if step is None else f"{case_id}/{step}"
+        if pointer:
+            target += f"#{pointer}"
+        lines.append({"case": case_id, "kind": kind, "step": step, "checkpoint": checkpoint, "occurrence": occurrence,
+                      "pointer": pointer, "target": target, "samples": samples, "proposal": dict(proposal),
+                      "expected_by": expected_by})
+
+    def fix(reason: str) -> Dict[str, Any]:
+        return {"rule": None, "action": "fix-at-source", "reason": reason}
+
+    outcomes: Dict[Tuple[str, Optional[str]], List[Attempt]] = {}
+    for a in runs:
+        outcomes.setdefault((a.status, a.step), []).append(a)
+    declared = "Expectations: several results " + " ".join(sorted(expected.results)) if expected.declared_flaky else None
+    if len(outcomes) > 1:
+        add("status", None, None,
+            [{"value": {"status": status, "step": step, "message": group[0].message[:200]},
+              "runs": [run_label(a) for a in group]} for (status, step), group in outcomes.items()],
+            fix(STATUS_REASON), declared)
+
+    keyed = [(a, checkpoint_keys(a.checkpoints)) for a in runs]
+    order: Dict[CheckpointKey, None] = {}
+    for _, keys in keyed:
+        order.update(dict.fromkeys(keys))
+    for key in order:
+        present = [(a, keys[key]) for a, keys in keyed if key in keys]
+        if len(present) < len(runs) and len(outcomes) == 1:
+            add("missing", key, None,
+                [{"value": "reached", "runs": [run_label(a) for a, _ in present]},
+                 {"value": "not reached", "runs": [run_label(a) for a, keys in keyed if key not in keys]}],
+                fix(MISSING_REASON))
+        by_hash: Dict[str, List[Tuple[Attempt, int]]] = {}
+        for a, index in present:
+            by_hash.setdefault(a.checkpoints[index][2], []).append((a, index))
+        if len(by_hash) < 2:
+            continue
+        kept = [next(((a, i) for a, i in members if i < len(a.rows)), None) for members in by_hash.values()]
+        if any(holder is None for holder in kept):
+            add("value", key, None,
+                [{"value": {"sha256": sha}, "runs": [run_label(a) for a, _ in members]} for sha, members in by_hash.items()],
+                fix(UNKEPT_REASON))
+            continue
+        groups = [[run_label(a) for a, _ in members] for members in by_hash.values()]
+        for entry in normalize.flake_pointers([a.rows[i]["snapshot"] for a, i in kept]):
+            add("value", key, entry["pointer"],
+                [{"value": sample_value(v), "runs": g} for v, g in zip(entry["values"], groups)],
+                entry["proposal"], covering_rule(rules, case_id, key[0], entry["pointer"]))
+    if not lines and declared:
+        add("declared", None, None, [{"value": {"status": runs[0].status} if runs else None,
+                                      "runs": [run_label(a) for a in runs]}],
+            {"rule": None, "action": "check-expectation", "reason": DECLARED_REASON}, declared)
+    return lines
+
+
 def sum_switch_hits(hit_maps: Iterable[Mapping[str, Mapping[str, int]]]) -> Dict[str, Dict[str, int]]:
     total: Dict[str, Dict[str, int]] = {}
     for hits in hit_maps:
@@ -781,8 +924,13 @@ def run_summary(cases: Mapping[str, Mapping[str, Any]], *, hits: Dict[str, Dict[
     for record in cases.values():
         counts[record["outcome"]] = counts.get(record["outcome"], 0) + 1
     unexpected = sorted(cid for cid, r in cases.items() if r["outcome"] == "unexpected")
+    checkpoints = sum(int(r.get("checkpoints") or 0) for r in cases.values())
+    varying = sum(int(r.get("nondeterministic_checkpoints") or 0) for r in cases.values())
     return {
         "counts": counts,
+        # Spec 4.6: at most 1 % of checkpoints may differ between repeats and retries of one build.
+        "nondeterminism": {"checkpoints": checkpoints, "nondeterministic": varying,
+                           "rate": round(varying / checkpoints, 6) if checkpoints else 0.0},
         "flaky": sorted(cid for cid, r in cases.items() if r["flaky"]),
         "unexpected": unexpected,
         "unexpected_passes": sorted(cid for cid, r in cases.items() if r["outcome"] == "unexpected-pass"),
@@ -826,6 +974,7 @@ def perform_run(
     open_session: Optional[SessionOpener],
     expectation: Optional[ExpectationFn],
     dependencies: Dict[str, str],
+    pointer_rules: Sequence[Mapping[str, str]] = (),
 ) -> Tuple[Dict[str, Any], int]:
     """Selects, shards, runs and writes receipt.json, checkpoints.jsonl, events.jsonl, index.md."""
     started = time.time()
@@ -857,7 +1006,8 @@ def perform_run(
         else:
             record = classify(by_case[case.id], exp)
         first = next((a for a in by_case[case.id] if a.iteration == 0 and a.attempt == 0), None)
-        record.update(suite=case.suite, expected=sorted(exp.results), checkpoints=len(first.checkpoints) if first else 0)
+        record.update(suite=case.suite, expected=sorted(exp.results), checkpoints=len(first.checkpoints) if first else 0,
+                      nondeterministic_checkpoints=len(nondeterministic_checkpoints(by_case[case.id])))
         records[case.id] = record
         if first is not None:
             rows.extend(checkpoint_rows(case.id, first.rows, attempt=0, result=first.status))
@@ -899,15 +1049,39 @@ def perform_run(
             for a in attempts
         ),
     )
+    if options.flaky_out:
+        receipt["flaky_out"] = {"path": str(options.flaky_out),
+                                "lines": write_flaky_out(options, receipt, by_case, expected, pointer_rules)}
+        write_json(options.out / "receipt.json", receipt)
     write_index(options, receipt)
-    if options.flaky_out and receipt["flaky"]:
-        options.flaky_out.parent.mkdir(parents=True, exist_ok=True)
-        with options.flaky_out.open("a", encoding="utf-8") as handle:
-            for cid in receipt["flaky"]:
-                handle.write(json.dumps({"case": cid, "run_id": options.run_id, "product": options.product,
-                                         "arm": options.arm, "switches": options.switches,
-                                         "reasons": records[cid]["reasons"]}, sort_keys=True) + "\n")
     return receipt, 0 if receipt["ok"] else 1
+
+
+def write_flaky_out(options: RunOptions, receipt: Mapping[str, Any], by_case: Mapping[str, Sequence[Attempt]],
+                    expected: Mapping[str, Expected], pointer_rules: Sequence[Mapping[str, str]]) -> int:
+    """Appends the run's MQ-flakes lines (cmux-oracle-flake-v1) to --flaky-out; returns how many."""
+    if not receipt["flaky"]:
+        return 0
+    normalize = require_sibling("normalize", "p15-oracle-013")
+    run = {"schema": FLAKE_SCHEMA, "run_id": options.run_id, "sha": options.ref or "", "product": options.product,
+           "platform": options.platform, "build": options.build, "arm": options.arm, "switches": options.switches,
+           "repeat": options.repeat, "retry_limit": options.retry_limit, "seed": options.seed}
+    rows = []
+    for cid in receipt["flaky"]:
+        reasons = receipt["cases"][cid]["reasons"]
+        for line in flake_lines(cid, by_case[cid], expected[cid], pointer_rules, normalize):
+            rows.append({**run, **line, "suite": split_case_id(cid)[0], "reasons": reasons})
+    options.flaky_out.parent.mkdir(parents=True, exist_ok=True)
+    with options.flaky_out.open("a", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, sort_keys=True) + "\n")
+    return len(rows)
+
+
+def nondeterminism_line(receipt: Mapping[str, Any]) -> str:
+    n = receipt["nondeterminism"]
+    return (f"- nondeterministic checkpoints: {n['nondeterministic']} of {n['checkpoints']} "
+            f"({n['rate'] * 100:.2f} %, bound 1 %)")
 
 
 def write_index(options: RunOptions, receipt: Dict[str, Any]) -> None:
@@ -920,6 +1094,7 @@ def write_index(options: RunOptions, receipt: Dict[str, Any]) -> None:
         f"retry limit {options.retry_limit}",
         "- outcomes: " + ", ".join(f"{k} {v}" for k, v in sorted(receipt["counts"].items())),
         f"- flaky (left out of comparisons): {len(receipt['flaky'])}",
+        nondeterminism_line(receipt),
         f"- ok: {receipt['ok']}",
     ]
     for cid in receipt["unexpected"][:50]:
@@ -1317,7 +1492,9 @@ def add_selection_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--expectations-root", type=Path, default=DEFAULT_EXPECTATIONS_ROOT,
                         help="dir with Expectations.d and NeverFix.d (default tests/oracle)")
     parser.add_argument("--state-base", type=Path, default=DEFAULT_STATE_BASE)
-    parser.add_argument("--flaky-out", type=Path, help="append flaky cases as JSON lines (MQ-flakes)")
+    parser.add_argument("--flaky-out", type=Path,
+                        help="append one JSON line per (case, step, pointer) that differed between runs, with the "
+                        "values each run saw and a rule proposal (MQ-flakes; use with --repeat 3)")
     parser.add_argument("--dry-run", action="store_true", help="plan and write the receipt; run nothing")
     parser.add_argument("--run-id", help="default: UTC time plus 6 random characters")
     parser.add_argument("--json", action="store_true", help="print the receipt or comparison as JSON")
@@ -1400,7 +1577,8 @@ def run_one(options: RunOptions, *, open_session: Optional[SessionOpener] = None
         if driver is None:
             raise UsageError(f"driver_{options.product}.py is not on this branch yet ({DRIVER_TASKS[options.product]})")
         open_session = driver.open_session
-    return perform_run(options, cases, open_session, store.expected if store else None, deps)
+    return perform_run(options, cases, open_session, store.expected if store else None, deps,
+                       store.pointer_rules() if store else ())
 
 
 def print_run(receipt: Dict[str, Any], options: RunOptions, as_json: bool) -> None:
@@ -1413,6 +1591,10 @@ def print_run(receipt: Dict[str, Any], options: RunOptions, as_json: bool) -> No
     print("  outcomes: " + (", ".join(f"{k} {v}" for k, v in sorted(receipt["counts"].items())) or "none"))
     if receipt["flaky"]:
         print(f"  flaky, left out of comparisons: {len(receipt['flaky'])}")
+    if options.repeat > 1 or receipt["nondeterminism"]["nondeterministic"]:
+        print("  " + nondeterminism_line(receipt)[2:])
+    if receipt.get("flaky_out"):
+        print(f"  flake lines: {receipt['flaky_out']['lines']} appended to {receipt['flaky_out']['path']}")
     for cid in receipt["unexpected"][:20]:
         print(f"  unexpected: {cid} ({receipt['cases'][cid]['status']})")
     if receipt["arm_exercised"] is False:

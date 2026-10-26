@@ -42,6 +42,7 @@ Usage:
   normalize.py --validate [--schema S] FILE...
   normalize.py --lint-schema [--schema S]
   normalize.py --list-rules
+  normalize.py --flakes SAMPLE SAMPLE...
   normalize.py --selftest [--seed N]
 
 Every input file is one case: a `.json` file is one checkpoint, a `.jsonl` file holds one checkpoint per
@@ -1659,6 +1660,135 @@ def canonicalize(instance: Any, schema: Schema, ctx: Context = Context()) -> Res
 
 
 # ---------------------------------------------------------------------------------------------------------
+# Flakes (p15-oracle-117): where canonical samples of one checkpoint differ, and which rule could explain it
+#
+# Input is the canonical output of several runs of the same checkpoint. A differing value is the queue line
+# MQ-flakes acts on. A rule is proposed only when the samples match a known source of nondeterminism, and
+# the proposal carries that rule's reason from RULES; otherwise the line says "fix at source". Chromium
+# triages flaky web tests the same way: the flakiness dashboard lists each test with its differing results
+# (third_party/blink/tools/blinkpy/web_tests/models/test_results.py), and a test expectation needs a bug.
+
+FLAKE_TASK = "p15-oracle-117"
+ABSENT = {"$absent": True}
+# The schema annotation that turns each proposed rule on.
+RULE_ANNOTATIONS: Dict[str, str] = {
+    "set": "x-oracle-order: set",
+    "time": "x-oracle-time: {unit, epoch: fixture}",
+    "id": "x-oracle-id-kind: <kind>",
+    "rewrite": "x-oracle-rewrite: path|url",
+    "number": "x-oracle-precision: <step>",
+}
+FIX_AT_SOURCE = ("no known source of nondeterminism matches these samples: fix the producer, or mark the field "
+                 "x-oracle-volatile with a {reason, task} that names the source (no rule without a reason)")
+_UUID_RE = re.compile(r"^(?:[a-z][a-z0-9_-]*[_:-])?(?:[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}"
+                      r"|[0-9a-f]{24,64})$")
+_ISO_TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$")
+_RUN_PATH_RE = re.compile(r"(?:^|[\s\"'=:])(?:file://)?/(?:tmp|private/var|var/folders|var/tmp|run/user)/")
+_LOOPBACK_RE = re.compile(r"^(?:[a-z][a-z0-9+.-]*://)?(?:127\.0\.0\.1|localhost|\[::1\]):(\d+)(.*)$")
+# 2001-09-09 in epoch seconds and milliseconds: a smaller integer is not read as a wall-clock time.
+_EPOCH_S_MIN, _EPOCH_MS_MIN = 1_000_000_000, 1_000_000_000_000
+
+
+def _epoch_like(value: Any) -> bool:
+    if not _is_number(value):
+        return False
+    return _EPOCH_S_MIN <= value < _EPOCH_S_MIN * 10 or _EPOCH_MS_MIN <= value < _EPOCH_MS_MIN * 10
+
+
+def _loopback_without_port(value: Any) -> Optional[str]:
+    match = _LOOPBACK_RE.match(value) if isinstance(value, str) else None
+    return match.group(2) if match else None
+
+
+def nondeterminism_source(values: Sequence[Any]) -> Optional[Tuple[str, str]]:
+    """(rule, source) when every differing sample matches one known source of nondeterminism, else None.
+
+    `values` are the distinct canonical values at one pointer; ABSENT marks a run where the member was missing,
+    which no rule explains (a rule never adds or drops a member that is not schema-marked volatile)."""
+    if len(values) < 2 or any(v == ABSENT for v in values):
+        return None
+    if all(isinstance(v, list) for v in values):
+        keys = [sorted(canonical_json(item) for item in v) for v in values]
+        if all(k == keys[0] for k in keys):
+            return "set", "array order: the producer iterates a HashMap, Dictionary or Set"
+        return None
+    if all(isinstance(v, str) for v in values):
+        if all(_ISO_TIME_RE.match(v) for v in values):
+            return "time", "wall-clock timestamp (ISO 8601)"
+        if all(_UUID_RE.match(v) for v in values):
+            return "id", "random or per-process id (UUID(), Uuid::new_v4, counter) not labeled by kind"
+        if all(_RUN_PATH_RE.search(v) for v in values):
+            return "rewrite", "per-run temporary path (hermetic state root or HOME)"
+        rests = {_loopback_without_port(v) for v in values}
+        if None not in rests and len(rests) == 1:
+            return "rewrite", "loopback fixture port picked per run"
+        return None
+    if all(_is_number(v) for v in values):
+        low, high = min(values), max(values)
+        if all(_epoch_like(v) for v in values):
+            return "time", "wall-clock time as an epoch number"
+        if any(isinstance(v, float) for v in values) and high - low <= 0.01 * max(1.0, abs(high)):
+            return "number", "floating-point arithmetic differs in the last digits"
+    return None
+
+
+def flake_proposal(values: Sequence[Any]) -> Dict[str, Any]:
+    """The MQ-flakes action for one pointer: a rule with its RULES reason, or fix at source."""
+    found = nondeterminism_source(values)
+    if found is None:
+        return {"rule": None, "action": "fix-at-source", "reason": FIX_AT_SOURCE}
+    rule, source = found
+    return {"rule": rule, "action": "annotate-schema", "annotation": RULE_ANNOTATIONS[rule], "source": source,
+            "reason": f"{source}; {RULES[rule]}", "task": FLAKE_TASK}
+
+
+def flake_pointers(samples: Sequence[Any], limit: int = 64) -> List[Dict[str, Any]]:
+    """Where canonical samples of one checkpoint differ: [{pointer, values, proposal}] in sorted-key order.
+
+    `values[i]` is sample i's value there (ABSENT for a missing member). An array whose samples hold the same
+    items in another order is one pointer (the order is the difference); other arrays and objects are walked
+    to the differing leaves. At most `limit` pointers; `truncated: true` on the last one when more differ."""
+    found: List[Dict[str, Any]] = []
+    stack: List[Tuple[str, List[Any]]] = [("", list(samples))]
+    while stack:
+        at, values = stack.pop()
+        if len({canonical_json(v) for v in values}) <= 1:
+            continue
+        kinds = {_type_name(v) if v != ABSENT else "absent" for v in values}
+        children: List[Tuple[str, List[Any]]] = []
+        if kinds == {"object"}:
+            keys = sorted(set().union(*values))
+            children = [(at + pointer([k]), [v.get(k, ABSENT) for v in values]) for k in keys]
+        elif kinds == {"array"} and len({len(v) for v in values}) == 1 and nondeterminism_source(values) is None:
+            children = [(at + pointer([i]), [v[i] for v in values]) for i in range(len(values[0]))]
+        if not children:
+            if len(found) == limit:
+                found[-1]["truncated"] = True
+                break
+            found.append({"pointer": at, "values": values, "proposal": flake_proposal(_distinct(values))})
+            continue
+        stack.extend(reversed(children))
+    return found
+
+
+def _distinct(values: Sequence[Any]) -> List[Any]:
+    seen: Dict[str, Any] = {}
+    for v in values:
+        seen.setdefault(canonical_json(v), v)
+    return list(seen.values())
+
+
+def _cli_flakes(files: Sequence[str], out: Any) -> int:
+    """Each file is one canonical sample of the same checkpoint (a `.jsonl` file holds several)."""
+    samples = [doc for name in files for _, doc in _read_case(name)]
+    if len(samples) < 2:
+        raise OracleError("--flakes needs at least two samples of one checkpoint")
+    for entry in flake_pointers(samples):
+        out.write(canonical_json(entry) + "\n")
+    return 0
+
+
+# ---------------------------------------------------------------------------------------------------------
 # CLI
 
 
@@ -1734,6 +1864,9 @@ def main(argv: Optional[Sequence[str]] = None, out: Any = None, err: Any = None)
     mode.add_argument("--validate", action="store_true", help="validate files against the schema")
     mode.add_argument("--lint-schema", action="store_true", help="lint the schema against the README contract")
     mode.add_argument("--list-rules", action="store_true", help="print every rule with its reason")
+    mode.add_argument("--flakes", action="store_true",
+                      help="FILEs are canonical samples of one checkpoint: print each differing pointer with its "
+                      "values and the rule (with its reason) that could explain it, or fix-at-source")
     mode.add_argument("--selftest", action="store_true", help="run the property cases")
     parser.add_argument("--seed", type=int, default=13, help="selftest seed")
     args = parser.parse_args(argv)
@@ -1744,6 +1877,8 @@ def main(argv: Optional[Sequence[str]] = None, out: Any = None, err: Any = None)
             return 0
         if args.selftest:
             return selftest(args.seed, out)
+        if args.flakes:
+            return _cli_flakes(args.files, out)
         schema = Schema.load(args.schema)
         if args.lint_schema:
             out.write(f"ok {args.schema}\n")
@@ -2524,6 +2659,58 @@ def selftest(seed: int, out: Any) -> int:
                                 ("100 identical five-tab rings", lambda: canonicalize(rings, graphs), 2.0)):
             spent = timed(fn)
             assert spent < bound, f"{name}: {spent:.2f} s (bound {bound} s)"
+
+    @case
+    def flake_pointers_name_each_differing_value() -> None:
+        a = {"panes": {"p": {"title": "x", "cwd": "/tmp/o/aa/bb"}}, "order": ["a", "b"], "n": 1}
+        b = {"panes": {"p": {"title": "y", "cwd": "/tmp/o/cc/dd"}}, "order": ["b", "a"], "n": 1}
+        found = {e["pointer"]: e for e in flake_pointers([a, b])}
+        assert sorted(found) == ["/order", "/panes/p/cwd", "/panes/p/title"], sorted(found)
+        assert found["/order"]["proposal"]["rule"] == "set", "a permuted array is one pointer with the set rule"
+        assert found["/panes/p/cwd"]["proposal"]["rule"] == "rewrite"
+        assert found["/panes/p/title"]["proposal"] == {"rule": None, "action": "fix-at-source", "reason": FIX_AT_SOURCE}
+        assert found["/panes/p/title"]["values"] == ["x", "y"]
+        assert flake_pointers([a, json.loads(json.dumps(a))]) == []
+
+    @case
+    def flake_rules_always_carry_their_reason() -> None:
+        samples = {
+            "time": [["2026-10-26T10:00:00Z", "2026-10-26T10:00:01.5Z"], [1_761_000_000_000, 1_761_000_000_250]],
+            "id": [["pane_" + "a" * 32, "pane_" + "b" * 32], ["0f8fad5b-d9cb-469f-a165-70867728950e",
+                                                                "7c9e6679-7425-40de-944b-e07fc1f90ae7"]],
+            "rewrite": [["http://127.0.0.1:4321/x", "http://127.0.0.1:51000/x"]],
+            "number": [[0.5004, 0.5017]],
+            "set": [[[1, 2, 3], [3, 1, 2]]],
+        }
+        assert set(RULE_ANNOTATIONS) <= set(RULES), "a proposed rule without a RULES reason"
+        for rule, cases_ in samples.items():
+            for values in cases_:
+                proposal = flake_proposal(values)
+                assert proposal["rule"] == rule, (values, proposal)
+                assert proposal["reason"].endswith(RULES[rule]) and proposal["annotation"] == RULE_ANNOTATIONS[rule]
+        for values in ([1, 2], ["open", "closed"], [[1, 2], [1, 2, 3]], [ABSENT, 1], [0.1, 0.9], ["/a/b", "/a/c"],
+                       ["http://127.0.0.1:1/x", "http://127.0.0.1:2/y"]):
+            assert flake_proposal(values)["rule"] is None, values
+
+    @case
+    def flake_pointers_mark_absent_members_and_cap_output() -> None:
+        found = flake_pointers([{"a": 1}, {"a": 1, "b": 2}, {"a": 1, "b": 3}])
+        assert [(e["pointer"], e["values"]) for e in found] == [("/b", [ABSENT, 2, 3])], found
+        assert found[0]["proposal"]["rule"] is None, "a missing member is never explained by a rule"
+        wide = flake_pointers([{f"k{i:03d}": 0 for i in range(100)}, {f"k{i:03d}": 1 for i in range(100)}], limit=5)
+        assert [e["pointer"] for e in wide] == [f"/k{i:03d}" for i in range(5)] and wide[-1].get("truncated")
+        deep: Any = 0
+        for _ in range(200):
+            deep = {"d": deep}
+        assert [e["pointer"].count("/") for e in flake_pointers([deep, {"d": deep}])] == [200]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "samples.jsonl"
+            path.write_text('{"t": "x"}\n{"t": "y"}\n', encoding="utf-8")
+            stream = io.StringIO()
+            assert main(["--flakes", str(path)], out=stream) == 0
+            assert [json.loads(line)["pointer"] for line in stream.getvalue().splitlines()] == ["/t"]
+            path.write_text('{"t": "x"}\n', encoding="utf-8")
+            assert main(["--flakes", str(path)], out=io.StringIO(), err=io.StringIO()) == 2
 
     failures = 0
     for number, (name, fn) in enumerate(cases, 1):

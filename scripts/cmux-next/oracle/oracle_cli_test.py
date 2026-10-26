@@ -654,6 +654,97 @@ class ExpectationTests(unittest.TestCase):
         self.assertIn("bug-id", out.getvalue())
 
 
+class FlakeTests(unittest.TestCase):
+    """p15-oracle-117: `run --repeat 3 --flaky-out` writes (case, step, pointer) lines with samples."""
+
+    def flake_run(self, driver, per_suite=4, **overrides):
+        raw = tempfile.TemporaryDirectory()
+        self.addCleanup(raw.cleanup)
+        tmp = Path(raw.name)
+        write_corpus(tmp / "corpus", suites=("alpha",), per_suite=per_suite)
+        flaky_out = tmp / "flaky.jsonl"
+        receipt, code = run_cases(tmp, driver, repeat=3, flaky_out=flaky_out, **overrides)
+        lines = [json.loads(line) for line in flaky_out.read_text().splitlines()] if flaky_out.exists() else []
+        return receipt, code, lines
+
+    def test_repeat_three_lists_the_differing_pointer_with_samples(self):
+        driver = FakeDriver(value_of=lambda cid, n: f"title-{n % 2}" if cid == "alpha/case-001" else cid)
+        receipt, code, lines = self.flake_run(driver)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(lines), 1, lines)
+        line = lines[0]
+        self.assertEqual((line["case"], line["kind"], line["step"], line["checkpoint"], line["pointer"]),
+                         ("alpha/case-001", "value", "s1", "settled", "/value"))
+        self.assertEqual(line["target"], "alpha/case-001/s1#/value")
+        self.assertEqual([s["value"] for s in line["samples"]], ["title-0", "title-1"])
+        self.assertEqual([[r["iteration"] for r in s["runs"]] for s in line["samples"]], [[0, 2], [1]])
+        self.assertEqual(line["proposal"]["action"], "fix-at-source")
+        self.assertEqual((line["schema"], line["repeat"], line["run_id"]), ("cmux-oracle-flake-v1", 3, "test-run"))
+        self.assertEqual(receipt["nondeterminism"], {"checkpoints": 8, "nondeterministic": 1, "rate": 0.125})
+        self.assertEqual(receipt["flaky_out"]["lines"], 1)
+
+    def test_a_known_source_gets_a_rule_with_its_reason(self):
+        ids = ["pane_" + "a" * 32, "pane_" + "b" * 32, "pane_" + "c" * 32]
+        driver = FakeDriver(value_of=lambda cid, n: ids[n] if cid == "alpha/case-000" else cid)
+        _, _, lines = self.flake_run(driver, per_suite=1)
+        proposal = lines[0]["proposal"]
+        self.assertEqual((proposal["rule"], proposal["action"]), ("id", "annotate-schema"))
+        self.assertTrue(proposal["reason"].endswith(oracle.load_sibling("normalize").RULES["id"]))
+        self.assertEqual(len(lines[0]["samples"]), 3)
+
+    def test_a_result_change_is_a_status_line(self):
+        driver = FakeDriver(script={"alpha/case-002": ["Pass", "Timeout", "Pass"]})
+        receipt, code, lines = self.flake_run(driver, retry_limit=0)
+        self.assertEqual(code, 0)
+        self.assertEqual(receipt["flaky"], ["alpha/case-002"])
+        self.assertEqual([(l["kind"], l["pointer"]) for l in lines], [("status", None)])
+        self.assertEqual(sorted(s["value"]["status"] for s in lines[0]["samples"]), ["Pass", "Timeout"])
+
+    def test_a_pass_on_retry_with_the_same_snapshot_is_one_status_line(self):
+        driver = FakeDriver(script={"alpha/case-003": ["Failure", "Pass"]})
+        _, _, lines = self.flake_run(driver)
+        self.assertEqual([l["kind"] for l in lines], ["status"])
+        phases = sorted(r["phase"] for s in lines[0]["samples"] for r in s["runs"])
+        self.assertEqual(phases, ["run", "run", "run", "shard-retry"])
+
+    def test_steady_runs_write_nothing_and_count_zero(self):
+        receipt, code, lines = self.flake_run(FakeDriver())
+        self.assertEqual((code, lines, receipt["flaky_out"]["lines"]), (0, [], 0))
+        self.assertEqual(receipt["nondeterminism"]["nondeterministic"], 0)
+
+    def test_samples_are_kept_only_with_flaky_out(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", suites=("alpha",), per_suite=1)
+            plan = oracle.make_plan(oracle.load_corpus(tmp / "corpus")[0], shard=(0, 1), seed=None, batch_limit=1)
+            driver = FakeDriver(value_of=lambda cid, n: n)
+            expected = {"alpha/case-000": oracle.PASS_ONLY}
+            plain, _ = oracle.execute(plan, options(tmp, repeat=3), driver.open_session, expected)
+            kept, _ = oracle.execute(plan, options(tmp, repeat=3, flaky_out=tmp / "f"), driver.open_session, expected)
+            self.assertEqual([bool(a.rows) for a in plain], [True, False, False])
+            self.assertEqual([bool(a.rows) for a in kept], [True, True, True])
+
+    def test_an_expectations_pointer_line_is_named(self):
+        cps = (("s1", "settled", "h1"),)
+        first = oracle.Attempt("alpha/a", 0, 0, "run", "Pass", None, cps, "", 0, {},
+                               ({"step": "s1", "checkpoint": "settled", "snapshot": {"v": 1, "w": 1}, "sha256": "h1"},))
+        second = oracle.Attempt("alpha/a", 1, 0, "run", "Pass", None, (("s1", "settled", "h2"),), "", 0, {},
+                                ({"step": "s1", "checkpoint": "settled", "snapshot": {"v": 2, "w": 2}, "sha256": "h2"},))
+        rules = [{"pointer": "/v", "reason": "Expectations a.txt:1: alpha/a/s1#/v", "case": "alpha/a", "step": "s1"}]
+        lines = oracle.flake_lines("alpha/a", [second, first], oracle.PASS_ONLY, rules, oracle.load_sibling("normalize"))
+        self.assertEqual([(l["pointer"], l["expected_by"]) for l in lines],
+                         [("/v", rules[0]["reason"]), ("/w", None)])
+
+    def test_a_checkpoint_reached_in_some_runs_only_is_a_missing_line(self):
+        both = (("s1", "settled", "h"), ("s2", "settled", "k"))
+        row = lambda step, sha: {"step": step, "checkpoint": "settled", "snapshot": {}, "sha256": sha}  # noqa: E731
+        first = oracle.Attempt("alpha/a", 0, 0, "run", "Pass", None, both, "", 0, {}, (row("s1", "h"), row("s2", "k")))
+        short = oracle.Attempt("alpha/a", 1, 0, "run", "Pass", None, both[:1], "", 0, {}, ())
+        lines = oracle.flake_lines("alpha/a", [first, short], oracle.PASS_ONLY, [], oracle.load_sibling("normalize"))
+        self.assertEqual([(l["kind"], l["step"]) for l in lines], [("missing", "s2")])
+        self.assertEqual(oracle.nondeterministic_checkpoints([first, short]), [])
+
+
 class CheckTests(unittest.TestCase):
     def test_semantic_rules_name_the_step(self):
         case = oracle.Case("alpha/bad", "alpha", Path("x"), {
