@@ -791,7 +791,8 @@ async fn dispatch_request(
             };
             let s = hub.new_session(req).await?;
             if conn.origin.web_class() {
-                super::remote_guard::settle_web_session_mode(hub, &s).await?;
+                let peer = super::remote_guard::settles_as_peer(conn.origin, conn.auth, &params);
+                super::remote_guard::settle_web_session_mode(hub, &s, peer).await?;
                 // A dedicated agent VM (vmHost): a session its owner's peer
                 // daemon starts with no policy runs approve-all; the VM is the
                 // sandbox (hub/remote_sandbox.rs). Web clients still ask.
