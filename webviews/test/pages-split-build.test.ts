@@ -9,12 +9,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  AGENT_PANE,
   SHARED_ORIGIN,
   buildPages,
   checkPageTree,
   nameChunksBySharedOrigin,
   pageHtml,
 } from "../scripts/pages/build-pages.mjs";
+import { SHARED_PATH, builtPageFile, withSharedChunksHere } from "../scripts/pages/shared-origin.mjs";
 
 const trees: string[] = [];
 afterEach(() => {
@@ -123,29 +125,101 @@ describe("split page build", () => {
     );
   });
 
+  /** The one shared-origin URL that holds React among the preloads of `html` and its entry's imports in `dir`. */
+  function reactUrl(out: string, dir: string, html: string): string | undefined {
+    expect(fs.existsSync(path.join(dir, "_shared"))).toBe(false);
+    const entryFile = fs.readdirSync(dir).find((file) => file.endsWith(".js"));
+    const named = [
+      ...fs.readFileSync(path.join(dir, html), "utf8").matchAll(/href="([^"]+)"/g),
+      ...fs.readFileSync(path.join(dir, entryFile ?? ""), "utf8").matchAll(/"(cmux-page:[^"]+)"/g),
+    ].map((match) => match[1]);
+    const react = [...new Set(named)].filter(
+      (url) =>
+        url.startsWith(SHARED_ORIGIN) &&
+        /react\.(?:transitional\.)?element/.test(
+          fs.readFileSync(path.join(out, "_shared", url.slice(SHARED_ORIGIN.length)), "utf8"),
+        ),
+    );
+    expect(react).toHaveLength(1);
+    return react[0];
+  }
+
   test("every built page loads React from one shared-origin URL", async () => {
     const out = tempDir();
     const pagesRoot = path.join(import.meta.dir, "fixtures/pages-split");
     await buildPages({ out, pages: ["alpha", "beta"], pagesRoot });
     expect(checkPageTree(out, ["alpha", "beta"])).toEqual([]);
-    const reactUrls = ["alpha", "beta"].map((page) => {
-      expect(fs.existsSync(path.join(out, page, "_shared"))).toBe(false);
-      const entryFile = fs.readdirSync(path.join(out, page)).find((file) => file.endsWith(".js"));
-      const named = [
-        ...fs.readFileSync(path.join(out, page, "index.html"), "utf8").matchAll(/href="([^"]+)"/g),
-        ...fs.readFileSync(path.join(out, page, entryFile ?? ""), "utf8").matchAll(/"(cmux-page:[^"]+)"/g),
-      ].map((match) => match[1]);
-      const react = [...new Set(named)].filter(
-        (url) =>
-          url.startsWith(SHARED_ORIGIN) &&
-          /react\.(?:transitional\.)?element/.test(
-            fs.readFileSync(path.join(out, "_shared", url.slice(SHARED_ORIGIN.length)), "utf8"),
-          ),
-      );
-      expect(react).toHaveLength(1);
-      return react[0];
-    });
+    const reactUrls = ["alpha", "beta"].map((page) => reactUrl(out, path.join(out, page), "index.html"));
     expect(reactUrls[0]).toStartWith(SHARED_ORIGIN);
     expect(reactUrls[1]).toBe(reactUrls[0]);
   }, 60_000);
+
+  test("the agent pane, an entry of the same run, loads React from the pages' URL and keeps no chunk", async () => {
+    const out = tempDir();
+    const pane = path.join(tempDir(), "scripts");
+    const pagesRoot = path.join(import.meta.dir, "fixtures/pages-split");
+    const entry = path.join(import.meta.dir, "fixtures/pages-split-agent/main.tsx");
+    await buildPages({ out, pages: ["alpha", "beta"], pagesRoot, agentPane: { entry, out: pane } });
+    // The pane's folder: its entry and its first-load preloads, nothing for the page tree.
+    const files = fs.readdirSync(pane).sort();
+    expect(files).toHaveLength(2);
+    expect(files[0]).toMatch(/^app-[A-Z0-9]+\.js$/);
+    expect(files[1]).toBe("preload.html");
+    expect(fs.existsSync(path.join(out, AGENT_PANE))).toBe(false);
+    expect(fs.existsSync(path.join(out, "_agent-pane"))).toBe(false);
+    const preload = fs.readFileSync(path.join(pane, "preload.html"), "utf8");
+    expect(preload.split("\n")[0]).toBe(`<link rel="modulepreload" href="${files[0]}" />`);
+    expect(checkPageTree(out, ["alpha", "beta"], { dir: pane, html: "preload.html" })).toEqual([]);
+    // The lazy module alpha and the pane share is one shared chunk too.
+    expect(fs.readFileSync(path.join(pane, files[0]), "utf8")).toMatch(/import\("cmux-page:\/\/cmux\.shared\/lazy-/);
+    const pageReact = reactUrl(out, path.join(out, "alpha"), "index.html");
+    expect(reactUrl(out, pane, "preload.html")).toBe(pageReact);
+  }, 60_000);
+
+  test("the agent pane's page resolves its own files on cmux.agent and its chunks on cmux.shared only", () => {
+    const pane = tree({
+      "index.html": [
+        '<link rel="modulepreload" href="app-P.js" />',
+        `<link rel="modulepreload" href="${SHARED_ORIGIN}chunk-A.js" />`,
+        '<script src="locales/en.js"></script>',
+        '<script type="module" src="app-P.js"></script>',
+      ].join("\n"),
+      "app-P.js": `import{a}from"${SHARED_ORIGIN}chunk-A.js";a();`,
+      "locales/en.js": "self.strings={};",
+    });
+    const pages = tree(whole);
+    const agentPane = { dir: pane, html: "index.html" };
+    expect(checkPageTree(pages, [], agentPane)).toEqual([]);
+    // A chunk missing from the pages' shared folder; the daemon serves no agent pane.
+    fs.rmSync(path.join(pages, "_shared/chunk-B.js"));
+    expect(checkPageTree(pages, [], agentPane)).toEqual([`_shared/chunk-A.js: ./chunk-B.js is not on ${APP}`]);
+    // A chunk of the pane's own, named relative to it: one URL per page again.
+    fs.writeFileSync(path.join(pane, "app-P.js"), 'import"./own-C.js";');
+    fs.writeFileSync(path.join(pane, "own-C.js"), "");
+    expect(checkPageTree(tree(whole), [], agentPane)).toEqual([
+      `${AGENT_PANE}/app-P.js: ./own-C.js is not on ${SHARED_ORIGIN}`,
+    ]);
+    expect(checkPageTree(pages, [], { dir: tempDir(), html: "index.html" })).toEqual([`${AGENT_PANE}: no index.html`]);
+  });
+});
+
+describe("a loopback server of a built page", () => {
+  test("answers the page's folder and the shared chunks at /_shared/, nothing outside them", () => {
+    const page = tree({ "index.html": "<p></p>", "app-P.js": "" });
+    const shared = tree({ "chunk-A.js": "" });
+    const files = { page, shared };
+    expect(builtPageFile("/", files)).toBe(path.join(page, "index.html"));
+    expect(builtPageFile("/app-P.js", files)).toBe(path.join(page, "app-P.js"));
+    expect(builtPageFile(`${SHARED_PATH}chunk-A.js`, files)).toBe(path.join(shared, "chunk-A.js"));
+    expect(builtPageFile("/chunk-A.js", files)).toBeUndefined();
+    expect(builtPageFile(`${SHARED_PATH}../${path.basename(page)}/app-P.js`, files)).toBeUndefined();
+    expect(builtPageFile("/%2e%2e/etc/passwd", files)).toBeUndefined();
+    expect(builtPageFile(SHARED_PATH, files)).toBeUndefined();
+  });
+
+  test("names every shared chunk by its path there, as the daemon's /pages/ does", () => {
+    expect(
+      withSharedChunksHere(`import"${SHARED_ORIGIN}a.js";<meta content="script-src cmux-page://cmux.shared">`),
+    ).toBe(`import"${SHARED_PATH}a.js";<meta content="script-src cmux-page://cmux.shared">`);
+  });
 });

@@ -164,8 +164,8 @@ out() {
 }
 
 rm -f "$STAMP"
-"$ROOT/scripts/cmux-next/build-agent-pane-web.sh" --out "$(out "$PANE")"
-"$ROOT/scripts/cmux-next/build-pages-web.sh" --out "$(out "$PAGES")"
+# The pages and the agent pane are one esbuild run: the pane imports the pages' shared chunks.
+"$ROOT/scripts/cmux-next/build-pages-web.sh" --out "$(out "$PAGES")" --agent-pane "$(out "$PANE")"
 "$ROOT/scripts/cmux-next/build-agent-activity-web.sh" --out "$(out "$ACTIVITY")"
 "$ROOT/scripts/cmux-next/build-palette-ranker.sh" --out "$(out "$PALETTE")"
 "$ROOT/scripts/build-webviews-app.sh" --skip-checks --out "$(out "$APP")"

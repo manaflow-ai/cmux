@@ -6,7 +6,15 @@
 // page runs only script files. Used by scripts/cmux-next/build-pages-web.sh.
 //
 //   bun scripts/pages/build-pages.mjs --out <dir> --pages "<page> ..." [--split-strings "<page> ..."]
-//       [--shiki <dir>] [--report <file>]
+//       [--shiki <dir>] [--report <file>] [--agent-pane <scripts dir>]
+//   bun scripts/pages/build-pages.mjs --out <dir> [--pages "<page> ..."] --agent-pane <pane dir> --check-only
+//
+// --agent-pane adds the agent pane (src/agent-session/acpmux/main.tsx) to the run, as Chrome builds
+// its New Tab page against chrome://resources like every other WebUI page: the pane imports React
+// and every module it shares with the pages from the same cmux.shared URLs. <scripts dir> gets the
+// pane's entry app-<hash>.js and preload.html, the modulepreload links of its first load;
+// scripts/cmux-next/build-agent-pane-web.sh writes the pane's index.html around them. --check-only
+// builds nothing: it checks the tree at <dir> and the pane page in <pane dir> (its index.html).
 //
 // <dir> gets _shared/<chunk>.js and, per page, <page>/index.html, <page>/app-<hash>.js and
 // <page>/locales/ (--split-strings pages). A page names every chunk by the shared origin
@@ -22,27 +30,42 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appBundleOptions, reactCompilerPass, shikiAlias, sourcePlugins } from "../agent-pane/bundle.mjs";
+import { SHARED_ORIGIN } from "./shared-origin.mjs";
+
+export { SHARED_ORIGIN };
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pagesRoot = path.resolve(here, "../../src/pages");
 const SHARED = "_shared";
-/** The origin the pages import the shared chunks from (PageID.sharedOrigin in CmuxNextPages). */
-export const SHARED_ORIGIN = "cmux-page://cmux.shared/";
+/** The agent pane's entry (PageDescriptor.agent, `cmux-page://cmux.agent/`). */
+export const AGENT_PANE_ENTRY = path.resolve(here, "../../src/agent-session/acpmux/main.tsx");
+/** The pane's folder in the run's output; no page folder starts with `_`. */
+const AGENT_PANE_OUT = "_agent-pane";
+/** The pane's name in checkPageTree's findings; its folder is not in the pages tree. */
+export const AGENT_PANE = "agent-pane";
 
 function parseArgs(argv) {
-  const options = { pages: [], splitStrings: [], shiki: "-", out: undefined, report: undefined };
+  const options = { pages: [], splitStrings: [], shiki: "-", out: undefined, report: undefined, checkOnly: false };
   const list = (value) => (value ?? "").split(/\s+/).filter(Boolean);
   for (let index = 0; index < argv.length; index += 2) {
     const [flag, value] = [argv[index], argv[index + 1]];
+    if (flag === "--check-only") {
+      options.checkOnly = true;
+      index -= 1;
+      continue;
+    }
     if (value === undefined) throw new Error(`${flag} needs a value`);
     if (flag === "--out") options.out = path.resolve(value);
     else if (flag === "--pages") options.pages = list(value);
     else if (flag === "--split-strings") options.splitStrings = list(value);
     else if (flag === "--shiki") options.shiki = value;
     else if (flag === "--report") options.report = value;
+    else if (flag === "--agent-pane") options.agentPane = { entry: AGENT_PANE_ENTRY, out: path.resolve(value) };
     else throw new Error(`unknown option ${flag}`);
   }
-  if (!options.out || !options.pages.length) throw new Error("--out and --pages are required");
+  if (!options.out) throw new Error("--out is required");
+  if (options.checkOnly ? !options.agentPane && !options.pages.length : !options.pages.length)
+    throw new Error(options.checkOnly ? "--check-only needs --pages or --agent-pane" : "--pages is required");
   return options;
 }
 
@@ -73,6 +96,11 @@ export function nameChunksBySharedOrigin(code, imports) {
   return named;
 }
 
+/** The modulepreload links of a first load: the entry (relative to the document), then `preload`. */
+export function modulepreloadLinks(entry, preload) {
+  return [entry, ...preload].map((href) => `<link rel="modulepreload" href="${href}" />`);
+}
+
 /** The page's index.html. `entry` is relative to the page's folder; `preload` holds shared-origin URLs. */
 export function pageHtml({ page, entry, preload, loader, css }) {
   const lines = [
@@ -81,7 +109,7 @@ export function pageHtml({ page, entry, preload, loader, css }) {
     "<head>",
     '<meta charset="utf-8" />',
     '<meta name="viewport" content="width=device-width, initial-scale=1" />',
-    ...[entry, ...preload].map((href) => `<link rel="modulepreload" href="${href}" />`),
+    ...modulepreloadLinks(entry, preload),
     ...(loader ? [loader] : []),
     "<style>",
     css,
@@ -99,16 +127,22 @@ export function pageHtml({ page, entry, preload, loader, css }) {
 
 /**
  * Builds `options.pages`, the folders of `options.pagesRoot` (src/pages unless a test passes its
- * own), into `options.out`.
+ * own), into `options.out`, and with `options.agentPane` (`{ entry, out }`) the agent pane's script
+ * into `agentPane.out` (app-<hash>.js and preload.html), in the same run.
  */
 export async function buildPages(options) {
   const root = options.pagesRoot ?? pagesRoot;
+  const agentPane = options.agentPane;
   const work = fs.mkdtempSync(path.join(fs.realpathSync(process.env.TMPDIR ?? "/tmp"), "cmux-pages-"));
   try {
     const compiler = reactCompilerPass();
     const result = await build({
       ...appBundleOptions,
-      entryPoints: options.pages.map((page) => path.join(root, page, "main.tsx")),
+      entryPoints: [
+        ...options.pages.map((page) => path.join(root, page, "main.tsx")),
+        // `out` names the folder; entryNames still names the file app-<hash>.js.
+        ...(agentPane ? [{ in: agentPane.entry, out: `${AGENT_PANE_OUT}/app` }] : []),
+      ],
       outbase: root,
       outdir: work,
       splitting: true,
@@ -133,15 +167,12 @@ export async function buildPages(options) {
     const strayCss = Object.keys(outputs).filter((file) => file.endsWith(".css") && !pageCss.has(file));
     if (strayCss.length) throw new Error(`stylesheets no page loads: ${strayCss.join(", ")}`);
 
-    fs.rmSync(path.join(options.out, SHARED), { recursive: true, force: true });
-    fs.cpSync(path.join(work, SHARED), path.join(options.out, SHARED), { recursive: true });
-    for (const page of options.pages) {
+    /** The entry esbuild wrote for `source`, written to the empty folder `dir` with its chunks named by the shared origin. */
+    const writeEntry = (source, dir, name) => {
       const entryFile = Object.keys(outputs).find(
-        (file) =>
-          outputs[file].entryPoint && path.resolve(outputs[file].entryPoint) === path.join(root, page, "main.tsx"),
+        (file) => outputs[file].entryPoint && path.resolve(outputs[file].entryPoint) === path.resolve(source),
       );
-      if (!entryFile) throw new Error(`esbuild wrote no entry for ${page}`);
-      const dir = path.join(options.out, page);
+      if (!entryFile) throw new Error(`esbuild wrote no entry for ${name}`);
       fs.rmSync(dir, { recursive: true, force: true });
       fs.mkdirSync(dir, { recursive: true });
       const entryCode = fs.readFileSync(path.join(work, entryFile), "utf8");
@@ -149,6 +180,17 @@ export async function buildPages(options) {
         path.join(dir, path.basename(entryFile)),
         nameChunksBySharedOrigin(entryCode, outputs[entryFile].imports),
       );
+      const firstLoad = closure(outputs, entryFile, STATIC);
+      const bytes = firstLoad.reduce((sum, file) => sum + outputs[file].bytes, 0);
+      console.log(`built ${name}: ${firstLoad.length} first-load scripts (${bytes} bytes)`);
+      return { entryFile, entry: path.basename(entryFile), preload: firstLoad.slice(1).map(sharedUrl) };
+    };
+
+    fs.rmSync(path.join(options.out, SHARED), { recursive: true, force: true });
+    fs.cpSync(path.join(work, SHARED), path.join(options.out, SHARED), { recursive: true });
+    for (const page of options.pages) {
+      const dir = path.join(options.out, page);
+      const { entryFile, entry, preload } = writeEntry(path.join(root, page, "main.tsx"), dir, page);
       const cssBundle = outputs[entryFile].cssBundle;
       const css = cssBundle ? fs.readFileSync(path.join(work, outputPath(cssBundle)), "utf8").trimEnd() : "";
       const loader = (options.splitStrings ?? []).includes(page)
@@ -163,14 +205,13 @@ export async function buildPages(options) {
             { encoding: "utf8" },
           )
         : "";
-      const firstLoad = closure(outputs, entryFile, STATIC);
-      const preload = firstLoad.slice(1).map(sharedUrl);
-      fs.writeFileSync(
-        path.join(dir, "index.html"),
-        pageHtml({ page, entry: path.basename(entryFile), preload, loader, css }),
-      );
-      const bytes = firstLoad.reduce((sum, file) => sum + outputs[file].bytes, 0);
-      console.log(`built ${page}: ${firstLoad.length} first-load scripts (${bytes} bytes)`);
+      fs.writeFileSync(path.join(dir, "index.html"), pageHtml({ page, entry, preload, loader, css }));
+    }
+    // The pane's <style> is build-agent-pane-web.sh's (dev.tsx's sheets, then Tailwind), not its
+    // entry's stylesheet, which is left out.
+    if (agentPane) {
+      const { entry, preload } = writeEntry(agentPane.entry, agentPane.out, AGENT_PANE);
+      fs.writeFileSync(path.join(agentPane.out, "preload.html"), modulepreloadLinks(entry, preload).join("\n") + "\n");
     }
   } finally {
     fs.rmSync(work, { recursive: true, force: true });
@@ -224,14 +265,31 @@ const treeFile = (location) => path.posix.join(location.root, location.url);
  * page with no module script, or a script, modulepreload or import that does not resolve to a file
  * on either server (SERVERS): the app's cmux-page:// origins (the page's origin serves its folder,
  * cmux.shared serves _shared/) and the daemon's /pages/ (the tree). Empty when the tree is whole.
+ *
+ * `agentPane` (`{ dir, html }`) also checks the agent pane's document `html` in its own folder `dir`
+ * (cmux.agent, outside the tree) on the app's origins: the daemon serves no agent pane.
  */
-export function checkPageTree(root, pages) {
+export function checkPageTree(root, pages, agentPane) {
   const problems = [];
-  const exists = (file) => fs.existsSync(path.join(root, file)) && fs.statSync(path.join(root, file)).isFile();
-  for (const page of pages) {
-    const htmlFile = path.join(root, page, "index.html");
+  const fileOf = (location) =>
+    agentPane && location.root === AGENT_PANE
+      ? path.join(agentPane.dir, location.url)
+      : path.join(root, treeFile(location));
+  const exists = (location) => fs.existsSync(fileOf(location)) && fs.statSync(fileOf(location)).isFile();
+  const documents = pages.map((page) => ({
+    name: page,
+    servers: SERVERS.map((server) => ({ ...server, document: server.document(page) })),
+  }));
+  if (agentPane)
+    documents.push({
+      name: AGENT_PANE,
+      servers: [{ ...SERVERS[0], document: { root: AGENT_PANE, url: agentPane.html } }],
+    });
+  for (const { name: page, servers } of documents) {
+    const htmlFile = fileOf(servers[0].document);
+    const htmlName = treeFile(servers[0].document);
     if (!fs.existsSync(htmlFile)) {
-      problems.push(`${page}: no index.html`);
+      problems.push(`${page}: no ${path.posix.basename(htmlName)}`);
       continue;
     }
     const tags = [...fs.readFileSync(htmlFile, "utf8").matchAll(TAG)].map((match) => {
@@ -246,21 +304,21 @@ export function checkPageTree(root, pages) {
       };
     });
     for (const tag of tags) {
-      if (tag.script && !tag.source) problems.push(`${page}/index.html: inline script`);
-      if (tag.inline) problems.push(`${page}/index.html: a script with inline code`);
+      if (tag.script && !tag.source) problems.push(`${htmlName}: inline script`);
+      if (tag.inline) problems.push(`${htmlName}: a script with inline code`);
     }
-    if (!tags.some((tag) => tag.module && tag.source)) problems.push(`${page}/index.html: no module script`);
-    for (const server of SERVERS) {
+    if (!tags.some((tag) => tag.module && tag.source)) problems.push(`${htmlName}: no module script`);
+    for (const server of servers) {
       const scripts = [];
       const reach = (from, specifier) => {
         const location = locate(server, from, specifier);
-        if (!location || !exists(treeFile(location))) {
+        if (!location || !exists(location)) {
           problems.push(`${treeFile(from)}: ${specifier} is not on ${server.name}`);
           return undefined;
         }
         return location;
       };
-      const document = server.document(page);
+      const document = server.document;
       for (const tag of tags) {
         if (!tag.loads || !tag.source) continue;
         const location = reach(document, tag.source);
@@ -272,7 +330,7 @@ export function checkPageTree(root, pages) {
         const key = `${location.root}|${location.url}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        for (const [, specifier] of fs.readFileSync(path.join(root, treeFile(location)), "utf8").matchAll(IMPORT)) {
+        for (const [, specifier] of fs.readFileSync(fileOf(location), "utf8").matchAll(IMPORT)) {
           const next = reach(location, specifier);
           if (next) scripts.push(next);
           // A chunk on the page's own origin would have a different URL on every page.
@@ -287,8 +345,13 @@ export function checkPageTree(root, pages) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const options = parseArgs(process.argv.slice(2));
-  await buildPages(options);
-  const problems = checkPageTree(options.out, options.pages);
+  if (!options.checkOnly) await buildPages(options);
+  // A build checks the pane's first load (preload.html); --check-only the page written around it.
+  const problems = checkPageTree(
+    options.out,
+    options.pages,
+    options.agentPane && { dir: options.agentPane.out, html: options.checkOnly ? "index.html" : "preload.html" },
+  );
   if (problems.length) {
     for (const problem of problems) console.error(`error: ${problem}`);
     process.exit(1);
