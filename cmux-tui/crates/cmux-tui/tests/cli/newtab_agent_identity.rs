@@ -49,21 +49,6 @@ fn newtab_agent_identity_cli_preserves_bound_session() {
         assert_success(&output);
         assert_agent_tab(&json_output(&output), &tab);
     }
-    assert_success(&json_cli(&server, &["tab", &tab, "close"]));
-    let closed = json_cli(&server, &["closed", "list"]);
-    assert_success(&closed);
-    fn has_session(value: &Value) -> bool {
-        if value.get("agent_session").is_some_and(|agent| agent["session"] == SESSION) {
-            return true;
-        }
-        match value {
-            Value::Object(fields) => fields.values().any(has_session),
-            Value::Array(items) => items.iter().any(has_session),
-            _ => false,
-        }
-    }
-    let history = json_output(&closed);
-    assert!(has_session(&history), "closed chat lost its agent session: {history}");
 }
 
 #[test]

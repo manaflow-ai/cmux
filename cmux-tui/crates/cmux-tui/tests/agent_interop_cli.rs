@@ -95,7 +95,12 @@ mod agent_interop_cli {
                     }
                     let Ok(request) = serde_json::from_str::<Value>(&line) else { break };
                     received.lock().unwrap().push(request.clone());
-                    match answer(&request) {
+                    let reply = if request["cmd"] == "set-client-info" {
+                        Some(json!({"id": request["id"], "ok": true, "data": {}}))
+                    } else {
+                        answer(&request)
+                    };
+                    match reply {
                         Some(reply) => {
                             if writeln!(writer, "{reply}").is_err() {
                                 break;
