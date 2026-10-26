@@ -619,6 +619,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_run_sources.py
 
+      - name: Validate the CLA quota re-run janitor
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cla_quota_rerun.py
+
       - name: Validate shallow complexity comparison fetching
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fetch_complexity_base.py
