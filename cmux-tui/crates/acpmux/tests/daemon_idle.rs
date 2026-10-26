@@ -282,6 +282,9 @@ impl Daemon {
             .env("ACPMUX_LOGIN_ENV", "0")
             // No catalog fetch: the test never reaches the network.
             .env("ACPMUX_CATALOG_FETCH", "0")
+            // The kernel memory pressure source runs too (`src/memory.rs`):
+            // it waits on the kernel's event, never on a timer.
+            .env("CMUX_ENABLE_FEATURES", "memoryAcpmuxPressure")
             .envs(env.iter().copied())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -443,7 +446,13 @@ fn assert_idle(daemon: &Daemon, what: &str) {
 #[test]
 fn acpmux_daemon_idle_has_no_periodic_wakeups() {
     let daemon = Daemon::start(scratch("daemon"));
-    let _app = watch_stream(&daemon);
+    let mut app = watch_stream(&daemon);
+    // `daemon status` names each memory consumer with its bytes (`src/daemon_status.rs`).
+    let status = app.call("_acpmux/status", json!({}));
+    let consumers = status["memory"]["consumers"].as_array().cloned().unwrap_or_default();
+    assert!(consumers.iter().any(|c| c["name"] == "pool.auth_cache"), "{}", status["memory"]);
+    assert!(consumers.iter().all(|c| c.get("bytes").is_some()), "{}", status["memory"]);
+    eprintln!("memory pressure source running: {}", status["memory"]["pressure_source"]);
     assert_idle(&daemon, "an idle acpmux daemon");
 }
 

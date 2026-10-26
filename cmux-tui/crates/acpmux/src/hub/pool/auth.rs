@@ -100,6 +100,21 @@ impl AuthCache {
         self.fingerprint_with(family, &env, &home)
     }
 
+    /// What the parsed entries keep (a memory consumer's bytes).
+    pub fn approx_bytes(&self) -> u64 {
+        type Entry = (PathBuf, (u64, Option<SystemTime>, u64));
+        let parsed = self.parsed.lock().unwrap_or_else(|e| e.into_inner());
+        let paths: u64 =
+            parsed.keys().map(|p| crate::memory::string_bytes(&p.to_string_lossy())).sum();
+        crate::memory::inline_bytes::<Entry>(parsed.len()) + paths
+    }
+
+    /// Drops every parse: the next fingerprint reads its files again. Lossless.
+    pub fn clear(&self) {
+        let parsed = std::mem::take(&mut *self.parsed.lock().unwrap_or_else(|e| e.into_inner()));
+        drop(parsed);
+    }
+
     fn fingerprint_with(
         &self,
         family: &str,

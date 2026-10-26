@@ -346,6 +346,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     if let Some(line) = host_pressure_line(&v["host_pressure"]) {
                         println!("host:     {line}");
                     }
+                    for line in crate::daemon_status::memory_lines(&v["memory"]) {
+                        println!("memory:   {line}");
+                    }
                     for p in v.get("peers").and_then(Value::as_array).cloned().unwrap_or_default() {
                         println!(
                             "peer:     {} {} ({} sessions) {}",

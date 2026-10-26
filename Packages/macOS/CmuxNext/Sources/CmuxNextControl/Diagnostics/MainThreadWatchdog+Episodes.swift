@@ -37,9 +37,12 @@ extension MainThreadWatchdog {
         // is suspended (atomics only).
         var stillBlocked = true
         var cefState: UInt64 = 0
+        let board = boardSink.withLock { $0 }
+        var scope = board?.hangScope ?? .noTask
         let sampled = sampler?.sample { _ in
             stillBlocked = beatSequence.load(ordering: .acquiring) == beat
             cefState = crashKeys?.value(.cefState) ?? 0
+            scope = board?.hangScope ?? .noTask
         } ?? []
         let addresses = stillBlocked ? sampled : []
         let phase = stillBlocked ? Self.phaseLabel(cefState: cefState) : nil
@@ -47,7 +50,8 @@ extension MainThreadWatchdog {
         recorder?.begin(beat: beat, elapsed: duration, main: addresses, others: others, phase: phase)
         if let sink {
             lastReportNanos = now
-            sink(Hang(duration: duration, addresses: addresses, otherThreads: others, phase: phase))
+            sink(Hang(duration: duration, addresses: addresses, otherThreads: others, phase: phase,
+                      attribution: hangAttribution(scope, stillBlocked: stillBlocked, now: now)))
         }
     }
 
@@ -70,6 +74,9 @@ extension MainThreadWatchdog {
         /// What the main thread was in when sampled (``phaseLabel(cefState:)``): `cef_pump` inside the
         /// Chromium message pump; nil otherwise, with no crash keys attached, or when the stall ended first.
         public var phase: String?
+        /// The scheduled task the sample caught (owner, class, location) and the turn so far; its task
+        /// is nil (`unattributed`) when no scheduled task ran or the stall ended before the sample.
+        public var attribution = HangAttribution(task: nil, turnNanos: 0)
     }
 
     /// A hang episode's checkpoint or end, to its file (``HangEpisodeTracker/Event/began``
