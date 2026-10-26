@@ -61,7 +61,8 @@ impl FullAccessView {
             mode: crate::web_modes::mode_of(&meta),
             undeclared_mode,
             options: config_options(&meta).cloned().collect(),
-            argv: meta.harness_argv,
+            // The argv its agent started with; before any start, the creation's.
+            argv: meta.spawn_argv.unwrap_or(meta.harness_argv),
         }
     }
 }
@@ -148,11 +149,15 @@ impl Hub {
         Ok(())
     }
 
-    /// MDM has just forced full access off (`apply_full_access_push`).
-    pub(super) async fn full_access_turned_off(&self) {
+    /// MDM forces full access off (`apply_full_access_push`, every push of the off: one may
+    /// follow an agent that entered full access since). `changed`: this push turned it off; the
+    /// pool drains only then.
+    pub(super) async fn full_access_turned_off(&self, changed: bool) {
         // Pooled agents started under the old bound (a profile pinning full access among them)
         // end; the pool starts again under the new one.
-        self.drain_pool();
+        if changed {
+            self.drain_pool();
+        }
         // Unavailable now, not only for the next start: an agent still in full access ends.
         self.end_every_managed_full_access().await;
     }
