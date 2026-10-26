@@ -148,6 +148,63 @@ import Testing
         #expect(!Spy.devToolsCalls.contains("Page.setWebLifecycleState"), "\(Spy.devToolsCalls)")
     }
 
+    /// A bridge sends the rest of its batch after the runtime's last owner is gone.
+    ///
+    /// `CEFTab.runtime` is `unowned` and nothing in the tab/host island retains the runtime, so the
+    /// runtime can be released while its tabs live on. `CEFMediaBridge.run` and
+    /// `CEFVerificationBridge.run` send a batch of calls from one `Task` that captured `[weak tab]`
+    /// and re-read `tab.runtime` each time round: the in-flight `runtime.devTools(...)` held the
+    /// runtime, but nothing held it between two calls of the batch, so once the last owner went the
+    /// next read found a destroyed object and trapped in `swift_abortRetainUnowned`.
+    ///
+    /// That trap aborts the process instead of failing one test, so before the fix this reads as a
+    /// crash and not as a failed expectation: on CI it killed the swift test helper part-way
+    /// through and every test after it went unreported (cmux#25530).
+    ///
+    /// Fork API 24 is the DevTools path; from 29 `CEFAgentRelay.browserAttached` does not attach
+    /// these bridges at all.
+    @Test func aBridgeSendsTheRestOfItsBatchAfterItsRuntimesLastOwnerIsGone() async throws {
+        weak var runtime: CEFRuntime?
+        var tab: CEFTab?
+        var parked: [Int32] = []
+        var sentBeforeRelease = 0
+        do {
+            let rig = try Rig(forkAPI: 24)
+            runtime = rig.runtime
+            tab = try rig.attachedTab()
+            // Nothing answers the spy's DevTools calls, so each bridge Task parks on the first call
+            // of its batch, with the rest still to send.
+            await rig.settle()
+            parked = Spy.unanswered
+            sentBeforeRelease = Spy.devToolsCalls.count
+            rig.close()
+        }
+        try #require(!parked.isEmpty, "no DevTools call is parked, so the rest of this proves nothing")
+
+        // The rig was the runtime's only owner. The tab lives on, as a pane's tab does while the
+        // runtime is torn down. Answering the parked calls lets each Task go round to the next call
+        // of its batch: the read that trapped. The answer takes its own reference inside
+        // `answerParked`, so the runtime is unowned again before the yield the Task resumes on --
+        // holding one here would be what keeps it alive and would prove nothing.
+        func answerParked() {
+            guard let runtime else { return }
+            for id in Spy.unanswered {
+                runtime.handle(.devToolsResult(browser: 7, messageID: id, success: true, json: "{}"))
+            }
+            Spy.unanswered = []
+        }
+        for _ in 0..<500 where !Spy.unanswered.isEmpty {
+            answerParked()
+            await Task.yield()
+        }
+
+        #expect(Spy.devToolsCalls.count > sentBeforeRelease,
+                "no call was sent after the runtime's last owner went: \(Spy.devToolsCalls)")
+        #expect(Spy.devToolsCalls.contains("Runtime.addBinding"),
+                "the media batch stopped before its bindings: \(Spy.devToolsCalls)")
+        withExtendedLifetime(tab) {}
+    }
+
     // MARK: Rig
 
     @MainActor final class Rig {
