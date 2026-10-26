@@ -1027,6 +1027,8 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       });
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
+      await card.locator(".cv-received__toggle").click();
+      await card.locator(".cv-received__body").waitFor();
       expect(await card.locator(".cv-message__images").count()).toBe(1);
       // No read receipt or "Steered" line: a message to the agent is the agent's to read.
       expect(await page.locator(".cv-incoming .cv-user__read, .cv-incoming .cv-user__steer").count()).toBe(0);
