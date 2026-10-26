@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextUpdater
+import CmuxNextWakeups
 import Foundation
 
 /// What a CLI run of the update actions answers (`action.run` `result`), so
@@ -57,11 +58,9 @@ extension UpdateHandlers {
             }
             return nil
         }
-        // task-owner: ends at `limit`, or at once when `follow` settles first (its cancel below).
-        let timer = Task {
-            try? await Task.sleep(for: limit)
-            follow.cancel()
-        }
+        // Ends at `limit` (cancelling `follow`), or at once when `follow` settles first (its cancel below).
+        let timer = DemandTimer(owner: "update-cli-install-answer")
+        timer.schedule(after: limit) { follow.cancel() }
         return Task { @MainActor in
             let settled = await follow.value
             timer.cancel()
