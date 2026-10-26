@@ -2,7 +2,15 @@
 // held events arrive as one `evs` envelope and are handled in order as if sent one by one, and a
 // stream that lost events while the page was hidden passes `gap` to its subscriber so it reads again.
 import { describe, expect, test } from "bun:test";
-import { BridgePageClient, type PageEventMeta, type ReplyHandler } from "./pageClient";
+import {
+  BridgePageClient,
+  KEEP_ALIVE_OP,
+  PageKeepAlive,
+  pageError,
+  type PageClient,
+  type PageEventMeta,
+  type ReplyHandler,
+} from "./pageClient";
 
 /** A host that answers every subscribe with the next sub id, from 7. */
 function makeClient(): BridgePageClient {
@@ -62,5 +70,61 @@ describe("pageClient held events", () => {
     await client.subscribe("cmux.test.state", (_data, _seq, meta) => metas.push(meta));
     client.receive({ t: "ev", sub: 7, seq: 1, data: {}, opid: "op-1" });
     expect(metas).toEqual([{ opid: "op-1" }]);
+  });
+});
+
+describe("PageKeepAlive", () => {
+  /** A client that records each call and answers with `answer`. */
+  function recording(answer: (op: string) => Promise<unknown> = async () => ({})) {
+    const calls: { op: string; params: unknown }[] = [];
+    const client: PageClient = {
+      call: async <R>(op: string, params: unknown) => {
+        calls.push({ op, params });
+        return (await answer(op)) as R;
+      },
+      subscribe: async () => () => {},
+      handle: () => () => {},
+    };
+    return { client, calls };
+  }
+
+  test("tells the host only when a reason starts or ends", () => {
+    const { client, calls } = recording();
+    const keep = new PageKeepAlive(client);
+    keep.set("user_edits", false);
+    keep.set("user_edits", true);
+    keep.set("user_edits", true);
+    keep.set("draft", true);
+    keep.set("user_edits", false);
+    keep.set("user_edits", false);
+    expect(calls).toEqual([
+      { op: KEEP_ALIVE_OP, params: { reason: "user_edits", on: true } },
+      { op: KEEP_ALIVE_OP, params: { reason: "draft", on: true } },
+      { op: KEEP_ALIVE_OP, params: { reason: "user_edits", on: false } },
+    ]);
+    expect(keep.has("draft")).toBe(true);
+    expect(keep.has("user_edits")).toBe(false);
+  });
+
+  test("an older host without the op is not an error", async () => {
+    const warnings: unknown[] = [];
+    const warn = console.warn;
+    console.warn = (...args: unknown[]) => warnings.push(args);
+    try {
+      const { client } = recording(async () => {
+        throw pageError("cmux.protocol.unknown_op", KEEP_ALIVE_OP);
+      });
+      new PageKeepAlive(client).set("user_edits", true);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(warnings).toEqual([]);
+    } finally {
+      console.warn = warn;
+    }
+  });
+
+  test("no client: the state is kept and nothing is sent", () => {
+    const keep = new PageKeepAlive(null);
+    keep.set("capture", true);
+    expect(keep.has("capture")).toBe(true);
   });
 });

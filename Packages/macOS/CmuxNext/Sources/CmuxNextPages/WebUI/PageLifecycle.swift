@@ -1,5 +1,6 @@
 import AppKit
 package import CmuxNextHibernation
+import WebKit
 package import CmuxNextWakeups
 
 /// A cmux page the lifecycle drives (``PageWebViewLifecycle`` for a ``PageWebView``).
@@ -36,17 +37,36 @@ package struct PageWebViewLifecycle: PageLifecycleTarget {
     package var lifecycleGroup: String? { view?.descriptor.processGroup.rawValue }
 
     /// Loading while its document loads (``PageLoadState``: Chrome's kLoading reads the
-    /// page's loading state, which also ends while the page is hidden), and focused while it holds its
-    /// window's first responder.
+    /// page's loading state, which also ends while the page is hidden), focused while it holds its
+    /// window's first responder, popup while its menu past the window's edge shows, inspector while
+    /// Web Inspector is open on it, and the reasons of ``PageKeepReasons`` (its document's
+    /// `cmux.page.keepAlive`, a confirmation sheet, a context menu, a file drag, dictation).
     package var lifecycleKeepReasons: Set<PageLifecyclePlanner.KeepReason> {
         guard let view else { return [] }
-        var reasons: Set<PageLifecyclePlanner.KeepReason> = []
+        var reasons = view.keepReasons.current
         if view.loadState.isLoading { reasons.insert(.loading) }
         if let responder = view.window?.firstResponder as? NSView, responder.isDescendant(of: view) { reasons.insert(.focused) }
+        if view.popupHost?.shownFrame != nil { reasons.insert(.popup) }
+        if Self.inspectorIsOpen(view.webKitView) { reasons.insert(.inspector) }
         return reasons
     }
 
-    package func reportsReasonChanges(to lifecycle: PageLifecycle) { view?.loadState.lifecycle = lifecycle }
+    package func reportsReasonChanges(to lifecycle: PageLifecycle) {
+        view?.loadState.lifecycle = lifecycle
+        view?.keepReasons.lifecycle = lifecycle
+    }
+
+    /// Whether Web Inspector is connected to `webView`, docked or in its own window. WebKit says so
+    /// only through `_WKInspector.isConnected` and posts no change, so it is read with the other
+    /// reasons at each pass.
+    static func inspectorIsOpen(_ webView: WKWebView) -> Bool {
+        // crash-allow: WebKit private selectors, each used only after responds(to:) confirms it exists (no unknown-selector exception).
+        let inspectorSelector = NSSelectorFromString("_inspector")
+        guard webView.responds(to: inspectorSelector),
+              let inspector = webView.perform(inspectorSelector)?.takeUnretainedValue() as? NSObject,
+              inspector.responds(to: NSSelectorFromString("isConnected")) else { return false }
+        return (inspector.value(forKey: "isConnected") as? Bool) ?? false
+    }
 
     package func freeze() {}
     package func thaw() {}
@@ -197,8 +217,9 @@ package final class PageLifecycle {
     }
 
     /// `page`'s own reasons changed with no show or hide (its load started or ended,
-    /// ``PageLoadState``): a hidden page is looked at again now, so a load that ends
-    /// while the page is hidden lets it freeze, and one that starts thaws it.
+    /// ``PageLoadState``; its document's keepAlive or a host hold, ``PageKeepReasons``): a hidden
+    /// page is looked at again now, so a reason that ends while the page is hidden lets it freeze,
+    /// and one that starts thaws it.
     package func pageReasonsDidChange(_ page: AnyObject) {
         guard let key = keys[ObjectIdentifier(page)], entries[key]?.target.object === page,
               hiddenKeys.contains(key) else { return }

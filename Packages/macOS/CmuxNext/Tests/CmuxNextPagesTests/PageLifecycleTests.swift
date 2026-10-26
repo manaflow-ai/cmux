@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import CmuxNextHibernation
 @testable import CmuxNextPages
+import CmuxNextSettings
 @testable import CmuxNextWakeups
 import Foundation
 import Testing
@@ -16,12 +17,15 @@ struct PageLifecycleTests {
         let name: String
         let log: Log
         var reasons: Set<PageLifecyclePlanner.KeepReason> = []
+        /// Its ``PageKeepReasons``, as a ``PageWebView`` holds them (p13-webui-032).
+        let keep = PageKeepReasons()
         var reasonReads = 0
         weak var lifecycle: PageLifecycle?
 
         init(_ name: String, log: Log) {
             self.name = name
             self.log = log
+            keep.owner = self
         }
     }
 
@@ -36,10 +40,13 @@ struct PageLifecycleTests {
         var lifecycleGroup: String? { "privileged" }
         var lifecycleKeepReasons: Set<PageLifecyclePlanner.KeepReason> {
             page.reasonReads += 1
-            return page.reasons
+            return page.reasons.union(page.keep.current)
         }
 
-        func reportsReasonChanges(to lifecycle: PageLifecycle) { page.lifecycle = lifecycle }
+        func reportsReasonChanges(to lifecycle: PageLifecycle) {
+            page.lifecycle = lifecycle
+            page.keep.lifecycle = lifecycle
+        }
         func freeze() { page.log.lines.append("freeze \(page.name)") }
         func thaw() { page.log.lines.append("thaw \(page.name)") }
         func discard() { page.log.lines.append("discard \(page.name)") }
@@ -332,6 +339,116 @@ struct PageLifecycleTests {
         #expect(!target.lifecycleKeepReasons.contains(.loading), "a failed load still counted as loading")
         host.close(view)
         #expect(lifecycle.state(of: "tab") == nil)
+    }
+
+    // MARK: Keep reasons (p13-webui-032)
+
+    /// A host hold (a confirmation sheet) on a frozen page thaws it at the next pass, which it arms
+    /// for now; its end arms a pass, and the page freezes again with no show or hide.
+    @Test func aHostHoldThawsAFrozenPageAndItsEndLetsItFreezeAgain() throws {
+        let history = page("history"), cloud = page("cloud")
+        lifecycle.hide("h", page: Target(page: history))
+        rig.advance(to: .seconds(5))
+        lifecycle.hide("c", page: Target(page: cloud))
+        try fireDuePass()
+        #expect(lifecycle.state(of: "h") == .frozen)
+        rig.advance(to: .seconds(12))
+        history.keep.begin(.confirmation)
+        #expect(lifecycle.nextPassAt == .seconds(12))
+        try fireDuePass()
+        #expect(lifecycle.state(of: "h") == .hidden)
+        #expect(log.lines == ["freeze history", "thaw history"])
+        rig.advance(to: .seconds(20))
+        history.keep.end(.confirmation)
+        #expect(lifecycle.nextPassAt == .seconds(20))
+        try fireDuePass()
+        #expect(lifecycle.state(of: "h") == .frozen)
+        #expect(log.lines == ["freeze history", "thaw history", "freeze history"])
+    }
+
+    /// The host's holds are counted, and the page setting or ending a reason the host holds changes
+    /// nothing: page script cannot end the host's hold, and no pass is armed for it.
+    @Test func hostHoldsAreCountedAndThePageCannotEndOne() throws {
+        let history = page("history"), cloud = page("cloud")
+        lifecycle.hide("h", page: Target(page: history))
+        rig.advance(to: .seconds(5))
+        lifecycle.hide("c", page: Target(page: cloud))
+        try fireDuePass()
+        rig.advance(to: .seconds(12))
+        history.keep.begin(.fileDrop)
+        #expect(lifecycle.nextPassAt == .seconds(12))
+        try fireDuePass()
+        let armed = lifecycle.nextPassAt
+        history.keep.begin(.fileDrop)
+        history.keep.end(.fileDrop)
+        #expect(history.keep.current == [.fileDrop])
+        history.keep.setFromPage(.fileDrop, on: true)
+        history.keep.setFromPage(.fileDrop, on: false)
+        #expect(history.keep.current == [.fileDrop], "page script ended the host's hold")
+        #expect(lifecycle.nextPassAt == armed, "an unchanged reason armed a pass")
+        history.keep.end(.fileDrop)
+        #expect(history.keep.current.isEmpty)
+        history.keep.end(.fileDrop) // one end too many changes nothing
+        #expect(history.keep.current.isEmpty)
+    }
+
+    /// A real page: `cmux.page.keepAlive` sets only a reason page script may set, never one the host
+    /// or the planner owns, cannot end the host's hold, and its reasons end with a reload and a crash.
+    @Test func keepAliveAddsOnlyThePagesOwnReasonsAndThoseEndOnReloadAndCrash() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("page-keep-alive-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
+        let host = WebUIHost(chromium: nil, openPanel: nil,
+                             memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()),
+                             clock: PageTestClock.never)
+        host.lifecycle = lifecycle
+        let descriptor = PageDescriptor(id: "test.page-keep-alive", resource: "page-keep-alive", processGroup: .viewer, namespaces: [])
+        let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
+        defer { host.close(view) }
+        let target = PageWebViewLifecycle(view)
+        lifecycle.hide("tab", page: target)
+        #expect(view.keepReasons.lifecycle === lifecycle)
+        var id = 0.0
+        func keepAlive(_ reason: String, _ on: Bool) async -> JSONValue {
+            id += 1
+            return await view.router.handle(.object([
+                "t": .string("call"), "id": .number(id), "op": .string(PageNativeOp.keepAlive),
+                "params": .object(["reason": .string(reason), "on": .bool(on)]),
+            ]))
+        }
+
+        #expect(await keepAlive("user_edits", true)["t"]?.stringValue == "ok")
+        #expect(target.lifecycleKeepReasons.contains(.userEdits))
+        // Not the page's to set: the host's, the planner's, an owner's, or no reason at all.
+        for reason in ["focused", "loading", "inspector", "confirmation", "recently_visible", "most_recently_used",
+                       "hibernation_off", "turn_running", "pinned", "nonsense"] {
+            let refused = await keepAlive(reason, true)
+            #expect(refused["code"]?.stringValue == "cmux.protocol.invalid_params", "\(reason)")
+        }
+        let malformed = await view.router.handle(.object([
+            "t": .string("call"), "id": .number(99), "op": .string(PageNativeOp.keepAlive),
+            "params": .object(["reason": .string("draft")]),
+        ]))
+        #expect(malformed["code"]?.stringValue == "cmux.protocol.invalid_params")
+        #expect(!target.lifecycleKeepReasons.contains(.draft))
+        // The host holds a file drag; the page cannot end it.
+        view.keepReasons.begin(.fileDrop)
+        #expect(await keepAlive("file_drop", false)["t"]?.stringValue == "ok")
+        #expect(target.lifecycleKeepReasons.contains(.fileDrop))
+
+        // A reload: a new document commits, and the old one's reasons end; the host's hold stays.
+        view.documentCommitted()
+        #expect(!target.lifecycleKeepReasons.contains(.userEdits))
+        #expect(target.lifecycleKeepReasons.contains(.fileDrop))
+        view.keepReasons.end(.fileDrop)
+
+        // A crash ends them too.
+        #expect(await keepAlive("draft", true)["t"]?.stringValue == "ok")
+        #expect(view.keepReasons.fromPage == [.draft])
+        view.contentProcessTerminated()
+        #expect(view.keepReasons.fromPage.isEmpty)
+        #expect(!target.lifecycleKeepReasons.contains(.draft))
     }
 }
 

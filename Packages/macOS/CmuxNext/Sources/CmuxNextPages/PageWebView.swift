@@ -73,6 +73,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var loaded = false { didSet { loadState.set(loading: !loaded, page: self) } }
     /// The document's load as the page lifecycle reads it (its `.loading`); each change tells the lifecycle.
     let loadState = PageLoadState()
+    /// The keep reasons its document set (`cmux.page.keepAlive`) and the host holds on it (a
+    /// confirmation sheet, a context menu, a file drag, dictation); each change tells the lifecycle.
+    package let keepReasons = PageKeepReasons()
     var loadWaiters: [CheckedContinuation<Void, Never>] = []
     var shouldFocusOnAttach = false
     /// The page's popup past the window's edge (PageWebView+Popup.swift), made on first use.
@@ -321,9 +324,17 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         let scripts = scripts
         router.send = { envelope in scripts.send(envelope) }
         router.sendWithDrop = { envelope, onDrop in scripts.send(envelope, onDrop: onDrop) }
+        keepReasons.owner = self
         router.didClose = { [weak self] in
             scripts.reset()
             self?.popupHost?.hide()
+            // A reload, a crash, a navigation or a rebind: the document's own reasons end with it.
+            self?.keepReasons.documentEnded()
+        }
+        router.keepAlive = { [weak self] reason, on in self?.keepReasons.setFromPage(reason, on: on) }
+        webView.onFileDrag = { [weak self] dragging in
+            guard let keep = self?.keepReasons else { return }
+            if dragging { keep.begin(.fileDrop) } else { keep.end(.fileDrop) }
         }
         router.titleBarDoubleClick = { [weak self] in self?.performTitleBarDoubleClick() }
         router.popup = { [weak self] op, params in self?.popup(op, params: params) ?? .object(["shown": .bool(false)]) }

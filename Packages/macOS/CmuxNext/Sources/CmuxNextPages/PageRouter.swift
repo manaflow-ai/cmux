@@ -1,3 +1,4 @@
+package import CmuxNextHibernation
 public import CmuxNextSettings
 public import Foundation
 
@@ -138,7 +139,16 @@ public final class PageRouter {
     /// menu, answered once it closes.
     public var contextMenu: (@MainActor ([String: Any]) async -> JSONValue)?
 
+    /// The page's `cmux.page.keepAlive`, checked: one of its own reasons, on or off (``PageKeepReasons``).
+    package var keepAlive: (@MainActor (PageLifecyclePlanner.KeepReason, Bool) -> Void)?
+
     private func call(_ op: String, params: JSONValue, opid: String?) async throws -> JSONValue {
+        if op == PageNativeOp.keepAlive {
+            guard !closed else { throw PageError.closed }
+            let request = try PageKeepReasons.pageRequest(params)
+            keepAlive?(request.reason, request.on)
+            return .object([:])
+        }
         if op == PageNativeOp.titleBarDoubleClick {
             guard !closed else { throw PageError.closed }
             titleBarDoubleClick?()

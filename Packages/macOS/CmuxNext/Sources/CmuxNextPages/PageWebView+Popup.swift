@@ -27,6 +27,9 @@ extension PageWebView {
     /// pointer; answers the chosen row's id once it closes.
     func contextMenu(_ params: [String: Any]) async -> JSONValue {
         guard let menu = WebContextMenu(params) else { return .object(["picked": .null]) }
+        // The menu is up until it closes: the page's `popup` keep reason.
+        keepReasons.begin(.popup)
+        defer { keepReasons.end(.popup) }
         let picked: String? = await withCheckedContinuation { continuation in
             menu.present(in: focusView, zoom: CGFloat(pageZoom)) { continuation.resume(returning: $0) }
         }
