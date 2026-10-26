@@ -175,8 +175,9 @@ enum ThemeRepaint {
         // The views lay out and display now (the work the next display cycle does), so colors
         // set in `updateLayer()`, and in `layout()` by a view whose hook asks for layout, blend too.
         for root in blendRoots {
+            // sync-layout: the blend below reads each layer's new color, set in layout() and updateLayer().
             root.layoutSubtreeIfNeeded()
-            root.displayIfNeeded()
+            root.displayIfNeeded() // sync-layout: the blend below reads the colors updateLayer() sets.
         }
         for entry in shown {
             for (property, before) in entry.colors {

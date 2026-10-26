@@ -37,6 +37,7 @@ pub mod config;
 pub mod cua_socket;
 pub mod cua_v2;
 pub mod daemon;
+pub mod daemon_lifecycle;
 pub mod daemon_status;
 pub mod deliver;
 pub(crate) mod energy_control;

@@ -279,7 +279,7 @@ final class WebPopupRows: NSView {
         if rebuilt || size != frame.size {
             setFrameSize(size)
             needsLayout = true // invalidate: new rows or a new size (the check above) to place.
-            layoutSubtreeIfNeeded()
+            layoutSubtreeIfNeeded() // sync-layout: scrollToHighlight below reads the highlighted row's frame.
         }
         scrollToHighlight()
     }
