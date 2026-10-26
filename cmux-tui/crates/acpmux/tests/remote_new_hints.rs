@@ -231,6 +231,75 @@ fn tried(r: &Value) -> String {
 }
 
 #[tokio::test]
+async fn retry_metadata_stays_local_when_new_is_forwarded() {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message as Ws;
+
+    let root = scratch("retry-metadata");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (received_tx, mut received_rx) = mpsc::channel(1);
+    let server = tokio::spawn(async move {
+        let (tcp, _) = listener.accept().await.unwrap();
+        let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
+        while let Some(Ok(Ws::Text(text))) = ws.next().await {
+            let Ok(Message::Request { id, method: m, params }) = Message::parse(&text) else {
+                continue;
+            };
+            let reply = if m == method::SESSION_NEW {
+                received_tx.send(params.unwrap_or_default()).await.unwrap();
+                Message::err(
+                    id,
+                    acpmux::rpc::RpcError::invalid_params("policy refused").with_data(json!({
+                        "reason": "remote.policy_refused", "servedAs": "remote"
+                    })),
+                )
+            } else {
+                let result = if m == method::INITIALIZE {
+                    json!({"protocolVersion": 1, "_meta": {"acpmux": {
+                        "version": "0", "build": "test", "origin": "peer",
+                        "features": ["trustGate"]}}})
+                } else {
+                    json!({})
+                };
+                Message::ok(id, result)
+            };
+            ws.send(Ws::Text(reply.to_line().into())).await.unwrap();
+        }
+    });
+    let a = hub(&root);
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), None, None, true).await.unwrap();
+    let mut ca = C::open(&a, Origin::Local);
+    let r = ca
+        .call(
+            method::SESSION_NEW,
+            new(
+                json!({"peer": "b", "harness": "fake", "policy": "approve-all",
+                    "tags": {"a": "b"}, "ephemeral": true,
+                    "argv": ["new", "--host", "b", "--prompt-file", "brief.md", "inline prompt"],
+                    "promptFileText": "file prompt"}),
+                Some(&root),
+            ),
+        )
+        .await;
+    assert_eq!(reason(&r), "remote.policy_refused");
+    let received = received_rx.recv().await.unwrap();
+    let meta = &received["_meta"]["acpmux"];
+    for key in ["argv", "promptFileText", "peer", "ephemeral"] {
+        assert!(meta.get(key).is_none(), "forwarded {key}: {received}");
+    }
+    assert_eq!(meta["tags"], json!({"a": "b"}));
+    // The forwarding daemon still has both inputs to build a complete retry.
+    let retry = tried(&r);
+    assert!(retry.contains("'inline prompt'"), "{retry}");
+    assert!(retry.contains("printf %s 'file prompt'"), "{retry}");
+    assert!(retry.contains("--prompt-file=/dev/stdin"), "{retry}");
+    server.abort();
+    let _ = server.await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
 async fn approve_all_refused_by_a_peer_that_serves_us_as_web_says_to_run_it_on_that_host() {
     let root = scratch("policy");
     let (a, b) = pair("policy", false, &root).await;

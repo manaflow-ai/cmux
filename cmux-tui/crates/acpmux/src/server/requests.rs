@@ -721,6 +721,10 @@ async fn dispatch_request(
                     // The peer would tie it to this daemon's long-lived connection, never to the
                     // client's: the client's own kill purges it (`ephemeral.rs`).
                     m.remove("ephemeral");
+                    // Retry hints use the original params here; the peer does not need the
+                    // CLI argv or a second copy of the prompt file to create the session.
+                    m.remove("argv");
+                    m.remove("promptFileText");
                 }
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
                 let mut result = super::remote_guard::hint::new_on(&peer, &params, p).await?;
