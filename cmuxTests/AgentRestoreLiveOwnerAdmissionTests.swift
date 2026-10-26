@@ -398,6 +398,80 @@ struct AgentRestoreLiveOwnerAdmissionTests {
         ) == nil)
     }
 
+    @Test("Claude /clear or a same-session restart preserves saved resume state", arguments: [false, true])
+    func claudeClearPreservesSavedResumeState(restartSameSession: Bool) throws {
+        let workspace = Workspace(restorableAgentIndexProvider: { .empty })
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let oldSessionID = "11111111-2222-3333-4444-555555555555"
+        let originalFixture = try makeFixture(
+            kind: .claude,
+            ownerState: .live,
+            launchSessionArguments: ["--resume", oldSessionID],
+            scopedProcess: true,
+            ownerWorkspaceID: workspace.id,
+            ownerSurfaceID: panelID
+        )
+        defer { originalFixture.cleanup() }
+        var binding = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "claude --resume \(oldSessionID)",
+            cwd: originalFixture.agent.workingDirectory,
+            checkpointId: oldSessionID,
+            source: "agent-hook",
+            launchCommand: originalFixture.agent.launchCommand,
+            autoResume: true
+        )
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelID))
+        #expect(workspace.clearSurfaceResumeBinding(panelId: panelID, agentSessionEnded: true))
+        #expect(workspace.restoredAgentResumeStatesByPanelId[panelID] == .completedAgentExit)
+
+        // The same-session variant starts its new PID after SessionEnd, without
+        // relying on a later hook timestamp to authorize the old process.
+        let restartedFixture = restartSameSession ? try makeFixture(
+            kind: .claude,
+            ownerState: .live,
+            scopedProcess: true,
+            ownerWorkspaceID: workspace.id,
+            ownerSurfaceID: panelID,
+            requestedSessionID: oldSessionID
+        ) : nil
+        defer { restartedFixture?.cleanup() }
+        let fixture = restartedFixture ?? originalFixture
+        // SessionStart changes the conversation but not the process or its argv.
+        binding.checkpointId = fixture.sessionID
+        binding.command = "claude --resume \(fixture.sessionID)"
+        binding.cwd = fixture.agent.workingDirectory
+        binding.launchCommand = fixture.agent.launchCommand
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelID))
+        let saved = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: fixture.index,
+            surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: [:])
+        )
+        let terminal = try #require(saved.panels.first { $0.id == panelID }?.terminal)
+        #expect(terminal.agent?.sessionId == fixture.sessionID)
+        #expect(terminal.wasAgentRunning == true)
+        #expect(terminal.resumeBinding?.autoResume == true)
+        #expect(terminal.resumeBinding?.checkpointId == fixture.sessionID)
+    }
+
+    @Test("Current Claude hooks supersede fork and inherited launch identities")
+    func claudeCurrentHookSupersedesForkLaunchIdentity() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "current-session",
+            workingDirectory: nil
+        )
+        let process = CmuxTopProcessArguments(
+            arguments: ["/usr/local/bin/claude", "--fork-session", "--session-id", "old-child"],
+            environment: ["CMUX_AGENT_SESSION_ID": "old-child"]
+        )
+        let validator = CachedAgentProcessIdentityValidator()
+        #expect(validator.currentProcess(process, matches: snapshot, hermesSessionValidation: .currentHookRecord))
+        #expect(!validator.currentProcess(process, matches: snapshot, hermesSessionValidation: .cachedSnapshot))
+    }
+
     @Test("Claude session switching does not authorize a reused PID")
     func claudeInProcessSwitchRejectsReusedProcess() throws {
         let fixture = try makeFixture(

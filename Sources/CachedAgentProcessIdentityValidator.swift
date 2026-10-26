@@ -193,9 +193,8 @@ struct CachedAgentProcessIdentityValidator: Sendable {
             if hermesSessionValidation == .currentHookRecord {
                 return true
             }
-            // In a fork, --resume names the parent. Only an explicit child
-            // identity can contradict the current hook record; a cached
-            // snapshot still cannot vouch for a missing child identity.
+            // Without a current hook, a fork's --resume names only the parent.
+            // Require an explicit child identity to validate a cached snapshot.
             let identityOptions = Self.hasEnabledForkSessionFlag(in: arguments)
                 ? ["--session-id"] : ["--session-id", "--resume", "-r"]
             observedSessionID = firstValue(
