@@ -22,7 +22,7 @@ final class RightSidebarView: NSView {
         didSet {
             guard innerEdge != oldValue else { return }
             resizeHandle.edge = innerEdge
-            needsLayout = true
+            needsLayout = true // invalidate: the sidebar changed sides (the guard above).
         }
     }
     /// A drag on the inner edge: the width it proposes, then nil when it ends.

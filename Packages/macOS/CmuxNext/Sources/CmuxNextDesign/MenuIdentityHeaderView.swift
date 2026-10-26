@@ -191,8 +191,9 @@ public final class MenuSwatchStrip: NSView {
     public required init?(coder: NSCoder) { fatalError() }
 
     public func adoptMenuScope(_ scope: ThemeScope) {
+        guard scope !== menuScope else { return }
         menuScope = scope
-        needsDisplay = true
+        needsDisplay = true // invalidate: another menu scope (the guard above) draws other accent and ink.
     }
 
     /// The hovered swatch's ring: the menu scope's accent.
@@ -267,7 +268,7 @@ public final class MenuSwatchStrip: NSView {
         guard index != hovered else { return }
         hovered = index
         toolTip = index == 0 && clearChoice != nil ? Self.noColorTitle : nil
-        needsDisplay = true
+        needsDisplay = true // invalidate: the hovered swatch changed (the guard above).
     }
 
     public override func mouseUp(with event: NSEvent) {

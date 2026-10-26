@@ -72,6 +72,7 @@ nonisolated final class RunMarkerFile: Sendable {
     /// True once `ticket` is on disk; false when `timeout` passes first.
     /// After `close` it answers true: the file was removed on purpose.
     func written(_ ticket: UInt64, timeout: Duration) async -> Bool {
+        // timer-class-allow: off-main: the quit's bounded wait (flexible, no sooner) only resumes a continuation under the file's lock; it posts no main-thread job
         let deadline = DemandTimer(owner: "run-marker.write")
         defer { deadline.cancel() }
         return await withCheckedContinuation { continuation in
@@ -99,8 +100,9 @@ nonisolated final class RunMarkerFile: Sendable {
         // At exit only (AppKit's applicationWillTerminate): waits for at most one in-flight write (no fsync).
         allowBlocking(.terminate) {
             queue.blockingSync {
-                unlink(url.path)
-                unlink(signalURL.path)
+                // SAFETY: unlink reads the NUL-terminated copy of each path Swift makes for the call.
+                unsafe unlink(url.path)
+                unsafe unlink(signalURL.path)
             }
         }
     }
@@ -157,21 +159,21 @@ nonisolated final class RunMarkerFile: Sendable {
     /// over `url`. No fsync (see the type's comment).
     static func replaceAtomically(_ data: Data, to url: URL) throws {
         let temporary = url.deletingLastPathComponent().appending(path: ".\(url.lastPathComponent).\(getpid()).tmp").path
-        let descriptor = open(temporary, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
+        // SAFETY: open, unlink and rename read the NUL-terminated copies of the paths Swift makes for each call.
+        let descriptor = unsafe open(temporary, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-        let count = data.withUnsafeBytes { bytes in
+        do {
             // concurrency-allow: nonisolated; runs on RunMarkerFile's background queue, never on the main actor.
-            bytes.baseAddress.map { Darwin.write(descriptor, $0, bytes.count) } ?? 0
+            try FileHandle(fileDescriptor: descriptor, closeOnDealloc: false).blockingWrite(contentsOf: data)
+        } catch {
+            Darwin.close(descriptor)
+            unsafe unlink(temporary)
+            throw error
         }
-        let writeError = errno
         Darwin.close(descriptor)
-        guard count == data.count else {
-            unlink(temporary)
-            throw POSIXError(POSIXErrorCode(rawValue: writeError) ?? .EIO)
-        }
-        guard rename(temporary, url.path) == 0 else {
+        guard unsafe rename(temporary, url.path) == 0 else {
             let renameError = errno
-            unlink(temporary)
+            unsafe unlink(temporary)
             throw POSIXError(POSIXErrorCode(rawValue: renameError) ?? .EIO)
         }
     }

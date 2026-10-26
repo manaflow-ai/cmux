@@ -121,7 +121,7 @@ mod terminal_loss_cause;
 mod terminal_loss_log;
 mod terminal_metadata;
 pub use cmux_tui_util::terminal_respawn_text;
-pub mod wake;
+pub use cmux_wake as wake;
 mod work_reply;
 mod workspace_registry;
 
@@ -139,6 +139,7 @@ pub mod session_state_import;
 pub mod terminal_host;
 pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
+pub mod thread_qos;
 #[cfg(unix)]
 pub use cmux_tui_platform::unix_process_scope;
 pub use cmux_tui_util::user_settings;

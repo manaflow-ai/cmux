@@ -30,7 +30,9 @@ final class PaneContentView: NSView, PaneContentChrome {
     private(set) weak var content: NSView?
     /// A view in the window that this pane, in no window yet, shows: it moves here when the pane enters one.
     private var windowEntry = WindowEntryHandoff()
-    private var tokenObservation: VisibleObservation<(PaneChromeMetrics, Bool)>?
+    private var tokenObservation: VisibleObservation<ChromeTokens>?
+    /// What ``tokenObservation`` reads; Equatable, so a read of the same values applies nothing.
+    nonisolated private struct ChromeTokens: Equatable { var metrics: PaneChromeMetrics, tabRowTools: Bool }
     /// The pane's size changed (divider drag, window resize, animation).
     var onResize: (() -> Void)?
     var onPaneHeaderHeightChange: (() -> Void)?
@@ -54,7 +56,7 @@ final class PaneContentView: NSView, PaneContentChrome {
             guard hidesStrip != oldValue else { return }
             // Applied in layout(): a paint hold may keep the strip until its swap.
             refreshBandHeight()
-            needsLayout = true
+            needsLayout = true // invalidate: the strip shows or hides (the guard above).
         }
     }
     /// A browser's tab bar above or below its toolbar (`tabs.barOrder`, R109).
@@ -128,9 +130,9 @@ final class PaneContentView: NSView, PaneContentChrome {
         themeDidChange()
         // The pane's views follow the settings while it shows; a hidden pane reads them once on show.
         tokenObservation = VisibleObservation(node, owner: "PaneContentView.tokens", on: work) {
-            (PaneChromeMetrics.current, ChromeTunables.tabRowTools.value)
+            ChromeTokens(metrics: PaneChromeMetrics.current, tabRowTools: ChromeTunables.tabRowTools.value)
         } apply: { [weak self] _ in
-            self?.needsLayout = true
+            self?.needsLayout = true // invalidate: the strip metrics or tab-row sharing changed (applied on a change only).
             self?.refreshBandHeight()
         }
         paneBackgroundsObservation = VisibleObservation(node, owner: "PaneContentView.paneBackgrounds", on: work) {
@@ -189,7 +191,7 @@ final class PaneContentView: NSView, PaneContentChrome {
             // area 0 high at the bottom, toolbar under it) until a tab switch.
             // Lay it out at its new size now, in this pass (a descendant).
             if hostChanged || resized {
-                content.needsLayout = true
+                content.needsLayout = true // invalidate: the host or the content changed size (the check above).
                 content.layoutSubtreeIfNeeded()
             }
         }
@@ -237,7 +239,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         refreshBandHeight()
-        needsLayout = true
+        needsLayout = true // invalidate: the scale changed; the strip height snaps to the new pixel grid.
     }
 
     func setPaneContentCornerRadius(_ radius: CGFloat) {
@@ -324,9 +326,10 @@ final class PaneContentView: NSView, PaneContentChrome {
                 // window's pass, never from inside the browser's layout.
                 guard self.isBandActive else { return }
                 if let window = self.window as? ShellWindow {
+                    // invalidate: the browser's header changed height (it reports a change only); the band follows it.
                     window.afterLayoutPass { [weak self] in self?.needsLayout = true }
                 } else {
-                    self.needsLayout = true
+                    self.needsLayout = true // invalidate: as above, with no shell window to wait for.
                 }
             }
         }
@@ -392,7 +395,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// own backdrop), or nothing in a translucent window, where the window
     /// root paints the one sheet (`WindowBackdrop`).
     func themeDidChange() {
-        needsLayout = true
+        needsLayout = true // invalidate: the theme changed (init, or an appearance change once shown).
         let tokens = themeTokens
         let paints = WindowBackdrop.current(tokens).panesPaintBackground
         performWithTheme {

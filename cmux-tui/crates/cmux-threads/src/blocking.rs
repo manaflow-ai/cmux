@@ -366,6 +366,17 @@ fn violation(kind: BlockingKind, location: &'static Location<'static>) -> bool {
     first_at_site
 }
 
+/// Records a [`BlockingKind::PriorityInversion`] site at `location`: a
+/// thread waited on work sent from a thread of lower QoS ([`crate::sync`]).
+/// Record only, in every mode and on every thread, as a lane-sync site is:
+/// the wait is allowed, the QoS pairing is the finding.
+#[cfg(debug_assertions)]
+#[cold]
+#[inline(never)]
+pub(crate) fn note_priority_inversion(location: &'static Location<'static>) {
+    note_violation(&SITES, report::site_report(), BlockingKind::PriorityInversion, location, false);
+}
+
 #[cfg(unix)]
 const NO_OWN_FD: std::os::fd::RawFd = -1;
 

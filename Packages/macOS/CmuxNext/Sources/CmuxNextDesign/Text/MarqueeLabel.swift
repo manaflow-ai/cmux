@@ -18,7 +18,7 @@ public final class MarqueeLabel: NSView {
         set {
             guard newValue != text.string else { return }
             text.string = newValue
-            needsLayout = true
+            needsLayout = true // invalidate: new text (the guard above); the marquee measures its overflow again.
         }
     }
 
@@ -28,7 +28,7 @@ public final class MarqueeLabel: NSView {
             guard newValue != text.font else { return }
             text.font = newValue
             invalidateIntrinsicContentSize()
-            needsLayout = true
+            needsLayout = true // invalidate: a new font (the guard above).
         }
     }
 

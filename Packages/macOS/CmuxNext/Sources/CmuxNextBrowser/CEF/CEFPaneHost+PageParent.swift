@@ -27,7 +27,8 @@ extension CEFPaneHost {
     /// Host mode: the pane's page view, made on first use at the bottom of ``hostView`` and filling
     /// it, under the find bar, prompt bar and every other subview. Its input stays with
     /// ``hostView`` (``ChromiumHostPageView/InputTarget/pageWindow``) until the input route to the
-    /// host lands (tasks 041 and 042).
+    /// host lands (tasks 041 and 042). Its input method ops already go to the host
+    /// (``sendTextInput(_:)``).
     func hostedPage() -> ChromiumHostPageView {
         if let hostedPageView { return hostedPageView }
         let page = ChromiumHostPageView(frame: hostView.bounds, inputTarget: .pageWindow)
@@ -39,6 +40,9 @@ extension CEFPaneHost {
             guard let self else { return answered(nil) }
             askPageAccessibility(request, answered: answered)
         }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        page.textInputSink = { [weak self] op in self?.sendTextInput(op) }
+        #endif
         hostView.addSubview(page, positioned: .below, relativeTo: nil)
         hostView.showOcclusion(in: page)
         hostedPageView = page
@@ -60,6 +64,22 @@ extension CEFPaneHost {
         }
     }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+// The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its text input.
+extension CEFPaneHost {
+    /// Host mode: sends the page view's input method op to the host's IME exports for the shown
+    /// tab's browser, on the control channel after the keys written before it (p04-input-064), as
+    /// Chrome's page view calls its RenderWidgetHostNSViewHost (render_widget_host_ns_view.mojom).
+    /// Nothing goes with no browser shown, or when the host's shim lacks an IME op
+    /// (``CEFShimTextInputOps/isComplete``), as no widget shows without every widget op
+    /// (``CEFRuntime/showHostWidgets(_:)``). The shim is read per op, so a restarted host's counts.
+    func sendTextInput(_ op: ChromiumHostTextInputOp) {
+        guard let browser = visibleTab?.browserID, let ime = runtime.shim?.textInput, ime.isComplete else { return }
+        ime.send(op, browser: browser)
+    }
+}
+#endif
 
 extension CEFRuntime {
     /// A new page view token (``ChromiumHostPageView/wireToken``): never 0, never reused.

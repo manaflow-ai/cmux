@@ -91,9 +91,7 @@ extension CEFRuntime {
             logger.info("CEF context initialized")
         case .afterCreated(let browser, let request, let window, let created):
             browserCreated(browser, request: request, window: window, created: created)
-        case .popup:
-            // AFTER_CREATED of the popup's tab carries its URL, disposition and gesture (the shim's pending popups).
-            break
+        case .popup, .unknown: break // AFTER_CREATED of a popup's tab carries its URL, disposition and gesture (pending popups)
         case .createFailed(let browser, let request): CEFCreateFailure(browser: browser, request: request).apply(to: self)
         case .chromeCommand(let browser, let command):
             chromeWindowCommandBlocked(command, browser: browser)
@@ -158,8 +156,9 @@ extension CEFRuntime {
         case .keyUnhandledChord(let browser, let seq): redispatchUnhandledKey(seq: seq, browser: browser)
         case .bookmarks(let json, let path):
             CEFBookmarkBridge.shared.arrived(json: json, cachePath: path)
-        case .unknown:
-            break
+        case .renderTerminated(_, let status, let code, _, let end):
+            rendererEnded(.cef(status: status, code: code), end: end) // counted whether or not a tab shows it
+            fallthrough
         default:
             if let browser = event.browserID, let tab = tabsByBrowser[browser] {
                 #if DEBUG || CMUX_BENCH_HOOKS
@@ -470,7 +469,7 @@ extension CEFShimEvent {
              .afterCreated(let b, _, _, _), .beforeClose(let b), .createFailed(let b, _), .chromeCommand(let b, _), .devToolsResult(let b, _, _, _), .tab(_, let b, _, _),
              .reply(let b, _, _, _), .contextMenu(let b, _, _, _, _, _),
              .devToolsWillOpen(let b), .devToolsOpened(let b, _, _), .devToolsClosed(let b, _),
-             .renderTerminated(let b, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
+             .renderTerminated(let b, _, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
              .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .externalURL(let b, _, _), .keyUnhandled(let b, _, _), .keyUnhandledChord(let b, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
              .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _),
              .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _), .pageDragEnter(let b, _),

@@ -26,7 +26,7 @@ final class TitlebarToolbarBand: NSView {
         didSet {
             guard presence != oldValue else { return }
             alphaValue = presence
-            needsLayout = true
+            needsLayout = true // invalidate: a new presence (the guard above) closes the items up.
         }
     }
     /// Where the icon choice is read (tests pass their own store).

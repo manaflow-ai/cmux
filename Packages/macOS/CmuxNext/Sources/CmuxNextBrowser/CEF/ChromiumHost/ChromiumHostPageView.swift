@@ -401,11 +401,10 @@ extension ChromiumHostPageView {
 
     public override func scrollWheel(with event: NSEvent) {
         let point = pagePoint(event)
-        // Pixel deltas, as cefclient's off-screen view reads them.
-        let dy = event.cgEvent.map { Int32($0.getIntegerValueField(.scrollWheelEventPointDeltaAxis1)) } ?? 0
-        let dx = event.cgEvent.map { Int32($0.getIntegerValueField(.scrollWheelEventPointDeltaAxis2)) } ?? 0
-        _ = sink?(ChromiumHostFrame(.wheel, v: [point.x, point.y, dx, dy], flags: UInt64(event.modifierFlags.rawValue),
-                                    t0: Self.nanoseconds(event.timestamp)))
+        _ = sink?(ChromiumHostFrame.wheel(.init(
+            x: point.x, y: point.y, deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY),
+            precise: event.hasPreciseScrollingDeltas, phase: event.phase.rawValue, momentumPhase: event.momentumPhase.rawValue,
+            modifierFlags: UInt64(event.modifierFlags.rawValue), time: Self.nanoseconds(event.timestamp))))
     }
 
     /// A down ends an open composition first, keeping its text (``textInputMouseDown()``).

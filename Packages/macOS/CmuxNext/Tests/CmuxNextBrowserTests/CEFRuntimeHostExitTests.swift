@@ -1,5 +1,7 @@
 @testable import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextMetrics
+@testable import CmuxNextTrace
 import Darwin
 import Foundation
 import Testing
@@ -89,6 +91,26 @@ import Testing
         supervisor.onHostEnded?(Self.killed)
         try await runtime.start(layout: nil, environment: [:], trigger: "tab")
         #expect(threads.onMain.withLock { $0 } == [false, false], "the next host's start did not prepare its own inputs")
+    }
+
+    /// p09-observability-060: in host mode as in process, one renderer's end is one `cef.helper_exit` sample however
+    /// many tabs it hosted: the host's shim marks the first browser of the end and the others share it.
+    @Test func aRendererSharedByTwoTabsInTheHostIsOneHelperExitSample() async throws {
+        let (runtime, _, wire) = try await Self.startedRuntime()
+        defer { wire.close() }
+        let trace = TraceRuntime(role: .app)
+        let store = CEFPumpTests.store(on: trace)
+        runtime.helperExits = CEFHelperExitMetric(metrics: Metrics(runtime: trace))
+        let first = Self.tab(runtime, browser: 1)
+        let second = Self.tab(runtime, browser: 2)
+
+        runtime.handle(.renderTerminated(browser: 1, status: 2, code: Int(SIGSEGV), text: "", end: .first))
+        runtime.handle(.renderTerminated(browser: 2, status: 2, code: Int(SIGSEGV), text: "", end: .shared))
+
+        #expect(first.state.processExit?.reason == .crashed && second.state.processExit?.reason == .crashed)
+        #expect(runtime.crashLog.records.map(\.processType) == ["renderer", "renderer"], "each tab logs its renderer")
+        let samples = try #require(CEFPumpTests.histogram(.cefHelperExit, in: store))
+        #expect(samples.count == 1 && samples.sum == 17, "one renderer crash, not one per tab")
     }
 
     @Test func inProcessAHostEndDoesNothing() throws {

@@ -20,7 +20,7 @@ extension WindowRootView {
         // The right sidebar's inset moves to the other edge with it.
         applyMainPane()
         layoutSubtreeIfNeeded()
-        content?.needsLayout = true
+        content?.needsLayout = true // invalidate: the sidebar changed sides; the content lays out at its new place now.
         content?.layoutSubtreeIfNeeded()
     }
 

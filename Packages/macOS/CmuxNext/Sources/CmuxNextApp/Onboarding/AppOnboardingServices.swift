@@ -71,9 +71,12 @@ final class AppOnboardingServices: OnboardingServices {
         let summary: ImportSummary
         let endAccess = folderAccess.access(plan)
         defer { endAccess() }
+        let mainWork = services.mainWork
         do {
+            // Each step reaches the window as one `visible` task, in order (Chrome kUserVisible: shown, not the
+            // immediate answer to an input).
             summary = try await importer.run(plan, into: destination) { step in
-                Task { @MainActor in progress(step) }
+                mainWork.postFromAnyThread(.visible, owner: "Onboarding.importProgress") { progress(step) }
             }
         } catch {
             hold?.release()
@@ -101,7 +104,9 @@ final class AppOnboardingServices: OnboardingServices {
     func authorizePasswordRead(reason: String) async -> Bool {
         let context = LAContext()
         var unavailable: NSError?
-        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &unavailable) else {
+        // SAFETY: the error pointer is a local live for the call; LocalAuthentication stores at most one
+        // autoreleased NSError through it and keeps no reference to the pointer.
+        guard unsafe context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &unavailable) else {
             return unavailable?.domain == LAErrorDomain && unavailable?.code == LAError.Code.passcodeNotSet.rawValue
         }
         return (try? await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)) ?? false
@@ -126,6 +131,6 @@ final class AppOnboardingServices: OnboardingServices {
             return MockComputerUsePermissionSource(helperAppURL: URL(fileURLWithPath: "/Applications/cmux Computer Use.app"))
         }
         #endif
-        return AppComputerUsePermissionSource(setup: services.onboarding.computerUseSetup)
+        return AppComputerUsePermissionSource(setup: services.onboarding.computerUseSetup, mainWork: services.mainWork)
     }()
 }

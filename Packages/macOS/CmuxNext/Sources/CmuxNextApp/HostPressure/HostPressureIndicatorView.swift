@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextHostPressure
 
 /// The window's host pressure indicator in the top row, after the toolbar band
@@ -14,13 +15,13 @@ import CmuxNextHostPressure
 /// own: it follows the same level observation, and ends with it.
 ///
 /// Off by default (cmux#22662): it subscribes to the app's `HostPressureService`
-/// only while `HostPressureSampling.samples` holds (the Debug Settings toggle
-/// `hostPressure.enabled` is on and its window can be seen). Stop condition: the
-/// toggle going off, or the window (or the whole app) hiding, minimizing, being fully occluded or
-/// closing, unsubscribes it, and the service stops the monitor and its one 15 s
-/// timer when no window is subscribed. Cleanup: leaving the window, and deinit,
-/// cancel the notification, toggle and level observations (from any thread) and
-/// unsubscribe (`HostPressureSubscription` ends itself if it is released without that). While the toggle is off it never creates the service at all.
+/// only while `HostPressureSampling.samples` holds (the feature `hostPressure`, resolved
+/// once per launch, is on and its window can be seen). Stop condition: the window (or the
+/// whole app) hiding, minimizing, being fully occluded or closing unsubscribes it, and the
+/// service stops the monitor and its one 15 s timer when no window is subscribed. Cleanup:
+/// leaving the window, and deinit, cancel the notification, forced-level and level
+/// observations (from any thread) and unsubscribe (`HostPressureSubscription` ends itself if
+/// it is released without that). While the feature is off it never creates the service at all.
 final class HostPressureIndicatorView: NSView {
     static let identifier = "cmux.titlebar.hostPressure"
     let button = TitlebarBandButton(symbol: HostPressureIndicatorView.symbol(.warning, style: .gauge))
@@ -36,6 +37,7 @@ final class HostPressureIndicatorView: NSView {
     private let makeService: @MainActor () -> HostPressureService
     private let notifications: NotificationCenter
     private let toasts: CmuxToastCenter
+    /// Called when the indicator shows, hides or changes width: the owner places it again.
     private let onVisibilityChange: () -> Void
     private var subscription: HostPressureSubscription?
     private var service: HostPressureService? { subscription?.service }
@@ -107,13 +109,13 @@ final class HostPressureIndicatorView: NSView {
         applyTint()
     }
 
-    /// The gate's inputs now: the toggle and whether the window can be seen. A forced level
+    /// The gate's inputs now: the feature and whether the window can be seen. A forced level
     /// (Debug Settings only, for captures) counts as seen while the indicator is in a window:
     /// capture minis run windows the occlusion state calls hidden. The 15 s read then runs while
     /// the level stays forced; Off restores the window gate, and leaving the window still stops it.
     var sampling: HostPressureSampling {
         let forced = HostPressureTunables.force.value(in: store) != .off && window != nil
-        return HostPressureSampling(enabled: HostPressureTunables.enabled.value(in: store),
+        return HostPressureSampling(enabled: services.features.isEnabled(.hostPressure),
                                     windowVisible: forced || windowVisible(window))
     }
 
@@ -122,7 +124,7 @@ final class HostPressureIndicatorView: NSView {
         sampling.samples ? join() : leave()
     }
 
-    /// The window's and the app's visibility notifications and the toggle, while in a window.
+    /// The window's and the app's visibility notifications and the forced level, while in a window.
     /// They are tasks in `watching`, which a window change, `willClose` and deinit cancel (from
     /// any thread).
     private func observeWindow() {
@@ -147,10 +149,10 @@ final class HostPressureIndicatorView: NSView {
                 }
             })
         }
-        let (store, enabled, force) = (store, HostPressureTunables.enabled, HostPressureTunables.force)
+        let (store, force) = (store, HostPressureTunables.force)
         // task-owner: `watching` (cancelled on a window change, on willClose and in deinit); event-driven (Observation of the tunable store)
         watching.add(Task { [weak self] in
-            for await _ in ObservationStream({ (enabled.value(in: store), force.value(in: store)) }) {
+            for await _ in ObservationStream({ force.value(in: store) }) {
                 guard !Task.isCancelled, let self else { return }
                 reconcile()
             }
@@ -203,12 +205,8 @@ final class HostPressureIndicatorView: NSView {
         } else {
             popover.content.update(level: level, verdict: verdict, canStop: service?.isForced == false)
         }
-        if wasHidden != isHidden || oldWidth != width {
-            // The root lays the top row out: without this its layoutSubtreeIfNeeded keeps the old frame
-            // (zero the first time) until something else relayouts the window.
-            superview?.needsLayout = true
-            onVisibilityChange()
-        }
+        // The owner (the window's root) lays the top row out again; the indicator never invalidates it.
+        if wasHidden != isHidden || oldWidth != width { onVisibilityChange() }
     }
 
     /// "9.6 / 12": the 1-minute load against the budget's limit.

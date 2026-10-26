@@ -48,16 +48,18 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     case pageSchemeAddFirstPartyDynamic = 167, pageResourceRespond = 168, memoryPressureVote = 169
     case setCursorEvents = 170, addDocumentScript = 171, addPageChannel = 172, tabEvaluate = 173, tabSetFrozen = 174
     case tabSendClick = 175, tabSetColorScheme = 176, pageSchemeSetGroup = 177, tabDiscard = 178
-    case widgetSetGeometry = 179, widgetDismiss = 180, widgetSendInput = 181
+    case widgetSetGeometry = 179, widgetDismiss = 180, widgetSendInput = 181, browserImeSetComposition = 182
+    case browserImeCommitText = 183, browserImeFinishComposing = 184, browserImeCancelComposition = 185
 
     /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).
-    static let abiIdentity = "8188e4b9518f72c756c7b3ca9555f41504e8d0e36357670155fd411e62a40d35"
+    static let abiIdentity = "42fbf8e0f10ffd6444260db52ab83e6f7ec65706e9b4dd51c117560a0837887b"
     /// This generation's op ids, classes and wire types; both HELLOs carry it.
-    static let wireIdentity = "28f272a2df39cb4c56a60adfcddd8f17b1072beb1bf8da2a9ea57b29bafe4577"
+    static let wireIdentity = "5430bfc2e94d19cbde1c0f054cae5e9531cdc5d4feaa01bc487c2e1c65cd4cf8"
     /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).
     static let optionalOps: Set<ChromiumHostOp> = [
         .addDocumentScript, .addPageChannel, .tabEvaluate, .tabSetFrozen, .tabSendClick, .tabSetColorScheme,
         .pageSchemeSetGroup, .tabDiscard, .widgetSetGeometry, .widgetDismiss, .widgetSendInput,
+        .browserImeSetComposition, .browserImeCommitText, .browserImeFinishComposing, .browserImeCancelComposition,
     ]
     /// Host -> cmux control ops: a shim event, an async result, a mirror value, an ack.
     static let eventOp: UInt16 = 0x8001, replyOp: UInt16 = 0x8002
@@ -373,6 +375,10 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.post, [.int32, .int32, .int32, .int32, .int32, .int32], []),
         Row(.post, [.int32], []),
         Row(.post, [.int32, .int32, .int32, .int32, .int32, .int32, .int32, .int32, .int64, .int64, .int32, .int32], []),
+        Row(.post, [.int32, .bytes, .bytes, .int32, .int32, .int32, .int32], []),
+        Row(.post, [.int32, .bytes, .int32, .int32], []),
+        Row(.post, [.int32], []),
+        Row(.post, [.int32], []),
     ]
 
     private var row: Row { Self.rows[Int(rawValue) - 1] }

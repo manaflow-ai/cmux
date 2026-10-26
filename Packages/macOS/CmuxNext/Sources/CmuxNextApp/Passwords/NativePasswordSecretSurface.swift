@@ -15,7 +15,9 @@ final class NativePasswordSecretSurface: PasswordSecretSurface {
     }
 
     func reveal(_ secret: SecretBytes, site: String, username: String, anchor: NSView?) async {
-        let text = secret.withUnsafeBytes { String(decoding: $0, as: UTF8.self) }
+        // SAFETY: as in ConcealedPasteboard.write: the String copies the bytes out of the view SecretBytes lends
+        // for the closure, and the view does not escape.
+        let text = unsafe secret.withUnsafeBytes { unsafe String(decoding: $0, as: UTF8.self) }
         let spec = CmuxDialogSpec(
             title: site, lines: username.isEmpty ? [] : [username], fields: [.preview(text)],
             buttons: [CmuxDialogButton(id: "copy", title: PasswordStrings.copyPassword), .ok(PasswordStrings.done)],

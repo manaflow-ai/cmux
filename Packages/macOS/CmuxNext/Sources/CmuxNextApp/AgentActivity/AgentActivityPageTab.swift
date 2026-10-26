@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentActivity
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextIcons
 import CmuxNextControl
 import CmuxNextPages
@@ -76,7 +77,7 @@ final class AgentActivityPageTab: BrowserTab {
     func snapshot() async throws -> CGImage {
         // A hidden web view draws nothing into an AppKit cache: its engine pictures it.
         if let page = contentView as? PageWebView {
-            guard let image = await page.snapshot()?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            guard let image = await page.snapshot()?.bestCGImage else {
                 throw BrowserTabError.snapshotUnavailable
             }
             return image

@@ -13,7 +13,7 @@ import GhosttyNextKit
 // (ghostty.h:1571, :1586, :1656).
 extension TerminalSurfaceView {
     public override func keyDown(with event: NSEvent) { // perf-hot: 1ms terminal-key (every key typed into a terminal)
-        if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.keyReachedTerminal(bridge.takeUnretainedValue().typingSurface, display: FrameScheduler.appDisplays.display(of: window)) }
+        if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.keyReachedTerminal(bridgeObject.typingSurface, display: FrameScheduler.appDisplays.display(of: window)) }
         if TerminalClipboardRequests.isPasteChord(event), !clipboardRequests.userPasteInProgress {
             return clipboardRequests.asUserPaste { keyDown(with: event) }
         }
@@ -34,7 +34,8 @@ extension TerminalSurfaceView {
         // example `macos-option-as-alt`). Rebuild the event only when that
         // changes the flags: reusing the original event object is required
         // for some input methods (Korean) to keep their state.
-        let translationGhosttyMods = ghostty_surface_key_translation_mods(surface, GhosttyInput.mods(event.modifierFlags))
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        let translationGhosttyMods = unsafe ghostty_surface_key_translation_mods(surface, GhosttyInput.mods(event.modifierFlags))
         let translationEvent = GhosttyInput.translationEvent(for: event, translationMods: translationGhosttyMods)
 
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
@@ -128,7 +129,7 @@ extension TerminalSurfaceView {
     /// The key-down being dispatched changed what this terminal shows: echo prediction takes its bytes, and the app's
     /// delegate tells the scheduler a frame is expected (``TerminalSessionDelegate/terminalSessionTookKey(_:)``).
     func noteKeyTaken() {
-        bridge.takeUnretainedValue().input.predictions.keyTaken(by: self)
+        bridgeObject.input.predictions.keyTaken(by: self)
         if let session { session.delegate?.terminalSessionTookKey(session) }
     }
 
@@ -147,12 +148,17 @@ extension TerminalSurfaceView {
         // the Kitty keyboard protocol still sees the physical key.
         let took: Bool
         if let text, !text.isEmpty, !GhosttyInput.startsWithControlCharacter(text) {
-            took = text.withCString { pointer in
-                keyEvent.text = pointer
-                return clipboardRequests.asUserClipboardWrite { ghostty_surface_key(surface, keyEvent) }
+            // SAFETY: the view's live surface (TerminalSurfaceView.surface); the key's text is the
+            // NUL-terminated copy withCString lends for the closure, and Ghostty does not keep it.
+            took = unsafe text.withCString { pointer in
+                // SAFETY: as above.
+                unsafe keyEvent.text = pointer
+                // SAFETY: as above.
+                return clipboardRequests.asUserClipboardWrite { unsafe ghostty_surface_key(surface, keyEvent) }
             }
         } else {
-            took = clipboardRequests.asUserClipboardWrite { ghostty_surface_key(surface, keyEvent) }
+            // SAFETY: the view's live surface (TerminalSurfaceView.surface); the key has no text.
+            took = clipboardRequests.asUserClipboardWrite { unsafe ghostty_surface_key(surface, keyEvent) }
         }
         if took, action != GHOSTTY_ACTION_RELEASE { TypingLatencyProbe.shared.terminalTookKey(); noteKeyTaken() }
     }
@@ -166,9 +172,13 @@ extension TerminalSurfaceView {
         keyEvent.action = action
         keyEvent.mods = GHOSTTY_MODS_NONE
         keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-        let took = text.withCString { pointer in
-            keyEvent.text = pointer
-            return clipboardRequests.asUserClipboardWrite { ghostty_surface_key(surface, keyEvent) }
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface); the key's text is the
+        // NUL-terminated copy withCString lends for the closure, and Ghostty does not keep it.
+        let took = unsafe text.withCString { pointer in
+            // SAFETY: as above.
+            unsafe keyEvent.text = pointer
+            // SAFETY: as above.
+            return clipboardRequests.asUserClipboardWrite { unsafe ghostty_surface_key(surface, keyEvent) }
         }
         if took { TypingLatencyProbe.shared.terminalTookKey(); noteKeyTaken() }
     }
@@ -177,11 +187,12 @@ extension TerminalSurfaceView {
         guard let surface else { return }
         if markedText.length > 0 {
             let text = markedText.string
-            text.withCString { pointer in
-                ghostty_surface_preedit(surface, pointer, UInt(text.utf8.count))
-            }
+            // SAFETY: the view's live surface (TerminalSurfaceView.surface); Swift passes a
+            // NUL-terminated copy of `text` for the call, its length without the NUL.
+            unsafe ghostty_surface_preedit(surface, text, UInt(text.utf8.count))
         } else if clearIfNeeded {
-            ghostty_surface_preedit(surface, nil, 0)
+            // SAFETY: the view's live surface; a null preedit of length 0 clears it.
+            unsafe ghostty_surface_preedit(surface, nil, 0)
         }
     }
 }

@@ -1,0 +1,86 @@
+# Perf corpus
+
+One manifest per recorded-session story, `perf-corpus/<id>.json`, in the format
+[`schemas/perf/corpus-story-v1.schema.json`](../schemas/perf/corpus-story-v1.schema.json)
+([p12-perf-process.md](../plans/cmux-next/chrome-parity/p12-perf-process.md) section 3.8, task 110).
+A lab story in `scripts/perf-lab/stories.d/` runs a manifest as session `corpus:<id>`.
+
+```sh
+python3 -I scripts/perf-lab/corpus/manifest.py --validate perf-corpus/*.json           # schema and rules
+python3 -I scripts/perf-lab/corpus/manifest.py --validate perf-corpus/*.json --fetch   # also input blobs
+python3 -I scripts/perf-lab/corpus/manifest.py --add-blob FILE                          # cache it, print its ref
+python3 -I scripts/perf-lab/corpus/manifest.py --upload perf-corpus/*.json              # cached blobs to R2
+python3 -m unittest scripts/perf-lab/tests/test_corpus_manifest.py
+```
+
+## Stories
+
+| Story | Tier | Records it |
+| --- | --- | --- |
+| `agent-swarm` | T1 | 117 |
+| `dev-loop` | T1 | 118 |
+| `browse-heavy` | T1 | 119 |
+| `stress-recorded` | T1 | 120 |
+| `launch-restore` | T1 | 121 |
+| `long-day-soak` | T2 | 122 (loops agent-swarm, dev-loop and browse-heavy) |
+
+All six are `planned`: their sources and checkpoint digests are `null` until the recorder
+(task 116) records them. A `planned` story must say what records it in `planned`. A
+`recorded` story must have every source and both digests of every checkpoint.
+
+## Fields
+
+| Field | Meaning |
+| --- | --- |
+| `id`, `tier`, `description`, `owner` | The file name, `T0`/`T1`/`T2`, one sentence, an owner from `plans/cmux-next/OWNERS.md`. |
+| `duration_ms` | The measured window: the length of the input track. |
+| `layout` | `snapshot` (the layout export of task 111) and the number of `workspaces`. |
+| `input` | `{"events": [...]}` inline, or `{"blob": ref}` with the same events as NDJSON. |
+| `pty` | Terminal output tracks for `pty_replay.py` (task 112): `surface`, `source`, `speed`, `loop`. |
+| `web_archive` | `null`, or the WPR archive `wprgo` (blob) and the `spki` of its certificate (task 113). |
+| `agents` | ACP transcripts for the acpmux fake agent (task 114): `surface`, `agent`, `transcript`. |
+| `checkpoints` | `t_ms`, `name` and the `debug.focus` and `debug.surfaces` digests. Two replays must give equal digests. |
+| `metrics` | `{name, unit, better}`, as in `stories.d`: `name` is a full-match regex over result-v1 metrics. |
+| `compose` | Optional, for a soak: the `stories` it loops and the `idle_gap_ms` between them. |
+
+An event is `{t_ms, kind, payload}`, with `kind` one of `key`, `mouse`, `action` or `cli`.
+A surface or window is a layout reference such as `@w3.p0.t1` (workspace 3, pane 0, tab 1),
+because object ids are different in each replay.
+
+## No text, no user data
+
+The corpus holds no user data (rule R10). The validator fails closed: it accepts only the
+events that it can prove carry no text.
+
+- A key event is the input journal's key record without `characters`. A typing key (letter,
+  digit, punctuation, space or other, without Cmd or Ctrl) has no `key_code`: the player
+  types the next character of its fixed synthetic text.
+- A mouse event has only coordinates, buttons and modifiers.
+- An action or CLI event must be declared in
+  [`schemas/perf/corpus-input-vocabulary-v1.json`](../schemas/perf/corpus-input-vocabulary-v1.json):
+  the action id and each of its arguments, or the CLI command with its positionals and flags.
+  A value there is a layout reference, a number, a boolean or a declared word. No shape takes free
+  text, so `rename-workspace NAME`, `-n NAME`, a host name or `{"new_name": ...}` is refused.
+  To record a new action or command, add it to the vocabulary with non-text shapes in a reviewed change.
+- Every string is a token: no spaces, no slashes, at most 64 characters.
+- An input blob gets the same checks with `--validate --fetch`, and `--upload` puts nothing when
+  any input blob fails them: the R2 prefix is public and write-once.
+
+Agent transcripts and PTY output are synthetic. The recorder refuses a non-bench bundle id and
+refuses to run when `CMUX_NEXT_INPUT_JOURNAL_CHARACTERS` is set.
+
+## Blobs
+
+Large data is a blob: the manifest has its `sha256` and `bytes`, and R2 has the bytes at
+`perf-lab/corpus/sha256/<sha256>`. Chromium does the same for its recorded stories: git has
+the archive's `.sha1`, cloud storage has the `.wprgo`, and `py_utils/cloud_storage.py`
+downloads it only when the local hash is different
+(`third_party/catapult/common/py_utils/py_utils/cloud_storage.py`, `tools/perf/page_sets/data/`).
+
+- The local cache is `$CMUX_PERF_CORPUS_CACHE`, else `$XDG_CACHE_HOME/cmux/perf-corpus`,
+  else `~/.cache/cmux/perf-corpus`. Each read checks the digest; a bad copy is fetched again.
+- Reads come from `CMUX_PERF_LAB_R2_PUBLIC_URL`. Uploads use the `CMUX_PERF_LAB_R2_*`
+  credentials from the environment and never replace an existing object.
+- A source can also be a repository file, such as `schemas/terminal-corpus/*.vt`, with its
+  `path`, `sha256` and `bytes`. No file in git is over 256 KB: the validator refuses a
+  larger repository source, manifest or `perf-corpus/` file. Put that data in a blob.

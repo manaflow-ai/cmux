@@ -122,7 +122,7 @@ fn energy_mode_deadlines_follow_the_mode() {
 fn the_module_never_sleeps_a_thread() {
     let banned = concat!("thread", "::sleep(");
     for source in
-        [include_str!("mod.rs"), include_str!("energy.rs"), include_str!("maintenance.rs")]
+        [include_str!("lib.rs"), include_str!("energy.rs"), include_str!("maintenance.rs")]
     {
         assert!(!source.contains(banned));
     }

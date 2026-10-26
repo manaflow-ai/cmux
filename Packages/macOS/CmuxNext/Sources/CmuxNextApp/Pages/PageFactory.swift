@@ -198,7 +198,8 @@ struct PageFactory {
                 .init(resources: GhosttyRuntime.resourcesDirectory(), home: FileManager.default.homeDirectoryForCurrentUser,
                       environment: ProcessInfo.processInfo.environment)
             },
-            reload: { [weak services] in await services?.themes.catalog.reload() },
+            // Only the person saves or imports a theme file (`SettingsThemeFiles`): the page waits on the reload.
+            reload: { [weak services] in await services?.themes.catalog.reload(.userBlocking) },
             pickFile: { [weak services] in await services?.viewers.picker.open(.init(choose: .files))?.first })
         provider.backdropImages = SettingsWindowService.userImages.map { images in
             SettingsBackdropImages(images: images) { [weak services] in

@@ -39,6 +39,7 @@ mod live_models;
 mod locate;
 pub mod media_handles;
 pub mod media_read;
+mod memory_consumers;
 pub(crate) mod subagent_transcript;
 pub(crate) mod workflow_index;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
@@ -416,6 +417,8 @@ pub struct Hub {
     pub catalog: Arc<crate::catalog::CatalogService>,
     /// Agent CLI health (`harness_health`, `hub/health_view.rs`).
     pub health: Arc<crate::harness_health::HealthService>,
+    /// Energy Saver and the periodic upkeep on one clock (`maintenance.rs`).
+    pub maintenance: crate::maintenance::Maintenance,
     /// The token the web listener checks now (`web_token.rs`).
     pub web_token: WebToken,
     /// This launch's person key (`person.rs`): who may allow and grant.
@@ -450,6 +453,10 @@ pub struct Hub {
     pub(crate) briefs: dispatch::Briefs,
     /// Every Claude workflow of this daemon's chats (`workflow_index.rs`).
     pub(crate) workflow_index: workflow_index::WorkflowIndex,
+    /// The memory registry and its kernel source (`crate::memory`).
+    pub(super) memory: crate::memory::AcpmuxMemory,
+    /// The hub's memory consumers (`memory_consumers.rs`), registered once.
+    pub(super) memory_consumers: std::sync::OnceLock<Vec<cmux_memory::Registration>>,
 }
 
 impl Hub {
@@ -524,6 +531,7 @@ impl Hub {
             git_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
             health: Arc::new(crate::harness_health::HealthService::new()),
+            maintenance: Default::default(),
             web_token: WebToken::new(String::new()),
             person: Default::default(),
             workflow_index: Default::default(),
@@ -541,7 +549,10 @@ impl Hub {
             agent_pairs: Default::default(),
             pairing: Default::default(),
             briefs,
+            memory: Default::default(),
+            memory_consumers: std::sync::OnceLock::new(),
         });
+        hub.register_memory_consumers();
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
         }

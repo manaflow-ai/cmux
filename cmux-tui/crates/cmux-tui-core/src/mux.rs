@@ -172,6 +172,8 @@ pub(crate) use spawn_options::{
     CLIENT_PANE_ID_FIELD, CLIENT_SPLIT_ID_FIELD, CLIENT_TAB_ID_FIELD, terminal_identity,
 };
 pub use spawn_options::{PaneSurfaceCreation, TerminalSpawnOptions};
+#[cfg(unix)]
+mod acpmux_energy;
 mod agent_chat_columns;
 #[cfg(unix)]
 mod agent_chat_notices;

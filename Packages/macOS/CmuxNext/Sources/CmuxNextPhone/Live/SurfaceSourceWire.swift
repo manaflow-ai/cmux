@@ -28,7 +28,7 @@ public struct SurfaceSourceWire: Sendable, Equatable {
     public static func accessUnit(idr: Bool, captureMicros: UInt64, annexB: Data) -> Data {
         var payload = Data(capacity: 9 + annexB.count)
         payload.append(idr ? 1 : 0)
-        withUnsafeBytes(of: captureMicros.bigEndian) { payload.append(contentsOf: $0) }
+        payload.appendBigEndian(captureMicros)
         payload.append(annexB)
         return frame(kind: 2, payload)
     }
@@ -36,7 +36,7 @@ public struct SurfaceSourceWire: Sendable, Equatable {
     private static func frame(kind: UInt8, _ payload: Data) -> Data {
         var out = Data(capacity: 5 + payload.count)
         out.append(kind)
-        withUnsafeBytes(of: UInt32(payload.count).bigEndian) { out.append(contentsOf: $0) }
+        out.appendBigEndian(UInt32(payload.count))
         out.append(payload)
         return out
     }

@@ -539,7 +539,8 @@ final class AppServices {
     private(set) lazy var agentHarnesses = AgentHarnessCenter(services: self)
     /// Links, files and services macOS hands cmux (default browser, ssh:, scripts).
     private(set) lazy var externalOpen = ExternalOpenController(services: self)
-    let terminalTheme = TerminalThemeSetting(backdropScope: .app)
+    private(set) lazy var terminalTheme = TerminalThemeSetting(backdropScope: .app, deadlines: mainDeadlines, appEvents: appEvents,
+                                                                      workspaceEvents: workspaceEvents)
     /// This Mac's layout templates (Save Layout as Template, New Workspace from Template).
     private(set) lazy var layoutTemplates = LayoutTemplateLibrary(repository: LayoutTemplateRepository(fileURL: environment.layoutTemplatesFile))
     /// Every daemon answers terminal color queries with the colors terminals are painted with.
@@ -551,7 +552,7 @@ final class AppServices {
     var remoteLocalhost: RemoteLocalhostService { madeRemoteLocalhost ?? RemoteLocalhostService.made(for: self) }  // on first use
     var madeRemoteLocalhost: RemoteLocalhostService?
     /// Which machines run browser tabs there, and their runtimes (cx-2cob slice 2).
-    private(set) lazy var machineBrowserHosts = MachineBrowserHosts(machines: machines) { [weak self] in self?.remoteLocalhost }
+    private(set) lazy var machineBrowserHosts = MachineBrowserHosts(machines: machines, mainWork: mainWork) { [weak self] in self?.remoteLocalhost }
     var chromiumLikelyObservations: [Task<Void, Never>] = []
     var lifetimeFollowers: [AnyObject] = []  // the launch's app-lifetime followers (scheduled observations, subscriptions)
     /// Follows the default engine for the pages spare window (`startChromiumWarmup`, feature `pagesSpareWindow`).
@@ -576,7 +577,7 @@ final class AppServices {
     /// ``idleWakeups``' resign and become-active subscriptions on ``appEvents``.
     private var idleWakeupEvents: [EventSubscription] = []
     /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
-    var updateFeedObservation: Task<Void, Never>?
+    var updateFeedObservation: ServiceObservation<UpdateHighlights?>?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
     let contextMenus: BrowserContextMenuBuilder
     /// Sized browser popups (OAuth, payment), each in its own Chrome-style popup window.
@@ -719,7 +720,7 @@ final class AppServices {
         self.contextMenus = contextMenus
         popups = BrowserPopupWindows(contextMenus: contextMenus, mainWork: mainWork)
         self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
-        crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun, crashKeys: crashKeys)
+        crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun, crashKeys: crashKeys, work: work, mainWork: mainWork)
         self.features = features ?? Self.launchFeatures(environment)
         crashReporting = AppCrashReporting(environment: environment, afterStartup: .init(handlersFirst: self.features.isEnabled(.sentryHandlersFirst), startup: launchStartup))  // after the run marker's handlers
         DebugTimings.markLaunch("services.crash_reporting")
@@ -749,7 +750,7 @@ final class AppServices {
             self?.cache.pageRequests.closedHistories.save(self?.cache.existingBrowser(key)?.tab)
         }
         cache.machineBadge = { [weak self] key, url in self?.browserMachineBadge(key: key, url: url) }
-        cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages
+        cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages; crashRecovery.armSurvivalWindow(on: mainDeadlines)
         cache.useLaunchPictures(environment.browserLaunchPictures, enabled: features.isEnabled(.browserLaunchPictures), deadlines: mainDeadlines)
         cache.browserTabs.isIncognitoTab = { [weak self] key in
             guard let self, let workspace = workspaceID(ofTab: key) else { return false }

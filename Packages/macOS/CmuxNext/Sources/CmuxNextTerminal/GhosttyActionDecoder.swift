@@ -58,7 +58,8 @@ nonisolated enum GhosttyActionDecoder {
             return .host(payload.prompt_title == GHOSTTY_PROMPT_TITLE_WINDOW ? .promptWindowTitle : .promptTitle)
         case GHOSTTY_ACTION_SET_WINDOW_TITLE:
             // Same payload layout as set_title (apprt SetTitle).
-            return .host(.setWindowTitle(payload.set_title.title.map { String(cString: $0) } ?? ""))
+            // SAFETY: the payload's title pointer, valid for this callback; cString copies it.
+            return .host(.setWindowTitle(unsafe cString(payload.set_title.title) ?? ""))
         case GHOSTTY_ACTION_TOGGLE_VISIBILITY: return .host(.toggleVisibility)
         case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW: return .host(.toggleTabOverview)
         case GHOSTTY_ACTION_PRESENT_TERMINAL: return .host(.presentTerminal)
@@ -69,23 +70,28 @@ nonisolated enum GhosttyActionDecoder {
         case GHOSTTY_ACTION_REDO: return .host(.redo)
 
         case GHOSTTY_ACTION_SET_TITLE, GHOSTTY_ACTION_SET_TAB_TITLE:
-            let title = action.tag == GHOSTTY_ACTION_SET_TITLE ? payload.set_title.title : payload.set_tab_title.title
-            return .setTitle(title.map { String(cString: $0) } ?? "")
+            // SAFETY: reads the payload's title pointer, valid for this callback (copied below).
+            let title = unsafe action.tag == GHOSTTY_ACTION_SET_TITLE ? payload.set_title.title : payload.set_tab_title.title
+            // SAFETY: as above; cString copies the title.
+            return .setTitle(unsafe cString(title) ?? "")
         case GHOSTTY_ACTION_PWD:
-            return .pwd(payload.pwd.pwd.map { String(cString: $0) } ?? "")
+            // SAFETY: the payload's pwd pointer, valid for this callback; cString copies it.
+            return .pwd(unsafe cString(payload.pwd.pwd) ?? "")
         case GHOSTTY_ACTION_RING_BELL: return .ringBell
         // GHOSTTY_ACTION_DESKTOP_NOTIFICATION stays unhandled: the daemon
         // parses OSC 9/777/99 from every terminal's output, shown or not,
         // and posts it with source `terminal` (notification-source-v1).
         case GHOSTTY_ACTION_OPEN_URL:
             let open = payload.open_url
-            guard let url = string(open.url, length: Int(open.len)) else { return nil }
+            // SAFETY: the payload's url pointer and its length, valid for this callback; string copies them.
+            guard let url = string(unsafe open.url, length: Int(open.len)) else { return nil }
             return .openURL(url)
         case GHOSTTY_ACTION_MOUSE_SHAPE: return .mouseShape(payload.mouse_shape)
         case GHOSTTY_ACTION_MOUSE_VISIBILITY: return .mouseVisible(payload.mouse_visibility == GHOSTTY_MOUSE_VISIBLE)
         case GHOSTTY_ACTION_MOUSE_OVER_LINK:
             let link = payload.mouse_over_link
-            return .mouseOverLink(link.len > 0 ? string(link.url, length: Int(link.len)) : nil)
+            // SAFETY: the payload's url pointer and its length, valid for this callback; string copies them.
+            return .mouseOverLink(link.len > 0 ? string(unsafe link.url, length: Int(link.len)) : nil)
         case GHOSTTY_ACTION_CELL_SIZE:
             return .cellSize(width: payload.cell_size.width, height: payload.cell_size.height)
         case GHOSTTY_ACTION_RENDERER_HEALTH:
@@ -117,15 +123,19 @@ nonisolated enum GhosttyActionDecoder {
             guard change.kind == GHOSTTY_ACTION_COLOR_KIND_BACKGROUND else { return nil }
             return .backgroundColor(red: change.r, green: change.g, blue: change.b)
         case GHOSTTY_ACTION_CONFIG_CHANGE:
-            guard let config = payload.config_change.config else { return nil }
-            return .configChange(UncheckedPointer(raw: ghostty_config_clone(config)))
+            // SAFETY: the applied config is valid for this callback; the clone is a new handle
+            // the action owns (GhosttyActionDispatcher frees it once).
+            guard let config = unsafe payload.config_change.config else { return nil }
+            // SAFETY: as above.
+            return .configChange(unsafe UncheckedPointer(raw: ghostty_config_clone(config)))
         case GHOSTTY_ACTION_RELOAD_CONFIG: return .reloadConfig(soft: payload.reload_config.soft)
         case GHOSTTY_ACTION_OPEN_CONFIG: return .openConfig
         case GHOSTTY_ACTION_SCROLLBAR:
             let bar = payload.scrollbar
             return .scrollbar(TerminalScrollbar(totalRows: bar.total, offsetRows: bar.offset, visibleRows: bar.len))
         case GHOSTTY_ACTION_START_SEARCH:
-            return .startSearch(payload.start_search.needle.map { String(cString: $0) } ?? "")
+            // SAFETY: the payload's needle pointer, valid for this callback; cString copies it.
+            return .startSearch(unsafe cString(payload.start_search.needle) ?? "")
         case GHOSTTY_ACTION_END_SEARCH: return .endSearch
         case GHOSTTY_ACTION_SEARCH_TOTAL:
             let total = payload.search_total.total
@@ -149,9 +159,26 @@ nonisolated enum GhosttyActionDecoder {
         }
     }
 
+    // The action's strings are valid only during the action callback (ghostty.h), which is when
+    // `decode` runs: both readers copy them into Swift strings before it returns.
+
+    /// `length` bytes at `pointer`, the payload's string and its length.
+    @safe
     private static func string(_ pointer: UnsafePointer<CChar>?, length: Int) -> String? {
-        guard let pointer, length > 0 else { return nil }
-        let buffer = UnsafeRawBufferPointer(start: pointer, count: length)
-        return String(decoding: buffer, as: UTF8.self)
+        // SAFETY: only the address is read here; the bytes are read below, with their length.
+        guard let pointer = unsafe pointer, length > 0 else { return nil }
+        // SAFETY: Ghostty's payload pairs the pointer with its byte count; both come from the
+        // same payload, and the bytes live for the callback (above).
+        let buffer = unsafe UnsafeRawBufferPointer(start: pointer, count: length)
+        // SAFETY: as above; String(decoding:) copies.
+        return unsafe String(decoding: buffer, as: UTF8.self)
+    }
+
+    /// The payload's NUL-terminated string, nil for a null pointer.
+    @safe
+    private static func cString(_ pointer: UnsafePointer<CChar>?) -> String? {
+        // SAFETY: Ghostty's titles, pwd and needle are NUL-terminated and live for the
+        // callback (above); String(cString:) copies.
+        unsafe pointer.map { unsafe String(cString: $0) }
     }
 }

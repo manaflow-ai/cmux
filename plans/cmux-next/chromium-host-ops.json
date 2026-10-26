@@ -4788,6 +4788,126 @@
       "reason": "Input to a hosted widget, as a page view's input goes to its page: kind, v0..v5, flags, time_ns, ch and unmod are the fields of a ChromiumHostFrame of kind mouse, wheel, key, focus or edit (ChromiumHost/src/chromium_host_wire.h); the host sends it to the widget's RenderWidgetHost (task 066).",
       "fork_api": 29,
       "channel": "input"
+    },
+    {
+      "name": "cmux_shim_browser_ime_set_composition",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "text",
+          "type": "const uint8_t*"
+        },
+        {
+          "name": "text_length",
+          "type": "int"
+        },
+        {
+          "name": "clauses",
+          "type": "const uint8_t*"
+        },
+        {
+          "name": "clauses_length",
+          "type": "int"
+        },
+        {
+          "name": "selection_start",
+          "type": "int"
+        },
+        {
+          "name": "selection_end",
+          "type": "int"
+        },
+        {
+          "name": "replace_start",
+          "type": "int"
+        },
+        {
+          "name": "replace_end",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "One op of the page view's NSTextInputClient (p04-input-064), ordered after the key frames before it as Chrome's RenderWidgetHostNSViewHost pipe orders ImeSetComposition with key events (content/common/render_widget_host_ns_view.mojom); the host's shim runs the fork's remote-presentation IME export (p01-process-170). Offsets are UTF-16 units; text is UTF-16LE. Clauses: per clause i32 start, i32 end, u32 color 0xAARRGGBB, u32 thick (kIme's layout).",
+      "fork_api": 31
+    },
+    {
+      "name": "cmux_shim_browser_ime_commit_text",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "text",
+          "type": "const uint8_t*"
+        },
+        {
+          "name": "text_length",
+          "type": "int"
+        },
+        {
+          "name": "replace_start",
+          "type": "int"
+        },
+        {
+          "name": "replace_end",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "One op of the page view's NSTextInputClient (p04-input-064), ordered after the key frames before it as Chrome's RenderWidgetHostNSViewHost pipe orders ImeCommitText with key events (content/common/render_widget_host_ns_view.mojom); the host's shim runs the fork's remote-presentation IME export (p01-process-170). Offsets are UTF-16 units; text is UTF-16LE.",
+      "fork_api": 31
+    },
+    {
+      "name": "cmux_shim_browser_ime_finish_composing",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "One op of the page view's NSTextInputClient (p04-input-064), ordered after the key frames before it as Chrome's RenderWidgetHostNSViewHost pipe orders ImeFinishComposingText with key events (content/common/render_widget_host_ns_view.mojom); the host's shim runs the fork's remote-presentation IME export (p01-process-170). Offsets are UTF-16 units; text is UTF-16LE.",
+      "fork_api": 31
+    },
+    {
+      "name": "cmux_shim_browser_ime_cancel_composition",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "One op of the page view's NSTextInputClient (p04-input-064), ordered after the key frames before it as Chrome's RenderWidgetHostNSViewHost pipe orders ImeCancelComposition with key events (content/common/render_widget_host_ns_view.mojom); the host's shim runs the fork's remote-presentation IME export (p01-process-170). Offsets are UTF-16 units; text is UTF-16LE.",
+      "fork_api": 31
     }
   ],
   "optional_events": [
