@@ -330,9 +330,12 @@ try {
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
-    fetch(request) {
+    // A path with no file (the dev entry's own host calls, /__dev-host/*) is a 404, not a thrown
+    // ENOENT, which Bun reports and which ends the run with exit 1.
+    async fetch(request) {
       const pathname = new URL(request.url).pathname;
-      return new Response(Bun.file(path.join(prodDir, pathname === "/" ? "index.html" : pathname)));
+      const file = Bun.file(path.join(prodDir, pathname === "/" ? "index.html" : pathname));
+      return (await file.exists()) ? new Response(file) : new Response("not found", { status: 404 });
     },
   });
   releases.push(["static server", () => statics.stop(true)]);
