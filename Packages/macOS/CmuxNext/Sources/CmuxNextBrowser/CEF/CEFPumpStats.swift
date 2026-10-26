@@ -15,7 +15,7 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     /// running (a nested run loop) and were deferred.
     public var reentrantFires = 0
     /// `CefDoMessageLoopWork` calls that used the fork's whole time slice
-    /// (``CEFPumpSchedule/timeSlice(forkAPI:)``: 2 ms on a bounded-slice fork,
+    /// (``CEFPumpSchedule/timeSlice(forkAPI:)``: 2 ms from fork API 26,
     /// else 10 ms; the fork asks for "now" itself when work remains).
     public var longWorkRuns = 0
     /// Total time inside `CefDoMessageLoopWork`, in seconds.

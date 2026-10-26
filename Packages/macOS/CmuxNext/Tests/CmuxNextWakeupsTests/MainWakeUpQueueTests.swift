@@ -265,27 +265,42 @@ struct MainWakeUpQueueTests {
         }
         #expect(perFire == [20, 20, 10])
         #expect(log.ran == [UInt64](0..<50), "the entries left keep their order across fires")
-        #expect(rig.fires == 3 && rig.queue.count == 0)
-        #expect(rig.deadlines(of: "busy") == 3, "one record per owner per fire")
+        #expect(rig.queue.count == 0)
+        #expect(rig.fires == 1, "the continuations are the same wake: one fire record")
+        #expect(rig.deadlines(of: "busy") == 1, "one record per owner per wake")
+        #expect(rig.queue.coalescedFires == 1, "a split wake counts once")
     }
 
-    @Test("A fire that stops at its budget arms for now, so input queued during it runs before the next fire")
-    func inputRunsBetweenBudgetedFires() {
+    @Test("A fire that stops at its budget arms the rest for the current uptime with no tolerance")
+    func aBudgetStopArmsTheRestForNowWithNoTolerance() {
         let rig = WakeUpQueueRig()
         let log = RunLog()
-        Self.insertBusyEntries(into: rig, log: log, count: 50, cost: Self.ms / 10) { index in
-            // A key press reaches the run loop's event source while entry 5 runs.
-            if index == 5 { log.input.append { log.ran.append(1_000) } }
-        }
+        Self.insertBusyEntries(into: rig, log: log, count: 50, cost: Self.ms / 10)
         rig.fire()
         #expect(rig.queue.count == 30)
-        #expect(rig.timer.armedDate == rig.uptime.now, "the rest is due: armed for now, not for a later grid tick")
-        // The run loop's next pass: its sources first, then the timer armed for now.
-        log.drainInput()
+        #expect(rig.timer.arms.last == FakeWakeUpTimer.Arm(date: rig.uptime.now, tolerance: 0),
+                "the next run-loop pass, not a later grid tick or the top's latest time")
         rig.fire()
-        #expect(Array(log.ran.prefix(22)) == [UInt64](0..<20) + [1_000, 20])
+        #expect(log.ran == [UInt64](0..<40), "the rest runs on the next fire, in order")
+    }
+
+    @Test("An insert or a cancel during a continuation keeps its arm; emptying the queue ends the wake")
+    func aContinuationKeepsItsArm() throws {
+        let rig = WakeUpQueueRig()
+        let log = RunLog()
+        let tokens = Self.insertBusyEntries(into: rig, log: log, count: 2, cost: 5 * Self.ms)
         rig.fire()
-        #expect(rig.queue.count == 0 && rig.fires == 3)
+        let continuation = try #require(rig.timer.arms.last)
+        rig.queue.insert(owner: "later", after: .milliseconds(50)) {}
+        rig.queue.insert(owner: "precise", at: rig.uptime.now + Self.ms, window: .window(delay: .milliseconds(1), policy: .precise)) {}
+        #expect(rig.timer.arms.last == continuation && rig.timer.armedDate == continuation.date)
+        for token in tokens { rig.queue.cancel(token) }
+        #expect(rig.timer.armedDate == continuation.date, "entries are left: the continuation still fires")
+        rig.fire()
+        #expect(log.ran == [0] && rig.fires == 1)
+        rig.fire()
+        rig.fire()
+        #expect(rig.queue.count == 0 && rig.fires == 3, "the fires after the continuation are wakes of their own")
     }
 
     @Test("The entry that crosses the budget finishes; the next one waits for the next fire")
@@ -297,19 +312,19 @@ struct MainWakeUpQueueTests {
         #expect(log.ran == [0], "at least one entry per fire, however long")
         rig.fire()
         #expect(log.ran == [0, 1])
-        #expect(rig.fires == 2)
+        #expect(rig.fires == 1 && rig.deadlines(of: "busy") == 1)
     }
 
     /// `count` entries due at 100 ms that each advance the fake uptime by `cost` ns and log their index.
+    @discardableResult
     private static func insertBusyEntries(
-        into rig: WakeUpQueueRig, log: RunLog, count: UInt64, cost: UInt64, also: @escaping @MainActor @Sendable (UInt64) -> Void = { _ in }
-    ) {
+        into rig: WakeUpQueueRig, log: RunLog, count: UInt64, cost: UInt64
+    ) -> [MainWakeUpQueue.Token] {
         let uptime = rig.uptime
-        for index in 0..<count {
+        return (0..<count).map { index in
             rig.queue.insert(owner: "busy", at: 100 * ms, window: .window(delay: .milliseconds(100))) {
                 uptime.now += cost
                 log.ran.append(index)
-                also(index)
             }
         }
     }
@@ -422,12 +437,4 @@ struct MainWakeUpQueueTests {
 private final class RunLog {
     var ran: [UInt64] = []
     var count = 0
-    /// Input the fake run loop handles before its next timer fire.
-    var input: [@MainActor () -> Void] = []
-
-    func drainInput() {
-        let pending = input
-        input = []
-        for event in pending { event() }
-    }
 }

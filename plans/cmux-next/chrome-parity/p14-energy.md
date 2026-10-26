@@ -1445,6 +1445,16 @@ repositories.
   cmux side compiles against old and new API.
 - Test phase: fork CI build; `cmux-ci build cmux --ref SHA`; idle-budget tabs-static and energy-saver.
 - Size M. Depends: 029, 037, 046, 048, 107, 124, Q8 fork items. Queue fork.
+- 037 notes (manaflow-ai/cef `cp/p14-energy-037`, 361b930f5db4 and 70565d658a58): the fork part clamps
+  `MaxTimeSlice` to 2 ms and keeps `MessagePumpExternal::Run`'s loop over `DoWork` until the slice ends. That
+  loop is the batch. Chrome's `MessagePumpCFRunLoopBase::RunWork` runs one `DoWork`, and on the browser UI
+  thread that `DoWork` is an 8 ms batch (`kRunTasksByBatches`, on by default on Mac; `BrowserUIThreadScheduler`
+  sets `SetCanRunTasksByBatches(true)`). An exit after the first `DoWork` would keep that 8 ms batch, or with
+  batching off make one embedder pass per task. Open for 136: one `DoWork` can itself run an 8 ms batch, so the
+  2 ms bound does not hold yet. Bound the UI thread's batch under the external pump (a fork patch to the batch
+  duration, or no batching on that thread only). Do not use `--disable-features=RunTasksByBatches`, because
+  child processes inherit it. cmux judges passes by the switch's 2 ms from fork API 26
+  (`CEFPumpSchedule.pumpTimeSliceSwitchForkAPI`, the first API built on 066b083f), so 136 needs no cmux gate for 037.
 
 #### p14-energy-138 GlassModeWatch and BackdropVideoView follow EnergyPolicy
 - Files: `.../CmuxNextApp/GlassModeWatch.swift`, `.../CmuxNextApp/AppServices+Glass.swift`,
