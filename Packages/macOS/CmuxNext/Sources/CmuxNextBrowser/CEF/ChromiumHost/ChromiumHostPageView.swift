@@ -69,11 +69,13 @@ public final class ChromiumHostPageView: NSView {
 
     private var lastGeometry: ChromiumHostGeometry?
     /// What moves the page on screen without changing this view's frame: the
-    /// window's moves and screen changes, and the window's page update request
-    /// (``Foundation/Notification/Name/browserChildWindowPagesNeedUpdate``) that
-    /// the window's layout owner posts after panes, dividers or the sidebar
-    /// moved; the in-process `CEFHostView` re-places its page on the same request.
-    private var windowObservations: [MainActorObservation] = []
+    /// window's page update request
+    /// (``Foundation/Notification/Name/browserChildWindowPagesNeedUpdate``). The
+    /// window's layout owner (`WindowOverlayLayer`) posts it once per change
+    /// after panes, dividers or the sidebar moved and after the window moved,
+    /// resized or changed screen; the in-process `CEFHostView` re-places its
+    /// page on the same request.
+    private var pageUpdates: MainActorObservation?
 
     /// - Parameters:
     ///   - inputTarget: who takes the page's input.
@@ -194,16 +196,14 @@ public final class ChromiumHostPageView: NSView {
         onGeometry(geometry)
     }
 
-    /// Follows what moves the page on screen only while someone takes the geometry.
+    /// Follows the window's page update request only while someone takes the geometry.
     private func observeWindow() {
         guard onGeometry != nil, let window else {
-            windowObservations = []
+            pageUpdates = nil
             return
         }
-        let names = [NSWindow.didMoveNotification, NSWindow.didChangeScreenNotification,
-                     Notification.Name.browserChildWindowPagesNeedUpdate]
-        windowObservations = names.map { name in
-            MainActorObservation(name, object: window) { [weak self] in self?.presentedRectDidChange() }
+        pageUpdates = MainActorObservation(Notification.Name.browserChildWindowPagesNeedUpdate, object: window) { [weak self] in
+            self?.presentedRectDidChange()
         }
     }
 

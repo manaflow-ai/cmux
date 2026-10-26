@@ -148,14 +148,20 @@ import Testing
         layoutOwnerPostsPageUpdate()
         #expect(reports.count == 3)
 
-        page.setFrameSize(NSSize(width: 200, height: 300))
+        // The window moved: its layout owner posts the same request.
+        window.setFrameOrigin(NSPoint(x: window.frame.minX + 30, y: window.frame.minY))
+        layoutOwnerPostsPageUpdate()
         #expect(reports.count == 4)
+        #expect(reports.last?.screenX == Int32(window.frame.minX) + 50)
+
+        page.setFrameSize(NSSize(width: 200, height: 300))
+        #expect(reports.count == 5)
         #expect(reports.last?.width == 200)
 
         // Leaving the window and coming back reports again: the host lost nothing it needs.
         page.removeFromSuperview()
         pane.addSubview(page)
-        #expect(reports.count == 5)
+        #expect(reports.count == 6)
     }
 
     /// The page follows its window only while someone takes its geometry: a taker set after the
