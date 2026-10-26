@@ -150,8 +150,12 @@ final class CEFPaneHost {
         // A tab shown before its browser exists (a new tab, a hibernated one waking) gets it once
         // this turn's frame is committed: building or joining a Chromium window holds the main
         // thread (`create_window`, `tab_add`), and the tab's toolbar and themed page area must be
-        // on screen in the frame of the key that asked for it (PL-cef-tab: < 10 ms).
-        if tab.browserID == nil, !tab.awaitsWindowMove { return createAfterCommit(tab) }
+        // on screen in the frame of the key that asked for it (PL-cef-tab: < 10 ms). In host mode
+        // joining the live window is a post that returns the id cmux minted, so the tab gets its
+        // browser in the key's turn; building a window still waits (it makes the profile's directory).
+        if tab.browserID == nil, !tab.awaitsWindowMove {
+            return runtime.joinsWindowsAtOnce && isLive ? create(tab) : createAfterCommit(tab)
+        }
         ensureCreated(tab)
         if tab.awaitsWindowMove {
             // Still in its opener's window: activating it there would show
@@ -194,12 +198,14 @@ final class CEFPaneHost {
     func createDeferred() {
         let waiting = deferredCreations.compactMap(\.tab)
         deferredCreations.removeAll()
-        for tab in waiting where !tab.isClosed && tabs.contains(where: { $0 === tab }) {
-            // Joined a live window while still shown (`tab_add` activated it and returned the browser):
-            // present's page-shown and geometry steps, which it skipped for a tab with no browser.
-            // A window still being built shows its shown tab in `windowCreated`.
-            if ensureCreated(tab), visibleTab === tab, !tab.awaitsWindowMove { showBrowser(of: tab, activate: false) }
-        }
+        for tab in waiting where !tab.isClosed && tabs.contains(where: { $0 === tab }) { create(tab) }
+    }
+
+    /// Starts `tab`'s browser now. Joined a live window while still shown (`tab_add` activated it
+    /// and returned the browser): present's page-shown and geometry steps, which it skipped for a
+    /// tab with no browser. A window still being built shows its shown tab in `windowCreated`.
+    private func create(_ tab: CEFTab) {
+        if ensureCreated(tab), visibleTab === tab, !tab.awaitsWindowMove { showBrowser(of: tab, activate: false) }
     }
 
     /// Starts `tab`'s browser: a new Chromium window, or a tab of this host's live or coming one.

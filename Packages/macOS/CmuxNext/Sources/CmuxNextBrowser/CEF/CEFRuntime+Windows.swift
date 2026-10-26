@@ -56,6 +56,12 @@ nonisolated struct CEFWindowRequestLog: Equatable, Sendable {
 }
 
 extension CEFRuntime {
+    /// True when the shim's `tab_add` returns at once with the browser id cmux minted, and the
+    /// browser's OnAfterCreated arrives in a later event batch: host mode (``hostStart``; task 019
+    /// of plans/cmux-next/chrome-parity/p01-process.md). In process the call builds the tab in
+    /// Chromium and holds the main thread, and OnAfterCreated runs inside it.
+    var joinsWindowsAtOnce: Bool { hostStart != nil }
+
     /// A pane window's store, compared with request stores.
     func storeKey(of key: CEFPaneKey) -> String {
         let context = contextKey(for: key)
