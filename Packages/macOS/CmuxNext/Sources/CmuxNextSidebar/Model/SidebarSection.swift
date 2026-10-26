@@ -86,6 +86,8 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
     /// shown in the header's tooltip (`Cost.lines`); nil for machines
     /// that bill nothing.
     public var cost: Cost?
+    /// The machine's room on its remote group's header (`Room`); nil for none.
+    public var room: Room?
 
     public init(id: MachineID, name: String, kind: Kind, status: Status = .connected, detail: String? = nil,
                 icon: WorkspaceIcon? = nil, cost: Cost? = nil) {

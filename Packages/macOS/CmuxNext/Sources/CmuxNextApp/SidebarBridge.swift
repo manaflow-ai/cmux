@@ -391,7 +391,7 @@ final class SidebarBridge {
                                                 iconAsset: IconAssetImages.shared.sidebarIcon(owner: session.daemon), groupIconAsset: groupIcon,
                                                 rowSource: rows, workspaceFilter: workspaceFilter)
         }
-        return machines.withMachineIcons(sections)
+        return machines.withMachineRooms(machines.withMachineIcons(sections), rooms: RemoteMachinesSidebar.shared.rooms)
     }
 
     static func machine(for daemon: DaemonService, name: String, kind: SidebarMachine.Kind, live: Bool = true,

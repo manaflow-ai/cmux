@@ -34,8 +34,10 @@ extension SidebarDocProjection {
             }
             if section.machine != nil {
                 section.nodes = Self.machineNodes(section, projection, drag: drag)
-                // A machine section the person made a remote group keeps its header in one list.
-                section.isHostGroup = drag.section(section.id).flatMap { projection.hostGroups.contains($0) } ?? false
+                // A machine section the person made a remote group keeps its header in one list. The
+                // document decides for every section it holds; one it does not hold (a debug fixture's)
+                // keeps its own flag, and the app's live sections come in with none.
+                section.isHostGroup = drag.section(section.id).map { projection.hostGroups.contains($0) } ?? section.isHostGroup
             }
             return section
         }

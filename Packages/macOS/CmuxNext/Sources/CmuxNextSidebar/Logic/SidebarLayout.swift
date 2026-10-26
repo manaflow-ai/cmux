@@ -260,13 +260,15 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             // old "Projects" header folded shows again.
             let collapsed = showsHeader && section.isCollapsed && !filtering
             if showsHeader {
+                let titlesProjects = section.machine != nil && machineCount == 1
+                let headerHeight = Self.headerHeight(section, m, titlesProjects: titlesProjects)
                 rows.append(SidebarRow(
-                    key: .section(section.id), y: y, height: m.sectionHeaderHeight, section: section.id,
+                    key: .section(section.id), y: y, height: headerHeight, section: section.id,
                     group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
                     isCollapsed: collapsed, childCount: nodes.count, groupColor: nil,
-                    titlesProjects: section.machine != nil && machineCount == 1
+                    titlesProjects: titlesProjects
                 ))
-                y += m.sectionHeaderHeight + m.rowSpacing
+                y += headerHeight + m.rowSpacing
             }
             if collapsed { continue }
 

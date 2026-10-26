@@ -31,6 +31,9 @@ public nonisolated struct SidebarNestedFixture: Sendable {
         /// A tall group (ten members) among short groups and loose rows, for group drag captures
         /// (`debug.sidebar_group_drag`; Lawrence 2026-10-23, "groups that are too tall").
         case tallGroup
+        /// Two remote groups under This Mac: one reachable with its machine's room on its header's
+        /// second line, one offline with none (`SidebarMachine.Room`).
+        case remoteGroups
     }
 
     /// The state this fixture captures.
@@ -83,10 +86,11 @@ public nonisolated struct SidebarNestedFixture: Sendable {
             nodes = Self.sixLevels(folded: [])
         case .collapsed:
             nodes = Self.sixLevels(folded: ["g-builders", "g-sidebar"])
-        case .tallGroup:
+        case .tallGroup, .remoteGroups:
             nodes = Self.tallGroup
         }
-        sections = [SidebarSection(kind: .machine(machine), nodes: nodes)]
+        sections = scenario == .remoteGroups ? Self.remoteGroups(local: machine)
+            : [SidebarSection(kind: .machine(machine), nodes: nodes)]
     }
 
     private static func ws(_ id: String, _ title: String, unread: UnreadState = .none, busy: Bool = false) -> SidebarWorkspace {
@@ -159,6 +163,23 @@ public nonisolated struct SidebarNestedFixture: Sendable {
             group("nightly", "Nightly & CI", .red, [
                 ws("updates", "Updates keep sessions alive"), ws("ios-testflight", "iOS TestFlight"),
             ]),
+        ]
+    }
+
+    private static func remoteGroups(local: SidebarMachine) -> [SidebarSection] {
+        var linux = SidebarMachine(id: MachineID("linux-box"), name: "linux-box", kind: .ssh)
+        linux.room = SidebarMachine.Room(line: "31 GB free · CPU 12/32", toolTip: "31 GB free · CPU 12/32 · 180 GB disk",
+                                         spoken: "31 GB free · CPU 12/32")
+        let offline = SidebarMachine(id: MachineID("gpu-box"), name: "gpu-box", kind: .ssh, status: .offline)
+        let remote = { (machine: SidebarMachine, nodes: [SidebarNode]) in
+            var section = SidebarSection(kind: .machine(machine), nodes: nodes)
+            section.isHostGroup = true
+            return section
+        }
+        return [
+            SidebarSection(kind: .machine(local), nodes: [.workspace(ws("readme", "README pass")), .workspace(ws("release", "Release notes"))]),
+            remote(linux, [.workspace(ws("api", "API server", busy: true)), .workspace(ws("migrations", "Migrations", unread: .dot))]),
+            remote(offline, [.workspace(ws("train", "Training run"))]),
         ]
     }
 }

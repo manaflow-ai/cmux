@@ -1,4 +1,6 @@
 import CmuxNextAgentLanes
+import CmuxNextBridge
+import CmuxNextSidebar
 import Foundation
 
 extension MachineRegistry {
@@ -6,13 +8,35 @@ extension MachineRegistry {
     /// whose host, short host or sidebar name is the peer's name, else the Cloud machine or
     /// server of that name. Nil when no machine the app shows matches.
     func machineName(peer: String) -> String? {
+        machineID(peer: peer).flatMap { machineName($0) }
+    }
+
+    /// The id of the machine an acpmux peer is, matched as ``machineName(peer:)`` matches.
+    func machineID(peer: String) -> String? {
         let wanted = peer.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !wanted.isEmpty else { return nil }
         let matches = { (names: [String]) in names.contains { $0.lowercased() == wanted } }
-        let id = sshMachine(named: [wanted])?.machineID
+        return sshMachine(named: [wanted])?.machineID
             ?? cloud.first { matches([$0.machine.title]) }?.machineID
             ?? servers.first { matches([$0.name]) }?.machineID
-        return id.flatMap { machineName($0) }
+    }
+
+    /// `sections` with each machine header that is an acpmux peer carrying its room
+    /// (`RemoteMachinesSidebar.rooms`, by peer name); a header draws it only as a remote group.
+    func withMachineRooms(_ sections: [SidebarRowSection], rooms: [String: SidebarMachine.Room]) -> [SidebarRowSection] {
+        guard !rooms.isEmpty else { return sections }
+        var byMachine: [String: SidebarMachine.Room] = [:]
+        for (peer, room) in rooms.sorted(by: { $0.key < $1.key }) {
+            if let id = machineID(peer: peer), byMachine[id] == nil { byMachine[id] = room }
+        }
+        return sections.map { section in
+            guard case .machine(var machine) = section.kind, machine.kind != .local,
+                  let room = byMachine[machine.id.rawValue] else { return section }
+            machine.room = room
+            var drawn = section
+            drawn.kind = .machine(machine)
+            return drawn
+        }
     }
 
     /// The SSH machine whose host, short host or sidebar name is one of `names` (any case, a

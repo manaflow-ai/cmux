@@ -12,6 +12,9 @@ final class SectionHeaderRowView: SidebarRowView {
     /// "Update needed" after the status dot, for a machine whose cmux-tui
     /// is too old (the tooltip says why).
     private let badge = SidebarRowView.label(font: SidebarStyle.headerFont)
+    /// A remote group's machine room under the name (`SidebarMachine.Room`); hidden without one.
+    private let roomLine = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+    private(set) var room: SidebarMachine.Room?
     private(set) var badgeText: String?
     private let chevron = DecorativeImageView()
     let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 }, label: Strings.newWorkspace)
@@ -30,7 +33,7 @@ final class SectionHeaderRowView: SidebarRowView {
     required init(key: SidebarRowKey) {
         super.init(key: key)
         layer?.addSublayer(status)
-        [glyph, machineIcon, name, badge, chevron, addButton].forEach(addSubview)
+        [glyph, machineIcon, name, badge, roomLine, chevron, addButton].forEach(addSubview)
         // The header's label and AXExpanded say what the glyph and chevron draw.
         addButton.onPress = { [weak self] in self?.onAdd?() }
     }
@@ -98,10 +101,10 @@ final class SectionHeaderRowView: SidebarRowView {
         }
     }
 
-    /// The header's tooltip: the status words or detail, then a Cloud
-    /// machine's cost and the account's cap (`SidebarMachine.Cost.lines`) as of `now`.
-    static func machineToolTip(status: String?, cost: SidebarMachine.Cost?, now: Date) -> String? {
-        let lines = [status].compactMap { $0?.isEmpty == false ? $0 : nil } + (cost?.lines(now: now) ?? [])
+    /// The header's tooltip: the status words or detail, a remote group's machine room, then a
+    /// Cloud machine's cost and the account's cap (`SidebarMachine.Cost.lines`) as of `now`.
+    static func machineToolTip(status: String?, room: SidebarMachine.Room? = nil, cost: SidebarMachine.Cost?, now: Date) -> String? {
+        let lines = [status, room?.toolTip].compactMap { $0?.isEmpty == false ? $0 : nil } + (cost?.lines(now: now) ?? [])
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 
@@ -113,6 +116,7 @@ final class SectionHeaderRowView: SidebarRowView {
         guard needsConfigure(content) else { return }
         statusTip = nil
         cost = nil
+        room = nil
         collapsed = row.isCollapsed
         isEmpty = content.isEmpty
         let symbol: IconName
@@ -154,8 +158,9 @@ final class SectionHeaderRowView: SidebarRowView {
             badgeText = Self.statusText(machine.status, hostGroup: section.isHostGroup)
             statusTip = Self.statusToolTip(words: words, detail: machine.detail, bareDot: badgeText == nil && (statusTone != nil || machine.status == .updateAvailable))
             cost = machine.kind == .cloud ? machine.cost : nil
-            themedToolTip = Self.machineToolTip(status: statusTip, cost: cost, now: Date())
-            setAccessibilityLabel(machine.name + ", " + words)
+            room = section.isHostGroup ? machine.room : nil
+            themedToolTip = Self.machineToolTip(status: statusTip, room: room, cost: cost, now: Date())
+            setAccessibilityLabel([machine.name, words, room?.spoken].compactMap { $0 }.joined(separator: ", "))
             setAccessibilityHelp(cost == nil ? machine.detail : themedToolTip)
         }
         // The only machine needs no name or status: the header heads the
@@ -167,6 +172,7 @@ final class SectionHeaderRowView: SidebarRowView {
             badgeText = nil
             statusTip = nil
             cost = nil
+            room = nil
             themedToolTip = nil
             setAccessibilityHelp(nil)
         }
@@ -177,6 +183,8 @@ final class SectionHeaderRowView: SidebarRowView {
         name.setFont(SidebarStyle.headerFont)
         badge.setString(badgeText ?? "")
         badge.setFont(SidebarStyle.headerFont)
+        roomLine.setString(room?.line ?? "")
+        roomLine.setFont(SidebarStyle.subtitleFont)
         chevron.image = SidebarStyle.chevron(collapsed: collapsed)
         setAccessibilityElement(true)
         setAccessibilityRole(.disclosureTriangle)
@@ -201,6 +209,7 @@ final class SectionHeaderRowView: SidebarRowView {
         performWithTheme {
             name.setColor(Palette.textTertiary)
             badge.setColor(Palette.textTertiary)
+            roomLine.setColor(Palette.textTertiary)
             glyph.setTint(Palette.textSecondary)
             chevron.setTint(Palette.textTertiary)
             status.backgroundColor = statusTone.map(Self.color)?.cgColor
@@ -224,6 +233,11 @@ final class SectionHeaderRowView: SidebarRowView {
     override func layout() {
         super.layout()
         let b = layoutBounds
+        // With a room the name, dot and controls keep the one-line header's band at the top,
+        // and the room takes the detail line under it.
+        roomLine.isHidden = room == nil
+        let lineH = room == nil ? 0 : SidebarStyle.detailLineHeight
+        let band = b.height - lineH
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
@@ -234,7 +248,7 @@ final class SectionHeaderRowView: SidebarRowView {
         var nameX = SidebarStyle.horizontalInset
         if !machineIcon.isHidden {
             let side = Metrics.smallIconSize
-            machineIcon.frame = NSRect(x: nameX, y: (b.height - side) / 2, width: side, height: side)
+            machineIcon.frame = NSRect(x: nameX, y: (band - side) / 2, width: side, height: side)
             nameX += side + Metrics.space2
         }
         var trailing = b.width - SidebarStyle.horizontalInset
@@ -244,28 +258,32 @@ final class SectionHeaderRowView: SidebarRowView {
         addButton.isHidden = !allowsAdd
         let control = SidebarStyle.controlSize
         if allowsAdd {
-            addButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
+            addButton.frame = NSRect(x: trailing - control, y: (band - control) / 2, width: control, height: control)
             trailing -= control + Metrics.space1
         }
         // The disclosure is a section control too; keep it stable instead of
         // making the header reflow when the pointer arrives.
         chevron.isHidden = isEmpty
         let chevronSide = Metrics.smallIconSize
-        chevron.frame = NSRect(x: trailing - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
+        chevron.frame = NSRect(x: trailing - chevronSide, y: (band - chevronSide) / 2, width: chevronSide, height: chevronSide)
         trailing -= chevronSide + Metrics.space2
         let nw = min(ceil(name.attributedStringValue.size().width) + Metrics.space2, max(0, trailing - nameX - Metrics.space5))
         let nh = ceil(name.intrinsicContentSize.height)
         // The label cell draws inside its frame: the text starts where row titles do.
-        name.frame = NSRect(x: nameX - SidebarStyle.labelCellPadding, y: (b.height - nh) / 2, width: nw, height: nh)
+        name.frame = NSRect(x: nameX - SidebarStyle.labelCellPadding, y: (band - nh) / 2, width: nw, height: nh)
         let dot = SidebarStyle.dotSize
-        status.frame = CGRect(x: name.frame.maxX + Metrics.space2, y: (b.height - dot) / 2, width: dot, height: dot)
+        status.frame = CGRect(x: name.frame.maxX + Metrics.space2, y: (band - dot) / 2, width: dot, height: dot)
         status.cornerRadius = dot / 2
         badge.isHidden = badgeText == nil
         if !badge.isHidden {
             let bx = status.frame.maxX + Metrics.space2
             let bw = min(ceil(badge.attributedStringValue.size().width) + Metrics.space2, max(0, trailing - bx))
             let bh = ceil(badge.intrinsicContentSize.height)
-            badge.frame = NSRect(x: bx, y: (b.height - bh) / 2, width: bw, height: bh)
+            badge.frame = NSRect(x: bx, y: (band - bh) / 2, width: bw, height: bh)
+        }
+        if room != nil {
+            roomLine.frame = NSRect(x: nameX - SidebarStyle.labelCellPadding, y: band, width: max(0, trailing - nameX + SidebarStyle.labelCellPadding),
+                                    height: lineH)
         }
         needsDisplay = true
     }
@@ -273,7 +291,7 @@ final class SectionHeaderRowView: SidebarRowView {
     override func hoverChanged() {
         super.hoverChanged()
         // The running time and estimate move with the clock: a hover reads them now.
-        if isHovered, cost != nil { themedToolTip = Self.machineToolTip(status: statusTip, cost: cost, now: Date()) }
+        if isHovered, cost != nil { themedToolTip = Self.machineToolTip(status: statusTip, room: room, cost: cost, now: Date()) }
         needsLayout = true
     }
 
@@ -282,6 +300,9 @@ final class SectionHeaderRowView: SidebarRowView {
 
     /// Whether the machine's own icon shows before the name (tests).
     var showsMachineIcon: Bool { !machineIcon.isHidden }
+
+    /// The room line under a remote group's name, nil while hidden (tests).
+    var shownRoomLine: String? { roomLine.isHidden ? nil : roomLine.stringValue }
 }
 
 // MARK: - Empty section drop zone
