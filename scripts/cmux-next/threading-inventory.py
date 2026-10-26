@@ -108,7 +108,7 @@ RULES: dict[str, Callable[[list, collections.Counter], list]] = {
 LOCATORS = {
     "task-priority": g.TASK_CALL,
     "thread-doc": g.THREAD_SCAN.pattern,
-    "raw-blocking-ext": re.compile(g.RAW_BLOCKING_EXT.pattern + r"|(?<![\w$])\w+\.(" + g.FILE_OPS + r")\("),
+    "raw-blocking-ext": re.compile(g.RAW_BLOCKING_EXT.pattern + r"|(?<![\w$])\w+[?!]?\.(" + g.FILE_OPS + r")\("),
 }
 DEFAULT_LOCATOR = g.MAIN_SCAN.pattern
 ALWAYS = g.ALWAYS_BLOCKING

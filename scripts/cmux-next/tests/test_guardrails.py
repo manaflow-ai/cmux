@@ -11,12 +11,15 @@ and pass off main; the async overloads (`try await service.unregister()`) and lo
 `async let` initializer, a `Task {` in a nonisolated function, an @concurrent function and an actor method (also in
 an extension in another file, and an `async` actor init), reads isolation from the declaration's prefix only, and
 passes a `work.run` closure and an actor with a real custom executor (the HomeCache pattern; a comment is none).
-raw-blocking-ext refuses, on any thread, a FileManager disk op through a name the file binds to a FileManager (`let fm
-= FileManager.default`, `fileManager: FileManager = .default`, `FileManager()`), POSIX file and process calls,
-FileHandle open/write/read/seek/synchronize, ImageIO URL I/O, sqlite3_*, sysctl, proc_pid*, LAContext policy checks,
-getpw* and Host.current(). Its fixtures pin what it must not refuse: a method of the same name (`menu.removeItem(at:)`),
-the `stat()` struct initializer, a `waitpid(..., WNOHANG)` poll, a POSIX name the file declares itself, an awaited
-`evaluatePolicy`, the seams and an escaped line; its acceptance count runs threading-inventory.py on 772cdfc45ac.
+raw-blocking-ext refuses, on any thread, a FileManager disk op through a name whose nearest declaration in scope binds
+a FileManager (`let fm = FileManager.default`, `fileManager: FileManager? = .default`, `FileManager()`, also through
+`fm?.` and `fm!.`), POSIX file and process calls (arguments read across lines), FileHandle
+open/write/read/seek/synchronize, ImageIO URL I/O, sqlite3_*, sysctl, proc_pid*, `canEvaluatePolicy`, getpw* and
+Host.current(). Its fixtures pin what it must not refuse: a method of the same name (`menu.removeItem(at:)`), the
+`stat()` struct initializer, a call off its C arity, a `waitpid(..., WNOHANG)` poll, a POSIX name a declaration in
+scope shadows (but never `open(..., O_*)`, and never from another function), `evaluatePolicy` (async or reply), a
+`blockingCall`/`allowBlocking` closure, the seams and an escaped line; its acceptance count runs
+threading-inventory.py on 772cdfc45ac.
 The rules run on in-memory changes (as check() builds them); only the actor-index and check() push tests make a
 throwaway git repository in a temporary folder.
 
@@ -575,6 +578,21 @@ REFUSED = {
     "LAContext": "func f() {\n    _ = context.canEvaluatePolicy(.deviceOwnerAuthentication, error: nil)\n}\n",
     "getpwuid": "func f() {\n    let entry = getpwuid(getuid())\n}\n",
     "Host.current": "func f() {\n    _ = Host.current().localizedName\n}\n",
+    # A declaration hides a POSIX name only in its own scope, and never hides `open(..., O_*)`.
+    "open beside a guard let open in another function": ("func a() {\n    guard let open = onOpen, open(file) else { return }\n"
+                                                          "}\nfunc b() {\n    let fd = open(path, O_RDONLY)\n}\n"),
+    "open beside a Bool member": "struct S {\n    var open: Bool\n    func f() { _ = open(path, O_RDONLY) }\n}\n",
+    "rename beside a local in another function": ("func a() {\n    guard let rename = onRename else { return }\n"
+                                                  "    rename(x, y)\n}\nfunc b() {\n    _ = rename(old, new)\n}\n"),
+    "access beside a non-callable parameter": "init(access: AccessLevel) {\n    _ = access(path, R_OK)\n}\n",
+    "an optional FileManager": ("struct S {\n    var fm: FileManager?\n"
+                                "    func f() -> Bool { fm?.fileExists(atPath: p) ?? false }\n}\n"),
+    "a force-unwrapped FileManager": "func f(fm: FileManager?) throws {\n    try fm!.removeItem(at: url)\n}\n",
+    "a FileManager parameter passed on": ("func f(fileManager: FileManager = .default) {\n"
+                                          "    _ = list(fileManager: fileManager)\n"
+                                          "    _ = fileManager.fileExists(atPath: p)\n}\n"),
+    "a wrapped open": "func f() {\n    let fd = open(\n        path,\n        O_RDONLY | O_CLOEXEC)\n}\n",
+    "WNOHANG outside the call": "func f() {\n    _ = waitpid(pid, &status, 0); let flag = WNOHANG\n}\n",
 }
 PASSED = {
     "a method with no binding": "func f() {\n    menu.removeItem(at: 0)\n}\n",
@@ -589,9 +607,21 @@ PASSED = {
     "the seam": "func f() throws {\n    _ = FileManager.checked.fileExists(atPath: p)\n    _ = try handle.blockingRead(upToCount: 4)\n}\n",
     "a chained default": "func f() {\n    let home = FileManager.default\n        .homeDirectoryForCurrentUser\n    _ = home.url(\n}\n",
     "an awaited policy": "func f() async {\n    _ = try? await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: r)\n}\n",
+    "a reply-closure policy": ("func f() {\n    context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) "
+                               "{ @Sendable success, _ in\n        done(success)\n    }\n}\n"),
     "a comment and a string": "func f() {\n    // unlink(path)\n    print(\"stat(path, &st)\")\n}\n",
     "the escape": "func f() {\n    // blocking-allow: test fixture for the escape\n    unlink(path)\n}\n",
     "Darwin.close": "func f() {\n    Darwin.close(fd)\n    _ = open\n}\n",
+    "a guard let rename in its own scope": "func a() {\n    guard let rename = onRename else { return }\n    rename(x, y)\n}\n",
+    "a member closure called from an extension": ("struct S {\n    var stat: (String, Int) -> Int\n}\n"
+                                                  "extension S {\n    func f() { _ = stat(p, 1) }\n}\n"),
+    "a call off its C arity": "func f() {\n    _ = stat(resolved)\n    rename(id)\n}\n",
+    "an open with no O_ flag": "func f() {\n    open(file)\n    _ = open(\n        url, mode\n    )\n}\n",
+    "a wrapped WNOHANG poll": "func f() {\n    _ = waitpid(\n        pid, &status,\n        WNOHANG)\n}\n",
+    "in a blockingCall closure": ("func f() {\n    blockingCall(.fileIO) { _ = unlink(path) }\n"
+                                  "    let ok = blockingCall(.systemCall) {\n        stat(path, &st) == 0\n    }\n}\n"),
+    "in an allowBlocking closure": ("func f() throws {\n    let fm = FileManager.default\n"
+                                    "    try allowBlocking(.fixture) {\n        try fm.removeItem(at: url)\n    }\n}\n"),
 }
 
 
@@ -615,6 +645,28 @@ class RawBlockingExtTests(unittest.TestCase):
         self.assertEqual([h.number for h in found], [3])  # the call, not `var st = stat()`
         found = ext_hits(REFUSED["fm variable"])
         self.assertEqual([h.number for h in found], [3])  # the op, not the binding
+        found = ext_hits(REFUSED["open beside a guard let open in another function"])
+        self.assertEqual([h.number for h in found], [5])
+        found = ext_hits(REFUSED["rename beside a local in another function"])
+        self.assertEqual([h.number for h in found], [6])  # b's rename, not a's closure
+        found = ext_hits(REFUSED["a FileManager parameter passed on"])
+        self.assertEqual([h.number for h in found], [3])  # the argument label declares nothing
+
+    def test_a_name_is_read_from_its_nearest_declaration(self):
+        """A FileManager name refuses only where its nearest declaration in scope binds a FileManager: the same
+        name bound to the checked seam or a parameter of another type in another function is not one."""
+        text = ("func a() {\n    let manager = FileManager.default\n    _ = manager.fileExists(atPath: p)\n}\n"
+                "func b() {\n    let manager = FileManager.checked\n    try? manager.removeItem(at: url)\n}\n"
+                "func c(manager: Store) {\n    _ = manager.contents(atPath: p)\n}\n"
+                "func d() {\n    let manager = FileManager.default\n    do {\n        let manager = Store()\n"
+                "        _ = manager.contents(atPath: p)\n    }\n    _ = manager.contents(atPath: p)\n}\n")
+        self.assertEqual([h.number for h in ext_hits(text)], [3, 18])
+
+    def test_blocking_call_on_main_is_main_blocking(self):
+        """The seam scope passes raw-blocking-ext; on the main thread the `blockingCall` seam is main-blocking."""
+        text = "func f() {\n    blockingCall(.fileIO) { _ = unlink(path) }\n}\n"
+        self.assertEqual(refused(SERVICE, text), set())
+        self.assertEqual(refused(UI, text), {"main-blocking"})
 
     def test_main_actor_code_and_the_seam_folder(self):
         self.assertTrue(ext_hits("func f() {\n    unlink(path)\n}\n", UI), "main-actor code is refused too")
