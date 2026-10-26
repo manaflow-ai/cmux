@@ -46,13 +46,17 @@ pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::
     // A Web client, here or through a peer, learns no host name or path.
     let web =
         super::remote_guard::control_of(conn.origin, conn.auth, params) == crate::hub::Control::Web;
-    // The create's name, as `session/new` and `session/fork` read it.
-    let name = mux_meta(params)
-        .and_then(|m| m.get("name"))
-        .or_else(|| params.get("name"))
-        .and_then(Value::as_str)
-        .map(str::to_owned);
+    let name = create_name(params);
     crate::hub::admission::Ask { force, can_force, person, who, local: !web, name }
+}
+
+/// The create's name, as `session/new` and `session/fork` read it.
+fn create_name(params: &Value) -> Option<String> {
+    mux_meta(params)
+        .and_then(|m| m.get("name"))
+        .and_then(Value::as_str)
+        .or_else(|| params.get("name").and_then(Value::as_str))
+        .map(str::to_owned)
 }
 
 /// `_meta.acpmux.forceAdmit` is true.
@@ -1859,5 +1863,17 @@ mod admission_force_tests {
         assert!(can_force(Origin::LocalApp), "the app");
         assert!(!can_force(Origin::Web), "a Web client");
         assert!(!can_force(Origin::Peer), "a peer");
+    }
+
+    #[test]
+    fn the_admission_name_is_the_one_the_create_takes() {
+        let name = |p: Value| create_name(&p);
+        assert_eq!(name(json!({"name": "top"})).as_deref(), Some("top"));
+        let both = json!({"name": "top", "_meta": {"acpmux": {"name": "meta"}}});
+        assert_eq!(name(both).as_deref(), Some("meta"));
+        // A `_meta` name that is not a string falls back to the top-level one, as the create does.
+        let null = json!({"name": "top", "_meta": {"acpmux": {"name": null}}});
+        assert_eq!(name(null).as_deref(), Some("top"));
+        assert_eq!(name(json!({})), None);
     }
 }
