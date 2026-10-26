@@ -17,6 +17,7 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
         health = services.machineHealth
         super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
         let registry = services.registry
+        // hosting-gate: opt-out a right sidebar section, not tab content: it shows while the sidebar does.
         let hosting = NSHostingView(rootView: MachineSectionListView(model: model, newWorkspace: { id in
             registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string(id)]))
         }, addMachine: { registry.perform("device.add") }))

@@ -149,10 +149,12 @@ final class InternalPageView: NSView {
     /// The view that takes the keyboard when the tab is focused: a native
     /// page's primary input (the docked Home's message box), a React page's
     /// web content itself, so typing reaches the page without a click first,
+    /// a gated page's SwiftUI (``VisibilityGatedHostingView/focusTarget``),
     /// or the view a native page names (``InternalPageFocusing``).
     var focusTarget: NSView {
         if let input = (content as? any PrimaryInputTarget)?.primaryInputView { return input }
         if let page = content as? PageWebView { return page.focusView }
+        if let gate = content as? VisibilityGatedHostingView { return gate.focusTarget }
         return (content as? any InternalPageFocusing)?.focusTarget ?? content
     }
 

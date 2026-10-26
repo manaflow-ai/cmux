@@ -208,7 +208,7 @@ final class DebugSettingsService: InternalPageProvider {
             DebugSettingsModel.followTheme(window?.themeScope ?? .app)
             return page
         }
-        return model.makePaneView(scope: window?.themeScope ?? .app)
+        return VisibilityGatedHostingView(owner: "DebugSettingsPage", hosting: model.makePaneView(scope: window?.themeScope ?? .app))
     }
 
     /// The React page over `model` when Debug Settings `debugSettings.surface` is `web` (the
