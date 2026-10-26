@@ -283,6 +283,18 @@ pub(crate) struct RankedMutex<T> {
     rank: LockRank,
     #[cfg(debug_assertions)]
     name: &'static str,
+    /// Test builds only: what a test reads of [`Self::wait_timed`].
+    #[cfg(test)]
+    probe: WaitProbe,
+}
+
+/// The threads past a failed try of a [`RankedMutex`], so a test starts a
+/// hold only once its waiter is contended, and the last wait it measured.
+#[cfg(test)]
+#[derive(Default)]
+struct WaitProbe {
+    waiting: std::sync::atomic::AtomicU32,
+    last_wait_nanos: std::sync::atomic::AtomicU64,
 }
 
 impl<T> RankedMutex<T> {
@@ -295,6 +307,8 @@ impl<T> RankedMutex<T> {
             rank,
             #[cfg(debug_assertions)]
             name,
+            #[cfg(test)]
+            probe: WaitProbe::default(),
         }
     }
 
@@ -348,8 +362,17 @@ impl<T> RankedMutex<T> {
     #[inline(never)]
     fn wait_timed(&self, site: &'static Location<'static>) -> LockResult<MutexGuard<'_, T>> {
         let since = Instant::now();
+        #[cfg(test)]
+        self.probe.waiting.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
         let locked = self.inner.lock();
-        cmux_threads::lock_wait::note_timed_lock_wait(since.elapsed(), site);
+        let waited = since.elapsed();
+        #[cfg(test)]
+        {
+            let nanos = u64::try_from(waited.as_nanos()).unwrap_or(u64::MAX);
+            self.probe.last_wait_nanos.store(nanos, std::sync::atomic::Ordering::Release);
+            self.probe.waiting.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+        }
+        cmux_threads::lock_wait::note_timed_lock_wait(waited, site);
         locked
     }
 
@@ -394,60 +417,111 @@ impl<T> DerefMut for RankedGuard<'_, T> {
 #[cfg(all(test, debug_assertions))]
 mod tests {
     use super::{LockRank, RankedMutex};
-    use cmux_threads::{BlockingKind, BlockingMode, ThreadQos};
-    use std::sync::{Arc, mpsc};
+    use cmux_threads::{BlockingKind, BlockingMode, LOCK_WAIT_BUDGET, ThreadQos};
+    use std::panic::Location;
+    use std::sync::Arc;
+    use std::sync::atomic::Ordering;
     use std::time::Duration;
 
     /// The `file:line` of a lock call; `lock` returns it from the line it
     /// locks on.
     type Site = (&'static str, u32);
 
-    /// Holds a ranked mutex for `hold` while a thread that disallows
-    /// blocking, in panic mode, locks it with `lock`. Returns the count of
-    /// `lock-wait` records at the site `lock` reports.
-    fn lock_wait_count_after_hold(hold: Duration, lock: fn(&RankedMutex<u32>) -> Site) -> u64 {
-        let mutex = Arc::new(RankedMutex::new(LockRank::Leaf, "test.leaf", 0_u32));
-        let guard = mutex.lock().expect("holder lock");
-        let (started_tx, started_rx) = mpsc::channel();
-        let waiter = cmux_threads::spawn("lock-rank-waiter", ThreadQos::UserInitiated, {
-            let mutex = Arc::clone(&mutex);
-            move || {
-                cmux_threads::with_blocking_disallowed(|| {
-                    cmux_threads::blocking::with_mode(BlockingMode::Panic, || {
-                        started_tx.send(()).expect("signal start");
-                        lock(&mutex)
-                    })
-                })
-            }
-        })
-        .expect("spawn waiter");
-        cmux_threads::checked::sync::recv(&started_rx).expect("waiter started");
-        cmux_threads::checked::sync::sleep(hold);
-        drop(guard);
-        let (file, line) = cmux_threads::checked::sync::join(waiter).expect("waiter");
+    /// A contended lock: the `lock-wait` records at its site and the wait
+    /// the lock measured.
+    struct Contended {
+        count: u64,
+        waited: Duration,
+    }
+
+    fn lock_wait_count((file, line): Site) -> u64 {
         cmux_threads::blocking::snapshot()
             .site(file, line)
             .filter(|site| site.kinds.contains(BlockingKind::LockWait))
             .map_or(0, |site| site.count)
     }
 
-    #[test]
-    fn five_ms_holder_records_one_lock_wait_site_without_panic() {
-        let count = lock_wait_count_after_hold(Duration::from_millis(5), |mutex| {
-            let (site, guard) = ((file!(), line!()), mutex.lock().expect("waiter lock"));
-            drop(guard);
-            site
+    /// Starts `body` on a thread that disallows blocking, in panic mode.
+    fn spawn_disallowed<R: Send + 'static>(
+        body: impl FnOnce() -> R + Send + 'static,
+    ) -> std::thread::JoinHandle<R> {
+        cmux_threads::spawn("lock-rank-waiter", ThreadQos::UserInitiated, move || {
+            cmux_threads::with_blocking_disallowed(|| {
+                cmux_threads::blocking::with_mode(BlockingMode::Panic, body)
+            })
+        })
+        .expect("spawn waiter")
+    }
+
+    fn on_disallowed_thread<R: Send + 'static>(body: impl FnOnce() -> R + Send + 'static) -> R {
+        cmux_threads::checked::sync::join(spawn_disallowed(body)).expect("waiter")
+    }
+
+    /// Holds a ranked mutex while a thread that disallows blocking, in panic
+    /// mode, locks it with `lock`. The hold starts only once the waiter is
+    /// past its failed try (as `contend` in cmux-threads' lock_wait tests),
+    /// so the wait the lock measures lasts at least `hold` under any load.
+    fn contend(hold: Duration, lock: fn(&RankedMutex<u32>) -> Site) -> Contended {
+        let mutex = Arc::new(RankedMutex::new(LockRank::Leaf, "test.leaf", 0_u32));
+        let guard = mutex.lock().expect("holder lock");
+        let waiter = spawn_disallowed({
+            let mutex = Arc::clone(&mutex);
+            move || lock(&mutex)
         });
-        assert_eq!(count, 1);
+        while mutex.probe.waiting.load(Ordering::Acquire) == 0 {
+            std::thread::yield_now();
+        }
+        cmux_threads::checked::sync::sleep(hold);
+        drop(guard);
+        let site = cmux_threads::checked::sync::join(waiter).expect("waiter");
+        let waited = Duration::from_nanos(mutex.probe.last_wait_nanos.load(Ordering::Acquire));
+        Contended { count: lock_wait_count(site), waited }
     }
 
     #[test]
-    fn tenth_ms_holder_records_no_lock_wait_site() {
-        let count = lock_wait_count_after_hold(Duration::from_micros(100), |mutex| {
+    fn five_ms_holder_records_one_lock_wait_site_without_panic() {
+        let contended = contend(Duration::from_millis(5), |mutex| {
             let (site, guard) = ((file!(), line!()), mutex.lock().expect("waiter lock"));
             drop(guard);
             site
         });
-        assert_eq!(count, 0);
+        assert!(contended.waited >= Duration::from_millis(5), "waited {:?}", contended.waited);
+        assert_eq!(contended.count, 1);
+    }
+
+    /// A 0.1 ms hold bounds the measured wait from below only, so the
+    /// record follows the wait the lock measured; a 0.1 ms wait given
+    /// directly records nothing.
+    #[test]
+    fn tenth_ms_holder_records_no_lock_wait_site() {
+        let contended = contend(Duration::from_micros(100), |mutex| {
+            let (site, guard) = ((file!(), line!()), mutex.lock().expect("waiter lock"));
+            drop(guard);
+            site
+        });
+        assert!(contended.waited >= Duration::from_micros(100), "waited {:?}", contended.waited);
+        assert_eq!(contended.count, u64::from(contended.waited >= LOCK_WAIT_BUDGET));
+
+        let site = on_disallowed_thread(|| {
+            let site = Location::caller();
+            cmux_threads::lock_wait::note_timed_lock_wait(Duration::from_micros(100), site);
+            (site.file(), site.line())
+        });
+        assert_eq!(lock_wait_count(site), 0);
+    }
+
+    #[test]
+    fn an_uncontended_lock_records_no_lock_wait_site() {
+        let mutex = Arc::new(RankedMutex::new(LockRank::Leaf, "test.leaf", 0_u32));
+        let site = on_disallowed_thread({
+            let mutex = Arc::clone(&mutex);
+            move || {
+                let (site, guard) = ((file!(), line!()), mutex.lock().expect("lock"));
+                drop(guard);
+                site
+            }
+        });
+        assert_eq!(mutex.probe.last_wait_nanos.load(Ordering::Acquire), 0);
+        assert_eq!(lock_wait_count(site), 0);
     }
 }
