@@ -4,6 +4,7 @@ import CmuxNextApps
 import CmuxNextCompat
 public import CmuxNextDesign
 import CmuxNextHome
+public import CmuxNextHomeEngine
 public import CmuxNextSidebar
 import Foundation
 public import Observation
@@ -25,22 +26,27 @@ public final class ChiefSidebar {
     public static let openSubagentAction: ActionID = "chief.openSubagent"
     private static let showsIdleKey = "sidebar.chief.showsIdleSubagents"
 
-    /// The Chief item's indicator and badge.
+    /// The Chief item's indicator, badge and unread dot.
     public struct Status: Equatable, Sendable {
         public var activity: StatusIndicatorState = .idle
         public var badge: Int?
+        /// The Chief's conversation has messages the person has not read: a dot where no badge counts.
+        public var unread = false
 
-        public init(activity: StatusIndicatorState = .idle, badge: Int? = nil) {
+        public init(activity: StatusIndicatorState = .idle, badge: Int? = nil, unread: Bool = false) {
             self.activity = activity
             self.badge = badge
+            self.unread = unread
         }
     }
 
     /// What the App reaches for the Chief: its conversation id (nil before it is listed), the
-    /// Chief host (`chief:<id>`), the tab that shows a session there, revealing a tab, and a new
-    /// workspace on a session there.
+    /// Chief host (`chief:<id>`), the tab that shows a session there, revealing a tab, a new
+    /// workspace on a session there, and whether the conversation has unread messages (read in an
+    /// observation scope).
     public struct Host {
         public var conversation: () -> String?
+        public var unread: () -> Bool
         public var chiefHost: () -> String?
         public var tab: (_ session: String, _ host: String) -> String?
         public var reveal: (_ tab: String) -> Bool
@@ -48,8 +54,9 @@ public final class ChiefSidebar {
 
         public init(conversation: @escaping () -> String?, chiefHost: @escaping () -> String?,
                     tab: @escaping (String, String) -> String?, reveal: @escaping (String) -> Bool,
-                    openWorkspace: @escaping (String, String) throws -> ActionWork) {
+                    openWorkspace: @escaping (String, String) throws -> ActionWork, unread: @escaping () -> Bool = { false }) {
             self.conversation = conversation
+            self.unread = unread
             self.chiefHost = chiefHost
             self.tab = tab
             self.reveal = reveal
@@ -91,9 +98,17 @@ public final class ChiefSidebar {
         SidebarTransientItem.chiefSubagents(lanes: lanes.lanes.values, showsIdle: true)
     }
 
-    /// The Chief item's look with its status.
+    /// The Chief item's look with its status: an unread conversation shows a dot unless a badge counts.
     public func decorate(_ info: inout SidebarItemInfo) {
         (info.activity, info.badge) = (status.activity, status.badge)
+        info.unreadDot = status.unread && status.badge == nil
+    }
+
+    /// Whether Home's list dots the Chief's conversation `chief`: one of `home`'s unread conversations (unread
+    /// messages or Mark as Unread, never a muted one). Read in the status observation, so a change re-yields.
+    public static func isUnread(_ chief: String?, in home: HomeSidebarSource) -> Bool {
+        guard let chief else { return false }
+        return home.unreadConversations.contains { $0.rawValue == chief }
     }
 
     /// The sidebar-item menu entries a layout item does not show: Hide on a non-app item, the
@@ -108,8 +123,7 @@ public final class ChiefSidebar {
 
     /// Binds Open Chief, Open Chief Subagent and the fold, and starts following the lanes into `status`.
     public func bind(into registry: ActionRegistry, host: Host) {
-        self.host = host
-        watch()
+        follow(host)
         registry.bind(Self.openAction, invoke: { [weak self, weak registry] invocation in
             guard let registry else { return }
             self?.openChief(registry, origin: invocation.origin)
@@ -151,12 +165,19 @@ public final class ChiefSidebar {
         return true
     }
 
+    /// Reaches the App through `host` and follows the lanes and the conversation's unread state into `status`.
+    func follow(_ host: Host) {
+        self.host = host
+        watch()
+    }
+
     private func watch() {
         guard statusWatch == nil else { return }
         let lanes = lanes
+        let unread = host?.unread ?? { false }
         // task-owner: this instance (the app-lifetime `shared`); event-driven (Observation)
         statusWatch = Task { [weak self] in
-            for await next in ObservationStream({ Status(SidebarTransientItem.chiefStatus(lanes: lanes.lanes.values)) }) {
+            for await next in ObservationStream({ Status(SidebarTransientItem.chiefStatus(lanes: lanes.lanes.values), unread: unread()) }) {
                 guard let self else { return }
                 if status != next { status = next }
             }
@@ -196,7 +217,7 @@ public final class ChiefSidebar {
 }
 
 extension ChiefSidebar.Status {
-    init(_ status: (activity: StatusIndicatorState, badge: Int?)) {
-        self.init(activity: status.activity, badge: status.badge)
+    init(_ status: (activity: StatusIndicatorState, badge: Int?), unread: Bool = false) {
+        self.init(activity: status.activity, badge: status.badge, unread: unread)
     }
 }

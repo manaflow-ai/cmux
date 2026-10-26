@@ -1,12 +1,14 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextChiefMemory
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
+import CmuxNextSidebar
 import Observation
 
 /// The Home top page, two columns: MessagesLab's conversation list
@@ -107,6 +109,18 @@ final class TopHomePageView: NSView {
         }
         let home = services.home
         let registry = services.registry
+        // The Chief's row dragged out sideways goes on as a drag into a window's sidebar, where its drop adds the Chief
+        // item (Leo 2026-10-21: drag in a Chief, like a special workspace). Any other row stays Home's.
+        let chiefDrag = ChiefDragIn(host: .init(
+            sidebar: { [weak services] point, below in
+                services.flatMap { LinkDragSession.window(at: point, below: below, in: $0) }?.sidebar.container.sidebarView
+            },
+            isBusy: { [weak services] in services.map { $0.dragSession.isDragging || $0.linkDrags.isDragging } ?? true },
+            drop: { _ = registry.perform("sidebar.item.add", invocation: ActionInvocation(arguments: ["item": .string(SidebarBuiltIn.chief.rawValue)], origin: .user)) }))
+        list.setDragOut { [weak home] id, point in
+            guard let home, id.rawValue == Self.chief(home) else { return false }
+            return chiefDrag.begin(at: point)
+        }
         // Mark as Read: the user's unread mark goes, and the read cursor moves to the newest message.
         list.onMarkRead = { id in
             sidebar.setMarkedUnread(false, id)

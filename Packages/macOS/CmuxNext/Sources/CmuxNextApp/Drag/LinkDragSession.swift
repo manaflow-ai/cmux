@@ -86,8 +86,12 @@ final class LinkDragSession {
     /// The app window under `screenPoint` (a page's child window counts as its parent), below
     /// the ghost.
     private func window(at screenPoint: CGPoint, below ghost: NSWindow) -> WindowController? {
-        guard let services else { return nil }
-        let number = NSWindow.windowNumber(at: screenPoint, belowWindowWithWindowNumber: ghost.windowNumber)
+        services.flatMap { Self.window(at: screenPoint, below: ghost.windowNumber, in: $0) }
+    }
+
+    /// The app window under `screenPoint` below window number `ghost` (a drag's ghost; the Chief's drag in too).
+    static func window(at screenPoint: CGPoint, below ghost: Int, in services: AppServices) -> WindowController? {
+        let number = NSWindow.windowNumber(at: screenPoint, belowWindowWithWindowNumber: ghost)
         var window = NSApp.window(withWindowNumber: number)
         while let child = window, !services.windows.controllers.contains(where: { $0.window === child }), let parent = child.parent {
             window = parent

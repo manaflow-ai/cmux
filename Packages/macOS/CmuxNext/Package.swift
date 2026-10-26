@@ -978,7 +978,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextAgentLanes",
             dependencies: ["CmuxNextActions", "CmuxNextAgentActivity", "CmuxNextAgentPane", "CmuxNextApps", "CmuxNextBridge",
                            "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextHome", "CmuxNextHomeEngine",
-                           "CmuxNextIcons", "CmuxNextSidebar", "CmuxNextWakeups"],
+                           "CmuxNextIcons", "CmuxNextSidebar", "CmuxNextTabs", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
