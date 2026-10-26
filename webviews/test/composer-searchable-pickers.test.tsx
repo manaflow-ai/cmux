@@ -73,7 +73,9 @@ async function type(field: HTMLInputElement, value: string) {
 }
 
 async function key(field: HTMLInputElement, value: string) {
-  await act(async () => field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: value, bubbles: true })));
+  const event = new dom.window.KeyboardEvent("keydown", { key: value, bubbles: true, cancelable: true });
+  await act(async () => field.dispatchEvent(event));
+  return event.defaultPrevented;
 }
 
 async function machines() {
@@ -193,4 +195,46 @@ test("Enter without a query keeps the current project and private-folder choice"
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   }
   expect(calls).toEqual([]);
+});
+
+test("completed machine search releases Tab and keeps keyboard focus on connect actions", async () => {
+  await machines();
+  const field = document.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  await type(field, "gpu-box");
+  expect(await key(field, "Tab")).toBe(false);
+  const action = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((button) =>
+    button.textContent?.includes("SSH"),
+  )!;
+  await act(async () => action.focus());
+  expect(document.activeElement).toBe(action);
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+});
+
+test("the project list announces the committed project and private-folder selection", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ProjectChooser } = await import("../src/agent-session/acpmux/ProjectChooser");
+  root = createRoot(host);
+  for (const privateFolder of [false, true]) {
+    await act(async () =>
+      root!.render(
+        <ProjectChooser
+          key={String(privateFolder)}
+          projects={[
+            { cwd: "/demo/first", label: "first" },
+            { cwd: "/demo/current", label: "current" },
+          ]}
+          current={privateFolder ? undefined : "/demo/current"}
+          noProject={privateFolder}
+          onNoProject={() => {}}
+          icon={null}
+          onPick={() => {}}
+        />,
+      ),
+    );
+    await click(host.querySelector<HTMLButtonElement>("button")!);
+    const selected = document.querySelector('[role="option"][aria-current="true"]');
+    expect(selected).toBeTruthy();
+    expect(selected!.textContent).toContain(privateFolder ? "Do not work in a project" : "current");
+    await key(document.querySelector<HTMLInputElement>('[role="combobox"]')!, "Escape");
+  }
 });
