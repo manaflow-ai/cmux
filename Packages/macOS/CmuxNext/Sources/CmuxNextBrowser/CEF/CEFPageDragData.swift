@@ -71,15 +71,19 @@ nonisolated struct CEFPageDragData: Equatable, Sendable {
 
     /// The drag behind the fork's pointer, valid only during the callback; nil for a struct older than API 30's.
     init?(fork drag: UnsafeRawPointer) {
-        guard Int(drag.load(as: Int32.self)) >= Offset.size else { return nil }
-        func int(_ offset: Int) -> Int32 { drag.load(fromByteOffset: offset, as: Int32.self) }
+        // SAFETY (every `unsafe` here): `drag` points at the fork's cmux_drag_source_t, valid during the shim's
+        // callback and at least Offset.size bytes once its `size` says so (the offsets are host_drag.h's,
+        // asserted there); its strings are NUL-terminated and each byte pointer holds its length's bytes, as
+        // include/cef_cmux.h states. Every value is copied out before this returns.
+        guard unsafe Int(drag.load(as: Int32.self)) >= Offset.size else { return nil }
+        func int(_ offset: Int) -> Int32 { unsafe drag.load(fromByteOffset: offset, as: Int32.self) }
         func string(_ offset: Int) -> String {
-            drag.load(fromByteOffset: offset, as: UnsafePointer<CChar>?.self).map { String(cString: $0) } ?? ""
+            unsafe drag.load(fromByteOffset: offset, as: UnsafePointer<CChar>?.self).map { unsafe String(cString: $0) } ?? ""
         }
         func bytes(_ offset: Int, length: Int) -> Data {
             let count = Int(int(length))
-            guard count > 0, let base = drag.load(fromByteOffset: offset, as: UnsafeRawPointer?.self) else { return Data() }
-            return Data(bytes: base, count: count)
+            guard count > 0, let base = unsafe drag.load(fromByteOffset: offset, as: UnsafeRawPointer?.self) else { return Data() }
+            return unsafe Data(bytes: base, count: count)
         }
         self.init(allowedOperations: NSDragOperation(rawValue: UInt(UInt32(bitPattern: int(Offset.allowedOperations)))),
                   url: string(Offset.url), urlTitle: string(Offset.urlTitle), text: string(Offset.text),
@@ -87,7 +91,7 @@ nonisolated struct CEFPageDragData: Equatable, Sendable {
                   fileContents: bytes(Offset.fileContents, length: Offset.fileContentsLength),
                   fileName: string(Offset.fileName), fileSourceURL: string(Offset.fileContentsSourceUrl),
                   imagePNG: bytes(Offset.imagePng, length: Offset.imagePngLength),
-                  imageScale: drag.load(fromByteOffset: Offset.imageScale, as: Double.self),
+                  imageScale: unsafe drag.load(fromByteOffset: Offset.imageScale, as: Double.self),
                   cursorOffset: CGPoint(x: Int(int(Offset.cursorOffsetX)), y: Int(int(Offset.cursorOffsetY))))
     }
 

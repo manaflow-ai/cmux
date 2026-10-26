@@ -9,12 +9,14 @@ enum CEFPageDragCallback {
     /// C entry for a drag a page started (`cmux_shim_set_drag_source_handler`). The remote shim calls it on the
     /// main thread, in the event batch that carried DRAG_START; the data is copied out before the call returns.
     static let source: CEFShimLibrary.DragSourceFn = { context, browser, drag in
-        guard let context, Thread.isMainThread else {
+        // SAFETY: only the context's address is read; CEFRuntime.from turns it back into the runtime.
+        let address = unsafe UInt(bitPattern: context)
+        guard address != 0, Thread.isMainThread else {
             pageDragLogger.fault("page drag callback off the main thread or with no runtime; the drag is not shown")
             return
         }
-        let data = drag.flatMap { CEFPageDragData(fork: $0) }
-        let address = UInt(bitPattern: context)
+        // SAFETY: `drag` is the fork's cmux_drag_source_t, valid during this call; CEFPageDragData copies it out.
+        let data = unsafe drag.flatMap { unsafe CEFPageDragData(fork: $0) }
         MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread above
             CEFRuntime.from(address)?.pageDragStarted(data, browser: browser)
         }
@@ -39,7 +41,9 @@ extension CEFRuntime {
     /// gives every host it attaches its state, so a restarted host sends its drags here too.
     func installPageDragSource(_ shim: CEFShimLibrary) {
         guard hostStart?.dragsOut == true else { return }
-        shim.pageDrag.setSourceHandler(CEFPageDragCallback.source, Unmanaged.passUnretained(self).toOpaque())
+        // SAFETY: the context is the unretained shared runtime, which lives for the rest of the process once
+        // started (as initialize's context); the callback reads only its address.
+        unsafe shim.pageDrag.setSourceHandler(CEFPageDragCallback.source, Unmanaged.passUnretained(self).toOpaque())
     }
 
     /// `browser`'s page started a drag: its tab's page view starts the session when the tab shows, else (or

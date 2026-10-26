@@ -24,7 +24,9 @@ nonisolated extension CEFShimLibrary {
         let targetDrop: @convention(c) (Int32, Int32, Int32, Int32) -> Int32
 
         init(_ r: Resolver) throws(LoadError) {
-            setSourceHandler = try r("cmux_shim_set_drag_source_handler")
+            // SAFETY: as every binding in CEFShimLibrary+Bind.swift: `r` resolves the export of a shim whose ABI
+            // identity matched (or a test's stand-in of the same C type), so the cast is the header's C type.
+            unsafe setSourceHandler = try r("cmux_shim_set_drag_source_handler")
             sourceEnded = try r("cmux_shim_browser_drag_source_ended")
             targetEnterSource = try r("cmux_shim_browser_drag_target_enter_source")
             targetOver = try r("cmux_shim_browser_drag_target_over")

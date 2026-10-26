@@ -13,24 +13,26 @@ import UniformTypeIdentifiers
 @MainActor
 @Suite(.serialized) struct CEFPageDragTests {
     /// A fork struct in C layout over storage the closure may read.
+    // SAFETY (every `unsafe` here): the struct is allocated, zeroed and written at the fork's LP64 offsets
+    // (CEFPageDragData.Offset) before `body` reads it; its strings and byte buffers outlive the call.
     func withForkDrag<T>(size: Int32 = Int32(CEFPageDragData.Offset.size), url: String = "https://example.com/cat.png",
                          title: String = "A cat", text: String = "", html: String = "", file: [UInt8] = [], image: [UInt8] = [],
                          scale: Double = 2, offset: (Int32, Int32) = (12, 7), _ body: (UnsafeRawPointer) throws -> T) rethrows -> T {
         typealias O = CEFPageDragData.Offset
-        let raw = UnsafeMutableRawPointer.allocate(byteCount: O.size, alignment: 8)
-        raw.initializeMemory(as: UInt8.self, repeating: 0, count: O.size)
+        let raw = unsafe UnsafeMutableRawPointer.allocate(byteCount: O.size, alignment: 8)
+        unsafe raw.initializeMemory(as: UInt8.self, repeating: 0, count: O.size)
         var owned: [UnsafeMutablePointer<CChar>] = []
         defer {
-            owned.forEach { free($0) }
-            raw.deallocate()
+            unsafe owned.forEach { unsafe free($0) }
+            unsafe raw.deallocate()
         }
         func put(_ text: String, at offset: Int) {
-            let copy = strdup(text)!
-            owned.append(copy)
-            raw.storeBytes(of: UnsafePointer(copy), toByteOffset: offset, as: UnsafePointer<CChar>?.self)
+            guard let copy = unsafe strdup(text) else { return }
+            unsafe owned.append(copy)
+            unsafe raw.storeBytes(of: UnsafePointer(copy), toByteOffset: offset, as: UnsafePointer<CChar>?.self)
         }
-        raw.storeBytes(of: size, toByteOffset: 0, as: Int32.self)
-        raw.storeBytes(of: 1 | 2 | 16 | 4, toByteOffset: O.allowedOperations, as: Int32.self)
+        unsafe raw.storeBytes(of: size, toByteOffset: 0, as: Int32.self)
+        unsafe raw.storeBytes(of: 1 | 2 | 16 | 4, toByteOffset: O.allowedOperations, as: Int32.self)
         put(url, at: O.url)
         put(title, at: O.urlTitle)
         put(text, at: O.text)
@@ -39,16 +41,18 @@ import UniformTypeIdentifiers
         put("cat.png", at: O.fileName)
         put(url, at: O.fileContentsSourceUrl)
         put("", at: O.downloadMetadata)
-        return try file.withUnsafeBytes { fileBytes in
-            try image.withUnsafeBytes { imageBytes in
-                raw.storeBytes(of: file.isEmpty ? nil : fileBytes.baseAddress, toByteOffset: O.fileContents, as: UnsafeRawPointer?.self)
-                raw.storeBytes(of: Int32(file.count), toByteOffset: O.fileContentsLength, as: Int32.self)
-                raw.storeBytes(of: image.isEmpty ? nil : imageBytes.baseAddress, toByteOffset: O.imagePng, as: UnsafeRawPointer?.self)
-                raw.storeBytes(of: Int32(image.count), toByteOffset: O.imagePngLength, as: Int32.self)
-                raw.storeBytes(of: scale, toByteOffset: O.imageScale, as: Double.self)
-                raw.storeBytes(of: offset.0, toByteOffset: O.cursorOffsetX, as: Int32.self)
-                raw.storeBytes(of: offset.1, toByteOffset: O.cursorOffsetY, as: Int32.self)
-                return try body(UnsafeRawPointer(raw))
+        return try unsafe file.withUnsafeBytes { fileBytes in
+            try unsafe image.withUnsafeBytes { imageBytes in
+                unsafe raw.storeBytes(of: file.isEmpty ? nil : fileBytes.baseAddress, toByteOffset: O.fileContents,
+                                      as: UnsafeRawPointer?.self)
+                unsafe raw.storeBytes(of: Int32(file.count), toByteOffset: O.fileContentsLength, as: Int32.self)
+                unsafe raw.storeBytes(of: image.isEmpty ? nil : imageBytes.baseAddress, toByteOffset: O.imagePng,
+                                      as: UnsafeRawPointer?.self)
+                unsafe raw.storeBytes(of: Int32(image.count), toByteOffset: O.imagePngLength, as: Int32.self)
+                unsafe raw.storeBytes(of: scale, toByteOffset: O.imageScale, as: Double.self)
+                unsafe raw.storeBytes(of: offset.0, toByteOffset: O.cursorOffsetX, as: Int32.self)
+                unsafe raw.storeBytes(of: offset.1, toByteOffset: O.cursorOffsetY, as: Int32.self)
+                return try unsafe body(UnsafeRawPointer(raw))
             }
         }
     }
@@ -62,16 +66,16 @@ import UniformTypeIdentifiers
     }
 
     @Test func readsTheForkStruct() throws {
-        let drag = try #require(withForkDrag(html: "<img>", file: [0x89, 0, 1], image: [7, 8]) { CEFPageDragData(fork: $0) })
+        let drag = try #require(unsafe withForkDrag(html: "<img>", file: [0x89, 0, 1], image: [7, 8]) { unsafe CEFPageDragData(fork: $0) })
         #expect(drag.allowedOperations == [.copy, .link, .move], "generic (4) is not a page operation")
         #expect(drag.url == "https://example.com/cat.png" && drag.urlTitle == "A cat" && drag.text.isEmpty)
         #expect(drag.html == "<img>" && drag.htmlBaseURL == "https://example.com/")
         #expect(drag.fileContents == Data([0x89, 0, 1]) && drag.fileName == "cat.png")
         #expect(drag.imagePNG == Data([7, 8]) && drag.imageScale == 2 && drag.cursorOffset == CGPoint(x: 12, y: 7))
 
-        #expect(withForkDrag(size: Int32(CEFPageDragData.Offset.size) - 8) { CEFPageDragData(fork: $0) } == nil,
+        #expect(unsafe withForkDrag(size: Int32(CEFPageDragData.Offset.size) - 8) { unsafe CEFPageDragData(fork: $0) } == nil,
                 "a struct older than API 30's is refused")
-        let unscaled = try #require(withForkDrag(scale: 0) { CEFPageDragData(fork: $0) })
+        let unscaled = try #require(unsafe withForkDrag(scale: 0) { unsafe CEFPageDragData(fork: $0) })
         #expect(unscaled.imageScale == 1 && unscaled.fileContents.isEmpty && unscaled.imagePNG.isEmpty)
     }
 
