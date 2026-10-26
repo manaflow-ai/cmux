@@ -121,6 +121,9 @@ pub struct HostAttachment {
     /// The host acknowledges a `ViewerSize` that carries a request id
     /// (`FLAG_VIEWER_SIZE_ACKS`), after the resize it caused.
     pub(crate) viewer_size_acks: bool,
+    /// The host takes a key press's flow on interactive input
+    /// (`FLAG_INPUT_FLOW`, p09-observability-018).
+    pub(crate) input_flow: bool,
     /// Exact process ownership retained only between a successful launch
     /// handshake and complete Surface materialization. Adoption never
     /// carries this guard.
@@ -150,10 +153,15 @@ pub(crate) fn send_host_frame(
     kind: MessageKind,
     payload: &[u8],
 ) -> std::io::Result<()> {
-    let mut writer = writer.lock().recover_poison();
     let mut frame = Frame::new(kind, payload.to_vec());
     frame.version = protocol_version;
-    let result = write_frame(&mut *writer, &frame).map_err(protocol_io_error);
+    write_host_frame(writer, &frame)
+}
+
+/// Write `frame` on a daemon-to-host connection's writer.
+fn write_host_frame(writer: &Mutex<HostStream>, frame: &Frame) -> std::io::Result<()> {
+    let mut writer = writer.lock().recover_poison();
+    let result = write_frame(&mut *writer, frame).map_err(protocol_io_error);
     if result.is_err() {
         // A timed-out write may have emitted only part of a frame.
         // Poison this connection so the reader takes a fresh atomic
@@ -174,6 +182,31 @@ impl HostAttachment {
 
     pub fn send(&self, kind: MessageKind, payload: &[u8]) -> std::io::Result<()> {
         send_host_frame(&self.writer, self.protocol_version, kind, payload)
+    }
+
+    /// [`Self::send`] of input that carries the key press `flow` (0: none):
+    /// an `Input` frame with `FLAG_INPUT_FLOW` and the flow trailer, so the
+    /// host stamps its next PTY read with it. A host that did not negotiate
+    /// the flag, any other kind and flow 0 get the plain frame: never a
+    /// trailer the host would write into the shell.
+    pub(crate) fn send_flow(
+        &self,
+        kind: MessageKind,
+        payload: &[u8],
+        flow: u64,
+    ) -> std::io::Result<()> {
+        // Input too large for the trailer goes plain: a flow is a trace mark, never a refusal.
+        if flow == 0
+            || !self.input_flow
+            || kind != MessageKind::Input
+            || payload.len() > MAX_FRAME_PAYLOAD - size_of::<u64>()
+        {
+            return self.send(kind, payload);
+        }
+        let mut frame = Frame::new(kind, flow_trailer_payload(payload, flow));
+        frame.version = self.protocol_version;
+        frame.flags = FLAG_INPUT_FLOW;
+        write_host_frame(&self.writer, &frame)
     }
 
     pub(crate) fn begin_input_confirmed(

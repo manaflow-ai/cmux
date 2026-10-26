@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextInput
 
 /// The last mouse-up on a Chromium page, recorded by the app (the shim
 /// reports a disposition but not the click's modifiers).
@@ -29,7 +30,9 @@ final class CEFLinkClickTracker {
     var mapping: BrowserLinkClickMapping = .chrome
     /// The last left or middle mouse-up on each Chromium page, by browser id.
     private(set) var clicks: [Int32: CEFLinkClickRecord] = [:]
-    private var monitor: Any?
+    private var subscription: InputSubscription?
+    /// The tap `subscription` hears.
+    private weak var input: InputEventTap?
     /// The pages a click can land on now (the runtime's shown tabs).
     private var targets: () -> [CEFClickTarget] = { [] }
     /// A mouse down or key down on page `browser`: a fresh user gesture
@@ -48,19 +51,40 @@ final class CEFLinkClickTracker {
     /// Chromium page draws in its own child window over its pane's host
     /// view; a click in a cmux window itself (strip, sidebar, omnibar) or
     /// on native UI over the page records nothing (`CEFLinkClicks.browser`).
-    /// A local monitor sees the event only; it never consumes it.
-    func startRecordingClicks(targets: @escaping () -> [CEFClickTarget]) {
-        guard monitor == nil else { return }
+    ///
+    /// It hears `input`, the app's input tap, as a `.standard` intercept that
+    /// always passes: where AppKit's local monitor ran, after the key router
+    /// and the earlier intercepts. A shortcut the router takes or a click an
+    /// earlier intercept consumes never reaches the page, so it is no gesture
+    /// and no link click, as Chrome resets its download limiter only on input
+    /// sent to the renderer (`chrome/browser/download/download_request_limiter.cc`,
+    /// `TabDownloadState::DidGetUserInteraction`), not on accelerators taken in
+    /// `PreHandleKeyboardEvent`. A later call with another tap moves the
+    /// subscription to it; one with the same tap does nothing.
+    func startRecordingClicks(input: InputEventTap, targets: @escaping () -> [CEFClickTarget]) {
+        guard subscription == nil || self.input !== input else { return }
         self.targets = targets
-        let events: NSEvent.EventTypeMask = [.leftMouseUp, .otherMouseUp, .leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]
-        monitor = NSEvent.addLocalMonitorForEvents(matching: events) { [weak self] event in
+        self.input = input
+        subscription = input.subscribe(class: [.button, .key], phase: .intercept(order: .standard)) { [weak self] event in
             self?.record(event)
-            return event
+            return .pass
+        }
+    }
+
+    /// Whether clicks are recorded now.
+    var isRecording: Bool { subscription != nil }
+
+    /// The events the tracker reads: left and other mouse-ups (the click),
+    /// every mouse-down and key-down (a fresh gesture).
+    static func records(_ type: NSEvent.EventType) -> Bool {
+        switch type {
+        case .leftMouseUp, .otherMouseUp, .leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown: true
+        default: false
         }
     }
 
     func record(_ event: NSEvent) {
-        guard let window = event.window else { return }
+        guard Self.records(event.type), let window = event.window else { return }
         // Keys go to the focused page window, whose center is on its page.
         let point = event.type == .keyDown ? CGPoint(x: window.frame.midX, y: window.frame.midY)
             : window.convertPoint(toScreen: event.locationInWindow)

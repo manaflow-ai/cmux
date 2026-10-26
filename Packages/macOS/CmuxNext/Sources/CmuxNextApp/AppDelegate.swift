@@ -63,7 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The one input tap (p04-input.md 3 (A)), made in `main`: pending input, control and services
     /// observe it; `main` installs it on the application before `run()`.
     let inputTap: InputEventTap
-    private let mouseSideButtons = MouseSideButtons()
+    private let mouseSideButtons: MouseSideButtons
     private var cloudContext: Task<Void, Never>?
     /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).
     var daemonPrompts: DaemonPrompts?
@@ -93,6 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startupReferences = StartupReferences(startup: startup, reveal: reveal, paneRefs: paneRefs)
         (self.mainWork, self.inputTap) = (order.mainWork, inputTap)
         control = AppControl(mainWork: order.mainWork, input: inputTap)
+        mouseSideButtons = MouseSideButtons(input: inputTap)
         super.init()
     }
 

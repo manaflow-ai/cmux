@@ -130,6 +130,7 @@ pub(crate) fn start_host_runtime(
         clipboard,
         parser_progress: (Mutex::new(0), Condvar::new()),
         next_client: AtomicU64::new(1),
+        last_input_flow: Default::default(),
         dead: AtomicBool::new(false),
         launch_owner_claimed: AtomicBool::new(false),
         launch_owner_stream_ready: AtomicBool::new(false),
@@ -303,10 +304,15 @@ pub(crate) fn read_pty_once(
     let (count, outcome) = match reader.read(buffer) {
         Ok(0) => (0, PtyRead::Eof),
         Ok(count) => {
-            cmux_flow_trace::hop_id("host.pty.read", 0, host.terminal_id.as_bytes());
+            // The key press this read echoes goes with its output to the clients.
+            let flow = host.last_input_flow.take();
+            cmux_flow_trace::hop_id("host.pty.read", flow, host.terminal_id.as_bytes());
             let read = buffer.get(..count).unwrap_or(&*buffer);
-            let published =
-                publish_pty_output(host, kitty_media.rewrite_borrowed(read, kitty_scratch));
+            let published = publish_pty_output_flow(
+                host,
+                kitty_media.rewrite_borrowed(read, kitty_scratch),
+                flow,
+            );
             (count, if published { PtyRead::Published } else { PtyRead::ParserGone })
         }
         Err(error)
@@ -327,17 +333,35 @@ pub(crate) fn read_pty_once(
 /// read; a rewritten Kitty image can be larger than the read it came from.
 /// False when the parser is gone.
 pub(crate) fn publish_pty_output(host: &HostShared, bytes: &[u8]) -> bool {
-    bytes.chunks(PTY_READ_BYTES).all(|piece| publish_pty_frame(host, piece.to_vec()))
+    publish_pty_output_flow(host, bytes, 0)
 }
 
-fn publish_pty_frame(host: &HostShared, bytes: Vec<u8>) -> bool {
+/// [`publish_pty_output`] of a read that echoes the key press `flow` (0:
+/// none): its first frame carries the flow ([`FLAG_INPUT_FLOW`]).
+pub(crate) fn publish_pty_output_flow(host: &HostShared, bytes: &[u8], flow: u64) -> bool {
+    let mut flow = flow;
+    bytes
+        .chunks(PTY_READ_BYTES)
+        .all(|piece| publish_pty_frame(host, piece.to_vec(), std::mem::take(&mut flow)))
+}
+
+fn publish_pty_frame(host: &HostShared, bytes: Vec<u8>, flow: u64) -> bool {
     let count = bytes.len();
     let _source_order = host.source_order_lock.lock().recover_poison();
     host.parser_budget.reserve(count);
+    // The smart stream's frame carries the flow; the writer of a client that
+    // did not negotiate it strips it (`client_wire_frame`).
+    let frame = if flow == 0 {
+        Frame::new(MessageKind::Output, bytes.clone())
+    } else {
+        let mut frame = Frame::new(MessageKind::Output, flow_trailer_payload(&bytes, flow));
+        frame.flags = FLAG_INPUT_FLOW;
+        frame
+    };
     // Publication deliberately precedes parser enqueue. The bounded queue
     // limits memory while letting a fast renderer consume source bytes
     // independently of parser throughput.
-    let source_cursor = host.smart.publish(Frame::new(MessageKind::Output, bytes.clone()));
+    let source_cursor = host.smart.publish(frame);
     enqueue_parser_output(
         &host.parser_commands,
         &host.parser_budget,

@@ -2,7 +2,7 @@ public import AppKit
 import CmuxNextWakeups
 import CmuxNextCompat
 public import CmuxNextDesignTokens
-import CmuxNextInput
+public import CmuxNextInput
 
 /// The one owner of hover cards in the app (plans/cmux-next/hovercards.md).
 ///

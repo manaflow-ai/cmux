@@ -4,6 +4,16 @@
 
 use super::*;
 
+/// When a new terminal surface takes its share of the Kitty image budget.
+#[derive(Clone, Copy)]
+#[cfg_attr(not(any(unix, windows)), allow(dead_code))]
+pub(super) enum KittyQuota {
+    /// Before its host launches, waiting for other surfaces to shrink.
+    AtLaunch,
+    /// Once the surface commits (`Mux::reserve_kitty_image_surface_without_quota`).
+    AfterCommit,
+}
+
 impl Surface {
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn spawn(

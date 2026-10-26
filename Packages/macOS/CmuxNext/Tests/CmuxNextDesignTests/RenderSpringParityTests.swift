@@ -62,7 +62,7 @@ import Testing
 
     /// The closed-form reference: `target` plus the spring's displacement `time` seconds after it
     /// started at `start` with `velocity`.
-    static func reference(from start: CGFloat, to target: CGFloat, velocity: CGFloat = 0, at time: Double,
+    nonisolated static func reference(from start: CGFloat, to target: CGFloat, velocity: CGFloat = 0, at time: Double,
                           spring: SpringParameters) -> (value: CGFloat, velocity: CGFloat) {
         guard time > 0 else { return (start, velocity) }
         let solved = SpringValue.solve(displacement: Double(start - target), velocity: Double(velocity), time: time, parameters: spring)

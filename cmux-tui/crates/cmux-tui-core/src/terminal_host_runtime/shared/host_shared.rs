@@ -63,6 +63,10 @@ pub(crate) struct HostShared {
     /// without blocking the reader from enqueueing the completing bytes.
     pub(crate) parser_progress: (Mutex<u64>, Condvar),
     pub(crate) next_client: AtomicU64,
+    /// The flow of the newest key press an `Input` with `FLAG_INPUT_FLOW`
+    /// wrote (0: none since the last read took it): the reader's next PTY
+    /// read carries it, once (p09-observability-018).
+    pub(crate) last_input_flow: crate::input_flow::InputFlowSlot,
     pub(crate) dead: AtomicBool,
     pub(crate) launch_owner_claimed: AtomicBool,
     pub(crate) launch_owner_stream_ready: AtomicBool,
@@ -385,9 +389,18 @@ impl HostShared {
         );
     }
 
-    pub(crate) fn write_input(&self, payload: &[u8], request_id: u64, target: &HostTap) -> bool {
+    /// Write `payload` to the PTY; `flow` (0: none) is the key press it
+    /// carries, which the reader's next PTY read takes (`last_input_flow`)
+    /// when the bytes reached the PTY.
+    pub(crate) fn write_input(
+        &self,
+        payload: &[u8],
+        request_id: u64,
+        flow: u64,
+        target: &HostTap,
+    ) -> bool {
         // Marked before the writer lock, so the mark never runs under it.
-        cmux_flow_trace::hop_id("host.pty.write", 0, self.terminal_id.as_bytes());
+        cmux_flow_trace::hop_id("host.pty.write", flow, self.terminal_id.as_bytes());
         let delivered = {
             // Declared before the writer guard, so its end is written after the lock is released.
             let mut write = cmux_trace::trace_scope!(
@@ -405,10 +418,16 @@ impl HostShared {
             };
             let outcome = if !admitted {
                 InputWrite::Dropped
-            } else if writer.write_all(payload).and_then(|()| writer.flush()).is_ok() {
-                InputWrite::Written
             } else {
-                InputWrite::Failed
+                // Armed before the write: the echo can be read before the write returns.
+                self.last_input_flow.arm(flow);
+                if writer.write_all(payload).and_then(|()| writer.flush()).is_ok() {
+                    InputWrite::Written
+                } else {
+                    // No echo comes: the next unrelated read must not take the flow.
+                    self.last_input_flow.withdraw(flow);
+                    InputWrite::Failed
+                }
             };
             write.set_end_args(outcome.bytes_written(payload), outcome as u8);
             outcome != InputWrite::Failed

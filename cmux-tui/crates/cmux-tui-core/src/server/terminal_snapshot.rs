@@ -506,15 +506,12 @@ fn frame_json(
     offset: u64,
 ) -> Option<Value> {
     match frame {
-        AttachFrame::Output(output) => Some(json!({
-            "event": "output", "surface": surface, "data": base64(output),
-            "generation": generation, "offset": offset,
-        })),
-        AttachFrame::OutputWithColors { output, colors } => Some(json!({
-            "event": "output", "surface": surface, "data": base64(output),
-            "generation": generation, "offset": offset,
-            "colors": terminal_colors_json(**colors, true),
-        })),
+        AttachFrame::Output(output) | AttachFrame::FlowOutput { output, .. } => {
+            Some(output_json(surface, output, generation, offset, frame.flow(), None))
+        }
+        AttachFrame::OutputWithColors { output, colors, flow } => {
+            Some(output_json(surface, output, generation, offset, *flow, Some(colors)))
+        }
         AttachFrame::ColorsChanged(colors) => {
             let mut value = terminal_colors_json(**colors, true);
             value.insert("event", json!("colors-changed"));
@@ -525,11 +522,31 @@ fn frame_json(
     }
 }
 
-fn frame_output_len(frame: &AttachFrame) -> usize {
-    match frame {
-        AttachFrame::Output(output) | AttachFrame::OutputWithColors { output, .. } => output.len(),
-        _ => 0,
+/// One `output` event; `flow` (the key press it echoes,
+/// p09-observability-018) only when it is not 0.
+fn output_json(
+    surface: SurfaceId,
+    output: &[u8],
+    generation: u64,
+    offset: u64,
+    flow: u64,
+    colors: Option<&crate::TerminalColors>,
+) -> Value {
+    let mut value = json!({
+        "event": "output", "surface": surface, "data": base64(output),
+        "generation": generation, "offset": offset,
+    });
+    if let Some(colors) = colors {
+        value.insert("colors", terminal_colors_json(*colors, true));
     }
+    if flow != 0 {
+        value.insert("flow", json!(flow));
+    }
+    value
+}
+
+fn frame_output_len(frame: &AttachFrame) -> usize {
+    frame.output().map_or(0, <[u8]>::len)
 }
 
 /// Everything the attach worker needs.

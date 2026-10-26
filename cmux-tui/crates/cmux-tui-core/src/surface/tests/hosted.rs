@@ -271,6 +271,38 @@ fn smart_hosted_stager_orders_raw_output_and_incremental_resize() {
     ));
 }
 
+/// p09-observability-018: the host's echo frame names the key press the
+/// host's PTY read took, and the daemon applies that flow, not a guess of
+/// its own. A connection that did not negotiate the flag refuses it.
+#[cfg(unix)]
+#[test]
+fn echo_flow_hosted_stager_takes_the_flow_from_the_host_frame() {
+    let flagged = |sequence| {
+        let mut frame = Frame::new(
+            MessageKind::Output,
+            crate::terminal_host_protocol::flow_trailer_payload(b"ls", 42),
+        );
+        frame.flags = FLAG_INPUT_FLOW;
+        frame.sequence = sequence;
+        frame
+    };
+    let mut stager = HostedFrameStager::new(0, true).with_input_flow(true);
+    assert!(matches!(
+        stager.push(flagged(1)).unwrap(),
+        Some(HostedTransition::FlowOutput { output, flow: 42 }) if output == b"ls"
+    ));
+    let mut plain = Frame::new(MessageKind::Output, b"$ ".to_vec());
+    plain.sequence = 2;
+    assert!(matches!(stager.push(plain).unwrap(), Some(HostedTransition::Output(_))));
+    let mut short = Frame::new(MessageKind::Output, vec![1, 2, 3]);
+    short.flags = FLAG_INPUT_FLOW;
+    short.sequence = 3;
+    assert!(stager.push(short).is_err(), "a short trailer fails closed");
+
+    let mut unnegotiated = HostedFrameStager::new(0, true);
+    assert!(unnegotiated.push(flagged(1)).is_err(), "an unnegotiated flow fails closed");
+}
+
 #[cfg(unix)]
 #[test]
 fn hosted_stager_decodes_authoritative_exit_payload() {
