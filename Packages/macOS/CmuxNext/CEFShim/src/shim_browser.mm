@@ -33,6 +33,37 @@ int CreateWindowWith(int request, void* parent_view, int width, int height, cons
   return CefBrowserHost::CreateBrowser(info, MakeClient(request), url ? url : "", settings, extra_info, context) ? 1 : 0;
 }
 
+// The renderer client id of a frame identifier, 0 when it names none. A
+// frame identifier is "<render process host id>-<frame token>"
+// (frame_util::MakeFrameIdentifier); the host id is the renderer's
+// --renderer-client-id.
+int RendererClientIDOf(const std::string& identifier) {
+  const size_t dash = identifier.find('-');
+  if (dash == std::string::npos || dash == 0) return 0;
+  int id = 0;
+  for (size_t i = 0; i < dash; ++i) {
+    if (identifier[i] < '0' || identifier[i] > '9' || id > 100000000) return 0;
+    id = id * 10 + (identifier[i] - '0');
+  }
+  return id;
+}
+
+// The renderer client id of each frame of browser_id (the main frame and
+// every iframe, in its process or out of it): one entry per frame.
+std::vector<int> FrameRendererClientIDs(int browser_id) {
+  std::vector<int> clients;
+  CefRefPtr<CefBrowser> browser = BrowserById(browser_id);
+  if (!browser) return clients;
+  std::vector<CefString> identifiers;
+  browser->GetFrameIdentifiers(identifiers);
+  clients.reserve(identifiers.size());
+  for (const CefString& identifier : identifiers) {
+    const int id = RendererClientIDOf(identifier.ToString());
+    if (id > 0) clients.push_back(id);
+  }
+  return clients;
+}
+
 }  // namespace
 
 namespace cmux_shim {
@@ -130,30 +161,11 @@ int cmux_shim_unresponsive_reply(int browser_id, int terminate) {
 }
 
 int cmux_shim_renderer_client_ids(int browser_id, int* out, int capacity) {
-  CefRefPtr<CefBrowser> browser = BrowserById(browser_id);
-  if (!browser || !out || capacity <= 0) {
+  if (!out || capacity <= 0) {
     return 0;
   }
-  // A frame identifier is "<render process host id>-<frame token>"
-  // (frame_util::MakeFrameIdentifier); the host id is the renderer's
-  // --renderer-client-id.
-  std::vector<CefString> identifiers;
-  browser->GetFrameIdentifiers(identifiers);
   int count = 0;
-  for (const CefString& identifier : identifiers) {
-    const std::string text = identifier.ToString();
-    const size_t dash = text.find('-');
-    if (dash == std::string::npos || dash == 0) continue;
-    int id = 0;
-    bool digits = true;
-    for (size_t i = 0; i < dash; ++i) {
-      if (text[i] < '0' || text[i] > '9' || id > 100000000) {
-        digits = false;
-        break;
-      }
-      id = id * 10 + (text[i] - '0');
-    }
-    if (!digits || id <= 0) continue;
+  for (const int id : FrameRendererClientIDs(browser_id)) {
     bool seen = false;
     for (int i = 0; i < count; ++i) {
       if (out[i] == id) {
@@ -164,6 +176,27 @@ int cmux_shim_renderer_client_ids(int browser_id, int* out, int capacity) {
     if (!seen && count < capacity) out[count++] = id;
   }
   return count;
+}
+
+int cmux_shim_renderer_frame_counts(int browser_id, int* client_ids, int* frame_counts, int capacity) {
+  if (!client_ids || !frame_counts || capacity <= 0) {
+    return 0;
+  }
+  std::vector<std::pair<int, int>> renderers;  // client id, frames
+  for (const int id : FrameRendererClientIDs(browser_id)) {
+    size_t at = 0;
+    while (at < renderers.size() && renderers[at].first != id) ++at;
+    if (at < renderers.size()) {
+      ++renderers[at].second;
+    } else {
+      renderers.emplace_back(id, 1);
+    }
+  }
+  for (size_t i = 0; i < renderers.size() && i < static_cast<size_t>(capacity); ++i) {
+    client_ids[i] = renderers[i].first;
+    frame_counts[i] = renderers[i].second;
+  }
+  return static_cast<int>(renderers.size());
 }
 
 int cmux_shim_renderer_pid(int browser_id) {

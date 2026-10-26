@@ -5,6 +5,7 @@ import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextHangReports
 import CmuxNextInput
+import CmuxNextMetrics
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextSignposts
@@ -42,6 +43,11 @@ final class HangReportsController {
     /// Feeds the service's main-thread ledger the activation notices and input (nil where the
     /// builder's wire schema does not carry active time).
     private let activityFeed: MainThreadActivityFeed?
+    /// Samples `memory.hidden_workspace_kib` at workspace switches, resign-active and report triggers (task 061),
+    /// in every build: the histogram is local until a report sends it.
+    private let memory: HiddenWorkspaceMemory?
+    /// The app resigning active: a ``memory`` sample.
+    private let memoryResignActive: EventSubscription?
     /// Whether a managed profile forces `DisableTelemetry` (read off the main thread at start).
     private let managedDisables: @Sendable () -> Bool
     private let defaults: UserDefaults
@@ -54,18 +60,25 @@ final class HangReportsController {
     private var askedThisLaunch: Set<HangReportAskPolicy.Decision> = []
 
     init(service: HangReportService?, managedDisables: @escaping @Sendable () -> Bool, defaults: UserDefaults = .standard,
-         activityFeed: MainThreadActivityFeed? = nil) {
+         activityFeed: MainThreadActivityFeed? = nil, memory: HiddenWorkspaceMemory? = nil, events: AppEvents? = nil) {
         self.service = service
         self.activityFeed = activityFeed
+        self.memory = memory
+        memoryResignActive = memory.flatMap { memory in
+            events?.subscribe(NSApplication.didResignActiveNotification, owner: "HiddenWorkspaceMemory") { [weak memory] in
+                memory?.note(.resignActive)
+            }
+        }
         self.managedDisables = managedDisables
         self.defaults = defaults
     }
 
     /// The controller for this launch: the service over this build's folder, the real transport,
     /// classifier and dyld resolver, the app's own envelope values, and (when the wire schema carries
-    /// them) the active time and `watchdog`'s main-turn and input-queueing histograms.
+    /// them) the active time and `watchdog`'s main-turn and input-queueing histograms. `memory` samples at the
+    /// report triggers too, and runs where nothing is sent.
     static func forThisLaunch(policy: CrashReportingPolicy, folder: URL, counts: @escaping @Sendable () async -> CoarseCounts,
-                              watchdog: MainThreadWatchdog, input: any InputObserving, events: AppEvents,
+                              watchdog: MainThreadWatchdog, input: any InputObserving, events: AppEvents, memory: HiddenWorkspaceMemory,
                               environment: [String: String] = ProcessInfo.processInfo.environment) -> HangReportsController {
         let devOptIn = policy.channel == .dev && environment[devOptInKey] == "1"
         let mayReport = (policy.channel == .nightly || devOptIn) && !CrashReportingPolicy.isTestProcess(environment)
@@ -73,7 +86,7 @@ final class HangReportsController {
         let managedDisables: @Sendable () -> Bool = {
             managed.read().forced[CrashReportingPolicy.disableTelemetryPolicyKey]?.boolValue == true
         }
-        guard mayReport else { return HangReportsController(service: nil, managedDisables: managedDisables) }
+        guard mayReport else { return HangReportsController(service: nil, managedDisables: managedDisables, memory: memory, events: events) }
         let endpoint = devOptIn ? environment[devEndpointKey] ?? URLSessionHangReportTransport.defaultEndpoint
             : URLSessionHangReportTransport.defaultEndpoint
         // A managed block, or this Mac's consent record removed, while cmux runs: the next trigger
@@ -89,7 +102,12 @@ final class HangReportsController {
         let feed = service.mainThreadLedger.map {
             MainThreadActivityFeed(ledger: $0, input: input, events: events, isActive: NSApp?.isActive ?? false)
         }
-        return HangReportsController(service: service, managedDisables: managedDisables, activityFeed: feed)
+        return HangReportsController(service: service, managedDisables: managedDisables, activityFeed: feed, memory: memory, events: events)
+    }
+
+    /// A window showed a workspace and hid the one it showed: a memory per hidden workspace sample (task 061).
+    func workspaceDidShow() {
+        memory?.note(.workspaceSwitch)
     }
 
     /// The watchdog sink (the app chains it after the lag-spike reporter); nil where nothing is sent.
@@ -152,7 +170,8 @@ final class HangReportsController {
     func viewReport(open: @escaping @MainActor (URL) -> Void) {
         guard let service else { return }
         // task-owner: one read and open; nothing to cancel.
-        Task {
+        Task { [memory] in
+            await memory?.sampleNow(.report)
             guard let url = await service.viewableReport() else { return }
             open(url)
         }
@@ -170,9 +189,12 @@ final class HangReportsController {
             if subscriber == nil {
                 // MetricKit hands over payloads it kept from before the consent: dropped.
                 let since = defaults.object(forKey: Self.consentKey) as? Date ?? Date()
-                let subscriber = MetricKitSubscriber(since: since) { input in
-                    // task-owner: one delivery handed to the service actor.
-                    Task { await service.receive(input) }
+                let subscriber = MetricKitSubscriber(since: since) { [memory] input in
+                    // task-owner: one delivery handed to the service actor, after the memory sample it carries.
+                    Task {
+                        await memory?.sampleNow(.report)
+                        await service.receive(input)
+                    }
                 }
                 subscriber.start()
                 self.subscriber = subscriber

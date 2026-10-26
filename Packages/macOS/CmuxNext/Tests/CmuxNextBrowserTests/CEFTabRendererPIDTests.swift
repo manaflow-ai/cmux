@@ -32,6 +32,30 @@ import Testing
         #expect(RendererPIDSpy.asked.isEmpty)
     }
 
+    /// p09-observability-061: each renderer of the tab's own browser with how many of its frames it hosts, from
+    /// `cmux_shim_renderer_frame_counts`; more renderers than one call returns is unknown, not a partial list.
+    @Test func eachRendererComesWithItsFrameCount() throws {
+        let rig = try RendererPIDRig(answer: 0)
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        RendererPIDSpy.frames = [(clientID: 11, frames: 2), (clientID: 12, frames: 1)]
+        let frames = try #require(tab.rendererFrames)
+        #expect(frames.map { $0.clientID } == [11, 12] && frames.map { $0.frames } == [2, 1])
+        #expect(RendererPIDSpy.asked == [7], "the shim is asked for the tab's own browser")
+
+        RendererPIDSpy.frames = (1 ... 33).map { (clientID: Int32($0), frames: 1) }
+        #expect(tab.rendererFrames == nil, "a truncated list would hide frames")
+    }
+
+    @Test func aTabWithNoBrowserHasNoFrames() throws {
+        let rig = try RendererPIDRig(answer: 0)
+        defer { rig.close() }
+        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: rig.runtime)
+        let unborn = CEFTab(id: .random(), profile: .default, host: host, runtime: rig.runtime)
+        #expect(unborn.rendererFrames?.isEmpty == true, "no browser holds no renderer memory")
+        #expect(RendererPIDSpy.asked.isEmpty)
+    }
+
     /// The tab publishes its renderers at once and again when a load phase changes or its renderer ends
     /// (a navigation can move it to another renderer); a commit in the same load asks the shim nothing.
     /// Once its id names another page it stops publishing.
@@ -97,21 +121,34 @@ import Testing
 private nonisolated enum RendererPIDSpy {
     nonisolated(unsafe) static var answer: Int32 = 0
     nonisolated(unsafe) static var asked: [Int32] = []
+    /// What `cmux_shim_renderer_frame_counts` answers: each renderer client id with its frame count.
+    nonisolated(unsafe) static var frames: [(clientID: Int32, frames: Int32)] = [] // crash-allow: the suite is serialized and the shim is called on the main actor
 
     static func reset(answer pid: Int32) {
         answer = pid
         asked = []
+        frames = []
     }
 
     static func symbol(_ name: String) -> UnsafeMutableRawPointer? {
         let version: @convention(c) () -> Int32 = { 29 }
         let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, _, _, _, _, _ in 1 }
         let rendererPID: @convention(c) (Int32) -> Int32 = { browser in RendererPIDSpy.asked.append(browser); return RendererPIDSpy.answer }
+        let frameCounts: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?, Int32) -> Int32 = { browser, ids, frames, capacity in
+            RendererPIDSpy.asked.append(browser)
+            let renderers = RendererPIDSpy.frames
+            for (index, renderer) in renderers.prefix(Int(capacity)).enumerated() {
+                ids?[index] = renderer.clientID
+                frames?[index] = renderer.frames
+            }
+            return Int32(renderers.count)
+        }
         let nothing: @convention(c) () -> Int = { 0 }
         return switch name {
         case "cmux_shim_fork_api_version": unsafeBitCast(version, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_create_window": unsafeBitCast(createWindow, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_renderer_pid": unsafeBitCast(rendererPID, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_renderer_frame_counts": unsafeBitCast(frameCounts, to: UnsafeMutableRawPointer.self)
         default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
         }
     }

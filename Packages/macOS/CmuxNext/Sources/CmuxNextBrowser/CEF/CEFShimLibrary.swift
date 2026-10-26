@@ -215,6 +215,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let freeOwned: @convention(c) (UnsafeMutablePointer<CChar>?) -> Void
     /// Distinct renderer client ids hosting the tab's frames.
     let rendererClientIDs: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, Int32) -> Int32
+    /// Each renderer client id hosting the tab's frames with how many of them it hosts (browser, client ids,
+    /// frame counts, capacity); returns how many renderers there are, which can exceed the capacity; 0 in host mode.
+    let rendererFrameCounts: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?, Int32) -> Int32
     /// The pid of the renderer hosting the tab's main frame (the fork's `cmux_cef_browser_renderer_pid`,
     /// p14-energy-124); 0 while none, on a fork without the call, and in host mode.
     let rendererPID: @convention(c) (Int32) -> Int32
@@ -435,6 +438,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         certificateProceed = try r("cmux_shim_certificate_proceed")
         freeOwned = try r("cmux_shim_free_owned")
         rendererClientIDs = try r("cmux_shim_renderer_client_ids")
+        rendererFrameCounts = try r("cmux_shim_renderer_frame_counts")
         rendererPID = try r("cmux_shim_renderer_pid")
         addDocumentScript = r.optional("cmux_shim_add_document_script")
         addPageChannel = r.optional("cmux_shim_add_page_channel")

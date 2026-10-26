@@ -854,6 +854,16 @@ CMUX_SHIM_EXPORT int cmux_shim_renderer_pid(int browser_id) {
   return 0;
 }
 
+// Memory per hidden workspace is in-process only for the same reason: the renderers are the Chromium
+// Host's children, so the app finds no pid for them and counts the sample unclear (p09-observability-061).
+CMUX_SHIM_EXPORT int cmux_shim_renderer_frame_counts(int browser_id, int* client_ids, int* frame_counts, int capacity) {
+  (void)browser_id;
+  (void)client_ids;
+  (void)frame_counts;
+  (void)capacity;
+  return 0;
+}
+
 // Strings this dylib returns are Dup's malloc'd copies.
 CMUX_SHIM_EXPORT void cmux_shim_free(char* s) {
   std::free(s);

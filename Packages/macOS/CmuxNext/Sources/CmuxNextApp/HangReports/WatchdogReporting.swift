@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
@@ -16,11 +17,15 @@ enum WatchdogReporting {
     /// Wires `watchdog` and returns this launch's hang report controller (held by `AppProcessRoot`).
     static func install(_ watchdog: MainThreadWatchdog, services: AppServices) -> HangReportsController {
         let reporter = services.crashReporting.reporter
+        let memory = HiddenWorkspaceMemory(
+            work: services.work, mainWork: services.mainWork,
+            capture: { [weak services] in services.map(WatchdogReporting.hiddenWorkspaceCapture) ?? .init() },
+            rendererPIDs: { Dictionary(AppProcesses.tabRendererClients().map { pid, client in (client, pid) }, uniquingKeysWith: { first, _ in first }) })
         let hangReports = HangReportsController.forThisLaunch(
             policy: reporter.policy, folder: SidebarSnapshotFile.buildDirectory(launch: services.environment.launch)
                 .appending(path: "HangReports", directoryHint: .isDirectory),
             counts: { @MainActor [weak services] in services.map(WatchdogReporting.counts) ?? .unknown },
-            watchdog: watchdog, input: services.inputTap, events: services.appEvents)
+            watchdog: watchdog, input: services.inputTap, events: services.appEvents, memory: memory)
         let collector = hangReports.collector
         // Replays the sites the detector recorded before this point (BlockingDetector.install).
         services.blocking.install(sink: BlockingReportSink(collector: collector, nonFatal: .init(
@@ -57,6 +62,20 @@ enum WatchdogReporting {
         return CoarseCounts(windows: services.windows.controllers.count, workspaces: workspaces.count, panes: panes.count,
                             tabs: panes.reduce(0) { $0 + $1.tabs.count },
                             userBlockingWaitP99Nanos: services.work.userBlockingQueueWaitP99Nanos)
+    }
+
+    /// Every mounted browser tab with its workspace and renderer frames, and the workspaces with one that no
+    /// window shows (task 061). O(browser tabs): each tab's workspace from the stores' tab index, one shim call
+    /// per Chromium tab. A page of another engine has unknown frames, so its hidden workspace's sample is unclear.
+    static func hiddenWorkspaceCapture(_ services: AppServices) -> HiddenWorkspaceMemory.Capture {
+        let shown = Set(services.windows.controllers.flatMap { $0.onScreenContents.map(\.workspace.id) })
+        var hidden = Set<String>()
+        let tabs = services.cache.browsers.map { key, entry in
+            let workspace = services.workspaceID(ofTab: key)
+            if let workspace, !shown.contains(workspace) { hidden.insert(workspace) }
+            return HiddenWorkspaceMemory.Placement(workspace: workspace, rendererFrames: (entry.tab as? CEFTab)?.rendererFrames)
+        }
+        return HiddenWorkspaceMemory.Capture(tabs: tabs, hiddenWorkspaces: hidden)
     }
 
     nonisolated static func nanos(_ duration: Duration) -> UInt64 {
