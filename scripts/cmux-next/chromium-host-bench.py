@@ -50,6 +50,24 @@ Per mode:
            those cmux changed alone before it (pass: none), and a Quit AppleEvent to the bundle id (cmux quits, not
            the host; last row).
   failure  helper: when the host page never shows, the host's Chromium log tail and its crash reports.
+  baseline (--baseline, task p01-process-005; plans/cmux-next/chrome-parity/p01-process.md) adds the numbers the
+           process-model program is measured against, and prints them as perf-lead.md section 5 rows
+           (chromium_host_baseline.py, `baseline-rows.md` in --out):
+           stall    requirement 9a of cef-helper-app-DESIGN.md: a 50 ms main-thread stall every 100 ms
+                    (`debug.stall`, from a second socket connection) while the page animates; the page's rAF
+                    intervals and long frames, per mode (pass: 0 long frames).
+           tabs10   idle wakes with 10 in-process Chromium tabs (the probe and 9 more), after --idle-settle-seconds
+                    (hidden pages freeze after 30 s), per process kind (app, helpers, daemon), in three scenarios:
+                    app visible, workspace hidden (a new workspace selected) and app hidden (NSApp.hide);
+                    the 9 are closed after.
+           census   process-model-census.py (task p01-process-004) on this running app (`--tag` and `--socket`,
+                    never `--app`, which launches and then ends a second instance of the tag): light after the
+                    light-session rows (its workspace is not in them), then one census of the session as it is
+                    and the heavy one with that as its `--baseline`. The per-role memory split per added hidden
+                    terminal is each role's private growth plus the shared mappings' growth counted once
+                    (chromium_host_baseline.memory_split).
+           with --stress: idle wakes in the same three scenarios, and key and click to paint and the stall in
+           both modes, in the STRESS session too (the probe opened in its measured pane).
 
 Debug build (reload.sh), not Release: the numbers compare the two paths, they are not shipping latencies.
 Not a gate: exit 1 only when a mode could not run (no host app, refused fork API, launch failure).
@@ -61,7 +79,8 @@ import argparse, json, os, pathlib, signal, struct, subprocess, sys, tempfile, t
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from bench_launch import BenchApp, LaunchError  # noqa: E402
+from bench_launch import BenchApp, LaunchError, RecordError, build_sha  # noqa: E402
+import chromium_host_baseline  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -72,6 +91,8 @@ parser.add_argument("--json", help="also write the result here (a fleet measure 
 parser.add_argument("--stress", action="store_true", help="also measure the pump share in the STRESS session")
 parser.add_argument("--pump-seconds", type=float, default=10.0)
 parser.add_argument("--host-switches", default="", help="more Chromium switches for the host, comma-separated (diagnosis)")
+parser.add_argument("--baseline", action="store_true", help="task p01-process-005: stall 9a, 10-tab idle wakes, census, rows")
+parser.add_argument("--idle-settle-seconds", type=float, default=35.0, help="wait before the 10-tab idle sample")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 
@@ -132,7 +153,6 @@ def main_display_hz():
     return round(cg.CGDisplayModeGetRefreshRate(mode), 2) if mode else None
 
 
-TAB = {}
 # ChromiumHostFrame.quitLimit: how long a host may take to end after `quit` or EOF before it is SIGKILLed / ends itself.
 QUIT_LIMIT_S = 15.0
 # The probe's background (#204080), with room for the display's color conversion.
@@ -305,11 +325,16 @@ def pid_gone(pid):
     return False
 
 
-def page_eval(rpc, script):
-    reply = rpc("browser.page.eval", {"script": script, **({"tab": TAB["tab"]} if TAB.get("tab") else {})}, timeout=20)
-    if isinstance(reply, dict) and reply.get("tab"):
-        TAB.setdefault("tab", reply["tab"])
-    return reply.get("value") if isinstance(reply, dict) and "error" not in reply else None
+def page_eval_reply(rpc, script, tab=None):
+    """(value, tab) of `browser.page.eval` in `tab`, or in the focused page without one."""
+    reply = rpc("browser.page.eval", {"script": script, **({"tab": tab} if tab else {})}, timeout=20)
+    if not isinstance(reply, dict) or "error" in reply:
+        return None, None
+    return reply.get("value"), reply.get("tab")
+
+
+def page_eval(rpc, script, tab):
+    return page_eval_reply(rpc, script, tab)[0]
 
 
 def wait(check, seconds, step=0.1):
@@ -358,6 +383,7 @@ def main():
         app.launch()
         rpc = app.rpc
         RESULT["refresh_hz"] = main_display_hz()
+        RESULT["host"] = host_block()
         cef = rpc("debug.cef") or {}
         RESULT["cef"] = {"fork_api": (cef.get("windows") or {}).get("fork_api"), "unavailable": cef.get("unavailable"),
                          "fallback": cef.get("fallback")}
@@ -369,14 +395,32 @@ def main():
             ok = ok and inproc_tab is not None
         if "helper" in modes:
             ok = run_helper(rpc, url, inproc_tab) and ok
+        if opts.baseline and inproc_tab:
+            # After the helper rows: the 9 extra tabs would otherwise be in its pump share.
+            RESULT.setdefault("sessions", {}).setdefault("light", {})["tabs10"] = tabs10_wakes(rpc, url)
+        if opts.baseline:
+            # After every light-session row: the census's light workspace is not in their numbers.
+            RESULT["baseline"] = {"census_light": census(app, "light", session="light")}
         if opts.stress:
-            run_stress_pump(rpc)
+            run_stress_pump(rpc, url, "helper" in modes)
+        if opts.baseline:
+            # Last before the lifetime rows (they end cmux): the heavy session stays. The split is the growth over
+            # a census of the session just before it, so the tabs and the STRESS session opened since launch are
+            # not in it; that census is the heavy one's --baseline (its per hidden terminal over all roles).
+            before_heavy = census(app, "before-heavy")
+            RESULT["baseline"]["census_heavy"] = census(app, "heavy", session="heavy", baseline=before_heavy.get("path"))
+            RESULT["baseline"]["memory_split"] = chromium_host_baseline.memory_split(
+                before_heavy, RESULT["baseline"]["census_heavy"])
         if "helper" in modes and RESULT["modes"].get("helper", {}).get("kill"):
             ok = run_lifetime(app, url) and ok
     except LaunchError as error:
         RESULT["error"] = error.reason
         ok = False
     finally:
+        if opts.baseline:
+            RESULT["baseline_rows"] = chromium_host_baseline.rows(RESULT, time.strftime("%Y-%m-%d", time.gmtime()))
+            with open(os.path.join(opts.out, "baseline-rows.md"), "w") as out:
+                out.write("\n".join(RESULT["baseline_rows"]) + "\n")
         for path in filter(None, [os.path.join(opts.out, "chromium-host-bench.json"), opts.json]):
             with open(path, "w") as out:
                 json.dump(RESULT, out, indent=2)
@@ -423,35 +467,84 @@ def drive(rpc, mode, title_of, key_target, mouse_target, click_point):
     row["click_to_raf_ms"] = stats.get("click")
     # The first click focused the field: it is not in click_sent.
     row["click_to_paint_ms"] = paired(click_sent, (stats.get("click_paint") or [])[-len(click_sent):])
-    # Pacing: the key `p` starts a 3 s animation in the page; the page records its frame intervals.
-    rpc("debug.key", {**key_target, "key": "p"})
-    time.sleep(3.6)  # test harness: the page animates for 3 s
-    raw = (probe_stats(title_of()) or {}).get("raf_raw") or []
-    row["raf_ms"] = percentiles(raw)
-    if raw and RESULT.get("refresh_hz"):
-        period = 1000 / RESULT["refresh_hz"]
-        row["long_frames"] = sum(1 for v in raw if v > 1.5 * period)
+    row.update(pace(rpc, key_target, title_of))
+    if opts.baseline:
+        row["stall"] = stall_row(rpc, key_target, title_of)
     return row
 
 
-def run_inproc(rpc, url):
-    opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True, "origin": "script"}, timeout=120)
-    page = lambda script: page_eval(rpc, script)
-    if not wait(lambda: page("document.readyState === 'complete' && document.title.startsWith('probe ')"), 60, 0.5):
-        RESULT["modes"]["inproc"] = {"error": f"the probe never loaded: {json.dumps(opened)[:200]}"}
-        return None
-    cef = rpc("debug.cef") or {}
-    hosted = (cef.get("tracker") or {}).get("hosted_pages", 0)
+def pace(rpc, key_target, title_of, during=None):
+    """The key `p` starts a 3 s animation in the page; the page records its frame intervals. `during()` runs
+    while it animates and returns what it did."""
+    rpc("debug.key", {**key_target, "key": "p"})
+    did = during() if during else None
+    if not during:
+        time.sleep(3.6)  # test harness: the page animates for 3 s
+    raw = (probe_stats(title_of()) or {}).get("raf_raw") or []
+    row = {"raf_ms": percentiles(raw)}
+    if raw and RESULT.get("refresh_hz"):
+        period = 1000 / RESULT["refresh_hz"]
+        row["long_frames"] = sum(1 for v in raw if v > 1.5 * period)
+    if did is not None:
+        row["during"] = did
+    return row
+
+
+# cef-helper-app-DESIGN.md requirement 9a: a 50 ms main-thread stall every 100 ms; the page still animates at
+# the display's refresh with 0 long frames.
+STALL_MS, STALL_EVERY_S = 50, 0.1
+
+
+def stall_row(rpc, key_target, title_of):
+    """Pacing while cmux's main thread stalls on the 9a schedule (`debug.stall`, one socket connection each)."""
+    def stalls():
+        sent, end = 0, time.monotonic() + 3.6
+        while time.monotonic() < end:
+            at = time.monotonic()
+            reply = rpc("debug.stall", {"ms": STALL_MS}, timeout=5)
+            if isinstance(reply, dict) and reply.get("stalled_ms"):
+                sent += 1
+            time.sleep(max(0.0, STALL_EVERY_S - (time.monotonic() - at)))  # test harness: the 9a schedule
+        return sent
+    row = pace(rpc, key_target, title_of, during=stalls)
+    row.update({"stall_ms": STALL_MS, "every_ms": int(STALL_EVERY_S * 1000), "stalls": row.pop("during"),
+                "refresh_hz": RESULT.get("refresh_hz")})
+    row["pass"] = row["stalls"] > 0 and row.get("long_frames") == 0
+    return row
+
+
+def open_inproc_probe(rpc, url, name):
+    """Opens the probe as `url?probe=<name>` in a focused in-process Chromium tab, and binds every eval to that tab:
+    the first focused page that answers with this probe's query is it (an older probe tab never does).
+    Returns (page eval, click_point, tab id), or (None, the error, None)."""
+    opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": f"{url}?probe={name}"}, "focus": True,
+                                "origin": "script"}, timeout=120)
+    ready = (f"document.readyState === 'complete' && document.title.startsWith('probe ') "
+             f"&& location.search === '?probe={name}'")
+    found = wait(lambda: (lambda value, tab: tab if value is True and tab else None)(*page_eval_reply(rpc, ready)), 60, 0.5)
+    if not found:
+        return None, f"the probe never loaded: {json.dumps(opened)[:200]}", None
+    page = lambda script: page_eval(rpc, script, found)
     page("window.__reset()")
 
     def click_point(element):
         rect = page(f"(() => {{ const r = document.getElementById('{element}').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; }})()")
         return {"x": rect[0], "y": rect[1]} if rect else {}
+    return page, click_point, found
+
+
+def run_inproc(rpc, url):
+    """The in-process rows; returns the probe's tab id, or None."""
+    page, click_point, tab = open_inproc_probe(rpc, url, "light")
+    if not page:
+        RESULT["modes"]["inproc"] = {"error": click_point}
+        return None
+    hosted = ((rpc("debug.cef") or {}).get("tracker") or {}).get("hosted_pages", 0)
     row = drive(rpc, "inproc", lambda: page("document.title"), {"target": "page"}, {"target": "page"}, click_point)
     row["hosted_pages"] = hosted
     row["pump_share"] = {"light": pump_share(rpc, page)}
     RESULT["modes"]["inproc"] = row
-    return True
+    return tab
 
 
 def pump_work_ms(rpc):
@@ -460,19 +553,28 @@ def pump_work_ms(rpc):
 
 def wake_sample(rpc):
     """The app's kernel wakeups and CPU, and the wakeup ledger's counts (all owners, and CEFMessagePump: the
-    in-process pump's timer and cross-thread wakes), from debug.wakeups."""
+    in-process pump's timer and cross-thread wakes), from debug.wakeups; and the kernel wakeups of each process it
+    lists, by pid with its kind (app, Chromium helpers, the daemon and its terminal hosts)."""
     report = rpc("debug.wakeups") or {}
-    app = next((p for p in report.get("processes") or [] if p.get("kind") == "app"), {})
+    processes = report.get("processes") or []
+    app = next((p for p in processes if p.get("kind") == "app"), {})
     ledger = report.get("ledger") or []
     return {"app_wakeups": app.get("wakeups") or 0, "app_cpu_ms": app.get("cpu_ms") or 0.0,
             "ledger": sum(e.get("count") or 0 for e in ledger),
-            "cef_pump": sum(e.get("count") or 0 for e in ledger if e.get("owner") == "CEFMessagePump")}
+            "cef_pump": sum(e.get("count") or 0 for e in ledger if e.get("owner") == "CEFMessagePump"),
+            "by_pid": {p["pid"]: (p.get("kind") or "?", p.get("wakeups") or 0) for p in processes if p.get("pid")}}
 
 
 def wake_rates(before, after, seconds):
     rate = lambda key: round((after[key] - before[key]) / seconds, 2)
     out = {"app_wakeups_per_s": rate("app_wakeups"), "app_cpu_share": round((after["app_cpu_ms"] - before["app_cpu_ms"]) / (seconds * 1000), 4),
            "ledger_per_s": rate("ledger"), "cef_pump_per_s": rate("cef_pump")}
+    # Per process kind, over the processes alive at both samples (one that started or ended in between has no rate).
+    earlier, kinds = before.get("by_pid") or {}, {}
+    for pid, (kind, wakeups) in (after.get("by_pid") or {}).items():
+        if pid in earlier:
+            kinds[kind] = kinds.get(kind, 0) + wakeups - earlier[pid][1]
+    out["by_kind_per_s"] = {kind: round(total / seconds, 2) for kind, total in sorted(kinds.items())}
     # The pump's part of the app's sanctioned main wakes (the ledger), and of all its kernel wakeups.
     out["cef_pump_share_of_ledger"] = round(out["cef_pump_per_s"] / out["ledger_per_s"], 4) if out["ledger_per_s"] > 0 else None
     out["cef_pump_share_of_app_wakeups"] = (round(out["cef_pump_per_s"] / out["app_wakeups_per_s"], 4)
@@ -501,7 +603,7 @@ def pump_share(rpc, page, scroll=None):
     return shares
 
 
-def run_stress_pump(rpc):
+def run_stress_pump(rpc, url, helper):
     import importlib.util
     spec = importlib.util.spec_from_file_location("perf_stress_session", os.path.join(HERE, "perf-stress-session.py"))
     module = importlib.util.module_from_spec(spec)
@@ -510,6 +612,176 @@ def run_stress_pump(rpc):
     RESULT["stress_session"] = summary
     # Scroll goes to the focused pane's page: a Chromium page in STRESS (selected chromium).
     RESULT["modes"].setdefault("inproc", {}).setdefault("pump_share", {})["stress"] = pump_share(rpc, None)
+    if not opts.baseline:
+        return
+    stress = RESULT.setdefault("sessions", {}).setdefault("stress", {})
+    # STRESS's own tab mix (2 Chromium and 1 WebKit per measured pane, 10 background workspaces with 2 Chromium
+    # pages each), not 10 tabs: the topology has no engine, so the row counts browser tabs of both engines.
+    stress["idle"] = idle_scenarios(rpc)
+    # The probe in the measured pane: keys, clicks, pacing and the 9a stall with the whole STRESS session behind it.
+    page, click_point, _ = open_inproc_probe(rpc, url, "stress")
+    stress["inproc"] = (drive(rpc, "inproc", lambda: page("document.title"), {"target": "page"}, {"target": "page"}, click_point)
+                        if page else {"error": click_point})
+    if helper:
+        # The same probe in the host, over the measured pane (the host's page view moves there).
+        stress["helper"] = run_host_probe(rpc, f"{url}?probe=stress-host")
+
+
+def topology(rpc):
+    return (rpc("snapshot.get") or {}).get("topology") or {}
+
+
+def topology_tabs(rpc):
+    """Every tab of every workspace in the app's snapshot."""
+    workspaces = topology(rpc).get("workspaces") or []
+    return [tab for workspace in workspaces for screen in workspace.get("screens") or [] for pane in screen.get("panes") or []
+            for tab in pane.get("tabs") or []]
+
+
+def idle_wakes(rpc):
+    """Wakes per second over --pump-seconds, after --idle-settle-seconds with nothing happening."""
+    time.sleep(opts.idle_settle_seconds)  # test harness: hidden pages reach their frozen state
+    start, before = time.monotonic(), wake_sample(rpc)
+    time.sleep(opts.pump_seconds)  # test harness: the idle sample
+    return wake_rates(before, wake_sample(rpc), time.monotonic() - start)
+
+
+def action(rpc, name, **fields):
+    reply = rpc("action.run", {"action": name, "origin": "script", **fields}, timeout=60)
+    if not isinstance(reply, dict):
+        return "no reply"
+    return reply.get("error") or (None if reply.get("ok", True) else "refused")
+
+
+def idle_scenarios(rpc):
+    """Idle wakes in done check 12's three scenarios: the app visible, the workspace hidden (a new workspace is
+    selected, as bench_idle.py's chromium-hidden; closed after) and the app hidden (`showHideAllWindows`
+    hidden, NSApp.hide; unhidden without activation after). The ledger is the app's sanctioned wakes (mostly its main thread); macOS counts kernel
+    wakeups per process, not per thread, so the main thread's own count is not split out."""
+    tabs = topology_tabs(rpc)
+    row = {"settle_s": opts.idle_settle_seconds, "tabs": len(tabs),
+           "browser_tabs": sum(1 for tab in tabs if tab.get("kind") == "browser"),
+           "terminals": sum(1 for tab in tabs if tab.get("kind") == "terminal"), "scenarios": {}}
+    row["scenarios"]["app_visible"] = {"wakes": idle_wakes(rpc)}
+    workspaces = {w.get("id") for w in topology(rpc).get("workspaces") or []}
+    refused = action(rpc, "newTab", focus=True)
+    added = [w.get("id") for w in topology(rpc).get("workspaces") or [] if w.get("id") not in workspaces]
+    if refused or not added:
+        row["scenarios"]["workspace_hidden"] = {"error": f"newTab: {refused or 'no new workspace'}"}
+    else:
+        row["scenarios"]["workspace_hidden"] = {"wakes": idle_wakes(rpc)}
+    for workspace in added:
+        action(rpc, "closeWorkspace", args={"confirm": True}, target=f"workspace:{workspace}")
+    refused = action(rpc, "showHideAllWindows", args={"hidden": True})
+    row["scenarios"]["app_hidden"] = {"error": f"showHideAllWindows: {refused}"} if refused else {"wakes": idle_wakes(rpc)}
+    action(rpc, "showHideAllWindows", args={"hidden": False})
+    return row
+
+
+TABS_IDLE = 10  # p01-process.md done check 12: idle wakes with 10 Chromium tabs
+
+
+def tabs10_wakes(rpc, url):
+    """Idle wakes with the probe and 9 more in-process Chromium tabs, in the three scenarios; the 9 are closed after."""
+    before = {tab.get("id") for tab in topology_tabs(rpc)}
+    for _ in range(TABS_IDLE - 1):
+        rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True, "origin": "script"}, timeout=120)
+    added = wait(lambda: (lambda new: new if len(new) >= TABS_IDLE - 1 else None)(
+        [tab.get("id") for tab in topology_tabs(rpc) if tab.get("id") not in before]), 60, 0.5) or []
+    if len(added) < TABS_IDLE - 1:
+        return {"error": f"{len(added)} of {TABS_IDLE - 1} more Chromium tabs opened"}
+    row = idle_scenarios(rpc)
+    row["chromium_tabs"] = TABS_IDLE
+    for tab in added:
+        rpc("action.run", {"action": "closeTab", "target": f"tab:{tab}", "wait": True, "origin": "script"}, timeout=60)
+    return row
+
+
+def host_block():
+    """Where the numbers come from: the host's name, macOS, and the build's commit (bench_launch.build_sha)."""
+    import platform, socket
+    block = {"name": socket.gethostname().split(".")[0], "macos": platform.mac_ver()[0] or None}
+    try:
+        block["sha"] = build_sha(opts.app)
+    except RecordError as error:
+        block["sha_error"] = str(error)[:200]
+    return block
+
+
+CENSUS_TIMEOUT_S = 1200  # the heavy session builds 150 workspaces
+CENSUS_TOOL = os.path.join(HERE, "process-model-census.py")
+
+
+def census(app, name, session=None, baseline=None):
+    """process-model-census.py (task p01-process-004) on this running app, by its tag and socket (its `--app`
+    launches a second instance of the tag and ends the tag's daemons when it stops). `session` builds that census
+    session in the app first; `baseline` is an earlier census JSON of this app (per hidden terminal over all
+    roles). Returns {"census": its JSON, "path": where it is}, or {"error"}; the terminal counts are the census's
+    own (`census.session`)."""
+    if not os.path.exists(CENSUS_TOOL):
+        return {"error": "process-model-census.py is not in this checkout (task p01-process-004)"}
+    path = os.path.join(opts.out, f"census-{name}.json")
+    argv = [sys.executable, CENSUS_TOOL, "--tag", app.tag, "--socket", app.socket, "--out", path]
+    argv += ["--session", session] if session else []
+    argv += ["--baseline", baseline] if baseline else []
+    try:
+        run = subprocess.run(argv, capture_output=True, text=True, timeout=CENSUS_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        return {"error": f"census {name} timed out after {CENSUS_TIMEOUT_S} s"}
+    if run.returncode != 0:
+        return {"error": f"census {name} exit {run.returncode}: {run.stderr.strip()[-300:]}"}
+    try:
+        with open(path) as source:
+            report = json.load(source)
+    except (OSError, ValueError) as error:
+        return {"error": f"census {name} wrote no JSON to {path}: {error}"}
+    return {"census": report, "path": path}
+
+
+# The probe's fixed layout: the field spans 10-70 % at 20 % height, the button 10-40 % at 40 % (+40 px).
+HOST_SPOTS = {"t": (0.4, 0.2, 10), "b": (0.25, 0.4, 40), "s": (0.2, 0.55, 15), "al": (0.52, 0.55, 20), "f": (0.75, 0.55, 12)}
+
+
+def host_click_point(border):
+    """click_point for the host page over a pane whose content rect (window points, top left) is `border`."""
+    bx, by, bw, bh = border
+
+    def click_point(element):
+        fx, fy, dy = HOST_SPOTS[element]
+        return {"x": bx + bw * fx, "y": by + bh * fy + dy}
+    return click_point
+
+
+def focused_pane_border(rpc):
+    """The focused pane's content rect (debug.focus model pane, debug.pane_chrome border) in the key window (else
+    the first), or None."""
+    windows = (rpc("debug.focus") or {}).get("windows") or []
+    window = next((w for w in windows if w.get("is_key")), windows[0] if windows else {})
+    pane = (window.get("model") or {}).get("pane")
+    layers = rpc("debug.pane_chrome") or {}
+    return next((p.get("border") for w in layers.get("windows") or [] for p in w.get("panes") or []
+                 if pane and p.get("pane") == pane and isinstance(p.get("border"), list)), None)
+
+
+def run_host_probe(rpc, url):
+    """Keys, clicks, pacing and (with --baseline) the 9a stall with the probe in the host over the focused pane.
+    `url` carries a query of its own: the row waits for that page, fresh (no keys yet), not an earlier probe."""
+    reply = rpc("debug.chromium_host", {"op": "open", "url": url, "focus": True}) or {}
+    if reply.get("error"):
+        return {"error": f"debug.chromium_host open: {reply['error']}"}
+    query = url[url.index("?"):] if "?" in url else url
+
+    def fresh(state):
+        stats = probe_stats(state.get("title")) or {}
+        return (state if state.get("shown_context_id") and query in (state.get("url") or "")
+                and (stats.get("key") or {}).get("n") == 0 else None)
+    if not wait(lambda: fresh(rpc("debug.chromium_host") or {}), 90, 0.25):
+        return {"error": "the host page never showed the probe", "state": rpc("debug.chromium_host") or {}}
+    border = focused_pane_border(rpc)
+    if not border:
+        return {"error": "no geometry for the focused pane (debug.focus, debug.pane_chrome)"}
+    time.sleep(0.5)  # test harness: the shown context's first frame reaches the screen
+    return drive(rpc, "helper", lambda: (rpc("debug.chromium_host") or {}).get("title"), {}, {}, host_click_point(border))
 
 
 def run_helper(rpc, url, inproc_tab):
@@ -545,13 +817,7 @@ def run_helper(rpc, url, inproc_tab):
     if not borders:
         RESULT["modes"]["helper"] = {"error": "no pane geometry (debug.pane_chrome)"}
         return False
-    bx, by, bw, bh = max(borders, key=lambda b: b[0])
-    # The probe's fixed layout: the field spans 10-70 % at 20 % height, the button 10-40 % at 40 % (+40 px).
-    spots = {"t": (0.4, 0.2, 10), "b": (0.25, 0.4, 40), "s": (0.2, 0.55, 15), "al": (0.52, 0.55, 20), "f": (0.75, 0.55, 12)}
-
-    def click_point(element):
-        fx, fy, dy = spots[element]
-        return {"x": bx + bw * fx, "y": by + bh * fy + dy}
+    click_point = host_click_point(max(borders, key=lambda b: b[0]))
     row = drive(rpc, "helper", title, {}, {}, click_point)
     # The host is a second executable of cmux.app with its bundle id: it must stay out of the Dock, the menu bar
     # and Cmd-Tab (UIElement), never be frontmost while cmux takes keys, and `open -b` must reach cmux, not it.
@@ -608,7 +874,7 @@ def run_helper(rpc, url, inproc_tab):
     windows = rpc("debug.windows") or {}
     inproc_alive = None
     if inproc_tab:
-        inproc_alive = page_eval(rpc, "1 + 1") == 2
+        inproc_alive = page_eval(rpc, "1 + 1", inproc_tab) == 2
     row["kill"] = {
         "killed_pid": killed, "app_pid_before": app_pid, "app_pid_after": (after or {}).get("app_pid"),
         "app_answers": bool(windows.get("windows")), "restarted": bool(after), "new_host_pid": (after or {}).get("pid"),
