@@ -170,9 +170,6 @@ final class DebugSettingsService: InternalPageProvider {
     var page: InternalPageID { .debugSettings }
     var title: String { DebugSettingsModel.paneTitle }
     var symbol: String { "slider.horizontal.3" }
-    /// The search and selection live in the shared model, which stays while the tab does: a
-    /// released tab's next page opens where the person left it. A tunable is written as it changes.
-    var discardPolicy: InternalPageDiscardPolicy { .standard }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let model = sharedModel ?? DebugSettingsModel(store: TunableStore.shared, descriptors: TunableCatalog.all)
@@ -202,5 +199,16 @@ final class DebugSettingsService: InternalPageProvider {
     func tabClosed(_ key: String) {
         if let page = tabPages.removeValue(forKey: key) { services.webUI.close(page) }
         dropModelWhenUnused()
+    }
+
+    // MARK: Discard (`memoryDiscardInternalPages`)
+
+    /// Ten minutes hidden: a tunable is written as it changes, and the search and selection live in
+    /// the shared model, which stays while the tab does, so the next page opens where it was.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// The tab's page went (the tab store closed it); the model stays with the tab.
+    func viewDiscarded(_ key: String) {
+        if let page = tabPages.removeValue(forKey: key) { services.webUI.close(page) }
     }
 }

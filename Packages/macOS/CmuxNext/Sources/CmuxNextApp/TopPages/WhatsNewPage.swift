@@ -8,7 +8,7 @@ import CmuxNextUpdater
 /// (``ChangelogPageTab``), opened by the bottom-left "cmux Updated!" card, the palette, the Help
 /// menu and `updates.whatsNew`. It has no sidebar item at the top (Lawrence 2026-10-18). The native SwiftUI page
 /// went with react-screens.md; the center (`WhatsNewCenter`) still tracks what is unseen.
-/// Its tab is the changelog's, so a hidden one follows ``ChangelogPageTab/discardPolicy`` and
+/// Its tab is the changelog's, so a hidden one follows ``ChangelogPageTab/discardPolicy(for:)`` and
 /// opens on the same span again.
 @MainActor
 enum WhatsNewPage {

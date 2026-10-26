@@ -43,4 +43,12 @@ extension PageWebView {
         let value = (object["result"] as? [String: Any])?["value"]
         return value is NSNull ? nil : value
     }
+
+    /// The fragment the document shows now, which follows the page's own links and history (a
+    /// section the person picked in the page), unlike ``route``, the last one the host asked for;
+    /// ``route`` while no document answers. Nil for a page on its default place (no fragment).
+    public func shownRoute() async -> String? {
+        guard loaded, let hash = try? await callPageScript("return window.location.hash;") as? String else { return route }
+        return hash.isEmpty ? nil : hash
+    }
 }

@@ -69,6 +69,8 @@ final class SettingsPageProvider: PageProvider {
     /// The gesture (``PageCallContext/gestureEvent``) that last turned a device's Full access on:
     /// one click or key turns on one setting.
     private var spentFullAccessGesture: TimeInterval?
+    /// The page's forms that hold typed values not saved yet (`cmux.settings.editing`).
+    var edits = SettingsPageEdits()
     /// Results of recent writes by idempotency key (a retried key replays its first answer).
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
@@ -218,6 +220,12 @@ final class SettingsPageProvider: PageProvider {
             return ["previewing": .string(descriptor.id)]
         case "cmux.settings.preview.end":
             settings.endPreview()
+            return .object([:])
+        case "cmux.settings.editing":
+            guard let form = params["form"]?.stringValue, let unsaved = params["editing"]?.boolValue else {
+                throw PageError.invalidParams("form and editing are required")
+            }
+            edits.set(form, unsaved: unsaved)
             return .object([:])
         case "cmux.settings.sound.play":
             guard let name = params["name"]?.stringValue else { throw PageError.invalidParams("name is required") }

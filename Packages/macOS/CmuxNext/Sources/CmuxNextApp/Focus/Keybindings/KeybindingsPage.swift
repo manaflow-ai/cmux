@@ -45,9 +45,7 @@ final class KeybindingsPageService: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let provider = KeybindingsPageProvider(services: services)
         let routes = [PageRoute(prefix: "cmux.keybindings.", provider: provider)]
-        guard let page = services.webUI.open(PageOpenRequest(descriptor: .keybindings, routes: routes,
-                                                             route: restoredRoutes.removeValue(forKey: key)))
-        else { return NSView() }
+        guard let page = services.webUI.open(PageOpenRequest(descriptor: .keybindings, routes: routes)) else { return NSView() }
         provider.pageWindow = { [weak page] in page?.window }
         tabs[key] = (page, provider)
         return page
@@ -55,34 +53,32 @@ final class KeybindingsPageService: InternalPageProvider {
 
     /// The page and its ops of each tab, by key.
     private var tabs: [String: (page: PageWebView, provider: KeybindingsPageProvider)] = [:]
-    /// The route a tab whose view was released opens on again.
-    private var restoredRoutes: [String: String] = [:]
 
     func tabClosed(_ key: String) {
-        restoredRoutes.removeValue(forKey: key)
         guard let tab = tabs.removeValue(forKey: key) else { return }
         services.webUI.close(tab.page)
     }
 
-    // MARK: Discard (memory.discard.internalPages)
+    // MARK: Discard (`memoryDiscardInternalPages`)
 
-    /// Every change is written as it is made; a shortcut being recorded is the page's only edit
-    /// not yet written (Chrome's kUserEdits), which a rebuilt page cannot show again.
-    var discardPolicy: InternalPageDiscardPolicy { .standard }
+    /// Ten minutes hidden: every change is written as it is made.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
 
-    func keepReasons(for key: String) -> Set<CannotDiscardReason> {
+    /// Kept while the page records a shortcut: the keys it takes are an edit not written yet, which
+    /// a rebuilt page cannot show again (Chrome's kUserEdits).
+    func keepReasons(for key: String) -> [CannotDiscardReason] {
         tabs[key]?.provider.isRecording == true ? [.unsavedEdits] : []
     }
 
-    func saveViewState(for key: String) -> InternalPageViewState? {
-        tabs[key].map { InternalPageViewState(route: $0.page.route) }
+    func saveViewState(for key: String, content: NSView) async -> ContentViewState {
+        await (content as? PageWebView)?.discardViewState() ?? ContentViewState()
     }
 
-    func restoreViewState(_ state: InternalPageViewState, for key: String) {
-        restoredRoutes[key] = state.route
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
+        (content as? PageWebView)?.restoreDiscardViewState(state)
     }
 
-    /// The tab stays: its page closes and its saved route is kept for the next view.
+    /// The tab's page went (the tab store closed it); the next view makes its own.
     func viewDiscarded(_ key: String) {
         guard let tab = tabs.removeValue(forKey: key) else { return }
         services.webUI.close(tab.page)

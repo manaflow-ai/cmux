@@ -96,33 +96,28 @@ final class TaskManagerPageService: InternalPageProvider {
     var symbol: String { "gauge.with.dots.needle.33percent" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let restored = restoredStates.removeValue(forKey: key)
-        let model = self.model ?? makeModel(restoring: restored)
-        self.model = model
-        liveViews.insert(key)
-        model.start()
-        return NSHostingView(rootView: TaskManagerView(model: model))
-    }
-
-    /// A new model; a tab whose view was released gets its sort, selection and top row back.
-    private func makeModel(restoring state: InternalPageViewState?) -> TaskManagerModel {
         let sampling = self.sampling
-        let model = TaskManagerModel(source: sampling.source, memorySaved: sampling.memorySaved, kill: { [weak services] key in
+        let model = self.model ?? TaskManagerModel(source: sampling.source, memorySaved: sampling.memorySaved, kill: { [weak services] key in
             // The row menu and the button run the action, which asks first.
             _ = services?.registry.perform("taskManager.killProcess",
                                            invocation: ActionInvocation(arguments: ["process": .string(key.description)]))
         })
-        if let state { model.restoreView(state.fields) }
-        return model
+        self.model = model
+        let table = tables[key] ?? TaskManagerTableState()
+        tables[key] = table
+        liveViews.insert(key)
+        model.start()
+        return NSHostingView(rootView: TaskManagerView(model: model, table: table))
     }
 
     func tabClosed(_ key: String) {
-        restoredStates.removeValue(forKey: key)
+        tables.removeValue(forKey: key)
         liveViews.remove(key)
         dropModelWhenUnused()
     }
 
-    /// No view shows the model: sampling stops (the next view samples again).
+    /// No view shows the model: sampling stops (the next view samples again). A discarded tab has
+    /// no view, so it keeps no sampling running.
     private func dropModelWhenUnused() {
         guard liveViews.isEmpty, let model else { return }
         model.stop()
@@ -132,28 +127,56 @@ final class TaskManagerPageService: InternalPageProvider {
         #endif
     }
 
-    // MARK: Discard (memory.discard.internalPages)
+    /// The tabs whose view is made and not discarded or closed.
+    private(set) var liveViews: Set<String> = []
+    /// Each tab's table (its sort and the row it scrolls back to), kept while the tab is open.
+    private(set) var tables: [String: TaskManagerTableState] = [:]
 
-    /// The tabs whose view is made and not released or closed.
-    private var liveViews: Set<String> = []
-    /// What a tab whose view was released shows again (``restoreViewState(_:for:)``).
-    private var restoredStates: [String: InternalPageViewState] = [:]
+    // MARK: Discard (`memoryDiscardInternalPages`)
 
-    /// The page samples every process once a second while a view shows it, so a hidden one is
-    /// released after a minute; it saves its sort, selection and top row.
-    var discardPolicy: InternalPageDiscardPolicy { .afterHidden(.seconds(60)) }
+    /// One minute hidden: a view samples every cmux process once a second while it exists.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .afterHidden(.seconds(60)) }
 
-    func saveViewState(for key: String) -> InternalPageViewState? {
-        model.map { InternalPageViewState(fields: $0.savedView) }
+    /// The tab's sort, and the row at the top of its table.
+    func saveViewState(for key: String, content: NSView) async -> ContentViewState {
+        guard let table = tables[key] else { return ContentViewState() }
+        var state = ContentViewState(values: ["sort": table.sort])
+        let rows = model.map { table.rows(of: $0.snapshot) } ?? []
+        state.values["topRow"] = Self.topRow(in: content, rows: rows)?.description
+        return state
     }
 
-    func restoreViewState(_ state: InternalPageViewState, for key: String) {
-        restoredStates[key] = state
+    /// Sorts as before and scrolls the saved top row back to the top once a sample lists it.
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
+        guard let table = tables[key] else { return }
+        table.sortOrder = TaskManagerSort.order(state.values["sort"] ?? table.sort)
+        table.scrollTarget = state.values["topRow"].flatMap(ProcessKey.init(parsing:))
     }
 
+    /// The tab's view went; its table stays for the next view. The last view gone stops sampling.
     func viewDiscarded(_ key: String) {
         liveViews.remove(key)
         dropModelWhenUnused()
+    }
+
+    /// The row of `rows` (in the table's order) drawn at the top of the table in `content`; nil
+    /// with no table or no row there.
+    static func topRow(in content: NSView, rows: [TaskManagerRow]) -> ProcessKey? {
+        var queue: [NSView] = [content]
+        var index = 0
+        while index < queue.count {
+            let next = queue[index]
+            index += 1
+            if let scroll = next as? NSScrollView, let tableView = scroll.documentView as? NSTableView {
+                // The clip's bounds start above the document by its top inset (the header) at the top.
+                let clip = scroll.contentView
+                let top = NSPoint(x: clip.bounds.minX, y: max(0, clip.bounds.minY + clip.contentInsets.top))
+                let row = tableView.row(at: top)
+                return rows.indices.contains(row) ? rows[row].id : nil
+            }
+            queue.append(contentsOf: next.subviews)
+        }
+        return nil
     }
 
     /// What the next page samples, and whether it lists the discarded items: the app's source and

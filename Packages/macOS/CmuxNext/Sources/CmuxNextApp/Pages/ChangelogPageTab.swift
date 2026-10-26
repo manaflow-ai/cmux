@@ -27,8 +27,7 @@ final class ChangelogPageTab: InternalPageProvider {
     var icon: IconName? { .fileText }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let restored = restoredRoutes.removeValue(forKey: key)
-        let route = pendingRoute ?? restored
+        let route = pendingRoute
         pendingRoute = nil
         guard let services, let view = PageFactory(services: services).changelogPage(route: route) else { return NSView() }
         pages[key] = view
@@ -36,29 +35,26 @@ final class ChangelogPageTab: InternalPageProvider {
     }
 
     func tabClosed(_ key: String) {
-        restoredRoutes.removeValue(forKey: key)
         pages.removeValue(forKey: key)?.close()
     }
 
-    // MARK: Discard (memory.discard.internalPages)
+    // MARK: Discard (`memoryDiscardInternalPages`; What's New is this page)
 
-    /// The route a tab whose view was released opens on again (its release span).
-    private var restoredRoutes: [String: String] = [:]
+    /// Ten minutes hidden: read-only notes, so a rebuilt page on the same place shows the same.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
 
-    /// Read-only notes: a rebuilt page on the same route shows the same span.
-    var discardPolicy: InternalPageDiscardPolicy { .standard }
-
-    func saveViewState(for key: String) -> InternalPageViewState? {
-        pages[key].map { InternalPageViewState(route: $0.route) }
+    /// The release span or version the page shows now (its own links move it).
+    func saveViewState(for key: String, content: NSView) async -> ContentViewState {
+        await (content as? PageWebView)?.discardViewState() ?? ContentViewState()
     }
 
-    func restoreViewState(_ state: InternalPageViewState, for key: String) {
-        restoredRoutes[key] = state.route
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
+        (content as? PageWebView)?.restoreDiscardViewState(state)
     }
 
-    /// The tab stays: its page closes and its saved route is kept for the next view.
+    /// The tab's page went (the tab store closed it); the next view makes its own.
     func viewDiscarded(_ key: String) {
-        pages.removeValue(forKey: key)?.close()
+        pages.removeValue(forKey: key)
     }
 
     /// The page's provider, registered once. The app registers it at launch:

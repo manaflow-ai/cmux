@@ -5,18 +5,21 @@ public import SwiftUI
 /// sortable by any column, and Kill Process on the selected row (the button
 /// and the row menu). With `taskManagerMemorySaved`, the items Memory Saver
 /// discarded follow the table, each with the memory it saved, and the footer
-/// says what Memory Saver freed.
+/// says what Memory Saver freed. The sort and the row to scroll back to are the tab's own
+/// (``TaskManagerTableState``); the samples and the selection are the shared model's.
 public struct TaskManagerView: View {
     @Bindable var model: TaskManagerModel
+    @Bindable var table: TaskManagerTableState
 
-    public init(model: TaskManagerModel) {
+    public init(model: TaskManagerModel, table: TaskManagerTableState) {
         self.model = model
+        self.table = table
     }
 
     public var body: some View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
-                table
+                rowsTable
                     .onAppear { scrollToTarget(proxy) }
                     .onChange(of: model.snapshot) { scrollToTarget(proxy) }
             }
@@ -29,21 +32,16 @@ public struct TaskManagerView: View {
         }
     }
 
-    /// A rebuilt page's saved top row, once a sample lists it.
+    /// The saved top row of a view built again, once a sample lists it.
     private func scrollToTarget(_ proxy: ScrollViewProxy) {
-        guard let target = model.scrollTarget, model.snapshot.row(target) != nil else { return }
-        model.scrollTarget = nil
+        guard let target = table.scrollTarget, model.snapshot.row(target) != nil else { return }
+        table.scrollTarget = nil
         proxy.scrollTo(target, anchor: .top)
     }
 
-    private var table: some View {
-        // Sort and selection live in the model, so a page built again shows them as they were.
-        Table(model.rows, selection: $model.selection, sortOrder: $model.sortOrder) {
-            TableColumn(TaskManagerStrings.columnTask, value: \.task) { row in
-                Text(verbatim: row.task)
-                    .onAppear { model.rowShown(row.id) }
-                    .onDisappear { model.rowHidden(row.id) }
-            }
+    private var rowsTable: some View {
+        Table(table.rows(of: model.snapshot), selection: $model.selection, sortOrder: $table.sortOrder) {
+            TableColumn(TaskManagerStrings.columnTask, value: \.task)
             TableColumn(TaskManagerStrings.columnProcess, value: \.name)
             TableColumn(TaskManagerStrings.columnPID, value: \.pid) { row in
                 Text(verbatim: row.id.host == ProcessKey.localHost ? String(row.pid) : row.id.description)
