@@ -280,6 +280,33 @@ import Testing
         #expect(log.withLock { $0 } == ["save"])
     }
 
+    /// `onRan` reports each item's lane, priority and run (the startup trace's lane slices) until
+    /// `stopReportingRuns()`; items submitted after it do not report.
+    @Test func onRanReportsEachItemUntilRunsStopBeingReported() async throws {
+        let reports = OSAllocatedUnfairLock<[(BlockingLane, WorkPriority, UInt64, UInt64)]>(initialState: [])
+        let work = BackgroundWork(label: "test.onran", onRan: { lane, priority, start, end in
+            reports.withLock { $0.append((lane, priority, start, end)) }
+        })
+        // One serial queue (files, user-visible): an item's report runs before the next item's body.
+        let ran = Started()
+        work.post(.userVisible, mayBlock: .files) {}
+        work.post(.userVisible, mayBlock: .files) { ran.signal() }
+        await ran.wait()
+        let first = try #require(reports.withLock { $0.first })
+        #expect(first.0 == .files)
+        #expect(first.1 == .userVisible)
+        #expect(first.3 >= first.2)
+        work.stopReportingRuns()
+        work.post(.userVisible, mayBlock: .files) { ran.signal() }
+        await ran.wait()
+        let before = reports.withLock { $0.count }
+        #expect(before == 2)
+        work.post(.userVisible, mayBlock: .files) {}
+        work.post(.userVisible, mayBlock: .files) { ran.signal() }
+        await ran.wait()
+        #expect(reports.withLock { $0.count } == before)
+    }
+
     @Test(arguments: MainWorkClass.allCases)
     func everyMainWorkClassMapsToOneWorkPriority(workClass: MainWorkClass) {
         let expected: WorkPriority = switch workClass {

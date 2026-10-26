@@ -102,6 +102,8 @@ public final class MainThreadWatchdog: Sendable {
         set { stallSink.withLock { $0 = newValue } }
     }
     private let stallSink = Mutex<(@Sendable (HangRecord) -> Void)?>(nil)
+    let mainTurnMinimumNanos = Atomic<UInt64>(.max), turnStartNanos = Atomic<UInt64>(0) // +MainTurns
+    let mainTurnSink = Mutex<(@Sendable (UInt64, UInt64) -> Void)?>(nil)
     let episodeSink = Mutex<HangEpisodeRecorder?>(nil) // ``episodes``
     /// Finished stalls of a hang's length by beat, the newest few, until their file takes one (+Episodes).
     let hangEnds = Mutex<[(beat: UInt64, nanos: UInt64)]>([])
@@ -240,7 +242,10 @@ public final class MainThreadWatchdog: Sendable {
     public func start() {
         guard running.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else { return }
         busy.watchCurrentThread()
-        beatNanos.store(uptime(), ordering: .releasing)
+        let started = uptime()
+        beatNanos.store(started, ordering: .releasing)
+        // The turn this call runs in is awake (mainAsleep false below) and began no later than now.
+        turnStartNanos.store(started, ordering: .relaxed)
         beatCPUNanos.store(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID), ordering: .releasing)
         mainAsleep.store(false, ordering: .releasing)
         // Two observers: every activity but before-waiting stamps first
@@ -317,10 +322,12 @@ public final class MainThreadWatchdog: Sendable {
         if wasAsleep, !asleep {
             mainWakeCount.add(1, ordering: .relaxed)
             busy.noteAwake()
+            turnStartNanos.store(now, ordering: .relaxed)
             // The watchdog thread wakes only if this turn is still running when it is due to sample.
             alarm.arm(afterNanos: sampleAfterNanos)
         } else if asleep, !wasAsleep {
             alarm.disarm()
+            mainTurnEnded(start: turnStartNanos.load(ordering: .relaxed), end: now)
         }
     }
 

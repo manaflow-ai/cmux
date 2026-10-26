@@ -43,11 +43,12 @@ extension DaemonService {
     public nonisolated static func prestart(launch: LaunchIdentity, terminalEnvironment: [String: String],
                                      terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                                      resolvesShellIntegration: Bool = false,
-                                     echoesPlacementShift: Bool = false) -> DaemonPrestart? {
+                                     echoesPlacementShift: Bool = false,
+                                     wireStats: DaemonWireStats? = nil) -> DaemonPrestart? {
         guard let launcher = try? DaemonLauncher.forApp(build: launch.build,
                                                 terminalEnvironment: terminalEnvironment,
                                                 daemonEnvironment: firstPartyAppsEnvironment,
-                                                webSocketPageOrigins: pageOrigins) else { return nil }
+                                                webSocketPageOrigins: pageOrigins, wireStats: wireStats) else { return nil }
         return DaemonPrestart(launcher: launcher, configuration: localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
             installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift))
