@@ -1020,6 +1020,7 @@ fn add_section(tx: &mut Tx, section: &Section, place: &SectionPlace) -> Result<(
         }
         _ => {}
     }
+    validate_host_group_flags(section)?;
     if let Some(title) = &section.title {
         validate_title(title)?;
     }
@@ -1063,10 +1064,30 @@ fn update_section(tx: &mut Tx, id: &str, patch: &SectionPatch) -> Result<(), Ref
             return Err(Refusal::InvalidValue);
         }
         section.host_group = host_group;
+        // Older clients only sent `host_group`; preserve their explicit
+        // Remove/mark choice in the durable opt-out field unless a newer
+        // client supplied that field explicitly.
+        if patch.host_group_opt_out.is_none() {
+            section.host_group_opt_out = section.kind.machine().is_some() && !host_group;
+        }
     }
+    if let Some(opt_out) = patch.host_group_opt_out {
+        section.host_group_opt_out = opt_out;
+    }
+    validate_host_group_flags(&section)?;
     validate_section_numbers(&section)?;
     if tx.doc.section(id) != Some(&section) {
         tx.put_section(section);
+    }
+    Ok(())
+}
+
+fn validate_host_group_flags(section: &Section) -> Result<(), Refusal> {
+    if section.host_group_opt_out && section.kind.machine().is_none() {
+        return Err(Refusal::InvalidValue);
+    }
+    if section.host_group && section.host_group_opt_out {
+        return Err(Refusal::InvalidValue);
     }
     Ok(())
 }

@@ -255,6 +255,7 @@ impl Hub {
             control,
             trust_gate,
             interrupt: opts.interrupt,
+            interrupt_turn: opts.interrupt_turn.as_deref(),
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
             supersede: supersede.as_deref(),
@@ -481,6 +482,11 @@ impl Hub {
                 && let Some(to) = self.fallback_profile(session).await
             {
                 let from = session.meta().harness;
+                // Before the failover is logged: a /context answer the old agent sends from here
+                // on is not logged after it as the fallback's.
+                if let Some(old) = session.child.lock().await.as_ref() {
+                    old.retire();
+                }
                 self.append(
                     session,
                     "mux",
@@ -494,7 +500,12 @@ impl Hub {
                 self.detach_child(session).await;
                 *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = turn;
                 self.set_status(session, SessionStatus::Running);
-                session.meta.lock().unwrap().harness = to.clone();
+                {
+                    let mut m = session.meta.lock().unwrap();
+                    m.harness = to.clone();
+                    // The last harness's /context breakdown is not the fallback's.
+                    m.context_breakdown = None;
+                }
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
                 let fallback = self.child_for(session).await;
@@ -907,6 +918,12 @@ impl Hub {
         let asked_mode = (m == method::SESSION_SET_MODE)
             .then(|| params.get("modeId").and_then(Value::as_str).map(str::to_owned))
             .flatten();
+        // A mode picked through the harness's `mode` option (Claude Code's, or a harness whose
+        // mode is only that option).
+        let asked_option_mode = (m == method::SESSION_SET_CONFIG_OPTION
+            && params.get("configId").and_then(Value::as_str) == Some("mode"))
+        .then(|| params.get("value").and_then(Value::as_str).map(str::to_owned))
+        .flatten();
         let res = match child.request(m, params).await {
             Ok(v) => v,
             Err(mut e) => {
@@ -927,15 +944,38 @@ impl Hub {
         };
         match m {
             method::SESSION_SET_MODE => {
-                session.meta.lock().unwrap_or_else(|e| e.into_inner()).mode_set_by_cmux =
-                    asked_mode;
-                if let Some(mode) = res.get("currentModeId").or(res.get("modeId")).cloned() {
+                // The mode first, then the mark, under the lock, only while the chat runs it:
+                // a write that moves the mode takes the mark (`write_mode_state`).
+                let reported = res.get("currentModeId").or(res.get("modeId")).cloned();
+                if let Some(mode) = reported.or_else(|| asked_mode.clone().map(Value::String)) {
                     self.write_mode_state(session, [ModeWrite::CurrentMode(mode)]);
+                }
+                let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                if asked_mode.is_some() && crate::web_modes::mode_of(&meta) == asked_mode {
+                    meta.mode_set_by_cmux = asked_mode;
                 }
             }
             method::SESSION_SET_CONFIG_OPTION => {
+                let mut writes = Vec::new();
                 if let Some(opts) = res.get("configOptions") {
-                    self.write_mode_state(session, [ModeWrite::ConfigOptions(opts.clone())]);
+                    writes.push(ModeWrite::ConfigOptions(opts.clone()));
+                }
+                // Claude Code answers a `mode` option with the mode it now runs.
+                if asked_option_mode.is_some()
+                    && let Some(mode) = res.get("currentModeId").cloned()
+                {
+                    writes.push(ModeWrite::CurrentMode(mode));
+                }
+                if !writes.is_empty() {
+                    self.write_mode_state(session, writes);
+                }
+                // A mode picked through its option is cmux's as a `set_mode` one is, once the
+                // harness runs it (`trust_wait.rs` `full_access_by_cmux`).
+                if let Some(mode) = asked_option_mode {
+                    let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                    if crate::web_modes::mode_of(&meta).as_deref() == Some(mode.as_str()) {
+                        meta.mode_set_by_cmux = Some(mode);
+                    }
                 }
             }
             method::SESSION_SET_MODEL => {

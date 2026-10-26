@@ -43,6 +43,7 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 | Minimal rows | Name plus one state mark (spinner, unread dot, needs-you dot). No times, PR badge, status words or Now line by default. | Lawrence 10-21 |
 | Heights | Group headers, workspace rows and band rows have one height at each density. | Lawrence 10-19, 10-22 |
 | Performance | Terminal typing stays smooth while the sidebar rearranges (p95 frame under 8 ms). | Lawrence 11215 |
+| Pinned workspace tile | A pinned workspace's tile shows its color as its list row does: a dot before the title when it has no icon. Its right-click, and its hover more button, open the workspace's own menu (name field, color swatches with No Color, Unpin), then Show/Hide Label; on hover it shows a workspace row's more button and close x at its trailing end. | Austin 2026-10-25 ("i dont think the pinned worokspace color menu sahows up there properly", "i dont see the three dots and stuff an dthen x button when i hover on it"), https://github.com/manaflow-ai/cmux/pull/23958 |
 | Archived rows | An archived workspace, group or link stays in its group (or its section), last, and draws dimmed: its ink, icon and group bar at `SidebarStyle.archivedAlpha` (0.45). Row height, insets, rail and controls do not change. Unarchive restores it. plans/cmux-next/archiving-DESIGN.md. | Aziz 2026-10-23 ("archiving moves the item to the end of its group (or root, if ungrouped) and shows it dimmed; unarchive restores it") |
 
 Default picked (title x): the 10-21 commit c779988d57d reserved an empty icon slot on every row so that
@@ -440,6 +441,8 @@ the gap, no row left out of place after drop or cancel).
 | [126426d9674](https://github.com/manaflow-ai/cmux/commit/126426d9674468f33ea7b6a0e47748e9a82a2b6a) | 10-19 13:02 | Leo's agents (Leo) | cmux-next sidebar: selected rows read as one selection in every theme (#21940) |
 | [2e9e3125d34](https://github.com/manaflow-ai/cmux/commit/2e9e3125d34ef20dd6eafcd51f118318ef3d4051) | 10-19 12:40 | Leo's agents (Leo) | Now Playing card: level bars and a filled Play/Pause (#21697) |
 | (this commit) | Group header and rail left padding (Lawrence 2026-10-25, msg 12385: "groups headers and rails need more left padding"): the bar and the rail keep `SidebarStyle.groupEdgePadding` (`horizontalInset - space1`: 4 pt compact, 6 pt comfortable) from the list's left edge, they sat at 0 and 2 pt. Set by ab905adeadd (lawrencecchen, 2026-10-23, rail on the bar's left edge) over fd82636690f (Leo, 2026-10-21, members flush, #23975). Members unchanged. `SidebarGroupEdgePaddingTests`. |
+
+| (this commit, https://github.com/manaflow-ai/cmux/pull/23958) | Pinned workspace tile color (Austin 2026-10-25): a text-only pinned workspace with a color draws a dot before its title (`SidebarItemRowView.showsSwatchDot`), as its list row does; with none shown, the title alone. Its menu's header gets the name field (the field renames by name, which a tile allows). On hover a workspace tile shows the more button and close x (`SidebarItemRowView+HoverActions`). `SidebarPinnedTileColorTests`. |
 
 
 ## Codex follow-up

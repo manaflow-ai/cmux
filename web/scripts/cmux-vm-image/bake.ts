@@ -22,6 +22,8 @@
  *   edge carrier; it holds no secret.
  * - Model-plane env and the coderouter CLI point at the VM edge alias; no
  *   login and no token in the image.
+ * - The resolver is systemd-resolved with /etc/resolv.conf its stub (dns.ts), checked by
+ *   /usr/local/sbin/cmux-dns-check, so Tailscale on a machine runs in resolved mode.
  * - SBOM (syft, pinned) and a file-hash manifest are downloaded next to the
  *   result JSON. The page cache is dropped and the bind path re-read before the
  *   snapshot.
@@ -64,6 +66,7 @@ import {
 import { devTreeCredentialCheckCommand, devTreeLock, devTreeSizes, devTreeUserPaths, setUpDevTree, uploadDevTreeScript, DEV_TREE_SCRIPT, FIRST_BUILD } from "./dev-tree";
 import { AGENT_TOOLS_PROFILE, agentToolsDaemonEnv, agentToolsFiles, agentToolsLinkCommand, browserRoleBakePhases, daemonEnvLines } from "./agent-tools";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
+import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, run, StepLog, type Vm } from "./guest";
 import { HOST_CLI, HOST_CONFIG_PATH, HOST_UNIT, hostConfig, hostUnit } from "./host-agent";
 import {
@@ -446,7 +449,9 @@ async function configureSystem(ctx: Ctx): Promise<void> {
     "[ \"$(env -i HOME=/root TERM=bogus-term sh -c '. /etc/profile.d/cmux-shell.sh; echo $TERM $COLORTERM')\" = 'xterm-256color truecolor' ]",
     "echo shell-env-ok",
   ].join(" && "));
-  await L.step(vm, "snapshot-resume-quiet", "{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && echo ok");
+  await writeGuestFile(vm, DNS_CHECK_PATH, dnsCheckScript(), 0o755);
+  ctx.result.resolver = (await L.step(vm, "resolver", resolverBakeCommand(), 120_000)).trim();
+  await L.step(vm, "snapshot-resume-quiet","{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && echo ok");
 }
 
 /** The metadata service for root only (metadata-guard.ts), loaded now so the parked snapshot carries it. */
