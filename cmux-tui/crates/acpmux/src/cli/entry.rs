@@ -48,10 +48,12 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if let Some(home) = invocation.home.clone() {
         crate::config::set_home_override(home);
     }
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?
-        .block_on(async_main(args, invocation))
+    let mut runtime = tokio::runtime::Builder::new_multi_thread();
+    runtime.enable_all();
+    // Lab builds only (cmux-tui/lab/stability.env): time every task poll.
+    #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+    cmux_blocking::poll_watch::PollWatch::lab().instrument(&mut runtime);
+    runtime.build()?.block_on(async_main(args, invocation))
 }
 
 async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {

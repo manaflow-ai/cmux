@@ -33,6 +33,8 @@
 #![forbid(unsafe_code)]
 
 pub mod fs;
+#[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+pub mod poll_watch;
 pub mod process;
 pub mod runtime;
 mod sink;

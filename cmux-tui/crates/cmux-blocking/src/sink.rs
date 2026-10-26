@@ -11,6 +11,13 @@ use crate::BlockingRecord;
 /// thread, at most once per site per process.
 pub trait RecordSink: Send + Sync {
     fn record(&self, record: &BlockingRecord);
+
+    /// Receives the first slow poll of each spawn site (lab builds only,
+    /// [`crate::poll_watch`]). Called on the worker that polled the task.
+    #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+    fn slow_poll(&self, record: &crate::poll_watch::SlowPoll) {
+        let _ = record;
+    }
 }
 
 /// A sink was installed already; the first one stays.
@@ -38,6 +45,13 @@ pub(crate) fn emit(record: &BlockingRecord) {
     }
 }
 
+#[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+pub(crate) fn emit_slow_poll(record: &crate::poll_watch::SlowPoll) {
+    if let Some(sink) = SINK.get() {
+        sink.slow_poll(record);
+    }
+}
+
 /// Appends each record as one JSON line through `cmux_panic_log::append`
 /// (owner-only file, size cap, never panics), plus the caller's fields
 /// (process, pid, version), the way the panic log does.
@@ -52,14 +66,25 @@ impl JsonlSink {
     }
 }
 
-impl RecordSink for JsonlSink {
-    fn record(&self, record: &BlockingRecord) {
+impl JsonlSink {
+    fn append(&self, record: serde_json::Map<String, serde_json::Value>) {
         let mut line = self.fields.clone();
-        line.extend(record.to_fields());
+        line.extend(record);
         let at_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX));
         line.insert("at_ms".into(), at_ms.into());
         cmux_panic_log::append(&self.path, &serde_json::Value::Object(line));
+    }
+}
+
+impl RecordSink for JsonlSink {
+    fn record(&self, record: &BlockingRecord) {
+        self.append(record.to_fields());
+    }
+
+    #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+    fn slow_poll(&self, record: &crate::poll_watch::SlowPoll) {
+        self.append(record.to_fields());
     }
 }
