@@ -277,7 +277,7 @@ final class WorkspaceHoverCardView: NSView {
     private let kindIcon = HoverCardIconView()
     /// The workspace's status in the shared indicator, on its own row under the name with its
     /// word beside it (Leo 2026-10-13: an unlabeled mark under the name read as a smudge).
-    private let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
+    private let activity = StatusIndicatorView()
     private let activityLabel = ChromeLabel(labelWithString: "")
     private let activityRow = NSStackView()
     private let ageLabel = ChromeLabel(labelWithString: "")

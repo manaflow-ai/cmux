@@ -200,15 +200,13 @@ final class SidebarListView: NSView {
         MainActor.assumeIsolated {
             // Leave the frame client alone: an active one goes idle on its next tick
             // once self is gone (touching the lazy property here would create one).
-            if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
             if let faviconObserver { NotificationCenter.default.removeObserver(faviconObserver) }
             for observer in settleObservers + focusObservers { NotificationCenter.default.removeObserver(observer) }
             for subscription in pointerEnds { subscription.cancel() }
         }
     }
-    // MARK: - Window occlusion
+    // MARK: - Window
     private var observedWindow: NSWindow?
-    private var occlusionObserver: (any NSObjectProtocol)?
     private var faviconObserver: (any NSObjectProtocol)?
     private var settleObservers: [any NSObjectProtocol] = []
     private var focusObservers: [any NSObjectProtocol] = []
@@ -233,7 +231,6 @@ final class SidebarListView: NSView {
         if window != nil { hoverCards.register(hoverCard) }
         guard observedWindow !== window else { return }
         let center = NotificationCenter.default
-        if let occlusionObserver { center.removeObserver(occlusionObserver) }
         observedWindow = window
         // A gesture ends when its window or the app loses focus (`pointerFocusLost`). Off screen no card can land:
         // a drag ends in place (`abandonDrag`, its rows shown again).
@@ -246,30 +243,11 @@ final class SidebarListView: NSView {
             if let drag { abandonDrag(drag) }
             press = nil
         }
-        // queue: .main (inline for AppKit's post on main); a selector into this main-actor view trapped off main.
-        occlusionObserver = window.map { center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: $0, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.windowOcclusionChanged() } // main-proof: observer on queue: .main
-        } }
-        // The rows read the window when they moved in; the list's own reading starts them all from
-        // the same state, not each from whatever its window said a moment earlier.
-        if window != nil { windowOcclusionChanged() }
+        // Each row's indicator follows its own visibility node (StatusIndicatorView, p06-scheduler-042).
     }
     private func subscribePointerEnds() {
         for subscription in pointerEnds { subscription.cancel() }
         pointerEnds = window == nil ? [] : inputTap.map { observePointerEnds(on: $0) } ?? []
-    }
-    private func windowOcclusionChanged() {
-        setWindowVisible(window?.occlusionState.contains(.visible) ?? false)
-    }
-    /// Pauses (or resumes) every row's activity animation, down to a row badge's glyphs (cx-m8buz).
-    func setWindowVisible(_ visible: Bool) {
-        // Depth first in subview order; an indicator's own subviews are not entered. An explicit
-        // stack, not a recursive local function (Swift 6.3.3's SendNonSendable pass crashed now and
-        // then on capturing ones in Release).
-        var pending: [NSView] = subviews.reversed()
-        while let view = pending.popLast() {
-            if let indicator = view as? StatusIndicatorView { indicator.isWindowVisible = visible } else { pending.append(contentsOf: view.subviews.reversed()) }
-        }
     }
     nonisolated override var isFlipped: Bool { true }
     /// The list draws nothing itself (rows, group lines and decorations are subviews). A drawing
