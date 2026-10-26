@@ -38,8 +38,8 @@
       "args": {
         "method": "keybindings.set",
         "params": {
-          "command": "oracle",
-          "key": "oracle"
+          "command": "newTab",
+          "key": "ctrl+k o"
         },
         "idempotencyKey": "keybindings-set-ok.call"
       },
@@ -51,7 +51,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "binds a two-stroke chord, the first with ctrl"
     }
   ],
   "invariants": [

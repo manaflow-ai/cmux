@@ -59,8 +59,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.ids[0] is a fixed placeholder, not a fixture object; misc/_tuning.json tunes it"
   ]
 }

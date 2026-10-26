@@ -49,8 +49,8 @@ extension NewTabPage {
         }
         handler.inputReady = { [weak input] key, token in input?.pageReady(token, key: key) }
         let jump = handler.jump
-        handler.jump = { [weak services] target, id in
-            guard target == .here else { return jump(target, id) }
+        handler.jump = { [weak services] target, id, input in
+            guard target == .here else { return jump(target, id, input) }
             if let services, let key = opened.value { Self.moveHere(id, page: key, services: services) }
         }
         let split: SplitDirection? = !source.daemon.supports(DaemonCapability.conversationTabSplit.rawValue) ? nil

@@ -89,13 +89,14 @@ import Testing
         defer { try? FileManager.default.removeItem(at: file) }
         let trace = StartupTrace(configuration: StartupTraceConfiguration(file: file), processStartNanos: 1_000,
                                  clock: ManualClock(), now: { 9_000_000 })
-        let work = BackgroundWork(label: "test.startup-trace", onRan: trace.laneJobSink)
+        // One slot per priority: the empty item below runs between the start's drain and the close's.
+        let work = BackgroundWork(filesWidths: .serial, label: "test.startup-trace", onRan: trace.laneJobSink)
         trace.start(writingOn: work)
         trace.mark("main_start", at: 2_500)
         trace.mark("daemon.connect_start", at: 3_000)
         trace.task("startup.theme", start: 4_000, end: 6_500)
         trace.mainTurn(start: 7_000, end: 2_007_000)
-        // Ahead of the close's drain on the same serial queue, so its record is in the ring by then.
+        // Ahead of the close's drain on the one user-visible slot, so its record is in the ring by then.
         work.post(.userVisible, mayBlock: .files) {}
         trace.close()
         let closed = await Self.waitUntilClosed(trace)
@@ -162,11 +163,12 @@ import Testing
         // 1 KiB writes and 8 records: a drain is due at 4 pending records.
         let trace = StartupTrace(configuration: StartupTraceConfiguration(file: file, capacity: 8, chunkBytes: 1_024),
                                  processStartNanos: 0, clock: ManualClock())
-        let work = BackgroundWork(label: "test.startup-trace", onRan: trace.laneJobSink)
+        // One slot per priority, so the gate below holds the drains.
+        let work = BackgroundWork(filesWidths: .serial, label: "test.startup-trace", onRan: trace.laneJobSink)
         trace.start(writingOn: work)
         _ = await trace.flush()
         let gate = DispatchSemaphore(value: 0)
-        // The test's own hold on the drains' serial queue: it may block (a files-lane item).
+        // The test's own hold on the drains' one user-visible slot: it may block (a files-lane item).
         work.post(.userVisible, mayBlock: .files) { gate.wait() }
         let main = StartupTrace.threadID()
         for index in 0..<4 { trace.mark("on_main_\(index)") }

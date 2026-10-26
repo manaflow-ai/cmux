@@ -118,7 +118,7 @@ are in [Daemon threads](#daemon-threads-cmux-tui).
 | **Terminal attach** (`TerminalAttachment` reader → `TerminalEventQueue`) | One terminal's output stream | The reader waits above 8 MiB queued and resumes below 2 MiB; the consumer is the output lane (user-interactive) | user-interactive | user-interactive (closed list, on the daemon reader) | The daemon's attach mailbox overflows and ends the stream |
 | **Terminal output lane** `com.cmuxterm.next.terminal.output`; local PTY `com.cmuxterm.next.localpty.read` / `.write` | Feeding `ghostty_surface_process_output`; local PTY I/O | PTY read and write; the shell on the other end runs at default | user-interactive, all three (the PTY write since p02-threads-030, LocalPTYQoSTests) | as today (closed list) | 2 MiB high water: the consumer task suspends |
 | **Ghostty renderer and IO threads** (per surface, inside GhosttyKit) | Rendering; termio | Renderer mailbox (64, latest-value-wins, never waits); termio queue 64 | Renderer: focused user-interactive, visible user-initiated, hidden utility (ghostty-next `src/renderer/Thread.zig` `setQosClass`). IO: not set | declared by library: as today; IO removed for manual-IO surfaces by p03-rendering-086 ([Renderer QoS](#renderer-qos-rendering-design-r5)) | cmux runs surfaces in manual IO mode: no Ghostty read thread |
-| **BackgroundWork lanes** (`CmuxNextWakeups`, one per app; slot queues `com.cmuxterm.next.work.<lane>.<slot>`) | Work that may block, off main and off the pool | files: disk. system: system calls (DNS, Security, Launch Services, AX, window server). cpu: nothing (a seam there is `wrong-lane`) | the item's (`WorkPriority.qos` through `.enforceQoS`; the slot queue states none) | the item's: user-initiated (userBlocking, userVisible), utility or background; never user-interactive | [Lanes](#lanes); a slot has a GCD thread only while it has work |
+| **BackgroundWork lanes** (`CmuxNextWakeups`, one per app; slot queues `com.cmuxterm.next.work.<lane>.<slot>`, files `com.cmuxterm.next.work.files.<priority>.<slot>`) | Work that may block, off main and off the pool | files: disk. system: system calls (DNS, Security, Launch Services, AX, window server). cpu: nothing (a seam there is `wrong-lane`) | the item's (`WorkPriority.qos` through `.enforceQoS`; the slot queue states none) | the item's: user-initiated (userBlocking, userVisible), utility or background; never user-interactive | [Lanes](#lanes); a slot has a GCD thread only while it has work |
 | **Swift cooperative pool and actors** (`actor`s that own I/O: daemon, cloud, remote, stores; `Task.detached` at `.utility`/`.userInitiated`) | Async I/O and domain state off main | Nothing (never a blocking call on the pool; blocking work belongs on a lane or a dedicated thread or queue). An `await` is not a wait: the thread runs other tasks | the task's priority | the task's priority | Each actor's own stream bounds (`AsyncStream` with a buffering policy, never `.unbounded`) |
 | **DispatchSource handlers** (control socket `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>`; file watchers; process and signal sources) | Event delivery only | Non-blocking reads | as the queue; control socket: utility (automation, p02-threads-031, ControlSocketQoSTests). Its main hop keeps the method's `MainWorkClass` (automation; `debug.key` and `debug.view_key` input), and an injected key runs ahead of queued automation once it reaches the main-thread queue. A `debug.key` with the client's `timestamp` (bench-typing.py) keeps that send time on its event, so the wait on this utility lane and the main-thread queue counts in the bench's `key_to_*` latency; the reply's `injected_at` (main thread, at injection) gives that wait apart, as bench-typing's `key_to_injection_ms` | as today | Coalesced by the source; main-queue sources only hop |
 | **Process queues** `com.cmuxterm.next.process.<name>` (`ProcessRun`) and the `ProcessLauncher` queues `com.cmuxterm.next.sleepy-lock`, `com.cmuxterm.next.relaunch`, `com.cmuxterm.next.find-in-directory` (userBlocking: user-initiated), `com.cmuxterm.next.now-playing`, `com.cmuxterm.next.android-screen`, `com.cmuxterm.next.diff-sidecar` (userVisible: the queue user-initiated since p02-threads-115, the child default) | One child's spawn and its exit source | `posix_spawn` (the kernel); never a wait for the child: the exit source reports it | the run's `WorkPriority.qos` | the run's; the child gets `WorkPriority.processQoS`, never user-interactive | One queue per run or launcher; the user's `gh` (`com.cmuxterm.next.process.gh`, bestEffort): 2 runs at once app-wide, the rest in arrival order (`AppServices.pullRequests`, one `BoundedProcessRunner` every pull request reader shares; cx-mb1e0) |
@@ -184,14 +184,14 @@ per process, built where the session opens (`mux/construct.rs`, label `mux`).
 
 | Lane | App today | App target | Daemon (`cmux_threads::work`) |
 |---|---|---|---|
-| files | One serial slot per priority (4 slots), so a best-effort write never waits in front of a user-blocking read | Width 4/3/2/1 by priority (userBlocking/userVisible/bestEffort/idle; task 116), ordered work through a sequence | Width 4/3/2/1 by priority |
+| files | Width 4/3/2/1 by priority (userBlocking/userVisible/bestEffort/idle, `FilesLaneWidths`; task 116): each priority has slots of its own, so a best-effort write never waits in front of a user-blocking read and one slow read does not hold the next; ordered work through a `WorkSequence` | as today | Width 4/3/2/1 by priority |
 | system | Width 6; 1 slot only for an uncapped userBlocking item (Chrome `PrioritizedDispatcher`, counting every busy slot); host resolution capped at 4 | as today | Width 6/5/2/1 by priority; 1 slot only for UserBlocking |
 | cpu | Performance cores minus 1 (at least 1); a blocking seam is `wrong-lane` | as today | Performance cores minus 1 (at least 2) |
 
 - Best effort and idle: at most 2 running per shared lane, idle at most 1 (Chrome `kMaxBestEffortTasks`,
   `base/task/thread_pool/thread_pool_impl.cc`; the idle limit is cmux's). An item boosted by its waiter runs at
   the waiter's level and is not capped. Daemon: done. App: done (`LaneScheduler.bestEffortCap` / `idleCap`,
-  p02-threads-115, LaneBestEffortCapTests); the files lane's one slot per level stays inside both. On the system
+  p02-threads-115, LaneBestEffortCapTests); the files lane is held by its widths instead (2 best-effort and 1 idle slot), so a hung low read never holds the other low level. On the system
   lane (may block) an item that has run longer than `BackgroundWork.mayBlockThreshold` (1 s) stops counting, so two
   hung calls never hold every later low item: Chrome's `ThreadGroup::BlockingStarted` /
   `IncrementMaxBestEffortTasksLockRequired` (`base/task/thread_pool/thread_group.cc`, `kForegroundMayBlockThreshold`).
@@ -203,11 +203,19 @@ per process, built where the session opens (`mux/construct.rs`, label `mux`).
 - QoS by priority: the table in "QoS and task priority" below. Daemon workers keep one class for life (`fg`
   user-initiated, `be` utility, `idle` background), named `mux-<lane>-<fg|be|idle>` (lane `files`, `sys`,
   `cpu`); on Linux a `mux-launch` thread (user-initiated) starts them.
-- Hang deadlines per item: files 5 s, system 30 s, cpu 10 s.
+- Hang deadlines per item: files 5 s, system 30 s, cpu 10 s. Each slot registers with the hang watch on its own
+  (under the lane's name), as Chrome watches each pool worker thread: items of one lane run at once, and a scope
+  nests only on one thread.
 - **Sequence rule.** Work that must run in order (writes to one file or one store) goes through one sequence:
-  target `work.sequence(label)` returns a `WorkSequence` (Chrome `SequencedTaskRunner`, task 116). Until then,
-  post it at one priority on `.files`, whose slot for that priority is serial. Never count on order across
-  priorities or lanes.
+  `work.sequence(label)` (lane `.files` by default) returns a `WorkSequence` (Chrome `SequencedTaskRunner` on the
+  thread pool, base/task/sequenced_task_runner.h; task 116). Its items run in post order, never two at once, each
+  on any free slot of the lane at its own priority; the front item runs at the highest priority waiting behind it
+  and leaves the startup fence while one of them is awaited, moved in place (it stays before the work posted after
+  it), and `onRan` reports the level it ran at. A cancelled awaited item leaves the sequence; shutdown drops items in
+  their turn, so a block-shutdown save behind a dropped item still runs. Never count on order outside a sequence:
+  the items of one priority on one lane run at once. Sequences today: the startup trace's drains, the incognito
+  ledger read then the settings read at launch (`LaunchRead(in:)`: the launch window needs the ledger's answer),
+  and the managed-status writes (`StartupDestination.Lane.sequence`).
 - Shutdown: `skipOnShutdown` (default) is dropped at quit, `continueOnShutdown` runs on, `blockShutdown` is
   awaited inside the quit deadline and raised to user-initiated (task 118). `blockShutdown` is only for one
   bounded write (< 50 ms, atomic replace).
@@ -355,7 +363,7 @@ other connection's writer runs below it; LocalPTY read and write queues; p02-thr
 and LocalPTYQoSTests). No BackgroundWork lane, process queue or child process runs at it.
 
 Blocking work never runs on the cooperative pool: a process wait uses AsyncProcess (no thread waits); file I/O uses lane
-.files (serial per priority); a sync system call (getaddrinfo, Security, Launch Services, AX, window lists) uses lane
+.files (4/3/2/1 by priority; ordered writes through a `WorkSequence`); a sync system call (getaddrinfo, Security, Launch Services, AX, window lists) uses lane
 .system (6 at once, the width of Chrome's DNS pool kDefaultMaxSystemTasks; 1 slot reserved for uncapped userBlocking
 items, as Chrome's PrioritizedDispatcher reserved slots, counting every busy slot; host resolution through
 `runHostResolution` capped at 4, cmux's own cap since DNS shares the lane); long CPU work uses lane .cpu (P-cores
@@ -483,7 +491,8 @@ its QoS and its target.
 
 - Main and frame: `cmux-next main-thread watchdog`, `cmux-next quit deadline`, `cmux-next crash deadline`,
   `cmux-next vsync <display>` (VSyncHub)
-- Lanes and processes (CmuxNextWakeups): `com.cmuxterm.next.work.<lane>.<slot>` (BackgroundWork slot queues, the
+- Lanes and processes (CmuxNextWakeups): `com.cmuxterm.next.work.<lane>.<slot>`, files
+  `com.cmuxterm.next.work.files.<priority>.<slot>` (BackgroundWork slot queues, the
   item's QoS), `com.cmuxterm.next.process.<name>` (ProcessRun, the run's QoS), ProcessLauncher queues
   `com.cmuxterm.next.sleepy-lock` (user-initiated), `com.cmuxterm.next.now-playing` (default),
   `com.cmuxterm.next.android-screen` (default), `com.cmuxterm.next.relaunch` (user-initiated),
@@ -500,7 +509,10 @@ its QoS and its target.
   `com.cmuxterm.next.retry-wake` (user-initiated; its socket-folder watch wakes the reconnect while terminals are
   disconnected), `com.cmuxterm.next.process-progress` (utility)
 - Control: `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>` (utility)
-- Terminal: `com.cmuxterm.next.terminal.output`, `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write`
+- Terminal: `com.cmuxterm.next.terminal.output`, `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write`,
+  `com.cmuxterm.next.terminal.link-check` (user-initiated, concurrent, one per surface; `TerminalLinkFilter`'s file check of a
+  Cmd-hovered text: a check stalled on a slow volume holds no later check; a concurrent queue targets GCD's width-limited
+  root queue, so stalled checks park no more threads than the unnamed root queue did)
 - Settings and files: `com.cmuxterm.next.settings.watcher` (utility), `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
   `com.cmuxterm.home.cache` (the `HomeCache` actor's executor, user-initiated: its file writes block this queue,
   never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS)
@@ -528,17 +540,23 @@ its QoS and its target.
   `com.cmuxterm.app.next.cef-children` (user-initiated; it must add NOTE_EXIT on a new helper before Chromium
   reaps it), `com.cmuxterm.import-history-sync` (utility; a watcher),
   `com.cmuxterm.chromium-runtime.download` (the runtime download's URLSession delegate queue, utility, serial),
-  `cmux-next webkit setup probe` (utility; WebKitSetupGate's one sandbox-extension request)
+  `cmux-next webkit setup probe` (utility; WebKitSetupGate's one sandbox-extension request),
+  `com.cmuxterm.next.browser.certificate-probe` (the TLS probe's URLSession delegate queue, user-initiated, serial,
+  one per probe; the page load waits on it)
 - Agents: `com.cmuxterm.app.next.agent-pane.prompt-journal`, `com.cmuxterm.app.next.agent-pane.inbound`,
   `cmux.next.agent-pane.acpmux-exit.<pid>` (user-initiated; the version handoff waits on the old daemon's exit),
   `cmux.next.agent-pane.acpmux-log-progress` (utility; a log watcher),
-  `cmux.next.agent-pane.acpmux-launch-reap.<pid>` (user-initiated; the launch waits on the shell's exit),
+  `cmux.next.agent-pane.acpmux-launch-reap.<pid>` (user-initiated; the launch waits on the shell's exit, `ChildExitWatch`),
   `cmux.next.agent-pane.acpmux-status` (user-initiated; the pane's connect waits on it),
   `cmux.acpmux.checked-line` (user-initiated; approvals, and callers wait on it with `sync`),
   `cmux.agent-activity.socket` (utility), `com.cmuxterm.app.next.chief-settle` (utility; a watcher),
   `com.cmuxterm.app.next.tasks.socket`,
   `com.cmuxterm.app.next.agent-pane.socket` (the agent pane's URLSession delegate queue, user-initiated, serial),
-  `cua-helper-v2-reap` (utility), `cua-helper-v2-stdout` (utility)
+  `cua-helper-v2-reap` (utility), `cua-helper-v2-stdout` (utility),
+  `cmux.next.agent-pane.shell-reap.<pid>` (utility; a shell-mode command's exit source, `ChildExitWatch`),
+  `cmux.next.agent-pane.shell-complete-reap.<pid>` (user-initiated; a Tab completion shell's exit source, the Tab
+  waits on it). Each holds one process-exit source and runs one `waitpid` that returns at once; no thread waits
+  while the child runs (p02-threads-120)
 - Diagnostics: `cmux-next.hang-episodes`, `cmux-next.hang-episodes.symbols`, `com.cmuxterm.app.next.run-marker`,
   `com.cmuxterm.app.next.crash-forwarder`, `com.cmuxterm.app.next.owner-panic-forwarder`,
   `com.cmuxterm.next.typing-probe`, `com.cmuxterm.app.next.blocking-drain`, `com.cmux.host-pressure`,
@@ -560,7 +578,16 @@ its QoS and its target.
   short-lived thread per allowlisted fix that only spawns its child, `Process.runOnOwnThread`; p02-threads-040)
 - Launch and misc: `cmux-next resource bundle warm-up`, `cmux-next launch warm-up`, `cmux.updates.network` (utility),
   `cmux.home.fixture.video` (utility; Debug fixture media), `cmux.home.promised-files` (a drop's file promises, user-initiated: the person
-  waits for the dropped files)
+  waits for the dropped files),
+  `com.cmuxterm.next.workspace-open` (user-initiated, concurrent, one per call; `NSWorkspace` opens and reveals, the person
+  waits for the app or the Finder window; concurrent so one slow LaunchServices call never holds the next and a burst
+  parks no more threads than GCD's width-limited root queue allows; moving it onto the system lane through an injected
+  `MayBlockRunner` is follow-up work: its callers across the packages take no runner today)
+- URLSession delegate queues (`OperationQueue.sessionDelegate`, serial, p02-threads-120): `com.cmuxterm.next.cloud.app-server`
+  and `com.cmuxterm.next.cloud.owner-api` (user-initiated; a Cloud action the person started waits on them),
+  `com.cmuxterm.next.icon-assets.download` (user-initiated; an icon the person asked for),
+  `com.cmuxterm.next.cloud.install-auth` (utility; install sign-in in the background),
+  `com.cmuxterm.next.backdrop.import` (utility; a long backdrop download written to disk)
 - Every `Thread` and `OperationQueue` sets `name` and `qualityOfService` before it starts; every URLSession
   gets a named delegate queue. None is unnamed (`threading-inventory.py --rule thread-doc` = 0).
 

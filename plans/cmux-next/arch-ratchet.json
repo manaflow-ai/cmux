@@ -663,6 +663,12 @@
       "row": "assume_isolated_outside_adapters",
       "allow": 1,
       "why": "p10-stability-042: MessagesLabHome's MainQueueObservation is CmuxNextCompat.MainActorObservation's seam (the same queue .main observer with its one main-proof, removed when released), which a Shared package cannot import. It replaces the hand-written block observers of the vendored MessagesLab views (FieldTextView's key and text-storage observers, ComposeTextView's bounds observer, FieldChrome's key-fix observers, TranscriptScrollView's three, SequenceScroller's style observer: eleven registrations) whose handlers called main-actor view methods from a nonisolated Sendable block. Inline delivery is kept: the transcript's clip-to-model sync must run in the poster's turn, which the async notification sequence would not. It goes when CmuxMessagesLab can import the CmuxSafeConcurrency seams (p10-stability-172). The pane's three window observers (screen change, the parity key state, the window update; p10-stability-044) use the same adapter, so it stays one site."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "p10-stability-055: HomeFlightRecorder.policy, one lock for the flight recorder policy the app sets once at launch (CmuxNextHome HomeFlightRecording.install) and the vendored FlightRecorder reads statically after a send and on its dump queue. It replaces three nonisolated(unsafe) static vars (isEnabled, capturesWindow, logFolder), now computed accessors over it; MessagesLabHome global_mutable_statics -2 net. It goes when FlightRecorder takes its policy from the pane that owns it (an injected value) instead of a static."
     }
   ],
   "observer_wrappers": [
