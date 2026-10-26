@@ -119,27 +119,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// The launch steps that need the settings, run after the settings launch read's take (`applicationDidFinishLaunching`):
-    /// each domain's groups of calls (registerX in `Startup/Startup+<Domain>.swift`) and its single calls, in launch
+    /// each domain's groups of calls (registerX in `Startup/Startup+<Domain>.swift`: Core, Settings, Platform) and its single calls, in launch
     /// order, with the launch marks between them (p08-startup task 014).
     private func finishLaunching(settings settingsRead: SettingsController.LaunchRead, launchStart: UInt64?) {
         DebugTimings.markLaunch("dfl.settings_read")
-        registerTheme()
-        registerPageRoots()
+        // Chrome colors derive from the Ghostty theme; load it before any window.
+        ThemeBridge.start(store: ThemeScope.app.store)
+        // The diff page's files live in the app bundle (markdown-viewer/webviews-app).
+        PageDescriptor.registerDiffRoot()
+        PageDescriptor.registerFilePageRoots()
+        PageDescriptor.registerAgentActivityRoot()
         DebugTimings.markLaunch("dfl.theme")
         let services = registerServices(launch: settingsRead)
         DebugTimings.markLaunch("dfl.services")
-        registerActions(services: services)
+        AppActions.bind(services)
+        HandlerCoverage.verify(services.registry)
+        services.palettes.bindRegistryActions()  // the palette itself is built after the first frame, or by the first palette key
         registerTerminal(services: services)
         DebugTimings.markLaunch("dfl.bind")
         let settings = registerSettings(services: services, launch: settingsRead)
-        let acpmux = registerChatSettings(services: services, settings: settings)
-        registerPlatformServices(services: services, settings: settings)
+        // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings.
+        let acpmux = QuitAgents.environment(services)
+        ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath)
+        // The platform services: what the first frame or the restore reads now, the rest posted (p08-startup-029).
+        services.startPlatformServices(settings: settings, on: order.startup, hotKeys: !environment.isolatedLaunch)
+        services.followEnergySaver(settings)
         registerHomeFeeds(services: services, settings: settings, acpmux: acpmux)
         services.configActions.start(settings: settings)
-        registerBrowserTabPreferences(services: services, settings: settings)
+        // What an engine reads when it makes a page or starts, before any does (managed policy included).
+        services.cache.browserTabs.preference.follow(settings)
+        BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, chromium: services.cache.chromium)
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
         BrowserOmnibarPreference.follow(settings, cache: services.cache)
-        registerTerminalTheme(services: services, settings: settings)
+        services.terminalTheme.follow(settings)
+        services.themes.start()
+        services.themes.followChromeTheme(settings)
         services.bookmarks.follow(settings)
         registerControl(services: services, settings: settings)
         services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
@@ -149,10 +163,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerDaemon(services: services)
         DebugTimings.markLaunch("dfl.daemon_cloud_updater")
         registerFirstWindowHooks(services: services)
-        let profilesDirectory = registerBrowserProfiles(services: services)
+        let profilesDirectory = BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID)
+        services.browserProfiles.load(directory: profilesDirectory, importStore: services.onboarding.importStore)
         DebugTimings.markLaunch("dfl.first_window_hooks")
         services.home.startWorkspace()  // the restore's first workspace waits for ensure_home; the Chief owner is a feed post
-        registerInputBindings(services: services)
+        mouseSideButtons.start { [weak services] in _ = services?.registry.perform($0 == .back ? "focusHistoryBack" : "focusHistoryForward") }
+        services.keybindingsFile.start()
         registerBrowserData(services: services, profilesDirectory: profilesDirectory)
         DebugTimings.markLaunch("dfl.home_history")
         services.windows.restoreWhenLoaded(paneRefs: launchSettle.paneRefs)

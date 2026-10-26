@@ -1,9 +1,13 @@
+import CmuxNextAgentPane
+import CmuxNextCompat
+import CmuxNextControl
 import CmuxNextSettings
 import CmuxNextWakeups
 import CmuxNextWebUpdates
 import Foundation
 
-// Launch calls for cmux.json's settings controller (task 014, see Startup+Core.swift).
+// Launch calls that follow cmux.json: the settings controller, Home's feeds and the tagged control socket
+// (`action.list/describe/run`) over the registry (task 014, see Startup+Core.swift).
 extension AppDelegate {
     /// cmux-next.json settings over the registry: the web OTA check, managed policy, the palette's
     /// settings, the browser follows, the shortcut editor, the managed status report and hang reports.
@@ -47,5 +51,42 @@ extension AppDelegate {
         settings.start(announcingDiagnostics: true)
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [startup = order.startup] in await startup.afterFirstFrame() })
         return settings
+    }
+
+    /// The chats pager, Home's launch feeds and the GitHub feed.
+    func registerHomeFeeds(services: AppServices, settings: SettingsController, acpmux: AcpmuxEnvironment?) {
+        // A page's chat clicks and All chats pages work from its first frame; the feeds come after it (p08-startup-027).
+        AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
+        services.home.postLaunchFeeds(startup: order.startup)
+        // The GitHub connection is deliberately off by default. Changes in
+        // Settings apply to the one feed owner and never create a second
+        // inbox store.
+        Task { [weak services, weak settings] in
+            guard let settings else { return }
+            await settings.waitForLoad(atLeast: 1)
+            for await github in ObservationStream({ settings.snapshot.feedGitHub }) {
+                services?.configureFeedGitHub(enabled: github.enabled, pollIntervalSeconds: github.pollIntervalSeconds)  // builds no feed
+            }
+        }
+    }
+
+    /// The control posts (feature `controlSocketEarlyBind`), then after the settle the settings migrations
+    /// and, without that feature, the control socket.
+    func registerControl(services: AppServices, settings: SettingsController) {
+        // controlSocketEarlyBind: the control posts, after the first frame (p08-startup-019).
+        control.postLaunch(socket: controlSocket, order: order, services: services, settings: settings, launch: environment.launch, logger: logger)
+        Task {
+            await settings.waitForLoad(atLeast: 1); await launchSettle.settled(within: .seconds(4), images: launchImageHold) // without controlSocketEarlyBind, the control socket starts here (cx-z9kz0)
+            // `app.quitBehavior: "end"` (first release) is now "end-keep-layout".
+            _ = try? await settings.migrateLegacyQuitBehavior()
+            _ = try? await settings.migrateLegacyWorkspaceRowKeys() // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`
+            _ = try? await settings.migrateLegacyPaneToolbarButtons() // `tabs.hiddenButtons` becomes `tabs.toolbarButtons`
+            // Classic cmux keys next reads under another name (`ClassicSettingRename`).
+            _ = try? await settings.migrateClassicSettings()
+            // Shortcuts and settings classic cmux's Settings kept in its preferences (`ClassicShortcutImport`, `ClassicPreferenceImport`).
+            _ = try? await settings.importClassicShortcuts(marker: .standard)
+            _ = try? await settings.importClassicPreferences(marker: .standard)
+            control.runAfterSettle(socket: controlSocket, services: services, settings: settings, launch: environment.launch, logger: logger)
+        }
     }
 }

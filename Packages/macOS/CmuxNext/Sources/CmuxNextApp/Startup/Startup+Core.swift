@@ -7,26 +7,10 @@ import CmuxNextSettings
 import CmuxNextWakeups
 import os
 
-// Launch calls for the process, the services, the actions, the daemon, the first window and its
+// Launch calls for the services, the daemon, the first window and its
 // hooks. `finishLaunching` calls each domain's registerX in the launch's order; the `DebugTimings`
 // marks between them stay there (plans/cmux-next/chrome-parity/p08-startup.md, task 014).
 extension AppDelegate {
-    /// Design mode's crash leftovers, the quit signals and the main-thread watchdog.
-    func registerProcess() {
-        // Design mode files a crash left (BrowserDesignModeTempFiles); off the main thread.
-        Task.detached(priority: .background) { BrowserDesignModeController.tempFiles.removeAll() }
-        // SIGTERM, SIGINT and SIGHUP (dev tooling, `kill`, Ctrl-C) are
-        // "Quit, keep sessions" with no alert.
-        QuitSignal.install(quit: { [weak self] in
-            guard let services = self?.services else { return NSApp.terminate(nil) }
-            services.quit.terminateFromSignal()
-        }, forceExit: { [weak self] in
-            self?.forcedQuitExit.start()
-        })
-        control.startWatchdog()
-        (NSApp as? CmuxApplication)?.inputQueueing = control.watchdog
-    }
-
     /// AppServices, the control socket's bind, the frame rate classes, the startup settle references, hang
     /// reports and Debug Settings.
     func registerServices(launch settingsRead: SettingsController.LaunchRead) -> AppServices {
@@ -61,13 +45,6 @@ extension AppDelegate {
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
         services.debugSettings.start()
         return services
-    }
-
-    /// The registry's action handlers, their coverage check and the palette's registry actions.
-    func registerActions(services: AppServices) {
-        AppActions.bind(services)
-        HandlerCoverage.verify(services.registry)
-        services.palettes.bindRegistryActions()  // the palette itself is built after the first frame, or by the first palette key
     }
 
     /// App activation, the launch settle, OSC 52 prompts, the daemon, managed feature policy and Cloud's post.
@@ -118,11 +95,5 @@ extension AppDelegate {
         // main actor). Downloads of this run are never touched.
         launchCleanup.schedule(on: order.startup)
         services.iconPicker.onOpened = { DebugTimings.iconPickerOpened($0) }
-    }
-
-    /// The mouse's back and forward buttons and the keybindings file.
-    func registerInputBindings(services: AppServices) {
-        mouseSideButtons.start { [weak services] in _ = services?.registry.perform($0 == .back ? "focusHistoryBack" : "focusHistoryForward") }
-        services.keybindingsFile.start()
     }
 }
