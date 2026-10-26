@@ -124,7 +124,7 @@ public final class TerminalLaunchFrames {
     /// the window's scale: another would move or scale when the live frame replaced it. Returns whether
     /// it showed one now.
     @discardableResult
-    public func show(_ key: String, on session: TerminalSession, in content: NSView, reveal: LaunchReveal = .shared) -> Bool {
+    public func show(_ key: String, on session: TerminalSession, in content: NSView, reveal: LaunchReveal) -> Bool {
         guard let read else { return false }
         guard let frames = read.value else {
             mark("terminal.launch_frame_missed")
@@ -213,8 +213,9 @@ public final class TerminalLaunchFrames {
 
 extension TerminalSession {
     /// Shows `key`'s frame from the last quit, kept in `state` (``TerminalLaunchFrames/beside(_:)``),
-    /// over this terminal in `content`, the pane content held for launch; whether it showed one now.
-    public func showLaunchFrame(_ key: String, beside state: URL?, in content: NSView) -> Bool {
-        TerminalLaunchFrames.beside(state).show(key, on: self, in: content)
+    /// over this terminal in `content`, the pane content held for launch by `reveal`; whether it
+    /// showed one now.
+    public func showLaunchFrame(_ key: String, beside state: URL?, in content: NSView, reveal: LaunchReveal) -> Bool {
+        TerminalLaunchFrames.beside(state).show(key, on: self, in: content, reveal: reveal)
     }
 }
