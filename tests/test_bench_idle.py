@@ -17,6 +17,11 @@
    and its startup trace (an open trace without its closing `]` too); no reveal, no scheduled task, a signpost
    loss event or a missing trace file fails closed.
 7. `bench_launch.py order` writes `{"launch": {"order_ok": ...}}` from a stubbed app and signpost stream.
+8. app-hidden and covered-window (p03-rendering-097): app-hidden only hides the app; covered-window puts a new
+   window at the shown one's exact frame, and skips while windowOcclusionFamily is off; both judge main wakeups
+   (not measured fails) and covered-window fails unless the covered window's family was occluded. Their launch
+   turns the feature on as a Labs local choice (bench_launch.write_local_features keeps the file's other choices)
+   with the user's draw of occluded windows.
 
 No app, no build, no macOS tool. Not on CI (Lawrence 2026-10-23: no new CI tests; lane = "manual"): run
 python3 -I tests/test_bench_idle.py after changing bench_idle.py, bench_launch.py's order check or
@@ -295,6 +300,93 @@ class ScenarioTests(unittest.TestCase):
             skipped = bi.prepare("mixed-hidden-visible", FakeControl({"action.run": reply, "debug.window_list": [SHOWN]}),
                                  args_for(hidden_tabs=1), 7, "/b")
         self.assertEqual(skipped, "terminal 1: {'code': 'no_pane'}")
+
+
+FRAME = [0, 0, 1200, 800]
+FAMILY_ON = {"result": {"features": [{"name": "windowOcclusionFamily", "state": "on", "source": "local"}]}}
+FAMILY_OFF = {"result": {"features": [{"name": "windowOcclusionFamily", "state": "off", "source": "default"}]}}
+
+
+def windows(*entries):
+    return {"result": {"windows": [{"id": wid, "visible": True, "family_occluded": occluded} for wid, occluded in entries]}}
+
+
+class OcclusionScenarioTests(unittest.TestCase):
+    def setUp(self):
+        bi.COVERED.clear()
+
+    def covering_control(self, features=FAMILY_ON):
+        def frame(params):
+            return {"result": {"frame": params.get("frame", FRAME)}}
+        return FakeControl({"action.run": [{"result": {}}], "debug.window_list": [SHOWN], "features.list": [features],
+                            "debug.windows": [windows(("w1", False)), windows(("w1", False)),
+                                              windows(("w1", False), ("w2", False))],
+                            "debug.window_frame": frame})
+
+    def test_the_occlusion_scenarios_are_scenarios_of_their_own(self):
+        self.assertEqual(bi.scenario_list("app-hidden,covered-window"), ["app-hidden", "covered-window"])
+
+    def test_app_hidden_only_hides_the_app(self):
+        control = FakeControl({"action.run": [{"result": {}}]})
+        self.assertIsNone(bi.prepare("app-hidden", control, args_for(), 7, "/b.app"))
+        self.assertEqual(actions_of(control), ["showHideAllWindows"])
+
+    def test_covered_window_puts_a_new_window_at_the_shown_ones_frame(self):
+        control = self.covering_control()
+        with mock.patch.object(bi.time, "sleep"):
+            self.assertIsNone(bi.prepare("covered-window", control, args_for(), 7, "/b.app"))
+        self.assertEqual(actions_of(control), ["newWindow"])
+        frames = [params for method, params in control.calls if method == "debug.window_frame"]
+        self.assertEqual(frames, [{"window": "w1"}, {"window": "w2", "frame": FRAME}])
+        self.assertEqual(bi.COVERED, {"window": "w1"})
+
+    def test_covered_window_skips_while_the_feature_is_off(self):
+        control = self.covering_control(FAMILY_OFF)
+        self.assertEqual(bi.prepare("covered-window", control, args_for(), 7, "/b.app"),
+                         "the feature windowOcclusionFamily is off")
+        self.assertEqual(actions_of(control), [])
+
+    def test_covered_window_skips_when_the_cover_does_not_take_the_frame(self):
+        control = self.covering_control()
+        control.replies["debug.window_frame"] = lambda params: {"result": {"frame": [10, 10, 600, 400] if "frame" in params else FRAME}}
+        with mock.patch.object(bi.time, "sleep"):
+            skipped = bi.prepare("covered-window", control, args_for(), 7, "/b.app")
+        self.assertIn("the cover window took [10, 10, 600, 400]", skipped)
+        self.assertEqual(bi.COVERED, {})
+
+    def test_the_covered_family_is_read_from_debug_windows(self):
+        bi.COVERED["window"] = "w1"
+        control = FakeControl({"debug.windows": [windows(("w1", True), ("w2", False))]})
+        self.assertIs(bi.covered_family_occluded(control), True)
+        self.assertIsNone(bi.covered_family_occluded(FakeControl({})))
+
+    def test_criteria_judge_main_wakeups_and_the_covered_family(self):
+        quiet = {"processes": [row("app", 0.2)], "main_wakeups_per_s": 0.3, "covered_family_occluded": True}
+        self.assertEqual(bi.criteria("covered-window", quiet, args_for()), [])
+        self.assertEqual(bi.criteria("app-hidden", {"processes": [], "main_wakeups_per_s": 0.9}, args_for()),
+                         ["app-hidden: main thread 0.9 wakeups/s > 0.5"])
+        self.assertEqual(bi.criteria("covered-window", {"processes": [], "main_wakeups_per_s": None,
+                                                        "covered_family_occluded": False}, args_for()),
+                         ["covered-window: main thread wakeups not measured",
+                          "covered-window: the covered window's family was not occluded (family_occluded=False)"])
+
+    def test_the_occlusion_launch(self):
+        self.assertEqual(bi.occlusion_launch(["terminals"]), ({}, None))
+        self.assertEqual(bi.occlusion_launch(["terminals", "covered-window"]),
+                         ({"CMUX_NEXT_BENCH_SHIPPING_DRAW": "1"}, {"windowOcclusionFamily": True}))
+
+    def test_local_features_keep_the_files_other_choices(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "features"))
+            with open(os.path.join(root, "features", "local-overrides.json"), "w") as handle:
+                json.dump({"energySaver": False, "windowOcclusionFamily": False, "junk": 3}, handle)
+            path = bl.write_local_features(root, {"windowOcclusionFamily": True})
+            with open(path) as handle:
+                self.assertEqual(json.load(handle), {"energySaver": False, "windowOcclusionFamily": True})
+        with tempfile.TemporaryDirectory() as root:
+            path = bl.write_local_features(os.path.join(root, "fresh"), {"windowOcclusionFamily": True})
+            with open(path) as handle:
+                self.assertEqual(json.load(handle), {"windowOcclusionFamily": True})
 
 
 def signpost(name, kind, message, at, pid=10):
