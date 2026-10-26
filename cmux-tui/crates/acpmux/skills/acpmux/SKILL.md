@@ -118,6 +118,7 @@ acpmux send NAME --no-wait "…"                     # a message: steers into th
 acpmux send NAME --no-wait --no-steer "…"          # queue behind the running turn instead
 acpmux send NAME --steer "…"                       # steer a send that waits for its reply (it queues by default)
 acpmux send NAME --no-wait --supersede KEY "…"     # replace your own prompt still queued under KEY (a correction is never read after the order it corrects); prints "replaced N queued", --json adds replaced and replacedPromptIds
+acpmux send PEER/NAME "see" --attach shot.png     # send files with it (repeatable; no scp): images reach the agent and transcript as images, other files as a link; saved 0600 on the session's host; 8 MiB a file, 10 MiB a message
 acpmux last NAME [-n 3]                            # last reply text
 acpmux history NAME                                # one line per turn: prompt, status, tools, tokens, wall time
 acpmux ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v]
@@ -206,17 +207,40 @@ resolve): your policy answers those, and `ask` sends them to a person.
 
 ## 6. Other machines
 
-Sessions on peers show as `host/name` and every command takes that form.
+A session on a peer is named `HOST/NAME` (`big-red/review-42`), and every command takes that
+form. Say and pass that name: never ask the person for a session id, and never use a bare id
+from another machine (an id names a session only on the machine that runs it).
 
 ```bash
-acpmux host ls                                   # peers, connected or offline, remote build
+acpmux peer status                               # each peer: reachable, round trip, disk, load, build
 acpmux run -m claude --host HOST "…"             # start there; --cwd is a remote path
 acpmux ensure NAME -m codex --host HOST
+acpmux send HOST/NAME "…"                        # wait, tail, history, cancel work the same
 acpmux wait                                      # covers remote sessions too
 acpmux resolve 'https://cmux.com/deeplink/agent?harness=claude&session=…&host=…'
                                                  # the session a PR footer's link (or an id, host/name, name) names, here or on a peer: host, ids, model, cwd, lane, PRs, last turn
 acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works on; `bead ls cx-cus7j.230` finds NAME, `bead ls --session NAME` lists its beads
 ```
+
+- **Check first.** Run `acpmux peer status` before remote work and after any peer request
+  fails. Don't guess from a timeout. It names the next command for a peer it cannot reach
+  (`acpmux host doctor HOST`) and for one on another build (`acpmux host update HOST`). The
+  update restarts that peer's daemon: run it only when the task asks for it (see below), and
+  otherwise report the version mismatch.
+- **Unreachable peer.** acpmux reconnects by itself. A request refused as unreachable was not
+  sent, so send it again once `peer status` shows the peer reachable. Its sessions show
+  `unreachable` meanwhile; don't start a replacement elsewhere unless the task can't wait.
+- **Where files live.** A remote session reads and writes the peer's disk. `--cwd` and
+  `--worktree` are paths there, and its worktrees go to `~/.cmux/worktrees/<project>/<name>`
+  on that machine. Nothing it writes appears here unless it pushes it (git) or you fetch it.
+- **Moving a session.** `acpmux session export HOST/NAME` fetches the bundle to
+  `~/.acpmux/bundles/`, and `acpmux session import DIR` restores it on this machine. No command
+  moves a session from one peer to another yet. To continue the work on another machine, start
+  a session there with `--host` and a `--prompt-file` that says where the work stands (branch,
+  PR, next step).
+- **What the host allows.** Some machines are not for builds or long jobs. When the task or the
+  session's first message names what a host must not run, honour it, and pick another host
+  from `peer status`.
 
 A remote start runs under the peer's rules. `--cwd` must sit inside the peer's
 `webRoots` (a missing folder there is made); with no `--cwd` the session gets a
