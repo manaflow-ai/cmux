@@ -1269,6 +1269,12 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_rcodesign_sign_bundle_dev.py
 
+      - name: Validate the Linux DEV app tools (archive, plist, Sparkle key, signed-app checks)
+        if: ${{ matrix.group == 'release-notary' }}
+        run: |
+          python3 tests/test_dev_app_linux.py
+          python3 tests/test_verify_signed_dev_app.py
+
       - name: Validate the cmux NEXT tip Swift suite dispatcher
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_tip_swift_suite_dispatch.py
