@@ -96,6 +96,9 @@ export function newTabMachines(
     snapshot.peerConnected ?? {},
     snapshot.peerStatus ?? {},
   )) {
+    const peer =
+      (snapshot.peers ?? []).includes(machine.id) || snapshot.sessions.some((session) => session.peer === machine.id);
+    if (!peer && snapshot.machines?.some((native) => native.native && native.id === machine.id)) continue;
     machines.push({
       ...machine,
       online: machine.status ? machine.status === "connected" : machine.connected,

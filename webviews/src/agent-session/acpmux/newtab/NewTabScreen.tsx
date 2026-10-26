@@ -1126,12 +1126,11 @@ export function NewTabScreen(props: Props) {
                 environments: saved.list,
                 ...(environment ? { current: environment.id } : {}),
                 onPick: (id: string) => {
-                  touch();
-                  setPickedPeer(undefined);
+                  pickProject(undefined);
                   saved.pick(id);
                   requestAnimationFrame(() => field.current?.focus());
                 },
-                onClear: () => saved.pick(undefined),
+                onClear: () => pickProject(undefined),
                 onCreate: () => saved.edit(null),
                 onEdit: (id: string) => saved.edit(saved.list.find((other) => other.id === id)),
               },
