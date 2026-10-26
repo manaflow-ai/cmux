@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import Darwin
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -291,7 +292,35 @@ import Testing
         #expect(result.status == nil)
         #expect(ContinuousClock.now - started < .seconds(20))
         let pid = try #require(Int32(String(decoding: try Data(contentsOf: pidFile), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)))
-        #expect(kill(pid, 0) != 0, "the child that ignored SIGTERM still runs after the run returned")
+        #expect(!Self.runs(pid), "the child that ignored SIGTERM still runs after the run returned")
+        #expect(result.errors.contains("it exited"), "the run confirmed the exit: \(result.errors)")
+    }
+
+    /// Review of #25388: the exit is confirmed by the kernel's exit event armed at the launch, and a
+    /// child that has not exited holds the wait only up to its bound.
+    @Test(.timeLimit(.minutes(1))) func anExitWatchWaitsForItsChildUpToItsBound() async throws {
+        let child = Process()
+        child.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        child.arguments = ["60"]
+        try child.run()
+        let exit = AcpmuxChildExit()
+        exit.arm(child.processIdentifier)
+        defer { exit.disarm() }
+
+        let started = ContinuousClock.now
+        #expect(await exit.exited(within: .milliseconds(300)) == false, "a running child is not reported gone")
+        #expect(ContinuousClock.now - started < .seconds(10), "the wait ended at its bound")
+        kill(child.processIdentifier, SIGKILL)
+        #expect(await exit.exited(within: .seconds(20)), "the exit event ends the wait")
+        #expect(await exit.exited(within: .milliseconds(1)), "an exit seen once stays seen")
+    }
+
+    /// Whether `pid` is a live process (a zombie waiting to be reaped is not).
+    static func runs(_ pid: Int32) -> Bool {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return false }
+        return info.pbi_status != UInt32(SZOMB)
     }
 }
 
