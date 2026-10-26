@@ -2,9 +2,10 @@
    (conversation.css .cv-received__body), never a solid fill; tool rows' font and detail size. States
    take the Ghostty theme's colours: waiting on the person the warning yellow, failed the red. */
 .cv-agent-card {
+  --cv-agent-card-inset: 12px;
   box-sizing: border-box;
   margin: 4px 0 6px;
-  padding: 4px 12px 8px;
+  padding: 4px var(--cv-agent-card-inset) 8px;
   border-radius: 12px;
   background: color-mix(in srgb, var(--agent-text, var(--cv-text)) 6%, transparent);
   box-shadow:

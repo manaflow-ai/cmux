@@ -36,7 +36,12 @@ import {
 } from "react";
 import { useT, type StringKey } from "../i18n";
 import { RECEIVED_LINES, type PromptImage } from "../model";
-import { messagePreview, unsigned, type IncomingMessage, type IncomingRelation } from "./incomingMessage";
+import {
+  messagePreview,
+  unsigned,
+  type IncomingMessage,
+  type IncomingRelation,
+} from "./incomingMessage";
 import { dedupeReferences } from "./messageRefs";
 import { PromptEditor, SentImages } from "./UserBubble";
 import { FindReveal } from "./chatFind";
@@ -108,7 +113,9 @@ export function IncomingMessageLine({
   // only in the envelope (Find searches the whole prompt) opens Details too.
   const reveal = useContext(FindReveal);
   const needle = reveal && reveal.rowId === id ? reveal.needle : "";
-  const inText = Boolean(needle && unsigned(message.text, message.name).toLocaleLowerCase().includes(needle));
+  const inText = Boolean(
+    needle && unsigned(message.text, message.name).toLocaleLowerCase().includes(needle),
+  );
   const inRaw = Boolean(needle && !inText && message.raw.toLocaleLowerCase().includes(needle));
   useLayoutEffect(() => {
     if (!inText && !inRaw) return;
@@ -154,7 +161,12 @@ export function IncomingMessageLine({
   // Minimal Mode: closed, the line alone with the first line of the text; open, today's card.
   // Only Minimal Mode's card folds: the normal card is drawn whatever `open` is.
   // It opens with no fade-in, its height alone moving; closing fades out (fold.ts).
-  const collapse = useAnchoredCollapse({ open, onOpenChange: show, animates: () => minimal, fadeIn: false });
+  const collapse = useAnchoredCollapse({
+    open,
+    onOpenChange: show,
+    animates: () => minimal,
+    fadeIn: false,
+  });
   const { headerRef } = collapse;
   const toggleRef = useCallback(
     (node: HTMLButtonElement | null) => {
@@ -171,12 +183,15 @@ export function IncomingMessageLine({
     ? t("subagents.openOnHost", { name: message.name, host: sender.host })
     : t("subagents.open", { name: message.name });
   // A sub-session family's sender says who it is to this chat.
-  const from = message.relation ? t(RELATION_LABEL[message.relation], { name: message.name }) : message.name;
+  const from = message.relation
+    ? t(RELATION_LABEL[message.relation], { name: message.name })
+    : message.name;
   const label = folded
     ? t("message.collapsedLabel", { from, preview: preview || t("message.noText") })
     : t("message.label", { from, to: t("message.self") });
   // A reply needs a chat to go to and the message's id to answer: acpmux's `agent_message`.
-  const replies = onReply !== undefined && message.sessionId !== undefined && message.msgId !== undefined;
+  const replies =
+    onReply !== undefined && message.sessionId !== undefined && message.msgId !== undefined;
   const [reply, setReplyState] = useState<"closed" | "open" | "sent" | "failed">(() =>
     replying.has(key) ? "open" : "closed",
   );
@@ -212,7 +227,12 @@ export function IncomingMessageLine({
     else show(!open);
   };
   const openCut = (event: MouseEvent) => {
-    if ((event.target as Element).closest("a, button, input, label, summary, video, audio, [role=button]")) return;
+    if (
+      (event.target as Element).closest(
+        "a, button, input, label, summary, video, audio, [role=button]",
+      )
+    )
+      return;
     if (getSelection()?.isCollapsed === false) return;
     show(true);
   };
@@ -247,9 +267,13 @@ export function IncomingMessageLine({
   );
   return (
     <div className="cv-received" data-open={open || undefined} data-minimal={minimal || undefined}>
-      <div className="cv-received__line">
+      <div className="cv-received__line cv-expansion-line">
         <span className="cv-received__icon">
-          {agentBrand(sender.harness) ? <AgentMark agent={sender.harness} size={14} /> : <Bot size={16} />}
+          {agentBrand(sender.harness) ? (
+            <AgentMark agent={sender.harness} size={14} />
+          ) : (
+            <Bot size={16} />
+          )}
         </span>
         {sessionId ? (
           <button
@@ -271,23 +295,38 @@ export function IncomingMessageLine({
         <button
           ref={toggleRef}
           type="button"
-          className="cv-received__toggle"
+          className="cv-received__toggle cv-expansion-toggle"
           aria-expanded={open}
           aria-controls={minimal && !collapse.present ? undefined : bodyId}
           aria-label={label}
           onClick={toggle}
         >
-          {folded && <span className="cv-received__preview">{preview || t("message.noText")}</span>}
+          {folded && (
+            <span className="cv-received__preview cv-expansion-preview">
+              {preview || t("message.noText")}
+            </span>
+          )}
           {(minimal || open || long || raw !== undefined) && (
-            <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
+            <ChevronRight
+              size={12}
+              strokeWidth={1.4}
+              className={`cv-rotor${open ? " is-open" : ""}`}
+            />
           )}
         </button>
-        {replies && !editing && (
-          <button ref={replyButton} type="button" className="cv-received__reply" onClick={startReply}>
-            {t("message.reply")}
-          </button>
-        )}
-        {actions}
+        <span className="cv-expansion-actions">
+          {replies && !editing && (
+            <button
+              ref={replyButton}
+              type="button"
+              className="cv-received__reply"
+              onClick={startReply}
+            >
+              {t("message.reply")}
+            </button>
+          )}
+          {actions}
+        </span>
       </div>
       {minimal ? collapse.present && <div {...collapse.bodyProps}>{card}</div> : card}
       {open && raw !== undefined && (
@@ -300,7 +339,11 @@ export function IncomingMessageLine({
             onClick={() => setDetails((value) => !value)}
           >
             {t("message.details")}
-            <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${details ? " is-open" : ""}`} />
+            <ChevronRight
+              size={12}
+              strokeWidth={1.4}
+              className={`cv-rotor${details ? " is-open" : ""}`}
+            />
           </button>
           {details && (
             <pre id={rawId} className="cv-tool-output selectable">
@@ -340,13 +383,17 @@ export function IncomingMessageLine({
               }
             }}
           />
-          {reply === "failed" && <output className="cv-message__note is-failed">{t("message.replyFailed")}</output>}
+          {reply === "failed" && (
+            <output className="cv-message__note is-failed">{t("message.replyFailed")}</output>
+          )}
         </div>
       )}
       {!folded && reply === "sent" && (
         <output className="cv-message__note cv-received__replied">{t("message.replied")}</output>
       )}
-      {!folded && images && images.length > 0 && <SentImages images={images} className="cv-message__images" />}
+      {!folded && images && images.length > 0 && (
+        <SentImages images={images} className="cv-message__images" />
+      )}
     </div>
   );
 }

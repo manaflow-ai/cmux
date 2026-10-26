@@ -87,48 +87,63 @@ export function AgentMessageRow({
       data-open={open || undefined}
       {...attributes}
     >
-      <div className={`cv-tool cv-agentmsg__line${live ? " is-live" : " is-strong"}`}>
+      <div
+        className={`cv-tool cv-agentmsg__line cv-expansion-line${live ? " is-live" : " is-strong"}`}
+      >
         <span className="cv-tool__icon cv-agentmsg__icon">{icon}</span>
-        {/* The words toggle too, for the pointer; the toggle button is the control, and its label
+        <span className="cv-expansion-sender">
+          {/* The words toggle too, for the pointer; the toggle button is the control, and its label
             reads the line. */}
-        {before.trim() && (
-          <span className="cv-agentmsg__words" aria-hidden onClick={onToggle}>
-            {before.trim()}
-          </span>
-        )}
-        {onOpenName ? (
-          <button
-            type="button"
-            className="cv-agentmsg__name"
-            aria-label={openNameLabel}
-            title={nameTitle}
-            onClick={onOpenName}
-          >
-            {name}
-          </button>
-        ) : (
-          <span className="cv-agentmsg__name is-plain" aria-hidden title={nameTitle} onClick={onToggle}>
-            {name}
-          </span>
-        )}
-        {after.trim() && (
-          <span className="cv-agentmsg__words" aria-hidden onClick={onToggle}>
-            {after.trim()}
-          </span>
-        )}
+          {before.trim() && (
+            <span className="cv-agentmsg__words" aria-hidden onClick={onToggle}>
+              {before.trim()}
+            </span>
+          )}
+          {onOpenName ? (
+            <button
+              type="button"
+              className="cv-agentmsg__name"
+              aria-label={openNameLabel}
+              title={nameTitle}
+              onClick={onOpenName}
+            >
+              {name}
+            </button>
+          ) : (
+            <span
+              className="cv-agentmsg__name is-plain"
+              aria-hidden
+              title={nameTitle}
+              onClick={onToggle}
+            >
+              {name}
+            </span>
+          )}
+          {after.trim() && (
+            <span className="cv-agentmsg__words" aria-hidden onClick={onToggle}>
+              {after.trim()}
+            </span>
+          )}
+        </span>
         <button
           type="button"
-          className="cv-agentmsg__toggle"
+          className="cv-agentmsg__toggle cv-expansion-toggle"
           aria-expanded={open}
           aria-controls={open ? bodyId : undefined}
           aria-label={label}
           onClick={onToggle}
         >
-          <span className="cv-agentmsg__preview">{open ? "" : preview}</span>
-          <ChevronRight size={14} strokeWidth={1.2} className={`cv-tool__chevron cv-rotor${open ? " is-open" : ""}`} />
+          <span className="cv-agentmsg__preview cv-expansion-preview">{open ? "" : preview}</span>
+          <ChevronRight
+            size={14}
+            strokeWidth={1.2}
+            className={`cv-tool__chevron cv-rotor${open ? " is-open" : ""}`}
+          />
         </button>
-        {meta}
-        {actions}
+        <span className="cv-expansion-actions">
+          {meta}
+          {actions}
+        </span>
       </div>
       {open && (
         <div id={bodyId} className="cv-agentmsg__card selectable">

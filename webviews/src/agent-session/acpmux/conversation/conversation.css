@@ -6,6 +6,8 @@
    transparent (fills and rules) or one of the theme's text tokens. Other themes keep
    their own cast. Percentages are measured against #f8f8f3 on #272823. */
 
+@import "./transcriptExpansion.css";
+
 :root {
   /* The fold: a collapsible's body opening or closing, and its chevron turning (fold.ts). The host's
      move duration (--agent-motion-move, AgentPaneTheme.swift: the motion scale's standard 180ms, 0 under Reduce Motion or with
