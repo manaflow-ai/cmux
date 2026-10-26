@@ -17,13 +17,13 @@ public enum DaemonConnectionState: Sendable, Equatable {
 /// batches at most once per frame (`run(connection:scheduler:)`).
 @Observable @MainActor
 public final class DaemonStore: StateResourceQueries {
-    public internal(set) var workspaces: [WorkspaceModel] = [] { didSet { adoptUnread() } }
+    public internal(set) var workspaces: [WorkspaceModel] = []
     public internal(set) var groups: [WorkspaceGroupModel] = []
     /// Tabs the unread count read, one by one (tests: an observer of the badge reads no tab).
     @ObservationIgnored public internal(set) var unreadTabReads = 0
     /// The unread counts of all workspaces (``UnreadTotals``), summed from each workspace's own
-    /// count when one changes and assigned only when the sum changes: an observer of the badge
-    /// observes this one value, never the tabs.
+    /// count when one changes, joins or leaves (``UnreadLedger``) and assigned only when the sum
+    /// changes: an observer of the badge observes this one value, never the tabs.
     public internal(set) var unreadTotals = UnreadTotals()
     /// Rooms in order (`profiles-v1`, home session only; the wire calls
     /// them profiles). Empty on a daemon without personal state.
@@ -100,14 +100,14 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored public var onDisconnected: (@MainActor () -> Void)?
     /// Bookmark and conversation events (not in the tree snapshot), on the main actor.
     @ObservationIgnored public let sideEvents = DaemonSideEvents()
-    /// The workspace set (`listID`s) last reported to `onWorkspaceListChanged`.
-    @ObservationIgnored var notifiedWorkspaceList: Set<String>?
-    /// Bumped by every sidebar flattening (`recomputeSidebar`, which every
-    /// structural change runs): while it stays, the workspace set is the one
-    /// last checked, so `workspaceListMayHaveChanged` skips its O(n) set
-    /// build (status ticks apply batches several hundred times a second).
-    @ObservationIgnored var listGeneration: UInt64 = 0
-    @ObservationIgnored var checkedListGeneration: UInt64?
+    /// The digest of the workspace set (`listID`s, ``StoreIndex/workspaceListDigest``) last
+    /// reported to `onWorkspaceListChanged`: the check is one compare, whatever the batch held.
+    @ObservationIgnored var notifiedWorkspaceList: Int?
+    /// What the drains of the event inbox cost (``DrainCost``): their histogram and the
+    /// whole-list passes the applies ran.
+    @ObservationIgnored public internal(set) var drainCost = DrainCost()
+    /// Clock of the drain histogram (tests inject one).
+    @ObservationIgnored public var drainClock: any Clock<Duration> = ContinuousClock()
     /// Nesting of batch applies; the hook runs when the outermost ends.
     @ObservationIgnored var applyDepth = 0
     @ObservationIgnored let updateCycles = UpdateCycleDetector(owner: "DaemonStore.apply")
@@ -215,7 +215,8 @@ public final class DaemonStore: StateResourceQueries {
     public init(waitDeadlines: MainWakeUpQueue? = nil, causes: ObservationCauses? = nil) {
         self.causes = StoreCauses(causes)
         let queue = waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource())
-        index = StoreIndex(waiters: StoreWaiters(deadlines: AlignedWakeups(queue: queue)))
+        index = StoreIndex(waiters: StoreWaiters(deadlines: AlignedWakeups(queue: queue)), unread: UnreadLedger())
+        index.unread.onChange = { [weak self] totals in self?.publish(unread: totals) }
     }
 
     // MARK: Lookup (O(1))
@@ -395,9 +396,10 @@ public final class DaemonStore: StateResourceQueries {
 
     // MARK: Derived state
 
-    /// Indexes the whole tree again, primes every record and flattens the
-    /// sidebar: a snapshot only. Events change the index per record
-    /// (`indexed(_:)`), and the sidebar once per batch (`sidebarNeedsRecompute`).
+    /// Indexes the whole tree again, primes every record and flags the sidebar
+    /// for its flattening once the overlay is back (`withOverlayLifted`): a
+    /// snapshot only. Events change the index per record (`indexed(_:)`), and
+    /// the sidebar once per batch (`sidebarNeedsRecompute`).
     func rebuildIndex() {
         index.rebuild(workspaces)
         for workspace in workspaces {
@@ -405,7 +407,7 @@ public final class DaemonStore: StateResourceQueries {
                 for pane in screen.panes { prime(pane) }
             }
         }
-        recomputeSidebar()
+        sidebarNeedsRecompute = true
         session.overlay(workspaces)
     }
 
