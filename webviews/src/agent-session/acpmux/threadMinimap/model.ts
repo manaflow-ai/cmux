@@ -326,7 +326,9 @@ export function minimapTurns(
     const turn = tail[at]!;
     if (old?.[keep + at] !== turn) sameTurns = false;
     const tick = oldTicks?.[keep + at];
-    if (tick?.key !== turn.key || tick.prompt !== turn.prompt || tick.id !== turn.id) sameTicks = false;
+    // A tick keeps its key (its turn's, or that and its row: ticksOf) while its turn does.
+    if ((tick?.key !== turn.key && tick?.key !== repeatKey(turn)) || tick.prompt !== turn.prompt || tick.id !== turn.id)
+      sameTicks = false;
   }
   // Changed turns go into the spare list, never into `old`: it holds `old`'s turns up to where the
   // two last differed, so a streamed token whose reply preview is still filling writes the live turn
@@ -379,13 +381,22 @@ function samePreview(a: readonly ReplyBlock[], b: readonly ReplyBlock[]): boolea
   });
 }
 
-/// Each turn's tick, the previous one where its prompt is the same.
+/// A tick's key when its turn's key is already taken: the turn's key and its row id.
+const repeatKey = (turn: Pick<MinimapTurn, "key" | "id">) => `${turn.key}#${turn.id}`;
+
+/// Each turn's tick, the previous one where its prompt is the same. Every tick's key is its own (the
+/// list's key, and the rail's focus, hover and card maps): a turn whose key an earlier one took (a
+/// retried send beside acpmux's echo of it, one promptId) keys on its row too. Built when the ticks
+/// change (a new prompt, older turns), never per token.
 function ticksOf(turns: readonly MinimapTurn[], previous: readonly MinimapTick[] = []): MinimapTick[] {
+  const seen = new Set<string>();
   return turns.map((turn, index) => {
+    const key = seen.has(turn.key) ? repeatKey(turn) : turn.key;
+    seen.add(key);
     const tick = previous[index];
-    return tick && tick.key === turn.key && tick.prompt === turn.prompt && tick.id === turn.id
+    return tick && tick.key === key && tick.prompt === turn.prompt && tick.id === turn.id
       ? tick
-      : { key: turn.key, id: turn.id, prompt: turn.prompt };
+      : { key, id: turn.id, prompt: turn.prompt };
   });
 }
 

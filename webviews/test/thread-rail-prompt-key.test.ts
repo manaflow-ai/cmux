@@ -94,4 +94,30 @@ test("a failed send beside its echo, one promptId: two ticks, each with its own 
   const after = minimapTurns(resynced, CHAT).ticks;
   expect(after).toHaveLength(4);
   expect(new Set(after.map((tick) => tick.key)).size).toBe(4);
+  // Retry reuses the promptId and puts the failed row back to sending beside the echo (direct.ts
+  // retryPrompt, sendNow): both keys are the prompt's, and the second tick keys on its row too.
+  const retried = { ...rows[2]!, delivery: { ...rows[2]!.delivery!, state: "sending" as const } };
+  for (const order of [
+    [rows[0]!, rows[1]!, retried, rows[3]!, rows[4]!],
+    [rows[0]!, rows[1]!, rows[3]!, rows[4]!, user("user-3", "Later", { promptId: "p-8" }), retried],
+  ]) {
+    const ticks = minimapTurns(order, CHAT).ticks;
+    expect(new Set(ticks.map((tick) => tick.key)).size).toBe(ticks.length);
+  }
+});
+
+test("a streamed token beside a repeated key keeps the same ticks", () => {
+  const user = (id: string, promptId: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow =>
+    ({ id, version: 1, at: 0, kind: "user", text: "Again", promptId, ...extra }) as AcpmuxRow;
+  const reply = (text: string): AcpmuxRow => ({ id: "a-2", version: 1, at: 0, kind: "assistant", text });
+  const sending = user("local-p-7", "p-7", {
+    promptId: undefined,
+    delivery: { state: "sending", promptId: "p-7", sessionId: CHAT, sentAt: 0 },
+  });
+  const base = [user("user-1", "p-1"), user("user-2", "p-7"), sending];
+  const first = minimapTurns([...base, reply("Tw")], CHAT);
+  const next = minimapTurns([...base, reply("Two")], CHAT, first);
+  // The reply streamed; the ticks are the same list, so the rail renders no row for it.
+  expect(next.ticks).toBe(first.ticks);
+  expect(new Set(next.ticks.map((tick) => tick.key)).size).toBe(3);
 });
