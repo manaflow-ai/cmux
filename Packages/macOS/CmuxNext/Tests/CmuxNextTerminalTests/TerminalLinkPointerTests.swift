@@ -75,6 +75,26 @@ struct TerminalLinkPointerTests {
         #expect(harness.flagsSubscriptions == 1)
     }
 
+    @Test func aModifierChangeReachesOnlyTheTerminalUnderThePointer() throws {
+        let harness = Harness(terminals: 3)
+        defer { harness.close() }
+        harness.move(over: 1)
+        try harness.flagsChanged(.command)
+        #expect(harness.pointer(1).heardModifierChanges == 1, "Command did not reach the terminal under the pointer")
+        #expect(harness.pointer(1).lastHeardModifiers?.contains(.command) == true,
+                "the terminal heard \(String(describing: harness.pointer(1).lastHeardModifiers)), not Command")
+        try harness.flagsChanged([])
+        #expect(harness.pointer(1).heardModifierChanges == 2)
+        #expect(harness.pointer(1).lastHeardModifiers?.contains(.command) == false, "the release did not reach it")
+        #expect(harness.pointer(0).heardModifierChanges == 0, "a terminal not under the pointer heard the change")
+        #expect(harness.pointer(2).heardModifierChanges == 0, "a terminal not under the pointer heard the change")
+        // The pointer moves on: the next change goes to the new terminal only.
+        harness.move(over: 2)
+        try harness.flagsChanged(.command)
+        #expect(harness.pointer(2).heardModifierChanges == 1)
+        #expect(harness.pointer(1).heardModifierChanges == 2, "the terminal the pointer left still heard a change")
+    }
+
     @Test func thePointerLeavingItsTerminalGivesTheSubscriptionBack() throws {
         let harness = Harness(terminals: 2)
         defer { harness.close() }
@@ -85,17 +105,25 @@ struct TerminalLinkPointerTests {
         harness.pointer(1).exited()
         #expect(!harness.watch.isWatching)
         #expect(harness.flagsSubscriptions == 0)
+        try harness.flagsChanged(.command)
+        #expect(harness.pointer(1).heardModifierChanges == 2, "a change after the pointer left reached its terminal")
+        #expect(harness.pointer(0).heardModifierChanges == 0)
     }
 
-    @Test func aSessionWithoutAWatchSubscribesNothing() {
-        _ = NSApplication.shared
+    @Test func aSessionWithoutAWatchHearsNoModifierChange() throws {
+        let harness = Harness(terminals: 1)
         let io = ScriptedTerminalIO()
-        let session = TerminalSession(io: io)
+        let unwatched = TerminalSession(io: io)
         defer {
             io.finish()
-            session.close()
+            unwatched.close()
+            harness.close()
         }
-        session.surfaceView.linkPointer.moved(to: NSPoint(x: 10, y: 10), flags: [])
-        #expect(session.surfaceView.linkPointer.modifierWatch == nil)
+        unwatched.surfaceView.linkPointer.moved(to: NSPoint(x: 10, y: 10), flags: [])
+        #expect(harness.flagsSubscriptions == 0, "a session without the watch subscribed to the tap")
+        harness.move(over: 0)
+        try harness.flagsChanged(.command)
+        #expect(harness.pointer(0).heardModifierChanges == 1)
+        #expect(unwatched.surfaceView.linkPointer.heardModifierChanges == 0, "a session without the watch heard the change")
     }
 }

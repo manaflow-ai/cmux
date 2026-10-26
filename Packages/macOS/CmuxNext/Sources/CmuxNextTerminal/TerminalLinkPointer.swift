@@ -38,6 +38,10 @@ import GhosttyNextKit
     /// keyboard are elsewhere.
     var testPointer: NSPoint?
     var testFlags: NSEvent.ModifierFlags?
+    /// How many modifier changes reached this terminal through ``modifiersChanged(_:)``, and the last one's
+    /// keys, so a test sees which terminal the modifier watch told.
+    private(set) var heardModifierChanges = 0
+    private(set) var lastHeardModifiers: NSEvent.ModifierFlags?
     #endif
 
     /// The terminals' one modifier watch: it tells this one while the pointer is over the view (nil: only
@@ -53,6 +57,10 @@ import GhosttyNextKit
 
     /// Command went down or up: look for a link under the still pointer again.
     func modifiersChanged(_ flags: NSEvent.ModifierFlags) {
+        #if DEBUG
+        heardModifierChanges += 1
+        lastHeardModifiers = flags
+        #endif
         refresh(flags)
     }
 
