@@ -140,7 +140,7 @@ private typealias StripTab = CmuxNextTabs.TabID
 
     @Test func aPaneTabSelectsOnMouseDownBeforeTheRelease() throws {
         let model = TabStripModel(tabs: (0..<3).map { TabItem(id: StripTab("tab\($0)"), title: "Tab \($0)") }, selectedID: StripTab("tab0"))
-        let strip = TabStripView(model: model)
+        let strip = TabStripView.testing(model: model)
         strip.dragsWindowFromEmptySpace = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 40), styleMask: [.borderless], backing: .buffered, defer: false)
         defer { window.orderOut(nil) }

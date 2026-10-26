@@ -112,7 +112,7 @@ import Testing
             defer { window.close() }
             window.contentView = host
             workspace.root(host)
-            let strip = TabStripView(model: TabStripModel(tabs: [TabItem(id: TabID("t"), title: "cmux")], selectedID: TabID("t")))
+            let strip = TabStripView.testing(model: TabStripModel(tabs: [TabItem(id: TabID("t"), title: "cmux")], selectedID: TabID("t")))
             strip.frame = host.bounds
             host.addSubview(strip)
             #expect(strip.snapshot(of: [], frame: CGRect(x: 0, y: 0, width: 160, height: 28)).onGlass == glass)
