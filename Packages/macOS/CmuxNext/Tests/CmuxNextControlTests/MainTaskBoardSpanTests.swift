@@ -267,21 +267,75 @@ import Testing
         #expect(background.wait.maxNanos == 3 * 17_000_000)
     }
 
-    /// The ledger costs a few stores per task: a posted task's run with its ledger slot, in ns per
-    /// task, bounded far above what it costs and far below what a lock or an allocation would.
+    /// A posted task's whole run (board, budget and its ledger slot), in ns per task: every timed
+    /// task writes its slot (the ring is folded between rounds, untimed), none takes the drop path.
+    /// The slot write alone, against its 0.1 us budget, is `MainOwnerLedgerTests/aLedgerWriteCostsUnderItsBudget`.
     @MainActor
     @Test func aPostedTaskWithItsLedgerSlotCostsNanoseconds() {
-        let budget = MainFrameBudget(board: MainTaskBoard(ledger: MainOwnerLedger(capacity: 256, folding: .manual)))
+        let ledger = MainOwnerLedger(capacity: 256, folding: .manual)
+        let budget = MainFrameBudget(board: MainTaskBoard(ledger: ledger))
         let owner = budget.board.owner("bench")
-        let count = 100_000
-        let start = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
-        for _ in 0..<count {
-            budget.run(.frame, owner: owner, posted: MainTaskPost(enqueueNanos: start)) {}
+        let rounds = 400
+        var timed: UInt64 = 0
+        for _ in 0..<rounds {
+            let start = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+            for _ in 0..<ledger.capacity {
+                budget.run(.frame, owner: owner, posted: MainTaskPost(enqueueNanos: start)) {}
+            }
+            timed &+= clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - start
+            ledger.fold()
         }
-        let perTask = Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - start) / Double(count)
+        let count = rounds * ledger.capacity
+        let perTask = Double(timed) / Double(count)
         print("MainFrameBudget posted run with ledger slot: \(String(format: "%.1f", perTask)) ns")
         #expect(perTask < 5_000)
-        #expect(budget.board.ownerSnapshot().dropped == UInt64(count - 256), "a full ring drops, never waits")
+        let snapshot = budget.board.ownerSnapshot()
+        #expect(snapshot.dropped == 0, "every timed task wrote its slot")
+        #expect(snapshot.recorded == UInt64(count))
+    }
+
+    /// A pump that finds its node hidden runs nothing and stays out of the ledger: posted while the
+    /// tab is visible, hidden before the frame, shown again, the task is recorded once, as visible,
+    /// with one wait from its post.
+    @MainActor
+    @Test func aPumpThatRunsNothingIsNotRecorded() throws {
+        let rig = LedgerRig()
+        defer { rig.stop() }
+        let window = VisibilityNode(root: "window", own: .visible)
+        let tab = VisibilityNode("tab", own: .visible, parent: window)
+        let titles = tab.queue(.visible, owner: "Tab.title", on: rig.work)
+        var ran = 0
+        titles.post(key: "title") { ran += 1 }
+        tab.set(.hidden)
+        rig.frames(1)
+        #expect(ran == 0, "the hidden tab's task ran")
+        tab.set(.visible)
+        rig.frames(1)
+        #expect(ran == 1)
+        let row = try #require(rig.work.board.ownerSnapshot().owners.first { $0.owner == "Tab.title" })
+        #expect(row.tasks == 1, "the pump that ran nothing was recorded")
+        #expect(row.wait.count == 1)
+        #expect(row.wait.maxNanos == 2 * 17_000_000, "from the post through the hidden frame and the shown one")
+        #expect(row.nodes == [.visible: 1])
+    }
+
+    /// A pump whose queue a voter disabled runs nothing either: recorded once, when it runs.
+    @MainActor
+    @Test func aPumpOfADisabledQueueIsNotRecorded() throws {
+        let rig = LedgerRig()
+        defer { rig.stop() }
+        let window = VisibilityNode(root: "window", own: .visible)
+        let titles = window.queue(.automation, owner: "Window.title", on: rig.work)
+        let voter = titles.makeVoter()
+        titles.post {}
+        titles.setEnabled(false, by: voter)
+        rig.frames(1)
+        titles.setEnabled(true, by: voter)
+        rig.frames(1)
+        let row = try #require(rig.work.board.ownerSnapshot().owners.first { $0.owner == "Window.title" })
+        #expect(row.tasks == 1)
+        #expect(row.wait.count == 1)
+        #expect(row.nodes == [.visible: 1])
     }
 
     @MainActor

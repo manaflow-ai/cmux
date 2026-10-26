@@ -88,9 +88,10 @@ public final class FrameBatchQueue {
 
     // MARK: Posted work (MainWorkScheduler.post)
 
-    /// Queues posted work as `owner`, recorded on the board and its ledger as `post`, without
-    /// waking the frame: the scheduler runs it on the next turn or calls ``activate()``.
-    func append(owner: MainTaskOwner, post: MainTaskPost, _ work: @escaping @MainActor () -> Void) {
+    /// Queues posted work as `owner`, recorded on the board and its ledger as `post` (nil: the work
+    /// names its post when it runs), without waking the frame: the scheduler runs it on the next
+    /// turn or calls ``activate()``.
+    func append(owner: MainTaskOwner, post: MainTaskPost?, _ work: @escaping @MainActor () -> Void) {
         pending.append(Item(work: work, owner: owner, post: post))
     }
 

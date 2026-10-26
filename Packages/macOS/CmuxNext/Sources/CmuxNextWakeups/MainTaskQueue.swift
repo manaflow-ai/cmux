@@ -188,18 +188,23 @@ public final class MainTaskQueue {
         }
     }
 
+    /// Pumps carry no post: the one that runs a task names that task's post
+    /// (``MainFrameBudget/notePost(_:)``), and one that runs none stays out of the ledger.
     private func postPumps(upTo wanted: Int) {
+        let budget = work.budget
         while pumps < min(wanted, pendingCount) {
-            let post = pending[head + pumps].post
             pumps += 1
-            work.post(workClass, owner: owner, post: post) { [weak self] in self?.pump() }
+            work.post(workClass, owner: owner, post: nil) { [weak self] in
+                guard let self else { return budget.noteRanNothing() }
+                pump()
+            }
         }
     }
 
     /// One scheduler task: runs the head task if the queue may run now, else leaves it held.
     private func pump() {
         pumps -= 1
-        guard pendingCount > 0, mayRunNow else { return }
+        guard pendingCount > 0, mayRunNow else { return work.budget.noteRanNothing() }
         if !node.isVisible { released -= 1 }
         let item = pending[head]
         pending[head] = Item(work: nil, key: nil, post: item.post)

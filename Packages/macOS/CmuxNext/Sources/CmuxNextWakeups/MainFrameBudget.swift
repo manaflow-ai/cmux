@@ -55,6 +55,12 @@ public final class MainFrameBudget {
     public private(set) var stats = Stats()
     private let input: any InputPendingSource
     private let uptimeNanos: () -> UInt64
+    /// The budget's clock where any thread may read it (`CLOCK_UPTIME_RAW` in the app, or an
+    /// injected ``init(budgets:input:board:signposts:clock:)`` clock): an off-main post reads its
+    /// enqueue time with it on the posting thread, as Chrome sets `PendingTask::queue_time` at
+    /// `PostTask`. Nil for a main-actor-only test clock (``init(budgets:input:board:signposts:uptimeNanos:)``),
+    /// whose off-main posts are timed from their arrival on main.
+    public nonisolated let postClock: (@Sendable () -> UInt64)?
     private let signposts: Bool
     // Frame window.
     private var windowStart: UInt64 = 0
@@ -99,16 +105,36 @@ public final class MainFrameBudget {
     ///   - input: The pending-input check (the app: ``SessionInputPending``; tests: a fake).
     ///   - board: Where the running task is published for the watchdog.
     ///   - signposts: Whether each task opens a `stall.main_task` interval (the app: true).
-    ///   - uptimeNanos: The clock (`CLOCK_UPTIME_RAW` nanoseconds); tests inject one they move.
-    public init(budgets: Budgets = Budgets(), input: any InputPendingSource = NoInputPending(), board: MainTaskBoard = MainTaskBoard(),
-                signposts: Bool = false, uptimeNanos: @escaping () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }) {
+    ///   - clock: The clock (`CLOCK_UPTIME_RAW` nanoseconds), read on main and by off-main posts.
+    public convenience init(budgets: Budgets = Budgets(), input: any InputPendingSource = NoInputPending(), board: MainTaskBoard = MainTaskBoard(),
+                            signposts: Bool = false, clock: @escaping @Sendable () -> UInt64 = { MainTaskPost.uptimeNanos() }) {
+        self.init(budgets: budgets, input: input, board: board, signposts: signposts, mainClock: clock, postClock: clock)
+    }
+
+    /// A budget on a clock only the main actor reads (a test's hand-moved clock): off-main posts
+    /// have no ``postClock``.
+    ///
+    /// - Parameters:
+    ///   - budgets: Per-class budgets (default: the measured split in ``Budgets``).
+    ///   - input: The pending-input check.
+    ///   - board: Where the running task is published for the watchdog.
+    ///   - signposts: Whether each task opens a `stall.main_task` interval.
+    ///   - uptimeNanos: The clock, in nanoseconds; tests inject one they move.
+    public convenience init(budgets: Budgets = Budgets(), input: any InputPendingSource = NoInputPending(), board: MainTaskBoard = MainTaskBoard(),
+                            signposts: Bool = false, uptimeNanos: @escaping () -> UInt64) {
+        self.init(budgets: budgets, input: input, board: board, signposts: signposts, mainClock: uptimeNanos, postClock: nil)
+    }
+
+    private init(budgets: Budgets, input: any InputPendingSource, board: MainTaskBoard, signposts: Bool,
+                 mainClock: @escaping () -> UInt64, postClock: (@Sendable () -> UInt64)?) {
         self.budgets = budgets
         totalNanos = Self.nanos(budgets.total)
         passTargetNanos = Self.nanos(budgets.passTarget)
         self.input = input
         self.board = board
         self.signposts = signposts
-        self.uptimeNanos = uptimeNanos
+        uptimeNanos = mainClock
+        self.postClock = postClock
     }
 
     /// Starts a display frame's budget window: the ``MainWorkScheduler``'s one link calls it at
@@ -296,11 +322,19 @@ public final class MainFrameBudget {
         return try body()
     }
 
-    /// The running task runs work posted as `post` (a node queue's pump runs a task it held): the
-    /// board and the ledger take that post in place of the running task's.
-    func notePost(_ post: MainTaskPost) {
+    /// The running task runs work posted as `post` (a node queue's pump runs a task it held, a
+    /// control drain runs a request it claimed): the board and the ledger take that post in place
+    /// of the running task's.
+    public func notePost(_ post: MainTaskPost) {
         if !open.isEmpty { open[open.count - 1].post = post }
         board.notePostedFrom(post.site)
+    }
+
+    /// The running task ran none of the work it was posted for (a node queue's pump found its node
+    /// hidden, frozen or disabled, a control request expired before it ran): the ledger leaves it
+    /// out, so a held task is recorded once, with its wait and node state, when it runs.
+    public func noteRanNothing() {
+        if !open.isEmpty { open[open.count - 1].ranNothing = true }
     }
 
     /// Now on the budget's clock: the enqueue time of a post it will run.
@@ -338,7 +372,9 @@ public final class MainFrameBudget {
         }
         board.end(MainTaskBoard.Task(workClass: task.workClass, owner: task.owner.name, sequence: task.sequence, startNanos: task.start,
                                      budgetNanos: task.budgetNanos), durationNanos: own, overBudget: over)
-        board.ledger.ended(task.workClass, owner: task.owner.index, post: task.post, startNanos: task.start, runNanos: own)
+        if !task.ranNothing {
+            board.ledger.ended(task.workClass, owner: task.owner.index, post: task.post, startNanos: task.start, runNanos: own)
+        }
         // The outer task runs again: the watchdog names it.
         if let outer = open.last {
             board.begin(outer.workClass, owner: outer.owner.index, sequence: outer.sequence, startNanos: outer.start,

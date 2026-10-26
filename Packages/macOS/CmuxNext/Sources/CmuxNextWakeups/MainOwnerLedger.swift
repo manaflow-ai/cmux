@@ -31,6 +31,8 @@ public final class MainOwnerLedger: Sendable {
         /// On a utility queue the producer wakes once per quarter of the ring, and on a snapshot's
         /// thread (the app).
         case background
+        /// As ``background``, on `queue` (tests: a serial queue they wait on).
+        case queue(DispatchQueue)
         /// Only in ``fold()`` and a snapshot (tests).
         case manual
     }
@@ -100,7 +102,8 @@ public final class MainOwnerLedger: Sendable {
     private let droppedCount = Atomic<UInt64>(0)
     /// A background fold is queued and has not started.
     private let foldQueued = Atomic<Bool>(false)
-    private let foldsInBackground: Bool
+    /// Where the producer queues a fold (nil: ``Folding/manual``).
+    private let foldQueue: DispatchQueue?
     // concurrency-allow: the folders' accumulators (lock carve-out: the main thread never takes it; it is held to fold at most `capacity` records or to copy a snapshot, no I/O under it).
     private let folded = Mutex(Folded())
 
@@ -111,7 +114,11 @@ public final class MainOwnerLedger: Sendable {
     public init(capacity: Int = 1024, folding: Folding = .background) {
         self.capacity = max(4, capacity) / 4 * 4
         slots = (0..<self.capacity).map { _ in Slot() }
-        foldsInBackground = folding == .background
+        switch folding {
+        case .background: foldQueue = DispatchQueue.global(qos: .utility)
+        case let .queue(queue): foldQueue = queue
+        case .manual: foldQueue = nil
+        }
     }
 
     // MARK: Producer (main thread)
@@ -134,8 +141,8 @@ public final class MainOwnerLedger: Sendable {
         slots[end % capacity].store(Record(workClass: workClass, owner: owner, post: post, startNanos: startNanos, runNanos: runNanos))
         tail.store(end + 1, ordering: .releasing)
         // Each quarter of the ring wakes the fold once.
-        guard foldsInBackground, (end + 1) % (capacity / 4) == 0, !foldQueued.exchange(true, ordering: .acquiringAndReleasing) else { return }
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        guard let foldQueue, (end + 1) % (capacity / 4) == 0, !foldQueued.exchange(true, ordering: .acquiringAndReleasing) else { return }
+        foldQueue.async { [weak self] in
             guard let self else { return }
             foldQueued.store(false, ordering: .releasing)
             fold()
@@ -170,7 +177,12 @@ public final class MainOwnerLedger: Sendable {
     ///
     /// - Parameter name: The owner name of a board index.
     func snapshot(name: (UInt32) -> String) -> Snapshot {
-        let (owners, recorded) = folded.withLock { state in (state.owners, state.recorded) }
+        // `head` moves only under the lock, so `recorded + pending + dropped` counts every record
+        // written up to these reads once, whatever fold runs meanwhile.
+        let (owners, recorded, pending, dropped) = folded.withLock { state in
+            let pending = tail.load(ordering: .acquiring) - head.load(ordering: .relaxed)
+            return (state.owners, state.recorded, pending, droppedCount.load(ordering: .relaxed))
+        }
         let summaries = owners.compactMap { entry -> Owner? in
             let (key, accumulator) = (entry.key, entry.value)
             guard let workClass = MainWorkClass(rawValue: Int(key.workClass)) else { return nil }
@@ -184,8 +196,7 @@ public final class MainOwnerLedger: Sendable {
         }.sorted {
             ($0.run.p99Nanos, $0.runTotalNanos, $1.owner, $1.workClass.rawValue) > ($1.run.p99Nanos, $1.runTotalNanos, $0.owner, $0.workClass.rawValue)
         }
-        return Snapshot(owners: summaries, recorded: recorded, dropped: droppedCount.load(ordering: .relaxed),
-                        pending: max(0, tail.load(ordering: .acquiring) - head.load(ordering: .acquiring)))
+        return Snapshot(owners: summaries, recorded: recorded, dropped: dropped, pending: max(0, pending))
     }
 
     /// The top sites by task count, named by file (two copies of one `#fileID` literal are one site).
