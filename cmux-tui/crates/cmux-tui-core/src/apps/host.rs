@@ -201,21 +201,17 @@ fn child_fds(fd: libc::c_int, max_fd: libc::c_int) -> std::io::Result<()> {
 }
 
 #[cfg(test)]
-mod fd_tests {
-    use std::os::fd::AsRawFd;
-    use std::os::unix::process::CommandExt;
+mod spawn_tests {
+    use super::HostProcess;
 
-    /// A failed exec after the descriptor step comes back as the spawn
-    /// error, not as an aborted child (closing every descriptor closed
-    /// `Command::spawn`'s exec-error pipe).
+    /// A host binary that cannot run is a spawn error. The descriptor step
+    /// used to close `Command::spawn`'s exec-error pipe: the child aborted
+    /// and the spawn looked successful.
     #[test]
-    fn failed_exec_after_child_fds_is_a_spawn_error() {
-        let (read, _write) = std::io::pipe().expect("pipe");
-        let fd = read.as_raw_fd();
-        let mut command = std::process::Command::new("/nonexistent/cmux-app-host");
-        // SAFETY: only async-signal-safe calls between fork and exec.
-        unsafe { command.pre_exec(move || super::child_fds(fd, 4096)) };
-        let error = command.spawn().expect_err("exec of a missing binary");
+    fn a_host_binary_that_cannot_run_is_a_spawn_error() {
+        let missing = std::path::Path::new("/nonexistent/cmux-app-host");
+        let result = HostProcess::spawn(missing, &[], "missing", |_| {}, |_| {});
+        let error = result.err().expect("a missing binary does not start");
         assert_eq!(error.kind(), std::io::ErrorKind::NotFound, "{error}");
     }
 }
