@@ -121,7 +121,7 @@ async fn forward_inner(
     if !SESSION_SCOPED_EXCLUDED.contains(&m)
         && let Ok(key) = session_key(params)
         && hub.resolve(key).is_err()
-        && let Some((peer, id, _)) = hub.resolve_remote(key)
+        && let Some((peer, id, row)) = hub.resolve_remote(key)
     {
         if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
             return Err(super::trust_gate::peer_unsupported(&peer.name));
@@ -253,18 +253,23 @@ async fn forward_inner(
         let pages = matches!(m, method::MUX_ATTACH | method::MUX_EVENTS);
         let purge =
             m == method::MUX_KILL && params.get("purge").and_then(Value::as_bool).unwrap_or(false);
-        let asked = (pages || purge).then(|| hub.listed_generation(&peer.name, &id)).flatten();
+        // The row the request was resolved by names it: a purge removes only that generation, even
+        // when the row went (and the id came back as another session) before the answer.
+        let asked =
+            (pages || purge).then(|| row.get("createdAt").and_then(Value::as_u64)).flatten();
         // A client that left takes its prompt or wait along: those wait on the peer's turn with no
         // deadline (`peer.rs` `waits_on_turn`), and nobody would read the answer. Every other
         // request keeps its deadline and always goes out: an attach the marker above stands for
         // must reach the peer even when its client is gone.
+        // A page goes on the link it is labelled with, or fails.
+        let on = pages.then_some(link);
         let result = if crate::peer::waits_on_turn(m) {
             tokio::select! {
-                result = peer.request(m, p) => result,
+                result = peer.request_on(m, p, on) => result,
                 () = conn.closed() => Err(RpcError::internal("the client closed the connection")),
             }
         } else {
-            peer.request(m, p).await
+            peer.request_on(m, p, on).await
         };
         if let (Some(prompt_id), Some(token)) = (&accept, token) {
             hub.peer_accepts.forget(&peer.name, prompt_id, token);
@@ -287,10 +292,13 @@ async fn forward_inner(
                             e
                         }
                     })?;
+        let held = |r: &Value| r.get("events").and_then(Value::as_array).map(Vec::len);
+        let before = held(&result);
         strip_asks(hub, &peer.name, &id, m, &mut result);
         // What the client reads of a peer's chat is kept here too, so the chat
         // paints while the peer is paused or offline (`hub/peer_snapshot.rs`).
-        if matches!(m, method::MUX_ATTACH | method::MUX_EVENTS) {
+        // A page that lost records here no longer holds every seq it covers.
+        if matches!(m, method::MUX_ATTACH | method::MUX_EVENTS) && held(&result) == before {
             let on = (peer.name.as_str(), peer.generation, link, asked);
             hub.capture_peer_page(on, (&id, m == method::MUX_EVENTS), params, &result);
         }
@@ -307,7 +315,7 @@ async fn forward_inner(
             peer.mark_attached(new_id);
         }
         if purge {
-            hub.forget_remote(&peer.name, &id, asked);
+            hub.forget_remote((&peer.name, peer.generation), &id, asked);
         }
         if let Some(obj) = result.as_object_mut() {
             obj.insert("peer".into(), Value::String(peer.name.clone()));
