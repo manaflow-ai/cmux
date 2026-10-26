@@ -1,0 +1,609 @@
+{
+  "description": "Shared test vectors for the signed flags document (schemas/features/flags-document.md). `signature` cases: `data` is the exact bytes of notes/flags.json, `signature` the exact text of notes/flags.json.sig, and `valid` whether `public_key` (a test key: the Ed25519 seed is 32 bytes of 7) accepts it after the reader trims the signature's whitespace. `resolve` cases: the Features keys `document` gives `cohort` for a build (`build`, null when unknown) at Unix second `now`: `features` (name to on) and `serial` (the resolved FeaturesSerial, absent when unset), or `rejected` with the reason. Rust cmux-tui feature_flags.rs (unit tests) and Swift ContentSignature (CmuxNextAppTests FlagsDocumentVectorTests) read the signature cases; the Rust reader and the app's remote overrides (task p12-perf-process-092) read the resolve cases. Change every reader together.",
+  "public_key": "6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iw=",
+  "signature": [
+    {
+      "name": "signed document, newline after the signature",
+      "data": "{\n  \"version\": 1,\n  \"default\": {\n    \"DisabledFeatures\": [\n      \"cloud-vm\"\n    ],\n    \"Features\": {\n      \"terminalHolder\": \"off\"\n    },\n    \"FeaturesSerial\": 7\n  },\n  \"cohorts\": {\n    \"nightly-perf\": {\n      \"Features\": {\n        \"cefLayerHosting\": \"on\"\n      },\n      \"FeaturesMinBuild\": 4200\n    }\n  }\n}\n",
+      "signature": "B3ZrzesoPGZezo8+NEGc82WLJsBDXbE1+pa1Wm5SiCMCxBweSDo2yPWGxCFrfUGQwtmbGgwfn4pOXKt2xz1wCg==\n",
+      "valid": true
+    },
+    {
+      "name": "signed document, bare signature",
+      "data": "{\n  \"version\": 1,\n  \"default\": {\n    \"DisabledFeatures\": [\n      \"cloud-vm\"\n    ],\n    \"Features\": {\n      \"terminalHolder\": \"off\"\n    },\n    \"FeaturesSerial\": 7\n  },\n  \"cohorts\": {\n    \"nightly-perf\": {\n      \"Features\": {\n        \"cefLayerHosting\": \"on\"\n      },\n      \"FeaturesMinBuild\": 4200\n    }\n  }\n}\n",
+      "signature": "B3ZrzesoPGZezo8+NEGc82WLJsBDXbE1+pa1Wm5SiCMCxBweSDo2yPWGxCFrfUGQwtmbGgwfn4pOXKt2xz1wCg==",
+      "valid": true
+    },
+    {
+      "name": "one byte of the document changed",
+      "data": "{\n  \"version\": 1,\n  \"default\": {\n    \"DisabledFeatures\": [\n      \"cloud-vm\"\n    ],\n    \"Features\": {\n      \"terminalHolder\": \"on\"\n    },\n    \"FeaturesSerial\": 7\n  },\n  \"cohorts\": {\n    \"nightly-perf\": {\n      \"Features\": {\n        \"cefLayerHosting\": \"on\"\n      },\n      \"FeaturesMinBuild\": 4200\n    }\n  }\n}\n",
+      "signature": "B3ZrzesoPGZezo8+NEGc82WLJsBDXbE1+pa1Wm5SiCMCxBweSDo2yPWGxCFrfUGQwtmbGgwfn4pOXKt2xz1wCg==\n",
+      "valid": false
+    },
+    {
+      "name": "one bit of the signature changed",
+      "data": "{\n  \"version\": 1,\n  \"default\": {\n    \"DisabledFeatures\": [\n      \"cloud-vm\"\n    ],\n    \"Features\": {\n      \"terminalHolder\": \"off\"\n    },\n    \"FeaturesSerial\": 7\n  },\n  \"cohorts\": {\n    \"nightly-perf\": {\n      \"Features\": {\n        \"cefLayerHosting\": \"on\"\n      },\n      \"FeaturesMinBuild\": 4200\n    }\n  }\n}\n",
+      "signature": "B3ZrzesoPGZezo4+NEGc82WLJsBDXbE1+pa1Wm5SiCMCxBweSDo2yPWGxCFrfUGQwtmbGgwfn4pOXKt2xz1wCg==\n",
+      "valid": false
+    },
+    {
+      "name": "signed by another key",
+      "data": "{\n  \"version\": 1,\n  \"default\": {\n    \"DisabledFeatures\": [\n      \"cloud-vm\"\n    ],\n    \"Features\": {\n      \"terminalHolder\": \"off\"\n    },\n    \"FeaturesSerial\": 7\n  },\n  \"cohorts\": {\n    \"nightly-perf\": {\n      \"Features\": {\n        \"cefLayerHosting\": \"on\"\n      },\n      \"FeaturesMinBuild\": 4200\n    }\n  }\n}\n",
+      "signature": "q3GbZyh/x/RRVW6Ko9PfzK6o8c0OhXRn5TvCKh5Sh4I4m9fO2g1Ve5BVkY0wELesI26OjK6R+VYYyPIPUJCkAg==\n",
+      "valid": false
+    },
+    {
+      "name": "signature is not base64",
+      "data": "{\n  \"version\": 1,\n  \"default\": {\n    \"DisabledFeatures\": [\n      \"cloud-vm\"\n    ],\n    \"Features\": {\n      \"terminalHolder\": \"off\"\n    },\n    \"FeaturesSerial\": 7\n  },\n  \"cohorts\": {\n    \"nightly-perf\": {\n      \"Features\": {\n        \"cefLayerHosting\": \"on\"\n      },\n      \"FeaturesMinBuild\": 4200\n    }\n  }\n}\n",
+      "signature": "not base64!\n",
+      "valid": false
+    },
+    {
+      "name": "empty signature",
+      "data": "{\n  \"version\": 1,\n  \"default\": {\n    \"DisabledFeatures\": [\n      \"cloud-vm\"\n    ],\n    \"Features\": {\n      \"terminalHolder\": \"off\"\n    },\n    \"FeaturesSerial\": 7\n  },\n  \"cohorts\": {\n    \"nightly-perf\": {\n      \"Features\": {\n        \"cefLayerHosting\": \"on\"\n      },\n      \"FeaturesMinBuild\": 4200\n    }\n  }\n}\n",
+      "signature": "",
+      "valid": false
+    }
+  ],
+  "resolve": [
+    {
+      "name": "a version 1 document from before Features sets no feature",
+      "document": {
+        "version": 1,
+        "default": {
+          "DisabledFeatures": [
+            "cloud-vm"
+          ]
+        },
+        "cohorts": {
+          "linux-wave-1": {
+            "DisabledFeatures": [
+              "cloud-vm",
+              "remote-browser"
+            ]
+          }
+        }
+      },
+      "cohort": "linux-wave-1",
+      "build": 4242,
+      "now": 1790000000,
+      "features": {}
+    },
+    {
+      "name": "an unknown cohort gets the default's Features",
+      "document": {
+        "version": 1,
+        "default": {
+          "DisabledFeatures": [
+            "cloud-vm"
+          ],
+          "Features": {
+            "terminalHolder": "off",
+            "cefLayerHosting": "off"
+          },
+          "FeaturesSerial": 7
+        },
+        "cohorts": {
+          "nightly-perf": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesSerial": 8
+          },
+          "builds-4200-4299": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesMinBuild": 4200,
+            "FeaturesMaxBuild": 4299
+          },
+          "expiring": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesExpiresAt": 1800000000
+          },
+          "broken": {
+            "Features": {
+              "cefLayerHosting": "maybe"
+            }
+          },
+          "broken-serial": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesSerial": "8"
+          }
+        }
+      },
+      "cohort": "nobody",
+      "build": 4242,
+      "now": 1790000000,
+      "features": {
+        "terminalHolder": false,
+        "cefLayerHosting": false
+      },
+      "serial": 7
+    },
+    {
+      "name": "a cohort's Features replace the default's per name",
+      "document": {
+        "version": 1,
+        "default": {
+          "DisabledFeatures": [
+            "cloud-vm"
+          ],
+          "Features": {
+            "terminalHolder": "off",
+            "cefLayerHosting": "off"
+          },
+          "FeaturesSerial": 7
+        },
+        "cohorts": {
+          "nightly-perf": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesSerial": 8
+          },
+          "builds-4200-4299": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesMinBuild": 4200,
+            "FeaturesMaxBuild": 4299
+          },
+          "expiring": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesExpiresAt": 1800000000
+          },
+          "broken": {
+            "Features": {
+              "cefLayerHosting": "maybe"
+            }
+          },
+          "broken-serial": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesSerial": "8"
+          }
+        }
+      },
+      "cohort": "nightly-perf",
+      "build": 4242,
+      "now": 1790000000,
+      "features": {
+        "terminalHolder": false,
+        "cefLayerHosting": true
+      },
+      "serial": 8
+    },
+    {
+      "name": "a build inside the range gets the cohort's Features",
+      "document": {
+        "version": 1,
+        "default": {
+          "DisabledFeatures": [
+            "cloud-vm"
+          ],
+          "Features": {
+            "terminalHolder": "off",
+            "cefLayerHosting": "off"
+          },
+          "FeaturesSerial": 7
+        },
+        "cohorts": {
+          "nightly-perf": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesSerial": 8
+          },
+          "builds-4200-4299": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesMinBuild": 4200,
+            "FeaturesMaxBuild": 4299
+          },
+          "expiring": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesExpiresAt": 1800000000
+          },
+          "broken": {
+            "Features": {
+              "cefLayerHosting": "maybe"
+            }
+          },
+          "broken-serial": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesSerial": "8"
+          }
+        }
+      },
+      "cohort": "builds-4200-4299",
+      "build": 4200,
+      "now": 1790000000,
+      "features": {
+        "terminalHolder": false,
+        "cefLayerHosting": true
+      },
+      "serial": 7
+    },
+    {
+      "name": "a build below FeaturesMinBuild gets none",
+      "document": {
+        "version": 1,
+        "default": {
+          "DisabledFeatures": [
+            "cloud-vm"
+          ],
+          "Features": {
+            "terminalHolder": "off",
+            "cefLayerHosting": "off"
+          },
+          "FeaturesSerial": 7
+        },
+        "cohorts": {
+          "nightly-perf": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesSerial": 8
+          },
+          "builds-4200-4299": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesMinBuild": 4200,
+            "FeaturesMaxBuild": 4299
+          },
+          "expiring": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesExpiresAt": 1800000000
+          },
+          "broken": {
+            "Features": {
+              "cefLayerHosting": "maybe"
+            }
+          },
+          "broken-serial": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesSerial": "8"
+          }
+        }
+      },
+      "cohort": "builds-4200-4299",
+      "build": 4199,
+      "now": 1790000000,
+      "rejected": "buildBelowMin"
+    },
+    {
+      "name": "a build above FeaturesMaxBuild gets none",
+      "document": {
+        "version": 1,
+        "default": {
+          "DisabledFeatures": [
+            "cloud-vm"
+          ],
+          "Features": {
+            "terminalHolder": "off",
+            "cefLayerHosting": "off"
+          },
+          "FeaturesSerial": 7
+        },
+        "cohorts": {
+          "nightly-perf": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesSerial": 8
+          },
+          "builds-4200-4299": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesMinBuild": 4200,
+            "FeaturesMaxBuild": 4299
+          },
+          "expiring": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesExpiresAt": 1800000000
+          },
+          "broken": {
+            "Features": {
+              "cefLayerHosting": "maybe"
+            }
+          },
+          "broken-serial": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesSerial": "8"
+          }
+        }
+      },
+      "cohort": "builds-4200-4299",
+      "build": 4300,
+      "now": 1790000000,
+      "rejected": "buildAboveMax"
+    },
+    {
+      "name": "an unknown build with a range gets none",
+      "document": {
+        "version": 1,
+        "default": {
+          "DisabledFeatures": [
+            "cloud-vm"
+          ],
+          "Features": {
+            "terminalHolder": "off",
+            "cefLayerHosting": "off"
+          },
+          "FeaturesSerial": 7
+        },
+        "cohorts": {
+          "nightly-perf": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesSerial": 8
+          },
+          "builds-4200-4299": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesMinBuild": 4200,
+            "FeaturesMaxBuild": 4299
+          },
+          "expiring": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesExpiresAt": 1800000000
+          },
+          "broken": {
+            "Features": {
+              "cefLayerHosting": "maybe"
+            }
+          },
+          "broken-serial": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesSerial": "8"
+          }
+        }
+      },
+      "cohort": "builds-4200-4299",
+      "build": null,
+      "now": 1790000000,
+      "rejected": "buildUnknown"
+    },
+    {
+      "name": "before FeaturesExpiresAt the Features apply",
+      "document": {
+        "version": 1,
+        "default": {
+          "DisabledFeatures": [
+            "cloud-vm"
+          ],
+          "Features": {
+            "terminalHolder": "off",
+            "cefLayerHosting": "off"
+          },
+          "FeaturesSerial": 7
+        },
+        "cohorts": {
+          "nightly-perf": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesSerial": 8
+          },
+          "builds-4200-4299": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesMinBuild": 4200,
+            "FeaturesMaxBuild": 4299
+          },
+          "expiring": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesExpiresAt": 1800000000
+          },
+          "broken": {
+            "Features": {
+              "cefLayerHosting": "maybe"
+            }
+          },
+          "broken-serial": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesSerial": "8"
+          }
+        }
+      },
+      "cohort": "expiring",
+      "build": 4242,
+      "now": 1799999999,
+      "features": {
+        "terminalHolder": false,
+        "cefLayerHosting": true
+      },
+      "serial": 7
+    },
+    {
+      "name": "at FeaturesExpiresAt the Features have expired",
+      "document": {
+        "version": 1,
+        "default": {
+          "DisabledFeatures": [
+            "cloud-vm"
+          ],
+          "Features": {
+            "terminalHolder": "off",
+            "cefLayerHosting": "off"
+          },
+          "FeaturesSerial": 7
+        },
+        "cohorts": {
+          "nightly-perf": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesSerial": 8
+          },
+          "builds-4200-4299": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesMinBuild": 4200,
+            "FeaturesMaxBuild": 4299
+          },
+          "expiring": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesExpiresAt": 1800000000
+          },
+          "broken": {
+            "Features": {
+              "cefLayerHosting": "maybe"
+            }
+          },
+          "broken-serial": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesSerial": "8"
+          }
+        }
+      },
+      "cohort": "expiring",
+      "build": 4242,
+      "now": 1800000000,
+      "rejected": "expired"
+    },
+    {
+      "name": "a state other than on or off rejects every Features key",
+      "document": {
+        "version": 1,
+        "default": {
+          "DisabledFeatures": [
+            "cloud-vm"
+          ],
+          "Features": {
+            "terminalHolder": "off",
+            "cefLayerHosting": "off"
+          },
+          "FeaturesSerial": 7
+        },
+        "cohorts": {
+          "nightly-perf": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesSerial": 8
+          },
+          "builds-4200-4299": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesMinBuild": 4200,
+            "FeaturesMaxBuild": 4299
+          },
+          "expiring": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesExpiresAt": 1800000000
+          },
+          "broken": {
+            "Features": {
+              "cefLayerHosting": "maybe"
+            }
+          },
+          "broken-serial": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesSerial": "8"
+          }
+        }
+      },
+      "cohort": "broken",
+      "build": 4242,
+      "now": 1790000000,
+      "rejected": "malformed"
+    },
+    {
+      "name": "a FeaturesSerial that is not an integer rejects every Features key",
+      "document": {
+        "version": 1,
+        "default": {
+          "DisabledFeatures": [
+            "cloud-vm"
+          ],
+          "Features": {
+            "terminalHolder": "off",
+            "cefLayerHosting": "off"
+          },
+          "FeaturesSerial": 7
+        },
+        "cohorts": {
+          "nightly-perf": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesSerial": 8
+          },
+          "builds-4200-4299": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesMinBuild": 4200,
+            "FeaturesMaxBuild": 4299
+          },
+          "expiring": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesExpiresAt": 1800000000
+          },
+          "broken": {
+            "Features": {
+              "cefLayerHosting": "maybe"
+            }
+          },
+          "broken-serial": {
+            "Features": {
+              "cefLayerHosting": "on"
+            },
+            "FeaturesSerial": "8"
+          }
+        }
+      },
+      "cohort": "broken-serial",
+      "build": 4242,
+      "now": 1790000000,
+      "rejected": "malformed"
+    }
+  ]
+}
