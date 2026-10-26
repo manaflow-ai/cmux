@@ -104,6 +104,16 @@ public final class HangReportCollector: Sendable {
         keepLater(HangSample(source: .watchdog, kind: .hang, durationMs: ms, frames: [], mainTask: task), addresses: addresses)
     }
 
+    /// One watched thread still in its hang-watch scope 2 s past its budget (watchdog thread, from the watchdog's
+    /// `onThreadHang`): kept with the main thread's hangs, longest first, as a ``HangSample/Source/hangWatch`` sample
+    /// that names `thread`. `durationNanos` is how far past its budget the scope was when its stack was sampled.
+    public func noteThreadHang(durationNanos: UInt64, addresses: [UInt], thread: HangSample.WatchedThread) {
+        guard isEnabled, !addresses.isEmpty else { return }
+        let ms = Self.milliseconds(durationNanos)
+        guard aggregate.withLock({ $0.wantsHangSample(durationMs: ms) }) else { return }
+        keepLater(.threadHang(thread, durationMs: ms, frames: []), addresses: addresses)
+    }
+
     /// One launch at its `startup_complete` (main thread, once per launch). Off, it is one atomic
     /// load; on, the lock over a few small array merges. An interrupted launch adds only its reason.
     /// The app calls it from task p08-startup-115; a report carries the launches only in

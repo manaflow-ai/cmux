@@ -53,6 +53,10 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         /// Whether a watchdog hang sample carries ``HangSample/mainTask`` (`"task": {"owner", "class"}`,
         /// p06-scheduler-203; the schema-3 decoder must list the key before a build sends schema 3).
         public var carriesTaskAttribution: Bool { self == .v3 }
+        /// Whether a report in this schema has the hang watch's samples of other threads
+        /// (``HangSample/threadHang(_:durationMs:frames:)``: source `hangwatch`, kind `hang`, `"thread": {"name", "kind"}`;
+        /// p09-observability-068; the schema-3 decoder must list them before a build sends schema 3).
+        public var carriesThreadHangs: Bool { self == .v3 }
     }
 
     /// The wire schema a report is written in by default (``WireSchema/deployed``).
