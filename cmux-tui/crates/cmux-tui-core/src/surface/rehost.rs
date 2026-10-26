@@ -229,6 +229,7 @@ fn replace_host(
         record.host_pid,
         attachment.record.host_pid,
     );
+    mux.note_holder_exit();
     attachment.keep_pty_custody(custody);
     Some(attachment)
 }
