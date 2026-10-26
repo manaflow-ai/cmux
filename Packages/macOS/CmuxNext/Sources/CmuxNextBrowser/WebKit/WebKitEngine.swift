@@ -53,7 +53,7 @@ public final class WebKitEngine: BrowserEngine {
 
     /// The remembered-sign-in rules for a profile's tabs.
     func httpSignInMemory(for profile: BrowserProfileID) -> BrowserHTTPSignInMemory {
-        BrowserHTTPSignInMemory(store: httpCredentials, offTheRecord: profileStore.isOffTheRecord(profile))
+        BrowserHTTPSignInMemory(store: httpCredentials, index: stores.httpSignIns, offTheRecord: profileStore.isOffTheRecord(profile))
     }
 
     /// Per-profile site permissions, shared with the Chromium engine.

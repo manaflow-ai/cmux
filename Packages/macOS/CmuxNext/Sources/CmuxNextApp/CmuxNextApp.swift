@@ -51,10 +51,6 @@ public struct CmuxNextApp {
         let hangWatch = TraceRuntime.shared.hangWatch
         // The launch's file reads run on these lanes, never on the main thread (p08-startup 033).
         let work = BackgroundWork(hangs: hangWatch, onRan: startupTrace?.laneJobSink)
-        // This app's signature and its bundled acpmux's check, first on the system lane: the daemon prestart,
-        // CloudService and the acpmux resolves on main then find them read (OwnCodeSignature, StaticCodeValidityCache).
-        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        work.post(.userBlocking, mayBlock: .system) { AcpmuxEnvironment.warmSignatureChecks(bundledBinDirectory: bin) }
         // Idle and best-effort lane work waits for startup complete (Chrome's BeginBestEffortFence); the order made on it lowers it.
         let fence = LaunchOrder.BestEffortFence(raisingOn: work)
         startupTrace?.start(writingOn: work) // its file is written on work's files lane, never here
@@ -68,6 +64,13 @@ public struct CmuxNextApp {
         environment.layoutTemplatesFile = environment.sidebarSnapshotFile?.url.deletingLastPathComponent().appending(path: "layout-templates.json")
         environment.homeCachesDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
+        // The app's acpmux, resolved once on the system lane: its signature check reads this app's signature
+        // (OwnCodeSignature) and hashes the binary. Main-thread users take the landed answer (QuitAgents.environment).
+        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
+        let processVariables = ProcessInfo.processInfo.environment, build = environment.build
+        environment.appAcpmux = LaunchRead(on: work, mayBlock: .system) {
+            AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: bin, environment: processVariables)
+        }
         DebugTimings.markLaunch("main.app_environment")
         // The last quit's agent pages, terminal frames and chat composers are read and decoded off the main thread
         // from here, while AppKit starts, so each pane's first frame can use them without waiting. Where each chat
@@ -94,13 +97,19 @@ public struct CmuxNextApp {
         BrowserFaviconLoader.shared.useResolver(SystemRemoteResolver(runner: work))
         BackdropVideoPlayers.shared.lanes = work
         let wireStats = DaemonWireStats.forBuild()  // `debug.daemon.wire`'s counters; nil in a release build
-        // The daemon connect overlaps AppKit's start (off the main thread).
-        let prestart = DaemonService.prestart(work: work, launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
-                                              resolvedTerminalEnvironment: environment.resolvedTerminalEnvironment(),
-                                              terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
-                                              resolvesShellIntegration: environment.resolvesShellIntegration,
-                                              echoesPlacementShift: SidebarMirror.isLinked, wireStats: wireStats,
-                                              hangWatch: hangWatch)
+        // The daemon connect overlaps AppKit's start, all of it on the system lane: this app's signature first
+        // (the launcher's install key needs the Team ID), then the launcher and its first attempt.
+        let launch = environment.launch, terminalEnvironment = environment.terminalEnvironment
+        let resolvedTerminalEnvironment = environment.resolvedTerminalEnvironment()
+        let terminalEnvironmentProvider = environment.terminalEnvironmentProvider()
+        let resolvesShellIntegration = environment.resolvesShellIntegration, echoesPlacementShift = SidebarMirror.isLinked
+        let daemonStart = LaunchRead<DaemonLaunchStart>(on: work, mayBlock: .system) {
+            DaemonService.launchStart(work: work, launch: launch, terminalEnvironment: terminalEnvironment,
+                                      resolvedTerminalEnvironment: resolvedTerminalEnvironment,
+                                      terminalEnvironmentProvider: terminalEnvironmentProvider,
+                                      resolvesShellIntegration: resolvesShellIntegration, echoesPlacementShift: echoesPlacementShift,
+                                      wireStats: wireStats, hangWatch: hangWatch)
+        }
         DebugTimings.markLaunch("main.prestart")
         // DEV and NIGHTLY crash at an exception's throw site (cx-r3q), before NSApp exists.
         CrashOnExceptions.register()
@@ -116,7 +125,7 @@ public struct CmuxNextApp {
         TooltipPresenter.shared.inputTap = inputTap
         let order = LaunchOrder(fence: fence, input: inputTap) { DebugTimings.markLaunch($0) }
         DaemonLauncher.captureLoginEnvironment(after: order.startup) // at once only with nothing remembered (p08-startup-034)
-        let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats,
+        let delegate = AppDelegate(environment: environment, daemonStart: daemonStart, wireStats: wireStats,
                                    startupTrace: startupTrace, order: order, inputTap: inputTap, settingsRead: settingsRead,
                                    launchReads: (work, launchImages, relaunchWake))
         DebugTimings.markLaunch("main.delegate")

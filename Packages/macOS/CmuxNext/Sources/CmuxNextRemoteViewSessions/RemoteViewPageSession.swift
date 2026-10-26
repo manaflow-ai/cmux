@@ -69,8 +69,8 @@ public final class RemoteViewPageSession {
     /// An RFB compatibility host: decoded frames, fitted to the pane, on the
     /// layer-contents presenter (the Metal presenter is for YUV video).
     private init(vncRecord record: RemoteViewTabRecord, port: UInt16, work: BackgroundWork, mainWork: MainWorkScheduler,
-                 closeTab: @escaping @MainActor () -> Void) {
-        let vnc = RemoteVNCSession(record: record, port: port, demoHost: Self.mockHost, work: work, mainWork: mainWork)
+                 signIns: RemoteVNCSignIns, closeTab: @escaping @MainActor () -> Void) {
+        let vnc = RemoteVNCSession(record: record, port: port, demoHost: Self.mockHost, work: work, mainWork: mainWork, signIns: signIns)
         self.vnc = vnc
         source = vnc.source
         rd = nil
@@ -202,11 +202,13 @@ public final class RemoteViewPageSession {
     #endif
 
     /// A session for `record`, or nil when this build cannot show it.
-    public static func make(record: RemoteViewTabRecord, work: BackgroundWork, mainWork: MainWorkScheduler,
+    public static func make(record: RemoteViewTabRecord, work: BackgroundWork, mainWork: MainWorkScheduler, vncSignIns: RemoteVNCSignIns,
                             closeTab: @escaping @MainActor () -> Void) -> RemoteViewPageSession? {
         #if DEBUG
         guard RemoteViewAvailability().isAvailable else { return nil }
-        if let port = record.vncPort { return RemoteViewPageSession(vncRecord: record, port: port, work: work, mainWork: mainWork, closeTab: closeTab) }
+        if let port = record.vncPort {
+            return RemoteViewPageSession(vncRecord: record, port: port, work: work, mainWork: mainWork, signIns: vncSignIns, closeTab: closeTab)
+        }
         if record.host.lowercased() == mockHost { return RemoteViewPageSession(record: record, closeTab: closeTab) }
         guard RemoteViewTabPolicy().isLoopback(record.host), let host = RemoteViewDebugRdHost(),
               let first = host.transport(for: record) else { return nil }

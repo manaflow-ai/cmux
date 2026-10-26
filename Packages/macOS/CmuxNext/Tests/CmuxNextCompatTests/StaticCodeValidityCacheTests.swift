@@ -108,6 +108,39 @@ import Testing
         #expect(counter.calls == 3)
     }
 
+    /// A strict check with `kSecCSCheckNestedCode` validates nested code too (a framework's `Libraries/*.dylib`, a
+    /// helper app's `Contents/Frameworks/**`); an in-place write of one, or an added file, checks the bundle again.
+    @Test func aBundleIsCheckedAgainWhenNestedCodeChanges() throws {
+        let root = try folder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let framework = root.appending(path: "Chromium Embedded Framework.framework", directoryHint: .isDirectory)
+        let seal = framework.appending(path: "Versions/A/_CodeSignature/CodeResources")
+        let library = framework.appending(path: "Versions/A/Libraries/libEGL.dylib")
+        try FileManager.default.createDirectory(at: seal.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: library.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: framework.appending(path: "Versions/Current").path, withDestinationPath: "A")
+        try Data("seal".utf8).write(to: seal)
+        try Data("dylib".utf8).write(to: library)
+        let nested = SecCSFlags(rawValue: kSecCSCheckNestedCode | kSecCSStrictValidate)
+        let counter = CountingCheck(valid: true)
+        let cache = StaticCodeValidityCache(check: counter.check)
+
+        _ = cache.isValid(framework, flags: nested, requirement: nil)
+        _ = cache.isValid(framework, flags: nested, requirement: nil)
+        #expect(counter.calls == 1)
+
+        // An in-place write of the same size: neither the seal nor the folder changes, only the dylib's status.
+        let handle = try FileHandle(forWritingTo: library)
+        try handle.write(contentsOf: Data("DYLIB".utf8))
+        try handle.close()
+        _ = cache.isValid(framework, flags: nested, requirement: nil)
+        #expect(counter.calls == 2)
+
+        try Data("extra".utf8).write(to: library.deletingLastPathComponent().appending(path: "libextra.dylib"))
+        _ = cache.isValid(framework, flags: nested, requirement: nil)
+        #expect(counter.calls == 3)
+    }
+
     @Test func missingCodeIsNotValidAndNotChecked() throws {
         let root = try folder()
         defer { try? FileManager.default.removeItem(at: root) }

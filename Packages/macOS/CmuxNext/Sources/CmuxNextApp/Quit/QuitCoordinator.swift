@@ -194,7 +194,7 @@ final class QuitCoordinator {
                 // The Chief home's host ends with the sessions (home-state-ownership.md section 3),
                 // and Home does not start it again.
                 await services.home.brain.stop()
-                let acpmux = QuitAgents.environment(services)
+                let acpmux = await QuitAgents.resolvedEnvironment(services)
                 // A Chief home whose acpmux is the attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) ends nothing there.
                 if !QuitAgents.isAttached(acpmux, to: services.home.chief.home.acpmuxHome) {
                     await ChiefHostStop.endChiefSessions(home: services.home.chief.home,

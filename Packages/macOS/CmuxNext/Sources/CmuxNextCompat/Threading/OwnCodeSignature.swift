@@ -4,10 +4,10 @@ import Security
 /// This process's own code signature: its Developer ID team and its signing identifier.
 ///
 /// A running process's signature does not change, so it is read once per process, through the checked
-/// Security seams (three calls that wait for the kernel and the code signing daemon). The app reads it on
-/// its system lane at launch, before the first main-thread reader (the daemon prestart, CloudService, the
-/// acpmux and Computer Use admission rules), which then finds it read: the main thread never makes the
-/// calls (Chrome's UI-thread rule, base/threading/thread_restrictions.h).
+/// Security seams (three calls that wait for the kernel and the code signing daemon). The app's launch reads
+/// it on its system lane (the daemon prestart, which takes the Team ID by parameter, and the acpmux resolve);
+/// the readers that run on the main thread after launch find it read. The calls never belong on the main
+/// thread (Chrome's UI-thread rule, base/threading/thread_restrictions.h).
 public struct OwnCodeSignature: Sendable, Equatable {
     /// The team of the signing certificate; nil for an ad-hoc or unsigned build.
     public let teamIdentifier: String?
@@ -20,7 +20,8 @@ public struct OwnCodeSignature: Sendable, Equatable {
         self.identifier = identifier
     }
 
-    /// This process's signature, read once. The first read blocks: the app makes it on its system lane at launch.
+    /// This process's signature, read once. The first read blocks (and a reader waits while it runs): the app
+    /// makes it on its system lane at launch.
     public static var current: OwnCodeSignature { process }
 
     private static let process = OwnCodeSignature.read()

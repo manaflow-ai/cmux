@@ -22,13 +22,16 @@ public nonisolated final class LaunchRead<Value: Sendable>: Sendable {
     private struct State {
         var value: Value?
         var waiters: [CheckedContinuation<Value, Never>] = []
+        /// ``whenLanded(on:class:owner:file:line:_:)`` steps that wait for the result.
+        var landings: [@Sendable (Value) -> Void] = []
     }
 
-    /// Starts `body` on `work`'s files lane.
+    /// Starts `body` on `work`'s `lane` (the files lane unless it says otherwise).
     ///
     /// - Parameters:
     ///   - work: The app's blocking-work lanes.
     ///   - priority: How much a person waits for it; default ``WorkPriority/userBlocking`` (a pane's first frame).
+    ///   - lane: The kind of blocking work `body` does; ``BlockingLane/system`` for a Security or other daemon call.
     ///   - shutdown: What quit does with it before it has started; ``ShutdownBehavior/blockShutdown`` when a
     ///     ``finished()`` must end (quit itself awaits it), else dropped and ``value`` stays nil.
     ///   - dropped: The result when quit drops the read before it started or refuses it (posted after
@@ -36,10 +39,10 @@ public nonisolated final class LaunchRead<Value: Sendable>: Sendable {
     ///   - fileID: The caller's `#fileID`, which names a slow block-shutdown read (leave the default).
     ///   - line: The caller's `#line`.
     ///   - body: The blocking read. It runs on a lane thread.
-    public init(on work: BackgroundWork, priority: WorkPriority = .userBlocking, shutdown: ShutdownBehavior = .skipOnShutdown,
-                dropped: Value? = nil, fileID: StaticString = #fileID, line: UInt = #line,
+    public init(on work: BackgroundWork, priority: WorkPriority = .userBlocking, mayBlock lane: BlockingLane = .files,
+                shutdown: ShutdownBehavior = .skipOnShutdown, dropped: Value? = nil, fileID: StaticString = #fileID, line: UInt = #line,
                 _ body: @escaping @Sendable () -> Value) {
-        work.post(priority, mayBlock: .files, shutdown: shutdown, fileID: fileID, line: line,
+        work.post(priority, mayBlock: lane, shutdown: shutdown, fileID: fileID, line: line,
                   abandoned: { [self] in if let dropped { end(with: dropped) } }) { [self] in end(with: body()) }
     }
 
@@ -62,14 +65,36 @@ public nonisolated final class LaunchRead<Value: Sendable>: Sendable {
                       abandoned: { [self] in if let dropped { end(with: dropped) } }) { [self] in end(with: body()) }
     }
 
-    /// Stores the result and resumes every ``finished()`` waiting for it.
+    /// Stores the result, resumes every ``finished()`` waiting for it and posts every waiting landing step.
     private func end(with value: Value) {
-        let waiters = state.withLock { state in
+        let (waiters, landings) = state.withLock { state in
             state.value = value
-            defer { state.waiters = [] }
-            return state.waiters
+            defer { (state.waiters, state.landings) = ([], []) }
+            return (state.waiters, state.landings)
         }
         for waiter in waiters { waiter.resume(returning: value) }
+        for landing in landings { landing(value) }
+    }
+
+    /// The result now when the read has ended; else nil, and `landed` is posted to `mainWork` in `workClass` as
+    /// `owner` with the result when it ends. A launch step that needs the result runs it at once with the value
+    /// returned, or follows it this way, and never waits for it (Chrome's `PostTaskAndReplyWithResult`,
+    /// base/task/task_runner.h).
+    ///
+    /// ```swift
+    /// if let start = read.valueNow(orPostTo: mainWork, class: .visible, owner: "daemon.start", startDaemon) { startDaemon(start) }
+    /// ```
+    public func valueNow(orPostTo mainWork: MainWorkScheduler, class workClass: BudgetedWorkClass, owner: String,
+                         file: StaticString = #fileID, line: UInt = #line,
+                         _ landed: @escaping @MainActor @Sendable (Value) -> Void) -> Value? {
+        state.withLock { state -> Value? in
+            if state.value == nil {
+                state.landings.append { value in
+                    mainWork.postFromAnyThread(workClass, owner: owner, file: file, line: line) { landed(value) }
+                }
+            }
+            return state.value
+        }
     }
 
     /// The result once the read has ended; nil while it runs (or when quit dropped it and there is no `dropped`).

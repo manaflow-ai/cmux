@@ -162,8 +162,8 @@ public final class DaemonService {
     /// to every terminal it creates for this app.
     /// `prestart` is the first connect attempt `main` began
     /// (`DaemonService.prestart`); without one the first attempt starts here, its launcher's disk steps on
-    /// `work` (the app's one ``BackgroundWork``).
-    public func start(work: BackgroundWork, launch: LaunchIdentity, terminalEnvironment: [String: String],
+    /// `work` (the app's one ``BackgroundWork``). `team`: this process's Team ID, as the prestart got it.
+    public func start(work: BackgroundWork, launch: LaunchIdentity, team: String?, terminalEnvironment: [String: String],
                resolvedTerminalEnvironment: (@Sendable () async -> [String: String])? = nil,
                terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                resolvesShellIntegration: Bool = false,
@@ -175,7 +175,7 @@ public final class DaemonService {
             retryWake = prestart.wake
         } else {
             do {
-                launcher = try DaemonLauncher.forApp(work: work, build: launch.build,
+                launcher = try DaemonLauncher.forApp(work: work, build: launch.build, team: team,
                                                 terminalEnvironment: terminalEnvironment,
                                                 resolvedTerminalEnvironment: resolvedTerminalEnvironment,
                                                 daemonEnvironment: Self.firstPartyAppsEnvironment, webSocketPageOrigins: Self.pageOrigins,

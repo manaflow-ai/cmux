@@ -35,7 +35,8 @@ final class AccountsService: AccountsServices {
 
     static let fixtureHomeKey = "CMUX_NEXT_ACCOUNTS_HOME"
 
-    init(services: AppServices) {
+    /// `keys`: where pasted keys are kept (tests pass a fake); nil is the Keychain item of this build.
+    init(services: AppServices, keys: (any ProviderKeyStoring)? = nil) {
         self.services = services
         let environment = ProcessInfo.processInfo.environment
         #if DEBUG
@@ -46,7 +47,7 @@ final class AccountsService: AccountsServices {
         fixtureHome = environment[Self.fixtureHomeKey].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
         let bundleID = services.environment.launch.bundleID
         let storeID = fixtureHome == nil ? bundleID : "\(bundleID ?? "cmux").fixture"
-        keys = KeychainProviderKeyStore(service: KeychainProviderKeyStore.service(bundleID: storeID))
+        self.keys = keys ?? KeychainProviderKeyStore(service: KeychainProviderKeyStore.service(bundleID: storeID))
         labels = AccountLabelerStore(provider: KeychainAccountLabelSalt(service: KeychainAccountLabelSalt.service(bundleID: storeID)))
         activation = MainActorObservation(NSApplication.didBecomeActiveNotification) { [weak self] in
             self?.model.appDidBecomeActive()

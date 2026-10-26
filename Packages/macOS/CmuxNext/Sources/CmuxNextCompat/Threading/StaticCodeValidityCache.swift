@@ -65,30 +65,22 @@ public final class StaticCodeValidityCache: Sendable {
     }
 }
 
-/// The version of code on disk a kept check result belongs to: the device, inode, size, modification and
-/// status-change times of the item and, for a bundle, of its seal (`_CodeSignature/CodeResources`) and of
-/// each file in its executable folder. A re-sign rewrites the seal; a replace by rename makes a new inode;
-/// an in-place write moves the status-change time, which no process can set back.
+/// The version of code on disk a kept check result belongs to: the device, inode, mode, size, modification and
+/// status-change times of the item and, for a bundle, of every entry under it. A strict check of a bundle hashes
+/// every file its seal lists and every nested code item (`kSecCSCheckNestedCode`), so every file is part of the
+/// version: a re-sign rewrites the seal; a replace by rename makes a new inode; an in-place write moves that
+/// file's status-change time, which no process can set back; an added or removed file changes the entry list.
+/// Entries are read with `lstat`, so a symbolic link is stamped as a link and never followed out of the bundle.
 struct CodeVersion: Equatable {
-    private var stamps: [FileStamp]
+    private var stamps: [String: FileStamp]
 
     init?(_ url: URL, fileID: StaticString, line: UInt) {
         guard let item = FileStamp(url.path, fileID: fileID, line: line) else { return nil }
-        stamps = [item]
+        stamps = ["": item]
         guard item.isDirectory else { return }
-        // An app (`Contents`), a framework (`Versions/Current`) or a shallow bundle (its own folder).
-        let layouts = [("Contents/_CodeSignature", "Contents/MacOS"), ("Versions/Current/_CodeSignature", "Versions/Current"),
-                       ("_CodeSignature", "")]
-        for (sealFolder, executables) in layouts {
-            guard let seal = FileStamp(url.appending(path: "\(sealFolder)/CodeResources").path, fileID: fileID, line: line) else { continue }
-            stamps.append(seal)
-            let folder = executables.isEmpty ? url : url.appending(path: executables)
-            let names = (try? FileManager.checked.contentsOfDirectory(atPath: folder.path, fileID: fileID, line: line)) ?? []
-            for name in names.sorted() {
-                guard let file = FileStamp(folder.appending(path: name).path, fileID: fileID, line: line), !file.isDirectory else { continue }
-                stamps.append(file)
-            }
-            return
+        let entries = (try? FileManager.checked.subpathsOfDirectory(atPath: url.path, fileID: fileID, line: line)) ?? []
+        for entry in entries {
+            stamps[entry] = FileStamp(url.appending(path: entry).path, link: true, fileID: fileID, line: line)
         }
     }
 }
@@ -106,9 +98,11 @@ private struct FileStamp: Equatable {
 
     var isDirectory: Bool { (mode & UInt16(S_IFMT)) == UInt16(S_IFDIR) }
 
-    init?(_ path: String, fileID: StaticString, line: UInt) {
+    /// `link`: stamp a symbolic link itself (`lstat`), not what it points to.
+    init?(_ path: String, link: Bool = false, fileID: StaticString, line: UInt) {
         var info = stat()
-        guard blockingStat(path, &info, fileID: fileID, line: line) == 0 else { return nil }
+        let status = link ? blockingLstat(path, &info, fileID: fileID, line: line) : blockingStat(path, &info, fileID: fileID, line: line)
+        guard status == 0 else { return nil }
         device = info.st_dev
         inode = info.st_ino
         mode = info.st_mode

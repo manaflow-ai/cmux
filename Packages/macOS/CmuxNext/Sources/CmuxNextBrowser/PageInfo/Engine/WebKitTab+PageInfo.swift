@@ -134,28 +134,40 @@ extension WebKitTab: PageInfoProviding {
         let excepted = engine?.hasCertificateException(challenge.protectionSpace.host, profile: profileID) ?? false
         guard let lanes = engine?.stores.lanes else { return completionHandler(.performDefaultHandling, nil) }
         if !excepted { completionHandler(.performDefaultHandling, nil) }
-        // An excepted host's load waits for this answer; otherwise only Page Info reads it.
-        let priority: MayBlockPriority = excepted ? .userBlocking : .userVisible
-        // task-owner: one trust evaluation, then the answer and the Page Info record; ends with them
-        Task { [weak self] in
-            // nil: the trust evaluates.
-            let evaluated: (chain: [Data], reason: String?)?
-            do {
-                evaluated = try await lanes.runSystem(priority) { box.evaluate() }
-            } catch {
-                if excepted { completionHandler(.performDefaultHandling, nil) }
-                return
-            }
-            if excepted {
-                let trusted = evaluated == nil
-                completionHandler(trusted ? .performDefaultHandling : .useCredential, trusted ? nil : URLCredential(trust: box.trust))
-            }
+        Self.evaluateServerTrust(box, excepted: excepted, on: lanes, answer: completionHandler) { [weak self] evaluated in
             guard let activity = self?.pageInfoActivity else { return }
             if let failure = evaluated {
                 activity.recordCertificateFailure(chain: failure.chain, reason: failure.reason)
             } else {
                 activity.clearCertificateFailure()
             }
+        }
+    }
+
+    /// Evaluates `box` on `lanes`' system lane, then on the main actor answers an excepted host's challenge with
+    /// `answer` (its load waits for it: WebKit's default when the trust evaluates, the trust itself when it does
+    /// not) and gives the result to `record` (nil: the trust evaluates). A host without an exception was answered
+    /// before this; a cancelled evaluation answers an excepted host with WebKit's default and records nothing.
+    static func evaluateServerTrust(_ box: ServerTrustBox, excepted: Bool, on lanes: any MayBlockRunner,
+                                    answer: @escaping @MainActor (URLSession.AuthChallengeDisposition, URLCredential?) -> Void,
+                                    record: @escaping @MainActor ((chain: [Data], reason: String?)?) -> Void) {
+        // An excepted host's load waits for this answer; otherwise only Page Info reads it.
+        let priority: MayBlockPriority = excepted ? .userBlocking : .userVisible
+        // task-owner: one trust evaluation, then the answer and the Page Info record; ends with them
+        Task {
+            // nil: the trust evaluates.
+            let evaluated: (chain: [Data], reason: String?)?
+            do {
+                evaluated = try await lanes.runSystem(priority) { box.evaluate() }
+            } catch {
+                if excepted { answer(.performDefaultHandling, nil) }
+                return
+            }
+            if excepted {
+                let trusted = evaluated == nil
+                answer(trusted ? .performDefaultHandling : .useCredential, trusted ? nil : URLCredential(trust: box.trust))
+            }
+            record(evaluated)
         }
     }
 }

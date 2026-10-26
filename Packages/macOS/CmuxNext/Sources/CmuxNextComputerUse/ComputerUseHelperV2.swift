@@ -77,14 +77,27 @@ public final class ComputerUseHelperV2 {
         return info[kSecCodeInfoIdentifier as String] as? String
     }
 
-    /// The admission of `acpmux`'s bridges, read on `lanes`' system lane (it reads the binary's
-    /// signature); none when there is no acpmux or no lanes.
-    nonisolated static func acpmuxAdmission(of acpmux: @escaping @Sendable () -> (executable: URL, socketPath: String)?,
-                                            on lanes: (any MayBlockRunner)?) async -> (hashes: [String], requirement: String?) {
-        let none: (hashes: [String], requirement: String?) = ([], nil)
-        guard let lanes else { return none }
+    /// This app's acpmux resolved once for one helper start, with the admission of its bridges.
+    nonisolated struct ResolvedAcpmux: Sendable {
+        let executable: URL
+        let socketPath: String
+        let hashes: [String]
+        let requirement: String?
+    }
+
+    /// Resolves `acpmux` and reads its admission on `lanes`' system lane (both read the binary's
+    /// signature); nil when there is no acpmux or no lanes.
+    nonisolated static func resolveAcpmux(_ acpmux: @escaping @Sendable () -> (executable: URL, socketPath: String)?,
+                                          on lanes: (any MayBlockRunner)?) async -> ResolvedAcpmux? {
+        guard let lanes else { return nil }
         // The helper starts for a person who turned Computer Use on, and waits for this.
-        return (try? await lanes.runSystem(.userBlocking) { acpmux().map { Self.acpmuxAdmission(executable: $0.executable) } ?? none }) ?? none
+        return try? await lanes.runSystem(.userBlocking) {
+            acpmux().map { found in
+                let admission = Self.acpmuxAdmission(executable: found.executable)
+                return ResolvedAcpmux(executable: found.executable, socketPath: found.socketPath,
+                                      hashes: admission.hashes, requirement: admission.requirement)
+            }
+        }
     }
 
     /// Release helpers check every bridge's live audit token against its exact
@@ -193,10 +206,10 @@ public final class ComputerUseHelperV2 {
             return
         }
         let secret = Self.makeSecret()
-        let admission = await Self.acpmuxAdmission(of: acpmux, on: lanes)
+        let resolved = await Self.resolveAcpmux(acpmux, on: lanes)
         await spawned.send(Self.line(["type": "configure", "socket": socketPath, "secret": Self.hex(secret),
-                                "acpmux_cdhashes": admission.hashes,
-                                "acpmux_requirement": admission.requirement.map { $0 as Any } ?? NSNull()]))
+                                "acpmux_cdhashes": resolved?.hashes ?? [],
+                                "acpmux_requirement": resolved?.requirement.map { $0 as Any } ?? NSNull()]))
         let readySocket = await Self.readySocket(of: spawned, within: readyTimeout, clock: clock)
         guard current == generation else {
             spawned.closeInput()
@@ -222,14 +235,21 @@ public final class ComputerUseHelperV2 {
         }
         helperV2Logger.notice("cmux Computer Use helper v2 started pid=\(spawned.pid, privacy: .public)")
         // An acpmux daemon that already runs (it outlives the app) is registered now.
-        if let acpmux { await registerAcpmuxDaemon(acpmuxSocket: acpmux.socketPath) }
+        if let resolved { await registerAcpmuxDaemon(acpmuxSocket: resolved.socketPath, executable: resolved.executable) }
     }
 
     /// Registers the acpmux daemon listening on `acpmuxSocket`, after checking
-    /// it runs this app's acpmux executable. Its descendants (agent MCP
-    /// bridges) may then use the helper.
+    /// it runs this app's acpmux executable (resolved on the system lane). Its
+    /// descendants (agent MCP bridges) may then use the helper.
     public func registerAcpmuxDaemon(acpmuxSocket: String) async {
-        guard let child, let executable = acpmux()?.executable,
+        guard child != nil, let lanes else { return }
+        let acpmux = self.acpmux
+        guard let executable = try? await lanes.runSystem(.userBlocking, { acpmux()?.executable }) else { return }
+        await registerAcpmuxDaemon(acpmuxSocket: acpmuxSocket, executable: executable)
+    }
+
+    private func registerAcpmuxDaemon(acpmuxSocket: String, executable: URL) async {
+        guard let child,
               let stamp = await Self.daemonStamp(socketPath: acpmuxSocket, executable: executable) else { return }
         await child.send(Self.line(["type": "register_acpmux", "pid": Int(stamp.pid),
                               "start_sec": Int(stamp.startSeconds), "start_usec": Int(stamp.startMicroseconds)]))

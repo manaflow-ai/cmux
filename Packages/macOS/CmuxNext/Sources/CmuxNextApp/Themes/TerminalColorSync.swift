@@ -1,5 +1,6 @@
 import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextDesign
 import CmuxNextTerminal
 import CmuxNextWakeups
 import Foundation
@@ -56,15 +57,24 @@ final class TerminalColorSync {
 }
 
 extension AppServices {
-    /// Starts the local daemon (AppDelegate, once per launch). `terminalColors` is built here, its first reader,
-    /// so every daemon holds the colors terminals are painted with before it connects: its first answers to
-    /// OSC 10/11/12 queries match the screen, and each connect sends them again.
-    func startLocalDaemon(prestart: DaemonPrestart?) {
+    /// Starts the local daemon (AppDelegate, once per launch) once `main`'s system-lane step has read this app's
+    /// Team ID and begun the first attempt (`DaemonLaunchStart`): at once when it has landed, else when it lands.
+    /// `terminalColors` is built here, its first reader, so every daemon holds the colors terminals are painted
+    /// with before it connects: its first answers to OSC 10/11/12 queries match the screen, and each connect sends
+    /// them again.
+    func startLocalDaemon(after launch: LaunchRead<DaemonLaunchStart>) {
         terminalColors.apply()
-        daemon.start(work: work, launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
+        let now = launch.valueNow(orPostTo: mainWork, class: .visible, owner: "daemon.startLocal") { [weak self] landed in
+            self?.startLocalDaemon(landed)
+        }
+        if let now { startLocalDaemon(now) }
+    }
+
+    private func startLocalDaemon(_ landed: DaemonLaunchStart) {
+        daemon.start(work: work, launch: environment.launch, team: landed.team, terminalEnvironment: environment.terminalEnvironment,
                      resolvedTerminalEnvironment: environment.resolvedTerminalEnvironment(),
                      terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
-                     resolvesShellIntegration: environment.resolvesShellIntegration, prestart: prestart)
+                     resolvesShellIntegration: environment.resolvesShellIntegration, prestart: landed.prestart)
     }
 }
 

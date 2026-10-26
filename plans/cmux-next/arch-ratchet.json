@@ -674,7 +674,7 @@
       "date": "2026-10-26",
       "row": "stateful_singletons",
       "allow": 1,
-      "why": "p02-threads-054..055: CmuxNextCompat StaticCodeValidityCache.process, SecStaticCodeCheckValidity answers kept per version of the code on disk (dev, inode, size, mtime, ctime). It serves five checks that were raw on main or the pool: the bundled acpmux team check, which about ten AcpmuxEnvironment.resolve sites in four packages reach (some on main), the CUA helper, the CEF load check, the rollback team read and the Chromium runtime installer (which takes it injected). The app warms the acpmux answer on its system lane at launch, so the resolves on main find it. It goes when AcpmuxEnvironment.resolve takes the check from the composition root."
+      "why": "p02-threads-054..055: CmuxNextCompat StaticCodeValidityCache.process, SecStaticCodeCheckValidity answers kept per version of the code on disk (dev, inode, mode, size, mtime, ctime of the item and of every entry of a bundle, which kSecCSCheckNestedCode validates). It serves five checks that were raw on main or the pool: the bundled acpmux team check, which about ten AcpmuxEnvironment.resolve sites in four packages reach, the CUA helper, the CEF load check, the rollback team read and the Chromium runtime installer (which takes it injected). The app resolves its acpmux once on its system lane from main (AppEnvironment.appAcpmux) and its main-thread users take that answer. It goes when AcpmuxEnvironment.resolve takes the check from the composition root."
     }
   ],
   "observer_wrappers": [

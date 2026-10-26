@@ -211,10 +211,9 @@ nonisolated enum AcpmuxServerPeer {
 
     /// A strict on-disk check before a Team-signed app launches its acpmux.
     /// DEV is ad-hoc and has no team to require. The answer is kept per
-    /// version of the file (``StaticCodeValidityCache``); the app checks its
-    /// bundled acpmux on its system lane at launch
-    /// (``AcpmuxEnvironment/warmSignatureChecks(bundledBinDirectory:)``), so a
-    /// later resolve finds it. Blocks on a miss.
+    /// version of the file (``StaticCodeValidityCache``). Blocks (stat calls,
+    /// and the check on a miss): the app resolves its acpmux on its system
+    /// lane (`AppEnvironment.appAcpmux`), never on the main thread.
     static func executableSignedByAppTeam(_ executable: URL, team: String? = ownTeam) -> Bool {
         guard let team else { return true }
         guard let requirement = requirement(team: team) else { return false }
@@ -395,15 +394,5 @@ nonisolated enum AcpmuxServerPeer {
         let count = Darwin.recv(descriptor, &chunk, chunk.count, 0)
         guard count > 0 else { throw Refusal.closed }
         return Data(chunk[0..<count])
-    }
-}
-
-extension AcpmuxEnvironment {
-    /// Reads this app's signature and checks its bundled acpmux (`<bundledBinDirectory>/acpmux`), so the
-    /// resolves after launch, some on the main thread, find both answers kept
-    /// (``AcpmuxServerPeer/executableSignedByAppTeam(_:team:)``). Blocks: the app runs it on its system lane.
-    public nonisolated static func warmSignatureChecks(bundledBinDirectory: URL?) {
-        guard AcpmuxServerPeer.ownTeam != nil, let bundledBinDirectory else { return }
-        _ = AcpmuxServerPeer.executableSignedByAppTeam(bundledBinDirectory.appendingPathComponent("acpmux"))
     }
 }

@@ -17,6 +17,8 @@ public struct FrontendInstallKeyStores {
 
     /// The store for this app process, or nil. `team` is this process's Team
     /// ID: a signed build gets no store, whatever sits in its state directory.
+    /// The app's launch passes the team it read on its system lane
+    /// (`DaemonLauncher.forApp`).
     public static func forApp(stateDirectory: URL?,
                               team: String? = CodeSigningTeam.current()) -> (any FrontendInstallKeyStore)? {
         guard team == nil, let stateDirectory else { return nil }
@@ -29,7 +31,8 @@ public struct CodeSigningTeam {
     public init() {}
 
     /// Read once per process (``OwnCodeSignature``): the signature of a running process does not
-    /// change. The app starts the read on its system lane first thing at launch; the callers on the
-    /// main thread (the daemon prestart, CloudService, the Chief's launcher) then never make the calls.
+    /// change. The app's first reads are on its system lane at launch (the daemon prestart and the
+    /// acpmux resolve, both posted from `main`); the daemon prestart takes the team from there by
+    /// parameter. Blocks while that first read runs: call it off the main thread, or after launch.
     public static func current() -> String? { OwnCodeSignature.current.teamIdentifier }
 }

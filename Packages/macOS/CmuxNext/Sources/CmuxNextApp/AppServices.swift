@@ -31,6 +31,7 @@ import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextPopups
 import CmuxNextRemoteLocalhostService
+import CmuxNextRemoteViewSessions
 import CmuxNextBrowserImport
 import CmuxNextPhone
 import CmuxNextPhoneAccess
@@ -177,6 +178,8 @@ final class AppServices {
     let chromiumRuntime: ChromiumRuntimeService
     /// The browser stores both engines and the App share: the one answer to "is this profile off the record".
     let browserStores = BrowserSharedStores.application()
+    /// The saved VNC sign-ins in memory, listed at launch: a VNC tab's connect reads them before the Keychain.
+    let vncSignIns = RemoteVNCSignIns()
     /// Chromium sign-in tabs: the engine's runtime and the sign-in windows share it.
     let signInCallbacks = CEFSignInCallbacks()
     /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
@@ -230,14 +233,17 @@ final class AppServices {
     private(set) lazy var history = HistoryService(services: self)
     /// `cmux://history`: opens the page and serves its data.
     private(set) lazy var historyPage = HistoryPageService(services: self)
-    /// The local model relay's bearer lease (Router/ModelRouterLease.swift); nil without acpmux.
-    private(set) lazy var modelRouter: ModelRouterLease? = {
-        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        guard let acpmux = AcpmuxEnvironment.resolve(build: environment.build, bundledBinDirectory: bin,
-                                                     environment: ProcessInfo.processInfo.environment) else { return nil }
-        return ModelRouterLease(tokens: cloudAuth, apiBaseURL: FeedService.apiBaseURL(auth: cloudAuth), acpmuxHome: acpmux.home,
-                                logger: Logger(subsystem: "com.cmuxterm.app.next", category: "model-router"))
-    }()
+    /// The local model relay's bearer lease (Router/ModelRouterLease.swift), built at the first read once
+    /// `main`'s acpmux resolve has landed (``AppEnvironment/appAcpmux``); nil without acpmux or before then.
+    var modelRouter: ModelRouterLease? {
+        if let modelRouterIfBuilt { return modelRouterIfBuilt }
+        guard let acpmux = environment.appAcpmux?.value ?? nil else { return nil }
+        let lease = ModelRouterLease(tokens: cloudAuth, apiBaseURL: FeedService.apiBaseURL(auth: cloudAuth), acpmuxHome: acpmux.home,
+                                     logger: Logger(subsystem: "com.cmuxterm.app.next", category: "model-router"))
+        modelRouterIfBuilt = lease
+        return lease
+    }
+    private var modelRouterIfBuilt: ModelRouterLease?
     /// Where agent cursors draw (plans/cmux-next/agent-cursor.md section 3).
     private(set) lazy var agentCursorVisibility = AgentCursorWiring.makeVisibility(services: self)
     /// What agent cursor tags say and where a click on one goes.
@@ -631,6 +637,9 @@ final class AppServices {
         // After the run marker's handlers: Sentry calls them after its report.
         crashReporting = AppCrashReporting(environment: environment)
         DebugTimings.markLaunch("services.crash_reporting")
+        // The engines' Keychain calls run on the system lane; the remembered HTTP sign-ins are listed there now.
+        browserStores.loadRememberedSignIns(on: work)
+        vncSignIns.loadRememberedVNCSignIns(on: work)
         machines = MachineRegistry(local: daemon)
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
         BrowserLifecycleTrace.shared.configure { tab, event in

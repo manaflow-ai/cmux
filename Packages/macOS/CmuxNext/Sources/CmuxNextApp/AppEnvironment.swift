@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
@@ -58,6 +59,11 @@ struct AppEnvironment: Sendable {
     /// This Mac's layout templates (`LayoutTemplateRepository`): only the real app process sets
     /// it; without it templates live in memory only (tests that build `AppServices`).
     var layoutTemplatesFile: URL?
+    /// The acpmux this app starts (``AcpmuxEnvironment/resolve(build:bundledBinDirectory:environment:userHome:uid:isExecutable:launchEnvironment:)``),
+    /// resolved once on the system lane from `main`: its trust check reads this app's signature and hashes the
+    /// binary, so the main thread never makes it. The value is nil while it runs (``QuitAgents/environment(_:)``).
+    /// Only the real app process starts it; tests that build `AppServices` have none (no acpmux).
+    var appAcpmux: LaunchRead<AcpmuxEnvironment?>?
     /// The folder of the Home caches (drafts, scroll anchors, sends, attachment blobs, the Home
     /// list's launch state): only the real app process sets it (the user's Caches folder); without
     /// it each `HomeService` uses a temporary folder of its own (tests that build `AppServices`), so

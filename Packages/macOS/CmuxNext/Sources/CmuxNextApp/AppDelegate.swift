@@ -23,7 +23,8 @@ import os
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let environment: AppEnvironment
     /// The daemon's first connect attempt, begun in `main`.
-    private let daemonPrestart: DaemonPrestart?
+    /// The local daemon's Team ID and first connect attempt, made on the system lane in `main`.
+    private let daemonStart: LaunchRead<DaemonLaunchStart>
     /// The launch load-in, region by region; its last region revealing ends the startup phase's
     /// `launching` (made here, the composition root, and passed by init).
     private let launchReveal: LaunchReveal
@@ -79,11 +80,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var webAuthHandler: WebAuthSessionHandler?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
-    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, wireStats: DaemonWireStats?,
+    init(environment: AppEnvironment, daemonStart: LaunchRead<DaemonLaunchStart>, wireStats: DaemonWireStats?,
          startupTrace: StartupTrace? = nil, order: LaunchOrder, inputTap: InputEventTap, settingsRead: SettingsController.PendingLaunchRead,
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
         (self.environment, self.launchReads, self.settingsRead) = (environment, launchReads, settingsRead)
-        (self.daemonPrestart, self.startupTrace) = (daemonPrestart, startupTrace)
+        (self.daemonStart, self.startupTrace) = (daemonStart, startupTrace)
         self.wireStats = wireStats
         self.launchCleanup = launchCleanup
         self.order = order
@@ -205,7 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WindowActivation.activateApp()
         launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup)
         daemonPrompts = DaemonPrompts.start(services)
-        services.startLocalDaemon(prestart: daemonPrestart)  // the painted terminal colors first (OSC 10/11/12)
+        services.startLocalDaemon(after: daemonStart)  // the painted terminal colors first (OSC 10/11/12)
         FeaturePolicyEnforcer(services: services).start()
         services.postCloudStart(on: order.startup)  // no Cloud restore or connect before the first frame (p08-startup 020)
         services.postNonPaintServices(on: order.startup)
@@ -333,14 +334,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         settings.start(announcingDiagnostics: true)
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [startup = order.startup] in await startup.afterFirstFrame() })
-        // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings.
-        let acpmux = QuitAgents.environment(services)
-        ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath)
         // The platform services: what the first frame or the restore reads now, the rest posted (p08-startup-029).
         services.startPlatformServices(settings: settings, on: order.startup, hotKeys: !environment.isolatedLaunch)
         services.followEnergySaver(settings)
-        // A page's chat clicks and All chats pages work from its first frame; the feeds come after it (p08-startup-027).
-        AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
+        // Once main's acpmux resolve lands (now, unless its signature check still runs on the system lane): an
+        // attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings; a page's chat clicks and All
+        // chats pages work from then; the feeds come after the first frame (p08-startup-027).
+        QuitAgents.whenResolved(services, owner: "launch.acpmuxChats") { [weak services] acpmux in
+            ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath)
+            guard let services else { return }
+            AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
+        }
         services.home.postLaunchFeeds(startup: order.startup)
         // The GitHub connection is deliberately off by default. Changes in
         // Settings apply to the one feed owner and never create a second
