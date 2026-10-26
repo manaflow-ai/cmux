@@ -64,8 +64,23 @@ def run_case(kind):
                    f'git worktree add --detach "{before}" "$RED_SHA"\n'
                    f'prepare_before_regression "{before}"\n'
                    f'assert_measurement_checkout "{before}" "$RED_SHA"\n')
+        if kind.startswith("tamper-"):
+            target = {"tamper-product": PRODUCT, "tamper-unrelated": "unrelated",
+                      "tamper-index": "unrelated", "tamper-regression": REGRESSION}[kind]
+            command += f'printf "tampered\\n" >> "{before / target}"\n'
+            if kind == "tamper-index":
+                command += f'git -C "{before}" add "{target}"\n'
+            command += f'assert_measurement_checkout "{before}" "$RED_SHA"\n'
         result = subprocess.run(["bash", "-c", command], cwd=repo, env=env,
                                 capture_output=True, text=True)
+        if kind.startswith("tamper-"):
+            reason = {"tamper-product": "changed product or unrelated tracked files",
+                      "tamper-unrelated": "changed product or unrelated tracked files",
+                      "tamper-index": "index changed",
+                      "tamper-regression": "regression test blob changed"}[kind]
+            assert result.returncode != 0 and reason in result.stderr, result.stderr
+            print(f"PASS {kind}: tracked source guard rejected the mutation")
+            return
         if kind == "wrong-test":
             assert result.returncode != 0, "unexpected final regression blob was accepted"
             assert "final regression test blob changed" in result.stderr, result.stderr
@@ -85,5 +100,6 @@ def run_case(kind):
         print(f"PASS {kind}: exact old product with regression-only overlay")
 
 
-for case in ("squash", "feature", "wrong-test"):
+for case in ("squash", "feature", "wrong-test", "tamper-product", "tamper-unrelated",
+             "tamper-index", "tamper-regression"):
     run_case(case)
