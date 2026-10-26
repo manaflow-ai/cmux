@@ -345,6 +345,16 @@ TRACKING = r"override (public |open )?func updateTrackingAreas"
 CHILD_WINDOW_FALLBACK = "!**/ChildWindowPageFallback.swift"
 DISPLAY_LINK_OWNERS = ("CmuxNextWakeups/DisplayClock.swift", "CmuxNextWakeups/VSyncHub.swift")  # one link per display
 APP = f"{SOURCES}/CmuxNextApp"
+# Views the pane-chrome queue (tasks 071-073, 111) leaves on Auto Layout: none sits in a pane, so a pane
+# resized every frame of a drag lays none of them out.
+PANE_AUTOLAYOUT_KEPT = (
+    "CmuxNextTabs/Groups/Editor/TabGroupEditorControls.swift",  # the group editor bubble, laid out once per open
+    "CmuxNextTabs/Groups/Editor/TabGroupEditorPanel.swift",  # its panel
+    "CmuxNextTabs/Demo/DemoContentView.swift",  # the tab strip demo's stand-in content, never in a cmux pane
+    "CmuxNextBrowser/UI/SidePanelHeaderView.swift",  # Chromium's side panel header, beside the page, not in its chrome
+    "CmuxNextBrowser/UI/BrowserCookieImportCard.swift",  # a one-time offer card over the page
+    "CmuxNextBrowser/UI/BrowserMediaRowView.swift",  # a card in the media hub menu, laid out once per open, never in a pane
+)
 
 REDRAW_POLICY = CommCheck("MQ-redraw-policy", "queue", q(r"override (public |open )?func updateLayer", files=True),
                           q("layerContentsRedrawPolicy", files=True), "-23", note="baseline 59 files")
@@ -421,7 +431,7 @@ CHECKS = (
                                              "CmuxNextBrowser/UI", "CmuxNextBrowser/CEF")),
                  f"{APP}/PaneContentView*.swift", f"{APP}/Screens", f"{APP}/WindowRootView*.swift",
                  f"{APP}/TitlebarView.swift", f"{APP}/EmptyWorkspaceView.swift", files=True),), 0,
-              note="files"),
+              allowed=PANE_AUTOLAYOUT_KEPT, note="files; kept on Auto Layout: PANE_AUTOLAYOUT_KEPT"),
     LineCheck("MQ-ghostty-main-hops", "queue",
               (q(r"dispatch_async|queue.getMain|isMainThread", f"{GHOSTTY}/src/renderer"),), 0, ghostty=True),
     LineCheck("MQ-terminal-contents", "info", (q(r"layer\?\.contents|presentedFrame", f"{SOURCES}/CmuxNextTerminal"),),

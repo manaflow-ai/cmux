@@ -20,9 +20,12 @@ extension AppServices {
         // Memory Saver's mode rows only with its feature on (fixed for the launch).
         let memorySaverRows: Set<ActionID> = features.isEnabled(.memorySaverSetting)
             ? [] : Set(MemorySaverMode.allCases.map(\.actionID))
+        // View Metrics shows only while the metricsView feature is on (a socket run still says why it is off).
+        let featureOffIDs: Set<ActionID> = features.isEnabled(.metricsView) ? [] : ["diagnostics.viewMetrics"]
         palette.hiddenActionIDs = { [energy] in
             energy.driver.paletteHiddenActionIDs.union(memorySaverRows)
                 .union(AgentPaneTunables.pointerInspector.value ? [] : ["agentPane.togglePointerInspector"])
+                .union(featureOffIDs)
         }
         palette.onPresented = { DebugTimings.palettePresented($0) }
         // The key-down that opens the palette (a synthesized one under `debug.key`), for its input stage.

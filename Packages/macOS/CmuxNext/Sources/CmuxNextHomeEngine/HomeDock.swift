@@ -4,6 +4,9 @@ import CmuxNextDesign
 public import CmuxNextHome
 public import Foundation
 import os
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Home as a workspace with a left dock (hq-6d Home workspace, cx-ebm.59.5; Lawrence 2026-10-14:
 /// "we can use docked left column to be the home but right side should be a workspace"). The
@@ -140,9 +143,10 @@ public final class HomeDock {
         let respawn: SplitRespawn? = stays || alone ? nil : .terminal(SpawnOptions(workspace: workspace()?.key))
         moveInFlight = true
         defer { moveInFlight = false }
-        let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+        // A move that drops its callback (abandoned) did not move.
+        let moved = (try? await withOnceContinuation { (done: OnceContinuation<Bool, OnceContinuationError>) in
             dock(placed.tab, placed.pane, respawn, alone) { done.resume(returning: $0) }
-        }
+        }) ?? false
         guard moved else { return "home dock move failed (see the app log)" }
         // Held until the tree shows the dock (or this run is cancelled), so a connect meanwhile reads it.
         _ = await shown { workspace().flatMap(Self.pageTab(in:)).flatMap { Self.isDocked($0.pane, on: $0.screen) ? true : nil } }

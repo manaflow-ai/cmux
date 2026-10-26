@@ -197,6 +197,8 @@ int cmux_shim_password_prompt_answer(int prompt_id, int action, const char* user
 void cmux_shim_set_suggestion_events(int enabled) {
   const ForkApi& api = fork_api();
   if (!api.browser_set_suggestion_handler || !api.browser_suggestion_action) return;
+  // A repeated set changes nothing: replacing a handler would close the shown rows.
+  if (suggestion_events == (enabled != 0)) return;
   suggestion_events = enabled != 0;
   // Replacing or removing a browser's handler closes its shown rows through
   // the old hide, so the app hears HIDE for each.

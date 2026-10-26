@@ -268,6 +268,7 @@ public final class FrameInputCoalescer {
     /// Runs every pending delivery in arrival order; posts made by the bodies wait for the next frame.
     /// `endingIntervals`: a frame (or its fallback) ends every consumer's interval; a discrete flush
     /// ends only the intervals of the consumers it delivered.
+    // perf-hot: 10us input-coalesce
     private func flushAll(endingIntervals: Bool) {
         if !order.isEmpty {
             var due: [Slot] = []

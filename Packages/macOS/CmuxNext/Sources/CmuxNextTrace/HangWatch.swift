@@ -133,7 +133,7 @@ public final class HangWatch: Sendable {
         let previous = Self.word(slot, Self.deadlineWord).exchange(due, ordering: .sequentiallyConsistent)
         requestScan(by: due)
         return HangWatchScope(registration: registration, previousDeadline: previous, slotAddress: UInt(bitPattern: slot),
-                              owner: Unmanaged.passUnretained(self))
+                              owner: self)
     }
 
     /// Runs `body` inside a scope on `registration`'s slot.

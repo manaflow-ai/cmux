@@ -5,6 +5,9 @@ import CmuxNextDaemon
 import CmuxNextSidebar
 import CmuxNextWakeups
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The Cloud app server path of the machine list and create (cx-t2rz):
 /// `cloud.machine.list` / `cloud.machine.create` on `cmux/cloud`, which
@@ -105,10 +108,11 @@ extension CloudPresenter {
         }
         let lines = (machine.name.map { [CloudStrings.createConfirmName($0)] } ?? []) + (machine.sizeShown ? [CloudStrings.createConfirmSize(cpu: machine.cpu, memoryGB: machine.memoryMB / 1024, diskGB: machine.diskMB / 1024)] : [])
         if case .agentRequest = prompt, let asks { return window != nil ? await asks.ask(CloudStrings.createConfirmTitle, detail: intro, lines: lines, symbol: "cloud", yes: CloudStrings.createConfirmButton, no: CloudStrings.cancel, asker: machine.askedBy, present: chatOpen) : false }
-        return await withCheckedContinuation { continuation in
+        // A dialog that goes unanswered is a no.
+        return (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             confirm(CloudStrings.createConfirmTitle, ([intro] + lines).joined(separator: "\n"), button: CloudStrings.createConfirmButton,
                     identifier: createConfirmIdentifier, in: window) { continuation.resume(returning: $0) }
-        }
+        }) ?? false
     }
 }
 

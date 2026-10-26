@@ -3,6 +3,7 @@ import CmuxNextInput
 import Foundation
 import os
 import CmuxNextWakeups
+import CmuxSafeConcurrency
 
 /// Faults from shim callbacks that arrive off the CEF UI (main) thread.
 private let callbackLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
@@ -70,21 +71,6 @@ let cefDevToolsKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent i
 }
 
 extension CEFRuntime {
-    /// The runtime behind a callback context (an unretained pointer; the
-    /// runtime lives for the rest of the process once started).
-    static func from(_ address: UInt) -> CEFRuntime? {
-        // SAFETY: a nonzero address is the context `start` gave the shim: the shared runtime, unretained, which
-        // lives for the rest of the process once started. The read does not change its count.
-        unsafe UnsafeMutableRawPointer(bitPattern: address).map { unsafe Unmanaged<CEFRuntime>.fromOpaque($0).takeUnretainedValue() }
-    }
-
-    /// The pump's cross-thread gate behind a callback context, from any thread (a `nonisolated let`
-    /// of the runtime, which lives for the rest of the process once started).
-    nonisolated static func pumpGate(at address: UInt) -> CEFPumpCrossThreadGate? {
-        // SAFETY: as for `from(_:)`; only the runtime's `nonisolated let` gate is read.
-        unsafe UnsafeMutableRawPointer(bitPattern: address).map { unsafe Unmanaged<CEFRuntime>.fromOpaque($0).takeUnretainedValue().pumpGate }
-    }
-
     func dispatch(_ event: CEFShimEvent) {
         switch event {
         case .contextInitialized:
@@ -415,7 +401,8 @@ extension CEFRuntime {
         pump?.pumpNow()
         shutdownProgressed()
         if shutdownSequence?.phase != .readyToShutdown {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            // A waiter dropped unresumed (abandoned) ends the wait as the timeout does.
+            try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
                 shutdownWaiter = continuation
                 shutdownTimeout = waitDeadlines.schedule(owner: "CEFRuntime.shutdown", after: timeout) { [weak self] in
                     self?.resumeShutdownWaiter()
@@ -454,7 +441,7 @@ extension CEFRuntime {
     private func resumeShutdownWaiter() {
         let waiter = shutdownWaiter
         shutdownWaiter = nil
-        waiter?.resume()
+        waiter?.resume(returning: ())
     }
 }
 

@@ -1,5 +1,8 @@
 import CmuxNextDaemon
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// One phone's live view of one terminal: a dedicated daemon byte attach,
 /// renumbered into the shipped phone's byte sequence space.
@@ -16,7 +19,7 @@ actor MobileCompatTerminalStream {
     private var replay: TerminalReplay?
     /// Offset where live bytes continue after `replay`.
     private var replaySeq: UInt64 = 0
-    private var replayWaiters: [CheckedContinuation<TerminalReplay?, Never>] = []
+    private var replayWaiters: [OnceContinuation<TerminalReplay?, OnceContinuationError>] = []
     private(set) var nextSeq: UInt64
     private var pump: Task<Void, Never>?
     private var ended = false
@@ -46,11 +49,14 @@ actor MobileCompatTerminalStream {
     }
 
     /// The attach's initial replay and the offset live bytes continue from.
-    /// Nil when the attachment closed before its snapshot.
+    /// Nil when the attachment closed before its snapshot, or its waiter was dropped unresumed.
     func initialReplay() async -> (replay: TerminalReplay, seq: UInt64)? {
         if let replay { return (replay, replaySeq) }
         if ended { return nil }
-        guard let replay = await withCheckedContinuation({ replayWaiters.append($0) }) else { return nil }
+        let waited = try? await withOnceContinuation { (waiter: OnceContinuation<TerminalReplay?, OnceContinuationError>) in
+            replayWaiters.append(waiter)
+        }
+        guard let replay = waited else { return nil }
         return (replay, replaySeq)
     }
 

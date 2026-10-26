@@ -407,8 +407,7 @@ public final class CEFEngine: BrowserEngine {
     /// Hands the stores, sign-in tabs, wait deadlines and host supervisor (``CEFRuntimeSource/backend``) to the
     /// process's runtime before it starts or makes a tab (not in `init`: the runtime is built on
     /// Chromium's first use, not at launch).
-    private func adoptStores() {
-        let runtime = CEFRuntime.shared
+    private func adoptStores(in runtime: CEFRuntime = .shared) {
         runtime.adopt(stores: stores, signInCallbacks: signInCallbacks, waitDeadlines: waitDeadlines,
                       hostSupervisor: runtimeSource.hostSupervisor, hostWidgets: runtimeSource.showsHostWidgets, hostDrags: runtimeSource.takesHostDrags,
                       hostResizeFence: runtimeSource.fencesHostResizes, hostSuggestions: runtimeSource.drawsHostSuggestions)
@@ -422,9 +421,9 @@ public final class CEFEngine: BrowserEngine {
         try await CEFRuntime.shared.start(layout: layout, trigger: trigger)
     }
 
-    private func makeReadyTab(_ configuration: BrowserTabConfiguration) -> CEFTab {
-        adoptStores()
-        let runtime = CEFRuntime.shared
+    /// Makes `configuration`'s tab in a Chromium that runs: the process's runtime, or a test's runtime over a stand-in shim.
+    func makeReadyTab(_ configuration: BrowserTabConfiguration, in runtime: CEFRuntime = .shared) -> CEFTab {
+        adoptStores(in: runtime)
         let pane = configuration.pane ?? BrowserPaneID(rawValue: "tab-" + configuration.id.rawValue)
         let key = CEFPaneKey(pane: pane, profile: configuration.profile, machineKey: configuration.machineStore?.machineKey,
                              offTheRecord: stores.offTheRecord.isOffTheRecord(configuration.profile))
@@ -434,7 +433,7 @@ public final class CEFEngine: BrowserEngine {
         tab.navigationGuard = configuration.navigationGuard
         host.add(tab)
         if configuration.zoom != 1 { tab.setZoom(configuration.zoom) }
-        if case .chromium(let state)? = configuration.restoreState, let shim = CEFRuntime.shared.shim,
+        if case .chromium(let state)? = configuration.restoreState, let shim = runtime.shim,
            shim.navigationRestoreSupported() == 1, shim.forkAPIVersion() >= CEFTab.navigationRestoreForkAPI {
             tab.pendingRestore = state
         }

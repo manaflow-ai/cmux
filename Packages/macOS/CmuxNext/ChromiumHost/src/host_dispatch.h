@@ -42,11 +42,20 @@
 //                                              layers it hosts, and answers 0 (a refused
 //                                              hosting) when the fork refuses to detach it
 //                                              (HandleLayerHosting)
+//   kOpBrowserSetPageVisibility                 the generated case; the host also keeps
+//                                              the value (KeepPageVisibility) and applies
+//                                              it when it detaches the page window
 //   kOpBrowserAccessibilityToken                the generated case; for a browser cmux
 //                                              minted whose creation has not come, held
 //                                              and run once its AFTER_CREATED went out
 //                                              (task 049) and after the ack of the op whose
 //                                              call created it
+//   kOpBrowserSetPageDisplay                    the generated case (the fork places the
+//                                              detached page window on cmux's display, so
+//                                              its begin-frames, scale and color space are
+//                                              that display's, task 221); held as
+//                                              kOpBrowserAccessibilityToken is, the newest
+//                                              one only
 // Every preinit op comes before kOpInitialize (the remote shim queues them,
 // task 014); everything else after it.
 //
@@ -60,6 +69,9 @@
 //   kOpReply   reply flag, token, the op's result and out-parameters
 //   kOpTextInputState  a watched browser's text input state, at most once per
 //              display frame (host_text_input.h)
+//   kOpEvent   CMUX_SHIM_WHEEL_ACK: the fork's ack of one of a page's wheels,
+//              with that wheel's input seq (host_wheel_ack.h); the HELLO lists
+//              kWheelAcksHelloName when the fork has the handler
 //
 // Everything here runs on the host's main thread (Chromium's UI thread), so
 // it holds no lock (p01-process section 4, rule 1).
@@ -83,6 +95,7 @@
 #include "host_mirror.h"
 #include "host_resize.h"
 #include "host_text_input.h"
+#include "host_wheel_ack.h"
 
 namespace cmux_host {
 
@@ -195,6 +208,10 @@ class HostContext {
   HostContext(const HostContext&) = delete;
   HostContext& operator=(const HostContext&) = delete;
 
+  // The fork's cmux_set_wheel_ack_handler (host_wheel_ack.h), nullptr when
+  // it has none. Before Attach: the HELLO lists kWheelAcksHelloName with it,
+  // and Resume installs OnWheelAck through it.
+  void SetWheelAckHandler(SetWheelAckHandlerFn set) { set_wheel_ack_handler_ = set; }
   // The mirrors whose only refresh is attach, then the hello. Once, before
   // the first OnMessages; the framework is loaded, CEF not started.
   void Attach();
@@ -210,6 +227,15 @@ class HostContext {
   // cmux_shim_browser_text_input_watch's fn; ctx is this HostContext and
   // `state` the fork's cmux_text_input_state_t.
   static void OnTextInput(void* ctx, int browser_id, const void* state);
+  // The fork's wheel ack handler; ctx is this HostContext and `ack` the
+  // fork's cmux_wheel_ack_t. Forwards CMUX_SHIM_WHEEL_ACK with the input seq
+  // of the browser's oldest unacked wheel (WheelSent).
+  static void OnWheelAck(void* ctx, int browser_id, const void* ack);
+  // The input dispatch gave Chromium's `chromium_id` the wheel of input seq
+  // `seq` through the fork's wheel call (a momentum wheel when `momentum`):
+  // the fork's first ack of that browser after the acks of the wheels sent
+  // before it answers it.
+  void WheelSent(int chromium_id, uint32_t seq, bool momentum) { wheel_acks_.Sent(chromium_id, seq, momentum); }
   static int OnWindowRequest(void* ctx, int kind, int disposition, int source_browser_id, int has_bounds, int x,
                              int y, int width, int height, int user_gesture, const char* url,
                              const char* profile_path);
@@ -266,6 +292,7 @@ class HostContext {
   const GeometryStats& geometry_stats() const { return geometry_stats_; }
 
   const TextInputPushes& text_input() const { return text_input_; }
+  const WheelAcks& wheel_acks() const { return wheel_acks_; }
 
   // Where kOpPageResize's fences go (browser_host_main.mm, before Attach);
   // nullptr resizes with no fence.
@@ -297,6 +324,10 @@ class HostContext {
   // first. Answers the context id; when the fork refuses to detach, hosting
   // goes off again and the answer is 0, as for a refused hosting.
   bool HandleLayerHosting(const control::Message& message);
+  // kOpBrowserSetPageVisibility, before its generated case: keeps cmux's
+  // value for the browser, since the fork takes none until the page window
+  // is detached (task p01-process-220). False past kMaxPageVisibilities.
+  bool KeepPageVisibility(const control::Message& message);
   // Keeps `geometry` as `client_id`'s newest until its creation; past
   // kMaxPendingBinds held ids it is dropped (unplaced).
   void HoldGeometry(int32_t client_id, const PageGeometry& geometry);
@@ -309,8 +340,9 @@ class HostContext {
   int ArmTextInputWatch(int chromium_id);
   // True while `client_id` is a minted id whose creation event has not come.
   bool AwaitsCreation(int32_t client_id) const;
-  // Holds a page accessibility request of a browser not created yet (true), to run after its
-  // creation event (RunHeldForCreation); false: run it now. A peer past the bound is bad.
+  // Holds a page accessibility request or page display of a browser not created yet (true), to
+  // run after its creation event (RunHeldForCreation); false: run it now. A newer page display
+  // replaces the held one; a peer past the bound is bad.
   bool HoldForCreation(control::Message& message);
   void RunHeldForCreation(int32_t client_id);
   void ReplyResult(uint32_t token, int32_t result);
@@ -396,11 +428,15 @@ class HostContext {
   // Browsers cmux watches the text input of, by Chromium id.
   TextInputPushes text_input_;
   PageResizes* resizes_ = nullptr;
+  // The fork's wheel ack handler setter (SetWheelAckHandler) and each page's
+  // unacked wheels, by Chromium id.
+  SetWheelAckHandlerFn set_wheel_ack_handler_ = nullptr;
+  WheelAcks wheel_acks_;
   // Text input watches of minted ids whose creation has not come, by the
   // minted id: the watch tokens Bind arms and answers. Bounded with
   // pending_binds_ (AwaitsCreation).
   std::unordered_map<int32_t, std::vector<uint32_t>> text_input_awaiting_;
-  // Page accessibility requests of minted ids whose creation has not come, by the minted id.
+  // Page accessibility requests and page displays of minted ids whose creation has not come, by the minted id.
   // Bounded with pending_binds_ and kMaxHeldPerBrowser (host_dispatch.mm).
   std::unordered_map<int32_t, std::vector<control::Message>> held_for_creation_;
 
@@ -410,6 +446,9 @@ class HostContext {
   // placed at the creation, dropped at a refused create or a close. Bounded
   // by kMaxPendingBinds (HoldGeometry).
   std::unordered_map<int32_t, PageGeometry> geometry_awaiting_;
+  // cmux's last page visibility (cmux_shim_page_visibility_t) by client id,
+  // applied again when HandleLayerHosting detaches that browser's page window.
+  std::unordered_map<int32_t, int32_t> page_visibility_;
   GeometryStats geometry_stats_;
 };
 

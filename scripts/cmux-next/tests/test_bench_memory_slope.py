@@ -509,6 +509,7 @@ class MainTests(ShaEnv):
                    mock.patch.object(bm, "sample", sample),
                    mock.patch.object(bm, "owned", lambda app_pid, bundle: {9: ("cef-renderer", "renderer")}),
                    mock.patch.object(bm, "webkit_pids", lambda: {7, 8}),
+                   mock.patch.object(bm, "thread_times", lambda pid: {}),
                    mock.patch.object(bm, "tab_urls", lambda spec, count: [f"http://site{i}.localhost/" for i in range(count)]),
                    mock.patch.object(bm.signal, "signal"), mock.patch.object(bm.sys, "platform", "darwin")]
         for patch in patches:

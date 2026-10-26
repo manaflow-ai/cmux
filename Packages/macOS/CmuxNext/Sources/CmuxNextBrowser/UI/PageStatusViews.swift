@@ -14,31 +14,22 @@ final class PageStatusViews {
     /// Runs a warning page button through the action registry (the App
     /// installs it); true when it ran there.
     var certificateWarningRouter: ((CertificateWarningCommand) -> Bool)?
+    /// The view the status views are in; a shown card asks it for a layout.
+    private weak var parent: NSView?
 
     /// The views currently shown (occlusion holes).
     var shown: [NSView] {
         [errorView, goneView, unresponsiveView].filter { !$0.isHidden && $0.superview != nil }
     }
 
-    /// Adds the views to `parent` over `content`, and routes their buttons
-    /// to the current tab.
-    func install(in parent: NSView, over content: NSView, tab: @escaping () -> (any BrowserTab)?) {
-        for view in [errorView, goneView] as [NSView] {
-            view.translatesAutoresizingMaskIntoConstraints = false
+    /// Adds the views to `parent`, and routes their buttons to the current
+    /// tab. The parent places them over its page area with
+    /// `layout(over:)` from its own `layout()`.
+    func install(in parent: NSView, tab: @escaping () -> (any BrowserTab)?) {
+        for view in [errorView, goneView, unresponsiveView] as [NSView] {
             parent.addSubview(view)
-            NSLayoutConstraint.activate([
-                view.topAnchor.constraint(equalTo: content.topAnchor),
-                view.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-                view.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-                view.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-            ])
         }
-        parent.addSubview(unresponsiveView)
-        NSLayoutConstraint.activate([
-            unresponsiveView.centerXAnchor.constraint(equalTo: content.centerXAnchor),
-            unresponsiveView.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-            unresponsiveView.leadingAnchor.constraint(greaterThanOrEqualTo: content.leadingAnchor, constant: 8),
-        ])
+        self.parent = parent
         errorView.isHidden = true
         goneView.isHidden = true
         unresponsiveView.isHidden = true
@@ -68,6 +59,33 @@ final class PageStatusViews {
         } else if !errorView.isHidden {
             errorView.isHidden = true
         }
-        unresponsiveView.isHidden = !state.isUnresponsive
+        if unresponsiveView.isHidden == state.isUnresponsive {
+            unresponsiveView.isHidden = !state.isUnresponsive
+            parent?.needsLayout = true // invalidate: the card shows or hides; the parent places it
+        }
+    }
+
+    /// Places the views over `page`, the page area in the parent's
+    /// coordinates: the error page and the sad tab cover it, the "Page
+    /// unresponsive" card (only while shown) is centered in it.
+    func layout(over page: CGRect) {
+        place(errorView, at: page)
+        place(goneView, at: page)
+        guard !unresponsiveView.isHidden else { return }
+        let size = unresponsiveView.size(fittingWidth: max(page.width - Self.cardMargin * 2, 0))
+        place(unresponsiveView, at: Self.centered(size, in: page))
+    }
+
+    /// The least room between the "Page unresponsive" card and the page's sides.
+    static let cardMargin: CGFloat = 8
+
+    /// A rect of `size` centered in `area`, on whole points.
+    nonisolated static func centered(_ size: CGSize, in area: CGRect) -> CGRect {
+        CGRect(x: (area.midX - size.width / 2).rounded(.down), y: (area.midY - size.height / 2).rounded(.down),
+               width: size.width, height: size.height)
+    }
+
+    private func place(_ view: NSView, at frame: CGRect) {
+        if view.frame != frame { view.frame = frame }
     }
 }

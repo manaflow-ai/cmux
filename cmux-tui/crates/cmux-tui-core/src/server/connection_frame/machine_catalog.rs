@@ -2,35 +2,29 @@
 //! still use machine.list/get. No paths, credentials, commands or relay reach.
 
 use super::super::client_registry::machine_catalog::Publication;
-use super::super::{MessageWriter, Response, origin_gate, send_response};
-use crate::Mux;
+use super::super::routes::{Route, RouteLine, RouteName};
+use super::super::{FrameStage, Response, origin_gate, send_response};
 use crate::resource::MachinePublicId;
 use serde_json::Value;
-use std::sync::Arc;
 
 /// The `cmd` names this module answers (server/routes.rs).
-pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
-    &[crate::server::routes::Route {
-        names: &[crate::server::routes::RouteName::Exact("machine-catalog-publish")],
-        stage: crate::server::FrameStage::MachineCatalog,
-        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
-    }];
+pub(in crate::server) const ROUTES: &[Route] = &[Route {
+    names: &[RouteName::Exact("machine-catalog-publish")],
+    stage: FrameStage::MachineCatalog,
+    entry: handle,
+}];
 
-pub(super) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains("machine-catalog-publish") {
-        return None;
-    }
+/// Answers a `machine-catalog-publish` line (the route found it by its
+/// `cmd`). The line's one decode is its `Value`, which gives every reply the
+/// `id` as written, a refused one too, and then the publication. `None`
+/// only for a line with no `Value` (a number past `f64`, a lone surrogate);
+/// the `Command` parse answers it.
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
     let Ok(Value::Object(mut fields)) = crate::line_parses::parse::<Value>(message) else {
         return None;
     };
-    if fields.remove("cmd").as_ref().and_then(Value::as_str) != Some("machine-catalog-publish") {
-        return None;
-    }
+    fields.remove("cmd");
     let id = fields.remove("id");
     let facts = origin_gate::app_connection(mux, client);
     let result = (|| {

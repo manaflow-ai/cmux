@@ -83,6 +83,7 @@ public final class EnergyPolicyDriver {
         guard let setting else { return }
         let reason = resolver.update(setting: setting, inputs: inputs)
         source.update(EnergyPolicy(saverReason: reason, suspended: inputs.suspended, screensAsleep: inputs.screensAsleep,
-                                   networkResumes: inputs.networkResumes, onBattery: inputs.onBattery))
+                                   networkResumes: inputs.networkResumes, onBattery: inputs.onBattery,
+                                   offForNow: resolver.isOffForSession))
     }
 }

@@ -95,6 +95,13 @@ impl Row {
         self.effective.store(qos.map_or(NOT_APPLIED, |qos| qos as u8), Ordering::Relaxed);
     }
 
+    /// The class the thread runs at by its own changes: the last one that
+    /// succeeded, else the class it was registered with (a refused change
+    /// still says what it wants).
+    pub(crate) fn class(&self) -> ThreadQos {
+        self.effective().unwrap_or(self.declared)
+    }
+
     pub(crate) fn record_refusal(&self) {
         self.refused.fetch_add(1, Ordering::Relaxed);
     }

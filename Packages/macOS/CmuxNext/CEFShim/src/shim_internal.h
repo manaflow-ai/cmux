@@ -78,6 +78,8 @@ struct ForkApi {
   int (*browser_set_embedder_visibility)(int, int) = nullptr;
   // API version 36: a tab's Chromium views in an embedder NSView.
   int (*browser_attach_view)(int, void*) = nullptr;
+  // API version 37: a tab's visibility and capture from the app.
+  int (*tab_set_visibility)(int, int, int) = nullptr;
   void (*set_new_tab_page_url)(const char*) = nullptr;
   void (*set_install_prompt_handler)(void (*)(void*, int, int, const char*), void*) = nullptr;
   int (*install_prompt_reply)(int, int) = nullptr;
@@ -145,6 +147,7 @@ struct ForkApi {
   int (*browser_exit_keyboard_lock)(int) = nullptr;
   int (*browser_send_locked_mouse_move)(int, double, double, int) = nullptr;
   int (*browser_set_page_display)(int, uint32_t, double, double) = nullptr;
+  int (*browser_set_page_visibility)(int, int) = nullptr;  // shim_browser.mm
   char* (*tab_entry_page_state)(int, int) = nullptr;
   int (*tab_page_state_watch)(int, void (*)(void*, int, int), void*) = nullptr;
   int (*tab_restore_entries)(int, const ForkRestoreEntry*, int, int) = nullptr;

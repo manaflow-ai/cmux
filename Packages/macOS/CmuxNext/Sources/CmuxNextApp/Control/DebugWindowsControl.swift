@@ -28,7 +28,8 @@ enum DebugWindowsControl {
                 report["windows"] = report["windows"]?.arrayValue.map { entries in
                     JSONValue.array(entries.map { entry -> JSONValue in
                         guard case .object(let fields) = entry, let id = fields["id"]?.stringValue else { return entry }
-                        return .object(fields.merging(Self.restoreFields(windows, id: id)) { _, new in new })
+                        let shown = fields.merging(Self.restoreFields(windows, id: id)) { _, new in new }
+                        return .object(shown.merging(Self.occlusionFields(windows, id: id)) { _, new in new })
                     })
                 }
                 report["displays"] = .number(Double(NSScreen.screens.count))
@@ -51,6 +52,14 @@ enum DebugWindowsControl {
                 return SurfaceHostReport.annotate(report, identities: await SurfaceHostReport.identities(targets))
             },
         ]
+    }
+
+    /// Window `id`'s occlusion: `family_occluded`, what its ``WindowOcclusionFamily`` says (null while it has
+    /// none: the feature `windowOcclusionFamily` is off or no reader follows it). bench_idle.py's covered-window
+    /// checks that the window behind a same-size one is occluded before it measures.
+    static func occlusionFields(_ windows: WindowManager, id: String) -> [String: JSONValue] {
+        let family = windows.controller(for: id)?.window.flatMap(WindowOcclusionFamily.installed(on:))
+        return ["family_occluded": family.map { .bool($0.isOccluded) } ?? .null]
     }
 
     /// The fields of window `id` its `WindowRecord` saves, as the window shows
