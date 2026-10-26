@@ -86,7 +86,6 @@ fn temp_dir(name: &str) -> std::path::PathBuf {
     dir
 }
 
-
 fn vm_body(name: Option<&str>, labels: Value) -> Value {
     json!({
         "id": VM_ID, "displayName": name, "labels": labels, "state": "running",
@@ -109,10 +108,15 @@ async fn update_sends_name_labels_and_limits_and_clears_with_null() {
     let server = MockServer::start().await;
     Mock::given(method("PATCH"))
         .and(path(format!("/v1/vms/{VM_ID}")))
-        .and(body_json(json!({"displayName": "box", "labels": {"team": "a", "env": "dev"},
-            "idleTimeoutSeconds": -1, "maxRunSeconds": 3600})))
+        .and(body_json(
+            json!({"displayName": "box", "labels": {"team": "a", "env": "dev"},
+            "idleTimeoutSeconds": -1, "maxRunSeconds": 3600}),
+        ))
         .and(authorized())
-        .respond_with(ResponseTemplate::new(200).set_body_json(vm_body(Some("box"), json!({"team": "a", "env": "dev"}))))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(vm_body(Some("box"), json!({"team": "a", "env": "dev"}))),
+        )
         .expect(1)
         .mount(&server)
         .await;
@@ -127,15 +131,29 @@ async fn update_sends_name_labels_and_limits_and_clears_with_null() {
     let out = cli(
         &server,
         &[
-            "update", VM_ID, "--name", "box", "--label", "team=a", "--label", "env=dev",
-            "--idle", "-1", "--max-run", "3600",
+            "update",
+            VM_ID,
+            "--name",
+            "box",
+            "--label",
+            "team=a",
+            "--label",
+            "env=dev",
+            "--idle",
+            "-1",
+            "--max-run",
+            "3600",
         ],
     )
     .await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
     assert!(out.stdout.contains("box"), "{}", out.stdout);
     assert!(out.stdout.contains("team=a"), "{}", out.stdout);
-    let out = cli(&server, &["--json", "update", VM_ID, "--clear-name", "--clear-labels"]).await;
+    let out = cli(
+        &server,
+        &["--json", "update", VM_ID, "--clear-name", "--clear-labels"],
+    )
+    .await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
     assert_eq!(json_stdout(&out)["labels"], json!({}));
     let out = cli(&server, &["update", VM_ID]).await;
@@ -149,29 +167,54 @@ async fn snapshot_update_and_rename_set_retention_or_clear_it() {
     let server = MockServer::start().await;
     Mock::given(method("PATCH"))
         .and(path(format!("/v1/snapshots/{SNAP}")))
-        .and(body_json(json!({"displayName": "base", "ttlSeconds": 86400})))
-        .respond_with(ResponseTemplate::new(200).set_body_json(snapshot_body(Some("base"), json!(86400))))
+        .and(body_json(
+            json!({"displayName": "base", "ttlSeconds": 86400}),
+        ))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(snapshot_body(Some("base"), json!(86400))),
+        )
         .expect(1)
         .mount(&server)
         .await;
     Mock::given(method("PATCH"))
         .and(path(format!("/v1/snapshots/{SNAP}")))
-        .and(body_json(json!({"ttlSeconds": null, "autoDeleteSeconds": null})))
-        .respond_with(ResponseTemplate::new(200).set_body_json(snapshot_body(Some("base"), Value::Null)))
+        .and(body_json(
+            json!({"ttlSeconds": null, "autoDeleteSeconds": null}),
+        ))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(snapshot_body(Some("base"), Value::Null)),
+        )
         .expect(1)
         .mount(&server)
         .await;
-    let out = cli(&server, &["snapshot", "rename", SNAP, "--name", "base", "--ttl", "86400"]).await;
+    let out = cli(
+        &server,
+        &[
+            "snapshot", "rename", SNAP, "--name", "base", "--ttl", "86400",
+        ],
+    )
+    .await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
     assert!(out.stdout.contains("base"), "{}", out.stdout);
     let out = cli(
         &server,
-        &["--json", "snapshot", "update", SNAP, "--no-ttl", "--no-auto-delete"],
+        &[
+            "--json",
+            "snapshot",
+            "update",
+            SNAP,
+            "--no-ttl",
+            "--no-auto-delete",
+        ],
     )
     .await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
     assert_eq!(json_stdout(&out)["ttlSeconds"], Value::Null);
-    let out = cli(&server, &["snapshot", "update", SNAP, "--ttl", "60", "--no-ttl"]).await;
+    let out = cli(
+        &server,
+        &["snapshot", "update", SNAP, "--ttl", "60", "--no-ttl"],
+    )
+    .await;
     assert_eq!(out.code, exit::USAGE);
 }
 
@@ -209,18 +252,36 @@ async fn file_mkdir_rm_and_exists_use_their_routes() {
     assert_eq!(json_stdout(&out)["created"], true);
     let out = cli(&server, &["fs", "rm", VM_ID, "/srv/app"]).await;
     assert_eq!(out.code, exit::USAGE, "rm needs --yes without a terminal");
-    let out = run(&server, &["fs", "rm", VM_ID, "/srv/app"], &mut Tty { answer: "/srv" }).await;
+    let out = run(
+        &server,
+        &["fs", "rm", VM_ID, "/srv/app"],
+        &mut Tty { answer: "/srv" },
+    )
+    .await;
     assert_eq!(out.code, exit::CANCELLED);
-    let out = run(&server, &["fs", "rm", VM_ID, "/srv/app"], &mut Tty { answer: "/srv/app" }).await;
+    let out = run(
+        &server,
+        &["fs", "rm", VM_ID, "/srv/app"],
+        &mut Tty { answer: "/srv/app" },
+    )
+    .await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
-    let out = cli(&server, &["--json", "file", "rm", VM_ID, "/srv/app", "--yes"]).await;
+    let out = cli(
+        &server,
+        &["--json", "file", "rm", VM_ID, "/srv/app", "--yes"],
+    )
+    .await;
     assert_eq!(json_stdout(&out)["removed"], true);
     let out = cli(&server, &["file", "exists", VM_ID, "/srv/app"]).await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
     let out = cli(&server, &["--json", "file", "exists", VM_ID, "/nope"]).await;
     assert_eq!(out.code, exit::NO);
     assert_eq!(json_stdout(&out), json!({"exists": false}));
-    assert!(out.stderr.is_empty(), "a plain no prints nothing: {}", out.stderr);
+    assert!(
+        out.stderr.is_empty(),
+        "a plain no prints nothing: {}",
+        out.stderr
+    );
 }
 
 fn upload_state(received: u64) -> Value {
@@ -255,7 +316,10 @@ async fn a_resumable_push_sends_chunks_resumes_after_a_failure_and_commits() {
     Mock::given(method("PUT"))
         .and(path(chunk.clone()))
         .and(query_param("offset", "4"))
-        .respond_with(ResponseTemplate::new(503).set_body_json(json!({"_tag": "Unavailable", "message": "busy"})))
+        .respond_with(
+            ResponseTemplate::new(503)
+                .set_body_json(json!({"_tag": "Unavailable", "message": "busy"})),
+        )
         .up_to_n_times(1)
         .expect(1)
         .mount(&server)
@@ -296,7 +360,13 @@ async fn a_resumable_push_sends_chunks_resumes_after_a_failure_and_commits() {
     let remote = format!("{VM_ID}:/root/big.bin");
     let out = cli(
         &server,
-        &["--json", "push", local.to_str().unwrap(), &remote, "--resumable"],
+        &[
+            "--json",
+            "push",
+            local.to_str().unwrap(),
+            &remote,
+            "--resumable",
+        ],
     )
     .await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
@@ -313,13 +383,18 @@ async fn a_rejected_chunk_abandons_the_upload() {
     let uploads = format!("/v1/vms/{VM_ID}/files/uploads");
     Mock::given(method("POST"))
         .and(path(uploads.clone()))
-        .and(body_partial_json(json!({"path": "/root/big.bin", "mode": 420})))
+        .and(body_partial_json(
+            json!({"path": "/root/big.bin", "mode": 420}),
+        ))
         .respond_with(ResponseTemplate::new(201).set_body_json(upload_state(0)))
         .mount(&server)
         .await;
     Mock::given(method("PUT"))
         .and(path(format!("{uploads}/upl_1")))
-        .respond_with(ResponseTemplate::new(400).set_body_json(json!({"_tag": "BadRequest", "message": "overrun"})))
+        .respond_with(
+            ResponseTemplate::new(400)
+                .set_body_json(json!({"_tag": "BadRequest", "message": "overrun"})),
+        )
         .expect(1)
         .mount(&server)
         .await;
@@ -332,13 +407,23 @@ async fn a_rejected_chunk_abandons_the_upload() {
     let out = cli(
         &server,
         &[
-            "file", "write", VM_ID, "/root/big.bin", local.to_str().unwrap(), "--resumable",
-            "--mode", "644",
+            "file",
+            "write",
+            VM_ID,
+            "/root/big.bin",
+            local.to_str().unwrap(),
+            "--resumable",
+            "--mode",
+            "644",
         ],
     )
     .await;
     assert_eq!(out.code, exit::BAD_REQUEST, "{}", out.stderr);
-    let out = cli(&server, &["file", "write", VM_ID, "/root/x", "-", "--resumable"]).await;
+    let out = cli(
+        &server,
+        &["file", "write", VM_ID, "/root/x", "-", "--resumable"],
+    )
+    .await;
     assert_eq!(out.code, exit::USAGE, "stdin cannot resume");
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -363,7 +448,10 @@ async fn session_verbs_read_retarget_and_mint_tokens_shown_only_with_json() {
         .await;
     Mock::given(method("GET"))
         .and(path(format!("{base}/tokens")))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"tokens": [{"id": TOKEN_ID, "sessionId": SESSION}]})))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"tokens": [{"id": TOKEN_ID, "sessionId": SESSION}]})),
+        )
         .expect(1)
         .mount(&server)
         .await;
@@ -385,7 +473,11 @@ async fn session_verbs_read_retarget_and_mint_tokens_shown_only_with_json() {
     let out = cli(&server, &["session", "get", VM_ID, SESSION]).await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
     assert!(out.stdout.contains("dev"));
-    let out = cli(&server, &["--json", "identity", "permissions", VM_ID, SESSION]).await;
+    let out = cli(
+        &server,
+        &["--json", "identity", "permissions", VM_ID, SESSION],
+    )
+    .await;
     assert_eq!(json_stdout(&out), summary);
     let out = cli(&server, &["session", "set-user", VM_ID, SESSION, "ops"]).await;
     assert!(out.stdout.contains("ops"), "{}", out.stderr);
@@ -394,13 +486,33 @@ async fn session_verbs_read_retarget_and_mint_tokens_shown_only_with_json() {
     let out = cli(&server, &["session", "token-create", VM_ID, SESSION]).await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
     assert!(!out.stdout.contains("secret-token-2"), "{}", out.stdout);
-    let out = cli(&server, &["--json", "session", "token-create", VM_ID, SESSION]).await;
-    assert_eq!(json_stdout(&out)["token"], "secret-token-2");
-    let out = cli(&server, &["session", "token-revoke", VM_ID, SESSION, TOKEN_ID]).await;
-    assert_eq!(out.code, exit::USAGE, "revoke needs --yes without a terminal");
     let out = cli(
         &server,
-        &["--json", "identity", "token-revoke", VM_ID, SESSION, TOKEN_ID, "--yes"],
+        &["--json", "session", "token-create", VM_ID, SESSION],
+    )
+    .await;
+    assert_eq!(json_stdout(&out)["token"], "secret-token-2");
+    let out = cli(
+        &server,
+        &["session", "token-revoke", VM_ID, SESSION, TOKEN_ID],
+    )
+    .await;
+    assert_eq!(
+        out.code,
+        exit::USAGE,
+        "revoke needs --yes without a terminal"
+    );
+    let out = cli(
+        &server,
+        &[
+            "--json",
+            "identity",
+            "token-revoke",
+            VM_ID,
+            SESSION,
+            TOKEN_ID,
+            "--yes",
+        ],
     )
     .await;
     assert_eq!(json_stdout(&out), json!({"id": TOKEN_ID, "revoked": true}));
@@ -414,15 +526,19 @@ async fn session_list_all_pages_through_the_team_and_identity_keeps_its_vm_form(
     Mock::given(method("GET"))
         .and(path("/v1/client-sessions"))
         .and(query_param("limit", "50"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sessions": [
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"sessions": [
             {"id": SESSION, "vmId": VM_ID, "linuxUser": "dev", "createdAt": "2026-10-25T00:00:00Z"}
-        ], "nextCursor": SESSION})))
+        ], "nextCursor": SESSION})),
+        )
         .expect(2)
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path(format!("/v1/vms/{VM_ID}/identity")))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"id": VM_ID, "scheme": "sha256-v1", "fingerprint": "a".repeat(64)})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(
+            json!({"id": VM_ID, "scheme": "sha256-v1", "fingerprint": "a".repeat(64)}),
+        ))
         .expect(1)
         .mount(&server)
         .await;
@@ -491,8 +607,16 @@ async fn vpc_update_and_ips_and_tunnel_list_and_update() {
     let out = cli(&server, &["vpc", "ips", MESH]).await;
     assert!(out.stdout.contains("10.8.0.2"), "{}", out.stderr);
     let out = cli(&server, &["tunnel", "list"]).await;
-    assert!(out.stdout.contains("laptop") && out.stdout.contains(TUNNEL), "{}", out.stderr);
-    let out = cli(&server, &["tunnel", "update", DEVICE, "--name", "work laptop"]).await;
+    assert!(
+        out.stdout.contains("laptop") && out.stdout.contains(TUNNEL),
+        "{}",
+        out.stderr
+    );
+    let out = cli(
+        &server,
+        &["tunnel", "update", DEVICE, "--name", "work laptop"],
+    )
+    .await;
     assert!(out.stdout.contains("work laptop"), "{}", out.stderr);
 }
 
@@ -503,7 +627,10 @@ async fn firewall_rules_rule_and_evaluate_exit_by_the_verdict() {
         "protocol": "tcp", "port": 22, "createdAt": "2026-10-25T00:00:00Z"});
     Mock::given(method("GET"))
         .and(path(format!("/v1/meshes/{MESH}/acl/rules")))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"meshId": MESH, "aclVersion": 3, "items": [rule.clone()]})))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"meshId": MESH, "aclVersion": 3, "items": [rule.clone()]})),
+        )
         .expect(1)
         .mount(&server)
         .await;
@@ -528,21 +655,30 @@ async fn firewall_rules_rule_and_evaluate_exit_by_the_verdict() {
         .mount(&server)
         .await;
     let out = cli(&server, &["firewall", "rules", MESH]).await;
-    assert!(out.stdout.contains(FWR) && out.stdout.contains("22"), "{}", out.stderr);
+    assert!(
+        out.stdout.contains(FWR) && out.stdout.contains("22"),
+        "{}",
+        out.stderr
+    );
     let out = cli(&server, &["--json", "firewall", "rule", MESH, FWR]).await;
     assert_eq!(json_stdout(&out), rule);
     let out = cli(&server, &["firewall", "rule", MESH, "fwr_x"]).await;
     assert_eq!(out.code, exit::USAGE);
     let out = cli(
         &server,
-        &["firewall", "evaluate", MESH, "--from", DEVICE, "--to", VM_ID, "--port", "22"],
+        &[
+            "firewall", "evaluate", MESH, "--from", DEVICE, "--to", VM_ID, "--port", "22",
+        ],
     )
     .await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
     assert!(out.stdout.contains("allowed"));
     let out = cli(
         &server,
-        &["--json", "firewall", "evaluate", MESH, "--from", DEVICE, "--to", VM_ID, "--proto", "udp"],
+        &[
+            "--json", "firewall", "evaluate", MESH, "--from", DEVICE, "--to", VM_ID, "--proto",
+            "udp",
+        ],
     )
     .await;
     assert_eq!(out.code, exit::NO);
@@ -568,7 +704,9 @@ async fn domain_verbs_print_the_record_verify_and_release() {
     Mock::given(method("GET"))
         .and(path("/v1/domain-verifications"))
         .and(query_param("state", "pending"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"items": [verification.clone()]})))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"items": [verification.clone()]})),
+        )
         .expect(1)
         .mount(&server)
         .await;
@@ -579,7 +717,9 @@ async fn domain_verbs_print_the_record_verify_and_release() {
         .mount(&server)
         .await;
     Mock::given(method("POST"))
-        .and(path(format!("/v1/domain-verifications/{VERIFICATION}/verify")))
+        .and(path(format!(
+            "/v1/domain-verifications/{VERIFICATION}/verify"
+        )))
         .respond_with(ResponseTemplate::new(200).set_body_json(&domain))
         .expect(1)
         .mount(&server)
@@ -592,7 +732,11 @@ async fn domain_verbs_print_the_record_verify_and_release() {
         .await;
     Mock::given(method("GET"))
         .and(path("/v1/domains"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"items": [domain.clone()], "managedSuffix": "--t1.vm.example"})))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(
+                json!({"items": [domain.clone()], "managedSuffix": "--t1.vm.example"}),
+            ),
+        )
         .expect(1)
         .mount(&server)
         .await;
@@ -623,23 +767,49 @@ async fn domain_verbs_print_the_record_verify_and_release() {
         .await;
     let out = cli(&server, &["domain", "verify-create", "example.com"]).await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
-    assert!(out.stdout.contains("TXT _cmux.example.com cmux-verify=abc"), "{}", out.stdout);
-    assert!(out.stdout.contains(&format!("domain verify {VERIFICATION}")), "{}", out.stdout);
+    assert!(
+        out.stdout.contains("TXT _cmux.example.com cmux-verify=abc"),
+        "{}",
+        out.stdout
+    );
+    assert!(
+        out.stdout
+            .contains(&format!("domain verify {VERIFICATION}")),
+        "{}",
+        out.stdout
+    );
     let out = cli(&server, &["domain", "verifications", "--state", "pending"]).await;
     assert!(out.stdout.contains(VERIFICATION), "{}", out.stderr);
     let out = cli(&server, &["--json", "domain", "verification", VERIFICATION]).await;
     assert_eq!(json_stdout(&out), verification);
     let out = cli(&server, &["domain", "verify", VERIFICATION]).await;
     assert!(out.stdout.contains("CNAME"), "{}", out.stderr);
-    let out = cli(&server, &["domain", "verification-delete", VERIFICATION, "--yes"]).await;
+    let out = cli(
+        &server,
+        &["domain", "verification-delete", VERIFICATION, "--yes"],
+    )
+    .await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
     let out = cli(&server, &["domains", "list"]).await;
-    assert!(out.stdout.contains("example.com") && out.stdout.contains("--t1.vm.example"), "{}", out.stderr);
+    assert!(
+        out.stdout.contains("example.com") && out.stdout.contains("--t1.vm.example"),
+        "{}",
+        out.stderr
+    );
     let out = cli(&server, &["domain", "get", DOMAIN]).await;
     assert!(out.stdout.contains(DOMAIN), "{}", out.stderr);
     let out = cli(&server, &["domain", "delete", DOMAIN]).await;
-    assert_eq!(out.code, exit::USAGE, "release needs --yes without a terminal");
-    let out = run(&server, &["domain", "delete", DOMAIN], &mut Tty { answer: DOMAIN }).await;
+    assert_eq!(
+        out.code,
+        exit::USAGE,
+        "release needs --yes without a terminal"
+    );
+    let out = run(
+        &server,
+        &["domain", "delete", DOMAIN],
+        &mut Tty { answer: DOMAIN },
+    )
+    .await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
     let out = cli(&server, &["domain", "certs"]).await;
     assert!(out.stdout.contains("*.example.com"), "{}", out.stderr);
@@ -658,16 +828,20 @@ async fn tls_rules_build_from_flags_or_a_file_and_hide_header_values() {
         "createdAt": "2026-10-25T00:00:00Z", "updatedAt": "2026-10-25T00:00:00Z"});
     Mock::given(method("POST"))
         .and(path("/v1/tls-rules"))
-        .and(body_partial_json(json!({"domain": "app.example.com", "source": {"public": true},
-            "destination": {"vmId": VM_ID, "port": 8080}, "headers": {"x-secret": "s3cret"}})))
+        .and(body_partial_json(
+            json!({"domain": "app.example.com", "source": {"public": true},
+            "destination": {"vmId": VM_ID, "port": 8080}, "headers": {"x-secret": "s3cret"}}),
+        ))
         .respond_with(ResponseTemplate::new(201).set_body_json(&rule))
         .expect(1)
         .mount(&server)
         .await;
     Mock::given(method("PUT"))
         .and(path(format!("/v1/tls-rules/{RULE}")))
-        .and(body_partial_json(json!({"domain": "app.example.com", "protocol": "tcp",
-            "destination": {"vmId": VM_ID, "port": 8080}})))
+        .and(body_partial_json(
+            json!({"domain": "app.example.com", "protocol": "tcp",
+            "destination": {"vmId": VM_ID, "port": 8080}}),
+        ))
         .respond_with(ResponseTemplate::new(200).set_body_json(&rule))
         .expect(1)
         .mount(&server)
@@ -697,22 +871,42 @@ async fn tls_rules_build_from_flags_or_a_file_and_hide_header_values() {
     let out = cli(
         &server,
         &[
-            "tls", "create", "--host", "app.example.com", "--vm", VM_ID, "--port", "8080",
-            "--headers-file", headers.to_str().unwrap(),
+            "tls",
+            "create",
+            "--host",
+            "app.example.com",
+            "--vm",
+            VM_ID,
+            "--port",
+            "8080",
+            "--headers-file",
+            headers.to_str().unwrap(),
         ],
     )
     .await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
-    assert!(out.stdout.contains("x-secret") && !out.stdout.contains("s3cret"), "{}", out.stdout);
+    assert!(
+        out.stdout.contains("x-secret") && !out.stdout.contains("s3cret"),
+        "{}",
+        out.stdout
+    );
     // `tls get --json` output, edited, is a valid --file.
     let edited = dir.join("rule.json");
     let mut file_rule = rule.clone();
     file_rule["protocol"] = json!("tcp");
     std::fs::write(&edited, serde_json::to_vec(&file_rule).unwrap()).unwrap();
-    let out = cli(&server, &["tls", "update", RULE, "--file", edited.to_str().unwrap()]).await;
+    let out = cli(
+        &server,
+        &["tls", "update", RULE, "--file", edited.to_str().unwrap()],
+    )
+    .await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
     let out = cli(&server, &["tls", "list", "--vm", VM_ID]).await;
-    assert!(out.stdout.contains(RULE) && out.stdout.contains(":8080"), "{}", out.stderr);
+    assert!(
+        out.stdout.contains(RULE) && out.stdout.contains(":8080"),
+        "{}",
+        out.stderr
+    );
     let out = cli(&server, &["--json", "tls", "get", RULE]).await;
     assert_eq!(json_stdout(&out), rule);
     let out = cli(&server, &["tls", "create", "--host", "a.example.com"]).await;
@@ -739,8 +933,10 @@ async fn tls_forward_auth_round_trips_through_a_file() {
         .await;
     Mock::given(method("PUT"))
         .and(path(format!("/v1/tls-forward-auths/{FWA}")))
-        .and(body_partial_json(json!({"url": "https://auth.example.com/check", "authResponseHeaders": ["x-user"],
-            "timeoutMs": 2000})))
+        .and(body_partial_json(
+            json!({"url": "https://auth.example.com/check", "authResponseHeaders": ["x-user"],
+            "timeoutMs": 2000}),
+        ))
         .respond_with(ResponseTemplate::new(200).set_body_json(&check))
         .expect(1)
         .mount(&server)
@@ -770,14 +966,31 @@ async fn tls_forward_auth_round_trips_through_a_file() {
         br#"{"url": "https://auth.example.com/check", "headers": {"authorization": "Bearer t"}, "timeoutMs": 2000}"#,
     )
     .unwrap();
-    let out = cli(&server, &["tls", "forward-auth", "create", "--file", create.to_str().unwrap()]).await;
+    let out = cli(
+        &server,
+        &[
+            "tls",
+            "forward-auth",
+            "create",
+            "--file",
+            create.to_str().unwrap(),
+        ],
+    )
+    .await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
     assert!(!out.stdout.contains("Bearer t"), "{}", out.stdout);
     let update = dir.join("update.json");
     std::fs::write(&update, serde_json::to_vec(&check).unwrap()).unwrap();
     let out = cli(
         &server,
-        &["tls", "forward-auth", "update", FWA, "--file", update.to_str().unwrap()],
+        &[
+            "tls",
+            "forward-auth",
+            "update",
+            FWA,
+            "--file",
+            update.to_str().unwrap(),
+        ],
     )
     .await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);

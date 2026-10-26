@@ -333,9 +333,9 @@ pub(crate) async fn file(
             let id = vm_id(&args.vm_id)?;
             let path = guest_path(&args.path)?;
             let body = fetch_body(client.files_path_exists(id.as_str(), &path, None)).await?;
-            let exists = decode(&body)?["exists"]
-                .as_bool()
-                .ok_or_else(|| CliError::unexpected("the cmux VM API did not say whether the path exists"))?;
+            let exists = decode(&body)?["exists"].as_bool().ok_or_else(|| {
+                CliError::unexpected("the cmux VM API did not say whether the path exists")
+            })?;
             if out.is_json() {
                 out.raw_json(&body)?;
             } else {
@@ -476,9 +476,7 @@ async fn upload(
     let mode = options.mode.map(|m| m.to_string());
     if local.as_os_str() == "-" {
         if options.resumable {
-            return Err(CliError::usage(
-                "--resumable needs a local file, not stdin",
-            ));
+            return Err(CliError::usage("--resumable needs a local file, not stdin"));
         }
         let mut bytes = Vec::new();
         std::io::stdin()
@@ -656,8 +654,7 @@ async fn send_chunks(
             }
             Err(error) if chunk_retryable(&error) && retries < CHUNK_RETRIES => {
                 retries += 1;
-                let state =
-                    fetch_body(client.files_get_file_upload(id, upload_id, None)).await?;
+                let state = fetch_body(client.files_get_file_upload(id, upload_id, None)).await?;
                 offset = UploadState::parse(&state)?.received;
             }
             Err(error) => return Err(error),
@@ -917,8 +914,13 @@ mod tests {
                 max_chunk: 8
             }
         );
-        assert!(UploadState::parse(br#"{"uploadId":"../x","receivedBytes":0,"maxChunkBytes":8}"#).is_err());
-        assert!(UploadState::parse(br#"{"uploadId":"u","receivedBytes":0,"maxChunkBytes":0}"#).is_err());
+        assert!(
+            UploadState::parse(br#"{"uploadId":"../x","receivedBytes":0,"maxChunkBytes":8}"#)
+                .is_err()
+        );
+        assert!(
+            UploadState::parse(br#"{"uploadId":"u","receivedBytes":0,"maxChunkBytes":0}"#).is_err()
+        );
     }
 
     #[test]

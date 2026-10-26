@@ -238,7 +238,10 @@ pub(crate) async fn domain(
                 }
             }
             if let Some(suffix) = list["managedSuffix"].as_str() {
-                out.line(&format!("managed hostnames: <name>{}", suffix.escape_debug()))?;
+                out.line(&format!(
+                    "managed hostnames: <name>{}",
+                    suffix.escape_debug()
+                ))?;
             }
             Ok(())
         }
@@ -262,8 +265,7 @@ pub(crate) async fn domain(
         }
         DomainCommand::Verifications(args) => {
             let state = crate::parse_opt::<types::DomainsListDomainVerificationsState>(
-                "--state",
-                args.state,
+                "--state", args.state,
             )?;
             let body = fetch_body(client.domains_list_domain_verifications(state, None)).await?;
             if out.is_json() {
@@ -428,19 +430,19 @@ async fn forward_auth(
         }
         ForwardAuthCommand::Get(ForwardAuthArg { forward_auth_id }) => {
             let id = checked_id(&forward_auth_id, "fwa_", "forward-auth id")?;
-            out.forward_auth(&fetch_body(client.tls_forward_auth_get_tls_forward_auth(id, None)).await?)
+            out.forward_auth(
+                &fetch_body(client.tls_forward_auth_get_tls_forward_auth(id, None)).await?,
+            )
         }
         ForwardAuthCommand::Create(args) => {
-            let body: types::TlsForwardAuthRequest =
-                request_body(forward_auth_body(&args.file)?)?;
+            let body: types::TlsForwardAuthRequest = request_body(forward_auth_body(&args.file)?)?;
             out.forward_auth(
                 &fetch_body(client.tls_forward_auth_create_tls_forward_auth(None, &body)).await?,
             )
         }
         ForwardAuthCommand::Update(args) => {
             let id = checked_id(&args.forward_auth_id, "fwa_", "forward-auth id")?;
-            let body: types::TlsForwardAuthRequest =
-                request_body(forward_auth_body(&args.file)?)?;
+            let body: types::TlsForwardAuthRequest = request_body(forward_auth_body(&args.file)?)?;
             out.forward_auth(
                 &fetch_body(client.tls_forward_auth_update_tls_forward_auth(id, None, &body))
                     .await?,
@@ -468,7 +470,9 @@ pub(crate) fn tls_rule_body(args: &TlsRuleArgs) -> Result<Value, CliError> {
         Some(file) => object_file(file, "rule file")?,
         None => {
             let (Some(host), Some(vm), Some(port)) = (&args.host, &args.vm, args.port) else {
-                return Err(CliError::usage("tls needs --file, or --host, --vm and --port"));
+                return Err(CliError::usage(
+                    "tls needs --file, or --host, --vm and --port",
+                ));
             };
             let vm = crate::files::vm_id(vm)?;
             let mut rule = Map::new();
@@ -517,7 +521,11 @@ fn object_file(file: &std::path::Path, what: &str) -> Result<Map<String, Value>,
 
 /// A rule's destination in a few words: `vm_…:8080`, a host, or `public`.
 fn destination(value: &Value) -> String {
-    match (value["vmId"].as_str(), value["host"].as_str(), &value["port"]) {
+    match (
+        value["vmId"].as_str(),
+        value["host"].as_str(),
+        &value["port"],
+    ) {
         (Some(vm), _, Value::Number(port)) => format!("{vm}:{port}"),
         (Some(vm), _, _) => vm.to_owned(),
         (None, Some(host), Value::Number(port)) => format!("{host}:{port}"),
@@ -555,7 +563,11 @@ impl Printer<'_> {
             "domain",
             text(&domain, "/domain").escape_debug()
         ))?;
-        self.line(&format!("{:<10}{}", "verified", text(&domain, "/verifiedAt")))?;
+        self.line(&format!(
+            "{:<10}{}",
+            "verified",
+            text(&domain, "/verifiedAt")
+        ))?;
         for (label, pointer) in [
             ("routing", "/dns/routing"),
             ("wildcard", "/dns/wildcardCertificate"),
@@ -729,9 +741,11 @@ mod tests {
         let file = dir.join("rule.json");
         std::fs::write(
             &file,
-            serde_json::to_vec(&json!({"id": "tlsr_x", "direction": "ingress", "headerNames": [],
+            serde_json::to_vec(
+                &json!({"id": "tlsr_x", "direction": "ingress", "headerNames": [],
                 "createdAt": "t", "updatedAt": "t", "domain": "a.example.com",
-                "source": {"public": true}, "destination": {"vmId": "vm_1", "port": 80}}))
+                "source": {"public": true}, "destination": {"vmId": "vm_1", "port": 80}}),
+            )
             .unwrap(),
         )
         .unwrap();
@@ -749,7 +763,10 @@ mod tests {
     #[test]
     fn destinations_read_as_vm_port_host_or_public() {
         assert_eq!(destination(&json!({"vmId": "vm_1", "port": 80})), "vm_1:80");
-        assert_eq!(destination(&json!({"host": "api.example.com"})), "api.example.com");
+        assert_eq!(
+            destination(&json!({"host": "api.example.com"})),
+            "api.example.com"
+        );
         assert_eq!(destination(&json!({"public": true})), "public");
         assert_eq!(destination(&json!({})), "-");
     }

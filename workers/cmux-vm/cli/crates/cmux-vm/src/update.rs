@@ -319,7 +319,9 @@ mod tests {
 
     #[test]
     fn clears_and_empty_label_sets_need_plain_json() {
-        assert!(!needs_plain_json(&json!({"displayName": "a", "labels": {"k": "v"}})));
+        assert!(!needs_plain_json(
+            &json!({"displayName": "a", "labels": {"k": "v"}})
+        ));
         assert!(needs_plain_json(&json!({"displayName": null})));
         assert!(needs_plain_json(&json!({"labels": {}})));
         assert!(needs_plain_json(&json!({"ttlSeconds": null})));

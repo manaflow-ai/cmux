@@ -374,18 +374,17 @@ pub(crate) async fn session(
                 ))?;
             }
             if let Some(cursor) = list["nextCursor"].as_str() {
-                out.line(&format!("more: cmux-vm session list --all --cursor {cursor}"))?;
+                out.line(&format!(
+                    "more: cmux-vm session list --all --cursor {cursor}"
+                ))?;
             }
             Ok(())
         }
         SessionCommand::Get(args) => {
             let (id, session) = session_ids(&args.vm_id, &args.session_id)?;
-            let body = fetch_body(client.client_sessions_get_client_session(
-                id.as_str(),
-                session,
-                None,
-            ))
-            .await?;
+            let body =
+                fetch_body(client.client_sessions_get_client_session(id.as_str(), session, None))
+                    .await?;
             out.session_summary(&body)
         }
         SessionCommand::SetUser(args) => {
@@ -567,7 +566,9 @@ pub(crate) fn checked_id<'a>(text: &'a str, prefix: &str, what: &str) -> Result<
         {
             Ok(text)
         }
-        _ => Err(CliError::usage(format!("invalid {what} (expected {prefix}...)"))),
+        _ => Err(CliError::usage(format!(
+            "invalid {what} (expected {prefix}...)"
+        ))),
     }
 }
 
@@ -576,8 +577,9 @@ impl Printer<'_> {
         if self.is_json() {
             return self.raw_json(body);
         }
-        let value: Value = serde_json::from_slice(body)
-            .map_err(|_| CliError::unexpected("the cmux VM API sent an unreadable client session"))?;
+        let value: Value = serde_json::from_slice(body).map_err(|_| {
+            CliError::unexpected("the cmux VM API sent an unreadable client session")
+        })?;
         for (label, pointer) in [
             ("id", "/id"),
             ("vm", "/vmId"),

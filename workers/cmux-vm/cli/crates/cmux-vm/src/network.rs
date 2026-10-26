@@ -50,7 +50,11 @@ pub(crate) struct VpcUpdateArgs {
     /// Mesh id (mesh_...)
     mesh_id: String,
     /// New display name
-    #[arg(long, required_unless_present = "clear_name", conflicts_with = "clear_name")]
+    #[arg(
+        long,
+        required_unless_present = "clear_name",
+        conflicts_with = "clear_name"
+    )]
     name: Option<String>,
     /// Remove the display name
     #[arg(long)]
@@ -357,7 +361,8 @@ pub(crate) async fn vpc(
         }
         VpcCommand::Ips(MeshArg { mesh_id: id }) => {
             let id = mesh_id(&id)?;
-            let body = fetch_body(client.mesh_network_list_mesh_addresses(id.as_str(), None)).await?;
+            let body =
+                fetch_body(client.mesh_network_list_mesh_addresses(id.as_str(), None)).await?;
             if out.is_json() {
                 return out.raw_json(&body);
             }
@@ -704,7 +709,9 @@ fn firewall_rule_id(text: &str) -> Result<&str, CliError> {
         {
             Ok(text)
         }
-        _ => Err(CliError::usage("invalid firewall rule id (expected fwr_...)")),
+        _ => Err(CliError::usage(
+            "invalid firewall rule id (expected fwr_...)",
+        )),
     }
 }
 
