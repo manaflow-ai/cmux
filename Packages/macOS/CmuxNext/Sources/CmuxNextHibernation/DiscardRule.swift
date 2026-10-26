@@ -16,7 +16,7 @@ package import CmuxNextSettings
 ///
 /// ```swift
 /// nonisolated extension DiscardRule {
-///     package static let pinned = DiscardRule(.pinned, result: .protected, for: DiscardRule.pressure,
+///     package static let pinned = DiscardRule(.pinned, result: .protected, for: DiscardRule.automatic,
 ///                                             kinds: DiscardRule.browserPages) { candidate, context in
 ///         candidate.isPinned && !context.browser.includesPinnedTabs
 ///     }
@@ -94,6 +94,10 @@ package nonisolated struct DiscardRule: Sendable {
 
     /// The discards a protected rule keeps content from: the timeout and memory pressure.
     package static let pressure: Set<DiscardReason> = [.proactive, .urgent]
+    /// The discards a choice of the person keeps content from (`browser.hibernation` off, a pinned
+    /// tab, Never Hibernate This Site, open DevTools): every discard cmux makes on its own, a frozen
+    /// page's memory growth too (stricter than Chrome, which lets that discard past them).
+    package static let automatic: Set<DiscardReason> = [.proactive, .urgent, .frozenWithGrowingMemory]
     /// cmux's lead rule (stricter than Chrome): what the person would lose (audio, capture, input,
     /// a download, an agent's work, a running command) is kept from every discard but the
     /// person's own, including a frozen page's memory growth.
@@ -132,5 +136,6 @@ package nonisolated struct DiscardRule: Sendable {
         .unanswered,
         .backgroundActivity,
         .recentlyAudible,
+        .activeTab,
     ]
 }

@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextRemoteFetch
+import CmuxNextWakeups
 
 /// cx-bgvy, against real public hosts, only on request: CMUX_LIVE_NETWORK_TESTS=1, or a fleet
 /// ci-step whose key contains `live-network` (CMUX_CI_STEP_KEY; the step env allowlist has no
@@ -56,6 +58,7 @@ nonisolated struct AgentPaneSafeFetchLiveHostsTests {
     @Test(arguments: cases)
     func aPublicHostLoads(_ url: String, _ expect: Expect) async throws {
         var fetch = AgentPaneSafeFetch()
+        fetch.guarded.resolver = SystemRemoteResolver(runner: BackgroundWork(label: "test.live-hosts"))
         fetch.guarded.timeout = .seconds(30)
         let result = await fetch.fetch(try #require(URL(string: url)))
         switch result {

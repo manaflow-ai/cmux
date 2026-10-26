@@ -99,9 +99,17 @@ package struct PageProbe: Hashable, Sendable {
     ///   - doubted: The page still gets the benefit of the doubt (`PageProbeHistory.doubted`).
     package func keepReason(_ facts: ContentDiscardPlanner.Candidate, setting: BrowserHibernationSetting = .fallback,
                             pressure: MemoryPressureLevel, doubted: Bool) -> HibernationPlanner.Exemption? {
+        keepReason(facts, setting: setting, for: HibernationPlanner.discardReason(at: pressure), doubted: doubted)
+    }
+
+    /// Why the probed page stays loaded from a discard for `reason` (``keepReason(_:setting:pressure:doubted:)``
+    /// for a discard that is not the timeout's or the pressure's, such as
+    /// ``DiscardReason/frozenWithGrowingMemory``).
+    package func keepReason(_ facts: ContentDiscardPlanner.Candidate, setting: BrowserHibernationSetting = .fallback,
+                            for reason: DiscardReason, doubted: Bool) -> HibernationPlanner.Exemption? {
         var answer = facts
         fill(&answer)
         answer.isDoubted = doubted
-        return ContentDiscardPlanner().eligibility(of: answer, setting: setting, for: HibernationPlanner.discardReason(at: pressure)).reason
+        return ContentDiscardPlanner().eligibility(of: answer, setting: setting, for: reason).reason
     }
 }
