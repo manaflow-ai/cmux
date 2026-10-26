@@ -153,6 +153,18 @@ passes `ceftests --gtest_filter=CmuxPageProcessTest.*` and `ceftests --cmux-page
 - A renderer crash marks every page of its group: shown pages reload once, hidden pages reload when shown, with a
   crash budget of 3 per 600 s per group.
 
+Fork in-place discard (task 018, manaflow-ai/cef `cp/p13-webui-018` at `66ce48d3`; not built or run yet; no API
+number until the train, 086, so the app finds the exports with dlsym). `cmux_tab_discard(browser_id)` does what
+Chrome does with `WebContentsDiscard` (`chrome/browser/resource_coordinator/tab_lifecycle_unit.cc`
+`FinishDiscardAndPreserveWebContents`): it ends a renderer that holds only this page, then calls
+`WebContents::Discard`. The tab keeps its WebContents, so its browser id, its window slot, its NavigationEntry list
+and its session storage stay. When the page shows again, `NavigationControllerImpl::SetActive` reloads the same URL
+and the document sees `document.wasDiscarded`. A visible page refuses (`CMUX_TAB_DISCARD_VISIBLE`). A page with a
+navigation waiting to commit also refuses (`CMUX_TAB_DISCARD_REFUSED`). Every other keep reason is native's.
+`cmux_tab_was_discarded` stays 1 until the reload starts. The renderer's end is not reported to
+`OnRenderProcessTerminated`, so the crash budget never counts a discard. The fork turns `WebContentsDiscard` on
+unless the command line names it. Test: `ceftests --gtest_filter=CmuxDiscardTest.*`. The binding is task 031.
+
 ### 3.4 Why cmux freezes WebUI when Chrome does not
 
 Chrome never freezes WebUI: `CannotFreezeReason::kWebUI`
