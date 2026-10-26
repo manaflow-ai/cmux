@@ -111,15 +111,10 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     override func sendEvent(_ event: NSEvent) {
         let outerDelivered = dispatchDelivered
         dispatchDelivered = false
-        if let turnMeter {
-            turnMeter.stampedInputDispatch { tapped(event, dispatchedNanos: $0) }
-        } else {
-            tapped(event, dispatchedNanos: nil)
-        }
-        let delivered = dispatchDelivered
-        dispatchDelivered = outerDelivered
+        defer { dispatchDelivered = outerDelivered }
+        if let turnMeter { turnMeter.stampedInputDispatch { tapped(event, dispatchedNanos: $0) } } else { tapped(event, dispatchedNanos: nil) }
         // Every path, outside the turn meter's input span and the tap's dispatch scope.
-        inputTap?.deliverDispatchEnd(event, outcome: delivered ? .delivered : .consumed)
+        inputTap?.deliverDispatchEnd(event, outcome: dispatchDelivered ? .delivered : .consumed)
     }
 
     private func tapped(_ event: NSEvent, dispatchedNanos: UInt64?) {
