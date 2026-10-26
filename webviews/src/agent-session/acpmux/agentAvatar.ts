@@ -37,7 +37,8 @@ function changed(sessionId: string, value: string | null): void {
   for (const listener of listeners) listener();
 }
 
-function load(sessionId: string): Promise<string | null> {
+/// Asks the host for the session's avatar once at a time (exported for tests).
+export function loadAgentAvatar(sessionId: string): Promise<string | null> {
   const started = pending.get(sessionId);
   if (started) return started;
   const asked = changes.get(sessionId) ?? 0;
@@ -90,7 +91,7 @@ export function useAgentAvatar(sessionId: string | undefined): string | undefine
   useEffect(() => {
     if (!sessionId || avatars.has(sessionId)) return;
     let live = true;
-    void load(sessionId).then(() => {
+    void loadAgentAvatar(sessionId).then(() => {
       if (live) redraw((count) => count + 1);
     });
     return () => {
