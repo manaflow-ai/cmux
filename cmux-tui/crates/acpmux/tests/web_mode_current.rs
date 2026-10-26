@@ -504,10 +504,7 @@ async fn a_phones_signed_allow_from_a_paired_device_counts_once_never_lasts_and_
     let key =
         EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref(), &rng).unwrap();
     let public: String = key.public_key().as_ref().iter().map(|b| format!("{b:02x}")).collect();
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
     let exp = now + 120;
     let d = dir("phone");
     let hub = hub(&d, None);
@@ -521,7 +518,8 @@ async fn a_phones_signed_allow_from_a_paired_device_counts_once_never_lasts_and_
     let s = no_mode_session(&mut local, &d).await;
     set_policy(&mut local, &s, "approve-reads").await;
     let ask = |text: &str| json!({"sessionId": s, "prompt": [{"type": "text", "text": text}]});
-    let plain = |pid: &str, option: &str| json!({"sessionId": s, "permissionId": pid, "optionId": option});
+    let plain =
+        |pid: &str, option: &str| json!({"sessionId": s, "permissionId": pid, "optionId": option});
     let respond = "_acpmux/permission_respond";
 
     // (2) An allow always, even signed for it, is refused; a deny counts.
@@ -593,7 +591,8 @@ async fn a_proved_allow_from_a_paired_device_changes_no_mode() {
     let respond = "_acpmux/permission_respond";
     let turn = turns.send("session/prompt", ask("ask: touch marker")).await;
     let (pid, nonce, instance) = pending_ask(&mut local, &s, 0).await;
-    let r = web.call(respond, json!({"sessionId": s, "permissionId": pid, "optionId": "yes"})).await;
+    let r =
+        web.call(respond, json!({"sessionId": s, "permissionId": pid, "optionId": "yes"})).await;
     assert_eq!(reason(&r), "remote.mode_not_asking", "{r}");
     let proof =
         acpmux::hub::person::decision_proof(KEY, &instance, &s, &pid, "yes", &nonce).unwrap();
@@ -609,9 +608,11 @@ async fn a_proved_allow_from_a_paired_device_changes_no_mode() {
     assert_eq!(info["result"]["modes"]["currentModeId"], json!("normal"), "{info}");
     let turn = turns.send("session/prompt", ask("ask: git push")).await;
     let (pid, _, _) = pending_ask(&mut local, &s, 1).await;
-    let r = web.call(respond, json!({"sessionId": s, "permissionId": pid, "optionId": "yes"})).await;
+    let r =
+        web.call(respond, json!({"sessionId": s, "permissionId": pid, "optionId": "yes"})).await;
     assert_eq!(reason(&r), "remote.mode_not_asking", "{r}");
-    let r = local.call(respond, json!({"sessionId": s, "permissionId": pid, "optionId": "no"})).await;
+    let r =
+        local.call(respond, json!({"sessionId": s, "permissionId": pid, "optionId": "no"})).await;
     assert!(r.get("error").is_none(), "{r}");
     assert!(turns.reply(turn).await.get("error").is_none());
     let _ = std::fs::remove_dir_all(&d);
