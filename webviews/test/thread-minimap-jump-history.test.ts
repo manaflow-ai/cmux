@@ -1,0 +1,146 @@
+// A rail jump to the oldest loaded prompt pages older history above it. The target row must stay
+// at the landing line while those pages arrive and the rows above it measure.
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import path from "node:path";
+import { chromium, type Browser } from "playwright";
+import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { LANDING_OFFSET } from "../src/agent-session/acpmux/threadMinimap/model";
+import { installPaintedFrames } from "./support/paintedFrames";
+import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
+
+await requireBrowserLane("thread-minimap-jump-history.test.ts", async () => {
+  setDefaultTimeout(120_000);
+  const { createServer } = await import("vite");
+  const webviews = path.resolve(import.meta.dir, "..");
+  let vite: Awaited<ReturnType<typeof createServer>> | undefined;
+  let browser: Browser | undefined;
+  beforeAll(async () => {
+    vite = await createServer({
+      root: webviews,
+      configFile: path.join(webviews, "vite.config.ts"),
+      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      logLevel: "error",
+    });
+    await vite.listen();
+    await warmViteServer(vite, "/test/browser/thread-minimap.html");
+    browser = await chromium.launch({ headless: true });
+  });
+  afterAll(async () => {
+    await browser?.close();
+    await vite?.close();
+  });
+
+  const row = (id: string, kind: string, text?: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
+  const turn = (index: number) => [
+    row(`t${index}-user`, "user", `Prompt ${index}`),
+    row(`t${index}-answer`, "assistant", `Answer ${index}. A long answer keeps the row measurable.`),
+    { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
+  ];
+  const all = Array.from({ length: 1_500 }, (_, index) => turn(index)).flat();
+  const loadedStart = 1_200;
+  const target = `t${loadedStart}-user`;
+
+  describe("thread minimap jump through older pages (Chromium)", () => {
+    test("holds the clicked row while older pages prepend", async () => {
+      const { port } = vite!.httpServer!.address() as { port: number };
+      const page = await browser!.newPage({ viewport: { width: 1280, height: 820 } });
+      await installPaintedFrames(page);
+      await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html`);
+      await page.waitForFunction(() => "__showRows" in window && "__setOlderPage" in window);
+      await page.evaluate((rows) => (window as any).__showRows(rows), all.slice(loadedStart * 3));
+      await page.waitForSelector(".acpmux-minimap__tick");
+
+      let pageStart = loadedStart;
+      await page.evaluate(() => {
+        (window as any).__setOlderPage(() => {
+          const state = window as any;
+          if (state.__pageStart === 0) return Promise.resolve();
+          state.__pageCount = (state.__pageCount ?? 0) + 1;
+          state.__pageStart = Math.max(0, state.__pageStart - 100);
+          const rows = state.__allRows as AcpmuxRow[];
+          state.__showRows(rows.slice(state.__pageStart * 3));
+          return Promise.resolve();
+        });
+      });
+      await page.evaluate(
+        ({ rows, start }) => {
+          (window as any).__allRows = rows;
+          (window as any).__pageStart = start;
+          (window as any).__showRows(rows.slice(start * 3));
+        },
+        { rows: all, start: pageStart },
+      );
+      const frames: { target?: number; scrollTop: number }[] = [];
+      await page.evaluate(() => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        scroller.scrollTop = 0;
+        scroller.dispatchEvent(new Event("scroll"));
+      });
+      await page.waitForSelector(`.acpmux-row[data-row-id="${target}"]`);
+      await page.evaluate((id) => {
+        const probe = window as any;
+        probe.__frames = [];
+        probe.__targetRemounts = 0;
+        let previous: HTMLElement | undefined;
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const observer = new MutationObserver(() => {
+          const current = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].find(
+            (row) => row.dataset.rowId === id,
+          );
+          if (previous && current !== previous) probe.__targetRemounts++;
+          if (current) previous = current;
+        });
+        observer.observe(scroller, { childList: true, subtree: true });
+        probe.__stopTargetObserver = () => observer.disconnect();
+        window.cmuxAfterPaint(() => {
+          const view = scroller.getBoundingClientRect();
+          const node = document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${id}"]`);
+          if (node) previous = previous ?? node;
+          probe.__frames.push({
+            target: node ? node.getBoundingClientRect().top - view.top : undefined,
+            scrollTop: document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop,
+          });
+          return probe.__frames.length < 240;
+        });
+      }, target);
+      await page.evaluate(
+        ({ rows, start }) => {
+          (window as any).__pageStart = start - 100;
+          (window as any).__showRows((rows as AcpmuxRow[]).slice((start - 100) * 3));
+        },
+        { rows: all, start: pageStart },
+      );
+      await page.waitForFunction(() => ((window as any).__frames as unknown[]).length >= 30);
+      await page.evaluate(() => {
+        const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+        list.scrollTop = 1_000;
+        list.dispatchEvent(new Event("scroll"));
+      });
+      await page.waitForSelector('[data-tick="100"]');
+      const tick = await page.evaluate(() => {
+        const box = document.querySelector<HTMLElement>('[data-tick="100"]')!.getBoundingClientRect();
+        return { x: box.left + 6, y: box.top + box.height / 2 };
+      });
+      await page.mouse.click(tick.x, tick.y);
+      await page.waitForFunction(() => ((window as any).__frames as unknown[]).length >= 120);
+      const captured = await page.evaluate(() => (window as any).__frames as { target?: number; scrollTop: number }[]);
+      const pageCount = await page.evaluate(() => (window as any).__pageCount ?? 0);
+      const targetRemounts = await page.evaluate(() => {
+        (window as any).__stopTargetObserver?.();
+        return (window as any).__targetRemounts ?? 0;
+      });
+      console.log("history pages", pageCount, "range", Math.max(...captured.filter((f) => f.target !== undefined).map((f) => f.target!)) - Math.min(...captured.filter((f) => f.target !== undefined).map((f) => f.target!)));
+      frames.push(...captured);
+      await page.close();
+
+      const landed = frames.filter((frame) => frame.target !== undefined);
+      expect(landed.length).toBeGreaterThan(30);
+      const tail = landed.slice(-30);
+      expect(tail.every((frame) => Math.abs(frame.target! - LANDING_OFFSET) <= 2)).toBe(true);
+      const targetRange = landed.map((frame) => frame.target!);
+      expect(Math.max(...targetRange) - Math.min(...targetRange)).toBeLessThanOrEqual(4);
+      expect(targetRemounts).toBe(0);
+    });
+  });
+});
