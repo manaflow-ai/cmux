@@ -917,6 +917,56 @@ struct SurfaceParams {
         with self.assertRaisesRegex(CHECKER.SdkSchemaError, "event stream drift"):
             self.validate(document, self.inventory)
 
+    def test_agent_inventory_requests_come_from_the_enums_their_handlers_decode(self) -> None:
+        commands = CHECKER.handler_command_fields(
+            {"agent-inventory", "agent-inventory-refresh", "agent-inventory-watch"}
+        )
+        presence = {
+            name: {field: CHECKER._runtime_field_presence(value) for field, value in fields.items()}
+            for name, fields in commands.items()
+        }
+        self.assertEqual(
+            presence,
+            {
+                "agent-inventory": {"expected_machine_id": ("optional", False)},
+                "agent-inventory-refresh": {"expected_machine_id": ("required", False)},
+                "agent-inventory-watch": {
+                    "expected_machine_id": ("required", False),
+                    "enabled": ("required", False),
+                    "expected_watch_id": ("optional", False),
+                    "admission_receipt": ("optional", False),
+                },
+            },
+        )
+
+    def test_agent_inventory_watch_field_type_drift_is_rejected(self) -> None:
+        document = copy.deepcopy(self.document)
+        document["commands"]["agent-inventory-watch"]["request"]["fields"]["enabled"]["type"] = {
+            "kind": "scalar",
+            "name": "string",
+        }
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "type drift"):
+            self.validate(document, self.inventory)
+
+    def test_agent_inventory_watch_fence_presence_drift_is_rejected(self) -> None:
+        document = copy.deepcopy(self.document)
+        fields = document["commands"]["agent-inventory-watch"]["request"]["fields"]
+        fields["expected_machine_id"]["presence"] = "optional"
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "presence drift"):
+            self.validate(document, self.inventory)
+
+    def test_present_non_null_option_is_optional_and_not_nullable(self) -> None:
+        refusing = CHECKER.RuntimeField(
+            "Option<String>", ('default, deserialize_with = "present_non_null"',)
+        )
+        self.assertEqual(CHECKER._runtime_field_presence(refusing), ("optional", False))
+        document = copy.deepcopy(self.document)
+        document["commands"]["agent-inventory"]["request"]["fields"]["expected_machine_id"][
+            "nullable"
+        ] = True
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "presence drift"):
+            self.validate(document, self.inventory)
+
 
 if __name__ == "__main__":
     unittest.main()
