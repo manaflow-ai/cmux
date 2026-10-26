@@ -195,6 +195,20 @@ import Testing
         #expect(icons.image(name: .terminal, tint: .black, size: 16, scale: 2) !== first, "a hit after the release draws again")
     }
 
+    @Test func theAgentMarkCacheDrawsAgainAfterACriticalRelease() throws {
+        let clock = ManualClock()
+        let marks = TabAgentMarkCache(clock: clock)
+        // "claude" is a brand in AgentBrandCatalog; the cache takes the brand's raw ID.
+        let first = try #require(marks.image(brand: "claude", tint: .black, size: 16, scale: 2))
+        #expect(marks.image(brand: "claude", tint: .black, size: 16, scale: 2) === first, "a hit")
+        #expect(marks.images.memoryUsage == MemoryUsage(footprintBytes: TabImageMemo<CGImage>.pixelBytes(first), entries: 1))
+        clock.advance(by: TabImageMemo<CGImage>.inUse * 2)
+        #expect(marks.images.releaseMemory(within: Self.slice(0)) == .done)
+        #expect(marks.images.memoryUsage == .empty)
+        let again = try #require(marks.image(brand: "claude", tint: .black, size: 16, scale: 2))
+        #expect(again !== first, "a hit after the release draws again")
+    }
+
     @Test func userEmojiAndSymbolNamesAreReleasedAndComeBack() throws {
         let clock = ManualClock()
         let icons = TabUserIconImages(clock: clock)
