@@ -1,4 +1,5 @@
 title: Restart reconnects to a stuck session
 category: fixed
+docs: https://cmux.com/docs
 
-Restart cmux-tui in the connection banner now recovers a session that has stopped accepting connections. Retry reconnects when the session becomes available again.
+Use Restart in the connection banner to recover a session that has stopped accepting connections. Retry reconnects when the session becomes available again.
