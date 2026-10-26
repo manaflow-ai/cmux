@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -24,8 +25,12 @@ final class ChromiumPageHost: PageChromiumHosting {
     private let chromium: ChromiumEngineSlot
     private let enginePreference: @MainActor () -> BrowserDefaultEngine
     private weak var keyRouter: KeyRouter?
+    /// The scheduler pages report their renderer's hang on (feature `pageHangNotice`); nil: they never do.
+    private let hangWork: MainWorkScheduler?
     /// The app's lanes: a page's screenshot reply is decoded on their `.cpu` lane.
     let work: BackgroundWork
+    /// The app's dialog center: a page's "Page unresponsive" card shows there.
+    let dialogs: CmuxDialogCenter
 
     /// - Parameters:
     ///   - chromium: The app's Chromium engine slot: the engine is built when the first page opens in Chromium.
@@ -33,12 +38,17 @@ final class ChromiumPageHost: PageChromiumHosting {
     ///     windows restore already follow the file).
     ///   - keyRouter: Gets the app's shortcuts from a focused Chromium page.
     ///   - work: The app's lanes (``PageChromiumHosting/work``).
+    ///   - dialogs: The app's dialog center (``PageChromiumHosting/dialogs``).
+    ///   - hangWork: The app's main-thread scheduler when pages report their renderer's hang (feature
+    ///     `pageHangNotice`, ``PageChromiumEvent/unresponsive``); nil: they never do.
     init(chromium: ChromiumEngineSlot, preference: @escaping @MainActor () -> BrowserDefaultEngine, keyRouter: KeyRouter?,
-         work: BackgroundWork) {
+         work: BackgroundWork, dialogs: CmuxDialogCenter, hangWork: MainWorkScheduler?) {
         self.chromium = chromium
         enginePreference = preference
         self.keyRouter = keyRouter
         self.work = work
+        self.dialogs = dialogs
+        self.hangWork = hangWork
     }
 
     var preference: BrowserDefaultEngine { enginePreference() }
@@ -59,13 +69,23 @@ final class ChromiumPageHost: PageChromiumHosting {
         #endif
         let tab = try await cef.makePagesTab(configuration)
         tab.keyRouter = keyRouter
-        let chromiumPage = CEFPageChromiumPage(tab: tab, pageID: page.id)
+        let chromiumPage = CEFPageChromiumPage(tab: tab, pageID: page.id, hangWork: hangWork)
         tab.delegate = chromiumPage
         tab.agentRelay.createBrowser()
         guard await tab.agentRelay.browserCreated() else {
+            // The host ended before the browser existed (`CEFRuntime.hostEnded`): the page waits for its supervisor.
+            let endedWithHost = tab.browserEndedWithHost
             tab.close()
+            if endedWithHost { throw PageChromiumStartError.browserEnded }
             throw Failure.browserNotCreated
         }
         return chromiumPage
+    }
+
+    /// In cmux's own process a browser that ended cannot start again: the answer is ``PageChromiumSupervisorOutcome/gaveUp``,
+    /// in the call. In the Chromium Host it comes once the host's supervisor started a new host, or refused to.
+    func supervisorOutcome(then answer: @escaping @MainActor @Sendable (PageChromiumSupervisorOutcome) -> Void) {
+        guard let engine = chromium.built else { return answer(.gaveUp) }
+        engine.restartPagesAfterHostEnd { answer($0 ? .restarted : .gaveUp) }
     }
 }

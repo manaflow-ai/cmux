@@ -39,7 +39,7 @@ pub async fn spawn_within(
     budget: std::time::Duration,
 ) -> Result<HostRecord> {
     // The build-session kill switch: no host and no harness (cx-9ettq).
-    crate::launch_policy::refuse_if_disabled()?;
+    crate::launch_policy::refuse_if_denied()?;
     let mut cmd = tokio::process::Command::new(&launcher.exe);
     cmd.args(&launcher.prefix)
         .arg(HOST_ARG)

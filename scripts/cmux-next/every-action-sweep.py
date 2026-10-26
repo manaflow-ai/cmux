@@ -738,9 +738,11 @@ class SweepDriver:
 # extra.emulation (BrowserDeviceHandlers: browser.tab.emulate on the focused tab); a session's tabs start with no fit
 # and "off" clears any fit, so browserFit's 16:9 fixture, and the two desktop fits that toggle one fit, never leave
 # a later Chromium row measuring a letterboxed page. The directional swaps are undone by swapping the same two panes
-# back (``swap_back``).
+# back (``swap_back``). Minimize leaves the launch's window in the Dock, which the reset's topology does not show;
+# Show cmux deminiaturizes it (WindowActivation.show), so later rows run on a window that is on screen.
 FIT_OFF = ("browserFit", {"fit": "off"})
-UNDO = {"browserFit": FIT_OFF, "browserFitDesktop": FIT_OFF, "browserFitDesktop1280": FIT_OFF}
+UNDO = {"browserFit": FIT_OFF, "browserFitDesktop": FIT_OFF, "browserFitDesktop1280": FIT_OFF,
+        "minimizeWindow": ("showMainWindow", {})}
 # A pane frame's edge sits on its neighbor's within this many points (frames are rounded to points).
 EDGE_PT = 1.0
 TOGGLES = r"(?i)(toggle|Toggle|zoom(?!In|Out|Reset)|^show|^hide|Sidebar$|fullScreen|pin|mute)"

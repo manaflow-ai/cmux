@@ -123,6 +123,8 @@ final class CEFRuntime {
     var evaluationBrowsers: [Int32: Int32] = [:]
     var earlyEvaluations: [Int32: CEFEvaluationResult] = [:]
     var nextEvaluation: Int32 = 1
+    /// The one evaluation a synchronous turn waits for by callback (``evaluateLatest(_:world:script:done:)``).
+    var latestEvaluation: (token: Int32, browser: Int32, done: (CEFEvaluationResult?) -> Void)?
     /// What the running fork offers (`CEFForkFeatures`).
     var forkFeatures: CEFForkFeatures { shim.map(CEFForkFeatures.init) ?? CEFForkFeatures(forkAPIVersion: 0, shimHasRendererPaths: false) }
     /// Browser of each pending site reply, so a closed browser fails them.
@@ -233,12 +235,15 @@ final class CEFRuntime {
 
     /// Takes the engine's stores, sign-in tabs and wait deadlines (the process has one Chromium, so the
     /// App's one engine hands them over before its first start or tab), and its host supervisor, which
-    /// puts a runtime that has not started in host mode (host widgets in cmux with `hostWidgets`, drops with `hostDrags`).
-    /// Without `waitDeadlines` the runtime keeps its own queue; the pump made at the start runs on the queue
-    /// adopted before it. Idempotent for the same stores.
+    /// puts a runtime that has not started in host mode (host widgets in cmux with `hostWidgets`, drops with `hostDrags`,
+    /// page resizes fenced with `hostResizeFence`). Without `waitDeadlines` the runtime keeps its own queue; the pump made
+    /// at the start runs on the queue adopted before it. Idempotent for the same stores.
     func adopt(stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks, waitDeadlines: MainWakeUpQueue? = nil,
-               hostSupervisor: (any ChromiumHostSupervising)? = nil, hostWidgets: Bool = false, hostDrags: Bool = false) {
-        if let hostSupervisor, hostStart == nil, state == .idle { adoptHost(hostSupervisor, showsWidgets: hostWidgets, takesDrags: hostDrags) }
+               hostSupervisor: (any ChromiumHostSupervising)? = nil, hostWidgets: Bool = false, hostDrags: Bool = false,
+               hostResizeFence: Bool = false) {
+        if let hostSupervisor, hostStart == nil, state == .idle {
+            adoptHost(hostSupervisor, showsWidgets: hostWidgets, takesDrags: hostDrags, fencesResizes: hostResizeFence)
+        }
         self.signInCallbacks = signInCallbacks
         if let waitDeadlines { wakeUps = waitDeadlines }
         guard stores !== self.stores else { return }

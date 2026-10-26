@@ -8,7 +8,14 @@ import SwiftUI
 struct FeedInboxView: View {
     let model: FeedModel
     @Environment(\.feedColors) private var colors
-    @State private var filter = FeedInboxFilter()
+    /// Seeded where the view is made, not on appear: a gated page tab appears again on each show
+    /// (`VisibilityGatedHostingView`), and the person's choice must stay.
+    @State private var filter: FeedInboxFilter
+
+    init(model: FeedModel) {
+        self.model = model
+        _filter = State(initialValue: FeedInboxFilter(connection: model.githubConnectionEnabled ? .github : .feed))
+    }
 
     var body: some View {
         let items = filter.items(from: model.visibleItems)
@@ -58,9 +65,6 @@ struct FeedInboxView: View {
                 }
             }
             .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .onAppear {
-            if model.githubConnectionEnabled { filter.connection = .github }
         }
     }
 }

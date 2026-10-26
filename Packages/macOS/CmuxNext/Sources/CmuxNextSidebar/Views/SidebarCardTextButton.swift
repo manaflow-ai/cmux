@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextInput
 
 /// A small text button in a sidebar card's corner (UPDATE-CARD-CLOSE, Lawrence 2026-10-14: "need a
 /// more explicit button"): the update cards' "Hide", which says what one click does where a bare x
@@ -13,6 +14,8 @@ final class SidebarCardTextButton: NSView {
     private var isHovered = false { didSet { if isHovered != oldValue { needsDisplay = true } } }
     private var isPressed = false { didSet { if isPressed != oldValue { needsDisplay = true } } }
     private var isKeyFocused = false { didSet { if isKeyFocused != oldValue { needsDisplay = true } } }
+    /// The system's Full Keyboard Access setting (a test sets its own).
+    var fullKeyboardAccess: @MainActor () -> Bool = { NSApp.isFullKeyboardAccessEnabled }
     private lazy var keyRepaint = KeyWindowRepaint(self)
 
     override init(frame: NSRect) {
@@ -129,10 +132,10 @@ final class SidebarCardTextButton: NSView {
         return true
     }
 
+    /// A click never takes the keyboard focus (the window's last dispatched event is a mouse button).
     override var acceptsFirstResponder: Bool {
-        guard NSApp.isFullKeyboardAccessEnabled else { return false }
-        let mouse: Set<NSEvent.EventType> = [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp]
-        return !(NSApp.currentEvent.map { mouse.contains($0.type) } ?? false)
+        guard fullKeyboardAccess() else { return false }
+        return (window as? InputTapHosting)?.inputTap?.lastDispatched?.eventClass != .button
     }
 
     override var canBecomeKeyView: Bool { acceptsFirstResponder && !isHiddenOrHasHiddenAncestor }

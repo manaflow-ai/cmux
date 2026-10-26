@@ -9,5 +9,6 @@
   "params": [],
   "stories": [],
   "sticky": false,
-  "runtimeMutable": false
+  "runtimeMutable": false,
+  "replaces": ["memory.discard.remoteTabs"]
 }

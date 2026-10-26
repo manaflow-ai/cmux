@@ -270,6 +270,16 @@ pub(crate) fn live_of(thread: &registry::NativeThread) -> LiveQos {
     sys::live_of(thread)
 }
 
+/// The scheduler priority a registered thread runs at now, after QoS,
+/// overrides and decay: macOS `THREAD_EXTENDED_INFO` `pth_curpri` (Default
+/// 31, UserInteractive 47), Linux the `priority` field of
+/// `/proc/<pid>/task/<tid>/stat` (20 + nice for normal policies,
+/// -1 - rt_priority for FIFO and RR), read with syscalls. `None` when the
+/// read fails or the platform has none. Same caller guarantee as [`live_of`].
+pub(crate) fn priority_of(thread: &registry::NativeThread) -> Option<i32> {
+    sys::priority_of(thread)
+}
+
 #[cfg(target_vendor = "apple")]
 mod sys {
     use super::{LiveQos, QosChange, Restored, ThreadQos};
@@ -327,6 +337,29 @@ mod sys {
 
     pub(super) fn live_of(thread: &NativeThread) -> LiveQos {
         live(thread.pthread())
+    }
+
+    pub(super) fn priority_of(thread: &NativeThread) -> Option<i32> {
+        // SAFETY: `thread` is live (see `live_of`). The port name is the
+        // thread's own; this takes no reference, so none is released.
+        let port = unsafe { libc::pthread_mach_thread_np(thread.pthread()) };
+        if port == 0 {
+            return None;
+        }
+        let mut info = std::mem::MaybeUninit::<libc::thread_extended_info>::zeroed();
+        let mut count = libc::THREAD_EXTENDED_INFO_COUNT;
+        // SAFETY: `info` has room for THREAD_EXTENDED_INFO_COUNT integers,
+        // the count passed; the kernel writes at most that many.
+        let rc = unsafe {
+            libc::thread_info(
+                port,
+                libc::THREAD_EXTENDED_INFO as libc::thread_flavor_t,
+                info.as_mut_ptr().cast::<libc::integer_t>(),
+                &mut count,
+            )
+        };
+        // SAFETY: zero-initialized (a valid thread_extended_info), then filled.
+        (rc == libc::KERN_SUCCESS).then(|| unsafe { info.assume_init() }.pth_curpri)
     }
 
     pub(super) fn save() -> Saved {
@@ -432,6 +465,24 @@ mod sys {
         thread.tid().and_then(nice_of).map_or(LiveQos::Unknown, LiveQos::Nice)
     }
 
+    pub(super) fn priority_of(thread: &NativeThread) -> Option<i32> {
+        let tid = thread.tid()?;
+        let pid = libc::pid_t::try_from(tid).ok()?;
+        // SAFETY: plain syscall with an integer argument; on Linux a tid
+        // names that one thread.
+        let policy = unsafe { libc::sched_getscheduler(pid) };
+        match policy & !libc::SCHED_RESET_ON_FORK {
+            libc::SCHED_FIFO | libc::SCHED_RR => {
+                let mut param = libc::sched_param { sched_priority: 0 };
+                // SAFETY: `param` is valid for the call.
+                (unsafe { libc::sched_getparam(pid, &mut param) } == 0)
+                    .then(|| -1 - param.sched_priority)
+            }
+            _ if policy >= 0 => nice_of(tid).map(|nice| 20 + nice),
+            _ => None,
+        }
+    }
+
     pub(super) fn save() -> Saved {
         Saved { nice: nice_of(self_tid()) }
     }
@@ -466,6 +517,10 @@ mod sys {
 
     pub(super) fn live_of(_thread: &NativeThread) -> LiveQos {
         LiveQos::Unknown
+    }
+
+    pub(super) fn priority_of(_thread: &NativeThread) -> Option<i32> {
+        None
     }
 
     pub(super) fn save() -> Saved {

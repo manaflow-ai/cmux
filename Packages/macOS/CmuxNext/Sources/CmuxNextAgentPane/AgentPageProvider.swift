@@ -9,8 +9,8 @@ public extension PageDescriptor {
     /// It opens no connection of its own (the host's native transport, AgentPaneTransport, carries
     /// acpmux; a Debug dev server adds its own HMR origin, ``PageDevServer``), shows
     /// loopback previews and render cards (AgentPaneRenderFrame) in frames, plays its granted media
-    /// (`media-src 'self'`), and runs only its own script files, no inline script
-    /// (plus WebAssembly compilation, `'wasm-unsafe-eval'`, for Ondine's Mermaid diagrams). The page's
+    /// (`media-src 'self'`), and runs only its own script files and the pages' shared chunks
+    /// (``PageCSP/sharedChunks``), no inline script, plus WebAssembly compilation (`'wasm-unsafe-eval'`) for Ondine. The page's
     /// meta CSP says the same (build-agent-pane-web.sh); the host runs the
     /// user's registry.js through evaluateJavaScript, which the CSP does not govern. Its libraries,
     /// media and render frame are generated resources (``AgentPageResources``).

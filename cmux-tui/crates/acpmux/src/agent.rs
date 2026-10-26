@@ -268,8 +268,8 @@ impl ChildAgent {
         // it can drive its own session and siblings through the CLI.
         session: Option<(&str, &str)>,
     ) -> Result<Arc<Self>> {
-        // The build-session kill switch: no agent process at all (cx-9ettq).
-        crate::launch_policy::refuse_if_disabled()?;
+        // The build-session kill switch: no process for a harness it does not allow (cx-9ettq).
+        crate::launch_policy::refuse_unless_allowed(name)?;
         let codex = (translator.is_none()
             && command_line.is_none()
             && crate::codex_app_server::is_profile_launch(&profile.argv))

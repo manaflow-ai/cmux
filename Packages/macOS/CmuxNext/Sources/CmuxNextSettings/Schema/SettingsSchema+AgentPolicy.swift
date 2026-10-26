@@ -196,6 +196,7 @@ extension SettingsSchema {
         "browser.hibernatePinnedTabs",
         "browser.freezeHiddenTabs",
         "browser.keepNeighborTabsAwake",
+        "memory.saver", // how soon hidden content frees its memory (performance, like browser.hibernation)
         "notifications.dismissal",
         "notifications.timeoutSeconds",
         "notifications.sources.agent.dismissal",
