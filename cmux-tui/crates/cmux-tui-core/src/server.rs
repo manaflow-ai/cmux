@@ -2331,6 +2331,9 @@ use worker_admission::{
     ServerSurfaceAdmissionError, ServerSurfaceBytesPermit,
 };
 
+// The frame variant of the attach writer; no transport serves it yet.
+#[cfg_attr(not(test), expect(dead_code, reason = "no transport serves attach-frames-v1 yet"))]
+mod attach_frames;
 mod render_service;
 use render_service::{
     BudgetedJsonWriter, BudgetedText, RenderService, json_error_to_io, write_base64_json_string,

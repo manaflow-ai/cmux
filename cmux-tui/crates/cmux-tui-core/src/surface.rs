@@ -280,6 +280,10 @@ pub struct AttachStream {
     /// parser boundary; write this after it and after the colors, right
     /// before the live stream that completes it.
     pub pending_sequence: Arc<[u8]>,
+    /// Absolute PTY offset of the first byte `stream` delivers: the PTY
+    /// output published before the replay was taken.
+    #[cfg_attr(not(test), expect(dead_code, reason = "read by attach frames once bound"))]
+    pub(crate) offset: u64,
     pub stream: AttachFrameReceiver,
     pub(crate) lifecycle: AttachLifecycle,
 }
@@ -343,6 +347,7 @@ mod attach_tap;
 use attach_tap::AttachFrameMerge;
 pub use attach_tap::AttachFrameReceiver;
 pub(crate) use attach_tap::AttachLifecycle;
+pub(crate) use attach_tap::AttachResize;
 use attach_tap::AttachTap;
 pub(crate) use attach_tap::ViewerEvent;
 pub(crate) mod snapshot_attach;

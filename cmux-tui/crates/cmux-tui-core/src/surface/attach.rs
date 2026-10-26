@@ -40,6 +40,9 @@ impl Surface {
         let (cols, rows) = (term.cols(), term.rows());
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let colors = pty.terminal_colors_locked(&term, defaults);
+        // Every published byte advances this under the terminal lock, so
+        // the tap's first byte has exactly this offset.
+        let (_, offset) = pty.snapshot_position.load();
         if exited || pty.dead.load(Ordering::Acquire) {
             drop(tap);
         } else {
@@ -58,6 +61,7 @@ impl Surface {
             kitty_state: replay.kitty_state,
             colors,
             pending_sequence: replay.pending_sequence.into(),
+            offset,
             stream,
             lifecycle,
         })
