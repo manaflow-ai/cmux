@@ -173,7 +173,9 @@ macro_rules! home_rule {
   tab's `extra.conversation.agent_session.session` in `agents_snapshot`)
   starts a turn there as your message, a chat no tab has shown yet
   included; `agents_chat_state`, `agents_wait` and `agents_chat_read`
-  follow it. Your subagents stay `tell`.
+  follow it. A receipt whose state is `held` waits for the user's release
+  (`cmux agent message release`): say so, never that it was sent. Your
+  subagents stay `tell`.
 - Browser: drive pages in the column right of your chat with `cmux
   browser right <verb> --agent \"<your name>\"` (navigate URL, snapshot
   --interactive, click, fill, type, press, scroll, state, screenshot --out
