@@ -145,15 +145,27 @@ while :; do
   # Retry-After when the output carries it (gh api -i), else exponential from 60 s.
   want="$(grep -ihoE '^retry-after: *[0-9]+' "$work/out" "$work/err" | head -1 | tr -dc '0-9')"
   [ -n "$want" ] || want=$((60 * (1 << (try - 1))))
-  spent="$(cat "$ledger_dir/waited" 2>/dev/null || echo 0)"
-  case "$spent" in '' | *[!0-9]*) spent=0 ;; esac
+  # The job's ledger, as gh_budget_wait.sh reads it: none yet is nothing waited; one that
+  # cannot be read or parsed counts as the whole budget spent (fail closed).
+  if [ -e "$ledger_dir/waited" ]; then
+    spent="$(cat "$ledger_dir/waited" 2>/dev/null)" || spent="$max_total"
+    case "$spent" in '' | *[!0-9]*) spent="$max_total" ;; esac
+  else
+    spent=0
+  fi
   left=$((max_total - spent))
   [ "$left" -gt 0 ] || break
   [ "$want" -le "$left" ] || want="$left"
+  # Reserve the wait before sleeping, written whole and renamed into place; a wait that
+  # cannot be recorded is not taken (later steps could not see it).
+  if ! { mkdir -p "$ledger_dir" 2>/dev/null &&
+    echo $((spent + want)) 2>/dev/null >"$ledger_dir/waited.$$" &&
+    mv -f "$ledger_dir/waited.$$" "$ledger_dir/waited" 2>/dev/null; }; then
+    note "could not record a ${want}s wait in $ledger_dir/waited; not waiting"
+    break
+  fi
   note "gh ${1:-} ${2:-} was refused with the App token and with github.token (try $try of $attempts); backing off ${want}s (${spent}s waited in this job so far)"
   sleep "$want"
-  mkdir -p "$ledger_dir"
-  echo $((spent + want)) >"$ledger_dir/waited"
   try=$((try + 1))
 done
 cat "$work/out"
