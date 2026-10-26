@@ -150,8 +150,33 @@ struct Seen {
   std::string s2;
   int ended = -1;
   bool scheduled = false;
+  int ready = 0;
+  std::vector<uint32_t> replies;
 };
 Seen seen;
+
+Message Hello(const char* wire) {
+  TlvWriter w;
+  w.Str(wire);
+  const char* exports[] = {"cmux_shim_tab_evaluate"};
+  w.StrList(exports, 1);
+  Message message;
+  message.op = cmux_host::control::kOpHello;
+  message.fields = w.Take();
+  return message;
+}
+
+void OnReady(void*) {
+  ++seen.ready;
+}
+
+void OnReply(void*, uint32_t token, const void* fields, size_t length) {
+  std::vector<cmux_host::control::Field> decoded;
+  CHECK(cmux_host::control::DecodeFields(std::string_view(static_cast<const char*>(fields), length), &decoded));
+  TlvReader r(std::move(decoded));
+  CHECK(r.I32() == 1 && r.ok() && r.AtEnd());
+  seen.replies.push_back(token);
+}
 
 std::string NavigationState(int browser) {
   char* s = cmux_shim_tab_navigation_state(browser);
@@ -193,6 +218,12 @@ int main() {
   CHECK(cmux_shim_devtools_call(1, "Page.enable", "{}") == cmux_remote::kFirstMintedDevToolsID);
   cmux_shim_set_background_color(0xff102030u);
   CHECK(cmux_shim_page_scheme_add("docs", "/tmp", nullptr) == 1);
+  // The in-process shim's own refusals: nothing is queued for them.
+  CHECK(cmux_shim_page_scheme_add("cmux.settings", "/tmp", nullptr) == 0);  // reserved
+  CHECK(cmux_shim_page_scheme_add("no spaces", "/tmp", nullptr) == 0);
+  CHECK(cmux_shim_page_scheme_add_first_party("docs", "/tmp", nullptr) == 0);  // not reserved
+  CHECK(cmux_shim_page_scheme_add_first_party_dynamic("cmux.app", "/tmp", nullptr, nullptr, "../x") == 0);
+  CHECK(cmux_shim_add_native_messaging_dir("", 1) == 0);
   CHECK(cmux_shim_window_count() == 0);
   cmux_remote_shim_stats stats = {};
   cmux_remote_shim_get_stats(&stats);
@@ -210,23 +241,34 @@ int main() {
   cmux_remote_shim_callbacks callbacks = {};
   callbacks.post_main = &PostMain;
   callbacks.ended = &OnEnded;
+  callbacks.ready = &OnReady;
+  callbacks.reply = &OnReply;
   cmux_remote_shim_configure(&callbacks);
 
   Host host;
   CHECK(AttachNew(&host) == 1);
   CHECK(cmux_remote_shim_attached() == 1);
+  uint32_t scheme_token = 0;
   {
-    // preinit in call order, INITIALIZE, then the posts in call order.
+    // HELLO, preinit in call order, INITIALIZE, then the posts in call order.
     const std::vector<uint16_t> want = {
-        cmux_remote::kOpSetBackgroundColor, cmux_remote::kOpPageSchemeAdd, cmux_remote::kOpInitialize,
-        cmux_remote::kOpTabAdd,             cmux_remote::kOpTabAdd,        cmux_remote::kOpCreateWindow,
-        cmux_remote::kOpDevtoolsCall,       cmux_remote::kOpSetNewTabPageUrl};
-    const std::vector<Message> got = host.Read(want.size());
+        cmux_host::control::kOpHello, cmux_remote::kOpSetBackgroundColor, cmux_remote::kOpPageSchemeAdd,
+        cmux_remote::kOpInitialize,   cmux_remote::kOpTabAdd,             cmux_remote::kOpTabAdd,
+        cmux_remote::kOpCreateWindow, cmux_remote::kOpDevtoolsCall,       cmux_remote::kOpSetNewTabPageUrl};
+    std::vector<Message> got = host.Read(want.size());
     CHECK(got.size() == want.size());
     for (size_t i = 0; i < got.size() && i < want.size(); ++i) CHECK(got[i].op == want[i]);
     if (got.size() == want.size()) {
+      TlvReader hello(got[0].fields);
+      CHECK(hello.Str() == std::optional<std::string>(cmux_remote::kWireID));
+      CHECK(hello.Str() == std::optional<std::string>(cmux_remote::kShimAbiID));
+      CHECK(hello.ok() && hello.AtEnd());
+      got.erase(got.begin());
       TlvReader color(got[0].fields);
       CHECK(color.U32() == 0xff102030u && color.ok() && color.AtEnd());
+      CHECK(got[0].token == 0);
+      scheme_token = got[1].token;  // a non-void preinit asks the host's verdict
+      CHECK(scheme_token != 0);
       TlvReader init(got[2].fields);
       CHECK(init.Str() == std::optional<std::string>("/fw"));
       init.Str();
@@ -246,6 +288,25 @@ int main() {
     }
   }
   CHECK(!seen.scheduled);
+
+  // The host's HELLO: ready, with the optional exports its shim defines.
+  host.Send(Hello(cmux_remote::kWireID));
+  CHECK(PumpUntil([] { return seen.ready == 1; }));
+  CHECK(cmux_remote_shim_host_has_export("cmux_shim_tab_evaluate") == 1);
+  CHECK(cmux_remote_shim_host_has_export("cmux_shim_tab_set_frozen") == 0);
+
+  // The verdict on the awaited preinit token reaches the reply callback once.
+  {
+    cmux_host::control::TlvWriter verdict;
+    verdict.I32(1);
+    Message reply;
+    reply.op = cmux_remote::kOpReply;
+    reply.token = scheme_token;
+    reply.fields = verdict.Take();
+    host.Send(reply);
+    CHECK(PumpUntil([] { return !seen.replies.empty(); }));
+    CHECK(seen.replies == std::vector<uint32_t>({scheme_token}));
+  }
 
   // A mirror value pushed before its EVENT is what the event's callback reads.
   const int browser = cmux_remote::kFirstMintedBrowserID;
@@ -278,10 +339,11 @@ int main() {
   cmux_remote_shim_get_stats(&stats);
   CHECK(stats.pending_messages > 0);
 
-  // A frame the client does not know ends the host.
-  Message bad;
-  bad.op = 0x7777;
-  host.Send(bad);
+  // A second reply to the same token answers no request: it ends the host.
+  Message again;
+  again.op = cmux_remote::kOpReply;
+  again.token = scheme_token;
+  host.Send(again);
   CHECK(PumpUntil([] { return seen.ended >= 0; }));
   CHECK(seen.ended == CMUX_REMOTE_END_MALFORMED);
   CHECK(cmux_remote_shim_attached() == 0);
@@ -294,23 +356,38 @@ int main() {
   ::close(host.fd);
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));  // the old channel's end, dropped
 
-  // A restarted host gets the preinit ops and INITIALIZE again, then new posts.
+  // A restarted host gets HELLO, the preinit ops (no verdict asked again) and INITIALIZE, then
+  // new posts.
   Host second;
   CHECK(AttachNew(&second) == 1);
   cmux_shim_stop(browser);
   {
-    const std::vector<uint16_t> want = {cmux_remote::kOpSetBackgroundColor, cmux_remote::kOpPageSchemeAdd,
-                                        cmux_remote::kOpInitialize, cmux_remote::kOpStop};
+    const std::vector<uint16_t> want = {cmux_host::control::kOpHello, cmux_remote::kOpSetBackgroundColor,
+                                        cmux_remote::kOpPageSchemeAdd, cmux_remote::kOpInitialize,
+                                        cmux_remote::kOpStop};
     const std::vector<Message> got = second.Read(want.size());
     CHECK(got.size() == want.size());
     for (size_t i = 0; i < got.size() && i < want.size(); ++i) CHECK(got[i].op == want[i]);
+    if (got.size() == want.size()) CHECK(got[2].token == 0);
   }
+  // Its HELLO from another generation of the op table ends it.
+  seen.ended = -1;
+  second.Send(Hello("another-wire"));
+  CHECK(PumpUntil([] { return seen.ended >= 0; }));
+  CHECK(seen.ended == CMUX_REMOTE_END_MALFORMED);
+  CHECK(seen.ready == 1);
+  ::close(second.fd);
+  PumpUntil([] { return false; }, std::chrono::milliseconds(100));
+
+  // A detach cmux asks for is not reported back.
+  Host third;
+  CHECK(AttachNew(&third) == 1);
   seen.ended = -1;
   cmux_remote_shim_detach();
   CHECK(cmux_remote_shim_attached() == 0);
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));
-  CHECK(seen.ended == -1);  // a detach cmux asked for is not reported back
-  ::close(second.fd);
+  CHECK(seen.ended == -1);
+  ::close(third.fd);
 
   if (failures == 0) std::printf("remote shim: ok\n");
   return failures == 0 ? 0 : 1;

@@ -4,17 +4,20 @@
 // scripts/cmux-next/build-chromium-host.sh.
 //
 // Wire (chromium_host_control.h frames, fields as chromium_host_tlv.h):
-//   cmux -> host  generated op ids 1..kOpCount with the export's arguments; INITIALIZE is
-//                 kOpInitialize with cmux_shim_initialize's strings, severity and switches
-//   host -> cmux  kOpEvent    i32 kind, i32 browser, i32 request, i64 a, i64 b, str s1, str s2
+//   cmux -> host  HELLO first; then generated op ids 1..kOpCount with the export's arguments.
+//                 INITIALIZE is kOpInitialize: cmux_shim_initialize's five paths, severity,
+//                 locale, accept languages and switches (StrList)
+//   host -> cmux  HELLO       after the attach MIRRORs (chromium_host_tlv.h)
+//                 kOpEvent    i32 kind, i32 browser, i32 request, i64 a, i64 b, str s1, str s2
 //                 kOpMirror   i32 mirror op, bytes key (EncodeFields), then bytes value, or no
 //                             value to forget the key; before the EVENT that refreshes it
 //                 kOpAck      `token`'s op ran: its pending marks clear
-//                 kOpReply    `token`'s answer, its fields handed to the reply callback
+//                 kOpReply    the answer to an awaited `token`, its fields to the reply callback
 // Anything else from the host is malformed and ends it, as bad_message::ReceivedBadMessage ends
 // a renderer (content/browser/bad_message.cc).
 
 #include "cmux_cef_shim.h"
+#include "cmux_page_path.h"
 #include "remote_shim_mirror.h"
 #include "remote_shim_runtime.h"
 
@@ -25,6 +28,7 @@
 #include <limits>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -42,6 +46,8 @@ namespace {
 using cmux_host::control::Channel;
 using cmux_host::control::End;
 using cmux_host::control::Field;
+using cmux_host::control::kOpHello;
+using cmux_host::control::kTagNull;
 using cmux_host::control::Message;
 
 bool OnMainThread() {
@@ -83,6 +89,36 @@ Message MakeMessage(uint16_t op, uint32_t token, std::vector<Field> fields) {
   return message;
 }
 
+// Field `index` as text; nullopt for a NULL string or a missing field.
+std::optional<std::string> Text(const TlvWriter& args, size_t index) {
+  const std::vector<Field>& fields = args.fields();
+  if (index >= fields.size() || fields[index].tag == kTagNull) return std::nullopt;
+  return fields[index].bytes;
+}
+
+// The in-process shim's own refusals of a preinit call that need no disk or Chromium
+// (CEFShim/src/shim_page_scheme.mm AddPage, shim_extensions_ui.mm add_native_messaging_dir):
+// the host refuses the rest in its verdict.
+bool PreinitAccepted(uint16_t op, const TlvWriter& args) {
+  switch (op) {
+    case kOpAddNativeMessagingDir:
+      return !Text(args, 0).value_or(std::string()).empty();
+    case kOpPageSchemeAdd:
+    case kOpPageSchemeAddFirstParty:
+    case kOpPageSchemeAddFirstPartyDynamic: {
+      const std::optional<std::string> page_id = Text(args, 0);
+      std::string domain;
+      if (!page_id || !cmux_shim::NormalizePageId(*page_id, &domain)) return false;
+      if (Text(args, 1).value_or(std::string()).empty()) return false;
+      if (cmux_shim::IsReservedPageId(domain) != (op != kOpPageSchemeAdd)) return false;
+      const std::string entry = Text(args, 4).value_or(std::string());
+      return entry.find_first_of("/\\") == std::string::npos && entry != "." && entry != "..";
+    }
+    default:
+      return true;
+  }
+}
+
 // The dylib's state. The C ABI has no context argument, so there is one per process, as in
 // libcmux_cef_shim.dylib.
 class Runtime {
@@ -107,7 +143,14 @@ class Runtime {
     link_ = Link::kAttached;
     in_ring_ = in_ring;
     out_ring_ = out_ring;
-    for (const Message& message : preinit_) Send(message);
+    TlvWriter hello;
+    hello.Str(kWireID);
+    hello.Str(kShimAbiID);
+    Send(MakeMessage(kOpHello, 0, hello.Take()));
+    for (Message& message : preinit_) {
+      Send(message);
+      message.token = 0;  // a restarted host applies it again; the verdict was asked once
+    }
     if (initialize_) Send(*initialize_);
     std::vector<Message> queued = std::move(queued_);
     queued_.clear();
@@ -122,6 +165,11 @@ class Runtime {
 
   bool attached() const { return link_ == Link::kAttached; }
 
+  bool HostHasExport(const char* name) const {
+    CMUX_REMOTE_ASSERT_MAIN();
+    return name != nullptr && host_exports_.count(name) > 0;
+  }
+
   void GetStats(cmux_remote_shim_stats* out) const {
     CMUX_REMOTE_ASSERT_MAIN();
     *out = stats_;
@@ -133,34 +181,40 @@ class Runtime {
     }
   }
 
-  void Post(uint16_t op, uint32_t token, const TlvWriter& args) {
+  bool Post(uint16_t op, uint32_t token, const TlvWriter& args) {
     CMUX_REMOTE_ASSERT_MAIN();
     Message message = MakeMessage(op, token, args.fields());
     switch (link_) {
       case Link::kNotYet:
-        if (queued_.size() >= cmux_host::control::kQuotaMessages) {
-          Dropped(token);
-        } else {
-          queued_.push_back(std::move(message));
-        }
-        break;
+        if (queued_.size() >= cmux_host::control::kQuotaMessages) return Dropped(token);
+        queued_.push_back(std::move(message));
+        return true;
       case Link::kAttached:
-        Send(message);
-        break;
+        return Send(message);
       case Link::kDetached:
-        Dropped(token);
-        break;
+        return Dropped(token);
     }
+    return false;
   }
 
-  void PostPreinit(uint16_t op, const TlvWriter& args) {
+  bool PostAwaitingReply(uint16_t op, uint32_t token, const TlvWriter& args) {
     CMUX_REMOTE_ASSERT_MAIN();
-    if (initialize_) {
-      Post(op, 0, args);
-      return;
+    if (link_ == Link::kDetached) return Dropped(token);
+    awaiting_.insert(token);
+    return Post(op, token, args);
+  }
+
+  int32_t PostPreinit(uint16_t op, uint32_t token, const TlvWriter& args) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    if (!PreinitAccepted(op, args)) return 0;
+    if (initialize_) return (token != 0 ? PostAwaitingReply(op, token, args) : Post(op, 0, args)) ? 1 : 0;
+    if (token != 0) awaiting_.insert(token);
+    preinit_.push_back(MakeMessage(op, token, args.fields()));
+    if (link_ == Link::kAttached) {
+      Send(preinit_.back());
+      preinit_.back().token = 0;
     }
-    preinit_.push_back(MakeMessage(op, 0, args.fields()));
-    if (link_ == Link::kAttached) Send(preinit_.back());
+    return 1;
   }
 
   int Initialize(const TlvWriter& args, void* ctx, cmux_shim_event_fn event) {
@@ -206,13 +260,9 @@ class Runtime {
     policies_[op] = fn;
   }
   void* Policy(uint16_t op) const {
+    CMUX_REMOTE_ASSERT_MAIN();
     const auto it = policies_.find(op);
     return it == policies_.end() ? nullptr : it->second;
-  }
-
-  void UnmigratedAsync(uint16_t) {
-    CMUX_REMOTE_ASSERT_MAIN();
-    ++stats_.unmigrated_async;
   }
 
   uint64_t ViewToken(void* view) {
@@ -230,20 +280,25 @@ class Runtime {
   enum class Link {
     kNotYet,    // before the first attach: posts queue
     kAttached,  // posts go out
-    kDetached,  // the host is gone: posts drop until the next attach
+    kDetached,  // the host is gone: posts fail until the next attach
   };
 
-  void Send(const Message& message) {
-    if (!channel_->Send(message)) Dropped(message.token);
+  bool Send(const Message& message) {
+    return channel_->Send(message) ? true : Dropped(message.token);
   }
 
-  void Dropped(uint32_t token) {
+  // An op that will not reach the host: its token neither acks nor answers.
+  bool Dropped(uint32_t token) {
     ++stats_.unsendable;
-    if (token != 0) mirror_.Ack(token);
+    if (token != 0) {
+      mirror_.Ack(token);
+      awaiting_.erase(token);
+    }
+    return false;
   }
 
   // Closes the channel. Its reader thread ends on its own and its end reaches Ended, which
-  // destroys it there: destroying a Channel joins that thread, which is done by then.
+  // destroys the channel there: destroying a Channel joins that thread, done by then.
   void Disconnect() {
     if (!channel_) return;
     channel_->Close();
@@ -253,6 +308,8 @@ class Runtime {
     in_ring_ = nullptr;
     out_ring_ = nullptr;
     mirror_.Clear();
+    awaiting_.clear();
+    host_exports_.clear();
   }
 
   void Deliver(uint64_t generation, std::vector<Message> batch) {
@@ -316,12 +373,21 @@ class Runtime {
         return true;
       case kOpReply: {
         std::string fields;
+        if (awaiting_.erase(message.token) == 0) return false;  // a reply to no request
         if (!cmux_host::control::EncodeFields(message.fields, &fields)) return false;
         if (callbacks_.reply) {
           callbacks_.reply(callbacks_.ctx, message.token, fields.data(), fields.size());
         } else {
           ++stats_.replies_unhandled;
         }
+        return true;
+      }
+      case kOpHello: {
+        const std::optional<std::string> wire = r.Str();
+        std::vector<std::string> exports = r.StrList();
+        if (!r.ok() || !r.AtEnd() || wire != std::optional<std::string>(kWireID)) return false;
+        host_exports_ = std::unordered_set<std::string>(exports.begin(), exports.end());
+        if (callbacks_.ready) callbacks_.ready(callbacks_.ctx);
         return true;
       }
       default:
@@ -344,6 +410,9 @@ class Runtime {
   void* event_ctx_ = nullptr;
   cmux_shim_event_fn event_fn_ = nullptr;
   MirrorCache mirror_;
+  // Tokens sent with PostAwaitingReply and not answered yet.
+  std::unordered_set<uint32_t> awaiting_;
+  std::unordered_set<std::string> host_exports_;
   std::unordered_map<uint16_t, void*> policies_;
   std::unordered_map<void*, uint64_t> view_tokens_;
   uint64_t next_view_token_ = 1;
@@ -365,14 +434,17 @@ void TlvWriter::View(void* ns_view) {
   ViewToken(R().ViewToken(ns_view));
 }
 
-void Post(uint16_t op, uint32_t token, const TlvWriter& args) {
-  R().Post(op, token, args);
+bool Post(uint16_t op, uint32_t token, const TlvWriter& args) {
+  return R().Post(op, token, args);
 }
-void PostInput(uint16_t op, uint32_t token, const TlvWriter& args) {
-  R().Post(op, token, args);
+bool PostInput(uint16_t op, uint32_t token, const TlvWriter& args) {
+  return R().Post(op, token, args);
 }
-void PostPreinit(uint16_t op, const TlvWriter& args) {
-  R().PostPreinit(op, args);
+bool PostAwaitingReply(uint16_t op, uint32_t token, const TlvWriter& args) {
+  return R().PostAwaitingReply(op, token, args);
+}
+int32_t PostPreinit(uint16_t op, uint32_t token, const TlvWriter& args) {
+  return R().PostPreinit(op, token, args);
 }
 uint32_t NextToken() {
   return R().NextToken();
@@ -398,9 +470,6 @@ void SetPolicy(uint16_t op, void* fn) {
 }
 void* Policy(uint16_t op) {
   return R().Policy(op);
-}
-void UnmigratedAsync(uint16_t op) {
-  R().UnmigratedAsync(op);
 }
 void* InputRing() {
   return R().in_ring();
@@ -429,6 +498,10 @@ void cmux_remote_shim_detach(void) {
 
 int cmux_remote_shim_attached(void) {
   return R().attached() ? 1 : 0;
+}
+
+int cmux_remote_shim_host_has_export(const char* name) {
+  return R().HostHasExport(name) ? 1 : 0;
 }
 
 void cmux_remote_shim_get_stats(cmux_remote_shim_stats* out) {

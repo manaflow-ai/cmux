@@ -5,7 +5,8 @@
 // The remote shim (libcmux_cef_shim_remote.dylib): the same C ABI as the in-process shim,
 // each export a non-blocking op to the Chromium Host. Included by HOST/client/remote_shim.mm
 // after cmux_cef_shim.h and the cmux_remote wire interface; local exports are hand-written
-// in HOST/client outside generated/.
+// in HOST/client outside generated/. Optional exports (fork API symbols the header does not
+// declare yet) are defined here too, so CEFShimLibrary's r.optional finds them.
 
 namespace cmux_remote {
 enum Op : uint16_t {
@@ -152,14 +153,23 @@ enum Op : uint16_t {
   kOpPageSchemeAddFirstParty = 141,
   kOpPageSchemeAddFirstPartyDynamic = 142,
   kOpPageResourceRespond = 143,
+  kOpAddDocumentScript = 144,  // optional
+  kOpAddPageChannel = 145,  // optional
+  kOpTabEvaluate = 146,  // optional
+  kOpTabSetFrozen = 147,  // optional
+  kOpTabSendClick = 148,  // optional
+  kOpTabSetColorScheme = 149,  // optional
+  kOpPageSchemeSetGroup = 150,  // optional
 };
-inline constexpr uint16_t kOpCount = 143;
+inline constexpr uint16_t kOpCount = 150;
 inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
-inline constexpr int kEventKindCount = 48;
+inline constexpr int kEventKindCount = 50;
 inline constexpr char kShimAbiID[] = "edc6e21b8e271bc1982d0e7608a54d80eb12dcab1ad916fdbbd5bbb5923eb4a7";
+// Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
+inline constexpr char kWireID[] = "da74c745ac627c65de3cd9ee3884fb825fc07501f03c78a090a25853836a323f";
 }  // namespace cmux_remote
 
 extern "C" {
@@ -170,1195 +180,1330 @@ CMUX_SHIM_EXPORT const char* cmux_shim_abi_id(void) {
 }
 
 CMUX_SHIM_EXPORT int cmux_shim_fork_api_version(void) {
-  TlvWriter key;
-  TlvReader value = MirrorLookup(kOpForkApiVersion, key);
-  if (!value.present()) return 0;
-  const auto result = value.I32();
-  return result;
+  TlvWriter key_w;
+  TlvReader value_r = MirrorLookup(kOpForkApiVersion, key_w);
+  if (!value_r.present()) return 0;
+  const auto mirror_result = value_r.I32();
+  return mirror_result;
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_set_extension_developer_mode(int enabled) {
-  TlvWriter w;
-  w.I32(enabled);
-  PostPreinit(kOpSetExtensionDeveloperMode, w);
+CMUX_SHIM_EXPORT void cmux_shim_set_extension_developer_mode(int arg_enabled) {
+  TlvWriter op_w;
+  op_w.I32(arg_enabled);
+  (void)PostPreinit(kOpSetExtensionDeveloperMode, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_set_default_search(const char* template_url_json) {
-  TlvWriter w;
-  w.Str(template_url_json);
-  PostPreinit(kOpSetDefaultSearch, w);
+CMUX_SHIM_EXPORT void cmux_shim_set_default_search(const char* arg_template_url_json) {
+  TlvWriter op_w;
+  op_w.Str(arg_template_url_json);
+  (void)PostPreinit(kOpSetDefaultSearch, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_set_chrome_policy_id(const char* policy_id) {
-  TlvWriter w;
-  w.Str(policy_id);
-  PostPreinit(kOpSetChromePolicyId, w);
+CMUX_SHIM_EXPORT void cmux_shim_set_chrome_policy_id(const char* arg_policy_id) {
+  TlvWriter op_w;
+  op_w.Str(arg_policy_id);
+  (void)PostPreinit(kOpSetChromePolicyId, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_set_background_color(unsigned int argb) {
-  TlvWriter w;
-  w.U32(argb);
-  PostPreinit(kOpSetBackgroundColor, w);
+CMUX_SHIM_EXPORT void cmux_shim_set_background_color(unsigned int arg_argb) {
+  TlvWriter op_w;
+  op_w.U32(arg_argb);
+  (void)PostPreinit(kOpSetBackgroundColor, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_browser_set_background_color(int browser_id, unsigned int argb) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.U32(argb);
-  Post(kOpBrowserSetBackgroundColor, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_browser_set_background_color(int arg_browser_id, unsigned int arg_argb) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.U32(arg_argb);
+  (void)Post(kOpBrowserSetBackgroundColor, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_tab_set_transparent_background(int browser_id, int transparent) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.I32(transparent);
-  Post(kOpTabSetTransparentBackground, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_tab_set_transparent_background(int arg_browser_id, int arg_transparent) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_transparent);
+  (void)Post(kOpTabSetTransparentBackground, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_set_file_dialogs(int enabled) {
-  TlvWriter w;
-  w.I32(enabled);
-  Post(kOpSetFileDialogs, 0, w);
+CMUX_SHIM_EXPORT void cmux_shim_set_file_dialogs(int arg_enabled) {
+  TlvWriter op_w;
+  op_w.I32(arg_enabled);
+  (void)Post(kOpSetFileDialogs, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_file_dialog_answer(int dialog_id, int multiple, const char* paths) {
-  TlvWriter w;
-  w.I32(dialog_id);
-  w.I32(multiple);
-  w.Str(paths);
-  Post(kOpFileDialogAnswer, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_file_dialog_answer(int arg_dialog_id, int arg_multiple, const char* arg_paths) {
+  TlvWriter op_w;
+  op_w.I32(arg_dialog_id);
+  op_w.I32(arg_multiple);
+  op_w.Str(arg_paths);
+  (void)Post(kOpFileDialogAnswer, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT unsigned int cmux_shim_browser_set_layer_hosting(int browser_id, int enabled) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.I32(enabled);
-  Post(kOpBrowserSetLayerHosting, 0, w);
+CMUX_SHIM_EXPORT unsigned int cmux_shim_browser_set_layer_hosting(int arg_browser_id, int arg_enabled) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_enabled);
+  (void)Post(kOpBrowserSetLayerHosting, 0, op_w);
   return 1u;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_sync(int browser_id, int timeout_ms) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.I32(timeout_ms);
-  Post(kOpBrowserSetResizeSync, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_sync(int arg_browser_id, int arg_timeout_ms) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_timeout_ms);
+  (void)Post(kOpBrowserSetResizeSync, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_browser_set_detached_hosting(int browser_id, int enabled) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.I32(enabled);
-  Post(kOpBrowserSetDetachedHosting, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_browser_set_detached_hosting(int arg_browser_id, int arg_enabled) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_enabled);
+  (void)Post(kOpBrowserSetDetachedHosting, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_browser_set_embedder_active(int browser_id, int active) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.I32(active);
-  Post(kOpBrowserSetEmbedderActive, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_browser_set_embedder_active(int arg_browser_id, int arg_active) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_active);
+  (void)Post(kOpBrowserSetEmbedderActive, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_browser_send_wheel(int browser_id, double x, double y, double dx, double dy, int precise, int phase, int momentum_phase, int modifiers) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.F64(x);
-  w.F64(y);
-  w.F64(dx);
-  w.F64(dy);
-  w.I32(precise);
-  w.I32(phase);
-  w.I32(momentum_phase);
-  w.I32(modifiers);
-  PostInput(kOpBrowserSendWheel, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_browser_send_wheel(int arg_browser_id, double arg_x, double arg_y, double arg_dx, double arg_dy, int arg_precise, int arg_phase, int arg_momentum_phase, int arg_modifiers) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.F64(arg_x);
+  op_w.F64(arg_y);
+  op_w.F64(arg_dx);
+  op_w.F64(arg_dy);
+  op_w.I32(arg_precise);
+  op_w.I32(arg_phase);
+  op_w.I32(arg_momentum_phase);
+  op_w.I32(arg_modifiers);
+  (void)PostInput(kOpBrowserSendWheel, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_browser_accessibility_token(int browser_id, int embedder_pid, const uint8_t* parent_token, int parent_token_length, const uint8_t* window_token, int window_token_length, uint8_t* out, int capacity) {
-  (void)browser_id; (void)embedder_pid; (void)parent_token; (void)parent_token_length; (void)window_token; (void)window_token_length; (void)out; (void)capacity;
-  UnmigratedAsync(kOpBrowserAccessibilityToken);
-  return 0;
+CMUX_SHIM_EXPORT int cmux_shim_browser_accessibility_token(int arg_browser_id, int arg_embedder_pid, const uint8_t* arg_parent_token, int arg_parent_token_length, const uint8_t* arg_window_token, int arg_window_token_length, uint8_t* arg_out, int arg_capacity) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_embedder_pid);
+  op_w.Bytes(arg_parent_token, static_cast<size_t>(arg_parent_token_length));
+  op_w.Bytes(arg_window_token, static_cast<size_t>(arg_window_token_length));
+  op_w.I32(static_cast<int32_t>(arg_capacity));
+  const uint32_t op_token = NextToken();
+  if (arg_out != nullptr && arg_capacity > 0) arg_out[0] = 0;
+  const bool op_sent = PostAwaitingReply(kOpBrowserAccessibilityToken, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_browser_drag_source_ended(int browser_id, double x, double y, double screen_x, double screen_y, int operation) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.F64(x);
-  w.F64(y);
-  w.F64(screen_x);
-  w.F64(screen_y);
-  w.I32(operation);
-  Post(kOpBrowserDragSourceEnded, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_browser_drag_source_ended(int arg_browser_id, double arg_x, double arg_y, double arg_screen_x, double arg_screen_y, int arg_operation) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.F64(arg_x);
+  op_w.F64(arg_y);
+  op_w.F64(arg_screen_x);
+  op_w.F64(arg_screen_y);
+  op_w.I32(arg_operation);
+  (void)Post(kOpBrowserDragSourceEnded, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_enter_source(int browser_id, int x, int y, int allowed_operations, int modifiers) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.I32(x);
-  w.I32(y);
-  w.I32(allowed_operations);
-  w.I32(modifiers);
-  Post(kOpBrowserDragTargetEnterSource, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_enter_source(int arg_browser_id, int arg_x, int arg_y, int arg_allowed_operations, int arg_modifiers) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_x);
+  op_w.I32(arg_y);
+  op_w.I32(arg_allowed_operations);
+  op_w.I32(arg_modifiers);
+  (void)Post(kOpBrowserDragTargetEnterSource, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_set_new_tab_page_url(const char* url) {
-  TlvWriter w;
-  w.Str(url);
-  PostPreinit(kOpSetNewTabPageUrl, w);
+CMUX_SHIM_EXPORT void cmux_shim_set_new_tab_page_url(const char* arg_url) {
+  TlvWriter op_w;
+  op_w.Str(arg_url);
+  (void)PostPreinit(kOpSetNewTabPageUrl, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_add_native_messaging_dir(const char* path, int user_level) {
-  TlvWriter w;
-  w.Str(path);
-  w.I32(user_level);
-  PostPreinit(kOpAddNativeMessagingDir, w);
+CMUX_SHIM_EXPORT int cmux_shim_add_native_messaging_dir(const char* arg_path, int arg_user_level) {
+  TlvWriter op_w;
+  op_w.Str(arg_path);
+  op_w.I32(arg_user_level);
+  const uint32_t op_token = NextToken();
+  return PostPreinit(kOpAddNativeMessagingDir, op_token, op_w);
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_create_window(int arg_request, void* arg_parent_view, int arg_width, int arg_height, const char* arg_url, const char* arg_profile_cache_path) {
+  TlvWriter op_w;
+  const int32_t minted_id = MintID(kOpCreateWindow);
+  op_w.I32(minted_id);
+  op_w.I32(arg_request);
+  op_w.View(arg_parent_view);
+  op_w.I32(arg_width);
+  op_w.I32(arg_height);
+  op_w.Str(arg_url);
+  op_w.Str(arg_profile_cache_path);
+  const bool op_sent = Post(kOpCreateWindow, 0, op_w);
+  return op_sent ? 1 : 0;
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_tab_add(int arg_window_browser_id, const char* arg_url, int arg_index, int arg_activate) {
+  TlvWriter op_w;
+  const int32_t minted_id = MintID(kOpTabAdd);
+  op_w.I32(minted_id);
+  op_w.I32(arg_window_browser_id);
+  op_w.Str(arg_url);
+  op_w.I32(arg_index);
+  op_w.I32(arg_activate);
+  const bool op_sent = Post(kOpTabAdd, 0, op_w);
+  return op_sent ? minted_id : 0;
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_tab_duplicate(int arg_browser_id, int arg_window_browser_id, int arg_index) {
+  TlvWriter op_w;
+  const int32_t minted_id = MintID(kOpTabDuplicate);
+  op_w.I32(minted_id);
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_window_browser_id);
+  op_w.I32(arg_index);
+  const bool op_sent = Post(kOpTabDuplicate, 0, op_w);
+  return op_sent ? minted_id : 0;
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_tab_activate(int arg_browser_id) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  (void)Post(kOpTabActivate, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_create_window(int request, void* parent_view, int width, int height, const char* url, const char* profile_cache_path) {
-  TlvWriter w;
-  const int32_t minted = MintID(kOpCreateWindow);
-  w.I32(minted);
-  w.I32(request);
-  w.View(parent_view);
-  w.I32(width);
-  w.I32(height);
-  w.Str(url);
-  w.Str(profile_cache_path);
-  Post(kOpCreateWindow, 0, w);
-  return 1;
+CMUX_SHIM_EXPORT char* cmux_shim_tab_navigation_entries(int arg_browser_id) {
+  TlvWriter key_w;
+  key_w.I32(arg_browser_id);
+  TlvReader value_r = MirrorLookup(kOpTabNavigationEntries, key_w);
+  if (!value_r.present()) return nullptr;
+  const std::optional<std::string> mirror_result = value_r.Str();
+  return mirror_result ? Dup(*mirror_result) : nullptr;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_tab_add(int window_browser_id, const char* url, int index, int activate) {
-  TlvWriter w;
-  const int32_t minted = MintID(kOpTabAdd);
-  w.I32(minted);
-  w.I32(window_browser_id);
-  w.Str(url);
-  w.I32(index);
-  w.I32(activate);
-  Post(kOpTabAdd, 0, w);
-  return minted;
-}
-
-CMUX_SHIM_EXPORT int cmux_shim_tab_duplicate(int browser_id, int window_browser_id, int index) {
-  TlvWriter w;
-  const int32_t minted = MintID(kOpTabDuplicate);
-  w.I32(minted);
-  w.I32(browser_id);
-  w.I32(window_browser_id);
-  w.I32(index);
-  Post(kOpTabDuplicate, 0, w);
-  return minted;
-}
-
-CMUX_SHIM_EXPORT int cmux_shim_tab_activate(int browser_id) {
-  TlvWriter w;
-  w.I32(browser_id);
-  Post(kOpTabActivate, 0, w);
-  return 1;
-}
-
-CMUX_SHIM_EXPORT char* cmux_shim_tab_navigation_entries(int browser_id) {
-  TlvWriter key;
-  key.I32(browser_id);
-  TlvReader value = MirrorLookup(kOpTabNavigationEntries, key);
-  if (!value.present()) return nullptr;
-  const std::optional<std::string> result = value.Str();
-  return result ? Dup(*result) : nullptr;
-}
-
-CMUX_SHIM_EXPORT int cmux_shim_tab_go_to_entry(int browser_id, int offset) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.I32(offset);
-  const uint32_t token = NextToken();
+CMUX_SHIM_EXPORT int cmux_shim_tab_go_to_entry(int arg_browser_id, int arg_offset) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_offset);
+  const uint32_t op_token = NextToken();
   TlvWriter pending_tab_navigation_entries;
-  pending_tab_navigation_entries.I32(browser_id);
-  MarkPending(kOpTabNavigationEntries, token, pending_tab_navigation_entries, 0x0u);  // tab.navigation_entries[browser_id]
+  pending_tab_navigation_entries.I32(arg_browser_id);
+  MarkPending(kOpTabNavigationEntries, op_token, pending_tab_navigation_entries, 0x0u);  // tab.navigation_entries[browser_id]
   TlvWriter pending_tab_navigation_state;
-  pending_tab_navigation_state.I32(browser_id);
-  MarkPending(kOpTabNavigationState, token, pending_tab_navigation_state, 0x0u);  // tab.navigation_state[browser_id]
-  Post(kOpTabGoToEntry, token, w);
+  pending_tab_navigation_state.I32(arg_browser_id);
+  MarkPending(kOpTabNavigationState, op_token, pending_tab_navigation_state, 0x0u);  // tab.navigation_state[browser_id]
+  (void)Post(kOpTabGoToEntry, op_token, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_tab_window_id(int browser_id) {
-  TlvWriter key;
-  key.I32(browser_id);
-  TlvReader value = MirrorLookup(kOpTabWindowId, key);
-  if (!value.present()) return 0;
-  const auto result = value.I32();
-  return result;
+CMUX_SHIM_EXPORT int cmux_shim_tab_window_id(int arg_browser_id) {
+  TlvWriter key_w;
+  key_w.I32(arg_browser_id);
+  TlvReader value_r = MirrorLookup(kOpTabWindowId, key_w);
+  if (!value_r.present()) return 0;
+  const auto mirror_result = value_r.I32();
+  return mirror_result;
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_load_url(int browser_id, const char* url) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.Str(url);
-  const uint32_t token = NextToken();
+CMUX_SHIM_EXPORT void cmux_shim_load_url(int arg_browser_id, const char* arg_url) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.Str(arg_url);
+  const uint32_t op_token = NextToken();
   TlvWriter pending_tab_navigation_entries;
-  pending_tab_navigation_entries.I32(browser_id);
-  MarkPending(kOpTabNavigationEntries, token, pending_tab_navigation_entries, 0x0u);  // tab.navigation_entries[browser_id]
+  pending_tab_navigation_entries.I32(arg_browser_id);
+  MarkPending(kOpTabNavigationEntries, op_token, pending_tab_navigation_entries, 0x0u);  // tab.navigation_entries[browser_id]
   TlvWriter pending_tab_navigation_state;
-  pending_tab_navigation_state.I32(browser_id);
-  MarkPending(kOpTabNavigationState, token, pending_tab_navigation_state, 0x0u);  // tab.navigation_state[browser_id]
-  Post(kOpLoadUrl, token, w);
+  pending_tab_navigation_state.I32(arg_browser_id);
+  MarkPending(kOpTabNavigationState, op_token, pending_tab_navigation_state, 0x0u);  // tab.navigation_state[browser_id]
+  (void)Post(kOpLoadUrl, op_token, op_w);
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_go_back(int browser_id) {
-  TlvWriter w;
-  w.I32(browser_id);
-  const uint32_t token = NextToken();
+CMUX_SHIM_EXPORT void cmux_shim_go_back(int arg_browser_id) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  const uint32_t op_token = NextToken();
   TlvWriter pending_tab_navigation_entries;
-  pending_tab_navigation_entries.I32(browser_id);
-  MarkPending(kOpTabNavigationEntries, token, pending_tab_navigation_entries, 0x0u);  // tab.navigation_entries[browser_id]
+  pending_tab_navigation_entries.I32(arg_browser_id);
+  MarkPending(kOpTabNavigationEntries, op_token, pending_tab_navigation_entries, 0x0u);  // tab.navigation_entries[browser_id]
   TlvWriter pending_tab_navigation_state;
-  pending_tab_navigation_state.I32(browser_id);
-  MarkPending(kOpTabNavigationState, token, pending_tab_navigation_state, 0x0u);  // tab.navigation_state[browser_id]
-  Post(kOpGoBack, token, w);
+  pending_tab_navigation_state.I32(arg_browser_id);
+  MarkPending(kOpTabNavigationState, op_token, pending_tab_navigation_state, 0x0u);  // tab.navigation_state[browser_id]
+  (void)Post(kOpGoBack, op_token, op_w);
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_go_forward(int browser_id) {
-  TlvWriter w;
-  w.I32(browser_id);
-  const uint32_t token = NextToken();
+CMUX_SHIM_EXPORT void cmux_shim_go_forward(int arg_browser_id) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  const uint32_t op_token = NextToken();
   TlvWriter pending_tab_navigation_entries;
-  pending_tab_navigation_entries.I32(browser_id);
-  MarkPending(kOpTabNavigationEntries, token, pending_tab_navigation_entries, 0x0u);  // tab.navigation_entries[browser_id]
+  pending_tab_navigation_entries.I32(arg_browser_id);
+  MarkPending(kOpTabNavigationEntries, op_token, pending_tab_navigation_entries, 0x0u);  // tab.navigation_entries[browser_id]
   TlvWriter pending_tab_navigation_state;
-  pending_tab_navigation_state.I32(browser_id);
-  MarkPending(kOpTabNavigationState, token, pending_tab_navigation_state, 0x0u);  // tab.navigation_state[browser_id]
-  Post(kOpGoForward, token, w);
+  pending_tab_navigation_state.I32(arg_browser_id);
+  MarkPending(kOpTabNavigationState, op_token, pending_tab_navigation_state, 0x0u);  // tab.navigation_state[browser_id]
+  (void)Post(kOpGoForward, op_token, op_w);
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_reload(int browser_id) {
-  TlvWriter w;
-  w.I32(browser_id);
-  Post(kOpReload, 0, w);
+CMUX_SHIM_EXPORT void cmux_shim_reload(int arg_browser_id) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  (void)Post(kOpReload, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_stop(int browser_id) {
-  TlvWriter w;
-  w.I32(browser_id);
-  Post(kOpStop, 0, w);
+CMUX_SHIM_EXPORT void cmux_shim_stop(int arg_browser_id) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  (void)Post(kOpStop, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_set_focus(int browser_id, int focus) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.I32(focus);
-  Post(kOpSetFocus, 0, w);
+CMUX_SHIM_EXPORT void cmux_shim_set_focus(int arg_browser_id, int arg_focus) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_focus);
+  (void)Post(kOpSetFocus, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_set_focus_request_handler(cmux_shim_focus_request_fn handler) {
-  TlvWriter w;
-  SetPolicy(kOpSetFocusRequestHandler, reinterpret_cast<void*>(handler));
-  w.I32(handler != nullptr ? 1 : 0);
-  Post(kOpSetFocusRequestHandler, 0, w);
+CMUX_SHIM_EXPORT void cmux_shim_set_focus_request_handler(cmux_shim_focus_request_fn arg_handler) {
+  TlvWriter op_w;
+  SetPolicy(kOpSetFocusRequestHandler, reinterpret_cast<void*>(arg_handler));
+  op_w.I32(arg_handler != nullptr ? 1 : 0);
+  (void)Post(kOpSetFocusRequestHandler, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_set_unhandled_key_handler(cmux_shim_key_fn handler) {
-  TlvWriter w;
-  SetPolicy(kOpSetUnhandledKeyHandler, reinterpret_cast<void*>(handler));
-  w.I32(handler != nullptr ? 1 : 0);
-  Post(kOpSetUnhandledKeyHandler, 0, w);
+CMUX_SHIM_EXPORT void cmux_shim_set_unhandled_key_handler(cmux_shim_key_fn arg_handler) {
+  TlvWriter op_w;
+  SetPolicy(kOpSetUnhandledKeyHandler, reinterpret_cast<void*>(arg_handler));
+  op_w.I32(arg_handler != nullptr ? 1 : 0);
+  (void)Post(kOpSetUnhandledKeyHandler, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_set_zoom_level(int browser_id, double level) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.F64(level);
-  Post(kOpSetZoomLevel, 0, w);
+CMUX_SHIM_EXPORT void cmux_shim_set_zoom_level(int arg_browser_id, double arg_level) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.F64(arg_level);
+  (void)Post(kOpSetZoomLevel, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_set_accessibility(int browser_id, int enabled) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.I32(enabled);
-  Post(kOpSetAccessibility, 0, w);
+CMUX_SHIM_EXPORT void cmux_shim_set_accessibility(int arg_browser_id, int arg_enabled) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_enabled);
+  (void)Post(kOpSetAccessibility, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_print(int browser_id) {
-  TlvWriter w;
-  w.I32(browser_id);
-  Post(kOpPrint, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_print(int arg_browser_id) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  (void)Post(kOpPrint, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_find(int browser_id, int find_id, const char* text, int forward, int match_case, int find_next) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.I32(find_id);
-  w.Str(text);
-  w.I32(forward);
-  w.I32(match_case);
-  w.I32(find_next);
-  Post(kOpFind, 0, w);
+CMUX_SHIM_EXPORT void cmux_shim_find(int arg_browser_id, int arg_find_id, const char* arg_text, int arg_forward, int arg_match_case, int arg_find_next) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_find_id);
+  op_w.Str(arg_text);
+  op_w.I32(arg_forward);
+  op_w.I32(arg_match_case);
+  op_w.I32(arg_find_next);
+  (void)Post(kOpFind, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_stop_finding(int browser_id, int clear_selection) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.I32(clear_selection);
-  Post(kOpStopFinding, 0, w);
+CMUX_SHIM_EXPORT void cmux_shim_stop_finding(int arg_browser_id, int arg_clear_selection) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_clear_selection);
+  (void)Post(kOpStopFinding, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_close(int browser_id) {
-  TlvWriter w;
-  w.I32(browser_id);
-  Post(kOpClose, 0, w);
+CMUX_SHIM_EXPORT void cmux_shim_close(int arg_browser_id) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  (void)Post(kOpClose, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_try_close(int browser_id) {
-  (void)browser_id;
-  UnmigratedAsync(kOpTryClose);
-  return 0;
+CMUX_SHIM_EXPORT int cmux_shim_try_close(int arg_browser_id) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpTryClose, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_before_unload_reply(int token, int accept) {
-  TlvWriter w;
-  w.I32(token);
-  w.I32(accept);
-  Post(kOpBeforeUnloadReply, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_before_unload_reply(int arg_token, int arg_accept) {
+  TlvWriter op_w;
+  op_w.I32(arg_token);
+  op_w.I32(arg_accept);
+  (void)Post(kOpBeforeUnloadReply, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_devtools_call(int browser_id, const char* method, const char* params_json) {
-  TlvWriter w;
-  const int32_t minted = MintID(kOpDevtoolsCall);
-  w.I32(minted);
-  w.I32(browser_id);
-  w.Str(method);
-  w.Str(params_json);
-  Post(kOpDevtoolsCall, 0, w);
-  return minted;
+CMUX_SHIM_EXPORT int cmux_shim_devtools_call(int arg_browser_id, const char* arg_method, const char* arg_params_json) {
+  TlvWriter op_w;
+  const int32_t minted_id = MintID(kOpDevtoolsCall);
+  op_w.I32(minted_id);
+  op_w.I32(arg_browser_id);
+  op_w.Str(arg_method);
+  op_w.Str(arg_params_json);
+  const bool op_sent = Post(kOpDevtoolsCall, 0, op_w);
+  return op_sent ? minted_id : 0;
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_devtools_watch_events(int browser_id, int enabled) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.I32(enabled);
-  Post(kOpDevtoolsWatchEvents, 0, w);
+CMUX_SHIM_EXPORT void cmux_shim_devtools_watch_events(int arg_browser_id, int arg_enabled) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_enabled);
+  (void)Post(kOpDevtoolsWatchEvents, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_devtools_send(int browser_id, const char* message_json) {
-  (void)browser_id; (void)message_json;
-  UnmigratedAsync(kOpDevtoolsSend);
-  return 0;
+CMUX_SHIM_EXPORT int cmux_shim_devtools_send(int arg_browser_id, const char* arg_message_json) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.Str(arg_message_json);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpDevtoolsSend, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_devtools_set_key_handler(cmux_shim_key_fn key) {
-  TlvWriter w;
-  SetPolicy(kOpDevtoolsSetKeyHandler, reinterpret_cast<void*>(key));
-  w.I32(key != nullptr ? 1 : 0);
-  Post(kOpDevtoolsSetKeyHandler, 0, w);
+CMUX_SHIM_EXPORT void cmux_shim_devtools_set_key_handler(cmux_shim_key_fn arg_key) {
+  TlvWriter op_w;
+  SetPolicy(kOpDevtoolsSetKeyHandler, reinterpret_cast<void*>(arg_key));
+  op_w.I32(arg_key != nullptr ? 1 : 0);
+  (void)Post(kOpDevtoolsSetKeyHandler, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_devtools_set_placement(int browser_id, void* parent_view, int x, int y, int width, int height) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.View(parent_view);
-  w.I32(x);
-  w.I32(y);
-  w.I32(width);
-  w.I32(height);
-  Post(kOpDevtoolsSetPlacement, 0, w);
+CMUX_SHIM_EXPORT void cmux_shim_devtools_set_placement(int arg_browser_id, void* arg_parent_view, int arg_x, int arg_y, int arg_width, int arg_height) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.View(arg_parent_view);
+  op_w.I32(arg_x);
+  op_w.I32(arg_y);
+  op_w.I32(arg_width);
+  op_w.I32(arg_height);
+  (void)Post(kOpDevtoolsSetPlacement, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_devtools_command(int browser_id, int command, int x, int y) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.I32(command);
-  w.I32(x);
-  w.I32(y);
-  const uint32_t token = NextToken();
+CMUX_SHIM_EXPORT int cmux_shim_devtools_command(int arg_browser_id, int arg_command, int arg_x, int arg_y) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_command);
+  op_w.I32(arg_x);
+  op_w.I32(arg_y);
+  const uint32_t op_token = NextToken();
   TlvWriter pending_tab_devtools_browser;
-  pending_tab_devtools_browser.I32(browser_id);
-  MarkPending(kOpDevtoolsBrowser, token, pending_tab_devtools_browser, 0x0u);  // tab.devtools_browser[browser_id]
-  Post(kOpDevtoolsCommand, token, w);
+  pending_tab_devtools_browser.I32(arg_browser_id);
+  MarkPending(kOpDevtoolsBrowser, op_token, pending_tab_devtools_browser, 0x0u);  // tab.devtools_browser[browser_id]
+  (void)Post(kOpDevtoolsCommand, op_token, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_devtools_browser(int browser_id) {
-  TlvWriter key;
-  key.I32(browser_id);
-  TlvReader value = MirrorLookup(kOpDevtoolsBrowser, key);
-  if (!value.present()) return 0;
-  const auto result = value.I32();
-  return result;
+CMUX_SHIM_EXPORT int cmux_shim_devtools_browser(int arg_browser_id) {
+  TlvWriter key_w;
+  key_w.I32(arg_browser_id);
+  TlvReader value_r = MirrorLookup(kOpDevtoolsBrowser, key_w);
+  if (!value_r.present()) return 0;
+  const auto mirror_result = value_r.I32();
+  return mirror_result;
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_devtools_set_focus(int browser_id, int focus) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.I32(focus);
-  Post(kOpDevtoolsSetFocus, 0, w);
+CMUX_SHIM_EXPORT void cmux_shim_devtools_set_focus(int arg_browser_id, int arg_focus) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_focus);
+  (void)Post(kOpDevtoolsSetFocus, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_devtools_show_panel(int browser_id, const char* panel) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.Str(panel);
-  Post(kOpDevtoolsShowPanel, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_devtools_show_panel(int arg_browser_id, const char* arg_panel) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.Str(arg_panel);
+  (void)Post(kOpDevtoolsShowPanel, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT char* cmux_shim_ext_actions(int browser_id, int icon_px) {
-  TlvWriter key;
-  key.I32(browser_id);
-  key.I32(icon_px);
-  TlvReader value = MirrorLookup(kOpExtActions, key);
-  if (!value.present()) return nullptr;
-  const std::optional<std::string> result = value.Str();
-  return result ? Dup(*result) : nullptr;
+CMUX_SHIM_EXPORT char* cmux_shim_ext_actions(int arg_browser_id, int arg_icon_px) {
+  TlvWriter key_w;
+  key_w.I32(arg_browser_id);
+  key_w.I32(arg_icon_px);
+  TlvReader value_r = MirrorLookup(kOpExtActions, key_w);
+  if (!value_r.present()) return nullptr;
+  const std::optional<std::string> mirror_result = value_r.Str();
+  return mirror_result ? Dup(*mirror_result) : nullptr;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_ext_action_run(int browser_id, const char* extension_id, int x, int width) {
-  (void)browser_id; (void)extension_id; (void)x; (void)width;
-  UnmigratedAsync(kOpExtActionRun);
-  return 0;
+CMUX_SHIM_EXPORT int cmux_shim_ext_action_run(int arg_browser_id, const char* arg_extension_id, int arg_x, int arg_width) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.Str(arg_extension_id);
+  op_w.I32(arg_x);
+  op_w.I32(arg_width);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpExtActionRun, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_ext_action_hide_popup(int browser_id, const char* extension_id) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.Str(extension_id);
-  Post(kOpExtActionHidePopup, 0, w);
+CMUX_SHIM_EXPORT void cmux_shim_ext_action_hide_popup(int arg_browser_id, const char* arg_extension_id) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.Str(arg_extension_id);
+  (void)Post(kOpExtActionHidePopup, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_ext_action_context_menu(int browser_id, const char* extension_id, int screen_x, int screen_y) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.Str(extension_id);
-  w.I32(screen_x);
-  w.I32(screen_y);
-  Post(kOpExtActionContextMenu, 0, w);
+CMUX_SHIM_EXPORT void cmux_shim_ext_action_context_menu(int arg_browser_id, const char* arg_extension_id, int arg_screen_x, int arg_screen_y) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.Str(arg_extension_id);
+  op_w.I32(arg_screen_x);
+  op_w.I32(arg_screen_y);
+  (void)Post(kOpExtActionContextMenu, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT char* cmux_shim_tab_navigation_state(int browser_id) {
-  TlvWriter key;
-  key.I32(browser_id);
-  TlvReader value = MirrorLookup(kOpTabNavigationState, key);
-  if (!value.present()) return nullptr;
-  const std::optional<std::string> result = value.Str();
-  return result ? Dup(*result) : nullptr;
+CMUX_SHIM_EXPORT char* cmux_shim_tab_navigation_state(int arg_browser_id) {
+  TlvWriter key_w;
+  key_w.I32(arg_browser_id);
+  TlvReader value_r = MirrorLookup(kOpTabNavigationState, key_w);
+  if (!value_r.present()) return nullptr;
+  const std::optional<std::string> mirror_result = value_r.Str();
+  return mirror_result ? Dup(*mirror_result) : nullptr;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_tab_restore_navigation(int browser_id, const char* state) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.Str(state);
-  const uint32_t token = NextToken();
+CMUX_SHIM_EXPORT int cmux_shim_tab_restore_navigation(int arg_browser_id, const char* arg_state) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.Str(arg_state);
+  const uint32_t op_token = NextToken();
   TlvWriter pending_tab_navigation_entries;
-  pending_tab_navigation_entries.I32(browser_id);
-  MarkPending(kOpTabNavigationEntries, token, pending_tab_navigation_entries, 0x0u);  // tab.navigation_entries[browser_id]
+  pending_tab_navigation_entries.I32(arg_browser_id);
+  MarkPending(kOpTabNavigationEntries, op_token, pending_tab_navigation_entries, 0x0u);  // tab.navigation_entries[browser_id]
   TlvWriter pending_tab_navigation_state;
-  pending_tab_navigation_state.I32(browser_id);
-  MarkPending(kOpTabNavigationState, token, pending_tab_navigation_state, 0x0u);  // tab.navigation_state[browser_id]
-  Post(kOpTabRestoreNavigation, token, w);
+  pending_tab_navigation_state.I32(arg_browser_id);
+  MarkPending(kOpTabNavigationState, op_token, pending_tab_navigation_state, 0x0u);  // tab.navigation_state[browser_id]
+  (void)Post(kOpTabRestoreNavigation, op_token, op_w);
   return 1;
 }
 
 CMUX_SHIM_EXPORT int cmux_shim_navigation_restore_supported(void) {
-  TlvWriter key;
-  TlvReader value = MirrorLookup(kOpNavigationRestoreSupported, key);
-  if (!value.present()) return 0;
-  const auto result = value.I32();
-  return result;
+  TlvWriter key_w;
+  TlvReader value_r = MirrorLookup(kOpNavigationRestoreSupported, key_w);
+  if (!value_r.present()) return 0;
+  const auto mirror_result = value_r.I32();
+  return mirror_result;
 }
 
-CMUX_SHIM_EXPORT char* cmux_shim_ext_list(int browser_id) {
-  TlvWriter key;
-  key.I32(browser_id);
-  TlvReader value = MirrorLookup(kOpExtList, key);
-  if (!value.present()) return nullptr;
-  const std::optional<std::string> result = value.Str();
-  return result ? Dup(*result) : nullptr;
+CMUX_SHIM_EXPORT char* cmux_shim_ext_list(int arg_browser_id) {
+  TlvWriter key_w;
+  key_w.I32(arg_browser_id);
+  TlvReader value_r = MirrorLookup(kOpExtList, key_w);
+  if (!value_r.present()) return nullptr;
+  const std::optional<std::string> mirror_result = value_r.Str();
+  return mirror_result ? Dup(*mirror_result) : nullptr;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_ext_set_enabled(int browser_id, const char* extension_id, int enabled) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.Str(extension_id);
-  w.I32(enabled);
-  const uint32_t token = NextToken();
+CMUX_SHIM_EXPORT int cmux_shim_ext_set_enabled(int arg_browser_id, const char* arg_extension_id, int arg_enabled) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.Str(arg_extension_id);
+  op_w.I32(arg_enabled);
+  const uint32_t op_token = NextToken();
   TlvWriter pending_tab_ext_list;
-  MarkPending(kOpExtList, token, pending_tab_ext_list, 0x1u);  // tab.ext_list[*]
+  MarkPending(kOpExtList, op_token, pending_tab_ext_list, 0x1u);  // tab.ext_list[*]
   TlvWriter pending_tab_ext_actions;
-  MarkPending(kOpExtActions, token, pending_tab_ext_actions, 0x3u);  // tab.ext_actions[*,*]
+  MarkPending(kOpExtActions, op_token, pending_tab_ext_actions, 0x3u);  // tab.ext_actions[*,*]
   TlvWriter pending_tab_ext_commands;
-  MarkPending(kOpExtCommands, token, pending_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
+  MarkPending(kOpExtCommands, op_token, pending_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
   TlvWriter pending_tab_omnibox_keywords;
-  MarkPending(kOpOmniboxKeywords, token, pending_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
-  Post(kOpExtSetEnabled, token, w);
+  MarkPending(kOpOmniboxKeywords, op_token, pending_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
+  (void)Post(kOpExtSetEnabled, op_token, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_ext_uninstall(int browser_id, const char* extension_id) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.Str(extension_id);
-  const uint32_t token = NextToken();
+CMUX_SHIM_EXPORT int cmux_shim_ext_uninstall(int arg_browser_id, const char* arg_extension_id) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.Str(arg_extension_id);
+  const uint32_t op_token = NextToken();
   TlvWriter pending_tab_ext_list;
-  MarkPending(kOpExtList, token, pending_tab_ext_list, 0x1u);  // tab.ext_list[*]
+  MarkPending(kOpExtList, op_token, pending_tab_ext_list, 0x1u);  // tab.ext_list[*]
   TlvWriter pending_tab_ext_actions;
-  MarkPending(kOpExtActions, token, pending_tab_ext_actions, 0x3u);  // tab.ext_actions[*,*]
+  MarkPending(kOpExtActions, op_token, pending_tab_ext_actions, 0x3u);  // tab.ext_actions[*,*]
   TlvWriter pending_tab_ext_commands;
-  MarkPending(kOpExtCommands, token, pending_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
+  MarkPending(kOpExtCommands, op_token, pending_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
   TlvWriter pending_tab_omnibox_keywords;
-  MarkPending(kOpOmniboxKeywords, token, pending_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
-  Post(kOpExtUninstall, token, w);
+  MarkPending(kOpOmniboxKeywords, op_token, pending_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
+  (void)Post(kOpExtUninstall, op_token, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_ext_reload(int browser_id, const char* extension_id) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.Str(extension_id);
-  const uint32_t token = NextToken();
+CMUX_SHIM_EXPORT int cmux_shim_ext_reload(int arg_browser_id, const char* arg_extension_id) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.Str(arg_extension_id);
+  const uint32_t op_token = NextToken();
   TlvWriter pending_tab_ext_list;
-  MarkPending(kOpExtList, token, pending_tab_ext_list, 0x1u);  // tab.ext_list[*]
+  MarkPending(kOpExtList, op_token, pending_tab_ext_list, 0x1u);  // tab.ext_list[*]
   TlvWriter pending_tab_ext_actions;
-  MarkPending(kOpExtActions, token, pending_tab_ext_actions, 0x3u);  // tab.ext_actions[*,*]
+  MarkPending(kOpExtActions, op_token, pending_tab_ext_actions, 0x3u);  // tab.ext_actions[*,*]
   TlvWriter pending_tab_ext_commands;
-  MarkPending(kOpExtCommands, token, pending_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
+  MarkPending(kOpExtCommands, op_token, pending_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
   TlvWriter pending_tab_omnibox_keywords;
-  MarkPending(kOpOmniboxKeywords, token, pending_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
-  Post(kOpExtReload, token, w);
+  MarkPending(kOpOmniboxKeywords, op_token, pending_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
+  (void)Post(kOpExtReload, op_token, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_ext_move_pinned(int browser_id, const char* extension_id, int index) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.Str(extension_id);
-  w.I32(index);
-  const uint32_t token = NextToken();
+CMUX_SHIM_EXPORT int cmux_shim_ext_move_pinned(int arg_browser_id, const char* arg_extension_id, int arg_index) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.Str(arg_extension_id);
+  op_w.I32(arg_index);
+  const uint32_t op_token = NextToken();
   TlvWriter pending_tab_ext_list;
-  MarkPending(kOpExtList, token, pending_tab_ext_list, 0x1u);  // tab.ext_list[*]
+  MarkPending(kOpExtList, op_token, pending_tab_ext_list, 0x1u);  // tab.ext_list[*]
   TlvWriter pending_tab_ext_actions;
-  MarkPending(kOpExtActions, token, pending_tab_ext_actions, 0x3u);  // tab.ext_actions[*,*]
+  MarkPending(kOpExtActions, op_token, pending_tab_ext_actions, 0x3u);  // tab.ext_actions[*,*]
   TlvWriter pending_tab_ext_commands;
-  MarkPending(kOpExtCommands, token, pending_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
+  MarkPending(kOpExtCommands, op_token, pending_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
   TlvWriter pending_tab_omnibox_keywords;
-  MarkPending(kOpOmniboxKeywords, token, pending_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
-  Post(kOpExtMovePinned, token, w);
+  MarkPending(kOpOmniboxKeywords, op_token, pending_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
+  (void)Post(kOpExtMovePinned, op_token, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_ext_set_pinned(int browser_id, const char* extension_id, int pinned) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.Str(extension_id);
-  w.I32(pinned);
-  const uint32_t token = NextToken();
+CMUX_SHIM_EXPORT int cmux_shim_ext_set_pinned(int arg_browser_id, const char* arg_extension_id, int arg_pinned) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.Str(arg_extension_id);
+  op_w.I32(arg_pinned);
+  const uint32_t op_token = NextToken();
   TlvWriter pending_tab_ext_list;
-  MarkPending(kOpExtList, token, pending_tab_ext_list, 0x1u);  // tab.ext_list[*]
+  MarkPending(kOpExtList, op_token, pending_tab_ext_list, 0x1u);  // tab.ext_list[*]
   TlvWriter pending_tab_ext_actions;
-  MarkPending(kOpExtActions, token, pending_tab_ext_actions, 0x3u);  // tab.ext_actions[*,*]
+  MarkPending(kOpExtActions, op_token, pending_tab_ext_actions, 0x3u);  // tab.ext_actions[*,*]
   TlvWriter pending_tab_ext_commands;
-  MarkPending(kOpExtCommands, token, pending_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
+  MarkPending(kOpExtCommands, op_token, pending_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
   TlvWriter pending_tab_omnibox_keywords;
-  MarkPending(kOpOmniboxKeywords, token, pending_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
-  Post(kOpExtSetPinned, token, w);
+  MarkPending(kOpOmniboxKeywords, op_token, pending_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
+  (void)Post(kOpExtSetPinned, op_token, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_ext_open_options(int browser_id, const char* extension_id) {
-  (void)browser_id; (void)extension_id;
-  UnmigratedAsync(kOpExtOpenOptions);
-  return 0;
+CMUX_SHIM_EXPORT int cmux_shim_ext_open_options(int arg_browser_id, const char* arg_extension_id) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.Str(arg_extension_id);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpExtOpenOptions, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_ext_load_unpacked(int browser_id, const char* path) {
-  (void)browser_id; (void)path;
-  UnmigratedAsync(kOpExtLoadUnpacked);
-  return 0;
+CMUX_SHIM_EXPORT int cmux_shim_ext_load_unpacked(int arg_browser_id, const char* arg_path) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.Str(arg_path);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpExtLoadUnpacked, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
-CMUX_SHIM_EXPORT char* cmux_shim_ext_commands(int browser_id) {
-  TlvWriter key;
-  key.I32(browser_id);
-  TlvReader value = MirrorLookup(kOpExtCommands, key);
-  if (!value.present()) return nullptr;
-  const std::optional<std::string> result = value.Str();
-  return result ? Dup(*result) : nullptr;
+CMUX_SHIM_EXPORT char* cmux_shim_ext_commands(int arg_browser_id) {
+  TlvWriter key_w;
+  key_w.I32(arg_browser_id);
+  TlvReader value_r = MirrorLookup(kOpExtCommands, key_w);
+  if (!value_r.present()) return nullptr;
+  const std::optional<std::string> mirror_result = value_r.Str();
+  return mirror_result ? Dup(*mirror_result) : nullptr;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_ext_command_run(int browser_id, const char* extension_id, const char* command) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.Str(extension_id);
-  w.Str(command);
-  Post(kOpExtCommandRun, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_ext_command_run(int arg_browser_id, const char* arg_extension_id, const char* arg_command) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.Str(arg_extension_id);
+  op_w.Str(arg_command);
+  (void)Post(kOpExtCommandRun, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_tab_move_to_window(int browser_id, int window_browser_id, int index) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.I32(window_browser_id);
-  w.I32(index);
-  const uint32_t token = NextToken();
+CMUX_SHIM_EXPORT int cmux_shim_tab_move_to_window(int arg_browser_id, int arg_window_browser_id, int arg_index) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_window_browser_id);
+  op_w.I32(arg_index);
+  const uint32_t op_token = NextToken();
   TlvWriter pending_tab_side_panel_state;
-  pending_tab_side_panel_state.I32(browser_id);
-  MarkPending(kOpSidePanelState, token, pending_tab_side_panel_state, 0x0u);  // tab.side_panel_state[browser_id]
+  pending_tab_side_panel_state.I32(arg_browser_id);
+  MarkPending(kOpSidePanelState, op_token, pending_tab_side_panel_state, 0x0u);  // tab.side_panel_state[browser_id]
   TlvWriter pending_tab_window_id;
-  pending_tab_window_id.I32(browser_id);
-  MarkPending(kOpTabWindowId, token, pending_tab_window_id, 0x0u);  // tab.window_id[browser_id]
-  Post(kOpTabMoveToWindow, token, w);
+  pending_tab_window_id.I32(arg_browser_id);
+  MarkPending(kOpTabWindowId, op_token, pending_tab_window_id, 0x0u);  // tab.window_id[browser_id]
+  (void)Post(kOpTabMoveToWindow, op_token, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_unresponsive_reply(int browser_id, int terminate) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.I32(terminate);
-  Post(kOpUnresponsiveReply, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_unresponsive_reply(int arg_browser_id, int arg_terminate) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_terminate);
+  (void)Post(kOpUnresponsiveReply, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_context_menu_done(int token, int command_id, int event_flags) {
-  TlvWriter w;
-  w.I32(token);
-  w.I32(command_id);
-  w.I32(event_flags);
-  Post(kOpContextMenuDone, 0, w);
+CMUX_SHIM_EXPORT void cmux_shim_context_menu_done(int arg_token, int arg_command_id, int arg_event_flags) {
+  TlvWriter op_w;
+  op_w.I32(arg_token);
+  op_w.I32(arg_command_id);
+  op_w.I32(arg_event_flags);
+  (void)Post(kOpContextMenuDone, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_set_popup_windows_enabled(int enabled) {
-  TlvWriter w;
-  w.I32(enabled);
-  PostPreinit(kOpSetPopupWindowsEnabled, w);
+CMUX_SHIM_EXPORT void cmux_shim_set_popup_windows_enabled(int arg_enabled) {
+  TlvWriter op_w;
+  op_w.I32(arg_enabled);
+  (void)PostPreinit(kOpSetPopupWindowsEnabled, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_popup_window_bounds(int window_id, int* x, int* y, int* width, int* height) {
-  TlvWriter key;
-  key.I32(window_id);
-  TlvReader value = MirrorLookup(kOpPopupWindowBounds, key);
-  if (!value.present()) return 0;
-  const auto result = value.I32();
-  const int32_t x_value = value.I32();
-  if (x != nullptr) *x = x_value;
-  const int32_t y_value = value.I32();
-  if (y != nullptr) *y = y_value;
-  const int32_t width_value = value.I32();
-  if (width != nullptr) *width = width_value;
-  const int32_t height_value = value.I32();
-  if (height != nullptr) *height = height_value;
-  return result;
+CMUX_SHIM_EXPORT int cmux_shim_popup_window_bounds(int arg_window_id, int* arg_x, int* arg_y, int* arg_width, int* arg_height) {
+  TlvWriter key_w;
+  key_w.I32(arg_window_id);
+  TlvReader value_r = MirrorLookup(kOpPopupWindowBounds, key_w);
+  if (!value_r.present()) return 0;
+  const auto mirror_result = value_r.I32();
+  const int32_t arg_x_value = value_r.I32();
+  if (arg_x != nullptr) *arg_x = arg_x_value;
+  const int32_t arg_y_value = value_r.I32();
+  if (arg_y != nullptr) *arg_y = arg_y_value;
+  const int32_t arg_width_value = value_r.I32();
+  if (arg_width != nullptr) *arg_width = arg_width_value;
+  const int32_t arg_height_value = value_r.I32();
+  if (arg_height != nullptr) *arg_height = arg_height_value;
+  return mirror_result;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_devtools_inspected_bounds(int browser_id, int* x, int* y, int* width, int* height) {
-  TlvWriter key;
-  key.I32(browser_id);
-  TlvReader value = MirrorLookup(kOpDevtoolsInspectedBounds, key);
-  if (!value.present()) return 0;
-  const auto result = value.I32();
-  const int32_t x_value = value.I32();
-  if (x != nullptr) *x = x_value;
-  const int32_t y_value = value.I32();
-  if (y != nullptr) *y = y_value;
-  const int32_t width_value = value.I32();
-  if (width != nullptr) *width = width_value;
-  const int32_t height_value = value.I32();
-  if (height != nullptr) *height = height_value;
-  return result;
+CMUX_SHIM_EXPORT int cmux_shim_devtools_inspected_bounds(int arg_browser_id, int* arg_x, int* arg_y, int* arg_width, int* arg_height) {
+  TlvWriter key_w;
+  key_w.I32(arg_browser_id);
+  TlvReader value_r = MirrorLookup(kOpDevtoolsInspectedBounds, key_w);
+  if (!value_r.present()) return 0;
+  const auto mirror_result = value_r.I32();
+  const int32_t arg_x_value = value_r.I32();
+  if (arg_x != nullptr) *arg_x = arg_x_value;
+  const int32_t arg_y_value = value_r.I32();
+  if (arg_y != nullptr) *arg_y = arg_y_value;
+  const int32_t arg_width_value = value_r.I32();
+  if (arg_width != nullptr) *arg_width = arg_width_value;
+  const int32_t arg_height_value = value_r.I32();
+  if (arg_height != nullptr) *arg_height = arg_height_value;
+  return mirror_result;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_popup_window_attach(int window_id, void* parent_view, int width, int height) {
-  TlvWriter w;
-  w.I32(window_id);
-  w.View(parent_view);
-  w.I32(width);
-  w.I32(height);
-  Post(kOpPopupWindowAttach, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_popup_window_attach(int arg_window_id, void* arg_parent_view, int arg_width, int arg_height) {
+  TlvWriter op_w;
+  op_w.I32(arg_window_id);
+  op_w.View(arg_parent_view);
+  op_w.I32(arg_width);
+  op_w.I32(arg_height);
+  (void)Post(kOpPopupWindowAttach, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT char* cmux_shim_side_panel_state(int browser_id) {
-  TlvWriter key;
-  key.I32(browser_id);
-  TlvReader value = MirrorLookup(kOpSidePanelState, key);
-  if (!value.present()) return nullptr;
-  const std::optional<std::string> result = value.Str();
-  return result ? Dup(*result) : nullptr;
+CMUX_SHIM_EXPORT char* cmux_shim_side_panel_state(int arg_browser_id) {
+  TlvWriter key_w;
+  key_w.I32(arg_browser_id);
+  TlvReader value_r = MirrorLookup(kOpSidePanelState, key_w);
+  if (!value_r.present()) return nullptr;
+  const std::optional<std::string> mirror_result = value_r.Str();
+  return mirror_result ? Dup(*mirror_result) : nullptr;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_side_panel_press(int browser_id, const char* control) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.Str(control);
-  const uint32_t token = NextToken();
+CMUX_SHIM_EXPORT int cmux_shim_side_panel_press(int arg_browser_id, const char* arg_control) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.Str(arg_control);
+  const uint32_t op_token = NextToken();
   TlvWriter pending_tab_side_panel_state;
-  pending_tab_side_panel_state.I32(browser_id);
-  MarkPending(kOpSidePanelState, token, pending_tab_side_panel_state, 0x0u);  // tab.side_panel_state[browser_id]
-  Post(kOpSidePanelPress, token, w);
+  pending_tab_side_panel_state.I32(arg_browser_id);
+  MarkPending(kOpSidePanelState, op_token, pending_tab_side_panel_state, 0x0u);  // tab.side_panel_state[browser_id]
+  (void)Post(kOpSidePanelPress, op_token, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_install_prompt_reply(int prompt_id, int result) {
-  TlvWriter w;
-  w.I32(prompt_id);
-  w.I32(result);
-  Post(kOpInstallPromptReply, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_install_prompt_reply(int arg_prompt_id, int arg_result) {
+  TlvWriter op_w;
+  op_w.I32(arg_prompt_id);
+  op_w.I32(arg_result);
+  (void)Post(kOpInstallPromptReply, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT char* cmux_shim_omnibox_keywords(int browser_id) {
-  TlvWriter key;
-  key.I32(browser_id);
-  TlvReader value = MirrorLookup(kOpOmniboxKeywords, key);
-  if (!value.present()) return nullptr;
-  const std::optional<std::string> result = value.Str();
-  return result ? Dup(*result) : nullptr;
+CMUX_SHIM_EXPORT char* cmux_shim_omnibox_keywords(int arg_browser_id) {
+  TlvWriter key_w;
+  key_w.I32(arg_browser_id);
+  TlvReader value_r = MirrorLookup(kOpOmniboxKeywords, key_w);
+  if (!value_r.present()) return nullptr;
+  const std::optional<std::string> mirror_result = value_r.Str();
+  return mirror_result ? Dup(*mirror_result) : nullptr;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_omnibox_input(int browser_id, const char* extension_id, int event, const char* text, int value) {
-  (void)browser_id; (void)extension_id; (void)event; (void)text; (void)value;
-  UnmigratedAsync(kOpOmniboxInput);
-  return 0;
+CMUX_SHIM_EXPORT int cmux_shim_omnibox_input(int arg_browser_id, const char* arg_extension_id, int arg_event, const char* arg_text, int arg_value) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.Str(arg_extension_id);
+  op_w.I32(arg_event);
+  op_w.Str(arg_text);
+  op_w.I32(arg_value);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpOmniboxInput, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_set_window_request_handler(cmux_shim_window_request_fn handler) {
-  TlvWriter w;
-  SetPolicy(kOpSetWindowRequestHandler, reinterpret_cast<void*>(handler));
-  w.I32(handler != nullptr ? 1 : 0);
-  Post(kOpSetWindowRequestHandler, 0, w);
+CMUX_SHIM_EXPORT void cmux_shim_set_window_request_handler(cmux_shim_window_request_fn arg_handler) {
+  TlvWriter op_w;
+  SetPolicy(kOpSetWindowRequestHandler, reinterpret_cast<void*>(arg_handler));
+  op_w.I32(arg_handler != nullptr ? 1 : 0);
+  (void)Post(kOpSetWindowRequestHandler, 0, op_w);
 }
 
 CMUX_SHIM_EXPORT int cmux_shim_foreign_browser_count(void) {
-  TlvWriter key;
-  TlvReader value = MirrorLookup(kOpForeignBrowserCount, key);
-  if (!value.present()) return 0;
-  const auto result = value.I32();
-  return result;
+  TlvWriter key_w;
+  TlvReader value_r = MirrorLookup(kOpForeignBrowserCount, key_w);
+  if (!value_r.present()) return 0;
+  const auto mirror_result = value_r.I32();
+  return mirror_result;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_download_url(int browser_id, const char* url) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.Str(url);
-  Post(kOpDownloadUrl, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_download_url(int arg_browser_id, const char* arg_url) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.Str(arg_url);
+  (void)Post(kOpDownloadUrl, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_download_continue(int download_id, const char* path) {
-  TlvWriter w;
-  w.I32(download_id);
-  w.Str(path);
-  Post(kOpDownloadContinue, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_download_continue(int arg_download_id, const char* arg_path) {
+  TlvWriter op_w;
+  op_w.I32(arg_download_id);
+  op_w.Str(arg_path);
+  (void)Post(kOpDownloadContinue, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_download_control(int download_id, int command) {
-  TlvWriter w;
-  w.I32(download_id);
-  w.I32(command);
-  Post(kOpDownloadControl, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_download_control(int arg_download_id, int arg_command) {
+  TlvWriter op_w;
+  op_w.I32(arg_download_id);
+  op_w.I32(arg_command);
+  (void)Post(kOpDownloadControl, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_permission_continue(int prompt_token, int result) {
-  TlvWriter w;
-  w.I32(prompt_token);
-  w.I32(result);
-  Post(kOpPermissionContinue, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_permission_continue(int arg_prompt_token, int arg_result) {
+  TlvWriter op_w;
+  op_w.I32(arg_prompt_token);
+  op_w.I32(arg_result);
+  (void)Post(kOpPermissionContinue, 0, op_w);
   return 1;
 }
 
 CMUX_SHIM_EXPORT void cmux_shim_close_all(void) {
-  TlvWriter w;
-  const uint32_t token = NextToken();
+  TlvWriter op_w;
+  const uint32_t op_token = NextToken();
   TlvWriter pending_host_live_browser_count;
-  MarkPending(kOpLiveBrowserCount, token, pending_host_live_browser_count, 0x0u);  // host.live_browser_count
+  MarkPending(kOpLiveBrowserCount, op_token, pending_host_live_browser_count, 0x0u);  // host.live_browser_count
   TlvWriter pending_host_window_count;
-  MarkPending(kOpWindowCount, token, pending_host_window_count, 0x0u);  // host.window_count
-  Post(kOpCloseAll, token, w);
+  MarkPending(kOpWindowCount, op_token, pending_host_window_count, 0x0u);  // host.window_count
+  (void)Post(kOpCloseAll, op_token, op_w);
 }
 
 CMUX_SHIM_EXPORT int cmux_shim_live_browser_count(void) {
-  TlvWriter key;
-  TlvReader value = MirrorLookup(kOpLiveBrowserCount, key);
-  if (!value.present()) return 0;
-  const auto result = value.I32();
-  return result;
+  TlvWriter key_w;
+  TlvReader value_r = MirrorLookup(kOpLiveBrowserCount, key_w);
+  if (!value_r.present()) return 0;
+  const auto mirror_result = value_r.I32();
+  return mirror_result;
 }
 
 CMUX_SHIM_EXPORT int cmux_shim_window_count(void) {
-  TlvWriter key;
-  TlvReader value = MirrorLookup(kOpWindowCount, key);
-  if (!value.present()) return 0;
-  const auto result = value.I32();
-  return result;
+  TlvWriter key_w;
+  TlvReader value_r = MirrorLookup(kOpWindowCount, key_w);
+  if (!value_r.present()) return 0;
+  const auto mirror_result = value_r.I32();
+  return mirror_result;
 }
 
 CMUX_SHIM_EXPORT void cmux_shim_shutdown(void) {
-  TlvWriter w;
-  Post(kOpShutdown, 0, w);
+  TlvWriter op_w;
+  (void)Post(kOpShutdown, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_content_setting(int browser_id, const char* url, const char* type) {
-  (void)browser_id; (void)url; (void)type;
-  UnmigratedAsync(kOpContentSetting);
-  return 0;
+CMUX_SHIM_EXPORT int cmux_shim_content_setting(int arg_browser_id, const char* arg_url, const char* arg_type) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.Str(arg_url);
+  op_w.Str(arg_type);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpContentSetting, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_set_content_setting(int browser_id, const char* url, const char* type, int value) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.Str(url);
-  w.Str(type);
-  w.I32(value);
-  Post(kOpSetContentSetting, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_set_content_setting(int arg_browser_id, const char* arg_url, const char* arg_type, int arg_value) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.Str(arg_url);
+  op_w.Str(arg_type);
+  op_w.I32(arg_value);
+  (void)Post(kOpSetContentSetting, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_visit_cookies(int browser_id, int reply) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.I32(reply);
-  Post(kOpVisitCookies, NextToken(), w);
-  return 1;
+CMUX_SHIM_EXPORT int cmux_shim_visit_cookies(int arg_browser_id, int arg_reply) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_reply);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpVisitCookies, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_delete_cookies(int browser_id, int reply, const char* url, const char* name) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.I32(reply);
-  w.Str(url);
-  w.Str(name);
-  Post(kOpDeleteCookies, NextToken(), w);
-  return 1;
+CMUX_SHIM_EXPORT int cmux_shim_delete_cookies(int arg_browser_id, int arg_reply, const char* arg_url, const char* arg_name) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_reply);
+  op_w.Str(arg_url);
+  op_w.Str(arg_name);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpDeleteCookies, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_download_favicon(int browser_id, int reply, const char* url, int max_size) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.I32(reply);
-  w.Str(url);
-  w.I32(max_size);
-  Post(kOpDownloadFavicon, NextToken(), w);
-  return 1;
+CMUX_SHIM_EXPORT int cmux_shim_download_favicon(int arg_browser_id, int arg_reply, const char* arg_url, int arg_max_size) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_reply);
+  op_w.Str(arg_url);
+  op_w.I32(arg_max_size);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpDownloadFavicon, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_import_cookies(const char* profile_cache_path, int reply, const char* json) {
-  TlvWriter w;
-  w.Str(profile_cache_path);
-  w.I32(reply);
-  w.Str(json);
-  Post(kOpImportCookies, NextToken(), w);
-  return 1;
+CMUX_SHIM_EXPORT int cmux_shim_import_cookies(const char* arg_profile_cache_path, int arg_reply, const char* arg_json) {
+  TlvWriter op_w;
+  op_w.Str(arg_profile_cache_path);
+  op_w.I32(arg_reply);
+  op_w.Str(arg_json);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpImportCookies, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_clear_cookies(const char* profile_cache_path, int reply, int64_t since) {
-  TlvWriter w;
-  w.Str(profile_cache_path);
-  w.I32(reply);
-  w.I64(since);
-  Post(kOpClearCookies, NextToken(), w);
-  return 1;
+CMUX_SHIM_EXPORT int cmux_shim_clear_cookies(const char* arg_profile_cache_path, int arg_reply, int64_t arg_since) {
+  TlvWriter op_w;
+  op_w.Str(arg_profile_cache_path);
+  op_w.I32(arg_reply);
+  op_w.I64(arg_since);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpClearCookies, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_import_passwords(const char* profile_cache_path, int reply, const cmux_shim_password_entry* entries, int count) {
-  TlvWriter w;
-  w.Str(profile_cache_path);
-  w.I32(reply);
-  const int entries_n = entries != nullptr && count > 0 ? count : 0;
-  w.I32(entries_n);
-  for (int i = 0; i < entries_n; ++i) {
-    w.Bytes(entries[i].url, entries[i].url_length);
-    w.Bytes(entries[i].signon_realm, entries[i].signon_realm_length);
-    w.Bytes(entries[i].username, entries[i].username_length);
-    w.Bytes(entries[i].password, entries[i].password_length);
-    w.I64(entries[i].created);
+CMUX_SHIM_EXPORT int cmux_shim_import_passwords(const char* arg_profile_cache_path, int arg_reply, const cmux_shim_password_entry* arg_entries, int arg_count) {
+  TlvWriter op_w;
+  op_w.Str(arg_profile_cache_path);
+  op_w.I32(arg_reply);
+  const int arg_entries_n = arg_entries != nullptr && arg_count > 0 ? arg_count : 0;
+  op_w.I32(arg_entries_n);
+  for (int i = 0; i < arg_entries_n; ++i) {
+    op_w.Bytes(arg_entries[i].url, arg_entries[i].url_length);
+    op_w.Bytes(arg_entries[i].signon_realm, arg_entries[i].signon_realm_length);
+    op_w.Bytes(arg_entries[i].username, arg_entries[i].username_length);
+    op_w.Bytes(arg_entries[i].password, arg_entries[i].password_length);
+    op_w.I64(arg_entries[i].created);
   }
-  Post(kOpImportPasswords, NextToken(), w);
-  return 1;
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpImportPasswords, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
 CMUX_SHIM_EXPORT int cmux_shim_password_import_available(void) {
-  TlvWriter key;
-  TlvReader value = MirrorLookup(kOpPasswordImportAvailable, key);
-  if (!value.present()) return 0;
-  const auto result = value.I32();
-  return result;
+  TlvWriter key_w;
+  TlvReader value_r = MirrorLookup(kOpPasswordImportAvailable, key_w);
+  if (!value_r.present()) return 0;
+  const auto mirror_result = value_r.I32();
+  return mirror_result;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_password_prompt_answer(int prompt_id, int action, const char* username) {
-  TlvWriter w;
-  w.I32(prompt_id);
-  w.I32(action);
-  w.Str(username);
-  Post(kOpPasswordPromptAnswer, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_password_prompt_answer(int arg_prompt_id, int arg_action, const char* arg_username) {
+  TlvWriter op_w;
+  op_w.I32(arg_prompt_id);
+  op_w.I32(arg_action);
+  op_w.Str(arg_username);
+  (void)Post(kOpPasswordPromptAnswer, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_set_password_generation_enabled(int enabled) {
-  TlvWriter w;
-  w.I32(enabled);
-  Post(kOpSetPasswordGenerationEnabled, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_set_password_generation_enabled(int arg_enabled) {
+  TlvWriter op_w;
+  op_w.I32(arg_enabled);
+  (void)Post(kOpSetPasswordGenerationEnabled, 0, op_w);
   return 1;
 }
 
 CMUX_SHIM_EXPORT int cmux_shim_password_replace_available(void) {
-  TlvWriter key;
-  TlvReader value = MirrorLookup(kOpPasswordReplaceAvailable, key);
-  if (!value.present()) return 0;
-  const auto result = value.I32();
-  return result;
+  TlvWriter key_w;
+  TlvReader value_r = MirrorLookup(kOpPasswordReplaceAvailable, key_w);
+  if (!value_r.present()) return 0;
+  const auto mirror_result = value_r.I32();
+  return mirror_result;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_replace_passwords(const char* profile_cache_path, int reply, const cmux_shim_password_entry* entries, int count) {
-  TlvWriter w;
-  w.Str(profile_cache_path);
-  w.I32(reply);
-  const int entries_n = entries != nullptr && count > 0 ? count : 0;
-  w.I32(entries_n);
-  for (int i = 0; i < entries_n; ++i) {
-    w.Bytes(entries[i].url, entries[i].url_length);
-    w.Bytes(entries[i].signon_realm, entries[i].signon_realm_length);
-    w.Bytes(entries[i].username, entries[i].username_length);
-    w.Bytes(entries[i].password, entries[i].password_length);
-    w.I64(entries[i].created);
+CMUX_SHIM_EXPORT int cmux_shim_replace_passwords(const char* arg_profile_cache_path, int arg_reply, const cmux_shim_password_entry* arg_entries, int arg_count) {
+  TlvWriter op_w;
+  op_w.Str(arg_profile_cache_path);
+  op_w.I32(arg_reply);
+  const int arg_entries_n = arg_entries != nullptr && arg_count > 0 ? arg_count : 0;
+  op_w.I32(arg_entries_n);
+  for (int i = 0; i < arg_entries_n; ++i) {
+    op_w.Bytes(arg_entries[i].url, arg_entries[i].url_length);
+    op_w.Bytes(arg_entries[i].signon_realm, arg_entries[i].signon_realm_length);
+    op_w.Bytes(arg_entries[i].username, arg_entries[i].username_length);
+    op_w.Bytes(arg_entries[i].password, arg_entries[i].password_length);
+    op_w.I64(arg_entries[i].created);
   }
-  Post(kOpReplacePasswords, NextToken(), w);
-  return 1;
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpReplacePasswords, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_set_password_fill(int browser_id, int enabled) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.I32(enabled);
-  Post(kOpSetPasswordFill, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_set_password_fill(int arg_browser_id, int arg_enabled) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_enabled);
+  (void)Post(kOpSetPasswordFill, 0, op_w);
   return 1;
 }
 
 CMUX_SHIM_EXPORT int cmux_shim_passkeys_available(void) {
-  TlvWriter key;
-  TlvReader value = MirrorLookup(kOpPasskeysAvailable, key);
-  if (!value.present()) return 0;
-  const auto result = value.I32();
-  return result;
+  TlvWriter key_w;
+  TlvReader value_r = MirrorLookup(kOpPasskeysAvailable, key_w);
+  if (!value_r.present()) return 0;
+  const auto mirror_result = value_r.I32();
+  return mirror_result;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_passkeys_list(const char* profile_cache_path, int reply) {
-  TlvWriter w;
-  w.Str(profile_cache_path);
-  w.I32(reply);
-  Post(kOpPasskeysList, NextToken(), w);
-  return 1;
+CMUX_SHIM_EXPORT int cmux_shim_passkeys_list(const char* arg_profile_cache_path, int arg_reply) {
+  TlvWriter op_w;
+  op_w.Str(arg_profile_cache_path);
+  op_w.I32(arg_reply);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpPasskeysList, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_passkey_delete(const char* profile_cache_path, const char* credential_id, int reply) {
-  TlvWriter w;
-  w.Str(profile_cache_path);
-  w.Str(credential_id);
-  w.I32(reply);
-  Post(kOpPasskeyDelete, NextToken(), w);
-  return 1;
+CMUX_SHIM_EXPORT int cmux_shim_passkey_delete(const char* arg_profile_cache_path, const char* arg_credential_id, int arg_reply) {
+  TlvWriter op_w;
+  op_w.Str(arg_profile_cache_path);
+  op_w.Str(arg_credential_id);
+  op_w.I32(arg_reply);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpPasskeyDelete, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
 CMUX_SHIM_EXPORT int cmux_shim_password_core_available(void) {
-  TlvWriter key;
-  TlvReader value = MirrorLookup(kOpPasswordCoreAvailable, key);
-  if (!value.present()) return 0;
-  const auto result = value.I32();
-  return result;
+  TlvWriter key_w;
+  TlvReader value_r = MirrorLookup(kOpPasswordCoreAvailable, key_w);
+  if (!value_r.present()) return 0;
+  const auto mirror_result = value_r.I32();
+  return mirror_result;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_password_list(const char* profile_cache_path, int reply) {
-  TlvWriter w;
-  w.Str(profile_cache_path);
-  w.I32(reply);
-  Post(kOpPasswordList, NextToken(), w);
-  return 1;
+CMUX_SHIM_EXPORT int cmux_shim_password_list(const char* arg_profile_cache_path, int arg_reply) {
+  TlvWriter op_w;
+  op_w.Str(arg_profile_cache_path);
+  op_w.I32(arg_reply);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpPasswordList, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_password_remove(const char* profile_cache_path, const char* const* ids, int count, int reply) {
-  TlvWriter w;
-  w.Str(profile_cache_path);
-  w.StrList(ids, count);
-  w.I32(reply);
-  Post(kOpPasswordRemove, NextToken(), w);
-  return 1;
+CMUX_SHIM_EXPORT int cmux_shim_password_remove(const char* arg_profile_cache_path, const char* const* arg_ids, int arg_count, int arg_reply) {
+  TlvWriter op_w;
+  op_w.Str(arg_profile_cache_path);
+  op_w.StrList(arg_ids, arg_count);
+  op_w.I32(arg_reply);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpPasswordRemove, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_password_exception_remove(const char* profile_cache_path, const char* id, int reply) {
-  TlvWriter w;
-  w.Str(profile_cache_path);
-  w.Str(id);
-  w.I32(reply);
-  Post(kOpPasswordExceptionRemove, NextToken(), w);
-  return 1;
+CMUX_SHIM_EXPORT int cmux_shim_password_exception_remove(const char* arg_profile_cache_path, const char* arg_id, int arg_reply) {
+  TlvWriter op_w;
+  op_w.Str(arg_profile_cache_path);
+  op_w.Str(arg_id);
+  op_w.I32(arg_reply);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpPasswordExceptionRemove, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_password_set_username(const char* profile_cache_path, const char* id, const char* username, int reply) {
-  TlvWriter w;
-  w.Str(profile_cache_path);
-  w.Str(id);
-  w.Str(username);
-  w.I32(reply);
-  Post(kOpPasswordSetUsername, NextToken(), w);
-  return 1;
+CMUX_SHIM_EXPORT int cmux_shim_password_set_username(const char* arg_profile_cache_path, const char* arg_id, const char* arg_username, int arg_reply) {
+  TlvWriter op_w;
+  op_w.Str(arg_profile_cache_path);
+  op_w.Str(arg_id);
+  op_w.Str(arg_username);
+  op_w.I32(arg_reply);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpPasswordSetUsername, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_password_export(const char* profile_cache_path, const char* file_path, int reply) {
-  TlvWriter w;
-  w.Str(profile_cache_path);
-  w.Str(file_path);
-  w.I32(reply);
-  Post(kOpPasswordExport, NextToken(), w);
-  return 1;
+CMUX_SHIM_EXPORT int cmux_shim_password_export(const char* arg_profile_cache_path, const char* arg_file_path, int arg_reply) {
+  TlvWriter op_w;
+  op_w.Str(arg_profile_cache_path);
+  op_w.Str(arg_file_path);
+  op_w.I32(arg_reply);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpPasswordExport, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
-CMUX_SHIM_EXPORT char* cmux_shim_ssl_status(int browser_id) {
-  (void)browser_id;
-  UnmigratedAsync(kOpSslStatus);
+CMUX_SHIM_EXPORT char* cmux_shim_ssl_status(int arg_browser_id) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpSslStatus, op_token, op_w);
+  (void)op_sent;
   return nullptr;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_clear_certificate_exceptions(int browser_id, int reply) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.I32(reply);
-  Post(kOpClearCertificateExceptions, NextToken(), w);
+CMUX_SHIM_EXPORT int cmux_shim_clear_certificate_exceptions(int arg_browser_id, int arg_reply) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_reply);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpClearCertificateExceptions, op_token, op_w);
+  return op_sent ? 1 : 0;
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_certificate_proceed(int arg_browser_id, const char* arg_host, int arg_code, int arg_chromium_decides) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.Str(arg_host);
+  op_w.I32(arg_code);
+  op_w.I32(arg_chromium_decides);
+  (void)Post(kOpCertificateProceed, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_certificate_proceed(int browser_id, const char* host, int code, int chromium_decides) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.Str(host);
-  w.I32(code);
-  w.I32(chromium_decides);
-  Post(kOpCertificateProceed, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_renderer_client_ids(int arg_browser_id, int* arg_out, int arg_capacity) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(static_cast<int32_t>(arg_capacity));
+  const uint32_t op_token = NextToken();
+  if (arg_out != nullptr && arg_capacity > 0) arg_out[0] = 0;
+  const bool op_sent = PostAwaitingReply(kOpRendererClientIds, op_token, op_w);
+  return op_sent ? 1 : 0;
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_set_context_proxy(const char* arg_profile_cache_path, int arg_port) {
+  TlvWriter op_w;
+  op_w.Str(arg_profile_cache_path);
+  op_w.I32(arg_port);
+  (void)Post(kOpSetContextProxy, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_renderer_client_ids(int browser_id, int* out, int capacity) {
-  (void)browser_id; (void)out; (void)capacity;
-  UnmigratedAsync(kOpRendererClientIds);
-  return 0;
+CMUX_SHIM_EXPORT int cmux_shim_set_context_proxy_server(const char* arg_profile_cache_path, const char* arg_server, const char* arg_bypass_list) {
+  TlvWriter op_w;
+  op_w.Str(arg_profile_cache_path);
+  op_w.Str(arg_server);
+  op_w.Str(arg_bypass_list);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpSetContextProxyServer, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_set_context_proxy(const char* profile_cache_path, int port) {
-  TlvWriter w;
-  w.Str(profile_cache_path);
-  w.I32(port);
-  Post(kOpSetContextProxy, 0, w);
-  return 1;
+CMUX_SHIM_EXPORT int cmux_shim_context_proxy_state(const char* arg_profile_cache_path) {
+  TlvWriter op_w;
+  op_w.Str(arg_profile_cache_path);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpContextProxyState, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_set_context_proxy_server(const char* profile_cache_path, const char* server, const char* bypass_list) {
-  (void)profile_cache_path; (void)server; (void)bypass_list;
-  UnmigratedAsync(kOpSetContextProxyServer);
-  return 0;
+CMUX_SHIM_EXPORT void cmux_shim_release_context(const char* arg_profile_cache_path) {
+  TlvWriter op_w;
+  op_w.Str(arg_profile_cache_path);
+  (void)Post(kOpReleaseContext, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_context_proxy_state(const char* profile_cache_path) {
-  (void)profile_cache_path;
-  UnmigratedAsync(kOpContextProxyState);
-  return 0;
+CMUX_SHIM_EXPORT void cmux_shim_set_navigation_guard(int arg_browser_id, int arg_mode) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_mode);
+  (void)Post(kOpSetNavigationGuard, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_release_context(const char* profile_cache_path) {
-  TlvWriter w;
-  w.Str(profile_cache_path);
-  Post(kOpReleaseContext, 0, w);
+CMUX_SHIM_EXPORT void cmux_shim_set_auth_callback(int arg_browser_id, const char* arg_scheme, const char* arg_https_host, const char* arg_https_path) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.Str(arg_scheme);
+  op_w.Str(arg_https_host);
+  op_w.Str(arg_https_path);
+  (void)Post(kOpSetAuthCallback, 0, op_w);
 }
 
-CMUX_SHIM_EXPORT void cmux_shim_set_navigation_guard(int browser_id, int mode) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.I32(mode);
-  Post(kOpSetNavigationGuard, 0, w);
-}
-
-CMUX_SHIM_EXPORT void cmux_shim_set_auth_callback(int browser_id, const char* scheme, const char* https_host, const char* https_path) {
-  TlvWriter w;
-  w.I32(browser_id);
-  w.Str(scheme);
-  w.Str(https_host);
-  w.Str(https_path);
-  Post(kOpSetAuthCallback, 0, w);
-}
-
-CMUX_SHIM_EXPORT char* cmux_shim_pref_get(const char* profile_cache_path, const char* pref_name) {
-  (void)profile_cache_path; (void)pref_name;
-  UnmigratedAsync(kOpPrefGet);
+CMUX_SHIM_EXPORT char* cmux_shim_pref_get(const char* arg_profile_cache_path, const char* arg_pref_name) {
+  TlvWriter op_w;
+  op_w.Str(arg_profile_cache_path);
+  op_w.Str(arg_pref_name);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpPrefGet, op_token, op_w);
+  (void)op_sent;
   return nullptr;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_pref_set_bool(const char* profile_cache_path, const char* pref_name, int value) {
-  TlvWriter w;
-  w.Str(profile_cache_path);
-  w.Str(pref_name);
-  w.I32(value);
-  Post(kOpPrefSetBool, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_pref_set_bool(const char* arg_profile_cache_path, const char* arg_pref_name, int arg_value) {
+  TlvWriter op_w;
+  op_w.Str(arg_profile_cache_path);
+  op_w.Str(arg_pref_name);
+  op_w.I32(arg_value);
+  (void)Post(kOpPrefSetBool, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_pref_watch(const char* profile_cache_path, const char* pref_name, int enabled) {
-  TlvWriter w;
-  w.Str(profile_cache_path);
-  w.Str(pref_name);
-  w.I32(enabled);
-  Post(kOpPrefWatch, 0, w);
+CMUX_SHIM_EXPORT int cmux_shim_pref_watch(const char* arg_profile_cache_path, const char* arg_pref_name, int arg_enabled) {
+  TlvWriter op_w;
+  op_w.Str(arg_profile_cache_path);
+  op_w.Str(arg_pref_name);
+  op_w.I32(arg_enabled);
+  (void)Post(kOpPrefWatch, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_bookmarks_sync(const char* profile_cache_path, const char* tree_json) {
-  (void)profile_cache_path; (void)tree_json;
-  UnmigratedAsync(kOpBookmarksSync);
-  return 0;
+CMUX_SHIM_EXPORT int cmux_shim_bookmarks_sync(const char* arg_profile_cache_path, const char* arg_tree_json) {
+  TlvWriter op_w;
+  op_w.Str(arg_profile_cache_path);
+  op_w.Str(arg_tree_json);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpBookmarksSync, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add(const char* id, const char* resource_root, const char* csp) {
-  TlvWriter w;
-  w.Str(id);
-  w.Str(resource_root);
-  w.Str(csp);
-  PostPreinit(kOpPageSchemeAdd, w);
+CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add(const char* arg_id, const char* arg_resource_root, const char* arg_csp) {
+  TlvWriter op_w;
+  op_w.Str(arg_id);
+  op_w.Str(arg_resource_root);
+  op_w.Str(arg_csp);
+  const uint32_t op_token = NextToken();
+  return PostPreinit(kOpPageSchemeAdd, op_token, op_w);
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add_first_party(const char* arg_id, const char* arg_resource_root, const char* arg_csp) {
+  TlvWriter op_w;
+  op_w.Str(arg_id);
+  op_w.Str(arg_resource_root);
+  op_w.Str(arg_csp);
+  const uint32_t op_token = NextToken();
+  return PostPreinit(kOpPageSchemeAddFirstParty, op_token, op_w);
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add_first_party_dynamic(const char* arg_id, const char* arg_resource_root, const char* arg_csp, const char* arg_dynamic_prefixes, const char* arg_entry) {
+  TlvWriter op_w;
+  op_w.Str(arg_id);
+  op_w.Str(arg_resource_root);
+  op_w.Str(arg_csp);
+  op_w.Str(arg_dynamic_prefixes);
+  op_w.Str(arg_entry);
+  const uint32_t op_token = NextToken();
+  return PostPreinit(kOpPageSchemeAddFirstPartyDynamic, op_token, op_w);
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond(int arg_token, int arg_status, const char* arg_mime, const void* arg_body, size_t arg_length) {
+  TlvWriter op_w;
+  op_w.I32(arg_token);
+  op_w.I32(arg_status);
+  op_w.Str(arg_mime);
+  op_w.Bytes(arg_body, static_cast<size_t>(arg_length));
+  (void)Post(kOpPageResourceRespond, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add_first_party(const char* id, const char* resource_root, const char* csp) {
-  TlvWriter w;
-  w.Str(id);
-  w.Str(resource_root);
-  w.Str(csp);
-  PostPreinit(kOpPageSchemeAddFirstParty, w);
+CMUX_SHIM_EXPORT int cmux_shim_add_document_script(const char* arg_world, const char* arg_source, int arg_all_frames, int arg_run_now) {
+  TlvWriter op_w;
+  op_w.Str(arg_world);
+  op_w.Str(arg_source);
+  op_w.I32(arg_all_frames);
+  op_w.I32(arg_run_now);
+  const uint32_t op_token = NextToken();
+  return PostPreinit(kOpAddDocumentScript, op_token, op_w);
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_add_page_channel(const char* arg_world, const char* arg_name) {
+  TlvWriter op_w;
+  op_w.Str(arg_world);
+  op_w.Str(arg_name);
+  const uint32_t op_token = NextToken();
+  return PostPreinit(kOpAddPageChannel, op_token, op_w);
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_tab_evaluate(int arg_browser_id, int arg_token, const char* arg_world, const char* arg_script, int arg_user_gesture) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_token);
+  op_w.Str(arg_world);
+  op_w.Str(arg_script);
+  op_w.I32(arg_user_gesture);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpTabEvaluate, op_token, op_w);
+  return op_sent ? 1 : 0;
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_tab_set_frozen(int arg_browser_id, int arg_frozen) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_frozen);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostAwaitingReply(kOpTabSetFrozen, op_token, op_w);
+  return op_sent ? 1 : 0;
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_tab_send_click(int arg_browser_id, double arg_x, double arg_y, int arg_button, int arg_modifiers, int arg_click_count) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.F64(arg_x);
+  op_w.F64(arg_y);
+  op_w.I32(arg_button);
+  op_w.I32(arg_modifiers);
+  op_w.I32(arg_click_count);
+  (void)Post(kOpTabSendClick, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add_first_party_dynamic(const char* id, const char* resource_root, const char* csp, const char* dynamic_prefixes, const char* entry) {
-  TlvWriter w;
-  w.Str(id);
-  w.Str(resource_root);
-  w.Str(csp);
-  w.Str(dynamic_prefixes);
-  w.Str(entry);
-  PostPreinit(kOpPageSchemeAddFirstPartyDynamic, w);
+CMUX_SHIM_EXPORT int cmux_shim_tab_set_color_scheme(int arg_browser_id, int arg_scheme) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_scheme);
+  (void)Post(kOpTabSetColorScheme, 0, op_w);
   return 1;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond(int token, int status, const char* mime, const void* body, size_t length) {
-  TlvWriter w;
-  w.I32(token);
-  w.I32(status);
-  w.Str(mime);
-  w.Bytes(body, static_cast<size_t>(length));
-  Post(kOpPageResourceRespond, 0, w);
-  return 1;
+CMUX_SHIM_EXPORT int cmux_shim_page_scheme_set_group(const char* arg_id, const char* arg_group) {
+  TlvWriter op_w;
+  op_w.Str(arg_id);
+  op_w.Str(arg_group);
+  const uint32_t op_token = NextToken();
+  return PostPreinit(kOpPageSchemeSetGroup, op_token, op_w);
 }
 
 }  // extern "C"

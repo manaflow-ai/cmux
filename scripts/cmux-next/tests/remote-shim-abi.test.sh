@@ -34,13 +34,21 @@ if command -v shasum >/dev/null 2>&1; then
 else
   abi="$(sha256sum "$header" | awk '{print $1}')"
 fi
-grep -q "kShimAbiID\[\] = \"$abi\"" "$inc" || fail "$inc is stale (not generated from this cmux_cef_shim.h)"
-if grep -rnE 'wait|cond_|semaphore' "$host/client/generated"; then
+# Current: the generator, run on this header and ops into a scratch root, writes the same file.
+fresh="$work/generated"
+mkdir -p "$fresh/$(dirname "${header#"$root/"}")" "$fresh/$(dirname "${ops#"$root/"}")"
+cp "$header" "$fresh/${header#"$root/"}"
+cp "$ops" "$fresh/${ops#"$root/"}"
+python3 "$root/scripts/cmux-next/gen-chromium-host-wire.py" --root "$fresh" >/dev/null
+cmp -s "$fresh/${inc#"$root/"}" "$inc" || fail "$inc is stale: run python3 scripts/cmux-next/gen-chromium-host-wire.py"
+# No blocking primitive in the generated client (PostAwaitingReply only registers a token).
+if grep -rnE '(^|[^A-Za-z])wait|cond_|semaphore|condition_variable' "$host/client/generated"; then
   fail "the generated client waits"
 fi
 
 sources=("$host"/client/*.mm)
-flags=(-std=c++20 -Wall -Wextra -Werror -O1 -pthread -I"$(dirname "$header")" -I"$host/src" -I"$host/client")
+flags=(-std=c++20 -Wall -Wextra -Werror -O1 -pthread -I"$(dirname "$header")" -I"$root/Packages/macOS/CmuxNext/CEFShim/src"
+  -I"$host/src" -I"$host/client")
 if [[ "$(uname)" == Darwin ]]; then
   lib="$work/libcmux_cef_shim_remote.dylib"
   "${cxx[@]}" "${flags[@]}" -fvisibility=hidden -dynamiclib -install_name @rpath/libcmux_cef_shim_remote.dylib \
@@ -88,8 +96,9 @@ while IFS= read -r name; do
   [[ -n "$name" ]] || continue
   grep -qx "extra $name" "$work/allowed" || fail "export $name is not in cmux_cef_shim.h"
 done <<< "$extra"
-have="$(wc -l < "$work/remote" | tr -d ' ')"
-echo "remote-shim-abi: $have of $expected cmux_shim_ exports"
+have="$(comm -12 "$work/header" "$work/remote" | wc -l | tr -d ' ')"
+optional="$(comm -13 "$work/header" "$work/remote" | wc -l | tr -d ' ')"
+echo "remote-shim-abi: $have of the header's $expected cmux_shim_ exports, plus $optional optional_exports"
 if (( ${#pending[@]} )); then
   echo "remote-shim-abi: ${#pending[@]} local exports wait for client/remote_shim_local.mm (task 014b): ${pending[*]}"
 fi

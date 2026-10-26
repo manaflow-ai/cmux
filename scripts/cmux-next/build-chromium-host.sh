@@ -102,7 +102,7 @@ common=(
 # tests/remote-shim-abi.test.sh, not the wrapper's `common`.
 "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" -O2 \
   -std=c++20 -fno-exceptions -fvisibility=hidden -fvisibility-inlines-hidden -Wall -Wextra -Werror \
-  -I"$(dirname "$SHIM_HEADER")" -I"$HOST_DIR/src" -I"$HOST_DIR/client" \
+  -I"$(dirname "$SHIM_HEADER")" -I"$SHIM_SRC" -I"$HOST_DIR/src" -I"$HOST_DIR/client" \
   -dynamiclib -install_name @rpath/libcmux_cef_shim_remote.dylib \
   -o "$OUT_DIR/libcmux_cef_shim_remote.dylib" \
   "$HOST_DIR"/client/*.mm "$HOST_DIR/src/chromium_host_control.cc"

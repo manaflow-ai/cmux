@@ -37,6 +37,13 @@ namespace cmux_host::control {
 inline constexpr uint8_t kTagValue = 0;
 inline constexpr uint8_t kTagNull = 1;
 
+// The first frame each side sends on a connection, next to the generated kOpEvent..kOpAck:
+//   cmux -> host  str kWireID, str kShimAbiID
+//   host -> cmux  str kWireID, StrList of the optional_exports its shim defines; sent after the
+//                 MIRROR values whose only refresh event is attach (the `attach` pseudo event)
+// A HELLO with another kWireID (another generation of the op table) is malformed.
+inline constexpr uint16_t kOpHello = 0x8005;
+
 // Little-endian helpers of EncodeFields and DecodeFields.
 inline void PutLE(std::string* out, uint64_t value, size_t size) {
   for (size_t i = 0; i < size; ++i) out->push_back(static_cast<char>(value >> (8 * i)));
