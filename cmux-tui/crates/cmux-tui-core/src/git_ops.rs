@@ -131,6 +131,8 @@ fn open_repository(directory: &Path, operation: &'static str) -> Result<Reposito
 }
 
 fn status(repository: &Repository) -> Result<Value, ResourceError> {
+    // The operation runs git to completion on this request thread.
+    crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
     let arguments = [
         "status",
         "--porcelain=v2",
@@ -174,6 +176,8 @@ fn branches(
     repository: &Repository,
     fields: &serde_json::Map<String, Value>,
 ) -> Result<Value, ResourceError> {
+    // The operation runs git to completion on this request thread.
+    crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
     let limit = fields.get("limit").and_then(Value::as_u64).unwrap_or(DEFAULT_BRANCH_LIMIT);
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
     let listing = refs::branches(repository, limit)

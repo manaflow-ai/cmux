@@ -133,6 +133,7 @@ impl TabMembership {
     /// The deltas that carry the change from the captured membership to
     /// `state`, or `None` when tab membership and order did not change or
     /// the commit replayed (a replay changes nothing).
+    #[track_caller]
     pub(super) fn deltas(
         self,
         mux: &Mux,

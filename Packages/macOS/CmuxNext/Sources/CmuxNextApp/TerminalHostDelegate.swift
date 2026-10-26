@@ -25,6 +25,12 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         return true
     }
 
+    /// The terminal took a key of the key-down being dispatched: its turn expects a frame, on every path that
+    /// delivers a key to the terminal (``InputDispatchContext/noteFrameExpected()``).
+    func terminalSessionTookKey(_ session: TerminalSession) {
+        services?.inputDispatch.noteFrameExpected()
+    }
+
     /// The declared terminal context menu (`ContextMenuCatalog`), targeted at the right-clicked
     /// terminal's tab, led by the rows of the link or path Ghostty underlines (``linkMenu``).
     func terminalSession(_ session: TerminalSession, contextMenuFor event: NSEvent) -> NSMenu? {

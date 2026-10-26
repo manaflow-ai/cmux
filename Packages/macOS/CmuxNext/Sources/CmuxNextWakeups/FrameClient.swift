@@ -1,7 +1,10 @@
 public import AppKit
 import QuartzCore
 
-/// One frame delivered to a ``FrameClient``.
+/// One frame delivered to a ``FrameClient``: Chrome's `viz::BeginFrameArgs`
+/// (components/viz/common/frame_sinks/begin_frame_args.h), whose `frame_time`, `deadline`,
+/// `interval` and `sequence_number` are ``timestamp``, ``targetTimestamp``, ``refreshInterval``
+/// and ``sequence``.
 public struct FrameTick: Sendable {
     /// Display-link time of this frame (CACurrentMediaTime base).
     public var timestamp: CFTimeInterval
@@ -11,6 +14,30 @@ public struct FrameTick: Sendable {
     public var rawElapsed: Double
     /// The display's refresh period; nil for a synthesized (stalled) frame.
     public var refreshInterval: Double?
+    /// When the frame this tick builds is shown (the link's `targetTimestamp`, CACurrentMediaTime base).
+    /// A synthesized (stalled) frame is shown one link interval after it starts, as Chrome's synthetic
+    /// sources set `deadline = frame_time + interval` (`BackToBackBeginFrameSource::OnTimerTick`,
+    /// components/viz/common/frame_sinks/begin_frame_source.cc). Sample a presented value (a spring, a
+    /// `MotionPath`) at this time, not at `CACurrentMediaTime()`: the main thread runs the tick late.
+    public var targetTimestamp: CFTimeInterval
+    /// The frame's number on its scheduler, from 1, one more each frame (stalled frames too): a gap
+    /// between two ticks a client saw is a frame it missed.
+    public var sequence: UInt64
+
+    /// The interval a frame with no known refresh period is shown after (60 Hz).
+    public static let defaultRefreshInterval: Double = 1.0 / 60.0
+
+    /// A tick; `targetTimestamp` defaults to `timestamp` plus the refresh period
+    /// (``defaultRefreshInterval`` when `refreshInterval` is nil).
+    public init(timestamp: CFTimeInterval, elapsed: Double, rawElapsed: Double, refreshInterval: Double?,
+                targetTimestamp: CFTimeInterval? = nil, sequence: UInt64 = 0) {
+        self.timestamp = timestamp
+        self.elapsed = elapsed
+        self.rawElapsed = rawElapsed
+        self.refreshInterval = refreshInterval
+        self.targetTimestamp = targetTimestamp ?? timestamp + (refreshInterval ?? Self.defaultRefreshInterval)
+        self.sequence = sequence
+    }
 }
 
 /// A reason to receive frames: an animation, a drag autoscroll, a settle
@@ -25,57 +52,105 @@ public final class FrameClient {
     /// The client's priority class: ``MainWorkClass/frame`` (every frame, unbudgeted) unless the
     /// client was made with ``init(owner:budgeted:on:onFrame:)``.
     public let workClass: MainWorkClass
+    /// How often it needs frames: its display's link runs at the highest rate of the active clients
+    /// on it (``FrameRate``). ``FrameRate/motion`` unless the client was made with another.
+    public let rate: FrameRate
     private let onFrame: @MainActor (FrameTick) -> Bool
     private let resolve: @MainActor () -> FrameScheduler
     private weak var scheduler: FrameScheduler?
+    /// The launch phases that enable a budgeted client's class (its ``MainWorkScheduler``'s); nil
+    /// for frame and input clients, which are never held.
+    private let startup: StartupPhase?
+    /// True while an active client waits for the phase that opens its class.
+    private var waitingForStartup = false
     public private(set) var isActive = false
 
     /// `onFrame` returns true to keep ticking. The client ticks on the
-    /// scheduler `resolve` returns when it activates.
-    public init(owner: String, isAnimation: Bool = true, scheduler resolve: @escaping @MainActor () -> FrameScheduler,
+    /// scheduler `resolve` returns when it activates, at `rate` or faster.
+    public init(owner: String, isAnimation: Bool = true, rate: FrameRate = .motion,
+                scheduler resolve: @escaping @MainActor () -> FrameScheduler,
                 onFrame: @escaping @MainActor (FrameTick) -> Bool) {
         self.owner = owner
         self.isAnimation = isAnimation
         self.workClass = .frame
+        self.rate = rate
         self.resolve = resolve
         self.onFrame = onFrame
+        startup = nil
     }
 
     /// A batch client of a budgeted class (``MainWorkClass/isBudgeted``) on the app's one
     /// ``MainWorkScheduler``: it ticks after the higher classes, only when ``MainFrameBudget/mayRun(_:)``
     /// lets its class run, and in turn with the other clients of its class; otherwise it stays
     /// active and ticks on the next frame. `onFrame` gets the budget: it runs its work through
-    /// ``MainFrameBudget/run(_:owner:_:)``, one task at a time, and returns true to tick again while
+    /// ``MainFrameBudget/run(_:owner:posted:_:)``, one task at a time, and returns true to tick again while
     /// work is left. The client holds `work`: it never falls back to another scheduler.
+    ///
+    /// While `work`'s ``StartupPhase`` does not admit the class (background while launching), an
+    /// activated client stays off the frame scheduler: its work waits in its queue, and the phase
+    /// change attaches it, so it ticks from the next frame on.
     public init(owner: String, budgeted workClass: BudgetedWorkClass, on work: MainWorkScheduler,
                 onFrame: @escaping @MainActor (FrameTick, MainFrameBudget) -> Bool) {
         self.owner = owner
         self.isAnimation = false
         self.workClass = workClass.workClass
+        self.rate = .motion
         let frames = work.frames, budget = work.budget
         self.resolve = { frames }
         self.onFrame = { tick in onFrame(tick, budget) }
+        startup = work.startup
+    }
+
+    /// The input stage of `scheduler`'s frames (``FrameInputCoalescer``): it ticks before the frame
+    /// clients, so they see the frame's input. Not visible motion: the busy watchdog does not excuse it.
+    init(inputStageOf scheduler: FrameScheduler, owner: String, onFrame: @escaping @MainActor (FrameTick) -> Bool) {
+        self.owner = owner
+        self.isAnimation = false
+        self.workClass = .input
+        self.rate = .motion
+        self.resolve = { [weak scheduler] in scheduler ?? .app }
+        self.onFrame = onFrame
+        startup = nil
     }
 
     /// A client of `view`'s window (``FrameScheduler/app`` while it has none).
-    public convenience init(owner: String, view: NSView, onFrame: @escaping @MainActor (FrameTick) -> Bool) {
-        self.init(owner: owner, scheduler: { [weak view] in view.map(FrameScheduler.forView) ?? .app }, onFrame: onFrame)
+    public convenience init(owner: String, rate: FrameRate = .motion, view: NSView,
+                            onFrame: @escaping @MainActor (FrameTick) -> Bool) {
+        self.init(owner: owner, rate: rate, scheduler: { [weak view] in view.map(FrameScheduler.forView) ?? .app },
+                  onFrame: onFrame)
     }
 
     /// A client of a fixed scheduler (``FrameScheduler/app`` once that scheduler is gone,
     /// as for a view client without a window).
-    public convenience init(owner: String, isAnimation: Bool = true, on scheduler: FrameScheduler,
+    public convenience init(owner: String, isAnimation: Bool = true, rate: FrameRate = .motion, on scheduler: FrameScheduler,
                             onFrame: @escaping @MainActor (FrameTick) -> Bool) {
-        self.init(owner: owner, isAnimation: isAnimation, scheduler: { [weak scheduler] in scheduler ?? .app }, onFrame: onFrame)
+        self.init(owner: owner, isAnimation: isAnimation, rate: rate, scheduler: { [weak scheduler] in scheduler ?? .app },
+                  onFrame: onFrame)
     }
 
-    /// Starts ticking (no effect while active).
+    /// Starts ticking (no effect while active); a budgeted client whose class the launch holds
+    /// starts at the phase change.
     public func activate() {
         guard !isActive else { return }
         isActive = true
+        if let startup, !startup.admits(workClass) { return waitForStartup(startup) }
+        attach()
+    }
+
+    private func attach() {
         let target = resolve()
         scheduler = target
         target.activate(self)
+    }
+
+    private func waitForStartup(_ startup: StartupPhase) {
+        guard !waitingForStartup else { return }
+        waitingForStartup = true
+        startup.whenReached(workClass.startupOpening) { [weak self] in
+            guard let self else { return }
+            waitingForStartup = false
+            if isActive, scheduler == nil { attach() }
+        }
     }
 
     /// Stops ticking.

@@ -40,12 +40,23 @@ public struct Backoff: Sendable {
     /// Call after a success: the next failure starts from `initial` again.
     public mutating func reset() { attempt = 0 }
 
-    /// Sleeps `next()` on `clock` and records the wait under `owner`.
-    /// Throws `CancellationError` when the task is cancelled.
+    /// The slack the system may add to a wait of `step`: max(8 ms, 10% of the
+    /// step). 8 ms is Chromium's `kDefaultLeeway` (base/task/task_features.h,
+    /// ``WakeLeeway/defaultAlignment``); 10% is the tolerance Apple's Energy
+    /// Efficiency Guide asks of a timer. Unlike ``WakeLeeway``, no 1 s cap: a
+    /// retry has no deadline a late fire breaks, so a 30 s step may slip 3 s.
+    /// The jitter stays; it spreads clients apart, the tolerance lets the kernel
+    /// coalesce each one's wake with others.
+    public static func tolerance(for step: Duration) -> Duration {
+        max(WakeLeeway.defaultAlignment, step / 10)
+    }
+
+    /// Sleeps `next()` on `clock` with ``tolerance(for:)`` and records the wait
+    /// under `owner`. Throws `CancellationError` when the task is cancelled.
     public mutating func wait(owner: String, clock: any Clock<Duration> = ContinuousClock(),
                               ledger: WakeupLedger = .shared) async throws {
         let delay = next()
-        try await clock.sleep(for: delay)
+        try await clock.sleep(for: delay, tolerance: Self.tolerance(for: delay))
         ledger.record(owner, reason: "backoff")
     }
 }

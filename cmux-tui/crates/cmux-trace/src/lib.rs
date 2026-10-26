@@ -16,7 +16,11 @@
 //!   thread exists, ever.
 //! - [`start_recording`] / [`stop`]: the recording ring for `cmux trace`. Its file is mapped once
 //!   and never unmapped or cleared; each start moves its cursor a lap past the last recording.
-//! - [`write`]: off, one relaxed load and a branch; on, no lock, allocation or system call.
+//! - [`write`](fn@write): off, one relaxed load and a branch; on, no lock, allocation or system call.
+//! - The trace macros ([`trace_scope!`], [`trace_instant!`], [`trace_async_begin!`] /
+//!   [`trace_async_end!`], [`trace_flow_out!`] / [`trace_flow_in!`], [`trace_counter!`]): Chrome's
+//!   `TRACE_EVENT*` over [`write`](fn@write), one `static` [`TraceSite`] per call site, names from the shared
+//!   catalog ([`names::CATALOG`]); [`scope_stack`] is the calling thread's open scopes.
 //!
 //! std and libc only: the holder links it.
 
@@ -25,7 +29,9 @@ mod copy;
 mod decode;
 mod identity;
 mod layout;
+mod macros;
 mod map;
+pub mod names;
 mod ring;
 mod tracer;
 
@@ -41,8 +47,14 @@ pub use layout::{
     CHUNK_BYTES, CatalogName, FLAG_ESTIMATE, FLAG_ID, HEADER_BYTES, NameKind, PAGE_BYTES, Phase,
     RECORDS_PER_CHUNK, RingKind, RingLayout, RingSizes, THREAD_NONE,
 };
+#[doc(hidden)]
+pub use macros::categories as __categories;
+pub use macros::{
+    SCOPE_SLOTS, SCOPE_STACK_DEPTH, ScopeGuard, ScopeStack, TraceArg, TraceSite, scope_stack,
+};
 pub use map::{Reserve, reserve_blocks};
 pub use ring::Record;
+use tracer::RingId;
 pub use tracer::{InternedName, StartClocks, Tracer, TracerConfig, Writer};
 
 /// Which process wrote a ring (header `role`, u16 at 20).
@@ -131,6 +143,7 @@ pub mod category {
     pub const CONTROL: u64 = 1 << 17;
     pub const GHOSTTY: u64 = 1 << 18;
     pub const RESIZE: u64 = 1 << 19;
+    pub const WEBUI: u64 = 1 << 20;
 
     /// What the black box records while no recording runs.
     pub const BLACKBOX: u64 = ACTION | KEY | SWITCH | CREATE | CEF | LAUNCH | DAEMON | HANG | CRASH;
@@ -145,8 +158,12 @@ pub mod category {
         | REMOTE
         | CONTROL
         | GHOSTTY
-        | RESIZE;
+        | RESIZE
+        | WEBUI;
     pub const ALL: u64 = BLACKBOX | RECORDING;
+
+    /// Each category's name, indexed by its bit: the text before the first dot of its trace names.
+    pub use crate::macros::CATEGORY_NAMES as NAMES;
 }
 
 /// The black-box ring file of `role` in process `pid`.
@@ -242,24 +259,21 @@ impl BlackboxOpen {
     }
 }
 
-/// Starts this process's black box as `role`, with `catalog` in every ring's name table: the heap
-/// ring takes records from now on, and the one-shot `cmux-trace-open` thread moves it into
-/// `<dir>/<role>-<pid>.blackbox.cmxtrace`. Call it first in `main`; it opens no file itself. None
-/// when the black box was already started.
-pub fn init_blackbox(
-    dir: impl AsRef<Path>,
-    role: Role,
-    catalog: &'static [CatalogName],
-) -> Option<BlackboxOpen> {
-    init_process(TracerConfig::for_process(dir.as_ref(), role, catalog))
+/// Starts this process's black box as `role`, with the shared catalog ([`names::CATALOG`]) in every
+/// ring's name table: the heap ring takes records from now on, and the one-shot `cmux-trace-open`
+/// thread moves it into `<dir>/<role>-<pid>.blackbox.cmxtrace`. Call it first in `main`; it opens
+/// no file itself. None when the black box was already started.
+pub fn init_blackbox(dir: impl AsRef<Path>, role: Role) -> Option<BlackboxOpen> {
+    init_process(TracerConfig::for_process(dir.as_ref(), role))
 }
 
-/// [`init_blackbox`] with every input given.
+/// [`init_blackbox`] with every other input given. The process's rings name the shared catalog
+/// ([`names::CATALOG`]): the trace macros write the ids they resolved from it at compile time.
 pub fn init_process(config: TracerConfig) -> Option<BlackboxOpen> {
     let mut fresh = false;
     let tracer = PROCESS.get_or_init(|| {
         fresh = true;
-        Tracer::with_mirror(config, Some(&CATEGORIES))
+        Tracer::with_mirror(config, names::CATALOG, Some(&CATEGORIES))
     });
     if !fresh {
         return None;
@@ -279,11 +293,12 @@ pub fn enabled(category: u64) -> bool {
 #[inline]
 pub fn write(category: u64, name: u16, phase: Phase, flags: u8, arg0: u64, arg1: u64) {
     if enabled(category) {
-        write_process(Record { t_ns: clock::now_ns(), name, phase, flags, arg0, arg1 }, None);
+        let record = Record { t_ns: clock::now_ns(), name, phase, flags, arg0, arg1 };
+        write_process(record, None, None);
     }
 }
 
-/// [`write`] with a time the caller measured on the trace clock (an event's own timestamp).
+/// [`write`](fn@write) with a time the caller measured on the trace clock (an event's own timestamp).
 #[inline]
 pub fn write_at(
     category: u64,
@@ -295,11 +310,11 @@ pub fn write_at(
     arg1: u64,
 ) {
     if enabled(category) {
-        write_process(Record { t_ns, name, phase, flags, arg0, arg1 }, None);
+        write_process(Record { t_ns, name, phase, flags, arg0, arg1 }, None, None);
     }
 }
 
-/// [`write`] under a name interned at run time (one id per ring, interned at its first record
+/// [`write`](fn@write) under a name interned at run time (one id per ring, interned at its first record
 /// there).
 #[inline]
 pub fn write_interned(
@@ -312,18 +327,26 @@ pub fn write_interned(
 ) {
     if enabled(category) {
         let record = Record { t_ns: clock::now_ns(), name: 0, phase, flags, arg0, arg1 };
-        write_process(record, Some(name));
+        write_process(record, Some(name), None);
     }
 }
 
+/// Writes `record` as this thread into the process's active ring ([`Tracer::write`]): with
+/// `only_in`, only while that ring is active. The ring it went into, if it was written.
 #[inline(never)]
-fn write_process(record: Record, interned: Option<&InternedName>) {
-    let Some(tracer) = PROCESS.get() else { return };
-    let _ = WRITER.try_with(|writer| {
-        if let Ok(mut state) = writer.0.try_borrow_mut() {
-            tracer.write(&mut state, record, interned);
-        }
-    });
+pub(crate) fn write_process(
+    record: Record,
+    interned: Option<&InternedName>,
+    only_in: Option<RingId>,
+) -> Option<RingId> {
+    let tracer = PROCESS.get()?;
+    WRITER
+        .try_with(|writer| {
+            let mut state = writer.0.try_borrow_mut().ok()?;
+            tracer.write(&mut state, record, interned, only_in)
+        })
+        .ok()
+        .flatten()
 }
 
 /// `trace.start` in this process ([`Tracer::start_recording`]).

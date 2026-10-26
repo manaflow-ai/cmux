@@ -6,8 +6,11 @@ import CmuxNextSettings
 
 extension PageDescriptor {
     /// The Keyboard Shortcuts editor (R59): cmux-page://cmux.keybindings/.
-    static let keybindings = PageDescriptor(id: "cmux.keybindings", resource: "keybindings", namespaces: ["cmux.keybindings."],
-                                            ownsSearchField: true)
+    static let keybindings = PageDescriptor(
+        id: "cmux.keybindings", resource: "keybindings", processGroup: .privileged, namespaces: ["cmux.keybindings."], ownsSearchField: true,
+        // KeybindingsPageProvider. Export and import go through the native file panel.
+        opTables: [PageOpTable(namespace: "cmux.keybindings.", read: ["list", "recorded", "changed"],
+                               act: ["record.start", "record.stop", "keymap.export", "keymap.import", "set", "remove", "reset"])])
 }
 
 extension InternalPageID {
@@ -41,7 +44,7 @@ final class KeybindingsPageService: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let provider = KeybindingsPageProvider(services: services)
         let routes = [PageRoute(prefix: "cmux.keybindings.", provider: provider)]
-        guard let page = PageWebView(descriptor: .keybindings, routes: routes) else { return NSView() }
+        guard let page = services.webUI.open(PageOpenRequest(descriptor: .keybindings, routes: routes)) else { return NSView() }
         provider.pageWindow = { [weak page] in page?.window }
         return page
     }

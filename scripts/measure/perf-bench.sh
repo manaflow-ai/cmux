@@ -44,6 +44,14 @@ for arg in "$@"; do
   esac
 done
 cd "$(git rev-parse --show-toplevel)"
+# The perf lab owns measurement while its sentinel exists (p12-perf-process task 026): no build, no
+# browser fetch, no measurement. The artifact the nightly declares still exists and says why.
+if [ -e scripts/perf-lab/OWNS_MEASUREMENT ]; then
+  echo "perf-bench: perf lab owns measurement (scripts/perf-lab/OWNS_MEASUREMENT); nothing measured"
+  mkdir -p artifacts/perf-bench
+  printf '{"skipped": "perf lab owns measurement", "sha": "%s"}\n' "$(git rev-parse HEAD)" > artifacts/perf-bench/results.json
+  exit 0
+fi
 # Steps run with a per-step HOME; the account's user-level tools (bun and node for the
 # Debug build's web bundles) live under its real home.
 account_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"

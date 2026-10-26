@@ -10,6 +10,10 @@ description = "In-process WireGuard transport for cmux clients: boringtun plus a
 [lints]
 workspace = true
 
+[features]
+# Exposes the crate-private packet parsers to cmux-tui/fuzz (`fuzzing` module).
+fuzzing = []
+
 [dependencies]
 base64.workspace = true
 boringtun.workspace = true

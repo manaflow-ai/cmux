@@ -1,4 +1,5 @@
 import Foundation
+public import CmuxNextTrace
 
 /// How a `DaemonConnection` connects, reconnects and bounds its requests.
 public struct DaemonConnectionConfiguration: Sendable {
@@ -60,6 +61,10 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// sends no `workspace_placement` restatement. The App's composition root sets it
     /// (`SidebarMirror.isLinked`) on the connections that feed the sidebar; off by default.
     public var echoesPlacementShift = false
+    /// Watches the reader's handling of each line this connection reads (``LineTransport``'s
+    /// `daemon.line` scope, never its `read(2)` wait). The App's composition root sets it to its
+    /// ``HangWatch``; nil (the default) watches nothing.
+    public var hangWatch: (any HangWatchScoping)?
 
     public init(
         clientName: String = "cmux-next",

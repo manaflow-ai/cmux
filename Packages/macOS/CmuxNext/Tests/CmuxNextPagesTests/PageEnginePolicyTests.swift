@@ -4,9 +4,9 @@ import Testing
 
 /// The one engine rule behind every cmux page view (``PageEnginePolicy``).
 struct PageEnginePolicyTests {
-    private static let plain = PageDescriptor(id: "test.plain", resource: "plain", namespaces: [])
-    private static let dynamic = PageDescriptor(id: "test.dynamic", resource: "dynamic", namespaces: [], dynamicPrefixes: ["asset"])
-    private static let agent = PageDescriptor(id: "cmux.agent", resource: "agent-pane", namespaces: [])
+    private static let plain = PageDescriptor(id: "test.plain", resource: "plain", processGroup: .solo, namespaces: [])
+    private static let dynamic = PageDescriptor(id: "test.dynamic", resource: "dynamic", processGroup: .solo, namespaces: [], dynamicPrefixes: ["asset"])
+    private static let agent = PageDescriptor(id: "cmux.agent", resource: "agent-pane", processGroup: .agent, namespaces: [])
 
     @Test func aPlainPageFollowsTheChromiumDefault() {
         let decision = PageEnginePolicy(preference: .chromium, chromiumAvailable: true).decide(for: Self.plain, options: .standard)

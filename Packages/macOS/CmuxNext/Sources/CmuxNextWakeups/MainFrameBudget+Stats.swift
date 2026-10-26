@@ -1,3 +1,5 @@
+import Foundation
+
 extension MainFrameBudget {
     /// Counters for `debug.main_budget` and the benches.
     public struct Stats: Sendable, Equatable {
@@ -27,5 +29,31 @@ extension MainFrameBudget {
         /// cost after it, charged to the next frame (``MainFrameBudget/noteRenderPass(nanos:)``).
         public var renderPasses = 0
         public var maxRenderPassNanos: UInt64 = 0
+        /// Per class: times a task was held for the next frame because an input response was open
+        /// (``MainFrameBudget/noteDiscreteInput(expectsFrame:)``).
+        public var yieldedToInputResponse: [Int] = [0, 0, 0]
+        /// Per class: times a task was held for the next frame because the typing burst allows one
+        /// task per 100 ms and the class's last one started less than that ago.
+        public var waitedForBurstSlot: [Int] = [0, 0, 0]
+        /// Input responses that reached the 100 ms cap before a link tick rendered.
+        public var inputResponseCapHits = 0
+        /// The longest input response, in nanoseconds (from the input to what closed it).
+        public var maxInputResponseNanos: UInt64 = 0
+    }
+
+    /// `workClass`'s slot in the per-class counters (``MainWorkClass/budgeted`` order); nil for the
+    /// unbudgeted classes.
+    static func index(_ workClass: MainWorkClass) -> Int? {
+        switch workClass {
+        case .input, .frame: nil
+        case .visible: 0
+        case .automation: 1
+        case .background: 2
+        }
+    }
+
+    /// `nanos` as milliseconds with two decimals (signpost messages).
+    static func milliseconds(_ nanos: UInt64) -> String {
+        String(format: "%.2f", Double(nanos) / 1_000_000)
     }
 }

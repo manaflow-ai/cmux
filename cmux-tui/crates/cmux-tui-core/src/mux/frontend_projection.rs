@@ -5,14 +5,17 @@ use super::*;
 impl Mux {
     /// The terminal registry revision without reading every terminal row:
     /// the registry lock is held for one indexed read.
+    #[track_caller]
     pub fn terminal_registry_revision(&self) -> anyhow::Result<u64> {
         self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner).terminal_revision()
     }
 
+    #[track_caller]
     pub fn terminal_registry_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {
         self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner).terminal_snapshot()
     }
 
+    #[track_caller]
     pub fn terminal_registry_events_page(
         &self,
         revision: u64,
@@ -29,6 +32,7 @@ impl Mux {
         Ok((snapshot, events))
     }
 
+    #[track_caller]
     pub fn workspace_registry_event(
         &self,
         revision: u64,
@@ -45,6 +49,7 @@ impl Mux {
             .find(|event| event.revision == revision))
     }
 
+    #[track_caller]
     pub fn get_frontend_projection(
         &self,
         frontend: &str,
@@ -58,6 +63,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn put_frontend_projection(
         &self,
         mutation: &WorkspaceMutation,
@@ -91,6 +97,7 @@ impl Mux {
         Ok(commit)
     }
 
+    #[track_caller]
     pub(crate) fn resource_put_frontend_projection_selected(
         &self,
         selectors: crate::ResourceSelectors,

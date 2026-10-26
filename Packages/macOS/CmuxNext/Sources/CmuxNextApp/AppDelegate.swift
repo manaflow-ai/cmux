@@ -7,7 +7,10 @@ import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFeatures
+import CmuxNextInput
 import CmuxNextKeepAwake
+import CmuxNextLaunch
 import CmuxNextPages
 import CmuxNextWebUpdates
 import CmuxNextPalette
@@ -22,12 +25,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let environment: AppEnvironment
     /// The daemon's first connect attempt, begun in `main`.
     private let daemonPrestart: DaemonPrestart?
+    /// The launch load-in, region by region; its last region revealing ends the startup phase's
+    /// `launching` (made here, the composition root, and passed by init).
+    private let launchReveal: LaunchReveal
+    /// The startup trace `CMUX_TRACE_STARTUP` asked for (nil: none): launch phases record their slices in it.
+    private let startupTrace: StartupTrace?
+    /// The app's daemon wire counters, made in `main` (nil in a release build).
+    private let wireStats: DaemonWireStats?
     /// The first live terminal frame (or no daemon): deferrable warm-up waits for it.
-    private let launchSettle = LaunchSettle()
-    /// Launch work that starts after the first window frame (perf-launch-memory).
-    let firstFrame = FirstFrameGate()
+    private let launchSettle: LaunchSettle
+    /// The startup phase's settle references (first snapshot, restore, visible page).
+    private let startupReferences: StartupReferences
+    /// The launch's order owners, made in `main` (p08-startup-012).
+    private let order: LaunchOrder
+    /// Launch work that starts after the first window frame (perf-launch-memory), posted to `order.startup`.
+    private let firstFrame: FirstFrameGate
     /// Cleanup deferred until the launch settles (injected; tests pass their own).
     private let launchCleanup: LaunchCleanup
+    /// The app's blocking-work lanes and the last quit's pages and composers, read on them since `main`.
+    private let launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake)
     /// Set in applicationDidFinishLaunching; nil before it (no IUO).
     private var services: AppServices?
     /// A second quit signal's exit (`QuitSignal`): the Home cache's last write, bounded, then the end.
@@ -39,11 +55,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         await self?.services?.home.flushCacheForQuit()
     })
     private var settings: SettingsController?
-    /// The app's one main-thread scheduler for budgeted work: its per-frame budget, with the
-    /// person's pending-input check and task signposts. Built here, the composition root, and
-    /// handed to the control socket and the services.
+    /// The app's one main-thread scheduler (budget, input check, task signposts, starvation guard), handed to control and services.
     private let mainWork: MainWorkScheduler
+    /// The main-thread budget's run-loop turn meter; `main` hands it to the application before `run()`.
+    var turnMeter: MainTurnMeter { mainWork.budget.turns }
     private let control: AppControl
+    /// The one input tap (p04-input.md 3 (A)), made in `main`: pending input, control and services
+    /// observe it; `main` installs it on the application before `run()`.
+    let inputTap: InputEventTap
     private let mouseSideButtons = MouseSideButtons()
     private var cloudContext: Task<Void, Never>?
     /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).
@@ -56,13 +75,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var webAuthHandler: WebAuthSessionHandler?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
-    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, launchCleanup: LaunchCleanup = LaunchCleanup()) {
-        self.environment = environment
-        self.daemonPrestart = daemonPrestart
+    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, wireStats: DaemonWireStats?,
+         startupTrace: StartupTrace? = nil, order: LaunchOrder, inputTap: InputEventTap,
+         launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
+        (self.environment, self.launchReads) = (environment, launchReads)
+        (self.daemonPrestart, self.startupTrace) = (daemonPrestart, startupTrace)
+        self.wireStats = wireStats
         self.launchCleanup = launchCleanup
-        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
-        self.mainWork = mainWork
-        control = AppControl(mainWork: mainWork)
+        self.order = order
+        firstFrame = FirstFrameGate(startup: order.startup)
+        // The launch's phase (made in main with the main-thread scheduler) reveals at the first frame.
+        let startup = order.mainWork.startup
+        let reveal = LaunchReveal(onRevealed: { [startup] in startup.noteFirstFrame() })
+        (launchReveal, launchSettle) = (reveal, LaunchSettle(reveal: reveal))
+        startupReferences = StartupReferences(startup: startup, reveal: reveal)
+        (self.mainWork, self.inputTap) = (order.mainWork, inputTap)
+        control = AppControl(mainWork: order.mainWork, input: inputTap)
         super.init()
     }
 
@@ -79,8 +107,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         })
         control.startWatchdog()
         DebugTimings.markLaunch("did_finish_launching_start")
-        DebugTimings.install()
-        defer { DebugTimings.markLaunch("did_finish_launching_end") }
+        let launchStart = startupTrace?.uptimeNanos
+        DebugTimings.install(watchdog: control.watchdog, startupTrace: startupTrace)
+        defer {
+            DebugTimings.markLaunch("did_finish_launching_end")
+            if let launchStart { startupTrace?.task("did_finish_launching", start: launchStart) }
+        }
         // No system caret bubble over cmux's own native text fields (before any field edits).
         NativeCaretAccessory.install()
         // Every window, shell or auxiliary, opens by one placement rule.
@@ -107,9 +139,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PageDescriptor.registerFilePageRoots()
         PageDescriptor.registerAgentActivityRoot()
         DebugTimings.markLaunch("dfl.theme")
-        let services = AppServices(environment: environment, mainWork: mainWork)
+        let services = AppServices(environment: environment, launchReveal: launchReveal, work: launchReads.work, mainWork: mainWork,
+                                   launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats, inputTap: inputTap)
         AppProcessRoot.shared.adopt(services)
         self.services = services
+        // Frame rate classes (p03-rendering-013): links at their clients' rate, loops at 30 Hz.
+        let rateClasses = services.features.isEnabled(.frameRateClasses)
+        FrameScheduler.appDisplays.followsClientRates = rateClasses
+        DesignSettings.shared.loopsFollowFrameRate = rateClasses
+        services.startEnergy()  // before any tab: WebKit, KeepAwake and the video wallpaper start from the inputs
+        // VSyncHub (p03-rendering-014): each display's link on that display's vsync thread, one
+        // coalesced main post per vsync. Off until the hop measurement is recorded (threading-model.md).
+        if services.features.isEnabled(.vsyncHub) { FrameScheduler.appDisplays.hub = VSyncHub() }
+        // The settle references, one closure each, before the daemon starts and the windows restore
+        // (Chrome's StartupObserver, after_startup_task_utils.cc). A hidden launch (no window on
+        // screen) reveals at once.
+        let startup = mainWork.startup
+        startup.noteLaunch(NSApp.isHidden ? .hidden : .window)
+        services.daemon.store.whenFirstSnapshotApplied { startup.markDone(.firstSnapshot) }
+        let references = startupReferences
+        references.watchUnavailable { [daemon = services.daemon] in daemon.startup.isUnavailable }
+        services.cache.presentationChanges.subscribe("startup-references") { [weak references] in references?.noteContentChange() }
+        let windows = services.windows
+        windows.onRestored = { [weak references, weak windows] in
+            references?.restored { [weak windows] in windows?.visiblePageLoad() ?? .idle }
+        }
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
         services.quit.watchdog = control.watchdog
@@ -128,6 +182,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ghosttyConfigLiveReload.start()
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
         TerminalHooks(services: services).install()
+        // The terminal key path's input-source switch keys, read off main now and on each activation.
+        GhosttyRuntime.shared.inputSources.start(runner: services.work)
         DebugTimings.markLaunch("dfl.bind")
         startSettingsAndControl(services: services, launch: settingsRead)
         services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
@@ -143,7 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
         FeaturePolicyEnforcer(services: services).start()
         cloudContext = services.startCloud()
-        firstFrame.whenOpen { [weak services] in services?.startNonPaintServices() }
+        firstFrame.whenOpen("AppServices.startNonPaintServices") { [weak services] in services?.startNonPaintServices() }
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services] controller in
             services?.crashRecovery.showRestartNotice(on: controller.window)
@@ -196,15 +252,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore)
         services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent())
         // cmux-page:// first-party pages for Chromium, before any window can start it.
-        FirstPartyPageSchemes.install()
-        // Every cmux page view follows `browser.defaultEngine` (Chromium by default) through this one host.
-        PageWebView.openPanel = services.openPanel
-        PageWebView.chromiumHosting = ChromiumPageHost(
-            cef: services.cache.cef,
-            preference: { [weak services] in
-                services?.settings?.snapshot.browserDefaultEngine ?? services?.cache.browserTabs.preference.defaultEngine ?? .fallback
-            },
-            keyRouter: services.keyRouter)
+        FirstPartyPageSchemes.install(processGroups: services.features.isEnabled(.pageProcessGroups))
+        // The page host already exists (`services.iconPicker` above reads it) but has opened no page;
+        // the statics forward to it for page views not yet made through `webUI.open`
+        // (p13-webui-006 to 009 move them, 010 deletes the statics).
+        PageWebView.openPanel = services.webUI.openPanel
+        PageWebView.chromiumHosting = services.webUI.chromium
         DebugTimings.markLaunch("dfl.home_history")
         services.windows.restoreWhenLoaded()
         DebugTimings.markLaunch("dfl.windows")
@@ -215,7 +268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.updateFeedObservation = UpdateFeedPosting.follow(services)
         // The runtime pack check wires the engine reason at once; its download waits until asked.
         services.startChromiumRuntime()
-        firstFrame.whenOpen { [weak services] in services?.startLaterTabWarmups() }
+        firstFrame.whenOpen("AppServices.startLaterTabWarmups") { [weak services] in services?.startLaterTabWarmups() }
         // Other apps' sign-ins, before any request a launch by one delivers.
         // The engines' incognito profiles and the Chromium engine's sign-in tabs (AppServices).
         let webAuthWindows = WebAuthSessionWindows(host: services, logger: services.daemon.logger,
@@ -229,8 +282,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.windows.onContentDidAppear = { [weak services] in services?.externalOpen.flush(); services?.pageHostPool.windowDidAppear($0.window) }
         NSApp.servicesProvider = CmuxServicesProvider(open: services.externalOpen)
         // A launch whose first window never draws (no window, a daemon that never answers) still
-        // starts the work waiting for that frame.
-        firstFrame.armBackstop(after: .seconds(3))
+        // starts the work waiting for that frame; the first-frame ref ends only with a reason that
+        // is true (a frame that may still come keeps it for that frame or the failsafe).
+        // The registered launch work ends the implicit ref.
+        firstFrame.armBackstop(after: .seconds(3)) { [weak services] () -> StartupInProgressRef.Reason? in
+            guard let services else { return nil }
+            if services.daemon.startup.isUnavailable { return .daemonUnavailable }
+            return NSApp.isHidden || services.windows.controllers.isEmpty ? .noWindow : nil
+        }
+        order.startup.finishRegistration()
     }
 
     /// One palette warm-up step per idle moment (`PaletteController.prepare`), then `done`.
@@ -288,6 +348,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let acpmux = QuitAgents.environment(services)
         ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath)
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
+        services.followEnergySaver(settings)
         services.mobile.follow(settings, launch: services.environment.launch)
         services.chatsFeed?.keepCurrent()
         services.projectsImport.start(feed: services.chatsFeed)
@@ -365,13 +426,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
                 #if DEBUG
                 // The Chromium host app prototype (browserHost.helperPrototype; cef-helper-app-DESIGN.md).
-                let chromiumHost = ChromiumHostPrototype { ChromiumHostPrototype.bundledConfiguration() }
+                // Socket focus policy: `open` makes the page first responder only with focus: true.
+                let chromiumHost = ChromiumHostPrototype(makeConfiguration: { ChromiumHostPrototype.bundledConfiguration() },
+                                                         tunables: TunableStore.shared)
                 control.service?.router.register([
                     .mainActor("debug.chromium_host") { [weak services] call in
                         let controller = services?.windows.controllers.first
                         let pane = (call.params["pane"]?.stringValue ?? controller?.focus.state.pane).flatMap { controller?.content?.paneController(key: $0) }
                         let fields = chromiumHost.handle(op: call.params["op"]?.stringValue, url: call.params["url"]?.stringValue,
-                                                         over: pane?.view.contentHost, focus: call.params["focus"]?.boolValue != false)
+                                                         over: pane?.view.contentHost, focus: call.params["focus"]?.boolValue == true)
                         return .value(JSONValue(foundation: fields) ?? .null)
                     },
                     .async("debug.chromium_host.measure") { call in

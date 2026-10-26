@@ -471,7 +471,11 @@ public final class LayoutRootView: NSView {
         if !moving { reportInteractiveRects() }
     }
 
+    /// `updateVisibility()` calls (`debug.layout_counters` `update_visibility`): a spring wants <= 2 (p03-rendering DC2).
+    public private(set) var visibilityUpdates: UInt64 = 0
+
     func updateVisibility() {
+        visibilityUpdates &+= 1
         var visible: Set<PaneID> = []
         var keepAlive: Set<PaneID> = []
         if isLive, let active = model.activeScreenID, let view = screenViews[active] {

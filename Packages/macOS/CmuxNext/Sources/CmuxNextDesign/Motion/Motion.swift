@@ -53,7 +53,8 @@ public struct Motion {
         return MotionPolicy(speed: speed, reduceMotion: reduceMotion, bounce: design.animationBounce,
                             enabledKinds: design.enabledAnimations, liveResize: isLiveResizing,
                             animationsEnabled: design.animationsEnabled && !design.calmMode.stopsAnimations,
-                            disabledCategories: design.disabledAnimationCategories)
+                            disabledCategories: design.disabledAnimationCategories,
+                            pacesLoops: design.loopsFollowFrameRate)
     }
 
     // MARK: Gates, one per MotionCategory
