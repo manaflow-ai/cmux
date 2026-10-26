@@ -335,7 +335,7 @@ struct CloudStartSessionTests {
         #expect(asked != services.cloud.account)
         do {
             _ = try await CloudStartSession(services: services).run(request, Self.invocation(["agent": .string("claude"), "name": .string(name)]),
-                                                                    AppActionContext(services: services), account: asked)
+                                                                    AppActionContext(services: services), account: asked, byPerson: false)
             Issue.record("a run asked in another account went on")
         } catch let failure as ActionFailure {
             #expect(failure.message == CloudStartSessionStrings.accountChanged(request.asked(machine: name)))
