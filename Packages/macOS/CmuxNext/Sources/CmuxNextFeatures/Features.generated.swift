@@ -155,6 +155,58 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.
+    public static let perfLabCanary = Feature(
+        index: 9,
+        name: "perfLabCanary",
+        owner: "Performance Lead",
+        description: "Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.",
+        kind: .killSwitch,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
+    /// Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.
+    public static let perfLabKillProbe = Feature(
+        index: 10,
+        name: "perfLabKillProbe",
+        owner: "Performance Lead",
+        description: "Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.",
+        kind: .killSwitch,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: true, nightly: true, release: true),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: true,
+        runtimeMutable: false
+    )
+    #endif
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Every feature, by index: `registered[feature.index] == feature`.
+    public static let registered: [Feature] = [
+        .energySaver,
+        .frameRateClasses,
+        .frozenGrowthDiscard,
+        .memorySaverBackgroundActivity,
+        .pageProcessGroups,
+        .recentlyAudibleProtection,
+        .renderStarvationGuard,
+        .taskManagerMemorySaved,
+        .vsyncHub,
+        .perfLabCanary,
+        .perfLabKillProbe,
+    ]
+    #else
     /// Every feature, by index: `registered[feature.index] == feature`.
     public static let registered: [Feature] = [
         .energySaver,
@@ -167,4 +219,5 @@ nonisolated extension Feature {
         .taskManagerMemorySaved,
         .vsyncHub,
     ]
+    #endif
 }

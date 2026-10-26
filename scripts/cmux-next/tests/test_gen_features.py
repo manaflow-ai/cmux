@@ -260,6 +260,13 @@ class SchemaTests(unittest.TestCase):
         self.assertTrue(any("runtimeMutable" in error and "'teardownTest'" in error for error in errors), errors)
         self.assertEqual(self.errors(with_(KILL, runtimeMutable=True, teardownTest="CmuxNextFeaturesTests.T/testTeardown")), [])
 
+    def test_bench_only_is_for_app_features(self):
+        self.assertEqual(self.errors(with_(PERF, benchOnly=True)), [])
+        for feature in (KILL, HOLDER):  # process daemon, both
+            with self.subTest(process=feature["process"]):
+                self.assertTrue(self.errors(with_(feature, benchOnly=True)))
+        self.assertTrue(self.errors(with_(PERF, benchOnly="yes")))
+
     def test_chromium_feature_only_with_process_chromium(self):
         self.assertTrue(self.errors(with_(CHROMIUM, chromium_feature=None)))
         errors = self.errors(with_(KILL, chromium_feature="BackForwardCache"))
@@ -584,6 +591,39 @@ class GeneratedFileTests(unittest.TestCase):
         self.assertIn(".int(default: 4, min: 1, max: 32)", swift)
         self.assertIn(".bool(default: true)", swift)
         self.assertIn("expires: nil", swift)
+
+    def test_bench_only_features_are_compiled_out_of_shipped_builds(self):
+        """A benchOnly handle and its registry slot exist only under DEBUG || CMUX_BENCH_HOOKS, after every
+        shipped feature, so a Release registry is dense and keeps the shipped features' indices."""
+        probe = with_(PERF, name="aaBenchProbe", benchOnly=True, replaces=None,
+                      params=[{"name": "spin", "type": "bool", "default": True, "description": "Spin."}])
+        self.repo.write_feature(probe)
+        self.repo.run()
+        swift = self.repo.read(gen.SWIFT_OUT)
+        shipped = sorted(feature["name"] for feature in (PERF, HOLDER, KILL, CHROMIUM))
+        for index, name in enumerate(shipped):
+            self.assertIn("public static let %s = Feature(\n        index: %d," % (name, index), swift)
+        guarded = "    #if DEBUG || CMUX_BENCH_HOOKS\n    /// %s\n    public static let aaBenchProbe = Feature(\n" \
+                  "        index: %d," % (probe["description"], len(shipped))
+        self.assertIn(guarded, swift)
+        handle = swift[swift.index("public static let aaBenchProbe"):]
+        self.assertLess(handle.index("    #endif\n"), handle.index("public static let registered"))
+        registry = lambda names: ("    /// Every feature, by index: `registered[feature.index] == feature`.\n"
+                                  "    public static let registered: [Feature] = [\n%s\n    ]\n"
+                                  % "\n".join("        .%s," % name for name in names))
+        self.assertIn("    #if DEBUG || CMUX_BENCH_HOOKS\n%s    #else\n%s    #endif\n}\n"
+                      % (registry(shipped + ["aaBenchProbe"]), registry(shipped)), swift)
+        self.assertNotIn("AA_BENCH_PROBE", self.repo.read(gen.RUST_OUT))
+        self.assertEqual(self.repo.run("--check")[0], 0)
+
+    def test_only_bench_features(self):
+        repo = Repo([with_(PERF, benchOnly=True)])
+        self.addCleanup(repo.close)
+        self.assertEqual(repo.run()[0], 0)
+        swift = repo.read(gen.SWIFT_OUT)
+        self.assertIn("    #else\n    /// Every feature, by index: `registered[feature.index] == feature`.\n"
+                      "    public static let registered: [Feature] = []\n    #endif\n", swift)
+        self.assertIn("index: 0,", swift)
 
     def test_rust_has_only_daemon_side_features(self):
         self.repo.run()
