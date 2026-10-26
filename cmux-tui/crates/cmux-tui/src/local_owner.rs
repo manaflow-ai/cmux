@@ -462,10 +462,8 @@ fn wait_while_starting(
 /// restoring that then vanishes from the socket ends the restore wait at
 /// once: the contact bound applies again, and when the spawned process has
 /// exited too (`owner_exited`) ensure fails now instead of waiting. An owner
-/// that refuses connections at its connection limit when the contact bound
-/// passes is reported busy, not as an owner that never came up. Only the last
-/// answer counts: this runs after a spawn, where `wait_while_starting` has
-/// already seen the socket answer no busy refusal.
+/// that refuses connections continuously has the same busy bound as an
+/// existing owner, including after it has reported that it is restoring.
 fn wait_until_ready(
     spec: &OwnerSpec,
     expected_session: Option<&str>,
@@ -475,19 +473,24 @@ fn wait_until_ready(
     progress: &RestoreProgress<'_>,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     let mut seen_alive = false;
+    let mut busy = BusySince::default();
     loop {
         let result = attempt(spec, expected_session, attempt_deadline(restore_deadline))?;
         let refused = matches!(result, Attempt::Busy);
         match result {
             Attempt::Ready(ready) => return Ok(Some(ready)),
             Attempt::Starting(pid) => {
+                busy.answered();
                 seen_alive = true;
                 progress.restoring(pid);
             }
-            // Accepted but unanswered or refused: keep what is known about
-            // the owner.
-            Attempt::Unanswered | Attempt::Busy => {}
+            // Keep what is known about the owner, but only consecutive
+            // refusals count toward its connection-limit deadline.
+            Attempt::Unanswered => busy.answered(),
+            Attempt::Busy if busy.refused() => return Err(EnsureError::Busy),
+            Attempt::Busy => {}
             Attempt::Gone => {
+                busy.answered();
                 seen_alive = false;
                 if owner_exited() {
                     return Ok(None);
