@@ -2,11 +2,13 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextFocus
 import Testing
 
-/// Task p04-input-062 of plans/cmux-next/chrome-parity/p04-input.md: `KeyRouter.hasDecided` is the
+/// Task p04-input-062 of plans/cmux-next/chrome-parity/p04-input.md: `KeyRouter.decidedKey` is the
 /// O(1) question Chromium's pre-key hook asks first. It holds for a key the dispatcher decided and
-/// for Chromium's copy of it, and a decided key runs nothing in the Chromium hooks.
+/// for Chromium's copy of it, a decided key runs nothing in the Chromium hooks, and a decided key
+/// whose extension shortcuts the dispatcher did not look up still owes that step to the hook.
 @MainActor @Suite struct KeyRouterHooksTests {
     /// The router holds the registry `unowned`; the suite keeps it.
     let registry: ActionRegistry
@@ -38,12 +40,12 @@ import Testing
     @Test func aDecidedKeyAndChromiumsCopyOfItAreDecided() throws {
         let router = KeyRouter(registry: registry)
         let event = try Self.key("t", [.command], keyCode: 17, timestamp: 42)
-        #expect(!router.hasDecided(event))
+        #expect(router.decidedKey(event) == .undecided)
         router.decided.add(event)
-        #expect(router.hasDecided(event))
-        #expect(router.hasDecided(try Self.key("t", [.command], keyCode: 17, timestamp: 42)), "Chromium's copy of the key")
-        #expect(!router.hasDecided(try Self.key("t", [.command], keyCode: 17, timestamp: 43)), "the next press of the key")
-        #expect(!router.hasDecided(try Self.key("w", [.command], keyCode: 13, timestamp: 42)), "another key at the same time")
+        #expect(router.decidedKey(event) != .undecided)
+        #expect(router.decidedKey(try Self.key("t", [.command], keyCode: 17, timestamp: 42)) != .undecided, "Chromium's copy of the key")
+        #expect(router.decidedKey(try Self.key("t", [.command], keyCode: 17, timestamp: 43)) == .undecided, "the next press of the key")
+        #expect(router.decidedKey(try Self.key("w", [.command], keyCode: 13, timestamp: 42)) == .undecided, "another key at the same time")
     }
 
     /// A key with no timestamp (AppKit's synthesized key bindings) is decided by identity only.
@@ -51,8 +53,8 @@ import Testing
         let router = KeyRouter(registry: registry)
         let event = try Self.key("t", [.command], keyCode: 17, timestamp: 0)
         router.decided.add(event)
-        #expect(router.hasDecided(event))
-        #expect(!router.hasDecided(try Self.key("t", [.command], keyCode: 17, timestamp: 0)))
+        #expect(router.decidedKey(event) != .undecided)
+        #expect(router.decidedKey(try Self.key("t", [.command], keyCode: 17, timestamp: 0)) == .undecided)
     }
 
     /// A decided key runs no action from the Chromium page and DevTools hooks.
@@ -64,6 +66,28 @@ import Testing
             #expect(router.browserTab(tab, keyEquivalent: event) == .passToPage)
             #expect(router.browserTab(tab, devToolsKeyEquivalent: event) == .passToPage)
         }
+        #expect(ran.ids.isEmpty, "a decided key ran \(ran.ids)")
+    }
+
+    /// Cmd-F the dispatcher offered to the page, or any decided chord while a cmux page in Chromium
+    /// (no pane's Chromium tab) has the keyboard: the dispatcher looked up no extension shortcut, so
+    /// Chromium's hook still owes the key that step. Browser focus mode settles it (the page owns
+    /// every key), for Chromium's copy of the key too.
+    @Test func aDecidedKeyOwesTheExtensionStepUntilTheDispatcherLookedItUp() throws {
+        let router = KeyRouter(registry: registry)
+        let offered = try Self.key("f", [.command], keyCode: 3, timestamp: 7)
+        router.decided.add(offered)
+        #expect(router.decidedKey(offered) == .extensionShortcutOwed)
+        #expect(!router.runExtensionShortcut(offered, focus: FocusState()))
+        #expect(router.decidedKey(offered) == .extensionShortcutOwed, "no Chromium tab's shortcuts were read")
+
+        let focusModeKey = try Self.key("k", [.command], keyCode: 40, timestamp: 8)
+        var focusMode = FocusState()
+        focusMode.isBrowserFocusModeActive = true
+        router.decided.add(focusModeKey)
+        #expect(!router.runExtensionShortcut(focusModeKey, focus: focusMode))
+        #expect(router.decidedKey(focusModeKey) == .settled)
+        #expect(router.decidedKey(try Self.key("k", [.command], keyCode: 40, timestamp: 8)) == .settled, "Chromium's copy of the key")
         #expect(ran.ids.isEmpty, "a decided key ran \(ran.ids)")
     }
 }

@@ -4,37 +4,40 @@ import Foundation
 import Testing
 
 /// Task p04-input-062 of plans/cmux-next/chrome-parity/p04-input.md: Chromium's pre-key hook
-/// (`CEFRuntime.routeKey`, from `cefKeyCallback`) asks the host's router first whether the
-/// dispatcher already decided the key in `sendEvent`. A decided key goes to the page with no
-/// binding resolved again (no dispatcher, no focus-mode walk, no extension shortcut lookup); only a
-/// key that never passed `sendEvent` (a synthetic one) runs the dispatcher, and only once. Chrome
-/// decides a browser shortcut once, before the renderer (`BrowserView::PreHandleKeyboardEvent`,
-/// chrome/browser/ui/views/frame/browser_view.cc).
+/// (`CEFRuntime.routeKey`, from `cefKeyCallback`) asks the host's router first what the dispatcher
+/// decided for the key in `sendEvent`. A decided key never runs the dispatcher again: a settled one
+/// goes to the page with no binding resolved (no focus-mode walk, no extension shortcut lookup), and
+/// one whose extension shortcuts the dispatcher did not look up (a key it offered to the page, a
+/// cmux page in Chromium) runs its `chrome.commands` shortcut before the page. Only a key that never
+/// passed `sendEvent` (a synthetic one) runs the dispatcher, and only once. Chrome decides a browser
+/// shortcut once and runs extension commands before the renderer
+/// (`BrowserView::PreHandleKeyboardEvent`, chrome/browser/ui/views/frame/browser_view.cc).
 @MainActor @Suite(.serialized) struct CEFKeyRoutingTests {
     private static let browser: Int32 = 7
 
     /// A router that decides like `KeyRouter`: the dispatcher marks every key it examines decided.
     @MainActor final class SpyRouter: BrowserKeyRouting {
-        var decided: Set<ObjectIdentifier> = []
+        var decided: [ObjectIdentifier: BrowserDecidedKey] = [:]
         /// Keys kept alive so an identity in `decided` never names a freed event.
         private var kept: [NSEvent] = []
         var decidedQuestions = 0
         var dispatches = 0
         var focusModeQuestions = 0
+        var unhandledReports = 0
         var handles = false
 
-        func decide(_ event: NSEvent) {
+        func decide(_ event: NSEvent, _ decision: BrowserDecidedKey = .settled) {
             kept.append(event)
-            decided.insert(ObjectIdentifier(event))
+            decided[ObjectIdentifier(event)] = decision
         }
 
-        func hasDecided(_ event: NSEvent) -> Bool {
+        func decidedKey(_ event: NSEvent) -> BrowserDecidedKey {
             decidedQuestions += 1
-            return decided.contains(ObjectIdentifier(event))
+            return decided[ObjectIdentifier(event)] ?? .undecided
         }
 
         func browserTab(_ tab: any BrowserTab, keyEquivalent event: NSEvent) -> BrowserKeyDisposition {
-            guard !decided.contains(ObjectIdentifier(event)) else { return .passToPage }
+            guard decided[ObjectIdentifier(event)] == nil else { return .passToPage }
             dispatches += 1
             decide(event)
             return handles ? .handledByHost : .passToPage
@@ -43,6 +46,12 @@ import Testing
         func pageOwnsAllKeys(_ tab: any BrowserTab) -> Bool {
             focusModeQuestions += 1
             return false
+        }
+
+        /// The report that runs a held cmux action (Find held for an offered Cmd-F).
+        func browserTab(_ tab: any BrowserTab, unhandledKeyEquivalent event: NSEvent) -> Bool {
+            unhandledReports += 1
+            return true
         }
     }
 
@@ -61,8 +70,8 @@ import Testing
         return (runtime, tab, router)
     }
 
-    /// Cmd-T and Option-K the dispatcher decided in `sendEvent`: the page gets them, and the hook
-    /// asks one question and resolves nothing.
+    /// Cmd-T and Option-K the dispatcher decided and settled in `sendEvent`: the page gets them, and
+    /// the hook asks one question and resolves nothing.
     @Test func aDecidedKeyResolvesNoBindingInThePreKeyHook() throws {
         let (runtime, tab, router) = try Self.rig()
         defer { runtime.tabsByBrowser[Self.browser] = nil }
@@ -72,7 +81,7 @@ import Testing
         }
         #expect(router.decidedQuestions == 2)
         #expect(router.dispatches == 0, "the dispatcher ran again for a decided key")
-        #expect(router.focusModeQuestions == 0, "the focus-mode walk and the extension shortcut lookup ran for a decided key")
+        #expect(router.focusModeQuestions == 0, "the focus-mode walk and the extension shortcut lookup ran for a settled key")
         withExtendedLifetime(tab) {}
     }
 
@@ -115,5 +124,74 @@ import Testing
         #expect(router.dispatches == 0)
         #expect(router.focusModeQuestions == 0)
         withExtendedLifetime(tab) {}
+    }
+
+    /// Cmd-F the dispatcher offered to the page (cmux's Find held for an unhandled report) and
+    /// Option-K it passed on, each a `chrome.commands` shortcut of an enabled extension: the hook runs
+    /// each shortcut once, before the page, and never runs the dispatcher again. A consumed key gets
+    /// no unhandled report, so the held Find never runs. Before, the hook gave every decided key to
+    /// the page and these shortcuts never ran. A settled key with the same shortcut runs nothing.
+    @Test func anOwedDecidedKeyRunsItsExtensionShortcutOnce() throws {
+        KeyRoutingExtensionSpy.runs = []
+        let runtime = CEFRuntime(shim: try CEFShimLibrary.resolving(KeyRoutingExtensionSpy.symbol), storage: HostRepliesHarness.storage())
+        // Tabs and panes hold the runtime unowned and may schedule work past the test.
+        _ = Unmanaged.passRetained(runtime)
+        let tab = HostRepliesHarness.tab(in: HostRepliesHarness.pane(runtime, profile: .default).0)
+        runtime.register(tab, browser: Self.browser)
+        defer { runtime.tabsByBrowser[Self.browser] = nil }
+        let router = SpyRouter()
+        tab.keyRouter = router
+        let id = KeyRoutingExtensionSpy.extensionID
+
+        let find = try Self.key("f", [.command], keyCode: 3)
+        router.decide(find, .extensionShortcutOwed)
+        #expect(runtime.routeKey(find, browser: Self.browser), "the extension shortcut did not consume the offered key")
+        #expect(KeyRoutingExtensionSpy.runs == ["\(id) find"])
+
+        let optionK = try Self.key("k", [.option], keyCode: 40)
+        router.decide(optionK, .extensionShortcutOwed)
+        #expect(runtime.routeKey(optionK, browser: Self.browser))
+        #expect(KeyRoutingExtensionSpy.runs == ["\(id) find", "\(id) toggle"])
+
+        let settled = try Self.key("f", [.command], keyCode: 3)
+        router.decide(settled, .settled)
+        #expect(!runtime.routeKey(settled, browser: Self.browser))
+        #expect(KeyRoutingExtensionSpy.runs.count == 2, "a settled key ran an extension shortcut")
+
+        #expect(router.dispatches == 0, "the dispatcher ran again for a decided key")
+        #expect(router.unhandledReports == 0, "the held cmux action could run")
+        withExtendedLifetime(tab) {}
+    }
+}
+
+/// The shim for ``CEFKeyRoutingTests/anOwedDecidedKeyRunsItsExtensionShortcutOnce()``: one enabled
+/// extension whose `chrome.commands` are Cmd-F (`find`) and Option-K (`toggle`), and the commands
+/// Chromium was asked to run. Every other function returns 0.
+nonisolated enum KeyRoutingExtensionSpy {
+    static let extensionID = "abcdefghijklmnopabcdefghijklmnop"
+    // crash-allow: test-only spy state, read and written on the main thread by a serialized suite and the C stand-in it calls there
+    nonisolated(unsafe) static var runs: [String] = []
+
+    static let extensions = #"[{"id":"\#(extensionID)","name":"Shortcuts","enabled":true,"has_action":true}]"#
+    /// ui::VKEY_F and ui::VKEY_K with ui::EF_COMMAND_DOWN and ui::EF_ALT_DOWN (ui/events/event_constants.h).
+    static let commands = #"[{"extension_id":"\#(extensionID)","name":"find","key_code":70,"modifiers":16},"#
+        + #"{"extension_id":"\#(extensionID)","name":"toggle","key_code":75,"modifiers":8}]"#
+
+    static func symbol(_ name: String) -> UnsafeMutableRawPointer? {
+        let forkAPIVersion: @convention(c) () -> Int32 = { 12 }
+        let extList: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>? = { _ in strdup(KeyRoutingExtensionSpy.extensions) }
+        let extCommands: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>? = { _ in strdup(KeyRoutingExtensionSpy.commands) }
+        let commandRun: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, id, command in
+            KeyRoutingExtensionSpy.runs.append("\(id.map { String(cString: $0) } ?? "") \(command.map { String(cString: $0) } ?? "")")
+            return 0
+        }
+        let nothing: @convention(c) () -> Int = { 0 }
+        return switch name {
+        case "cmux_shim_fork_api_version": unsafeBitCast(forkAPIVersion, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_ext_list": unsafeBitCast(extList, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_ext_commands": unsafeBitCast(extCommands, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_ext_command_run": unsafeBitCast(commandRun, to: UnsafeMutableRawPointer.self)
+        default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
+        }
     }
 }

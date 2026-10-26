@@ -171,23 +171,36 @@ extension CEFRuntime {
         }
     }
 
-    /// Chromium's pre-key hook. A key without Command, Control or Option is the page's, and a key
-    /// the host's dispatcher decided in `sendEvent` goes to the page at once: neither resolves a
-    /// binding here (Chrome decides a browser shortcut once, in
-    /// `BrowserView::PreHandleKeyboardEvent`, chrome/browser/ui/views/frame/browser_view.cc). A
-    /// key that never passed `sendEvent` runs the host's dispatcher (which also runs extension
-    /// shortcuts), then, for Option chords the dispatcher does not see, the profile's extension
-    /// shortcuts (`chrome.commands`), which Chromium would dispatch from the toolbar cmux hides.
+    /// Chromium's pre-key hook. A key without Command, Control or Option is the page's. A key the
+    /// host's dispatcher decided in `sendEvent` never runs the dispatcher again: it goes to the page,
+    /// after the profile's extension shortcuts when the dispatcher did not look them up. A key that
+    /// never passed `sendEvent` runs the host's dispatcher (which also runs extension shortcuts),
+    /// then, for Option chords the dispatcher does not see, the profile's extension shortcuts. Chrome
+    /// decides a browser shortcut once and runs extension commands before the renderer
+    /// (`BrowserView::PreHandleKeyboardEvent`, chrome/browser/ui/views/frame/browser_view.cc;
+    /// `ExtensionKeybindingRegistry`, chrome/browser/extensions/extension_keybinding_registry.cc).
     func routeKey(_ event: NSEvent, browser: Int32) -> Bool { // perf-hot: 0.5ms key-dispatch (every key-down a Chromium page gets)
         guard event.type == .keyDown, !event.modifierFlags.isDisjoint(with: [.command, .control, .option]),
               let tab = tabsByBrowser[browser] else { return false }
         let router = tab.keyRouter
-        if router?.hasDecided(event) == true { return false }
-        if !event.modifierFlags.isDisjoint(with: [.command, .control]), let router,
-           router.browserTab(tab, keyEquivalent: event) == .handledByHost {
-            return true
+        switch router?.decidedKey(event) ?? .undecided {
+        case .settled:
+            return false
+        case .extensionShortcutOwed:
+            break
+        case .undecided:
+            if !event.modifierFlags.isDisjoint(with: [.command, .control]), let router,
+               router.browserTab(tab, keyEquivalent: event) == .handledByHost {
+                return true
+            }
         }
         guard router?.pageOwnsAllKeys(tab) != true else { return false }
+        return runProfileExtensionShortcut(event, in: tab)
+    }
+
+    /// The profile's extension shortcuts (`chrome.commands`), which Chromium would dispatch from
+    /// the Chromium toolbar cmux hides.
+    private func runProfileExtensionShortcut(_ event: NSEvent, in tab: CEFTab) -> Bool {
         let store = extensionStores.readyStore(for: tab.profileID)
         guard let command = store.command(matching: event) else { return false }
         return store.run(command, in: tab)

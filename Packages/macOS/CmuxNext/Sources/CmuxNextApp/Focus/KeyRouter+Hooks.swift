@@ -35,12 +35,19 @@ extension KeyRouter {
     /// Chromium dispatches extension shortcuts from the Chromium toolbar that
     /// cmux hides, and never sees keys while the omnibar or find bar has the
     /// keyboard, so cmux routes them for the focused Chromium tab.
+    /// Chromium's pre-key hook looks up the profile's shortcuts only for a key this did not settle
+    /// (``extensionShortcutsLookedUp``): browser focus mode, or a pane's Chromium tab whose shortcuts it read.
     func runExtensionShortcut(_ event: NSEvent, focus: FocusState) -> Bool {
-        guard !focus.isBrowserFocusModeActive, let pane = focus.resolved.pane,
+        if focus.isBrowserFocusModeActive {
+            extensionShortcutsLookedUp.add(event)
+            return false
+        }
+        guard let pane = focus.resolved.pane,
               let paneController = services?.windows.controllers.lazy.compactMap({ $0.content?.paneController(key: pane) }).first,
               case .browser(let entry)? = paneController.currentContent,
-              let tab = entry.tab as? CEFTab,
-              let command = tab.extensionStore.command(matching: event) else { return false }
+              let tab = entry.tab as? CEFTab else { return false }
+        extensionShortcutsLookedUp.add(event)
+        guard let command = tab.extensionStore.command(matching: event) else { return false }
         return tab.extensionStore.run(command, in: tab)
     }
 
@@ -175,8 +182,12 @@ extension KeyRouter {
         window(showing: tab)?.focus.state.isBrowserFocusModeActive ?? false
     }
 
-    /// Asked first by Chromium's pre-key hook (`CEFRuntime.routeKey`): a decided key, or Chromium's copy of it, resolves nothing.
-    func hasDecided(_ event: NSEvent) -> Bool { decided.contains(event) }
+    /// Asked first by Chromium's pre-key hook (`CEFRuntime.routeKey`): a decided key, or Chromium's copy of it, never runs
+    /// the dispatcher again, and only one whose extension shortcuts the dispatcher did not look up still looks them up.
+    func decidedKey(_ event: NSEvent) -> BrowserDecidedKey { // perf-hot: 0.5ms key-dispatch (every chord a Chromium page gets)
+        guard decided.contains(event) else { return .undecided }
+        return extensionShortcutsLookedUp.contains(event) ? .settled : .extensionShortcutOwed
+    }
 
     /// Chromium's pre-key hook (`CEFTab.keyRouter`): a key the dispatcher
     /// decided in `sendEvent` goes to the page; a key that reached Chromium
