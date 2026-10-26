@@ -1,34 +1,44 @@
 public import AppKit
 public import CmuxNextInputCore
 public import CmuxNextSignposts
+public import CmuxNextWakeups
 import Darwin
 
 /// EventLatency for cmux: each tracked input event's stages, from its OS timestamp to the frame that shows it
 /// (plans/cmux-next/chrome-parity/p04-input.md, section 3 (I), task 004).
 ///
 /// Chrome keeps one `EventMetrics` per event (cc/metrics/event_metrics.h) and closes it at the presentation feedback
-/// of the frame that shows it (cc/metrics/compositor_frame_reporter.cc). Here:
-/// - ``begin(event:kind:target:entrypoint:)`` opens a slot in the lock-free ``InputLatencySlotTable``, stamps
-///   `generated` (the event's OS time), `arrivedMain` and `dispatchStart`, and keeps the window's display link for a
-///   few frames (``InputPresentationEstimating/holdLinkForInput(in:)``) so the commit reads a real vsync.
+/// of the frame that shows it (cc/metrics/compositor_frame_reporter.cc), which for a renderer is a later frame than
+/// the browser's. Here:
+/// - ``begin(event:kind:target:entrypoint:arrivedMain:)`` opens a slot in the lock-free ``InputLatencySlotTable``,
+///   stamps `generated` (the event's OS time), `arrivedMain` when the caller knows it and `dispatchStart`, holds the
+///   window's display link for a few frames and arms the turn's commit boundary (``InputTurnBoundary``).
 /// - ``mark(_:_:at:)`` stamps any other stage from any thread, once (a terminal writer, a text input helper).
 /// - ``endDispatch(_:)`` stamps `dispatchEnd` after the app's dispatch returned.
-/// - After the Core Animation commit that ends the turn (``CommitBoundary``, one boundary per turn, asked for when
-///   the turn's first slot opens), every slot opened in the turn gets `mainCommit` and an estimated `presented`
-///   (the commit's vsync plus one render-server frame, ``InputPresentationEstimating``), closes, goes into the
-///   single-writer ``InputLatencyRing`` and is recorded as one ``SignpostName/inputLatency`` event. A slot whose
-///   dispatch ran a nested run loop closes at that loop's first commit, the frame that showed its response, with
-///   `dispatchEnd` skipped and `causedFrameUpdate` set (that commit is a frame its input produced: a menu, a sheet,
-///   a tracking loop's first change). A missed commit (``CommitBoundary/Outcome/missed``) closes with `mainCommit` and
-///   `presented` skipped, so readers drop it instead of counting idle time.
+/// - After the Core Animation commit that ends the turn, every slot opened in the turn gets `mainCommit`. What shows
+///   a view's input is that commit: its presented time is the commit's estimate. What shows a terminal's, a page's or
+///   an agent pane's (``InputTarget/showsInLaterFrame``) is the target's own frame, later: the slot stays open until
+///   its producer stamps `contentSubmitted` (or `presented`, with host feedback), and its presented time is that
+///   submission's estimate. One that submits nothing within ``contentDeadlineNanos`` closes with `presented`
+///   skipped (no echo), so the table cannot fill.
+/// - Estimates come from ``InputPresentationEstimating`` (`PresentationClock`): resolved by the window's next real
+///   tick, with how the vsync was found (``InputPresentationSource``) and whether the display has a variable refresh
+///   rate. Then the slot closes, goes into the single-writer ``InputLatencyRing`` and is recorded as one
+///   ``SignpostName/inputLatency`` event. A missed commit (``CommitBoundary/Outcome/missed``) closes a view's slot
+///   with `mainCommit` and `presented` skipped, so readers drop it instead of counting idle time.
 /// - Every half ring goes to the batch sink (the ledger, p04-input-002) as one array.
+/// - A commit the run loop ran before a slot's dispatch returned ran inside that dispatch (a menu, a sheet, a tracking
+///   loop): the slot gets `causedFrameUpdate`, as its input produced that frame (p04-input-005).
 /// - A slot opened with an ``InputFrameInterval`` also carries the older `key.frame` or `key.scroll_frame` interval
-///   (``InputFrameIntervals``), begun with the slot and ended at the same commit, so their readers keep working with
-///   no second classification or commit boundary.
+///   (``InputFrameIntervals``), begun with the slot and ended at its turn's commit with the slot's target then, so
+///   their readers keep working with no second classification or commit boundary (p04-input-005).
 ///
-/// The per-event path makes no allocation, takes no lock, builds no `String` and makes no system call besides the
-/// clock read: the pending list is reserved at init, the commit closure is built once, and the signpost is typed
-/// numbers the log system formats only when something reads them.
+/// The per-event path makes no allocation, takes no lock and builds no `String`: the pending and waiting lists are
+/// reserved at init, the commit boundary is two run-loop observers made once and armed by a flag
+/// (``InputCommitObserver``), and each window's estimate queue is made at its first input. The test
+/// `perEventPathAllocatesNothing` measures it with the real boundary, `PresentationClock` and trace point. The
+/// `input.latency` os_signpost is typed numbers the log system formats only when something reads them; that
+/// emission is the log system's cost and is not part of the measured claim.
 ///
 /// ```swift
 /// let tracker = InputLatencyTracker(presentation: presentationClock)
@@ -37,20 +47,31 @@ import Darwin
 /// if let token { tracker.endDispatch(token) }
 /// ```
 public final class InputLatencyTracker {
-    /// Asks for the turn's commit boundary (``CommitBoundary/after(_:)``; tests fire it themselves).
-    public typealias AfterCommit = @MainActor (@escaping @MainActor (CommitBoundary.Outcome) -> Void) -> Void
     /// Records one closed slot (the `input.latency` signpost and trace point; tests count).
     public typealias Emit = @MainActor (InputLatencySlot) -> Void
     /// Takes one batch of closed slots, oldest first (the ledger).
     public typealias BatchSink = @MainActor ([InputLatencySlot]) -> Void
 
+    /// How long after its turn's commit a slot whose frame comes from its target waits for that frame before it
+    /// closes with no presented time (p04-input.md: no echo at 500 ms).
+    public nonisolated static let contentDeadlineNanos: UInt64 = 500_000_000
+
     /// One slot opened this turn, waiting for the turn's commit.
     private struct Pending {
         let token: InputLatencyToken
         let window: NSWindow?
-        let target: InputTarget
+        /// Where the input landed; ``setTarget(_:_:)`` changes it while the turn is open.
+        var target: InputTarget
         /// The slot carries a `key.frame` or `key.scroll_frame` interval.
         let hasFrameInterval: Bool
+    }
+
+    /// One slot past its turn's commit, waiting for its target's frame.
+    private struct Waiting {
+        let token: InputLatencyToken
+        let window: NSWindow?
+        /// The latest `contentSubmitted` that still counts (`CLOCK_UPTIME_RAW`).
+        let deadline: UInt64
     }
 
     /// The open slots: any thread stamps stages here through ``mark(_:_:at:)``.
@@ -59,19 +80,21 @@ public final class InputLatencyTracker {
     private nonisolated let now: @Sendable () -> UInt64
     private let ring: InputLatencyRing
     private let presentation: any InputPresentationEstimating
-    private let afterCommit: AfterCommit
+    private let boundary: any InputTurnBoundary
     private let emit: Emit
     private let batchSink: BatchSink?
     private let frameIntervals: (any InputFrameIntervals)?
     /// Slots opened since the last boundary; reserved to the table's capacity, so appends never allocate.
     private var pending: ContiguousArray<Pending> = []
-    /// The boundary closure, built once so asking for a boundary allocates nothing here.
-    private lazy var closeAtCommit: @MainActor (CommitBoundary.Outcome) -> Void = { [weak self] in self?.closePending($0) }
+    /// Slots waiting for their target's frame; reserved to the table's capacity.
+    private var waiting: ContiguousArray<Waiting> = []
+    /// One estimate queue per window that had a tracked input (and one for the app scheduler).
+    private var queues: ContiguousArray<InputPresentedQueue> = []
 
     /// Slots closed since launch.
     public private(set) var closedCount: UInt64 = 0
 
-    /// A tracker on the app's commit boundary, an `input` signposter and `CLOCK_UPTIME_RAW`.
+    /// A tracker on the main run loop's commit, an `input` signposter and `CLOCK_UPTIME_RAW`.
     ///
     /// - Parameters:
     ///   - presentation: The presented-time estimate (the app's `PresentationClock`).
@@ -82,7 +105,7 @@ public final class InputLatencyTracker {
                             signposter: Signposter = Signposter(category: .input), batchSink: BatchSink? = nil,
                             frameIntervals: (any InputFrameIntervals)? = InputFrameSignposts()) {
         self.init(table: InputLatencySlotTable(), ring: InputLatencyRing(), presentation: presentation,
-                  afterCommit: { CommitBoundary().after($0) }, emit: { Self.signpost($0, to: signposter) },
+                  boundary: InputCommitObserver(), emit: { Self.signpost($0, to: signposter) },
                   batchSink: batchSink, frameIntervals: frameIntervals, now: Self.uptimeNanos)
     }
 
@@ -90,27 +113,31 @@ public final class InputLatencyTracker {
     ///   - table: The open-slot table.
     ///   - ring: The closed-slot ring (this tracker is its one writer).
     ///   - presentation: The presented-time estimate.
-    ///   - afterCommit: Asks for the turn's commit boundary, once per turn with slots open.
+    ///   - boundary: The turn's commit boundary; the tracker starts it here and arms it once per turn with slots.
     ///   - emit: Records one closed slot.
     ///   - batchSink: Takes each half ring of closed slots, or nil.
     ///   - frameIntervals: Records the `key.frame` and `key.scroll_frame` intervals of the slots that carry one, or nil.
     ///   - now: `CLOCK_UPTIME_RAW` nanoseconds now (the `NSEvent.timestamp` clock).
     public init(table: InputLatencySlotTable, ring: InputLatencyRing, presentation: any InputPresentationEstimating,
-                afterCommit: @escaping AfterCommit, emit: @escaping Emit, batchSink: BatchSink?,
+                boundary: any InputTurnBoundary, emit: @escaping Emit, batchSink: BatchSink?,
                 frameIntervals: (any InputFrameIntervals)? = nil, now: @escaping @Sendable () -> UInt64) {
         self.table = table
         self.ring = ring
         self.presentation = presentation
-        self.afterCommit = afterCommit
+        self.boundary = boundary
         self.emit = emit
         self.batchSink = batchSink
         self.frameIntervals = frameIntervals
         self.now = now
         pending.reserveCapacity(table.capacity)
+        waiting.reserveCapacity(table.capacity)
+        boundary.start { [weak self] in self?.turnEnded($0) }
     }
 
     /// Slots opened this turn, waiting for the commit (tests).
     var pendingCount: Int { pending.count }
+    /// Slots waiting for their target's frame (tests).
+    var waitingCount: Int { waiting.count }
 
     /// The newest `count` closed slots, newest first (debug.input).
     public func recent(_ count: Int) -> [InputLatencySlot] {
@@ -124,14 +151,17 @@ public final class InputLatencyTracker {
     ///   - kind: What the person did (the caller tells a scroll's first update apart).
     ///   - target: The view it lands in.
     ///   - entrypoint: A person's input or a synthetic one.
+    ///   - arrivedMain: When the event reached the main thread (`CLOCK_UPTIME_RAW`; the turn's wake from the input
+    ///     tap or the pending-input state), or nil when unknown: the stage stays skipped, not equal to dispatchStart.
     /// - Returns: The slot's token, or nil when the table is full (counted in its `droppedCount`).
     // perf-hot: 0.5us key-dispatch
-    public func begin(event: NSEvent, kind: InputEventKind, target: InputTarget,
-                      entrypoint: InputEntrypoint) -> InputLatencyToken? {
-        begin(kind: kind, target: target, entrypoint: entrypoint, eventTimestamp: event.timestamp, window: event.window)
+    public func begin(event: NSEvent, kind: InputEventKind, target: InputTarget, entrypoint: InputEntrypoint,
+                      arrivedMain: UInt64? = nil) -> InputLatencyToken? {
+        begin(kind: kind, target: target, entrypoint: entrypoint, eventTimestamp: event.timestamp, window: event.window,
+              arrivedMain: arrivedMain)
     }
 
-    /// ``begin(event:kind:target:entrypoint:)`` with the event's fields.
+    /// ``begin(event:kind:target:entrypoint:arrivedMain:)`` with the event's fields.
     ///
     /// - Parameters:
     ///   - kind: What the person did.
@@ -140,19 +170,21 @@ public final class InputLatencyTracker {
     ///   - eventTimestamp: Seconds since boot (`NSEvent.timestamp`); 0 or a time after now uses now.
     ///   - window: The window that presents the response (a page window's owner), or nil for the window-less app
     ///     scheduler.
+    ///   - arrivedMain: When the event reached the main thread, or nil when unknown (also when 0 or after now).
     ///   - frameInterval: The older interval the slot also carries (`key.frame`, `key.scroll_frame`), or nil.
     /// - Returns: The slot's token, or nil when the table is full.
     // perf-hot: 0.5us key-dispatch
     public func begin(kind: InputEventKind, target: InputTarget, entrypoint: InputEntrypoint,
                       eventTimestamp: TimeInterval, window: NSWindow?,
-                      frameInterval: InputFrameInterval? = nil) -> InputLatencyToken? {
-        let arrived = now()
-        let generated = Self.generatedNanos(eventTimestamp: eventTimestamp, arrived: arrived)
+                      arrivedMain: UInt64? = nil, frameInterval: InputFrameInterval? = nil) -> InputLatencyToken? {
+        let dispatchStart = now()
+        let arrived = arrivedMain.flatMap { $0 != 0 && $0 <= dispatchStart ? $0 : nil }
+        let generated = Self.generatedNanos(eventTimestamp: eventTimestamp, arrived: arrived ?? dispatchStart)
         guard let token = table.begin(kind: kind, target: target, entrypoint: entrypoint, generated: generated) else {
             return nil
         }
-        table.mark(token, .arrivedMain, at: arrived)
-        table.mark(token, .dispatchStart, at: arrived)
+        if let arrived { table.mark(token, .arrivedMain, at: arrived) }
+        table.mark(token, .dispatchStart, at: dispatchStart)
         presentation.holdLinkForInput(in: window)
         var hasFrameInterval = false
         if let frameInterval, let frameIntervals {
@@ -160,14 +192,17 @@ public final class InputLatencyTracker {
             hasFrameInterval = true
         }
         pending.append(Pending(token: token, window: window, target: target, hasFrameInterval: hasFrameInterval))
-        if pending.count == 1 { afterCommit(closeAtCommit) }
+        boundary.arm()
         return token
     }
 
     /// Stamps `stage` of `token`'s slot, from any thread, once. A mark after the slot closed is refused.
     ///
+    /// A terminal's, page's or agent pane's slot stays open after its turn: its producer stamps the cross-process
+    /// stages and then `contentSubmitted` (the frame that shows the input), which closes it at the next main turn.
+    ///
     /// - Parameters:
-    ///   - token: The slot ``begin(event:kind:target:entrypoint:)`` returned.
+    ///   - token: The slot ``begin(event:kind:target:entrypoint:arrivedMain:)`` returned.
     ///   - stage: The stage reached.
     ///   - nanos: `CLOCK_UPTIME_RAW` nanoseconds; now when omitted.
     /// - Returns: Whether it wrote.
@@ -183,15 +218,28 @@ public final class InputLatencyTracker {
         table.setCausedFrameUpdate(token)
     }
 
+    /// Sets the view `token`'s input landed in once its dispatch knows it (the layout took a scroll the view under the
+    /// pointer would have had): the slot closes as that target's, and its frame interval ends with it.
+    ///
+    /// - Parameters:
+    ///   - token: A slot opened this turn.
+    ///   - target: Where the input landed.
+    public func setTarget(_ token: InputLatencyToken, _ target: InputTarget) {
+        table.setTarget(token, target)
+        if let index = pending.lastIndex(where: { $0.token == token }) { pending[index].target = target }
+    }
+
     /// Stamps `dispatchEnd`: the app's dispatch of `token`'s event returned. The slot closes after this turn's commit.
     // perf-hot: 0.05us key-dispatch
     public func endDispatch(_ token: InputLatencyToken) {
         table.mark(token, .dispatchEnd, at: now())
     }
 
-    /// Closes every slot opened since the last boundary: the commit's time and its presented estimate, then the
-    /// ring, the signpost and, each half ring, the batch sink.
-    private func closePending(_ outcome: CommitBoundary.Outcome) {
+    // MARK: Closing
+
+    /// The turn's commit ended: stamps `mainCommit` on the slots opened before it, asks for the presented estimate
+    /// of the views' slots, moves the others to the waiting list, then checks that list.
+    private func turnEnded(_ outcome: CommitBoundary.Outcome) {
         let commitEnd = now()
         // By index over the slots opened before this boundary: a slot a callee opens meanwhile waits for the next one.
         let count = pending.count
@@ -199,28 +247,91 @@ public final class InputLatencyTracker {
             let entry = pending[index]
             if outcome == .committed {
                 table.mark(entry.token, .mainCommit, at: commitEnd)
-                table.mark(entry.token, .presented,
-                           at: presentation.presentedNanos(commitEndNanos: commitEnd, in: entry.window))
+                // A commit before the slot's dispatch returned ran inside that dispatch: its input produced the frame.
+                if table.time(entry.token, .dispatchEnd) == nil { table.setCausedFrameUpdate(entry.token) }
             }
-            let closed = table.close(entry.token)
-            if entry.hasFrameInterval {
-                frameIntervals?.end(entry.token, target: closed?.target ?? entry.target, outcome: outcome)
+            if entry.hasFrameInterval { frameIntervals?.end(entry.token, target: entry.target, outcome: outcome) }
+            if entry.target.showsInLaterFrame {
+                waiting.append(Waiting(token: entry.token, window: entry.window,
+                                       deadline: commitEnd &+ Self.contentDeadlineNanos))
+            } else if outcome == .committed {
+                awaitPresented(entry.token, committedAt: commitEnd, in: entry.window)
+            } else {
+                close(entry.token, presented: nil)
             }
-            guard var slot = closed else { continue }
-            // A commit the run loop ran before the slot's dispatch returned ran inside that dispatch (a menu, a sheet,
-            // a tracking loop): its input produced that frame.
-            if outcome == .committed, !slot.reached(.dispatchEnd) { slot.causedFrameUpdate = true }
-            closedCount &+= 1
-            emit(slot)
-            if ring.append(slot), let batchSink { batchSink(ring.takeBatch()) }
         }
         if count == pending.count {
             pending.removeAll(keepingCapacity: true)
         } else {
             pending.removeFirst(count)
-            afterCommit(closeAtCommit)
         }
+        checkWaiting(at: commitEnd)
+        if !pending.isEmpty || !waiting.isEmpty { boundary.arm() }
     }
+
+    /// Asks for the estimate of every waiting slot whose target submitted its frame, and closes those that took
+    /// longer than ``contentDeadlineNanos`` (no echo) or whose producer stamped `presented` itself.
+    private func checkWaiting(at time: UInt64) {
+        var kept = 0
+        for index in waiting.indices {
+            let entry = waiting[index]
+            if table.time(entry.token, .presented) != nil {
+                close(entry.token, presented: nil)
+            } else if let submitted = table.time(entry.token, .contentSubmitted) {
+                if submitted <= entry.deadline {
+                    awaitPresented(entry.token, committedAt: submitted, in: entry.window)
+                } else {
+                    close(entry.token, presented: nil)
+                }
+            } else if time > entry.deadline {
+                close(entry.token, presented: nil)
+            } else {
+                waiting[kept] = entry
+                kept += 1
+            }
+        }
+        waiting.removeLast(waiting.count - kept)
+    }
+
+    /// Asks the presentation clock when content committed at `nanos` in `window` reaches the glass; the slot closes
+    /// when it answers.
+    private func awaitPresented(_ token: InputLatencyToken, committedAt nanos: UInt64, in window: NSWindow?) {
+        let queue = presentedQueue(for: window)
+        queue.enqueue(token)
+        presentation.presented(committedAt: nanos, in: window, queue.resolve)
+    }
+
+    /// The estimate queue of `window`, made at its first use (one per window, not per input). A queue whose window
+    /// closed is dropped then, and its slots close with no presented time.
+    private func presentedQueue(for window: NSWindow?) -> InputPresentedQueue {
+        for queue in queues where queue.serves(window) { return queue }
+        var index = queues.count
+        while index > 0 {
+            index -= 1
+            guard queues[index].isAbandoned else { continue }
+            queues.remove(at: index).abandon()
+        }
+        let queue = InputPresentedQueue(window: window, capacity: table.capacity) { [weak self] token, estimate in
+            self?.close(token, presented: estimate)
+        }
+        queues.append(queue)
+        return queue
+    }
+
+    /// Closes `token`'s slot: the estimate, when there is one and no producer stamped `presented`, then the ring,
+    /// the signpost and, each half ring, the batch sink.
+    private func close(_ token: InputLatencyToken, presented estimate: PresentedEstimate?) {
+        if let estimate, table.mark(token, .presented, at: estimate.nanos) {
+            table.setPresentationSource(token, InputPresentationSource(estimate.basis))
+            if estimate.isVariableRefresh { table.setVariableRefresh(token) }
+        }
+        guard let slot = table.close(token) else { return }
+        closedCount &+= 1
+        emit(slot)
+        if ring.append(slot), let batchSink { batchSink(ring.takeBatch()) }
+    }
+
+    // MARK: Clock and signpost
 
     /// The `generated` stage: the event's timestamp in nanoseconds, or `arrived` when it has none or it is later
     /// than `arrived` (the slot table stores later stages relative to it, so it must be the earliest).
@@ -243,7 +354,35 @@ public final class InputLatencyTracker {
     public static func signpost(_ slot: InputLatencySlot, to signposter: Signposter) {
         let message = InputLatencySignpostMessage(slot: slot)
         if signposter.isEnabled { signposter.event(.inputLatency, message) }
+        tracePoint(message, slot: slot)
+    }
+
+    /// Records `slot`'s trace ring instant, "estimated" only when its presented time is an estimate (not skipped).
+    public static func tracePoint(_ message: InputLatencySignpostMessage, slot: InputLatencySlot) {
         Signposter.event(.inputLatency, arg0: message.traceArg0, arg1: message.traceArg1,
-                         estimated: slot.presentationSource == .estimatedVsync)
+                         estimated: slot.reached(.presented) && slot.presentationSource.isEstimate)
+    }
+}
+
+extension InputTarget {
+    /// The input shows in a frame its target submits after the app's commit (a terminal's renderer, a page's
+    /// compositor, an agent pane's web view), so its slot stays open until that frame (Chrome closes a renderer's
+    /// events at the renderer's frame, not the browser's).
+    public nonisolated var showsInLaterFrame: Bool {
+        switch self {
+        case .terminal, .chromiumPage, .webkitPage, .agentPane: true
+        case .textView, .layout, .sidebar, .palette, .other: false
+        }
+    }
+}
+
+extension InputPresentationSource {
+    /// The slot's source for an estimate of `basis`: Chrome's `kVSync` only for a real tick after the commit.
+    public nonisolated init(_ basis: PresentedEstimate.Basis) {
+        switch basis {
+        case .heldVsync: self = .estimatedVsync
+        case .extrapolated: self = .extrapolatedVsync
+        case .nominal: self = .nominalRefresh
+        }
     }
 }

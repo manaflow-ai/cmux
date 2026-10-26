@@ -12,6 +12,7 @@ extension InputLatencySignpostMessage {
         target = slot.target.rawValue
         entrypoint = slot.entrypoint.rawValue
         presentationSource = slot.presentationSource.rawValue
+        variableRefresh = slot.isVariableRefresh
         coalescedCount = UInt32(slot.coalescedCount)
         causedFrameUpdate = slot.causedFrameUpdate
         let origin = slot.generated
@@ -32,10 +33,10 @@ extension InputLatencySignpostMessage {
     }
 
     /// The trace ring's `arg0` for this event (``SignpostName/inputLatency``): kind | target << 8 | entrypoint << 16
-    /// | source << 24 | caused frame update << 32.
+    /// | source << 24 | caused frame update << 32 | variable refresh << 33.
     public nonisolated var traceArg0: UInt64 {
         UInt64(kind) | UInt64(target) << 8 | UInt64(entrypoint) << 16 | UInt64(presentationSource) << 24
-            | (causedFrameUpdate ? UInt64(1) << 32 : 0)
+            | (causedFrameUpdate ? UInt64(1) << 32 : 0) | (variableRefresh ? UInt64(1) << 33 : 0)
     }
 
     /// The trace ring's `arg1`: generated to presented in microseconds, 0 when the presented stage was skipped.

@@ -30,7 +30,8 @@ struct SignpostTraceCatalogTests {
             (.webuiLifecycle, 69), (.webuiOpen, 70), (.webuiPreload, 71), (.webuiScheme, 72), (.stallMainTurn, 73),
             (.stallRenderStarved, 74), (.launchStartupTask, 75), (.launchStartupComplete, 76), (.daemonStep, 77),
             (.webuiAgentPaneStep, 78), (.stallGhosttyRuntimePhase, 79), (.launchReadDone, 80), (.burstEvent, 81),
-            (.motionLateCommits, 82), (.actionPresentedEstimate, 83), (.actionPresented, 84), (.inputLatency, 85),
+            (.motionLateCommits, 82), (.actionPresentedEstimate, 83), (.actionPresented, 84),
+            (.inputLatency, 85),
         ]
         for (name, id) in pinned { #expect(name.rawValue == id, "\(name)") }
         #expect(SignpostName.allCases.count == pinned.count)

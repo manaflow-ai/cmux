@@ -19,6 +19,8 @@ public nonisolated struct InputLatencySignpostMessage: Sendable, Hashable {
     public var entrypoint: UInt8 = 0
     /// `InputPresentationSource` raw value.
     public var presentationSource: UInt8 = 0
+    /// The frame went to a variable-refresh display (a vsync estimate drifts there).
+    public var variableRefresh = false
     /// OS events folded into this one (1 for an event that was not coalesced).
     public var coalescedCount: UInt32 = 1
     /// Whether the commit that ended the event's turn changed what is on screen (Chrome's `caused_frame_update`).

@@ -8,7 +8,8 @@ import Testing
 /// The input latency wiring of `sendEvent` (p04-input-005): which events open a slot and as what kind, where they
 /// land, the layout's scroll take, synthetic input, frame updates, drags once per frame, and the `key.frame` and
 /// `key.scroll_frame` intervals the slots carry. Slots close through ``InputLatencyTrackerTests/Harness``'s fake
-/// commit boundary.
+/// commit boundary: a view's at its turn's commit, a terminal's, page's or agent pane's at its own frame or its
+/// deadline (``InputLatencyTrackerTests/Harness/settle()``).
 @MainActor
 struct InputLatencyWiringTests {
     final class TerminalFake: NSView {
@@ -110,7 +111,7 @@ struct InputLatencyWiringTests {
             #expect(send(wiring, type) == nil, "\(type)")
         }
         #expect(harness.tracker.pendingCount == 0)
-        #expect(harness.boundaryRequests == 0, "no slot, no commit boundary")
+        #expect(harness.boundary.requests == 0, "no slot, no commit boundary")
     }
 
     @Test("A real mouseMoved NSEvent opens nothing; a real key down opens one key press")
@@ -150,7 +151,7 @@ struct InputLatencyWiringTests {
         send(wiring, .scrollWheel, phase: .began, pointer: scroll)
         send(wiring, .scrollWheel, phase: .changed, pointer: scroll)
         #expect(harness.tracker.pendingCount == 5, "one slot per tracked event")
-        harness.commit()
+        harness.settle()
 
         #expect(harness.emitted.map(\.kind) == [.keyPress, .mousePress, .mouseRelease, .scrollBegin, .scrollFirstUpdate])
         #expect(harness.emitted.map(\.target) == [.terminal, .agentPane, .agentPane, .webkitPage, .webkitPage])
@@ -169,7 +170,7 @@ struct InputLatencyWiringTests {
             send(wiring, .scrollWheel, phase: phase, pointer: pointer)
         }
         send(wiring, .scrollWheel, phase: .none, pointer: pointer)
-        harness.commit()
+        harness.settle()
         #expect(harness.emitted.map(\.kind) == [.scrollBegin, .scrollFirstUpdate, .scrollUpdate, .scrollMomentum,
                                                 .scrollMomentum, .scrollBegin, .scrollFirstUpdate, .scrollUpdate])
         #expect(harness.emitted.allSatisfy { $0.target == .chromiumPage })
@@ -225,7 +226,7 @@ struct InputLatencyWiringTests {
         send(wiring, .scrollWheel, phase: .changed, layoutTook: true, pointer: pointer)
         send(wiring, .scrollWheel, phase: .momentum, pointer: pointer)
         send(wiring, .scrollWheel, phase: .began, pointer: pointer)
-        harness.commit()
+        harness.settle()
         #expect(harness.emitted.map(\.target) == [.layout, .layout, .layout, .terminal], "a new gesture is hit-tested again")
         #expect(harness.emitted.prefix(2).allSatisfy(\.causedFrameUpdate), "a layout scroll moved the layout")
     }
@@ -239,7 +240,7 @@ struct InputLatencyWiringTests {
         send(still, .leftMouseDown, window: window, pointer: Pointer(.sidebar))
         send(still, .leftMouseDown, window: window, pointer: Pointer(.terminal))
         send(still, .scrollWheel, window: window, pointer: Pointer(.chromiumPage))
-        unchanged.commit()
+        unchanged.settle()
         #expect(unchanged.emitted.map(\.kind) == [.keyPress, .mousePress, .mousePress, .scrollUpdate],
                 "the key closes with no frame update")
         #expect(unchanged.emitted.allSatisfy { !$0.causedFrameUpdate },
@@ -261,12 +262,12 @@ struct InputLatencyWiringTests {
         let wiring = wiring(harness)
         // A right click whose dispatch opens a context menu: the menu's tracking loop commits inside the dispatch.
         let slot = try #require(wiring.open(.rightMouseDown, scrollPhase: .none, timestamp: 0.5, window: nil,
-                                            synthetic: false, keyWindow: nil, underPointer: Pointer(.terminal).hit))
+                                            synthetic: false, keyWindow: nil, underPointer: Pointer(.sidebar).hit))
         harness.commit()
         wiring.didDispatch(slot, layoutTookScroll: false)
         let closed = try #require(harness.emitted.first)
         #expect(harness.emitted.count == 1)
-        #expect(closed.kind == .mousePress && closed.target == .terminal)
+        #expect(closed.kind == .mousePress && closed.target == .sidebar)
         #expect(closed.causedFrameUpdate, "the ledger keeps it")
         #expect(!closed.reached(.dispatchEnd), "it closed before its dispatch returned")
         #expect(harness.tracker.pendingCount == 0)
@@ -292,7 +293,7 @@ struct InputLatencyWiringTests {
         #expect(slot.window === owner, "the owner's display link and vsync, not a new link for the page window")
         #expect(slot.eventWindow === page)
         #expect(send(wiring, .leftMouseDown, window: owner, pointer: Pointer(.layout))?.window === owner)
-        harness.commit()
+        harness.settle()
         #expect(harness.emitted.map(\.causedFrameUpdate) == [true, true])
     }
 

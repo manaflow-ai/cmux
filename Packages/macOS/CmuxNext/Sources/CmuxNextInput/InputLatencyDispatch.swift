@@ -151,7 +151,7 @@ public final class InputLatencyDispatch {
     public func didDispatch(_ slot: Slot, layoutTookScroll: Bool) {
         tracker.endDispatch(slot.token)
         if layoutTookScroll, slot.target != .layout {
-            tracker.table.setTarget(slot.token, .layout)
+            tracker.setTarget(slot.token, .layout)
             scrollTarget = .layout
         }
         if layoutTookScroll || changed(slot.eventWindow) || (slot.window !== slot.eventWindow && changed(slot.window)) {
