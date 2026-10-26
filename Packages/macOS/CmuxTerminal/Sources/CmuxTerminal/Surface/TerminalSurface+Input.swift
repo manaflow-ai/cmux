@@ -529,6 +529,11 @@ extension TerminalSurface {
     ) -> Int? {
         guard start + 2 < scalars.count, scalars[start].value == 0x1B,
               scalars[start + 1].value == 0x5B else { return nil }
+        // X10/UTF-8 mouse report: `ESC [ M` then button, column, row. Those
+        // three can be any character, including 0x7F (column 95).
+        if scalars[start + 2].value == 0x4D {
+            return start + 5 < scalars.count ? 6 : nil
+        }
         var cursor = start + 2
         while cursor < scalars.count {
             let value = scalars[cursor].value

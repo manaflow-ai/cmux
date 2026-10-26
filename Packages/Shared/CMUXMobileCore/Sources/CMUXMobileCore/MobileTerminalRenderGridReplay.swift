@@ -250,8 +250,15 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         // (undoing the temporary `?7l`) and mouse/paste/app-key modes are live.
         // The baseline also covers older frames that omitted `modes`, so stale
         // state from a reused surface cannot leak through the full replay.
+        // Every "off" goes before every "on": Ghostty keeps one mouse event
+        // mode and one mouse format, and any reset in a family clears it, so
+        // the host's number-ordered `?1006h ?1015l` would leave X10 reports.
         appendDefaultModeBaseline(to: &bytes)
-        for mode in frame.modes where !isReplayExcludedMode(mode) {
+        let replayedModes = frame.modes.filter { !isReplayExcludedMode($0) }
+        for mode in replayedModes where !mode.on {
+            bytes.append(modeBytes(mode))
+        }
+        for mode in replayedModes where mode.on {
             bytes.append(modeBytes(mode))
         }
 
