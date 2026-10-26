@@ -35,6 +35,8 @@ pub(crate) mod directory;
 mod keymap;
 pub mod markdown;
 #[cfg(all(test, unix))]
+mod answering_tests;
+#[cfg(all(test, unix))]
 mod recovery_tests;
 pub mod scroll;
 mod session_ops;
