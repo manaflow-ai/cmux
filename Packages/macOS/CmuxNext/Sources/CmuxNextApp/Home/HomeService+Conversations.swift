@@ -112,17 +112,13 @@ extension HomeService {
         }
     }
 
-    /// Archives one of my Chiefs (not the default one); nil when it worked,
-    /// else why not.
+    /// Archives one of my cloud Chiefs; nil when it is gone from the list (the cloud archive may
+    /// still wait, HomeDirectory+ChiefArchive), else why not.
     func archiveChief(_ id: String) async -> String? {
         if directory.chief(for: ParticipantID(id)) == nil { await directory.refreshChiefs() }
-        do {
-            try await directory.archiveChief(id)
-            return nil
-        } catch FeedServiceError.owner(let code, let message) {
-            return code == "chief_is_default" ? HomeStrings.archiveDefaultChief : message
-        } catch {
-            return HomeStrings.archiveFailed
+        switch await directory.archiveChief(id) {
+        case .archived, .hiddenHere: return nil
+        case .refused(let reason): return reason
         }
     }
 

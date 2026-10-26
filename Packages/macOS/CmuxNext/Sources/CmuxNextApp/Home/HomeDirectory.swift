@@ -23,9 +23,12 @@ final class HomeDirectory {
     var teamMembers: [HomeContact] = []
     private(set) var chiefs: [HomeChiefRecord] = []
     /// My archived and deleted Chiefs' agent ids: the page hides their conversations.
-    var archivedChiefs: Set<String> { hiddenCloudChiefs.union(deletedLocalChiefs) }
+    var archivedChiefs: Set<String> { hiddenCloudChiefs.union(deletedLocalChiefs).union(archivedHere) }
     /// My cloud Chiefs that are archived or deleted (`chief.list` with its tombstones).
-    private var hiddenCloudChiefs: Set<String> = []
+    var hiddenCloudChiefs: Set<String> = []
+    /// Cloud Chiefs archived on this Mac whose cloud archive has not landed (HomeDirectory+ChiefArchive):
+    /// kept across launches, so an offline or default Chief stays hidden.
+    var archivedHere: Set<String> = []
     /// This Mac's deleted Chiefs (the owner's `chief.profile.list` `deleted`), read with their engines.
     var deletedLocalChiefs: Set<String> = []
     /// Each of this Mac's Chiefs' own avatar for its list tile, by participant id, the one
@@ -35,19 +38,22 @@ final class HomeDirectory {
     /// The engine each of this Mac's Chiefs runs on, by participant id (a Chief on the brain's
     /// own default is not listed), for the Home list's badges: read by `HomeService.refreshChiefHarnesses()`.
     var chiefHarnesses: [String: String] = [:]
-    @ObservationIgnored private let call: Call
+    @ObservationIgnored let call: Call
     @ObservationIgnored private let teamCall: TeamCall?
     /// The signed-in account's Worker user id (`CloudIdentity.workerUserID`), left out of the contacts.
     @ObservationIgnored private let me: @MainActor () -> String?
     /// The active team's Worker team id (`ActiveTeam`, `CloudIdentity.workerTeamID`), or nil before one loads.
     @ObservationIgnored private let activeTeam: @MainActor () -> String?
+    @ObservationIgnored let archiveStore: HomeChiefArchiveStore
 
     init(call: @escaping Call, teamCall: TeamCall? = nil, activeTeam: @escaping @MainActor () -> String? = { nil },
-         me: @escaping @MainActor () -> String?) {
+         me: @escaping @MainActor () -> String?, archiveStore: HomeChiefArchiveStore = .standard) {
         self.call = call
         self.teamCall = teamCall
         self.activeTeam = activeTeam
         self.me = me
+        self.archiveStore = archiveStore
+        archivedHere = archiveStore.load()
     }
 
     /// Reads the team and the Chiefs again each time the signed-in session changes: `session` is
@@ -102,13 +108,19 @@ final class HomeDirectory {
         return Self.members(from: value, excluding: me()).filter { seen.insert($0.id).inserted }
     }
 
+    /// Reads the Chiefs; then each Chief archived here while offline gets its cloud archive.
     func refreshChiefs() async {
-        if let reply = try? await call("v1/read", ["op": "chief.list", "params": ["include_archived": true]]),
-           let value = try? Self.value(reply) {
-            chiefs = HomeChiefRecord.list(from: value)
-            hiddenCloudChiefs = HomeChiefRecord.archivedIDs(from: value)
-            chiefsRead = true
-        }
+        if await readChiefs() { await syncArchivedHere() }
+    }
+
+    /// `chief.list` with the archived ones; false when it did not answer (the last list stays).
+    func readChiefs() async -> Bool {
+        guard let reply = try? await call("v1/read", ["op": "chief.list", "params": ["include_archived": true]]),
+              let value = try? Self.value(reply) else { return false }
+        chiefs = HomeChiefRecord.list(from: value)
+        hiddenCloudChiefs = HomeChiefRecord.archivedIDs(from: value)
+        chiefsRead = true
+        return true
     }
 
     /// `chief.list` answered this launch; until then `archivedChiefs` may be the last launch's.
@@ -136,16 +148,6 @@ final class HomeDirectory {
         chiefs.removeAll { $0.id == record.id }
         chiefs.append(record)
         return record
-    }
-
-    /// `chief.archive` at the record's revision (history stays read-only).
-    func archiveChief(_ id: String) async throws {
-        guard let record = chiefs.first(where: { $0.id == id }) else { throw FeedServiceError.owner(code: "selector.not_found", message: id) }
-        let body: [String: Any] = ["op": "chief.archive", "params": ["chief": id, "expected_rev": record.rev],
-                                   "idempotency_key": "chief-archive-\(id)-\(record.rev)", "origin": "user"]
-        _ = try Self.value(try await call("v1/ops", body))
-        chiefs.removeAll { $0.id == id }
-        hiddenCloudChiefs.insert(id)
     }
 
     /// `chief.delete` at the record's revision: the Chief goes for good (only its tombstone stays),

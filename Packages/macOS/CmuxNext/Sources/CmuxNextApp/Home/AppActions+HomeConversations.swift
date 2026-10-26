@@ -90,7 +90,7 @@ extension AppActions {
                 guard let reason = await services.home.archiveChief(chief) else { return nil }
                 return ActionWorkFailure(refusal: .unavailable, reason: reason)
             }
-            registry.track(work)
+            report(registry, work)
         })
         registry.bind("home.deleteChief", invoke: { invocation in
             guard let chief = invocation["chief"]?.stringValue, !chief.isEmpty else {
@@ -101,7 +101,7 @@ extension AppActions {
                 guard let reason = await services.home.deleteChief(chief) else { return nil }
                 return ActionWorkFailure(refusal: .unavailable, reason: reason)
             }
-            registry.track(work)
+            report(registry, work)
         })
         // Ctrl-Tab / Ctrl-Shift-Tab and Cmd-Shift-] / [ on Home: the next or previous conversation in
         // the list, wrapping as a pane's tabs do; opening it gives its message box the keyboard.
@@ -203,6 +203,13 @@ extension AppActions {
     /// Runs a headless Home action; the caller (socket, CLI) gets the
     /// owner's refusal as the action's failure. A conversation it opened
     /// is selected on the Home page once listed.
+    /// task-owner: a CLI or MCP run awaits `work` (`track`); a menu or keyboard run nobody waits on
+    /// shows its failure as a refusal, never drops it (Archive Chief on an unreachable Chief did nothing).
+    private static func report(_ registry: ActionRegistry, _ work: ActionWork) {
+        if registry.isCapturingWork { return registry.track(work) }
+        Task { @MainActor [weak registry] in if let failure = await work.value { registry?.refuse(failure.message) } }
+    }
+
     private static func runHome(_ services: AppServices, _ body: @escaping @MainActor () async -> HomeComposeOutcome) {
         let work = ActionWork {
             let outcome = await body()
