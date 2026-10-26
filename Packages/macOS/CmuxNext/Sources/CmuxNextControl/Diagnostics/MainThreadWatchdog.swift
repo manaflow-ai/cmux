@@ -111,6 +111,9 @@ public final class MainThreadWatchdog: Sendable {
     public let log: HangLog
     /// Busy windows (CPU with no input, animation or output) share the log.
     public let busy: BusyWatchdog
+    /// Hang-watch scopes on other threads (``HangWatching``) share the log too (kind `hang`); the
+    /// composition root starts it with its report sink, ``stop()`` stops it.
+    public let threadHangs: ThreadHangWatcher
     private let thresholdNanos: UInt64
     /// `CLOCK_UPTIME_RAW` nanoseconds; tests inject a clock that moves only
     /// when they move it, so host load adds no stall.
@@ -196,6 +199,7 @@ public final class MainThreadWatchdog: Sendable {
         self.uptime = uptime
         self.log = HangLog(capacity: configuration.capacity)
         self.busy = BusyWatchdog(log: log)
+        self.threadHangs = ThreadHangWatcher(log: log)
         self.thresholdNanos = UInt64(clamping: max(configuration.threshold.wholeMilliseconds, 1)).saturatingMultiplication(1_000_000)
         self.sampleAfterNanos = thresholdNanos / 5 * 3 + thresholdNanos % 5 * 3 / 5
         self.hangNanos = Self.nanos(configuration.hangThreshold)
@@ -279,6 +283,7 @@ public final class MainThreadWatchdog: Sendable {
     }
 
     public func stop() {
+        threadHangs.stop()
         guard running.compareExchange(expected: true, desired: false, ordering: .acquiringAndReleasing).exchanged else { return }
         if let box = observer.withLock({ observer in defer { observer = nil }; return observer }) {
             for runLoopObserver in box.observers { CFRunLoopObserverInvalidate(runLoopObserver) }
