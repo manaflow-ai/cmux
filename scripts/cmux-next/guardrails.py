@@ -4,7 +4,8 @@
 Run by the pre-push hook through `prepush-gate.py --pre-push` (and by a plain local `prepush-gate.py`),
 never by CI (Lawrence 2026-10-23: no new CI gates). Only Swift lines the push ADDS under
 Packages/macOS/CmuxNext/Sources count (wakeup-ext also reads the app-linked Shared packages, CmuxUpdater,
-the cmux-tui crates' src, webviews/src and the CEF shim with wakeup-audit.py's rules), plus unchanged lines that
+the cmux-tui crates' src, webviews/src and the CEF shim with wakeup-audit.py's rules; safety-todo reads every
+package's Sources and Tests), plus unchanged lines that
 become debt because the push changed the line that gives them their context (`struct` -> `class` around a
 static, a view renamed to a `...Row`, an edited or deleted deinit in a generic class's body, or a type made generic
 around the classes in its extensions, read in every Sources and Tests file that extends it:
@@ -64,7 +65,7 @@ one move pool per push with the new-file rule (move_pools).
   scripts/cmux-next/guardrails.py                    # what HEAD adds over origin/feat-cmux-next
   scripts/cmux-next/guardrails.py --base A --head B   # exactly what B adds over A
   scripts/cmux-next/guardrails.py --list
-  scripts/cmux-next/guardrails.py --self-test        # the input-monitor and target-settings refuse and escape cases
+  scripts/cmux-next/guardrails.py --self-test        # the input-monitor, target-settings and safety-todo cases
 """
 from __future__ import annotations
 
@@ -590,9 +591,9 @@ def lex_cache_dir(repo: Path) -> Path | None:
 
 def in_diff_scope(path: str) -> bool:
     """PATH is one of check()'s diff pathspecs (SWIFT_SOURCES, SWIFT_TESTS, SHIPPED_BUILD_SPECS, WAKEUP_EXT_SPECS,
-    PACKAGE_MANIFEST_SPEC), so its blobs are read while the content diff runs. A path this misses is read after the
-    diff (check()'s late read)."""
-    return in_swift_scope(path) or in_wakeup_ext_specs(path) or is_package_manifest(path)
+    PACKAGE_MANIFEST_SPEC, PACKAGE_SWIFT_SPECS), so its blobs are read while the content diff runs. A path this misses
+    is read after the diff (check()'s late read)."""
+    return in_swift_scope(path) or in_wakeup_ext_specs(path) or is_package_manifest(path) or is_package_swift(path)
 
 
 def in_swift_scope(path: str) -> bool:
@@ -2237,6 +2238,69 @@ TARGET_SETTINGS_RULES = (
 )
 RULES += TARGET_SETTINGS_RULES
 # ---------------------------------------------------------------- end of target-settings (p10-stability-037)
+
+
+# ---------------------------------------------------------------- safety-todo (p10-stability-211)
+# `// SAFETY-TODO(p10)` marks an old unsafe site that the strict-memory-safety pass (apply-unsafe-fixits.py) found
+# when the check went on; the marks are the Q04 queue that module tasks 063-078 empty. Chromium's order
+# (docs/unsafe_buffers.md): UNSAFE_TODO() wraps only code that predates the check, and new code writes
+# UNSAFE_BUFFERS() with a `// SAFETY:` argument. So a mark the push adds is refused unless it marks old code: per
+# file, one mark per changed line that is a removed line of the same file with only `unsafe` / `@unsafe` keywords
+# inserted (the fix-it pass's shape). A mark the push removes anywhere pays for one it adds (a moved site). Local
+# only (prepush-gate runs the guardrails never under --commits or GitHub Actions; Lawrence 2026-10-23: no new CI
+# gates). The block owns its lines from here to `RULES += SAFETY_TODO_RULES`.
+SAFETY_TODO_MARK = re.compile(r"//\s*SAFETY-TODO\(p10\)")
+UNSAFE_KEYWORD = re.compile(r"(?<![\w.(])@?unsafe\s+")
+PACKAGE_SWIFT_SPECS = (":(glob)Packages/**/Sources/**/*.swift", ":(glob)Packages/**/Tests/**/*.swift")
+
+
+def is_package_swift(path: str) -> bool:
+    """PATH is in PACKAGE_SWIFT_SPECS: a Swift file of any package's Sources or Tests."""
+    return path.startswith("Packages/") and path.endswith(".swift") and ("/Sources/" in path or "/Tests/" in path)
+
+
+def without_unsafe(text: str) -> str:
+    """TEXT with its `unsafe` / `@unsafe` keywords dropped and its whitespace squashed: an old line and the same line
+    after the fix-it pass compare equal."""
+    return " ".join(UNSAFE_KEYWORD.sub("", text).split())
+
+
+def safety_todo(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    changes = [c for c in changes if is_package_swift(c.path)]
+    removed_marks = sum(1 for c in changes for r in c.removed if SAFETY_TODO_MARK.search(r.text))
+    hits: list[Added] = []
+    for change in changes:
+        marks = [a for a in change.added if SAFETY_TODO_MARK.search(a.text)]
+        if not marks:
+            continue
+        old = collections.Counter(without_unsafe(r.text) for r in change.removed)
+        marked_old = 0
+        for line in change.added:
+            if SAFETY_TODO_MARK.search(line.text) or not UNSAFE_KEYWORD.search(code_of(line.text)):
+                continue
+            key = without_unsafe(line.text)
+            if old[key] > 0:
+                old[key] -= 1
+                marked_old += 1
+        hits += marks[marked_old:]
+    return hits[removed_marks:]
+
+
+SAFETY_TODO_RULES = (
+    Rule("safety-todo", "A new `// SAFETY-TODO(p10)` mark on code that is not an old line marked by the "
+         "strict-memory-safety pass",
+         "the marks are the queue of old unsafe sites (Q04, p10-stability-211); a mark on new code adds to the queue "
+         "instead of stating why the code is safe (Chromium: UNSAFE_TODO only for code that predates the check, "
+         "docs/unsafe_buffers.md)",
+         "use a safe API (Span, Array, Data, a typed wrapper), or write `unsafe` with a `// SAFETY: <why the "
+         "pointer, bounds and lifetime are valid>` line above it; old sites get their marks only from "
+         "scripts/cmux-next/apply-unsafe-fixits.py",
+         None,
+         safety_todo,
+         scope=("Packages/",)),
+)
+RULES += SAFETY_TODO_RULES
+# ---------------------------------------------------------------- end of safety-todo (p10-stability-211)
 
 
 # ---------------------------------------------------------------- main-thread classes (p06-scheduler)
@@ -4272,7 +4336,8 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     """([(rule, every hit, measurements and warning hits included)], warnings) for what HEAD adds over BASE."""
     # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse. No
     # inter-hunk context: a user's diff.interHunkContext would join nearby hunks with unchanged lines between them.
-    specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SHIPPED_BUILD_SPECS, *WAKEUP_EXT_SPECS, PACKAGE_MANIFEST_SPEC]
+    specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SHIPPED_BUILD_SPECS, *WAKEUP_EXT_SPECS, PACKAGE_MANIFEST_SPEC,
+             *PACKAGE_SWIFT_SPECS]
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
     # The content diff and the blob read each decompress the same objects: on the slowest real pushes (242 files,
     # load 37) each took 0.7-1 s one after the other. The changed paths come first from a cheap name-only diff, so
@@ -4787,10 +4852,67 @@ TARGET_SETTINGS_CASES = (
       **_manifest_edit(SELF_TEST_SHARED, "    ]\n)", "        .target(name: \"OldC\"),\n    ]\n)")}, False),
 )
 
+# safety-todo: an old file of a Shared package and one of the app's tests, before the strict-memory-safety pass.
+SELF_TEST_SHARED_SOURCE = "Packages/Shared/Linked/Sources/Linked/Buffer.swift"
+SELF_TEST_APP_TEST = TESTS + "CmuxNextTests/BufferTests.swift"
+SELF_TEST_MARKED = "Packages/Shared/Linked/Sources/Linked/Zero.swift"
+SELF_TEST_SAFETY_BASE = {
+    SELF_TEST_SHARED_SOURCE: "func fill(_ p: UnsafeMutablePointer<UInt8>, count: Int) {\n"
+                             "    for i in 0..<count {\n        p[i] = 0\n    }\n}\n",
+    SELF_TEST_APP_TEST: "func check(_ p: UnsafePointer<UInt8>) -> UInt8 {\n    return p.pointee\n}\n",
+    SELF_TEST_MARKED: "func zero(_ p: UnsafeMutablePointer<UInt8>) {\n"
+                      "    // SAFETY-TODO(p10)\n    unsafe p.pointee = 0\n}\n",
+}
+
+
+def _safety_edit(path: str, old: str, new: str) -> dict[str, str]:
+    text = SELF_TEST_SAFETY_BASE[path]
+    if old not in text:
+        raise ValueError(f"self-test fixture: {old!r} is not in {path}")
+    return {path: text.replace(old, new, 1)}
+
+
+SAFETY_TODO_CASES = (
+    ("the fix-it pass marks an old line",
+     _safety_edit(SELF_TEST_SHARED_SOURCE, "        p[i] = 0\n",
+                  "        // SAFETY-TODO(p10)\n        unsafe p[i] = 0\n"), False),
+    ("the fix-it pass marks an old test line",
+     _safety_edit(SELF_TEST_APP_TEST, "    return p.pointee\n",
+                  "    // SAFETY-TODO(p10)\n    return unsafe p.pointee\n"),
+     False),
+    ("a mark on a new line",
+     _safety_edit(SELF_TEST_SHARED_SOURCE, "    }\n}\n",
+                  "    }\n    // SAFETY-TODO(p10)\n    unsafe p[count] = 0\n}\n"), True),
+    ("a mark on a new file",
+     {"Packages/iOS/Mobile/Sources/Mobile/Raw.swift": "func raw(_ p: UnsafeRawPointer) -> UInt8 {\n"
+                                                      "    // SAFETY-TODO(p10)\n"
+                                                      "    return unsafe p.load(as: UInt8.self)\n}\n"}, True),
+    ("two marks for one old line",
+     _safety_edit(SELF_TEST_SHARED_SOURCE, "        p[i] = 0\n",
+                  "        // SAFETY-TODO(p10)\n        // SAFETY-TODO(p10)\n        unsafe p[i] = 0\n"), True),
+    ("a mark on an old line edited beyond `unsafe`",
+     _safety_edit(SELF_TEST_SHARED_SOURCE, "        p[i] = 0\n",
+                  "        // SAFETY-TODO(p10)\n        unsafe p[i] = 1\n"), True),
+    ("new unsafe code with a SAFETY argument",
+     _safety_edit(SELF_TEST_SHARED_SOURCE, "    }\n}\n",
+                  "    }\n    // SAFETY: p has count + 1 bytes (the caller's contract)\n    unsafe p[count] = 0\n}\n"),
+     False),
+    ("a marked site moved to another file",
+     {SELF_TEST_MARKED: "",
+      "Packages/Shared/Linked/Sources/Linked/Moved.swift": SELF_TEST_SAFETY_BASE[SELF_TEST_MARKED]},
+     False),
+    ("a marked site copied to another file",
+     {"Packages/Shared/Linked/Sources/Linked/Copy.swift": SELF_TEST_SAFETY_BASE[SELF_TEST_MARKED]}, True),
+    ("an old mark re-indented",
+     {SELF_TEST_MARKED: SELF_TEST_SAFETY_BASE[SELF_TEST_MARKED].replace("    // SAFETY", "  // SAFETY")}, False),
+)
+
+
 # (rule, base files, cases): each case is one commit over its suite's base.
 SELF_TEST_SUITES = (
     ("input-monitor", SELF_TEST_BASE, SELF_TEST_CASES),
     ("target-settings", SELF_TEST_MANIFEST_BASE, TARGET_SETTINGS_CASES),
+    ("safety-todo", SELF_TEST_SAFETY_BASE, SAFETY_TODO_CASES),
 )
 
 
@@ -4856,8 +4978,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--list", action="store_true", help="print the rules")
     parser.add_argument("--self-test", action="store_true",
-                        help="judge the input-monitor and target-settings rules' refuse and escape cases in a "
-                             "scratch repository")
+                        help="judge the input-monitor, target-settings and safety-todo rules' refuse and escape "
+                             "cases in a scratch repository")
     args = parser.parse_args(argv)
     if args.self_test:
         return self_test()

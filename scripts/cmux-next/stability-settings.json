@@ -14,6 +14,13 @@
       "target": "MessagesLabSidebarTests",
       "setting": ".swiftLanguageMode(.v6)",
       "reason": "Swift 6 language mode for the list's tests (main-actor suites; SidebarConcurrencyTests, SidebarObservationTests)."
+    },
+    {
+      "task": "p10-stability-211",
+      "package": "*",
+      "target": "*",
+      "setting": ".strictMemorySafety()",
+      "reason": "Strict memory safety on for every Swift target of the closure, as a warning (Chromium docs/unsafe_buffers.md order: the check on everywhere, old sites marked; scripts/cmux-next/apply-unsafe-fixits.py applies the compiler's unsafe fix-its with a SAFETY-TODO(p10) mark, the Q04 queue). The error flip is p10-stability-079."
     }
   ]
 }
