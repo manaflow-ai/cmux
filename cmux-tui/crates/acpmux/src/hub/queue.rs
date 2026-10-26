@@ -279,6 +279,14 @@ impl Hub {
             }
         };
         let run = self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)?;
+        // A lane's report queued behind a turn its parent's close then ended: it never reopens
+        // the parent. Logged, so a restart does not queue it again (`lost_start.rs`).
+        if refuses_closing(&p) && closing(session) {
+            let e = closing_error();
+            let msg = json!({"promptId": p.prompt_id, "turnId": turn_id, "client": p.client, "error": e.message, "data": e.data});
+            self.append(session, "mux", "prompt_refused", msg);
+            return Err(Err(e));
+        }
         Ok((turn_id, true, guard, run))
     }
 
