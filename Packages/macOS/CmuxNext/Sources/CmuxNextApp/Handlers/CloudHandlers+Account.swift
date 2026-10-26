@@ -26,11 +26,18 @@ extension CloudHandlers {
                 // a paused machine resumes (idle auto-pause).
                 target?.attach(origin: connectOrigin(for: invocation))
                 creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession).start(in: window, existing: target)
+                // A CLI or agent hears that the workspace comes later: its machine is starting or connecting.
+                result("new cloud workspace", context) {
+                    (target.map { machineFields($0.machineID) } ?? [:]).merging(["pending": .bool(true), "status": .string(target == nil ? "creating" : "connecting")]) { field, _ in field }
+                }
                 return
             }
-            run("new cloud workspace", context) {
-                if let id = await context.services.windows.createWorkspace(on: session.daemon) { show(id, context) }
+            result("new cloud workspace", context) {
+                let id = await context.services.windows.createWorkspace(on: session.daemon)
                 RemoteGroupHandlers.mark(session: session.daemon.store.registryID) // one group per Cloud machine
+                guard let id else { throw ActionFailure(message: CloudStrings.notConnected) }
+                show(id, context)
+                return machineFields(session.machineID, ["workspace_id": .string(id)])
             }
         }
     }

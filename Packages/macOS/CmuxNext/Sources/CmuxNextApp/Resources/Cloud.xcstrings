@@ -15217,132 +15217,265 @@
       }
     },
     "cloud.cli.execUnavailable": {
+      "comment": "A CLI or agent asked a Cloud machine to run a command, but its provider runs none through the API. %1$@ is the machine id. The backticked commands stay as they are.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Cloud machine can't run a command for the CLI and return its output. Open a terminal on it with cmux cloud open-machine instead."
+            "value": "This Cloud machine can't run a command for the CLI and return its output. Open a terminal on it with `cmux cloud new-terminal-on-machine --target machine:%1$@`, or connect with `cmux cloud ssh --target machine:%1$@`."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يمكن لهذا الجهاز السحابي تشغيل أمر لواجهة سطر الأوامر وإرجاع مخرجاته. افتح طرفية عليه باستخدام ‎cmux cloud open-machine‎ بدلاً من ذلك."
+            "value": "لا يمكن لجهاز Cloud هذا تشغيل أمر لواجهة سطر الأوامر وإرجاع مخرجاته. افتح طرفية عليه باستخدام `cmux cloud new-terminal-on-machine --target machine:%1$@`، أو اتصل باستخدام `cmux cloud ssh --target machine:%1$@`."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ova Cloud mašina ne može pokrenuti naredbu za CLI i vratiti njen izlaz. Umjesto toga otvorite terminal na njoj pomoću cmux cloud open-machine."
+            "value": "Ova Cloud mašina ne može pokrenuti komandu za CLI i vratiti njen izlaz. Otvorite terminal na njoj pomoću `cmux cloud new-terminal-on-machine --target machine:%1$@` ili se povežite pomoću `cmux cloud ssh --target machine:%1$@`."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Denne Cloud-maskine kan ikke køre en kommando for CLI'en og returnere outputtet. Åbn i stedet en terminal på den med cmux cloud open-machine."
+            "value": "Denne Cloud-maskine kan ikke køre en kommando for CLI'en og returnere outputtet. Åbn en terminal på den med `cmux cloud new-terminal-on-machine --target machine:%1$@`, eller opret forbindelse med `cmux cloud ssh --target machine:%1$@`."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diese Cloud-Maschine kann keinen Befehl für die CLI ausführen und seine Ausgabe zurückgeben. Öffne stattdessen mit cmux cloud open-machine ein Terminal darauf."
+            "value": "Diese Cloud-Maschine kann keinen Befehl für die CLI ausführen und seine Ausgabe zurückgeben. Öffne ein Terminal darauf mit `cmux cloud new-terminal-on-machine --target machine:%1$@` oder verbinde dich mit `cmux cloud ssh --target machine:%1$@`."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esta máquina en la nube no puede ejecutar un comando para la CLI y devolver su salida. Abre una terminal en ella con cmux cloud open-machine."
+            "value": "Esta máquina Cloud no puede ejecutar un comando para la CLI y devolver su salida. Abre una terminal en ella con `cmux cloud new-terminal-on-machine --target machine:%1$@` o conéctate con `cmux cloud ssh --target machine:%1$@`."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cette machine Cloud ne peut pas exécuter de commande pour la CLI et en renvoyer la sortie. Ouvrez plutôt un terminal dessus avec cmux cloud open-machine."
+            "value": "Cette machine Cloud ne peut pas exécuter une commande pour la CLI et renvoyer sa sortie. Ouvrez-y un terminal avec `cmux cloud new-terminal-on-machine --target machine:%1$@`, ou connectez-vous avec `cmux cloud ssh --target machine:%1$@`."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Questa macchina Cloud non può eseguire un comando per la CLI e restituirne l’output. Apri invece un terminale con cmux cloud open-machine."
+            "value": "Questa macchina Cloud non può eseguire un comando per la CLI e restituirne l'output. Apri un terminale su di essa con `cmux cloud new-terminal-on-machine --target machine:%1$@` oppure connettiti con `cmux cloud ssh --target machine:%1$@`."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Cloud マシンでは CLI のためにコマンドを実行して出力を返すことができません。代わりに cmux cloud open-machine でターミナルを開いてください。"
+            "value": "この Cloud マシンでは、CLI のためにコマンドを実行して出力を返すことができません。`cmux cloud new-terminal-on-machine --target machine:%1$@` でターミナルを開くか、`cmux cloud ssh --target machine:%1$@` で接続してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ម៉ាស៊ីន Cloud នេះមិនអាចដំណើរការពាក្យបញ្ជាសម្រាប់ CLI ហើយបញ្ជូនលទ្ធផលត្រឡប់មកវិញបានទេ។ សូមបើកស្ថានីយនៅលើវាដោយប្រើ cmux cloud open-machine ជំនួសវិញ។"
+            "value": "ម៉ាស៊ីន Cloud នេះមិនអាចដំណើរការពាក្យបញ្ជាសម្រាប់ CLI ហើយបញ្ជូនលទ្ធផលត្រឡប់វិញបានទេ។ បើកស្ថានីយលើវាដោយប្រើ `cmux cloud new-terminal-on-machine --target machine:%1$@` ឬភ្ជាប់ដោយប្រើ `cmux cloud ssh --target machine:%1$@`។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Cloud 머신은 CLI를 위해 명령을 실행하고 출력을 반환할 수 없습니다. 대신 cmux cloud open-machine으로 터미널을 여세요."
+            "value": "이 Cloud 머신은 CLI를 위해 명령을 실행하고 출력을 돌려줄 수 없습니다. `cmux cloud new-terminal-on-machine --target machine:%1$@`로 터미널을 열거나 `cmux cloud ssh --target machine:%1$@`로 연결하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Denne Cloud-maskinen kan ikke kjøre en kommando for CLI-en og returnere utdataene. Åpne heller en terminal på den med cmux cloud open-machine."
+            "value": "Denne Cloud-maskinen kan ikke kjøre en kommando for CLI-en og returnere utdataene. Åpne en terminal på den med `cmux cloud new-terminal-on-machine --target machine:%1$@`, eller koble til med `cmux cloud ssh --target machine:%1$@`."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ta maszyna Cloud nie może uruchomić polecenia dla CLI i zwrócić jego wyniku. Zamiast tego otwórz na niej terminal poleceniem cmux cloud open-machine."
+            "value": "Ta maszyna Cloud nie może uruchomić polecenia dla CLI i zwrócić jego wyniku. Otwórz na niej terminal poleceniem `cmux cloud new-terminal-on-machine --target machine:%1$@` albo połącz się przez `cmux cloud ssh --target machine:%1$@`."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esta máquina na nuvem não pode executar um comando para a CLI e retornar a saída. Abra um terminal nela com cmux cloud open-machine."
+            "value": "Esta máquina Cloud não consegue executar um comando para a CLI e devolver a saída. Abra um terminal nela com `cmux cloud new-terminal-on-machine --target machine:%1$@` ou conecte-se com `cmux cloud ssh --target machine:%1$@`."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Эта облачная машина не может выполнить команду для CLI и вернуть её вывод. Вместо этого откройте на ней терминал командой cmux cloud open-machine."
+            "value": "Эта машина Cloud не может выполнить команду для CLI и вернуть её вывод. Откройте на ней терминал командой `cmux cloud new-terminal-on-machine --target machine:%1$@` или подключитесь через `cmux cloud ssh --target machine:%1$@`."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เครื่อง Cloud นี้ไม่สามารถรันคำสั่งให้ CLI และส่งผลลัพธ์กลับได้ ให้เปิดเทอร์มินัลบนเครื่องด้วย cmux cloud open-machine แทน"
+            "value": "เครื่อง Cloud นี้รันคำสั่งให้ CLI แล้วส่งผลลัพธ์กลับไม่ได้ เปิดเทอร์มินัลบนเครื่องด้วย `cmux cloud new-terminal-on-machine --target machine:%1$@` หรือเชื่อมต่อด้วย `cmux cloud ssh --target machine:%1$@`"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu Cloud makinesi CLI için komut çalıştırıp çıktısını döndüremez. Bunun yerine cmux cloud open-machine ile üzerinde bir terminal açın."
+            "value": "Bu Cloud makinesi CLI için bir komut çalıştırıp çıktısını döndüremez. `cmux cloud new-terminal-on-machine --target machine:%1$@` ile üzerinde bir terminal açın veya `cmux cloud ssh --target machine:%1$@` ile bağlanın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ця хмарна машина не може виконати команду для CLI і повернути її вивід. Натомість відкрийте на ній термінал командою cmux cloud open-machine."
+            "value": "Ця машина Cloud не може виконати команду для CLI й повернути її вивід. Відкрийте на ній термінал командою `cmux cloud new-terminal-on-machine --target machine:%1$@` або підключіться через `cmux cloud ssh --target machine:%1$@`."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Máy Cloud này không thể chạy lệnh cho CLI và trả về kết quả. Hãy mở terminal trên máy bằng cmux cloud open-machine."
+            "value": "Máy Cloud này không thể chạy lệnh cho CLI và trả về kết quả. Mở một terminal trên máy bằng `cmux cloud new-terminal-on-machine --target machine:%1$@`, hoặc kết nối bằng `cmux cloud ssh --target machine:%1$@`."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这台云端机器无法为 CLI 运行命令并返回输出。请改用 cmux cloud open-machine 在其上打开终端。"
+            "value": "这台 Cloud 机器无法为 CLI 运行命令并返回输出。用 `cmux cloud new-terminal-on-machine --target machine:%1$@` 在它上面打开终端，或用 `cmux cloud ssh --target machine:%1$@` 连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這台雲端機器無法為 CLI 執行指令並傳回輸出。請改用 cmux cloud open-machine 在其上開啟終端機。"
+            "value": "這台 Cloud 機器無法為 CLI 執行命令並傳回輸出。用 `cmux cloud new-terminal-on-machine --target machine:%1$@` 在它上面開啟終端機，或用 `cmux cloud ssh --target machine:%1$@` 連線。"
+          }
+        }
+      }
+    },
+    "cloud.cli.unknownMachine": {
+      "comment": "A CLI or agent run named a machine (--target machine:<id>) this app does not know. %@ is the id it passed. `cmux cloud list-machines` is a command; keep it as is.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Cloud machine has the id %@. `cmux cloud list-machines` lists ids."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد جهاز Cloud بالمعرّف %@. يعرض `cmux cloud list-machines` المعرّفات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijedna Cloud mašina nema id %@. `cmux cloud list-machines` prikazuje id-ove."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen Cloud-maskine har id'et %@. `cmux cloud list-machines` viser id'erne."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Cloud-Maschine hat die ID %@. `cmux cloud list-machines` listet die IDs auf."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ninguna máquina Cloud tiene el id %@. `cmux cloud list-machines` muestra los ids."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune machine Cloud n'a l'identifiant %@. `cmux cloud list-machines` affiche les identifiants."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna macchina Cloud ha l'id %@. `cmux cloud list-machines` elenca gli id."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID が %@ の Cloud マシンはありません。`cmux cloud list-machines` で ID の一覧を表示できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានម៉ាស៊ីន Cloud ណាមានលេខសម្គាល់ %@ ទេ។ `cmux cloud list-machines` បង្ហាញលេខសម្គាល់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID가 %@인 Cloud 머신이 없습니다. `cmux cloud list-machines`로 ID 목록을 볼 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen Cloud-maskin har ID-en %@. `cmux cloud list-machines` viser ID-ene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Żadna maszyna Cloud nie ma identyfikatora %@. `cmux cloud list-machines` wyświetla identyfikatory."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma máquina Cloud tem o id %@. `cmux cloud list-machines` lista os ids."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет машины Cloud с идентификатором %@. `cmux cloud list-machines` показывает идентификаторы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีเครื่อง Cloud ที่มีรหัส %@ `cmux cloud list-machines` แสดงรายการรหัส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kimliğine sahip bir Cloud makinesi yok. `cmux cloud list-machines` kimlikleri listeler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Немає машини Cloud з ідентифікатором %@. `cmux cloud list-machines` показує ідентифікатори."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có máy Cloud nào có id %@. `cmux cloud list-machines` liệt kê các id."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有 id 为 %@ 的 Cloud 机器。`cmux cloud list-machines` 会列出 id。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有 id 為 %@ 的 Cloud 機器。`cmux cloud list-machines` 會列出 id。"
           }
         }
       }

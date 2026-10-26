@@ -39,7 +39,7 @@ extension CloudHandlers {
             // daemon); a machine without API exec refuses it. A person's run types it into a new tab.
             if origin(of: invocation) != .user {
                 // Typing into a tab gives a CLI or agent nothing to read: refuse instead.
-                guard session.machine.allows(.exec) else { throw ActionFailure(message: CloudStrings.execUnavailable) }
+                guard session.machine.allows(.exec) else { throw ActionFailure(message: CloudStrings.execUnavailable(session.machineID)) }
                 return result("exec on Cloud machine", context) {
                     let ran = try await cloud.api.exec(session.machineID, command: command, timeoutMs: execTimeoutMs)
                     return ["machine_id": .string(session.machineID), "exit_code": .int(ran.exitCode),
@@ -155,7 +155,12 @@ extension CloudHandlers {
         }
         bind("cloudRenameMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            let rename = { (name: String) in run("rename machine", context) { try await cloud.renameMachine(session.machineID, to: name) } }
+            let rename = { (name: String) in
+                result("rename machine", context) {
+                    try await cloud.renameMachine(session.machineID, to: name)
+                    return machineFields(session.machineID, ["name": .string(name)])
+                }
+            }
             if let name = invocation["name"]?.stringValue { return rename(name) }
             context.services.registry.ask("cloudRenameMachine", invocation,
                                           ActionArgumentAsk(argument: "name", initialText: session.machine.displayName ?? ""))
@@ -163,7 +168,10 @@ extension CloudHandlers {
         // Destructive: the registry confirmed it (sheet, or `confirm: true`).
         bind("cloudKillMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            run("kill machine", context) { try await cloud.deleteMachine(session.machineID) }
+            result("kill machine", context, pendingAfter: machineAnswerWait, pending: machineFields(session.machineID)) {
+                try await cloud.deleteMachine(session.machineID)
+                return machineFields(session.machineID, ["status": .string("deleted")])
+            }
         }
         bind("cloudPauseMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
@@ -192,7 +200,10 @@ extension CloudHandlers {
             guard let size = invocation["size"]?.stringValue, let (cpu, memory) = sizes[size] else {
                 throw ActionFailure(message: CloudStrings.sizeMustBeOneOf(sizes.keys.sorted().joined(separator: ", ")))
             }
-            run("resize machine", context) { try await cloud.api.resize(session.machineID, cpu: cpu, memoryMb: memory) }
+            result("resize machine", context, pendingAfter: machineAnswerWait, pending: machineFields(session.machineID, ["size": .string(size)])) {
+                try await cloud.api.resize(session.machineID, cpu: cpu, memoryMb: memory)
+                return machineFields(session.machineID, ["size": .string(size)])
+            }
         }
         // The idle auto-pause (web/services/vms/idlePause.ts): cmux Cloud pauses the machine
         // after this many minutes with nothing attached, running or forwarded; `off` never.
@@ -265,16 +276,18 @@ extension CloudHandlers {
         }
         bind("palette.cloud.restore", registry, reason: reason) { invocation in
             guard let snapshot = invocation["snapshot"]?.stringValue, !snapshot.isEmpty else { throw ActionFailure(message: CloudStrings.snapshotRequired) }
-            run("restore machine", context) {
-                _ = try await cloud.api.restore(snapshotID: snapshot)
+            result("restore machine", context, pendingAfter: machineAnswerWait, pending: ["snapshot_id": .string(snapshot)]) {
+                let restored = try await cloud.api.restore(snapshotID: snapshot)
                 await cloud.refresh()
+                return machineFields(restored.id, ["snapshot_id": .string(snapshot)])
             }
         }
         bind("palette.cloud.fork", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.fork) else { throw operationUnavailable }
-            run("fork machine", context) {
-                _ = try await cloud.api.fork(session.machineID, name: nil)
+            result("fork machine", context, pendingAfter: machineAnswerWait, pending: ["source_machine_id": .string(session.machineID)]) {
+                let fork = try await cloud.api.fork(session.machineID, name: nil)
                 await cloud.refresh()
+                return machineFields(fork.id, ["source_machine_id": .string(session.machineID)])
             }
         }
     }
@@ -293,13 +306,25 @@ extension CloudHandlers {
         "gh --version 2>/dev/null | head -n 1 || true"
     ].joined(separator: "; ")
 
-    /// The handoff text, with the old app's fields and the cmux-next CLI verbs
-    /// for Open Machine and Machine Tools.
+    /// The handoff text, with the old app's fields and the CLI verbs that
+    /// open a terminal on the machine and report on it (`open-machine` and
+    /// `machine-tools` are GUI-only on the CLI).
     static func handoff(_ machine: CloudMachine) -> String {
         let target = "--target machine:\(machine.id)"
         return ["\(machine.title) (\(machine.id))", "provider: \(machine.provider.isEmpty ? "?" : machine.provider)", "status: \(machine.status.rawValue)",
-                "attach: cmux cloud open-machine \(target)", "inspect: cmux cloud machine-tools \(target)"].joined(separator: "\n")
+                "attach: cmux cloud new-terminal-on-machine \(target)", "inspect: cmux cloud machine-status \(target)"].joined(separator: "\n")
     }
+
+    /// A machine action's `action.run` result: the machine's id and the
+    /// `--target` that names it in the next command, plus `extra`.
+    static func machineFields(_ machineID: String, _ extra: [String: ActionResultValue] = [:]) -> [String: ActionResultValue] {
+        extra.merging(["machine_id": .string(machineID), "target": .string("machine:\(machineID)")]) { field, _ in field }
+    }
+
+    /// How long a CLI or agent fork, restore, resize or kill waits for the
+    /// server before it answers `pending`: inside `action.run`'s 40 s result
+    /// deadline. The work finishes either way.
+    static let machineAnswerWait: Duration = .seconds(30)
 
     /// How long a CLI or agent snapshot waits for its id before it answers
     /// `pending` (a snapshot may take minutes): inside `action.run`'s 40 s
