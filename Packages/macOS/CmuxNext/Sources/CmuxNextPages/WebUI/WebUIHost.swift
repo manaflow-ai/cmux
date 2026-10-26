@@ -32,8 +32,19 @@ public final class WebUIHost {
     /// content lifecycle; a page it holds leaves it on ``close(_:)``. Nil while `pageLifecycle` is off:
     /// the composition root sets it.
     package var lifecycle: PageLifecycle?
+    /// The app's one preloaded page (p13-webui.md 3.D); this host's pressure subscription drops it
+    /// at any level but normal. Nil until the composition root installs it with the app's deadline
+    /// scheduler (p13-webui-044, 045); installing it hands it the current level.
+    package var preload: PagePreloadSlot? {
+        didSet { preload?.memoryPressureDidChange(memoryPressure.currentLevel) }
+    }
+    /// The host's one memory pressure subscription (p13-webui-047 moves the page lifecycle onto it).
+    private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
     /// The clock of each opened page's Chromium deadline (tests pass one that never fires).
     private let clock: any Clock<Duration>
+    /// A page starts its document, and its renderer, at its first show, not when it opens
+    /// (feature `pageRendererAtFirstShow`, PageWebView+FirstShow.swift).
+    public let startsPagesAtFirstShow: Bool
     /// Every page this host opened and has not closed. Weak, so a view a provider drops without
     /// closing it still deinits (p13-webui-061 makes every tab close call ``close(_:)``).
     private let opened = NSHashTable<PageWebView>.weakObjects()
@@ -51,26 +62,32 @@ public final class WebUIHost {
     ///     until p13-webui-010; a test leaves the default, its own registry).
     ///   - clock: The Chromium deadline's clock.
     ///   - processGroups: The shared WebKit processes (a test passes its own to read the groups).
+    ///   - startsPagesAtFirstShow: Pages start their document at their first show (``startsPagesAtFirstShow``).
     public init(chromium: (any PageChromiumHosting)?, openPanel: MadeAheadOpenPanel?,
                 memoryPressure: MemoryPressureEvents, registry: PageRegistry = PageRegistry(),
-                clock: any Clock<Duration> = ContinuousClock(), processGroups: WebProcessGroups = WebProcessGroups()) {
+                clock: any Clock<Duration> = ContinuousClock(), processGroups: WebProcessGroups = WebProcessGroups(),
+                startsPagesAtFirstShow: Bool = false) {
         self.chromium = chromium
+        self.startsPagesAtFirstShow = startsPagesAtFirstShow
         self.openPanel = openPanel
         self.memoryPressure = memoryPressure
         self.registry = registry
         self.clock = clock
         self.processGroups = processGroups
+        pressureObservation = memoryPressure.observe { [weak self] level in
+            self?.preload?.memoryPressureDidChange(level)
+        }
     }
 
-    /// Makes and starts loading the page `request` asks for, in the engine ``PageEnginePolicy``
-    /// picks with this host's Chromium.
+    /// Makes the page `request` asks for, in the engine ``PageEnginePolicy`` picks with this host's
+    /// Chromium, and starts loading it now, or at its first show with ``startsPagesAtFirstShow``.
     ///
     /// - Parameter request: The page, its root, routes and options.
     /// - Returns: The view, or nil when the page has no root it may be served from (missing from
     ///   the bundle, or a first-party page asked for at another root).
     public func open(_ request: PageOpenRequest) -> PageWebView? {
-        guard let view = PageWebView(request: request, chromium: chromium, openPanel: openPanel,
-                                     registry: registry, processGroups: processGroups) else { return nil }
+        guard let view = PageWebView(request: request, chromium: chromium, openPanel: openPanel, registry: registry,
+                                     processGroups: processGroups, startsAtFirstShow: startsPagesAtFirstShow) else { return nil }
         // Read when the Chromium page reaches the host, after this turn; set before then.
         view.chromiumClock = clock
         opened.add(view)

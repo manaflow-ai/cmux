@@ -1262,6 +1262,11 @@ Paths are relative to the repo root. `S/` = `Packages/macOS/CmuxNext/Sources/`, 
   - For a flow-marked commit, the first tick whose target >= max(commit, gpu_done when 048 is present)
     writes frame.present_estimate (flow, target, flag "estimated").
   - With the link idle, it asks for one tick while recording only.
+  - As built: `FramePresentEstimate` writes frame.commit once per main run-loop turn end, from one observer
+    after Core Animation's (arg0 the first flow it carries, arg1 how many). frame.tick names its display
+    (arg1: display id in the high 32 bits, nanoseconds to the target in the low 32). Presents are per
+    display: a flow is presented by its window's display, and the one tick is asked of that display. The
+    typing probe's echo commit (019, the contents mark) marks the flow.
   - Covers perf-hot frame-tick.
 - Acceptance:
   - Off: one load in `deliver`.
@@ -1339,6 +1344,10 @@ Paths are relative to the repo root. `S/` = `Packages/macOS/CmuxNext/Sources/`, 
   installed at start. When nothing uses it, the pointer is null. At the IOSurface handoff it also calls
   the surface's `TerminalEchoStage.contentsSet()` (p04-input-006), and `TerminalEchoStages.makeStage()`
   then makes echo stages in Release too (today only DEBUG and bench builds, which have the swizzle).
+  The contents mark goes through `TypingLatencyProbe.mark(.contents, surface:)`, so 037's
+  `FramePresentEstimate` dates the echo's present with no extra call. Only a frame handed to its layer
+  before its GPU work ends marks its commit with `awaitsGPU: true` and calls
+  `FramePresentEstimate.gpuDidFinish(flow:atNanos:)` from the Metal completion handler (on main).
 - Acceptance:
   - 0 allocations (synthetic call test).
   - In a STRESS trace, ghostty.render falls between app.output.parsed and frame.commit.

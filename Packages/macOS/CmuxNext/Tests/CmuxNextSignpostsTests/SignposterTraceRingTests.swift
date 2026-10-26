@@ -308,6 +308,27 @@ struct SignposterTraceRingTests {
         #expect(Signposter.inputAgeBits(milliseconds: 1e300) == 0xFF_FFFE << 40)
     }
 
+    @Test("switch.app_activation's AB holds the notice code, the app activation bit and the notice's age")
+    func appActivationBegin() throws {
+        let log = RecordLog()
+        let runtime = log.runtime()
+        enable(runtime, .switch)
+        let switching = signposter(.switch, runtime)
+        let cmdTab = switching.beginAppActivation(noticeCode: 5, noticeName: "NSApplicationDidBecomeActiveNotification",
+                                                  appActivation: true, noticeAgeMilliseconds: 2.5)
+        switching.end(.switchAppActivation, cmdTab, .committed)
+        let focusMove = switching.beginAppActivation(noticeCode: 2, noticeName: "NSWindowDidResignKeyNotification",
+                                                     appActivation: false, noticeAgeMilliseconds: 0)
+        switching.end(.switchAppActivation, focusMove, .missed)
+        let records = log.records
+        try #require(records.map(\.phase) == [.asyncBegin, .asyncEnd, .asyncBegin, .asyncEnd])
+        #expect(records.allSatisfy { $0.name == SignpostName.switchAppActivation.rawValue })
+        #expect(records[0].arg0 == 5 | 1 << 8 | 2_500 << 40)
+        #expect(records[1].arg0 == 0, "committed")
+        #expect(records[2].arg0 == 2, "no app activation bit, no age")
+        #expect(records[3].arg0 == 1, "missed")
+    }
+
     @Test("Scroll phases and targets have fixed, distinct, nonzero ring codes")
     func scrollCodes() {
         let phases = ScrollFramePhase.allCases.map(\.traceCode)

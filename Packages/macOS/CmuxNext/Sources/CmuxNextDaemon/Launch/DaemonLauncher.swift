@@ -1,6 +1,7 @@
 public import Foundation
 import os
 public import CmuxNextCompat
+public import CmuxNextWakeups
 
 /// Locates the bundled cmux-tui binary and runs `cmux-tui --session <S>
 /// --json server ensure`, which returns a running owner or spawns a detached
@@ -92,6 +93,9 @@ public struct DaemonLauncher: Sendable {
     public static let binaryOverrideKey = "CMUX_NEXT_TUI_BIN"
 
     public let configuration: Configuration
+    /// The app's one ``BackgroundWork``: `ensure`'s state-directory create runs on its files lane, never on
+    /// the caller's thread (the launch's first connect and every reconnect await `ensure`).
+    public let work: BackgroundWork
     /// `configuration.rememberedSocket` until the first endpoint request of
     /// any provider of this launcher takes it: the startup loop's retries
     /// and every reconnect then ask the owner (`ensure`), so a hung daemon
@@ -113,12 +117,14 @@ public struct DaemonLauncher: Sendable {
     public let wireStats: DaemonWireStats?
 
     public init(
+        work: BackgroundWork,
         configuration: Configuration,
         environment: @escaping @Sendable () async -> [String: String],
         ensureTimeout: Duration = .seconds(20),
         clock: any Clock<Duration> = ContinuousClock(),
         wireStats: DaemonWireStats? = nil
     ) {
+        self.work = work
         self.configuration = configuration
         self.wireStats = wireStats
         rememberedSocket = RememberedSocket(configuration.rememberedSocket)
@@ -136,6 +142,7 @@ public struct DaemonLauncher: Sendable {
     /// `resolvedTerminalEnvironment` adds the keys the app looks up on the disk off the main thread (Ghostty's `TERM`
     /// and resources), awaited when `server ensure` builds its environment, over `terminalEnvironment`.
     public static func forApp(
+        work: BackgroundWork,
         build: BuildIdentity,
         terminalEnvironment: [String: String],
         resolvedTerminalEnvironment: (@Sendable () async -> [String: String])? = nil,
@@ -161,7 +168,7 @@ public struct DaemonLauncher: Sendable {
         let cli = bundle.resourceURL.map { BundledCLIEnvironment(binDirectory: $0.path + "/bin", pathIntegration: nil) }
         let environment = appEnvironment(cache: .shared, base: processEnvironment, overrides: overrides,
                                          resolved: resolvedTerminalEnvironment, cli: cli)
-        return DaemonLauncher(configuration: configuration, environment: { await environment().merging(daemonEnvironment) { _, owner in owner } },
+        return DaemonLauncher(work: work, configuration: configuration, environment: { await environment().merging(daemonEnvironment) { _, owner in owner } },
                               wireStats: wireStats)
     }
 
@@ -172,6 +179,7 @@ public struct DaemonLauncher: Sendable {
     /// without any app or terminal identity, and it is never handed off to a
     /// connecting build's binary.
     public static func forChief(
+        work: BackgroundWork,
         session: String,
         stateDirectory: URL,
         bundle: Bundle = .main,
@@ -186,7 +194,7 @@ public struct DaemonLauncher: Sendable {
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
                                           installKey: installKey, binaryIsBundled: isBundledBinary(binary, bundle: bundle))
         let environment = chiefEnvironment(processEnvironment)
-        return DaemonLauncher(configuration: configuration, environment: { environment })
+        return DaemonLauncher(work: work, configuration: configuration, environment: { environment })
     }
 
     /// The Chief owner's `server ensure` environment: the user's basic
@@ -322,8 +330,10 @@ public struct DaemonLauncher: Sendable {
     /// (`appEnvironment`) never waits for the login shell.
     public func ensure() async throws -> EnsureResult {
         if let stateDirectory = configuration.stateDirectory {
-            try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true,
-                                                    attributes: [.posixPermissions: 0o700])
+            try await work.run(.userBlocking, mayBlock: .files) {
+                try FileManager.checked.createDirectory(at: stateDirectory, withIntermediateDirectories: true,
+                                                        attributes: [.posixPermissions: 0o700])
+            }
         }
         if let running = await runningOwner() { return running }
         // The probe runs while the environment is gathered.

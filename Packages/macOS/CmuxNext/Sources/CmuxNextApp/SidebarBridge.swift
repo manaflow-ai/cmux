@@ -6,6 +6,7 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextEnergy
 import CmuxNextFeatures
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -81,6 +82,8 @@ final class SidebarBridge {
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
         container.sidebarView.inputTap = services.inputTap
+        // Energy Saver's leaf follows the app's one energy policy (p14-energy-026).
+        container.sidebarView.followEnergy(services.mainDeadlines) { [weak monitor = services.energyMonitor] in monitor?.inputs.batteryPercent }
         // The list, the space bar and the rail hover once per frame (`pointerFrameHover`).
         container.sidebarView.hoverFrameInput = services.hoverFrameInput
         container.railView.hoverFrameInput = services.hoverFrameInput

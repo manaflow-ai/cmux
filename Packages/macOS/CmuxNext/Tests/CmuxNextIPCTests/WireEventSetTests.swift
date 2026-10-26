@@ -1,59 +1,10 @@
 import Foundation
 import Testing
 @testable import CmuxNextIPC
+import CmuxNextIPCTestSupport
 
-// `DaemonWireEvent` here is CmuxNextWireGen's EventEmitter output for
-// cmux-tui/spec/fixtures/ipc-method-tables/sdk-schema.json, which CmuxNextWireGenPlugin writes into
-// this target at build time. These are the payload types it names, the way TypeEmitter
-// (p05-ipc-020) declares them. sdk-schema.json makes the `event` literal a required field of every
-// event payload, so each type carries it, and a TYPED_EVENT payload holds it as its line does.
-public nonisolated struct OutputEvent: Decodable, Equatable, Sendable {
-    public let event: String
-    public let surface: String
-    public let seq: UInt64
-
-    init(surface: String, seq: UInt64) {
-        event = "output"
-        self.surface = surface
-        self.seq = seq
-    }
-}
-
-public nonisolated struct SizeStateEvent: Decodable, Equatable, Sendable {
-    public let event: String
-    public let surface: String
-    public let cols: UInt16
-    public let rows: UInt16
-
-    init(surface: String, cols: UInt16, rows: UInt16) {
-        event = "size-state"
-        self.surface = surface
-        self.cols = cols
-        self.rows = rows
-    }
-}
-
-public nonisolated struct TabCreatedEvent: Decodable, Equatable, Sendable {
-    public let event: String
-    public let tab: String
-
-    init(tab: String) {
-        event = "tab-created"
-        self.tab = tab
-    }
-}
-
-public nonisolated struct TabRenamedEvent: Decodable, Equatable, Sendable {
-    public let event: String
-    public let tab: String
-    public let title: String
-
-    init(tab: String, title: String) {
-        event = "tab-renamed"
-        self.tab = tab
-        self.title = title
-    }
-}
+// `DaemonWireEvent` and its payload types come from CmuxNextIPCTestSupport: CmuxNextWireGen's
+// EventEmitter output for the fixture schema, built there at build time.
 
 /// Counts every decode, the way the connection's WireDecoder counts into the wire stats.
 private nonisolated final class CountingDecoder: WireEventDecoding {

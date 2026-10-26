@@ -1075,6 +1075,21 @@ All IDs below are `p07-memory-NNN`.
 - Acceptance: debug.memory at Home idle shows Chromium renderers and WebKit WebContent equal to visible
   pages; a test per change asserts no PageWebView before the show event.
 - Test: fleet bench_memory Home row; swift test PageLaziness.
+- As built (differs from the change above): the PageWebView is made at open, as before; what
+  waits for the first show is its renderer. Until then the view makes no engine call: no load, no
+  script, no function call or picture, so WebKit launches no WebContent process and no Chromium page
+  is asked for. This is Chrome's split for a tab that has not shown: the WebContents exists, its
+  renderer starts at `WasShown` (`NavigationControllerImpl::SetNeedsReload`, `LoadIfNecessary`).
+  A stand-in would give the 23 MQ-PAGEVIEW callers, which set routes, handlers and appearance on
+  the returned view at once, a type that is not the page. "Shown" is the page's node in the
+  visibility tree: its tab's node once a pane shows it (tab, pane, workspace, window, app), else
+  its window's node (occlusion and minimize included); a page with no tab node counts by its
+  window and its own `isHidden`, not by a walk of its ancestors. The acceptance test is therefore "no
+  renderer, no engine call before the show event" (PageLazinessTests: no load, no script at the
+  bridge, `_webProcessIdentifier` 0, no Chromium page). The in-app cost of an unstarted
+  PageWebView (WKWebView with no process, its configuration and user scripts, router, bridge) is
+  not measured yet; the fleet bench_memory Home row with and without `pageRendererAtFirstShow`
+  measures it.
 
 ### 049 One Chromium renderer for cmux pages
 - Files: cef-cmux fork (ShouldUseProcessPerSite for the page scheme behind

@@ -82,6 +82,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         sidebar.container.sidebarView.onSearch = { [weak registry = services.registry] _ in
             _ = registry?.perform("palette.open", invocation: ActionInvocation(arguments: ["scope": .string("search")], origin: .user))
         }
+        // The Energy Saver card's "Turn Off for Now" runs the palette's action (p14-energy-025).
+        sidebar.container.sidebarView.onTurnOffEnergySaver = { [weak registry = services.registry] in
+            _ = registry?.perform("energy.saver.turnOffForNow", invocation: ActionInvocation(origin: .user))
+        }
         root = WindowRootView(sidebar: sidebar.container, signals: services.appearance)
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in

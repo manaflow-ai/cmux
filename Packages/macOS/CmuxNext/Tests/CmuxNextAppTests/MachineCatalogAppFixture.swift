@@ -136,7 +136,7 @@ final class MachineCatalogAppFixture {
         var configuration = DaemonLauncher.Configuration(binary: binary, session: "appcat-\(name)-\(root.lastPathComponent.suffix(8))",
                                                          stateDirectory: root.appendingPathComponent("\(name)-state"), installKey: installKey)
         configuration.runtimeBase = root.appendingPathComponent("run")
-        return DaemonLauncher(configuration: configuration, environment: { environment })
+        return DaemonLauncher(work: BackgroundWork(label: "test.daemon-launcher"), configuration: configuration, environment: { environment })
     }
 
     private func startOwner(_ launcher: DaemonLauncher) async throws -> DaemonEndpoint {

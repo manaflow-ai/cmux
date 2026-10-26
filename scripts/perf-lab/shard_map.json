@@ -5,8 +5,8 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 18850,
-            "T2": 28530
+            "T1": 19300,
+            "T2": 31440
           },
           "stories": {
             "T1": [
@@ -16,6 +16,7 @@
               "agent-engine-webkit",
               "agent-stream",
               "agent-stream-webkit",
+              "app-split",
               "blocking-hangs",
               "chat-anim",
               "command-pan",
@@ -50,12 +51,15 @@
               "sidebar-rows-live",
               "sidebar-scroll-release",
               "sidebar-stress",
+              "split-latency",
               "switch",
               "tab-switch",
               "tab-switch-repeat",
               "tab-switch-stages",
+              "terminal-resize",
               "typing",
-              "typing-stress"
+              "typing-stress",
+              "window-live-resize"
             ],
             "T2": [
               "acpmux-overhead",
@@ -75,22 +79,27 @@
               "action-sweep-stress-6",
               "action-sweep-stress-7",
               "action-sweep-stress-8",
+              "app-perf",
               "automation-typing",
               "cef-resize-sync",
               "cef-resize-sync-stress",
               "cli-storm",
               "cli-storm-stress",
+              "column-resize-live",
               "command-pan-stress",
               "daemon-spawn",
+              "devtools-resize-live",
               "launch-after-reboot",
               "layout-loop-stress",
               "new-surfaces-stress",
+              "pane-scale",
               "perceived-speed",
               "script-storm",
               "script-storm-stress",
               "sidebar-churn-typing",
               "sidebar-drag-live",
               "sidebar-drag-stress",
+              "terminal-resize-stress",
               "typing-flood-stress"
             ]
           }
@@ -106,7 +115,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 28530
+            "T2": 31440
           },
           "stories": {
             "T2": [
@@ -127,22 +136,27 @@
               "action-sweep-stress-6",
               "action-sweep-stress-7",
               "action-sweep-stress-8",
+              "app-perf",
               "automation-typing",
               "cef-resize-sync",
               "cef-resize-sync-stress",
               "cli-storm",
               "cli-storm-stress",
+              "column-resize-live",
               "command-pan-stress",
               "daemon-spawn",
+              "devtools-resize-live",
               "launch-after-reboot",
               "layout-loop-stress",
               "new-surfaces-stress",
+              "pane-scale",
               "perceived-speed",
               "script-storm",
               "script-storm-stress",
               "sidebar-churn-typing",
               "sidebar-drag-live",
               "sidebar-drag-stress",
+              "terminal-resize-stress",
               "typing-flood-stress"
             ]
           }
@@ -158,7 +172,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 9430
+            "T1": 9610
           },
           "stories": {
             "T0": [
@@ -167,6 +181,7 @@
             "T1": [
               "activation-stress",
               "agent-engine-webkit",
+              "app-split",
               "blocking-hangs",
               "command-pan",
               "daemon-ops",
@@ -183,6 +198,7 @@
               "sidebar-drag",
               "sidebar-rows-live",
               "sidebar-scroll-release",
+              "split-latency",
               "switch",
               "tab-switch",
               "tab-switch-repeat",
@@ -194,7 +210,7 @@
           "index": 1,
           "seconds": {
             "T0": 150,
-            "T1": 9420
+            "T1": 9690
           },
           "stories": {
             "T0": [
@@ -225,7 +241,9 @@
               "sidebar-mirror-rebuild",
               "sidebar-stress",
               "tab-switch-stages",
-              "typing"
+              "terminal-resize",
+              "typing",
+              "window-live-resize"
             ]
           }
         }

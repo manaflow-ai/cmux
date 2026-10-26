@@ -29,6 +29,59 @@
   ],
   "steps": [
     {
+      "id": "write-config",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace.create",
+        "params": {
+          "initial_content": "terminal",
+          "name": "config",
+          "argv": [
+            "/bin/sh",
+            "-c",
+            "printf '%s\\n' \"$0\" > \"$CMUX_TUI_CONFIG\"",
+            "{\"sidebar\":{\"plugin\":{\"command\":[\"/bin/cat\"]}}}"
+          ]
+        },
+        "idempotencyKey": "sidebar-view-ensure-ok.write-config"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "config-written",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/terminals/0/lifecycle",
+        "equals": "exited",
+        "maxMs": 15000
+      },
+      "settleMaxMs": 15000
+    },
+    {
+      "id": "reload-config",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "session.reload_config",
+        "params": {},
+        "idempotencyKey": "sidebar-view-ensure-ok.reload-config"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -51,7 +104,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "with a sidebar plugin configured, the view starts at 80x24"
     }
   ],
   "invariants": [

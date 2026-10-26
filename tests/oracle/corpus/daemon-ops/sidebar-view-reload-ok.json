@@ -29,7 +29,60 @@
   ],
   "steps": [
     {
-      "id": "fx-sidebar-view",
+      "id": "write-config",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace.create",
+        "params": {
+          "initial_content": "terminal",
+          "name": "config",
+          "argv": [
+            "/bin/sh",
+            "-c",
+            "printf '%s\\n' \"$0\" > \"$CMUX_TUI_CONFIG\"",
+            "{\"sidebar\":{\"plugin\":{\"command\":[\"/bin/cat\"]}}}"
+          ]
+        },
+        "idempotencyKey": "sidebar-view-reload-ok.write-config"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "config-written",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/terminals/0/lifecycle",
+        "equals": "exited",
+        "maxMs": 15000
+      },
+      "settleMaxMs": 15000
+    },
+    {
+      "id": "reload-config",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "session.reload_config",
+        "params": {},
+        "idempotencyKey": "sidebar-view-reload-ok.reload-config"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "ensure-view",
       "op": "resource.call",
       "target": {
         "machine": "current",
@@ -41,7 +94,7 @@
           "cols": 80,
           "rows": 24
         },
-        "idempotencyKey": "sidebar-view-reload-ok.fx-sidebar-view"
+        "idempotencyKey": "sidebar-view-reload-ok.ensure-view"
       },
       "expect": {
         "outcome": "ok",
@@ -54,7 +107,7 @@
       "target": {
         "machine": "current",
         "session": "current",
-        "sidebar_view": "$step:fx-sidebar-view#/value/id"
+        "sidebar_view": "$step:ensure-view#/value/id"
       },
       "args": {
         "method": "sidebar_view.reload",
@@ -69,7 +122,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the running sidebar view restarts"
     }
   ],
   "invariants": [
