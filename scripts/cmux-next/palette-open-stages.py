@@ -17,19 +17,20 @@ main-thread stall during the open (`debug.hangs`). Builds without the input stag
 The budget: a warm open commits within one 60 Hz frame (key p90 <= 16 ms). Each stage reports p50, p90, p95, p99
 and max (scripts/perf-lab/perf_stats.py pct: linear interpolation between closest ranks).
 
---engines picks the browser tabs (chromium, webkit or both; default both). With exactly one engine the run also
-writes one cmux-perf-result/v1 file per surface, key and stage into --out (BenchApp.record, story --story): metric
-`<surface>.<key>.<stage>` in ms with every timed open as a sample, for example `terminal.cmd-shift-p.key`. Result-v1
-names one engine per run, so a run of both writes only the JSON report. The perf-lab stories are palette-open
-(Chromium) and palette-open-webkit (scripts/perf-lab/stories.d).
+--engines picks the browser tabs (chromium, webkit or both; default both). --story ID also writes one
+cmux-perf-result/v1 file per surface, key and stage into --out (BenchApp.record): metric `<surface>.<key>.<stage>` in
+ms with every timed open as a sample, for example `terminal.cmd-shift-p.key`. A story names one engine
+(scripts/perf-lab/stories.d), so --story needs exactly that one engine in --engines: palette-open is the Chromium arm,
+palette-open-webkit the WebKit arm. A --story run that writes no series fails, --no-gate or not.
 
 Usage: palette-open-stages.py --tag <tag> --app PATH [--rounds 10] [--interval 0.35] [--out DIR] [--json PATH]
-       [--engines chromium,webkit] [--story palette-open]
+       [--engines chromium,webkit] [--story ID]
 """
 import argparse, glob, json, os, re, signal, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import PERF_LAB, BenchApp, RecordError, bundle_id, load_by_path  # noqa: E402
+from bench_story import story_problem  # noqa: E402
 
 perf_stats = load_by_path("perf_stats", os.path.join(PERF_LAB, "perf_stats.py"))
 perf_result = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
@@ -44,22 +45,7 @@ parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json", help="write the samples here")
 parser.add_argument("--no-gate", action="store_true", help="report only; exit 0 when every open was timed")
 parser.add_argument("--engines", default="chromium,webkit", help="browser tabs to open: chromium, webkit or both")
-parser.add_argument("--story", default="palette-open", help="result-v1 story of a one-engine run")
-opts = parser.parse_args()
-ENGINES = [e for e in opts.engines.split(",") if e]
-if not ENGINES or any(e not in ("chromium", "webkit") for e in ENGINES):
-    parser.error(f"--engines takes chromium, webkit or both, got {opts.engines!r}")
-TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
-BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
-SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
-CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
-BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
-SCRATCH = tempfile.mkdtemp(prefix=f"paletteopen-{TAG}-")
-open(os.path.join(SCRATCH, "ghostty"), "w").close()
-CONFIG = os.path.join(SCRATCH, "cmux.json")
-open(CONFIG, "w").write("{}\n")
-ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-       "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1"}
+parser.add_argument("--story", help="write cmux-perf-result/v1 of this stories.d story (one engine, the story's)")
 STAGES = ["input", "model", "panel", "present", "commit", "key", "rpc"]
 # p90 stays: the budget is a p90 (one 60 Hz frame for a warm open).
 PERCENTILES = (("p50", 0.5), ("p90", 0.9), ("p95", 0.95), ("p99", 0.99))
@@ -187,7 +173,7 @@ def slug(text):
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 
-def record_results(launcher, engine, timed):
+def record_results(launcher, story, engine, timed):
     """One cmux-perf-result/v1 file per surface, key and stage (BenchApp.record) from `timed` [(surface, key,
     samples)], every timed open a sample. A series the bench cannot describe truthfully (no build sha, no features
     snapshot) is not written; its reason is returned in its place."""
@@ -199,7 +185,7 @@ def record_results(launcher, engine, timed):
                 continue
             metric = f"{slug(label)}.{slug(key_label)}.{stage}"
             try:
-                written[metric] = str(launcher.record(opts.story, metric, "ms", samples, better="lower", engine=engine))
+                written[metric] = str(launcher.record(story, metric, "ms", samples, better="lower", engine=engine))
             except (RecordError, perf_result.ResultError) as error:
                 written[metric] = f"not recorded: {error}"
                 print(f"result-v1 {metric}: not recorded: {error}", flush=True)
@@ -321,20 +307,44 @@ def main():
                 key_p90 = line.get("key", {}).get("p90", 1e9)
                 row(name, f"key-down to frame p90 <= {opts.budget_ms} ms, {opts.rounds} opens",
                     f"p90 {key_p90} ms, {len(samples)} timed", (opts.no_gate or key_p90 <= opts.budget_ms) and missed == 0)
-    if len(ENGINES) == 1:
-        report["results"] = record_results(launcher, ENGINES[0], timed)
-    else:
-        print("result-v1: not written: a run of both engines has no one engine (pass --engines chromium or webkit)",
-              flush=True)
+    if opts.story:
+        report["results"] = record_results(launcher, opts.story, ENGINES[0], timed)
+        missing = [why for why in report["results"].values() if not why.endswith(".ndjson")]
+        written = len(report["results"]) - len(missing)
+        # A story run that recorded nothing measured nothing for the lab, whatever --no-gate says.
+        row("result-v1", f"story {opts.story}: a series recorded", "; ".join([f"{written} recorded", *missing]),
+            written > 0)
     if opts.json:
         with open(opts.json, "w") as handle:
             json.dump(report, handle, indent=1)
         print("wrote", opts.json, flush=True)
 
 
-try:
-    main()
-finally:
-    cleanup()
-    print("\nRESULT", "PASS" if ROWS and all(r[3] for r in ROWS) else "FAIL", f"({sum(r[3] for r in ROWS)}/{len(ROWS)})")
-    sys.exit(0 if ROWS and all(r[3] for r in ROWS) else 1)
+if __name__ == "__main__":
+    opts = parser.parse_args()
+    ENGINES = [e for e in opts.engines.split(",") if e]
+    if not ENGINES or any(e not in ("chromium", "webkit") for e in ENGINES):
+        parser.error(f"--engines takes chromium, webkit or both, got {opts.engines!r}")
+    if opts.story:
+        if len(ENGINES) != 1:
+            parser.error("--story records one engine (result-v1 names one): pass --engines chromium or webkit")
+        problem = story_problem(opts.story, ENGINES[0])
+        if problem:
+            parser.error(problem)
+    TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
+    BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
+    SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
+    CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
+    BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
+    SCRATCH = tempfile.mkdtemp(prefix=f"paletteopen-{TAG}-")
+    open(os.path.join(SCRATCH, "ghostty"), "w").close()
+    CONFIG = os.path.join(SCRATCH, "cmux.json")
+    open(CONFIG, "w").write("{}\n")
+    ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+           "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1"}
+    try:
+        main()
+    finally:
+        cleanup()
+        print("\nRESULT", "PASS" if ROWS and all(r[3] for r in ROWS) else "FAIL", f"({sum(r[3] for r in ROWS)}/{len(ROWS)})")
+        sys.exit(0 if ROWS and all(r[3] for r in ROWS) else 1)

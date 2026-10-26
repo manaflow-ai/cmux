@@ -60,6 +60,7 @@ import argparse, ast, importlib.util, inspect, json, os, sys, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bench_launch import PERF_LAB, BenchApp, RecordError, load_by_path  # noqa: E402
+from bench_story import story_problem  # noqa: E402
 
 parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 parser.add_argument("--dry-run", action="store_true", help="check the calls against the real signatures; launch nothing")
@@ -80,6 +81,10 @@ if not opts.dry_run and not (opts.app and opts.out):
     parser.error("--app and --out are required (or --dry-run)")
 if opts.story and opts.sessions not in ("light", "stress"):
     parser.error(f"--story records one session (result-v1 names one): pass --sessions light or stress, not {opts.sessions!r}")
+# result-v1's engine: a terminal pane has none.
+ENGINE = "chromium" if opts.target == "chromium" else "none"
+if opts.story and story_problem(opts.story, ENGINE):
+    parser.error(story_problem(opts.story, ENGINE))
 
 
 def load(name, filename):
@@ -290,7 +295,6 @@ def record_results(app, name, mode, runs, scrolls):
               ("missed", "count", [r["missed"] for r in runs if isinstance(r["missed"], int)]),
               ("scroll_frame", "ms", scrolls.get("scroll_frame") or []),
               ("input_to_frame", "ms", scrolls.get("input_to_frame") or [])]
-    engine = "chromium" if opts.target == "chromium" else "none"
     written = {}
     for metric, unit, samples in series:
         metric = f"{mode}.{metric}"
@@ -298,7 +302,7 @@ def record_results(app, name, mode, runs, scrolls):
             written[metric] = f"not recorded: {name} {mode} has no {metric} sample"
             continue
         try:
-            written[metric] = str(app.record(opts.story, metric, unit, samples, better="lower", engine=engine))
+            written[metric] = str(app.record(opts.story, metric, unit, samples, better="lower", engine=ENGINE))
         except (RecordError, perf_result.ResultError) as error:
             written[metric] = f"not recorded: {error}"
             print(f"result-v1 {metric}: not recorded: {error}", flush=True)
@@ -425,6 +429,10 @@ def main():
         report["problems"].append(f"{type(error).__name__}: {error}")
     finally:
         app.stop()
+        if opts.story and not any(path.endswith(".ndjson") for path in report["results"].values()):
+            # A story run that recorded nothing measured nothing for the lab.
+            report["problems"].append("result-v1: nothing recorded: "
+                                      + "; ".join(report["results"].values() or ["no series"]))
         if opts.json:
             with open(opts.json, "w") as f:
                 json.dump(report, f, indent=1)

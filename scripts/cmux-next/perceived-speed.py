@@ -32,13 +32,14 @@ OUT/<surface>-<n>/metrics.json. `table` ranks every surface in the OUT folders b
 diff_area, then shift (medians over runs) and prints a Markdown table. `find-socket` prints
 the debug socket (cmux-debug*.sock in DIR, newer than EPOCH) whose `system.identify` names
 BUNDLE_ID: newer DEV builds listen at ~/.local/state/cmux/cmux-debug--<hash>.sock, not by tag.
-Medians are perf_stats.pct(values, 0.5) (scripts/perf-lab/perf_stats.py).
+Medians are pct(values, 0.5) of scripts/perf-lab/perf_stats.py (or of its copy next to this file).
 
 `run --app --story ID` also writes cmux-perf-result/v1 files into --out (BenchApp.record), one
 per surface and metric (RESULT_METRICS below), every run that opened something one sample:
 for example `palette.first_frame_ms`. The perf-lab story is perceived-speed
 (scripts/perf-lab/stories.d). --story refuses to start without Pillow, since no run could then
-be analyzed.
+be analyzed, and for a story whose stories.d engine is not --engine. A --story run that writes no
+series fails.
 
 Needs Pillow. A warning, never a gate.
 """
@@ -51,11 +52,10 @@ import socket
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_launch import PERF_LAB, BenchApp, RecordError, load_by_path  # noqa: E402
-
-perf_stats = load_by_path("perf_stats", os.path.join(PERF_LAB, "perf_stats.py"))
-perf_result = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
+HERE = os.path.dirname(os.path.abspath(__file__))
+# perf_stats.py (it loads pinpoint_thresholds.py next to it) in the repo, or next to this file: perceived-speed-slot.sh
+# copies the three files alone onto a capture-slot host. Everything but `run --app` imports nothing else of the repo.
+PERF_STATS_PATHS = (os.path.join(HERE, os.pardir, "perf-lab", "perf_stats.py"), os.path.join(HERE, "perf_stats.py"))
 
 PIXEL = 24
 AREA = 0.0005
@@ -83,6 +83,35 @@ SURFACES = {
 # The `analyze` values written as result-v1: (metric, unit). All are lower-is-better.
 RESULT_METRICS = (("first_frame_ms", "ms"), ("settle_ms", "ms"), ("diff_area", "ratio"), ("shift", "unitless"),
                   ("repaints", "count"), ("dropped", "count"))
+
+
+class SetupError(RuntimeError):
+    """A file this script needs is neither in the repo nor next to it."""
+
+
+def perf_stats():
+    """scripts/perf-lab/perf_stats.py, loaded by path once (the script runs under `python3 -I`)."""
+    if "perf_stats" in sys.modules:
+        return sys.modules["perf_stats"]
+    path = next((p for p in PERF_STATS_PATHS if os.path.exists(p)), None)
+    if path is None:
+        raise SetupError(f"perceived-speed: no perf_stats.py at {' or '.join(PERF_STATS_PATHS)}: copy "
+                         "scripts/perf-lab/perf_stats.py and pinpoint_thresholds.py next to this script")
+    spec = importlib.util.spec_from_file_location("perf_stats", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    sys.modules["perf_stats"] = module
+    return module
+
+
+def bench_modules():
+    """(bench_launch, bench_story) of scripts/cmux-next: only `run --app` needs the repo around this file."""
+    if HERE not in sys.path:
+        sys.path.insert(0, HERE)
+    import bench_launch
+    import bench_story
+
+    return bench_launch, bench_story
 
 
 def load(folder, region=None):
@@ -126,7 +155,7 @@ def analyze(times, frames, trigger=None):
     first, last = later[0], later[-1]
     settled = times[-1] - times[last] >= QUIET
     gaps = [times[i] - times[i - 1] for i in range(1, len(times))]
-    interval = perf_stats.pct(gaps, 0.5) if gaps else 1 / 60
+    interval = perf_stats().pct(gaps, 0.5) if gaps else 1 / 60
     dropped = sum(max(0, round(gaps[i - 1] / interval) - 1) for i in range(first + 1, last + 1)
                   if gaps[i - 1] > 1.5 * interval)
     return {
@@ -275,7 +304,7 @@ def table(outs):
         missed = sum(1 for r in every if r.get("first_frame_ms") is None)
         runs = [r for r in every if r.get("first_frame_ms") is not None] or every
         unsettled = sum(1 for r in runs if r.get("settle_ms") is None and r.get("first_frame_ms") is not None)
-        ranked.append((surface, len(every), *(perf_stats.pct([r.get(k) for r in runs], 0.5) for k in
+        ranked.append((surface, len(every), *(perf_stats().pct([r.get(k) for r in runs], 0.5) for k in
                        ("diff_area", "shift", "first_frame_ms", "settle_ms", "repaints", "dropped")), unsettled, missed))
     ranked.sort(key=lambda r: (-(r[2] or 0), -(r[3] or 0)))
     lines = ["| surface | runs | frame-1 vs settled (area) | shift | first frame ms | settled ms | repaints | dropped | unsettled | no change |",
@@ -333,8 +362,12 @@ def main():
         parser.error("--story needs Pillow (PIL): without it no run is analyzed and nothing could be recorded")
     if not opts.app:
         return run_all(App(opts.socket), opts)
-    launcher = BenchApp(opts.app, out=opts.out,
-                        config={"appearance": {"backgroundOpacity": 1}, "browser": {"defaultEngine": opts.engine}})
+    bench_launch, bench_story = bench_modules()
+    if opts.story and bench_story.story_problem(opts.story, opts.engine):
+        parser.error(bench_story.story_problem(opts.story, opts.engine))
+    launcher = bench_launch.BenchApp(opts.app, out=opts.out,
+                                     config={"appearance": {"backgroundOpacity": 1},
+                                             "browser": {"defaultEngine": opts.engine}})
     try:
         launcher.launch()
         status = run_all(App(launcher.socket), opts)
@@ -385,6 +418,8 @@ def record_results(launcher, story, engine, out):
     """One cmux-perf-result/v1 file per surface and metric (BenchApp.record): `<surface>.<metric>`. A series the
     bench cannot describe truthfully (no build sha, no features snapshot) is not written; its reason is returned in
     its place."""
+    bench_launch, _ = bench_modules()
+    perf_result = bench_launch.load_by_path("perf_result", os.path.join(bench_launch.PERF_LAB, "perf_result.py"))
     units = dict(RESULT_METRICS)
     written = {}
     for surface, series in surface_samples(out).items():
@@ -392,7 +427,7 @@ def record_results(launcher, story, engine, out):
             name = f"{surface}.{metric}"
             try:
                 written[name] = str(launcher.record(story, name, units[metric], values, better="lower", engine=engine))
-            except (RecordError, perf_result.ResultError) as error:
+            except (bench_launch.RecordError, perf_result.ResultError) as error:
                 written[name] = f"not recorded: {error}"
                 print(f"result-v1 {name}: not recorded: {error}", flush=True)
     if not written:

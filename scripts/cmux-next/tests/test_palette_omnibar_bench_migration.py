@@ -10,11 +10,13 @@ Runs on any host (Linux included): no app, no fleet, no network.
 
 from __future__ import annotations
 
-import ast
 import importlib.util
 import json
+import os
 import re
+import shutil
 import statistics
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -48,6 +50,10 @@ perf_stats = load("perf_stats", PERF_LAB / "perf_stats.py")
 perceived = load("perceived_speed", HERE / "perceived-speed.py")
 # --dry-run: the module's argument check passes without --app and --out; nothing launches at import.
 pan = load("bench_command_pan", HERE / "bench-command-pan.py", ["bench-command-pan.py", "--dry-run"])
+# Both parse their arguments and launch only under __main__.
+palette = load("palette_open_stages", HERE / "palette-open-stages.py")
+omnibar = load("omnibar_click_bench", HERE / "omnibar-click-bench.py")
+bench_story = load("bench_story", HERE / "bench_story.py")
 
 
 class FakeLauncher:
@@ -66,14 +72,6 @@ def story(name: str) -> dict:
     return json.loads((STORIES / f"{name}.json").read_text())
 
 
-def constant(script: str, name: str) -> tuple:
-    """The literal value of the top-level assignment `name = ...` in scripts/cmux-next/`script`."""
-    for node in ast.parse((HERE / script).read_text()).body:
-        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == name for t in node.targets):
-            return tuple(ast.literal_eval(node.value))
-    raise AssertionError(f"{script} has no top-level {name}")
-
-
 def matches(doc: dict, metric: str, unit: str) -> bool:
     return any(re.fullmatch(m["name"], metric) and m["unit"] == unit for m in doc["metrics"])
 
@@ -88,7 +86,7 @@ class QueueTests(unittest.TestCase):
     def test_every_bench_loads_perf_stats_and_records(self):
         for name in BENCHES:
             text = (HERE / name).read_text()
-            self.assertIn('load_by_path("perf_stats"', text, name)
+            self.assertIn('"perf_stats.py")', text, name)
             self.assertIn(".record(", text, name)
 
 
@@ -195,8 +193,7 @@ class PerceivedSpeedTests(unittest.TestCase):
 class StoryTests(unittest.TestCase):
     def test_palette_and_omnibar_stories_match_the_bench_names(self):
         # palette-open-stages.py: `<slug(surface)>.<slug(key)>.<stage>`; omnibar-click-bench.py: `<phase>.<value>`.
-        # Both scripts run at import, so their name lists are read from their syntax trees.
-        stages = constant("palette-open-stages.py", "STAGES")
+        stages = palette.STAGES
         for name, surfaces in (("palette-open", ("terminal", "chromium", "chromium-page-window", "markdown", "home")),
                                ("palette-open-webkit", ("terminal", "webkit", "markdown", "home"))):
             doc = story(name)
@@ -204,7 +201,7 @@ class StoryTests(unittest.TestCase):
                 for key in ("cmd-shift-p", "cmd-p"):
                     for stage in stages:
                         self.assertTrue(matches(doc, f"{surface}.{key}.{stage}", "ms"), f"{name}: {surface}.{key}.{stage}")
-        values = constant("omnibar-click-bench.py", "RESULT_KEYS") + constant("omnibar-click-bench.py", "TIMING_KEYS")
+        values = omnibar.RESULT_KEYS + omnibar.TIMING_KEYS
         for name in ("omnibar-click", "omnibar-click-webkit"):
             doc = story(name)
             for phase in ("idle", "load"):
@@ -216,6 +213,155 @@ class StoryTests(unittest.TestCase):
                      "command-pan-stress", "perceived-speed"):
             command = story(name)["command"]
             self.assertEqual(command[command.index("--story") + 1], name)
+
+    def test_story_commands_name_their_story_engine(self):
+        for name in ("palette-open", "palette-open-webkit", "omnibar-click", "omnibar-click-webkit"):
+            doc = story(name)
+            command = doc["command"]
+            self.assertEqual(command[command.index("--engines") + 1], doc["engine"], name)
+            self.assertIsNone(bench_story.story_problem(name, doc["engine"]), name)
+
+
+def palette_open(key, panel=None):
+    return {"input": 0.4, "model": 2.0, "panel": panel, "present": 1.0, "commit": 3.0, "key": key, "rpc": 9.0,
+            "created_panel": False, "stall_max_ms": None, "count250": 0, "stalls": []}
+
+
+class PaletteTests(unittest.TestCase):
+    def test_summarize_keeps_p50_p90_max_and_adds_p95_p99(self):
+        line = palette.summarize("terminal Cmd-P", [palette_open(v) for v in VECTOR])
+        self.assertEqual(line["key"], {"p50": 7.05, "p90": 14.36, "p95": 22.28, "p99": 28.62, "max": 30.2})
+        self.assertEqual(sorted(line), sorted(set(palette.STAGES) - {"panel"}))  # no open reported a panel stage
+
+    def test_record_results_writes_one_series_per_surface_key_and_stage(self):
+        launcher = FakeLauncher()
+        timed = [("terminal", "Cmd-Shift-P", [palette_open(5.0), palette_open(6.0)]),
+                 ("chromium page window", "Cmd-P", [palette_open(7.0, panel=1.5), palette_open(8.0)])]
+        written = palette.record_results(launcher, "palette-open", "chromium", timed)
+        calls = {c["metric"]: c for c in launcher.calls}
+        self.assertEqual(sorted(written), sorted(calls))
+        self.assertEqual(calls["terminal.cmd-shift-p.key"]["samples"], [5.0, 6.0])
+        self.assertEqual(calls["chromium-page-window.cmd-p.key"]["samples"], [7.0, 8.0])
+        self.assertEqual(calls["chromium-page-window.cmd-p.panel"]["samples"], [1.5])  # only one open reported it
+        self.assertNotIn("terminal.cmd-shift-p.panel", calls)
+        self.assertEqual({(c["story"], c["engine"], c["unit"], c["better"]) for c in launcher.calls},
+                         {("palette-open", "chromium", "ms", "lower")})
+        for call in launcher.calls:
+            self.assertTrue(matches(story("palette-open"), call["metric"], call["unit"]), call["metric"])
+
+
+def omnibar_click(phase, engine, focused):
+    return {"phase": phase, "engine_asked": engine, "attached_ms": focused - 4, "selected_ms": focused - 2,
+            "focused_ms": focused, "dispatch_to_attached_ms": focused - 5, "dispatch_to_selected_ms": focused - 3,
+            "dispatch_to_focused_ms": focused - 1, "press_ms": 1.2, "attached_frames_after_press": 1,
+            "selected_frames_after_press": 1, "focused_frames_after_press": 2,
+            "spans": [{"name": "app.sendEvent.down", "ms": 0.8, "at": 0.1}]}
+
+
+class OmnibarTests(unittest.TestCase):
+    def test_summary_keeps_the_old_keys_and_adds_p99(self):
+        missed = {**omnibar_click("idle", "webkit", 50.0), "focused_ms": None}
+        rows = [omnibar_click("idle", "webkit", v + 10) for v in VECTOR] + [missed]
+        timings = {("idle", "webkit"): [{"input_ms": v, "key_to_frame_ms": v + 1} for v in VECTOR]}
+        out = omnibar.summary(rows, ["webkit"], timings)
+        self.assertEqual(sorted(out), ["idle/webkit"])
+        row = out["idle/webkit"]
+        old = {"n", "missed", "attached_p50", "attached_p95", "selected_p50", "selected_p95", "focused_p50",
+               "focused_p95", "focused_max", "mouse_down_dispatch_p50", "mouse_down_dispatch_max", "input_ms_n",
+               "key_to_frame_ms_n"}
+        for key in ("press_ms", "dispatch_to_attached_ms", "dispatch_to_selected_ms", "dispatch_to_focused_ms",
+                    "attached_frames_after_press", "selected_frames_after_press", "focused_frames_after_press",
+                    "input_ms", "key_to_frame_ms"):
+            old |= {f"{key}_p50", f"{key}_p95", f"{key}_max"}
+        self.assertLessEqual(old, set(row))
+        self.assertEqual((row["n"], row["missed"], row["input_ms_n"]), (11, 1, 10))
+        self.assertAlmostEqual(row["focused_p99"], 38.616)  # the missed run gives no sample
+        self.assertAlmostEqual(row["input_ms_p99"], 28.616)
+        self.assertEqual(row["mouse_down_dispatch_p99"], 0.8)
+
+    def test_record_results_writes_one_series_per_phase_and_value(self):
+        launcher = FakeLauncher()
+        rows = [omnibar_click("idle", "chromium", 12.0), {**omnibar_click("idle", "chromium", 14.0), "focused_ms": None},
+                omnibar_click("load", "chromium", 30.0)]
+        timings = {("idle", "chromium"): [{"input_ms": 0.5, "key_to_frame_ms": 9.0}, {"input_ms": None}]}
+        written = omnibar.record_results(launcher, "omnibar-click", "chromium", rows, timings)
+        calls = {c["metric"]: c for c in launcher.calls}
+        self.assertEqual(sorted(written), sorted(calls))
+        self.assertEqual(calls["idle.focused_ms"]["samples"], [12.0])
+        self.assertEqual(calls["idle.attached_ms"]["samples"], [8.0, 10.0])
+        self.assertEqual(calls["load.focused_ms"]["samples"], [30.0])
+        self.assertEqual(calls["idle.input_ms"]["samples"], [0.5])
+        self.assertNotIn("load.input_ms", calls)  # no debug.timings click of that phase
+        self.assertEqual({(c["story"], c["engine"]) for c in launcher.calls}, {("omnibar-click", "chromium")})
+        for call in launcher.calls:
+            self.assertTrue(matches(story("omnibar-click"), call["metric"], call["unit"]), call["metric"])
+
+
+def run_script(script, *args, cwd=None):
+    return subprocess.run([sys.executable, "-I", str(script), *args], capture_output=True, text=True, timeout=60,
+                          cwd=cwd)
+
+
+class StoryEngineTests(unittest.TestCase):
+    def test_story_problem_needs_the_story_of_the_runs_engine(self):
+        self.assertIsNone(bench_story.story_problem("palette-open", "chromium"))
+        self.assertIsNone(bench_story.story_problem("omnibar-click-webkit", "webkit"))
+        self.assertIsNone(bench_story.story_problem("command-pan", "none"))
+        self.assertIn("'chromium'", bench_story.story_problem("palette-open", "webkit"))
+        self.assertIn("not in", bench_story.story_problem("no-such-story", "webkit"))
+        self.assertIn("not a story id", bench_story.story_problem("../stories.d/palette-open", "chromium"))
+
+    def test_benches_refuse_a_story_of_another_engine_before_launching(self):
+        app = ["--tag", "t", "--app", "/nonexistent/cmux DEV t.app"]
+        for script, chromium in (("palette-open-stages.py", "palette-open"), ("omnibar-click-bench.py", "omnibar-click")):
+            for args, expect in ((["--engines", "webkit", "--story", chromium], "has engine 'chromium'"),
+                                 (["--story", chromium], "one engine"),
+                                 (["--engines", "safari"], "--engines takes")):
+                with self.subTest(script=script, args=args):
+                    done = run_script(HERE / script, *app, *args)
+                    self.assertEqual(done.returncode, 2, done.stderr)
+                    self.assertIn(expect, done.stderr)
+        done = run_script(HERE / "bench-command-pan.py", "--dry-run", "--sessions", "light", "--target", "chromium",
+                          "--story", "command-pan")
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertIn("has engine 'none'", done.stderr)
+
+
+class PerceivedSpeedAloneTests(unittest.TestCase):
+    """perceived-speed-slot.sh copies perceived-speed.py, perf_stats.py and pinpoint_thresholds.py alone onto a
+    capture-slot host and runs find-socket, `run --socket` and analyze there."""
+
+    def test_socket_paths_import_nothing_of_the_repo(self):
+        with tempfile.TemporaryDirectory() as folder:
+            script = shutil.copy(HERE / "perceived-speed.py", folder)
+            found = run_script(script, "find-socket", "com.cmuxterm.app.debug.x", "--since", "0", folder, cwd=folder)
+            self.assertEqual((found.returncode, found.stdout, found.stderr), (1, "", ""))
+            for command in ("analyze", "run", "table"):
+                done = run_script(script, command, "--help", cwd=folder)
+                self.assertEqual(done.returncode, 0, done.stderr)
+
+    def test_table_uses_the_perf_stats_copied_next_to_it(self):
+        with tempfile.TemporaryDirectory() as folder:
+            script = shutil.copy(HERE / "perceived-speed.py", folder)
+            run = Path(folder) / "out" / "palette-1"
+            run.mkdir(parents=True)
+            (run / "meta.json").write_text(json.dumps({"surface": "palette", "trigger": 0.4}))
+            (run / "metrics.json").write_text(json.dumps({"first_frame_ms": 16.0, "settle_ms": 120.0, "diff_area": 0.01,
+                                                          "shift": 0.2, "repaints": 3, "dropped": 0}))
+            missing = run_script(script, "table", str(run.parent), cwd=folder)
+            self.assertNotEqual(missing.returncode, 0)
+            self.assertIn("no perf_stats.py", missing.stderr)
+            for name in ("perf_stats.py", "pinpoint_thresholds.py"):
+                shutil.copy(PERF_LAB / name, folder)
+            done = run_script(script, "table", str(run.parent), cwd=folder)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertIn("| palette | 1 | 1.00% | 0.200 | 16 | 120 |", done.stdout)
+
+    def test_slot_script_copies_what_the_script_loads(self):
+        text = (HERE / "perceived-speed-slot.sh").read_text()
+        copy = next(line for line in text.splitlines() if line.startswith("scp ") and "perceived-speed.py" in line)
+        for name in ("perceived-speed.py", "perf-lab/perf_stats.py", "perf-lab/pinpoint_thresholds.py"):
+            self.assertIn(name, copy)
 
 
 if __name__ == "__main__":

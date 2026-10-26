@@ -12,19 +12,20 @@ Phases: `idle`, then `load` (every core busy with `yes`). With `--budget-ms N` t
 any engine's p95 `focused_ms` is above N or a run never showed focus. The summary has p50, p95, p99 and
 max of each value (scripts/perf-lab/perf_stats.py pct: linear interpolation between closest ranks).
 
-With exactly one engine (`--engines chromium` or `webkit`) the run also writes one cmux-perf-result/v1
-file per phase and value into --out (BenchApp.record, story --story): metric `<phase>.<value>` in ms with
-every click as a sample, for example `idle.focused_ms`; the values are RESULT_KEYS and TIMING_KEYS below.
-Result-v1 names one engine per run, so a run of both writes only the JSON report. The perf-lab stories are
-omnibar-click (Chromium) and omnibar-click-webkit (scripts/perf-lab/stories.d).
+--story ID also writes one cmux-perf-result/v1 file per phase and value into --out (BenchApp.record):
+metric `<phase>.<value>` in ms with every click as a sample, for example `idle.focused_ms`; the values are
+RESULT_KEYS and TIMING_KEYS below. A story names one engine (scripts/perf-lab/stories.d), so --story needs
+exactly that one engine in --engines: omnibar-click is the Chromium arm, omnibar-click-webkit the WebKit
+arm. A --story run that writes no series fails.
 
 Usage: omnibar-click-bench.py --tag TAG --app PATH [--runs 15] [--engines chromium,webkit]
-       [--phases idle,load] [--json FILE] [--budget-ms 0] [--story omnibar-click]
+       [--phases idle,load] [--json FILE] [--budget-ms 0] [--story ID]
 """
 import argparse, glob, json, os, signal, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import PERF_LAB, BenchApp, RecordError, bundle_id, load_by_path  # noqa: E402
+from bench_story import story_problem  # noqa: E402
 
 perf_stats = load_by_path("perf_stats", os.path.join(PERF_LAB, "perf_stats.py"))
 perf_result = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
@@ -43,20 +44,7 @@ parser.add_argument("--activate", action="store_true",
                     help="run the app active (real key windows: a Chromium page's child window holds the keys); fleet hosts only")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
-parser.add_argument("--story", default="omnibar-click", help="result-v1 story of a one-engine run")
-opts = parser.parse_args()
-TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
-BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
-SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
-CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
-BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
-SCRATCH = tempfile.mkdtemp(prefix=f"omnibar-{TAG}-")
-open(os.path.join(SCRATCH, "ghostty"), "w").close()
-CONFIG = os.path.join(SCRATCH, "cmux.json")
-open(CONFIG, "w").write("{}\n")
-CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-           "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
-           "CMUX_BUNDLE_ID": BUNDLE_ID, "CMUX_BUNDLED_CLI_PATH": CLI}
+parser.add_argument("--story", help="write cmux-perf-result/v1 of this stories.d story (one engine, the story's)")
 LAUNCHED, LOAD = [], []
 TIMINGS = {}  # (phase, engine) -> debug.timings omnibar_clicks
 app = None
@@ -165,10 +153,12 @@ def bench(phase, engine):
     return rows
 
 
-def summary(rows):
+def summary(rows, engines, timings):
+    """{"<phase>/<engine>": n, missed and the p50/p95/p99/max of every value} of the bench rows and the debug.timings
+    clicks `timings` {(phase, engine): clicks}."""
     out = {}
     for phase in sorted({r["phase"] for r in rows}):
-        for engine in opts.engines.split(","):
+        for engine in engines:
             sel = [r for r in rows if r["phase"] == phase and r["engine_asked"] == engine]
             if not sel:
                 continue
@@ -181,7 +171,7 @@ def summary(rows):
             for key in ("press_ms", "dispatch_to_attached_ms", "dispatch_to_selected_ms", "dispatch_to_focused_ms",
                         "attached_frames_after_press", "selected_frames_after_press", "focused_frames_after_press"):
                 row.update(spread(key, [r.get(key) for r in sel]))
-            clicks = TIMINGS.get((phase, engine)) or []
+            clicks = timings.get((phase, engine)) or []
             for key in TIMING_KEYS:
                 row[f"{key}_n"] = len(clicks)
                 row.update(spread(key, [c.get(key) for c in clicks]))
@@ -189,15 +179,15 @@ def summary(rows):
     return out
 
 
-def record_results(launcher, engine, rows):
-    """One cmux-perf-result/v1 file per phase and value (BenchApp.record), every click that reported the value a
-    sample. A series the bench cannot describe truthfully (no build sha, no features snapshot) is not written; its
+def record_results(launcher, story, engine, rows, timings):
+    """One cmux-perf-result/v1 file per phase and value (BenchApp.record) of a one-engine run, every click that
+    reported the value a sample. A series the bench cannot describe truthfully (no build sha, no features snapshot) is not written; its
     reason is returned in its place."""
     series = {}
     for row in rows:
         for key in RESULT_KEYS:
             series.setdefault(f"{row['phase']}.{key}", []).append(row.get(key))
-    for (phase, _), clicks in TIMINGS.items():
+    for (phase, _), clicks in timings.items():
         for key in TIMING_KEYS:
             series.setdefault(f"{phase}.{key}", []).extend(c.get(key) for c in clicks)
     written = {}
@@ -206,7 +196,7 @@ def record_results(launcher, engine, rows):
         if not samples:
             continue
         try:
-            written[metric] = str(launcher.record(opts.story, metric, "ms", samples, better="lower", engine=engine))
+            written[metric] = str(launcher.record(story, metric, "ms", samples, better="lower", engine=engine))
         except (RecordError, perf_result.ResultError) as error:
             written[metric] = f"not recorded: {error}"
             print(f"result-v1 {metric}: not recorded: {error}", flush=True)
@@ -262,7 +252,7 @@ def main():
         activated = launcher.activate(timeout=10)  # returns once a window of the app is key
         print("activate:", json.dumps(activated), flush=True)
     rows = []
-    for engine in opts.engines.split(","):
+    for engine in ENGINES:
         if not open_page(engine):
             print(f"{engine}: no omnibar came up: {json.dumps(rpc('debug.omnibar'))[:400]}", flush=True)
             continue
@@ -273,18 +263,20 @@ def main():
                 rows += bench(phase, engine)
             finally:
                 stop_load()
-    result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "summary": summary(rows), "runs": rows}
+    result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "summary": summary(rows, ENGINES, TIMINGS),
+              "runs": rows}
     print("\nSUMMARY", json.dumps(result["summary"], indent=1), flush=True)
-    engines = opts.engines.split(",")
-    if len(engines) == 1 and engines[0] in ("chromium", "webkit"):
-        result["results"] = record_results(launcher, engines[0], rows)
-    else:
-        print("result-v1: not written: a run of both engines has no one engine (pass --engines chromium or webkit)",
-              flush=True)
+    recorded = True
+    if opts.story:
+        result["results"] = record_results(launcher, opts.story, ENGINES[0], rows, TIMINGS)
+        missing = [why for why in result["results"].values() if not why.endswith(".ndjson")]
+        recorded = len(result["results"]) > len(missing)
+        # A story run that recorded nothing measured nothing for the lab.
+        print("RESULT-V1", "PASS" if recorded else "FAIL: nothing recorded", *missing, flush=True)
     if opts.json:
         os.makedirs(os.path.dirname(os.path.abspath(opts.json)), exist_ok=True)
         open(opts.json, "w").write(json.dumps(result, indent=1))
-    if not rows:
+    if not rows or not recorded:
         return False
     if opts.next_frame:
         frame = 1000 / 60
@@ -301,9 +293,32 @@ def main():
     return True
 
 
-ok = False
-try:
-    ok = main()
-finally:
-    cleanup()
-sys.exit(0 if ok else 1)
+if __name__ == "__main__":
+    opts = parser.parse_args()
+    ENGINES = [e for e in opts.engines.split(",") if e]
+    if not ENGINES or any(e not in ("chromium", "webkit") for e in ENGINES):
+        parser.error(f"--engines takes chromium, webkit or both, got {opts.engines!r}")
+    if opts.story:
+        if len(ENGINES) != 1:
+            parser.error("--story records one engine (result-v1 names one): pass --engines chromium or webkit")
+        problem = story_problem(opts.story, ENGINES[0])
+        if problem:
+            parser.error(problem)
+    TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
+    BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
+    SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
+    CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
+    BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
+    SCRATCH = tempfile.mkdtemp(prefix=f"omnibar-{TAG}-")
+    open(os.path.join(SCRATCH, "ghostty"), "w").close()
+    CONFIG = os.path.join(SCRATCH, "cmux.json")
+    open(CONFIG, "w").write("{}\n")
+    CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+               "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
+               "CMUX_BUNDLE_ID": BUNDLE_ID, "CMUX_BUNDLED_CLI_PATH": CLI}
+    ok = False
+    try:
+        ok = main()
+    finally:
+        cleanup()
+    sys.exit(0 if ok else 1)
