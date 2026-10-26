@@ -54,8 +54,8 @@ pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::
 fn create_name(params: &Value) -> Option<String> {
     mux_meta(params)
         .and_then(|m| m.get("name"))
-        .or_else(|| params.get("name"))
         .and_then(Value::as_str)
+        .or_else(|| params.get("name").and_then(Value::as_str))
         .map(str::to_owned)
 }
 
