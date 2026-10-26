@@ -169,6 +169,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let extSetPinned: (Int32, String?, Int32) -> Int32
     let extOpenOptions: (Int32, String?) -> Int32
     let extLoadUnpacked: (Int32, String?) -> Int32
+    /// 1 when the fork has `cmux_ext_load_command_line_async` (p13-webui-055); a mirror read in host mode.
+    let extLoadLaterSupported: @convention(c) () -> Int32
+    /// `--load-extension`'s load into a persistent context key's profile (context key, reply id, folder),
+    /// answered by a CMUX_SHIM_REPLY under the reply id (``CEFBuiltInExtensionLoads``).
+    let extLoadCommandLine: (String?, Int32, String?) -> Int32
     let extCommands: (Int32) -> String?
     let extCommandRun: (Int32, String?, String?) -> Int32
     let tabMoveToWindow: @convention(c) (Int32, Int32, Int32) -> Int32

@@ -1195,6 +1195,19 @@ typedef enum {
 // replaces it on each call. Returns 1, or 0 for an unknown value or browser
 // or a fork without the call. UI thread.
 CMUX_SHIM_EXPORT int cmux_shim_tab_set_visibility(int browser_id, int visibility, int capture);
+// 1 when the fork loads built-in extensions at a profile's first tab
+// (cmux_ext_load_command_line_async, p13-webui-055); ask before
+// cmux_shim_initialize decides --load-extension.
+CMUX_SHIM_EXPORT int cmux_shim_ext_load_later_supported(void);
+// Loads the unpacked extension at `path` into the persistent profile of
+// profile_cache_path as --load-extension does (command-line location, not
+// loaded again at the next start), with the folder read off the UI thread;
+// creates the context when no tab opened it yet. Replies once with
+// CMUX_SHIM_REPLY (`reply`, a = 1: installed, its background page through its
+// first load; 0: failed), never inside this call. Main thread, after
+// cmux_shim_initialize. Returns 1 when the load started, 0 for an
+// off-the-record key, an empty path or a fork without the call (no reply).
+CMUX_SHIM_EXPORT int cmux_shim_ext_load_command_line(const char* profile_cache_path, int reply, const char* path);
 
 // Chromium tracing through stock CEF (include/cef_trace.h, CEFShim/src/shim_tracing.mm; task
 // p09-observability-050). These are not cmux_shim_* exports, so the Chromium Host wire does not
