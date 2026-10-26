@@ -72,6 +72,28 @@ struct CloudAgentChatTests {
         }
     }
 
+    /// The GUI's default first send: the page names no folder (a fresh Cloud workspace's New Tab
+    /// page has none of its own), so the chat starts in the folder the machine's workspace
+    /// reports there, and once the person trusts it the agent runs on the machine.
+    @Test func aFirstSendWithNoFolderStartsInTheWorkspacesFolderOnTheMachine() async throws {
+        try await Self.withMachine { world in
+            let chat = try await world.openChat()
+            let wire = try #require(try await world.page(chat.key).wire)
+            let frames = try await Frames.open(wire)
+            let newChat: [String: Any] = ["mcpServers": [Any](), "_meta": ["acpmux": ["harness": "sample"]]]
+            let first = try await frames.call(wire, "session/new", newChat)
+            let folder = first.errorData?["cwd"] as? String
+            #expect(first.errorCode == "agent_session.untrusted_folder", "the default first send: \(first.raw); folders \(world.machine.daemon.store.tabFolders)")
+            if let folder {
+                _ = try await frames.call(wire, "acp.trust.set", ["cwd": folder, "level": "trusted"])
+                let started = try await frames.call(wire, "session/new", newChat)
+                #expect(started.result?["sessionId"] is String, "\(started.raw)")
+                #expect(world.agentSessions().count == 1)
+            }
+            wire.cancel(code: 1000, reason: "test")
+        }
+    }
+
     /// On a team machine the machine refuses the start (its own identity decides, hq-84), and the
     /// page gets that refusal in the person's words; no agent runs there.
     @Test func aTeamMachineRefusesTheChatAndSaysSo() async throws {
