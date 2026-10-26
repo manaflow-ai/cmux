@@ -81,6 +81,41 @@ import Testing
         watch.stop()
     }
 
+    /// The host rewrites an existing lock in place (`lock.rs` opens it with `create(true)`,
+    /// `set_len(0)`s it and writes; it never removes the file), so on every home but a brand new
+    /// one the lock's change raises an event on the *file*, never on the folder that holds it.
+    @Test func aHostThatRewritesAnExistingLockIsStillWatched() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chief-watch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = ChiefHome(root: root, isolated: true)
+        let state = root.appendingPathComponent("state")
+        try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+        let lock = state.appendingPathComponent("host.lock")
+        let brain = Process()
+        brain.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        brain.arguments = ["30"]
+        try brain.run()
+        defer { brain.terminate() }
+        // A lock an earlier host left, naming a pid that is not a host now.
+        try Data("999999\n".utf8).write(to: lock)
+        var seen: [pid_t?] = []
+        let watch = ChiefBrainWatch(home: home, restart: { nil }, watching: { seen.append($0) },
+                                    isChiefHost: { $0 == brain.processIdentifier })
+        watch.watch(nil)
+        #expect(seen.isEmpty, "the stale lock names no host: nothing to report")
+
+        // The host takes the lock: the file is rewritten where it already was, so the folder
+        // it sits in never changes.
+        try Data("\(brain.processIdentifier)\n".utf8).write(to: lock)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while seen.isEmpty, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(seen == [brain.processIdentifier], "the host that rewrote the lock is watched")
+        watch.stop()
+    }
+
     /// Watches a stand-in brain, ends it and counts the watch's restarts.
     private func restartsAfterExit(shutdown: Bool) async throws -> Int {
         let root = FileManager.default.temporaryDirectory
