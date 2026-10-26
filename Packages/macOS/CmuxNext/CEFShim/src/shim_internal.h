@@ -146,6 +146,9 @@ struct ForkApi {
   // No API number yet (p14-energy-046; the fork bundle p14-energy-136 numbers
   // it): delayed pump work as absolute run times with Chromium's leeway.
   void (*set_on_schedule_delayed)(void (*)(void*, int64_t, int64_t, int), void*) = nullptr;
+  // p14-energy-029 (numbered by the fork bundle p14-energy-136): Energy Saver
+  // with cmux's input and own-page exemption.
+  void (*set_energy_saver)(bool, const char*) = nullptr;
   // No API number yet (p14-energy-124; numbered by p14-energy-136): the pid
   // of the renderer hosting a tab's main frame, 0 while none.
   int (*browser_renderer_pid)(int) = nullptr;
