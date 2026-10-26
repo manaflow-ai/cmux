@@ -53,7 +53,9 @@ enum Kind : uint32_t {
   kMouse = 3,      // v0 x, v1 y (points, top left), v2 phase (0 move, 1 down, 2 up, 3 exit), v3 button
                    // (0 left, 1 middle, 2 right), v4 click count, flags = NSEventModifierFlags, t0 event time
   kWheel = 4,      // v0 x, v1 y, v2 dx, v3 dy (pixels), flags, t0
-  kKey = 5,        // v0 phase (0 down, 1 up, 2 flags changed), v1 key code, v2 repeat, flags, ch, unmod, t0
+  kKey = 5,        // v0 phase (0 down, 1 up, 2 flags changed), v1 key code, v2 repeat, flags, ch, unmod, t0;
+                   // the host sends it with cmux_shim::SendHostKeyEvent and the frame's input seq, which
+                   // KEY_UNHANDLED carries back for a chord the page leaves unhandled (p01-process-030)
   kFocus = 6,      // v0 1 focused, 0 not
   kPing = 7,       // t0 cmux send time; the host answers kPong
   kStats = 8,      // seq request id (never an input seq: not an IsOrderedInput kind); the host answers
