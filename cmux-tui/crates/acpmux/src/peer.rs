@@ -360,6 +360,11 @@ impl Peer {
         self.attached.lock_or_recover().insert(session_id.to_owned())
     }
 
+    /// How many requests wait for the peer's answer now.
+    pub async fn pending_requests(&self) -> usize {
+        self.pending.lock().await.len()
+    }
+
     pub async fn request(&self, m: &str, params: Value) -> Result<Value, RpcError> {
         if !self.connected.load(Ordering::SeqCst) {
             return Err(self.unreachable_error());
@@ -376,7 +381,15 @@ impl Peer {
         if self.out.send(line).await.is_err() {
             return Err(RpcError::internal(format!("peer {} connection closed", self.name)));
         }
-        match tokio::time::timeout(Duration::from_secs(600), rx).await {
+        // A prompt or a wait answers when the peer's turn ends, however long that is; the
+        // keepalive drops a link that stops answering, which fails it as `peer disconnected`,
+        // and a forwarder whose client left drops it (`server/peer_forward.rs`).
+        let answer = if waits_on_turn(m) {
+            Ok(rx.await)
+        } else {
+            tokio::time::timeout(self.timings.request, rx).await
+        };
+        match answer {
             Ok(Ok(r)) => r,
             Ok(Err(_)) => {
                 Err(RpcError::internal(format!("peer {} dropped the request", self.name)))
@@ -689,6 +702,11 @@ impl Peer {
         handshake.abort();
         result
     }
+}
+
+/// The requests whose answer waits on the agent's turn, never on the link alone.
+pub(crate) fn waits_on_turn(m: &str) -> bool {
+    matches!(m, method::SESSION_PROMPT | method::MUX_WAIT)
 }
 
 fn connect_timed_out(after: Duration) -> String {
