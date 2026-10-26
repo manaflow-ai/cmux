@@ -68,9 +68,21 @@ pub(crate) fn read_request_head(
         bytes.extend_from_slice(chunk.get(..read)?);
     };
     let head = std::str::from_utf8(bytes.get(..end)?).ok()?;
+    // Lines end only at CRLF; a bare CR or LF, or any other control byte but
+    // HTAB, makes the head malformed (RFC 9112 sections 2.2 and 5.5).
+    if head
+        .split("\r\n")
+        .any(|line| line.bytes().any(|byte| byte.is_ascii_control() && byte != b'\t'))
+    {
+        return None;
+    }
     let mut lines = head.split("\r\n");
     let mut request_line = lines.next()?.split(' ');
     let method = request_line.next()?.to_owned();
+    // The method is a token (RFC 9110 section 9.1).
+    if method.is_empty() || !method.bytes().all(is_token_byte) {
+        return None;
+    }
     let target = request_line.next()?.to_owned();
     let mut headers = Vec::new();
     for line in lines {
@@ -78,6 +90,11 @@ pub(crate) fn read_request_head(
         headers.push((name.trim().to_owned(), value.trim().to_owned()));
     }
     Some((bytes, RequestHead { method, target, headers }))
+}
+
+/// A `tchar` of RFC 9110 section 5.6.2.
+fn is_token_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte)
 }
 
 /// Answers one page file request and closes the connection.
