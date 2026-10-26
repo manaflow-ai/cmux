@@ -90,6 +90,7 @@ function browserEventLabel(event: BrowserStreamEvent): string {
     case "notification": return `notification:${event.notification}`;
     case "overflow": return `overflow:${event.error}`;
     case "scroll-changed": return `scroll:${event.offset}`;
+    case "stream-end": return `stream-end:${event.stream}:${event.reason}`;
     case "unknown": return `unknown:${event.wireEvent}`;
     default: {
       const exhaustive: never = event;
