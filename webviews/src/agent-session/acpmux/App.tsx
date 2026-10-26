@@ -180,6 +180,7 @@ import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList
 import { AgentsPill } from "./subagents/AgentsPill";
 import { SubagentTray } from "./subagents/SubagentTray";
 import { SubagentDoneLine } from "./subagents/SubagentDoneLine";
+import { retryKey, runRetry, type RetryTarget } from "./subagents/retryState";
 import { configureWorkflowCardOpen, WorkflowCard } from "./summary/WorkflowCard";
 import {
   type DoneLineCache,
@@ -5461,6 +5462,20 @@ function AcpmuxPane() {
           const text = restartPrompt(agent, translate);
           if (text) void callNative("chat.send", { text }).catch(() => undefined);
         })(restartChat),
+        // Retry asks acpmux, else the chat's agent, as Restart does (subagents/retryState.ts).
+        retryCapabilities: directClient.current?.capabilities,
+        retryAgent: ((owner: string) => (agent: RetryTarget) => {
+          const client = directClient.current;
+          if (!client || !restartReaches(owner, sessionIdRef.current, client.selectedSession))
+            return Promise.resolve(undefined);
+          const request = (method: string, params: Record<string, unknown>) => client.retry(method, params);
+          // Checked again after acpmux answered: the pane may have moved to another chat meanwhile.
+          const send = (text: string) =>
+            restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
+              ? callNative("chat.send", { text })
+              : Promise.resolve();
+          return runRetry(agent, owner, { request, send, capabilities: client.capabilities }, translate);
+        })(restartChat),
       }),
       ...(connected &&
         retryModels.length > 1 && {
@@ -5783,7 +5798,15 @@ function AcpmuxPane() {
   // streams text redraws neither the pill nor a subagent row.
   const agentsKey = freshAgents
     .map((agent) =>
-      [agent.id, agent.name, agent.state, agent.action ?? "", agent.endedAt ?? "", agent.agentId ?? ""].join("\u0000"),
+      [
+        agent.id,
+        agent.name,
+        agent.state,
+        agent.action ?? "",
+        agent.endedAt ?? "",
+        agent.agentId ?? "",
+        retryKey(agent),
+      ].join("\u0000"),
     )
     .join("\u0001");
   // eslint-disable-next-line react-hooks/exhaustive-deps -- a new list only when an agent changes
