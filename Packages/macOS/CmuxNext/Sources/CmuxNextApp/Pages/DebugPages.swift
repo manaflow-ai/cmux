@@ -65,7 +65,10 @@ extension AppControl {
         let cef = services.cache.cef
         let census = WebUICensus(
             pages: pages, registry: registry, newTabSpare: services.newTabSpares.spare?.view.webView,
-            spareWindow: WebUICensus.Host(name: "cef_window", state: cef.spareWindowState, rendererClients: cef.spareWindowRendererClients),
+            spareWindows: [
+                WebUICensus.Host(name: "cef_window", state: cef.spareWindowState, rendererClients: cef.spareWindowRendererClients),
+                WebUICensus.Host(name: "cef_pages_window", state: cef.pagesSpareWindowState, rendererClients: cef.pagesSpareWindowRendererClients),
+            ],
             browserTabs: services.cache.browsers.sorted { $0.key < $1.key }.compactMap { id, entry in
                 (entry.tab as? CEFTab).map { WebUICensus.Host(name: id, rendererClients: $0.rendererClientIDs) }
             },

@@ -85,9 +85,8 @@ final class WindowManager {
     /// A restored window is entering full screen (one at a time).
     var fullScreenRestoreRunning = false
     var onFirstWindow: ((WindowController) -> Void)?
-    /// Runs once, when the launch's session restore finished (the saved windows are back, the
-    /// launch window adopted or closed): the startup phase's restore reference.
-    var onRestored: (() -> Void)?
+    /// The restore's and the visible panes' startup refs (p08-startup task 013), passed to `restoreWhenLoaded`.
+    private var launchPaneRefs: VisiblePaneRefs?
     /// A window installed workspace content (links opened at launch wait for it).
     var onContentDidAppear: ((WindowController) -> Void)?
     /// One-shot work for a workspace a reveal is still mounting, by window
@@ -176,8 +175,10 @@ final class WindowManager {
     /// Opens one window at once (from the launch snapshot, else in the
     /// connecting state, outside the registry), then restores the saved
     /// windows once the first live snapshot arrives, the launch window
-    /// becoming the frontmost. Creates a workspace only for an empty tree.
-    func restoreWhenLoaded() {
+    /// becoming the frontmost. Creates a workspace only for an empty tree. `paneRefs` (the app's
+    /// launch; nil in tests) are released at the end of the restore (`VisiblePaneRefs.finishRestore`).
+    func restoreWhenLoaded(paneRefs: VisiblePaneRefs? = nil) {
+        if let paneRefs { launchPaneRefs = paneRefs }
         registry.isLaunching = !restored
         if controllers.isEmpty, !LaunchSnapshotWindow(manager: self).show() {
             let id = UUID().uuidString.lowercased()
@@ -254,31 +255,12 @@ final class WindowManager {
         fullScreenRestoreReady = true
         enterRestoredFullScreens()
         FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // its New Tab page, not Home
-        let restoredHook = onRestored
-        onRestored = nil
-        restoredHook?()
+        launchPaneRefs?.finishRestore(of: self)
+        launchPaneRefs = nil
         // Classic cmux's session comes over once, after restore so the restored
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)
         Task { await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace) }
-    }
-
-    /// The front window's visible page, for the startup phase's visible-page reference
-    /// (`StartupReferences`): waiting until the focused pane shows its content and, for a browser
-    /// page, until the page's first load ended. A window with no workspace content shows no page.
-    /// It reads the page's load state and the selection (observable); what a pane shows is not, so
-    /// the caller reads it again on every content change.
-    func visiblePageLoad() -> StartupReferences.VisiblePage {
-        _ = services.cache.pageInstalls.revision
-        guard let controller = active, let content = controller.content else { return .idle }
-        guard let key = controller.focus.state.pane, let pane = content.paneController(key: key) else { return .waiting }
-        let selected = pane.stripModel.selectedID
-        switch pane.currentContent {
-        case .browser(let entry)?:
-            return StartupReferences.VisiblePage(page: entry.tab.state, loadsNothing: entry.tab is DeferredBrowserTab || entry.tab is HibernatedBrowserTab)
-        case nil: return selected == nil ? .idle : .waiting
-        case _?: return .idle
-        }
     }
 
     /// The launch window takes the frontmost saved window's identity and
@@ -435,13 +417,5 @@ final class WindowManager {
                 return WindowRegistry.Changes()
             }
         }
-    }
-}
-
-extension StartupReferences.VisiblePage {
-    /// A shown page: idle once a load ended in it (finished, stopped or failed) or its process
-    /// ended, or when it is a stand-in that loads nothing until the person starts it.
-    init(page state: BrowserTabState, loadsNothing: Bool) {
-        self = loadsNothing || state.hasEndedLoad || state.processExit != nil ? .idle : .waiting
     }
 }
