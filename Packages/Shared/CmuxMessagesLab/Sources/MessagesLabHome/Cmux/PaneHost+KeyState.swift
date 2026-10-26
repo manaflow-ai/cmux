@@ -14,7 +14,6 @@ extension ChatController {
     /// `!window.isKeyWindow` when it joins a window, each through `viewInactive`. No other pane changes; a display
     /// move never sets it. Without `followsKeyWindow` the view stays active and observes nothing.
     func followKeyState() {
-        keyObservers.forEach { NotificationCenter.default.removeObserver($0) }
         keyObservers = []
         guard let window, let demo else { return }
         // Test modes (noFocus): the state the arguments name, no key observers.
@@ -23,7 +22,7 @@ extension ChatController {
         demo.setInactive(Self.viewInactive(followsKeyWindow: follows, windowIsKey: window.isKeyWindow))
         guard follows else { return }
         keyObservers = [(NSWindow.didBecomeKeyNotification, true), (NSWindow.didResignKeyNotification, false)].map { name, key in
-            NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+            MainQueueObservation(name, object: window) { [weak self] in
                 self?.demo?.setInactive(Self.viewInactive(followsKeyWindow: follows, windowIsKey: key))
             }
         }

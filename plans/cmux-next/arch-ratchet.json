@@ -651,6 +651,12 @@
       "row": "blocking_allow_escapes",
       "allow": 1,
       "why": "p09-observability-034 LaunchClock.swift: one proc_pidinfo(getpid(), PROC_PIDTBSDINFO) per process, on main at main_start, for the kernel's process start that every launch.* slice and launch mark is measured from (the task's spec; Chrome reads the same start, base::Process::CreationTime). It copies this process's in-memory proc fields: no disk, lock or process wait. It replaces DebugTimings' kinfo_proc sysctl read of the same field at the same moment, so the main thread does no new kernel call. blockingCall would record a false main-thread violation at every Debug launch."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "assume_isolated_outside_adapters",
+      "allow": 1,
+      "why": "p10-stability-044: MessagesLabHome's MainQueueObservation (Cmux/MainQueueObservation.swift), the pane's form of CmuxNextCompat's MainActorObservation, which this Shared package cannot import. Under complete concurrency checking the block NotificationCenter runs is @Sendable and nonisolated, so the three window observers (screen change, the parity key state, the window update that re-snaps the typing row) need a main-actor proof; the adapter holds the one proof (queue: .main) and replaces three raw blocks that would each need one, and owners keep it as a value instead of a token their nonisolated deinit cannot read. No @MainActor API fits on macOS 14 (NotificationCenter.MainActorMessage is macOS 26), and the async sequence delivers a turn late: the window update must re-snap in the same event-loop pass. Chrome observes on its owner's sequence the same way (base/observer_list.h, ObserverList on the UI thread)."
     }
   ],
   "observer_wrappers": [
