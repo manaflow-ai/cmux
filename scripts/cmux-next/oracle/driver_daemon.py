@@ -29,10 +29,14 @@ Each case gets:
   `oracle`, as paths show $ROOT.
 - one `cmux-tui --headless` child started in its own session, awaited on its readiness pipe
   (`--owner-ready-fd`, the daemon's own startup protocol), never by probing the socket.
-- the environment of `case_environment` only (an `env -i` base). Task p15-oracle-200 moves that function
-  into hermetic_env.py and adds `unshare -rn`, the repository fixture and the daemon's CMUX_TUI_OFFLINE
-  early return (the variable is set here already). Terminals use the default per-terminal
-  `cmux-tui __terminal-host` model (CMUX_TUI_TERMINAL_HOST_MODEL is unset).
+- the environment of hermetic_env.daemon_case only (an `env -i` base, CMUX_TUI_OFFLINE=1, version
+  control without the person's config), and on Linux its own network namespace (loopback only, the
+  caller's uid; hermetic_env.netns_prefix). The isolation is resolved once per run: oracle.py passes
+  its description as `isolation` in the session context (`oracle.py run --isolation`), and this
+  file's CLI takes `--isolation` (netns by default, which refuses a host without unprivileged user
+  namespaces; auto; none). Each case result carries the environment it ran with (`environment`).
+  Terminals use the default per-terminal `cmux-tui __terminal-host` model (CMUX_TUI_TERMINAL_HOST_MODEL
+  is unset).
 - every request through the SDK: resource operations on `cmux._protocol.ProtocolConnection` (the SDK's
   wire layer; the oracle compares wire replies, so it does not decode them into dataclasses), and the
   daemon-control commands (`identify`, `shutdown-daemon`, `oracle-state`, `oracle-advance-clock`) on
@@ -68,8 +72,9 @@ Chrome reference (chromium/src):
 
 Usage:
   driver_daemon.py run-case --binary CMUX_TUI CASE.json [--state-base DIR] [--snapshot-schema S]
+                            [--isolation netns|auto|none]
                                                      one case, its result JSON
-  driver_daemon.py smoke --binary CMUX_TUI [--cases 300] [--jobs 300] [--case CASE.json]
+  driver_daemon.py smoke --binary CMUX_TUI [--cases 300] [--jobs 300] [--case CASE.json] [--isolation ...]
                                                      parallel cases (no-op by default), then nothing left
   driver_daemon.py facet --socket PATH               the daemon facet of a running daemon (canonical JSON)
   driver_daemon.py live-check --cmux BIN [--write]   capture_wire_fixtures.py's op script on a hermetic
@@ -117,6 +122,7 @@ for _path in (str(HERE), str(SDK)):
         sys.path.insert(0, _path)
 
 import check_snapshot_schema  # noqa: E402 - sibling of this file (capture rules of the daemon facet)
+import hermetic_env  # noqa: E402 - sibling of this file (p15-oracle-200), the only place env is built
 import normalize  # noqa: E402 - sibling of this file (p15-oracle-013)
 from cmux._protocol import ProtocolConnection  # noqa: E402
 from cmux.errors import (  # noqa: E402
@@ -133,8 +139,7 @@ MARKER_ENV = "CMUX_ORACLE_CASE"
 SESSION_NAME = "oracle"
 # prctl(2) option: orphaned descendants are re-parented to the caller, not to init.
 PR_SET_CHILD_SUBREAPER = 36
-# sun_path is 108 bytes on Linux and 104 on macOS; the spec keeps every path at 100 or less.
-SOCKET_LIMIT = 100
+SOCKET_LIMIT = hermetic_env.MAX_SOCKET_PATH_BYTES
 DEFAULT_STATE_BASE = Path("/tmp/o")
 SELECTORS = {"machine": "current", "session": "current"}
 FACETS = (
@@ -271,23 +276,23 @@ class CasePaths:
 
     @property
     def socket(self) -> Path:
-        return self.root / "s.sock"
+        return self.root / hermetic_env.SOCKET_NAME
 
     @property
     def state(self) -> Path:
-        return self.root / "state"
+        return self.root / hermetic_env.STATE_DIR
 
     @property
     def home(self) -> Path:
-        return self.root / "home"
+        return self.root / hermetic_env.HOME_DIR
 
     @property
     def run(self) -> Path:
-        return self.root / "run"
+        return self.root / hermetic_env.RUN_DIR
 
     @property
     def tmp(self) -> Path:
-        return self.root / "tmp"
+        return self.root / hermetic_env.TMP_DIR
 
     @property
     def log(self) -> Path:
@@ -347,40 +352,14 @@ def stable_token(text: str) -> str:
     return f"{value:016x}"
 
 
-def case_environment(paths: CasePaths, seed: str) -> Dict[str, str]:
-    """The case daemon's whole environment (an `env -i` base: nothing is inherited).
+def host_platform() -> str:
+    return "linux" if sys.platform.startswith("linux") else "mac"
 
-    p15-oracle-200 moves this into hermetic_env.py, the one place both drivers build env.
-    """
-    home = paths.home
-    return {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-        "HOME": str(home),
-        "XDG_CONFIG_HOME": str(home / ".config"),
-        "XDG_DATA_HOME": str(home / ".local" / "share"),
-        "XDG_STATE_HOME": str(home / ".local" / "state"),
-        "XDG_CACHE_HOME": str(home / ".cache"),
-        "XDG_RUNTIME_DIR": str(paths.run),
-        "TMPDIR": str(paths.tmp),
-        "CMUX_TUI_CONFIG": str(paths.root / "config.json"),
-        "CMUX_NEXT_CONFIG_FILE": str(paths.root / "cmux-next.json"),
-        "CMUX_TUI_STATE_DIR": str(paths.state),
-        "CMUX_TUI_SOCKET": str(paths.socket),
-        "CMUX_TUI_LOG_FILE": str(paths.root / "client.log"),
-        "CMUX_TUI_NO_LOGIN_SHELL": "1",
-        "CMUX_TUI_OFFLINE": "1",
-        "CMUX_TUI_ORACLE_SEED": seed,
-        "CMUX_TUI_TEST_HOST_INSTALL_ENDPOINT": "1",
-        "TZ": "UTC",
-        "LANG": "C.UTF-8",
-        "LC_ALL": "C.UTF-8",
-        "SHELL": "/bin/sh",
-        "PS1": "$ ",
-        "TERM": "xterm-256color",
-        "GIT_CONFIG_GLOBAL": "/dev/null",
-        "GIT_CONFIG_NOSYSTEM": "1",
-        MARKER_ENV: str(paths.root),
-    }
+
+def case_environment(paths: CasePaths, seed: str, isolation: hermetic_env.Isolation) -> hermetic_env.CaseEnv:
+    """The case daemon's whole environment, from hermetic_env.py, with this driver's process marker."""
+    return hermetic_env.daemon_case(paths.root, isolation, platform=host_platform(), seed=seed,
+                                    extra={MARKER_ENV: str(paths.root)})
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -551,7 +530,8 @@ def scan_markers() -> Dict[str, List[CaseProcess]]:
 
 
 def socket_paths(processes: Sequence[CaseProcess]) -> Set[str]:
-    """Unix socket paths the processes name (`--socket PATH`) or listen on (Linux /proc/net/unix)."""
+    """Unix socket paths the processes name (`--socket PATH`) or listen on (Linux: the unix socket table
+    of each process's own network namespace, so a case under the netns prefix is read in its own)."""
     paths: Set[str] = set()
     for proc in processes:
         for flag, value in zip(proc.argv, proc.argv[1:]):
@@ -560,7 +540,13 @@ def socket_paths(processes: Sequence[CaseProcess]) -> Set[str]:
     if not sys.platform.startswith("linux"):
         return paths
     inodes: Set[str] = set()
+    # One live process per network namespace: /proc/<pid>/net/unix lists that namespace's sockets.
+    tables: Dict[str, int] = {}
     for proc in processes:
+        try:
+            tables.setdefault(os.readlink(f"/proc/{proc.pid}/ns/net"), proc.pid)
+        except OSError:
+            continue  # gone
         for fd in glob.glob(f"/proc/{proc.pid}/fd/*"):
             try:
                 target = os.readlink(fd)
@@ -570,16 +556,17 @@ def socket_paths(processes: Sequence[CaseProcess]) -> Set[str]:
                 inodes.add(target[8:-1])
     if not inodes:
         return paths
-    try:
-        with open("/proc/net/unix", "r", encoding="utf-8", errors="replace") as handle:
-            rows = handle.read().splitlines()[1:]
-    except OSError:
-        return paths
-    for row in rows:
-        # Num RefCount Protocol Flags Type St Inode [Path]; an abstract name starts with '@'.
-        columns = row.split(None, 7)
-        if len(columns) == 8 and columns[6] in inodes and columns[7].startswith("/"):
-            paths.add(columns[7])
+    for pid in tables.values():
+        try:
+            with open(f"/proc/{pid}/net/unix", "r", encoding="utf-8", errors="replace") as handle:
+                rows = handle.read().splitlines()[1:]
+        except OSError:
+            continue  # the process exited; its sockets were named by the others or are gone with it
+        for row in rows:
+            # Num RefCount Protocol Flags Type St Inode [Path]; an abstract name starts with '@'.
+            columns = row.split(None, 7)
+            if len(columns) == 8 and columns[6] in inodes and columns[7].startswith("/"):
+                paths.add(columns[7])
     return paths
 
 
@@ -693,10 +680,10 @@ class DaemonExit:
 class Daemon:
     """One cmux-tui child on one state root, with its SDK clients."""
 
-    def __init__(self, binary: str, paths: CasePaths, env: Dict[str, str], scale: float):
+    def __init__(self, binary: str, paths: CasePaths, case_env: hermetic_env.CaseEnv, scale: float):
         self.binary = binary
         self.paths = paths
-        self.env = env
+        self.case_env = case_env
         self.scale = scale
         self.proc: Optional[subprocess.Popen] = None
         self.conn: Optional[ProtocolConnection] = None
@@ -716,7 +703,8 @@ class Daemon:
         try:
             with open(self.paths.log, "ab") as log:
                 self.proc = subprocess.Popen(
-                    argv, env=self.env, cwd=str(self.paths.root), pass_fds=(write_fd,), stdin=subprocess.DEVNULL,
+                    self.case_env.command(argv), env=dict(self.case_env.env), cwd=str(self.case_env.cwd),
+                    pass_fds=(write_fd,), stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL, stderr=log, start_new_session=True,
                 )
         except OSError as error:
@@ -1040,7 +1028,7 @@ class CaseRun:
     """One case in a worker process: the steps, then an orderly shutdown of everything it started."""
 
     def __init__(self, binary: str, sha: str, schema: normalize.Schema, case: Mapping[str, Any],
-                 ctx: Mapping[str, Any], session_ctx: Mapping[str, Any]):
+                 ctx: Mapping[str, Any], session_ctx: Mapping[str, Any], isolation: hermetic_env.Isolation):
         self.case = case
         self.schema = schema
         self.known: Dict[int, CaseProcess] = {}
@@ -1050,8 +1038,9 @@ class CaseRun:
         self.paths = CasePaths.for_case(ctx.get("state_root"), str(session_ctx.get("run_id") or "run"),
                                         str(ctx.get("key") or self.case_id))
         fixture = case.get("fixture") or {}
-        self.env = case_environment(self.paths, str(fixture.get("seed") or case.get("id") or "oracle"))
-        self.daemon = Daemon(binary, self.paths, self.env, self.scale)
+        seed = str(fixture.get("seed") or case.get("id") or "oracle")
+        self.case_env = case_environment(self.paths, seed, isolation)
+        self.daemon = Daemon(binary, self.paths, self.case_env, self.scale)
         self.sha = sha
         self.state = CaseState()
         self.host = host_meta()
@@ -1072,6 +1061,7 @@ class CaseRun:
         problems: List[str] = []
         try:
             try:
+                self.case_env.prepare()
                 self.daemon.start("setup")
                 for index, step in enumerate(self.case.get("steps") or ()):
                     self.run_step(index, step)
@@ -1087,7 +1077,7 @@ class CaseRun:
             if status == "Pass":
                 status = "Failure"
         result: Dict[str, Any] = {"status": status, "message": message, "checkpoints": [],
-                                  "sockets": sorted(self.sockets)}
+                                  "sockets": sorted(self.sockets), "environment": self.case_env.receipt()}
         if at:
             result["step"] = at
         if self.dirty:
@@ -1527,6 +1517,10 @@ class DaemonSession:
         schema, refusal = load_snapshot_schema(self.schema_path)
         if schema is None:
             raise ValueError(f"normalize.py refuses the snapshot schema, so no snapshot can be canonical: {refusal}")
+        try:
+            self.isolation = session_isolation(session_ctx.get("isolation"))
+        except hermetic_env.HermeticError as error:
+            raise ValueError(f"no hermetic case environment on this host: {error}") from None
         self.scan = scan
         self.binary = os.path.realpath(str(binary))
         self.session_ctx = dict(session_ctx)
@@ -1560,7 +1554,7 @@ class DaemonSession:
                    scale: float) -> Tuple[Dict[str, Any], bool]:
         """The worker's result, and whether it finished (then it proved its own process tree empty)."""
         payload = {"binary": self.binary, "sha": self.sha, "schema": self.schema_path, "case": case,
-                   "ctx": case_ctx, "session": self.session_ctx}
+                   "ctx": case_ctx, "session": self.session_ctx, "isolation": self.isolation.describe()}
         bound = worker_bound(case, scale)
         worker = subprocess.Popen([sys.executable, "-I", str(Path(__file__).resolve()), "case-worker"],
                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -1608,7 +1602,8 @@ def case_worker() -> int:
     schema, refusal = load_snapshot_schema(payload["schema"])
     if schema is None:
         raise SystemExit(f"driver_daemon.py case-worker: {refusal}")
-    run = CaseRun(payload["binary"], payload["sha"], schema, payload["case"], payload["ctx"], payload["session"])
+    run = CaseRun(payload["binary"], payload["sha"], schema, payload["case"], payload["ctx"], payload["session"],
+                  hermetic_env.Isolation.from_description(payload["isolation"]))
     # Every process the case starts stays in this worker's tree, whatever it does (I6).
     become_subreaper()
     signal.signal(signal.SIGTERM, partial(end_tree_on_term, str(run.paths.root)))
@@ -1620,6 +1615,14 @@ def end_tree_on_term(marker: str, signum: int, _frame: Any) -> None:
     """The session's SIGTERM to a worker over its bound: ends the case's processes, then the worker."""
     end_processes(descendants(os.getpid(), marker), EXIT_S)
     os._exit(128 + signum)
+
+
+def session_isolation(value: Any) -> hermetic_env.Isolation:
+    """The session's isolation: a description oracle.py resolved once for the whole run (no probe
+    here), or a mode for this file's own CLI (probed once per command; netns when absent)."""
+    if isinstance(value, Mapping):
+        return hermetic_env.Isolation.from_description(value)
+    return hermetic_env.isolation_for(str(value or "netns"), host_platform())
 
 
 def open_session(session_ctx: Dict[str, Any]) -> DaemonSession:
@@ -1851,6 +1854,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         cmd.add_argument("--snapshot-schema", help="the snapshot schema (default: normalize.py's)")
         cmd.add_argument("--state-base", type=Path, default=DEFAULT_STATE_BASE)
         cmd.add_argument("--run-id")
+        cmd.add_argument("--isolation", choices=hermetic_env.ISOLATION_MODES, default="netns",
+                         help="netns: unshare -rn, refuse a host without it (default); auto: netns when the host "
+                              "allows it; none: no namespace (each result's environment says so)")
         if name == "run-case":
             cmd.add_argument("case", help="a case-v1 JSON file")
             cmd.add_argument("--ref", help="the SHA under test (meta.sha)")
@@ -1879,8 +1885,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.command is None:
         parser.print_usage(sys.stderr)
         return 2
+    args.session_extra = {"isolation": args.isolation}
     if args.snapshot_schema:
-        args.session_extra = {"snapshot_schema": args.snapshot_schema}
+        args.session_extra["snapshot_schema"] = args.snapshot_schema
     try:
         return cmd_run_case(args) if args.command == "run-case" else cmd_smoke(args)
     except ValueError as error:
