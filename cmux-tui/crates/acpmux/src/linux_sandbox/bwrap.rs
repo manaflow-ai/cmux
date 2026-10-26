@@ -152,6 +152,14 @@ fn is_writable_by_uid(path: &Path) -> Result<bool, String> {
     }
 }
 
+/// Pure ancestor policy; the callback returns (owned by this uid, writable).
+fn validate_outside(
+    _path: &Path,
+    _stat: impl FnMut(&Path) -> Result<Option<(bool, bool)>, String>,
+) -> Result<(), String> {
+    Ok(())
+}
+
 /// Snapshot existing explicit denials. A1b replaces HOME masks with a rebuilt
 /// view so absent credentials stay hidden too. Iteration ends after `paths`.
 /// Outside HOME, absent paths are skipped only under an unwritable ancestor.
@@ -414,6 +422,70 @@ mod tests {
         .unwrap();
         let (args, _fds) = plan(&p, &policy.read_denies(), &strings(&["true"])).unwrap();
         assert!(args.iter().any(|arg| arg == "--bind-fd"));
+    }
+
+    #[test]
+    fn outside_ancestor_policy_checks_ownership_and_all_parents() {
+        let path = Path::new("/Library/nested/Keychains");
+        for exists in [false, true] {
+            for (ancestor, owned, writable) in [
+                ("/Library/nested", true, false), // user-owned 0555: chmod is possible
+                ("/Library", false, true),
+                ("/", true, false),
+            ] {
+                let result = validate_outside(path, |p| {
+                    Ok(if p == path && !exists {
+                        None
+                    } else {
+                        Some((
+                            p == Path::new(ancestor) && owned,
+                            p == Path::new(ancestor) && writable,
+                        ))
+                    })
+                });
+                let error = result.unwrap_err();
+                assert!(
+                    error.contains(path.to_str().unwrap()) && error.contains(ancestor),
+                    "{error}"
+                );
+                assert!(
+                    error.contains(if owned {
+                        "owned by this user"
+                    } else {
+                        "writable by this user"
+                    }),
+                    "{error}"
+                );
+            }
+            // All existing ancestors are root-owned 0755, including /.
+            assert!(
+                validate_outside(path, |p| Ok(if p == path && !exists {
+                    None
+                } else {
+                    Some((false, false))
+                }))
+                .is_ok()
+            );
+        }
+        // A missing intermediate ancestor must not stop the walk to /Library.
+        assert!(
+            validate_outside(path, |p| Ok(if p.starts_with("/Library/nested") {
+                None
+            } else {
+                Some((p == Path::new("/Library"), false))
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn absent_system_keychains_are_skipped() {
+        assert!(!Path::new("/Library/Keychains").exists(), "runner must lack macOS keychains");
+        assert!(
+            outside_view(&[PathBuf::from("/Library/Keychains")], Path::new("/home/test"))
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
