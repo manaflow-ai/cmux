@@ -48,6 +48,13 @@ import Dispatch
 /// ``ShutdownBehavior/blockShutdown`` ones; ``shutdown()`` then returns when every block-shutdown item, lane
 /// item or ``task(_:shutdown:fileID:line:_:)``, has finished. After that, a block-shutdown item is refused too
 /// (Chrome DCHECKs such a post): nothing would wait for it, and Debug records its site.
+///
+/// Quit waits for block-shutdown lane items, so shutdown raises them, as Chrome runs BLOCK_SHUTDOWN tasks at a
+/// normal thread priority once shutdown starts: a queued one moves to ``WorkPriority/userBlocking`` and starts at
+/// `.userInitiated`, a running one below that gets one `.userInitiated` override on its thread until it ends,
+/// and one submitted later is queued at ``WorkPriority/userBlocking``. A block-shutdown
+/// ``task(_:shutdown:fileID:line:_:)`` keeps its priority: raising a running Swift task needs
+/// `Task.escalatePriority`, which macOS 14 and 15 lack (see the escalation note above).
 public final class BackgroundWork: Sendable {
     /// How many ``BlockingLane/cpu`` items run at once.
     public let cpuWidth: Int
@@ -115,11 +122,12 @@ public final class BackgroundWork: Sendable {
                   uptimeNanos: uptimeNanos, taskHooks: .none)
     }
 
-    /// The designated init; tests pass ``TaskHooks`` to stop a task between its steps.
+    /// The designated init; tests pass ``TaskHooks`` to stop a task between its steps, and a ``LaneQoSOverride``
+    /// that counts the overrides shutdown puts on running block-shutdown items.
     init(cpuWidth: Int, label: String, hangs: (any HangWatchScoping)? = nil,
          onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void,
          onRan: (@Sendable (BlockingLane, WorkPriority, UInt64, UInt64) -> Void)? = nil,
-         uptimeNanos: (@Sendable () -> UInt64)?, taskHooks: TaskHooks) {
+         uptimeNanos: (@Sendable () -> UInt64)?, taskHooks: TaskHooks, qosOverride: LaneQoSOverride = .system) {
         self.taskHooks = taskHooks
         self.cpuWidth = max(1, cpuWidth)
         self.label = label
@@ -135,7 +143,7 @@ public final class BackgroundWork: Sendable {
             }
             let watched = hangs.map { HangWatchedLane(Self.hangScopeName(lane), deadline: Self.hangDeadline(lane), on: $0) }
             return LaneScheduler(label: "\(label).\(lane)", policy: traits.policy, mayBlock: traits.mayBlock, caps: traits.caps,
-                                 hangWatched: watched)
+                                 hangWatched: watched, qosOverride: qosOverride)
         }
     }
 
@@ -319,8 +327,10 @@ public final class BackgroundWork: Sendable {
     /// Starts shutdown and returns at once: drops every lane item that has not started except
     /// ``ShutdownBehavior/blockShutdown`` ones, cancels every ``ShutdownBehavior/skipOnShutdown`` task, refuses
     /// new items other than block-shutdown ones (a refused ``task(_:shutdown:fileID:line:_:)`` throws
-    /// `CancellationError`, and so does a continue-on-shutdown task that had not started), and lifts the
-    /// best-effort fence so held block-shutdown items run. Started continue-on-shutdown items run on. A second
+    /// `CancellationError`, and so does a continue-on-shutdown task that had not started), lifts the
+    /// best-effort fence so held block-shutdown items run, and raises block-shutdown lane items to
+    /// `.userInitiated` (queued ones move to ``WorkPriority/userBlocking``, running ones get one override each).
+    /// Started continue-on-shutdown items run on. A second
     /// call does nothing more. Quit calls it before the engines stop, so the lanes drain alongside them
     /// (QuitCompletion).
     public func beginShutdown() {

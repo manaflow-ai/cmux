@@ -502,3 +502,76 @@ fn will_block_off_a_worker_or_nested_counts_nothing() {
     assert_eq!(nested, Ok(true));
     assert_eq!(lane_stats(&work, Lane::System).blocked, 0);
 }
+
+/// The calling worker's thread name and whether it runs at UserInitiated (Linux: the process's base
+/// nice value, which is nice 0 outside `nice -n`).
+fn worker_and_class() -> (String, bool) {
+    let name = std::thread::current().name().unwrap_or_default().to_owned();
+    #[cfg(target_os = "linux")]
+    let user_initiated = current_nice() == base_nice();
+    #[cfg(target_vendor = "apple")]
+    let user_initiated = crate::qos::current() == LiveQos::Class(ThreadQos::UserInitiated);
+    #[cfg(not(any(target_os = "linux", target_vendor = "apple")))]
+    let user_initiated = true;
+    (name, user_initiated)
+}
+
+/// Task 118: once shutdown starts, an Idle block item queued behind the lane's Idle limit runs at
+/// UserBlocking on a foreground worker, while the item that held the limit still runs.
+#[test]
+fn shutdown_runs_a_queued_idle_block_item_on_a_foreground_worker() {
+    let work = Arc::new(work("t-sq", 2, Duration::from_secs(30), 0));
+    // One running item fills Files for Idle (limit 1).
+    let gates =
+        started_gates(&work, 1, Priority::UserBlocking, Lane::Files, Shutdown::SkipOnShutdown);
+    let block = work.run(Priority::Idle, Lane::Files, Shutdown::BlockShutdown, worker_and_class);
+    assert_eq!(block.try_wait(), None);
+
+    let shutting = Arc::clone(&work);
+    let report = std::thread::spawn(move || shutting.shutdown());
+    // Without the raise it would wait for the gate, which only the end of this test releases.
+    let mut ran = None;
+    until("the raised block item to run while the gate holds", || {
+        ran = block.try_wait();
+        ran.is_some()
+    });
+    let (worker, user_initiated) = ran.unwrap().unwrap();
+    assert!(worker.ends_with("-files-fg"), "the block item ran on {worker}");
+    assert!(user_initiated, "the block item ran below UserInitiated");
+    // It ran while the gate still held the lane: shutdown waits for the started skip gate.
+    assert!(!report.is_finished());
+    drop(gates);
+    assert_eq!(report.join().unwrap(), ShutdownReport::default());
+    // It never ran on a lower worker, so no worker was raised.
+    let stats = lane_stats(&work, Lane::Files);
+    assert_eq!(stats.shutdown_raises + stats.shutdown_raise_refusals, 0);
+
+    // A block item posted after shutdown runs on a foreground worker too.
+    let late = work.run(Priority::Idle, Lane::Files, Shutdown::BlockShutdown, worker_and_class);
+    let (worker, user_initiated) = late.wait().unwrap();
+    assert!(worker.ends_with("-files-fg") && user_initiated, "the late block item ran on {worker}");
+}
+
+/// Task 118: a block item running on a BestEffort worker gets its worker raised exactly once; a
+/// running skip item on the same lane is not raised.
+#[test]
+fn shutdown_raises_the_worker_of_a_running_best_effort_block_item_once() {
+    let work = work("t-sr", 2, Duration::from_secs(30), 0);
+    // Files: Idle takes the first slot (its limit), BestEffort the second.
+    let skip = started_gates(&work, 1, Priority::Idle, Lane::Files, Shutdown::SkipOnShutdown);
+    let block = started_gates(&work, 1, Priority::BestEffort, Lane::Files, Shutdown::BlockShutdown);
+    let report = work.shutdown_until(Instant::now() + Duration::from_millis(20));
+    assert_eq!(report, ShutdownReport { dropped: 0, unfinished: 2 });
+    // A second shutdown raises nothing more.
+    let _ = work.shutdown_until(Instant::now() + Duration::from_millis(1));
+    let stats = lane_stats(&work, Lane::Files);
+    assert_eq!(stats.shutdown_raises + stats.shutdown_raise_refusals, 1, "{stats:?}");
+    // macOS always takes the override; Linux takes the raise only when nice 0 is allowed again.
+    if cfg!(target_vendor = "apple") || crate::qos::reversible(ThreadQos::Background) {
+        assert_eq!(stats.shutdown_raises, 1, "{stats:?}");
+    }
+    drop((skip, block));
+    assert_eq!(work.shutdown(), ShutdownReport::default());
+    let stats = lane_stats(&work, Lane::Files);
+    assert_eq!(stats.shutdown_raises + stats.shutdown_raise_refusals, 1, "{stats:?}");
+}
