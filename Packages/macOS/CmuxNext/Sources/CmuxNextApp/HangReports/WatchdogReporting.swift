@@ -3,6 +3,7 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
+import CmuxNextFeatures
 import CmuxNextHangReports
 import CmuxNextWakeups
 
@@ -20,7 +21,8 @@ enum WatchdogReporting {
             policy: reporter.policy, folder: SidebarSnapshotFile.buildDirectory(launch: services.environment.launch)
                 .appending(path: "HangReports", directoryHint: .isDirectory),
             counts: { @MainActor [weak services] in services.map(WatchdogReporting.counts) ?? .unknown },
-            watchdog: watchdog, input: services.inputTap, events: services.appEvents, work: services.work, mainWork: services.mainWork)
+            watchdog: watchdog, input: services.inputTap, events: services.appEvents, work: services.work, mainWork: services.mainWork,
+            wireSchema: .written(serverAcceptsSchema3: services.features.isEnabled(.hangReportsSchema3)))
         let collector = hangReports.collector
         // Replays the sites the detector recorded before this point (BlockingDetector.install).
         services.blocking.install(sink: BlockingReportSink(collector: collector, nonFatal: .init(

@@ -1,4 +1,6 @@
 import CmuxNextInputCore
+import CmuxNextMetrics
+import CmuxNextTrace
 public import Foundation
 import os
 
@@ -40,13 +42,17 @@ public actor HangReportService {
         /// (``MainThreadReportLedger``, fed by ``MainThreadActivityFeed``); nil (the default) where the
         /// app has none. Used only when the builder's wire schema carries them.
         public var mainThread: MainThreadReportLedger?
+        /// The metrics store, earlier launches and black-box rings (``HangReportFieldSources``); nil (the
+        /// default) where the app has none. Used only when the builder's wire schema carries field data.
+        public var fieldData: HangReportFieldSources?
 
         /// Makes the value from its parts.
         public init(app: HangReport.App, os: HangReport.OS, hardware: HardwareClass,
                     counts: @escaping @Sendable () async -> CoarseCounts, now: @escaping @Sendable () -> Date = Date.init,
                     makeReportID: @escaping @Sendable () -> String = { UUID().uuidString.lowercased() },
                     stillAllowed: @escaping @Sendable () -> Bool = { true },
-                    inputLatency: (any HangReportInputLatencySource)? = nil, mainThread: MainThreadReportLedger? = nil) {
+                    inputLatency: (any HangReportInputLatencySource)? = nil, mainThread: MainThreadReportLedger? = nil,
+                    fieldData: HangReportFieldSources? = nil) {
             self.app = app
             self.os = os
             self.hardware = hardware
@@ -56,6 +62,7 @@ public actor HangReportService {
             self.stillAllowed = stillAllowed
             self.inputLatency = inputLatency
             self.mainThread = mainThread
+            self.fieldData = fieldData
         }
     }
 
@@ -114,6 +121,8 @@ public actor HangReportService {
     /// before now are never sent.
     public func setEnabled(_ on: Bool) async {
         guard !settled || on != isEnabled else { return }
+        // Turned on while cmux runs: the samples recorded while off are never sent.
+        let turnedOnNow = settled && on
         settled = true
         isEnabled = on
         generation += 1
@@ -122,10 +131,13 @@ public actor HangReportService {
         mainThreadLedger?.restart()
         await syncInputLatencyRecording()
         if on {
+            if turnedOnNow { fieldSources?.discardCurrent() }
             if let saved = await store.takePending() { collector.merge(saved) }
             if let saved = await store.takePendingMainThread(), generation == started { mainThreadLedger?.merge(saved) }
         } else {
             waiting = []
+            fieldSources?.discardCurrent()
+            await fieldSources?.discardEarlierLaunches()
             await store.clearQueued()
             identity.forget()
         }
@@ -137,8 +149,14 @@ public actor HangReportService {
         guard isEnabled, await allowed() else { return }
         await flushOutbox()
         let last = await store.sendLog().lastSentAt ?? .distantPast
-        if environment.now().timeIntervalSince(last) >= Self.watchdogReportInterval,
-           hasSendable(collector.snapshot()) || mainThreadLedger?.take().isEmpty == false {
+        // An earlier launch's samples (a crashed one's above all) go at launch, under the daily cap.
+        if await fieldSources?.earlierLaunches().isEmpty == false {
+            await sendReport()
+            return
+        }
+        guard environment.now().timeIntervalSince(last) >= Self.watchdogReportInterval else { return }
+        let samples = await fieldSources?.currentDelta() != nil
+        if samples || hasSendable(collector.snapshot()) || mainThreadLedger?.take().isEmpty == false {
             await sendReport()
         }
     }
@@ -155,7 +173,11 @@ public actor HangReportService {
     /// (call when the app quits). Synchronous on purpose: `applicationWillTerminate` cannot wait for
     /// the actor; it writes small files the actor only reads at the next launch's `setEnabled(true)`.
     public nonisolated func saveForNextLaunch() {
-        guard collector.isEnabled else { return }
+        guard collector.isEnabled else {
+            // Off: what this launch recorded is marked sent, so the next launch's fold sends none of it.
+            fieldSources?.discardCurrent()
+            return
+        }
         let aggregate = collector.snapshot()
         if !aggregate.isEmpty, let data = try? JSONEncoder().encode(aggregate) {
             write(data, to: store.directory.appending(path: "pending.json"))
@@ -178,8 +200,10 @@ public actor HangReportService {
         var inputLatency: InputLatencySnapshot?
         if isEnabled, let source = inputLatencySource { inputLatency = await source.preview() }
         let mainThread = isEnabled ? mainThreadLedger?.take().input : nil
-        let report = await build(watchdog: collector.snapshot(), metricKit: waiting, inputLatency: inputLatency, mainThread: mainThread,
-                                 installId: isEnabled ? nil : UUID().uuidString.lowercased())
+        let fieldData = isEnabled ? await fieldDataInput(blackbox: collector.blackBoxSnapshot()).input : nil
+        let report = Self.fitted(await build(watchdog: collector.snapshot(), metricKit: waiting, inputLatency: inputLatency,
+                                             mainThread: mainThread, fieldData: fieldData,
+                                             installId: isEnabled ? nil : UUID().uuidString.lowercased()))
         guard let readable = try? HangReport.readableEncoder.encode(report),
               scanner.findings(in: readable).isEmpty else { return nil }
         await store.savePreview(readable)
@@ -218,7 +242,10 @@ public actor HangReportService {
         // Read, not taken: the ledger moves on only once the report is queued (commit below), and a
         // report with no hang still carries the active time, so the rate's denominator is complete.
         let mainThread = mainThreadLedger?.take()
-        guard hasSendable(aggregate) || !deliveries.isEmpty || mainThread?.isEmpty == false else { return }
+        // Read, not taken, as the ledger: the samples and sections are marked sent once the report is queued.
+        let field = await fieldDataInput(blackbox: collector.takeBlackBox())
+        guard generation == started else { return }
+        guard hasSendable(aggregate) || !deliveries.isEmpty || mainThread?.isEmpty == false || field.hasContent else { return }
         log.day = today
         log.sentToday += 1
         log.lastSentAt = now
@@ -227,9 +254,9 @@ public actor HangReportService {
         // report dropped by a check here gives its input counts to the next one.
         let inputLatency = await inputLatencySource?.take()
         let report = Self.fitted(await build(watchdog: aggregate, metricKit: deliveries, inputLatency: inputLatency,
-                                             mainThread: mainThread?.input))
+                                             mainThread: mainThread?.input, fieldData: field.input))
         guard generation == started, !report.hasNoFindings, let body = try? HangReport.encoder.encode(report),
-              body.count <= HangReport.maxBodyBytes else { return }
+              body.count <= Self.bodyLimit(of: report) else { return }
         let findings = scanner.findings(in: body)
         guard findings.isEmpty else {
             refusedCount += 1
@@ -240,6 +267,7 @@ public actor HangReportService {
         await store.enqueue(body, reportId: report.reportId)
         if inputLatency != nil, generation == started { await inputLatencySource?.commit() }
         if let mainThread, generation == started { mainThreadLedger?.commit(mainThread) }
+        if generation == started { await commitFieldData(field, sentIn: report) }
         // The readable copy (View Hang Report) is the queued body's, written only while reports are on.
         if generation == started, let readable = try? HangReport.readableEncoder.encode(report) { await store.saveLastReport(readable) }
         await flushOutbox()
@@ -325,31 +353,122 @@ public actor HangReportService {
         }
     }
 
+    /// ``Environment/fieldData`` when the builder's wire schema carries field data, else nil: a build whose
+    /// reports cannot hold it never reads it.
+    private nonisolated var fieldSources: HangReportFieldSources? {
+        builder.wireSchema.carriesFieldData ? environment.fieldData : nil
+    }
+
+    /// What a report's field data is read from, and the earlier launches it carries.
+    struct FieldData {
+        /// The builder's input; nil when the schema has no field data.
+        var input: HangReportBuilder.FieldDataInput?
+        /// The earlier launches in ``input``, by their files.
+        var sections: [MetricsLaunchSection<MetricsLaunchContents>] = []
+
+        /// Whether a report should go for it alone (a black box alone is context, not a finding).
+        var hasContent: Bool { input?.current != nil || !sections.isEmpty }
+    }
+
+    /// The current delta, the first earlier launches that hold a sample (the empty ones are deleted here) and
+    /// `blackbox`.
+    private func fieldDataInput(blackbox: [TraceBlackBoxUpload.Record]) async -> FieldData {
+        guard let sources = fieldSources else { return FieldData() }
+        var sections: [MetricsLaunchSection<MetricsLaunchContents>] = []
+        for section in await sources.earlierLaunches() where sections.count < HangReport.maxLaunchSections {
+            if HangReportBuilder.launchSection(section.contents) == nil {
+                await sources.finished(section)
+            } else {
+                sections.append(section)
+            }
+        }
+        let input = HangReportBuilder.FieldDataInput(current: await sources.currentDelta(), sections: sections.map(\.contents),
+                                                     blackbox: blackbox)
+        return FieldData(input: input, sections: sections)
+    }
+
+    /// Marks what the queued `report` carries as sent: the histograms it kept and every stability count, and the
+    /// earlier launches it kept (their files are deleted). What the body cap cut stays for a later report.
+    private func commitFieldData(_ field: FieldData, sentIn report: HangReport) async {
+        guard let sources = fieldSources else { return }
+        if let current = field.input?.current {
+            await sources.markSent(HangReportBuilder.sentDelta(current, histograms: report.histograms ?? []))
+        }
+        let kept = Set((report.launchSections ?? []).map(\.id))
+        for section in field.sections where kept.contains(HangReportBuilder.sectionID(section.id)) {
+            await sources.finished(section)
+        }
+    }
+
     private func build(watchdog: StallAggregate, metricKit: [MetricKitInput], inputLatency: InputLatencySnapshot? = nil,
-                       mainThread: HangReportBuilder.MainThreadInput? = nil, installId: String? = nil) async -> HangReport {
+                       mainThread: HangReportBuilder.MainThreadInput? = nil, fieldData: HangReportBuilder.FieldDataInput? = nil,
+                       installId: String? = nil) async -> HangReport {
         let now = environment.now()
         let context = HangReportBuilder.Context(
             reportId: environment.makeReportID(), installId: installId ?? identity.current(), day: Self.day(now), app: environment.app,
             os: environment.os, hardware: environment.hardware, counts: await environment.counts())
         return builder.build(context: context, watchdog: watchdog, metricKit: metricKit, inputLatency: inputLatency,
-                             mainThread: mainThread)
+                             mainThread: mainThread, fieldData: fieldData)
     }
 
-    /// `report` shrunk until it encodes under the body cap. The input latency is context and goes
-    /// first (the least frequent rows, then the scroll jank histograms, then the whole block), so
-    /// hangs keep the room they had without it; then the shortest hangs (the blocking samples, first
-    /// in the list, after every timed one), CPU exceptions and intervals: MetricKit's last ones before
-    /// the main-turn and input-queueing histograms, which the builder also keeps at the interval cap
-    /// (``HangReportBuilder/addMainThread(_:to:)``).
+    /// `report` shrunk until it encodes under its schema's body cap (``HangReport/WireSchema/maxBodyBytes``).
+    /// The black box goes first (its oldest events), then the input latency, which is context too (the
+    /// least frequent rows, then the scroll jank histograms, then the whole block), so hangs keep the room
+    /// they had without them; then the shortest hangs (the blocking samples, first in the list, after
+    /// every timed one), CPU exceptions and intervals: MetricKit's last ones before the main-turn and
+    /// input-queueing histograms, which the builder also keeps at the interval cap
+    /// (``HangReportBuilder/addMainThread(_:to:)``); then the earlier launches' sections and the histograms
+    /// with the fewest samples, which stay unsent for a later report. The stability counts stay.
     static func fitted(_ report: HangReport) -> HangReport {
         var report = report
-        while (try? HangReport.encoder.encode(report).count) ?? 0 > HangReport.maxBodyBytes {
-            if trimInputLatency(&report) { continue }
+        let limit = bodyLimit(of: report)
+        while encodedSize(report) > limit {
+            if trimBlackBox(&report, limit: limit) || trimInputLatency(&report) { continue }
             if !report.hangs.isEmpty { report.hangs.removeLast() } else if !report.cpuExceptions.isEmpty {
                 report.cpuExceptions.removeLast()
-            } else if !trimInterval(&report) { break }
+            } else if !trimInterval(&report), !trimFieldData(&report) { break }
         }
         return report
+    }
+
+    /// The body cap of `report`'s schema.
+    static func bodyLimit(of report: HangReport) -> Int {
+        HangReport.WireSchema(rawValue: report.schema)?.maxBodyBytes ?? HangReport.maxBodyBytes
+    }
+
+    private static func encodedSize(_ report: HangReport) -> Int {
+        (try? HangReport.encoder.encode(report).count) ?? 0
+    }
+
+    /// Keeps the newest black-box events that fit `limit` (a binary search: a few encodes, not one per
+    /// event); none when even one does not. False when there is no black box.
+    static func trimBlackBox(_ report: inout HangReport, limit: Int) -> Bool {
+        guard let events = report.blackbox, !events.isEmpty else { return false }
+        var fits = 0
+        var over = events.count
+        while over - fits > 1 {
+            let middle = (fits + over) / 2
+            report.blackbox = Array(events.suffix(middle))
+            if encodedSize(report) <= limit { fits = middle } else { over = middle }
+        }
+        report.blackbox = fits == 0 ? nil : Array(events.suffix(fits))
+        return true
+    }
+
+    /// Removes the last earlier launch's section, else the histogram with the fewest samples; false when
+    /// neither is left.
+    static func trimFieldData(_ report: inout HangReport) -> Bool {
+        if var sections = report.launchSections, !sections.isEmpty {
+            sections.removeLast()
+            report.launchSections = sections.isEmpty ? nil : sections
+        } else if var histograms = report.histograms,
+                  let fewest = histograms.indices.min(by: { histograms[$0].count < histograms[$1].count }) {
+            histograms.remove(at: fewest)
+            report.histograms = histograms.isEmpty ? nil : histograms
+        } else {
+            return false
+        }
+        return true
     }
 
     /// Removes the last MetricKit interval, else the last main-thread one; false when none is left.

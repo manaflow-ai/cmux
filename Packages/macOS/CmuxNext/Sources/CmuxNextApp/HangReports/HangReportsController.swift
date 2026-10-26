@@ -79,10 +79,11 @@ final class HangReportsController {
 
     /// The controller for this launch: the service over this build's folder, the real transport,
     /// classifier and dyld resolver, the app's own envelope values, and (when the wire schema carries
-    /// them) the active time and `watchdog`'s main-turn and input-queueing histograms.
+    /// them) the active time and `watchdog`'s main-turn and input-queueing histograms. `wireSchema` is schema 3
+    /// only while the `hangReportsSchema3` feature says cmux.com accepts it.
     static func forThisLaunch(policy: CrashReportingPolicy, folder: URL, counts: @escaping @Sendable () async -> CoarseCounts,
                               watchdog: MainThreadWatchdog, input: any InputObserving, events: AppEvents,
-                              work: BackgroundWork, mainWork: MainWorkScheduler,
+                              work: BackgroundWork, mainWork: MainWorkScheduler, wireSchema: HangReport.WireSchema = .deployed,
                               environment: [String: String] = ProcessInfo.processInfo.environment) -> HangReportsController {
         let devOptIn = policy.channel == .dev && environment[devOptInKey] == "1"
         let mayReport = (policy.channel == .nightly || devOptIn) && !CrashReportingPolicy.isTestProcess(environment)
@@ -102,7 +103,7 @@ final class HangReportsController {
             mainThreadHistograms: { [watchdog] in
                 MainThreadReportLedger.Histograms(edgesNanos: MainTurnHistogram.edgesNanos, turnCounts: watchdog.turnHistogram.snapshot().counts,
                                                   inputQueueingCounts: watchdog.inputQueueHistogram.snapshot().counts)
-            })
+            }, wireSchema: wireSchema)
         let feed = service.mainThreadLedger.map {
             MainThreadActivityFeed(ledger: $0, input: input, events: events, isActive: NSApp?.isActive ?? false)
         }
