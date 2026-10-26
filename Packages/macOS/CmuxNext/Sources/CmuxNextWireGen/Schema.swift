@@ -13,9 +13,9 @@ struct TypeSchemaError: Error, Equatable, CustomStringConvertible {
     var description: String { "\(MethodTableSchema.sdkFile): \(path): \(message)" }
 }
 
-/// The commands one client calls and every named type they reach, read from
-/// sdk-schema.json. Named types nothing reaches are not read at all, so a type
-/// only another client uses can never fail the app's build.
+/// The commands one client calls, the events it receives and every named type
+/// they reach, read from sdk-schema.json. Named types nothing reaches are not
+/// read at all, so a type only another client uses can never fail the app's build.
 struct TypeSchema: Equatable {
     enum Scalar: String, Equatable {
         case string, boolean, int32, uint16, uint32, int64, uint64, float32, float64
@@ -136,8 +136,6 @@ struct TypeSchema: Equatable {
 
     struct Command: Equatable {
         let name: String
-        /// The kebab-case family of its `method_id`; nil for a command with no id.
-        let family: String?
         let methodID: UInt16?
         let request: Object
         let result: TypeExpr
@@ -145,12 +143,18 @@ struct TypeSchema: Equatable {
         var refs: [String] { request.refs + result.refs }
     }
 
+    /// An event the client receives: the app decodes every one it subscribes to.
+    struct Event: Equatable {
+        let name: String
+        let payload: TypeExpr
+    }
+
     /// The commands `client` calls, by method id (commands with no id last), then name.
     let commands: [Command]
-    /// Every named type those commands reach, by name.
+    /// The events `client` receives, by name.
+    let events: [Event]
+    /// Every named type those commands and events reach, by name.
     let types: [String: TypeExpr]
-    /// The declared families of the command id space (0x01-0x5F), by name.
-    let commandFamilies: [String]
 
     init(sdkSchema: Data, client: String = MethodTableSchema.macOSClient) throws(TypeSchemaError) {
         let document: SchemaJSON
@@ -168,8 +172,9 @@ struct TypeSchema: Equatable {
         commands.sort { lhs, rhs in
             (lhs.methodID ?? .max, lhs.name) < (rhs.methodID ?? .max, rhs.name)
         }
+        let events = try parser.events(client: client)
         var types: [String: TypeExpr] = [:]
-        var pending = commands.flatMap(\.refs)
+        var pending = commands.flatMap(\.refs) + events.flatMap(\.payload.refs)
         while let name = pending.popLast() {
             guard types[name] == nil else { continue }
             let type = try parser.namedType(name)
@@ -177,12 +182,15 @@ struct TypeSchema: Equatable {
             pending.append(contentsOf: type.refs)
         }
         self.commands = commands
+        self.events = events
         self.types = types
-        commandFamilies = parser.families
-            .filter { MethodTableSchema.Space.v12.range.contains($0.key) }
-            .map(\.value)
-            .sorted()
     }
+
+    /// The named types the client's commands reach: the ones the app's wire types declare.
+    var commandTypes: Set<String> { closure(of: commands.flatMap(\.refs)) }
+
+    /// The named types a newer daemon writes: what command results and event payloads reach.
+    var decodedTypes: Set<String> { closure(of: commands.flatMap(\.result.refs) + events.flatMap(\.payload.refs)) }
 
     /// `roots` and every named type they reach.
     func closure(of roots: [String]) -> Set<String> {

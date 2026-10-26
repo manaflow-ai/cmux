@@ -1,5 +1,5 @@
 {
-  "$comment": "Wire-type fixture (p05-ipc-020): the shapes CmuxNextWireGen's TypeEmitter writes, read by CmuxNextWireGenTests TypeEmitterTests and compared with TypeEmitterGolden. tab-read's result makes Tab, TabState, DeviceKind, Node and Entry decoded (extensible); SendMode and Bundle only reach requests (closed). cli-dump has no macos client, so CLIOnly is never written.",
+  "$comment": "Wire-type fixture (p05-ipc-020): the shapes CmuxNextWireGen's TypeEmitter writes, read by CmuxNextWireGenTests TypeEmitterTests and compared with TypeEmitterGolden. tab-read's result makes Tab, TabState, DeviceKind, Node and Entry decoded (extensible); SendMode and Bundle only reach requests (closed); FlashStyle reaches a request and the tab-flashed event, so it is decoded too. FlashOrigin only an event reaches: it is read but not written. cli-dump has no macos client, so CLIOnly is never written.",
   "families": {
     "tabs": { "id": 7, "description": "Tabs." },
     "tab-events": { "id": 194, "description": "Tab events." }
@@ -11,6 +11,9 @@
     "TabState": { "kind": "enum", "values": ["idle", "busy-wait", "unknown"] },
     "DeviceKind": { "kind": "enum", "values": ["mac", "unknown"], "fallback": "unknown" },
     "SendMode": { "kind": "enum", "values": ["paste", "default"] },
+    "FlashStyle": { "kind": "enum", "values": ["pulse", "glow"] },
+    "FlashOrigin": { "kind": "object", "additional_properties": false, "fields": {
+      "pane": { "type": { "kind": "ref", "name": "Id" }, "presence": "required", "nullable": false } } },
     "Tab": {
       "kind": "object",
       "additional_properties": false,
@@ -72,13 +75,22 @@
     "tab-write": {
       "method_id": 1793,
       "request": { "kind": "object", "additional_properties": false, "fields": {
-        "bundle": { "type": { "kind": "ref", "name": "Bundle" }, "presence": "required", "nullable": false } } },
+        "bundle": { "type": { "kind": "ref", "name": "Bundle" }, "presence": "required", "nullable": false },
+        "flash": { "type": { "kind": "ref", "name": "FlashStyle" }, "presence": "optional", "nullable": true } } },
       "result": { "kind": "object", "additional_properties": false, "fields": {} }
     },
     "cli-dump": {
       "method_id": 1794, "clients": ["cli"],
       "request": { "kind": "object", "additional_properties": false, "fields": {} },
       "result": { "kind": "ref", "name": "CLIOnly" }
+    }
+  },
+  "events": {
+    "tab-flashed": {
+      "event_id": 49664,
+      "payload": { "kind": "object", "additional_properties": false, "fields": {
+        "style": { "type": { "kind": "ref", "name": "FlashStyle" }, "presence": "required", "nullable": false },
+        "origin": { "type": { "kind": "ref", "name": "FlashOrigin" }, "presence": "required", "nullable": false } } }
     }
   }
 }

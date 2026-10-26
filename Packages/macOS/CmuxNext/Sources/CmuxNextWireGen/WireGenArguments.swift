@@ -36,7 +36,7 @@ struct WireGenArguments {
     let identityOutput: URL
     /// Where `MethodTable.schema` goes (TableEmitter).
     let methodTableOutput: URL
-    /// The directory TypeEmitter writes its per-family files into.
+    /// The directory TypeEmitter writes its support files and per-type files into.
     let typesOutputDirectory: URL
 
     init(_ argv: [String]) throws(WireGenError) {

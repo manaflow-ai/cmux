@@ -11,8 +11,11 @@ import Foundation
 // type per schema struct, union and enum, each member with its explicit wire
 // name, and an [Extensible] enum keeps a value it does not know instead of
 // failing the message (mojo/public/cpp/bindings/enum_traits.h). Here every
-// enum and tagged union the app decodes from a reply is extensible; one the
-// app only sends stays closed. The output is a pure function of the schema bytes.
+// enum and union a command result or an event reaches is extensible; one the
+// app only sends stays closed. Every generated top-level name is `Wire` + the
+// schema name (`WirePane`), so a module that imports CmuxNextIPC next to
+// CmuxNextDaemon or SwiftUI never sees an ambiguous `Pane`, `PaneID` or
+// `Layout`. The output is a pure function of the schema bytes.
 
 /// One generated Swift source file.
 struct GeneratedSource: Equatable {
@@ -56,27 +59,39 @@ struct TypeEmitter {
 
     /// Standard library names the generated code spells; no generated type may shadow one.
     static let standardTypeNames: Set<String> = [
-        "Any", "Array", "Bool", "CodingKey", "CodingKeys", "Codable", "Decodable", "Decoder", "DecodingError",
+        "Any", "Array", "Bool", "CodingKey", "Codable", "Decodable", "Decoder", "DecodingError",
         "Dictionary", "Double", "Encodable", "Encoder", "EncodingError", "Equatable", "Error", "Float", "Hashable",
         "Int", "Int32", "Int64", "Never", "Optional", "Protocol", "RawRepresentable", "Self", "Sendable", "String",
         "Swift", "Type", "UInt16", "UInt32", "UInt64",
     ]
 
+    /// The types every generated declaration nests: no nested type may take one of these names.
+    static let memberTypeNames: Set<String> = ["CodingKeys", "TagKey"]
+
     let schema: Schema
-    /// The named types a command result reaches: values a newer daemon writes.
+    /// The named types a command result or an event reaches: values a newer daemon writes.
     let decoded: Set<String>
-    /// Every top-level name the generated module declares or spells.
+    /// Every name a nested declaration must not take: the module's top-level
+    /// names, the standard library's and the generated members'.
     let reservedNames: Set<String>
 
     init(schema: Schema) throws(TypeSchemaError) {
         self.schema = schema
-        decoded = schema.closure(of: schema.commands.flatMap(\.result.refs))
-        let support = Set(WireIDType.all.map(\.name) + [Self.wireJSON, Self.anyKey])
-        let taken = support.union(Self.hostTypeNames).union(Self.standardTypeNames)
-        for name in schema.types.keys.sorted() where taken.contains(name) {
-            throw TypeSchemaError(path: "$.types.\(name)", message: "collides with a Swift, CmuxNextIPC or generated support type")
+        decoded = schema.decodedTypes
+        do {
+            _ = try WireTypeFiles(typeNames: schema.types.keys)
+        } catch {
+            throw TypeSchemaError(path: error.path, message: error.message)
         }
-        reservedNames = taken.union(schema.types.keys)
+        let support = Set(WireIDType.declaredNames + [Self.wireJSON, Self.anyKey])
+        let taken = support.union(Self.hostTypeNames).union(Self.standardTypeNames)
+        for name in schema.types.keys.sorted() where taken.contains(Self.swiftName(ofType: name)) {
+            throw TypeSchemaError(
+                path: "$.types.\(name)",
+                message: "\(Self.swiftName(ofType: name)) collides with a Swift, CmuxNextIPC or generated support type"
+            )
+        }
+        reservedNames = taken.union(Self.memberTypeNames).union(schema.types.keys.map(Self.swiftName(ofType:)))
     }
 
     init(sdkSchema: Data) throws(TypeSchemaError) {
@@ -86,51 +101,26 @@ struct TypeEmitter {
     static let wireJSON = "WireJSON"
     static let anyKey = "WireAnyKey"
 
+    /// The Swift name of the schema's named type `name`.
+    static func swiftName(ofType name: String) -> String { "Wire" + name }
+
     // Files -----------------------------------------------------------------
 
-    /// The file holding the named types `family` owns.
-    static func fileName(family: String) -> String {
-        "WireTypes+\(SwiftNames(family).type).swift"
-    }
-
-    static let supportFileName = "WireTypes+Support.swift"
-    /// The owner of the types only commands without a method id reach.
-    static let unframedFamily = "unframed"
-
-    /// Every output file name, in the order ``files()`` returns them: the
-    /// support file, one per command family of the schema and one for
-    /// `unframed`. CmuxNextWireGenPlugin declares the same list, read from the
-    /// same `families` table.
-    static func fileNames(commandFamilies: [String]) -> [String] {
-        [supportFileName] + (commandFamilies + [unframedFamily]).sorted().map { fileName(family: $0) }
-    }
-
-    /// The support file and one file per command family (written even when the
-    /// family owns no type, so the build always gets the files it declared). A
-    /// family owns the named types its commands reach before any command of a
-    /// lower method id does. Two runs over the same schema give the same bytes.
+    /// The support files, then one file per named type the client's commands
+    /// reach, by name: ``WireTypeFiles``, the list CmuxNextWireGenPlugin declares.
+    /// Two runs over the same schema give the same bytes.
     func files() throws(TypeSchemaError) -> [GeneratedSource] {
-        guard !schema.commandFamilies.contains(Self.unframedFamily) else {
-            throw TypeSchemaError(path: "$.families.\(Self.unframedFamily)", message: "is the name of the unframed types' file")
+        let list: WireTypeFiles
+        do {
+            list = try WireTypeFiles(typeNames: schema.commandTypes)
+        } catch {
+            throw TypeSchemaError(path: error.path, message: error.message)
         }
-        var owner: [String: String] = [:]
-        for command in schema.commands {
-            let family = command.family ?? Self.unframedFamily
-            for name in schema.closure(of: command.refs) where owner[name] == nil {
-                owner[name] = family
-            }
-        }
-        var owned: [String: [String]] = [:]
-        for (name, family) in owner {
-            owned[family, default: []].append(name)
-        }
-        var out = [GeneratedSource(fileName: Self.supportFileName, text: Self.supportSource())]
-        for family in (schema.commandFamilies + [Self.unframedFamily]).sorted() {
-            var text = Self.header("The named types the `clients: macos` commands of family \(family) reach first")
-            for name in (owned[family] ?? []).sorted() {
-                text += "\n" + (try declaration(named: name))
-            }
-            out.append(GeneratedSource(fileName: Self.fileName(family: family), text: text))
+        var out = Self.supportSources()
+        for name in list.typeNames {
+            let text = Self.header("The wire type `\(name)` of the `clients: macos` commands") + "\n"
+                + (try declaration(named: name))
+            out.append(GeneratedSource(fileName: WireTypeFiles.fileName(type: name), text: text))
         }
         return out
     }
@@ -151,37 +141,38 @@ struct TypeEmitter {
         }
         let scope = Scope(path: "$.types.\(name)", indent: "", enclosing: [], extensible: decoded.contains(name),
                           recursive: schema.holdsItself(name, throughUnions: true))
+        let swiftName = Self.swiftName(ofType: name)
         switch type {
         case .object(let object):
             if schema.holdsItself(name, throughUnions: false) {
                 throw TypeSchemaError(path: scope.path, message: "holds itself outside an array, map or union")
             }
-            return try structDeclaration(name, object: object, scope: scope)
+            return try structDeclaration(swiftName, object: object, scope: scope)
         case .enumeration(let enumeration):
-            return try enumDeclaration(name, enumeration: enumeration, scope: scope)
+            return try enumDeclaration(swiftName, enumeration: enumeration, scope: scope)
         case .taggedUnion(let union):
-            return try taggedUnionDeclaration(name, union: union, scope: scope)
+            return try taggedUnionDeclaration(swiftName, union: union, scope: scope)
         case .untaggedUnion(let variants):
-            return try untaggedUnionDeclaration(name, variants: variants, scope: scope)
+            return try untaggedUnionDeclaration(swiftName, variants: variants, scope: scope)
         case .literal:
             throw TypeSchemaError(path: scope.path, message: "a named type cannot be a literal")
         case .scalar, .alias, .array, .map, .ref, .opaqueJSON:
             var nested: [String] = []
             var taken: Set<String> = []
-            let target = try swiftType(type, member: nil, nestAs: name, scope: scope, nested: &nested, taken: &taken)
+            let target = try swiftType(type, member: nil, nestAs: swiftName, scope: scope, nested: &nested, taken: &taken)
             guard nested.isEmpty else {
                 throw TypeSchemaError(path: scope.path, message: "an alias of an inline type needs a name of its own")
             }
-            return "public typealias \(name) = \(target)\n"
+            return "public typealias \(swiftName) = \(target)\n"
         }
     }
 
     // Type expressions ------------------------------------------------------
 
-    /// The Swift type of `type` as the member with wire name `member` holds
-    /// it. An inline object, enum or union becomes a nested declaration named
-    /// `nestAs` (or the next free name), appended to `nested`. A member the id
-    /// map names (``WireIDType``) gets its typed id.
+    /// The Swift type of `type` as the member with wire name `member` at
+    /// `scope.path` holds it. An inline object, enum or union becomes a nested
+    /// declaration named `nestAs` (or the next free name), appended to `nested`.
+    /// A member the id map names (``WireIDType``) gets its typed id.
     func swiftType(
         _ type: Schema.TypeExpr,
         member: String?,
@@ -190,12 +181,12 @@ struct TypeEmitter {
         nested: inout [String],
         taken: inout Set<String>
     ) throws(TypeSchemaError) -> String {
-        if let id = idType(type, member: member) { return id.name }
+        if let id = idType(type, member: member, at: scope.path) { return id.name }
         switch type {
         case .scalar(let scalar):
             return scalar.swiftName
         case .ref(let name):
-            return name
+            return Self.swiftName(ofType: name)
         case .alias(let target):
             return try swiftType(target, member: member, nestAs: nestAs, scope: scope, nested: &nested, taken: &taken)
         case .array(let items):
@@ -222,12 +213,13 @@ struct TypeEmitter {
         return name
     }
 
-    /// The typed id of a scalar (or alias of a scalar) member the id map names.
-    func idType(_ type: Schema.TypeExpr, member: String?) -> WireIDType? {
+    /// The typed id of a scalar (or alias of a scalar) member the id map names;
+    /// `path` is the member's JSON path.
+    func idType(_ type: Schema.TypeExpr, member: String?, at path: String) -> WireIDType? {
         switch type {
-        case .scalar(let scalar): WireIDType.forMember(member, scalar: scalar)
-        case .alias(let target): idType(target, member: member)
-        case .ref(let name): schema.types[name].flatMap { idType($0, member: member) }
+        case .scalar(let scalar): WireIDType.forMember(member, at: path, scalar: scalar)
+        case .alias(let target): idType(target, member: member, at: path)
+        case .ref(let name): schema.types[name].flatMap { idType($0, member: member, at: path) }
         default: nil
         }
     }
@@ -262,7 +254,7 @@ struct TypeEmitter {
         path: String
     ) throws(TypeSchemaError) -> String {
         let target = resolved(field.type)
-        if let id = idType(field.type, member: field.name), case .scalar(let scalar) = target,
+        if let id = idType(field.type, member: field.name, at: path), case .scalar(let scalar) = target,
            let raw = Self.scalarLiteral(value, scalar) {
             return "\(id.name)(rawValue: \(raw))"
         }

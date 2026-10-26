@@ -6,7 +6,8 @@
 // `unknown(String)`, which also holds a schema value literally named
 // "unknown". A tagged union is an enum with one case per variant struct (the
 // struct writes and checks its tag member); a decoded one keeps an unknown tag
-// as `unknownVariant(tag:json:)` (a variant may itself be named "unknown"). An untagged union tries its variants in schema order.
+// as `unknownVariant(tag:json:)` (a variant may itself be named "unknown").
+// Untagged unions are TypeEmitter+UntaggedUnion.swift.
 
 extension TypeEmitter {
     /// The case a decoded union keeps a value of no known variant in.
@@ -124,52 +125,6 @@ extension TypeEmitter {
         for declaration in nested {
             out += "\n" + declaration
         }
-        return out + "\(scope.indent)}\n"
-    }
-
-    func untaggedUnionDeclaration(_ name: String, variants: [Schema.TypeExpr], scope: Scope) throws(TypeSchemaError) -> String {
-        let body = scope.indent + "    "
-        let statement = body + "    "
-        var cases: [(member: String, type: String)] = []
-        for (index, variant) in variants.enumerated() {
-            guard case .ref(let type) = variant else {
-                throw TypeSchemaError(path: "\(scope.path).variants[\(index)]", message: "an untagged variant must be a named type")
-            }
-            let member = SwiftNames.caseName(ofType: type)
-            guard !cases.contains(where: { $0.member == member }), !(scope.extensible && member == Self.unknownVariant) else {
-                throw TypeSchemaError(path: "\(scope.path).variants[\(index)]", message: "its case name \(member) is taken")
-            }
-            cases.append((member, type))
-        }
-        var out = "\(scope.indent)public \(scope.recursive ? "indirect " : "")enum \(name): Codable, Sendable, Equatable {\n"
-        for item in cases {
-            out += "\(body)case \(item.member)(\(item.type))\n"
-        }
-        if scope.extensible {
-            out += "\(body)/// A value no variant of this build decodes, kept as written.\n"
-            out += "\(body)case \(Self.unknownVariant)(\(Self.wireJSON))\n"
-        }
-        out += "\n\(body)/// The first variant, in schema order, that decodes the value.\n"
-        out += "\(body)public init(from decoder: any Decoder) throws {\n"
-        for item in cases {
-            out += "\(statement)if let value = try? \(item.type)(from: decoder) {\n"
-            out += "\(statement)    self = .\(item.member)(value)\n\(statement)    return\n\(statement)}\n"
-        }
-        if scope.extensible {
-            out += "\(statement)self = .\(Self.unknownVariant)(try \(Self.wireJSON)(from: decoder))\n"
-        } else {
-            out += "\(statement)throw DecodingError.dataCorrupted(DecodingError.Context(\n"
-            out += "\(statement)    codingPath: decoder.codingPath, debugDescription: \"no \(name) variant decodes this value\"))\n"
-        }
-        out += "\(body)}\n\n"
-        out += "\(body)public func encode(to encoder: any Encoder) throws {\n\(statement)switch self {\n"
-        for item in cases {
-            out += "\(statement)case .\(item.member)(let value): try value.encode(to: encoder)\n"
-        }
-        if scope.extensible {
-            out += "\(statement)case .\(Self.unknownVariant)(let json): try json.encode(to: encoder)\n"
-        }
-        out += "\(statement)}\n\(body)}\n"
         return out + "\(scope.indent)}\n"
     }
 }

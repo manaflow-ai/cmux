@@ -3,16 +3,16 @@
 /// purpose, the failing test prints the new text to paste here.
 struct TypeEmitterGolden {
     static let tab = #"""
-        public struct Tab: Codable, Sendable, Equatable {
+        public struct WireTab: Codable, Sendable, Equatable {
             public var pinned: Bool
             public var `protocol`: UInt32?
-            public var state: TabState?
-            public var surface: SurfaceID
-            public var terminalID: TerminalID?
+            public var state: WireTabState?
+            public var surface: WireSurfaceID
+            public var terminalID: WireTerminalID?
             /// Shown in the tab.
             public var title: String?
 
-            public init(pinned: Bool = false, `protocol`: UInt32? = nil, state: TabState? = TabState.idle, surface: SurfaceID, terminalID: TerminalID? = nil, title: String?) {
+            public init(pinned: Bool = false, `protocol`: UInt32? = nil, state: WireTabState? = WireTabState.idle, surface: WireSurfaceID, terminalID: WireTerminalID? = nil, title: String?) {
                 self.pinned = pinned
                 self.`protocol` = `protocol`
                 self.state = state
@@ -37,9 +37,9 @@ struct TypeEmitterGolden {
                 try container.wireLiteral("tab", forKey: .kind, required: true)
                 self.pinned = try container.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
                 self.`protocol` = try container.decodeIfPresent(UInt32.self, forKey: .`protocol`)
-                self.state = try container.contains(.state) ? container.decode(TabState?.self, forKey: .state) : TabState.idle
-                self.surface = try container.decode(SurfaceID.self, forKey: .surface)
-                self.terminalID = try container.decodeIfPresent(TerminalID.self, forKey: container.wireKey(.terminalID, .terminalIDAlias0))
+                self.state = try container.contains(.state) ? container.decode(WireTabState?.self, forKey: .state) : WireTabState.idle
+                self.surface = try container.decode(WireSurfaceID.self, forKey: .surface)
+                self.terminalID = try container.decodeIfPresent(WireTerminalID.self, forKey: container.wireKey(.terminalID, .terminalIDAlias0))
                 self.title = try container.decode(String?.self, forKey: .title)
             }
 
@@ -48,7 +48,7 @@ struct TypeEmitterGolden {
                 try container.encode("tab", forKey: .kind)
                 if self.pinned != false { try container.encode(self.pinned, forKey: .pinned) }
                 try container.encodeIfPresent(self.`protocol`, forKey: .`protocol`)
-                if self.state != TabState.idle { try container.encode(self.state, forKey: .state) }
+                if self.state != WireTabState.idle { try container.encode(self.state, forKey: .state) }
                 try container.encode(self.surface, forKey: .surface)
                 try container.encodeIfPresent(self.terminalID, forKey: .terminalID)
                 try container.encode(self.title, forKey: .title)
@@ -57,14 +57,14 @@ struct TypeEmitterGolden {
         """#
 
     static let sendMode = #"""
-        public enum SendMode: String, Codable, Sendable, Equatable, Hashable, CaseIterable {
+        public enum WireSendMode: String, Codable, Sendable, Equatable, Hashable, CaseIterable {
             case paste = "paste"
             case `default` = "default"
         }
         """#
 
     static let tabState = #"""
-        public enum TabState: RawRepresentable, Codable, Sendable, Equatable, Hashable {
+        public enum WireTabState: RawRepresentable, Codable, Sendable, Equatable, Hashable {
             case idle
             case busyWait
             /// A value this build does not know, kept as written.
@@ -98,7 +98,7 @@ struct TypeEmitterGolden {
         """#
 
     static let node = #"""
-        public indirect enum Node: Codable, Sendable, Equatable {
+        public indirect enum WireNode: Codable, Sendable, Equatable {
             case leaf(Leaf)
             case split(Split)
             /// A variant this build does not know, kept as written.
@@ -126,9 +126,9 @@ struct TypeEmitterGolden {
             }
 
             public struct Leaf: Codable, Sendable, Equatable {
-                public var pane: PaneID
+                public var pane: WirePaneID
 
-                public init(pane: PaneID) {
+                public init(pane: WirePaneID) {
                     self.pane = pane
                 }
 
@@ -139,7 +139,7 @@ struct TypeEmitterGolden {
 
                 public init(from decoder: any Decoder) throws {
                     let container = try decoder.container(keyedBy: CodingKeys.self)
-                    self.pane = try container.decode(PaneID.self, forKey: .pane)
+                    self.pane = try container.decode(WirePaneID.self, forKey: .pane)
                     try container.wireLiteral("leaf", forKey: .type, required: true)
                 }
 
@@ -151,10 +151,10 @@ struct TypeEmitterGolden {
             }
 
             public struct Split: Codable, Sendable, Equatable {
-                public var a: Node
-                public var b: Node
+                public var a: WireNode
+                public var b: WireNode
 
-                public init(a: Node, b: Node) {
+                public init(a: WireNode, b: WireNode) {
                     self.a = a
                     self.b = b
                 }
@@ -167,8 +167,8 @@ struct TypeEmitterGolden {
 
                 public init(from decoder: any Decoder) throws {
                     let container = try decoder.container(keyedBy: CodingKeys.self)
-                    self.a = try container.decode(Node.self, forKey: .a)
-                    self.b = try container.decode(Node.self, forKey: .b)
+                    self.a = try container.decode(WireNode.self, forKey: .a)
+                    self.b = try container.decode(WireNode.self, forKey: .b)
                     try container.wireLiteral("split", forKey: .type, required: true)
                 }
 
@@ -183,22 +183,34 @@ struct TypeEmitterGolden {
         """#
 
     static let entry = #"""
-        public enum Entry: Codable, Sendable, Equatable {
-            case liveEntry(LiveEntry)
-            case deadEntry(DeadEntry)
-            /// A value no variant of this build decodes, kept as written.
+        public enum WireEntry: Codable, Sendable, Equatable {
+            case liveEntry(WireLiveEntry)
+            case deadEntry(WireDeadEntry)
+            /// A value no variant of this build is a candidate for, kept as written.
             case unknownVariant(WireJSON)
 
-            /// The first variant, in schema order, that decodes the value.
+            /// The first candidate variant, in schema order, that decodes the value;
+            /// when every candidate fails, the first one's error.
             public init(from decoder: any Decoder) throws {
-                if let value = try? LiveEntry(from: decoder) {
-                    self = .liveEntry(value)
-                    return
+                let members = try? decoder.container(keyedBy: WireAnyKey.self)
+                var failure: (any Error)?
+                if let members, members.wireHas("name") {
+                    do {
+                        self = .liveEntry(try WireLiveEntry(from: decoder))
+                        return
+                    } catch {
+                        failure = failure ?? error
+                    }
                 }
-                if let value = try? DeadEntry(from: decoder) {
-                    self = .deadEntry(value)
-                    return
+                if let members, members.wireHas("dead"), members.wireLiteralHolds(true, "dead") {
+                    do {
+                        self = .deadEntry(try WireDeadEntry(from: decoder))
+                        return
+                    } catch {
+                        failure = failure ?? error
+                    }
                 }
+                if let failure { throw failure }
                 self = .unknownVariant(try WireJSON(from: decoder))
             }
 
@@ -213,13 +225,13 @@ struct TypeEmitterGolden {
         """#
 
     static let bundle = #"""
-        public struct Bundle: Codable, Sendable, Equatable {
+        public struct WireBundle: Codable, Sendable, Equatable {
             public var items: [ItemsItem]
-            public var labels: [String: ColorHex]
-            public var panes: [PaneID]
-            public var raw: JsonValue?
+            public var labels: [String: WireColorHex]
+            public var panes: [WirePaneID]
+            public var raw: WireJsonValue?
 
-            public init(items: [ItemsItem], labels: [String: ColorHex] = [:], panes: [PaneID], raw: JsonValue? = nil) {
+            public init(items: [ItemsItem], labels: [String: WireColorHex] = [:], panes: [WirePaneID], raw: WireJsonValue? = nil) {
                 self.items = items
                 self.labels = labels
                 self.panes = panes
@@ -236,9 +248,9 @@ struct TypeEmitterGolden {
             public init(from decoder: any Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
                 self.items = try container.decode([ItemsItem].self, forKey: .items)
-                self.labels = try container.decodeIfPresent([String: ColorHex].self, forKey: .labels) ?? [:]
-                self.panes = try container.decode([PaneID].self, forKey: .panes)
-                self.raw = try container.decodeIfPresent(JsonValue.self, forKey: .raw)
+                self.labels = try container.decodeIfPresent([String: WireColorHex].self, forKey: .labels) ?? [:]
+                self.panes = try container.decode([WirePaneID].self, forKey: .panes)
+                self.raw = try container.decodeIfPresent(WireJsonValue.self, forKey: .raw)
             }
 
             public func encode(to encoder: any Encoder) throws {

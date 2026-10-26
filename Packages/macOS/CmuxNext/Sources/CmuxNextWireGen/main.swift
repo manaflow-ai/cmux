@@ -37,6 +37,15 @@ func run(_ argv: [String]) throws(WireGenError) {
     } catch {
         throw WireGenError.types(error)
     }
+    // The plugin declared its outputs from the same WireTypeFiles rule; a file it did not
+    // declare would not compile, so a difference fails here with the names.
+    let declared = (try? WireTypeFiles(sdkSchema: sdk.bytes).fileNames) ?? []
+    let written = types.map(\.fileName)
+    guard declared == written else {
+        let detail = "the plugin declares \(Set(declared).subtracting(written).sorted()) but TypeEmitter writes "
+            + "\(Set(written).subtracting(declared).sorted()) instead"
+        throw WireGenError.types(TypeSchemaError(path: "$", message: detail))
+    }
     for file in types {
         try GeneratedFile(url: arguments.typesOutputDirectory.appending(path: file.fileName, directoryHint: .notDirectory))
             .write(file.text)

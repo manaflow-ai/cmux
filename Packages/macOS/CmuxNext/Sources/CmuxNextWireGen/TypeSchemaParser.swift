@@ -1,28 +1,15 @@
-// Reads sdk-schema.json's `families`, `commands` and `types` into TypeSchema
+// Reads sdk-schema.json's `commands`, `events` and `types` into TypeSchema
 // (p05-ipc-020). It reads a named type only when TypeSchema asks for it, so the
-// app's build depends only on the types its own commands reach.
+// app's build depends only on the types its own commands and events reach.
 
 struct TypeSchemaParser {
     typealias Schema = TypeSchema
 
     let document: SchemaJSON
-    /// Command family id -> kebab-case name.
-    let families: [UInt8: String]
     private let named: [String: SchemaJSON]
 
     init(document: SchemaJSON) throws(TypeSchemaError) {
         self.document = document
-        var families: [UInt8: String] = [:]
-        if let table = document["families"] {
-            guard let members = table.object else { throw TypeSchemaError(path: "$.families", message: "must be an object") }
-            for (name, family) in members {
-                guard let raw = family["id"]?.integer, let id = UInt8(exactly: raw) else {
-                    throw TypeSchemaError(path: "$.families.\(name).id", message: "must be a u8")
-                }
-                families[id] = name
-            }
-        }
-        self.families = families
         guard let types = (document["types"] ?? .object([:])).object else {
             throw TypeSchemaError(path: "$.types", message: "must be an object")
         }
@@ -52,11 +39,25 @@ struct TypeSchemaParser {
             guard let result = node["result"] else { throw TypeSchemaError(path: "\(path).result", message: "is missing") }
             out.append(Schema.Command(
                 name: name,
-                family: methodID.flatMap { families[UInt8(truncatingIfNeeded: $0 >> 8)] },
                 methodID: methodID,
                 request: request,
                 result: try expression(result, path: "\(path).result")
             ))
+        }
+        return out
+    }
+
+    /// The events `client` receives (absent `clients` is every client), in name order.
+    func events(client: String) throws(TypeSchemaError) -> [Schema.Event] {
+        guard let table = document["events"] else { return [] }
+        guard let members = table.object else { throw TypeSchemaError(path: "$.events", message: "must be an object") }
+        var out: [Schema.Event] = []
+        for name in members.keys.sorted() {
+            guard let node = members[name] else { continue }
+            let path = "$.events.\(name)"
+            guard try serves(client, path: path, node: node) else { continue }
+            let payload = try expression(try required(node, "payload", path: path), path: "\(path).payload")
+            out.append(Schema.Event(name: name, payload: payload))
         }
         return out
     }

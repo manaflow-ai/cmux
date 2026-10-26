@@ -14,10 +14,6 @@ struct SwiftNames {
         "var", "where", "while",
     ]
 
-    /// Type names a nested declaration must not take: they already mean
-    /// something inside every type.
-    static let reservedTypeNames: Set<String> = ["CodingKeys", "Protocol", "Self", "Type"]
-
     let wire: String
 
     init(_ wire: String) {
