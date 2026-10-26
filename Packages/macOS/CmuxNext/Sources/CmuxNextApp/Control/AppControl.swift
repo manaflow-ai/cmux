@@ -137,11 +137,11 @@ final class AppControl {
             }.withDeadline(.fixed(RenderFrameLog.armDeadline)),
             // Main-thread blocking call sites since launch (threading-model.md); {"reset": true} zeroes the counts.
             BlockingControl(detector: services.blocking).method,
-            // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class.
+            // The main-thread scheduler's budget and turns; main only copies, the turn fields fold off it.
             .mainActor("debug.main_budget") { [budget = mainWork.budget] call in
-                let report = budget.report
+                let (fields, turns) = budget.reportParts
                 if call.params["reset"]?.boolValue == true { budget.resetStats() }
-                return .value(report)
+                return .followUp { turns.report(merging: fields) }
             },
             // Main-thread CPU per frame against a 120 Hz frame (anim-perf-terminal.py).
             .mainActor("debug.main_cpu") { [probe = mainCPUProbe] call in .value(probe.handle(call.params)) },

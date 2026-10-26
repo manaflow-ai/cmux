@@ -63,7 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var webAuthHandler: WebAuthSessionHandler?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
-    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, wireStats: DaemonWireStats?,
+    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, wireStats: DaemonWireStats?, mainWork: MainWorkScheduler,
          startupTrace: StartupTrace? = nil,
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
         self.environment = environment
@@ -72,11 +72,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.startupTrace = startupTrace
         self.wireStats = wireStats
         self.launchCleanup = launchCleanup
-        // One display link per display, shared by the app, window and budgeted frame schedulers.
-        let displays = DisplayClock()
-        FrameScheduler.install(displays: displays)
-        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true),
-                                         displays: displays)
         self.mainWork = mainWork
         control = AppControl(mainWork: mainWork)
         super.init()
