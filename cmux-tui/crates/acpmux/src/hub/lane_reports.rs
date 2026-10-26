@@ -79,7 +79,7 @@ impl Hub {
             if !self.lane_parent_open(parent) {
                 return false;
             }
-            let link = Link { parent: parent.to_owned(), ..Link::default() };
+            let link = Link { parent: parent.to_owned() };
             links.insert(child.to_owned(), link);
             true
         });
