@@ -32,7 +32,7 @@ public struct DaemonSocketMemory: Sendable {
     public static func acceptsConnections(_ path: String) -> Bool {
         var info = stat()
         guard lstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFSOCK, info.st_uid == getuid() else { return false }
-        guard let transport = try? LineTransport(path: path) else { return false }
+        guard let transport = try? LineTransport(path: path, role: .socketProbe) else { return false }
         transport.close()
         return true
     }

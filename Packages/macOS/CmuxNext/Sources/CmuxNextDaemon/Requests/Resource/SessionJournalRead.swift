@@ -23,7 +23,7 @@ public struct SessionJournalRead: Sendable {
     /// at most `limit` of them, giving up after `deadline`.
     public func read(socketPath: String, kinds: [String], cursor: (generation: String, sequence: UInt64)?,
                             limit: Int = 20_000, deadline: Duration = .seconds(5)) async throws -> Result {
-        let transport = try LineTransport(path: socketPath)
+        let transport = try LineTransport(path: socketPath, role: .journalRead)
         let streamID = "stream_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
         let collector = Collector(limit: limit)
         let (ended, endContinuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))

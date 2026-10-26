@@ -119,6 +119,7 @@ final class AppControl {
             .mainActor("debug.frames") { [probe = frameProbe] call in probe.handle(call.params) }.withDeadline(.fixed(RenderFrameLog.armDeadline)),
             // Main-thread blocking call sites since launch (threading-model.md); {"reset": true} zeroes the counts.
             BlockingControl(detector: services.blocking).method,
+            DaemonWireControl(stats: .process).method, // wire traffic, decodes, output copies, connections by role
             // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class.
             .mainActor("debug.main_budget") { [budget = mainWork.budget] call in
                 let report = budget.report

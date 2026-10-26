@@ -95,6 +95,7 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// - Parameter snapshotVersion: the view's GHOSTSNP version. When the
     ///   host has ``snapshotCapability`` the attach asks for snapshots; the
     ///   host still answers with a byte replay when its version differs.
+    /// - Parameter wireStats: Where the connection and its output copies are counted.
     public static func attach(
         endpoint: DaemonEndpoint,
         target: Target,
@@ -104,13 +105,15 @@ public actor TerminalAttachment: TerminalByteChannel {
         localHistory: Bool = false,
         images: Bool = false,
         clientName: String = "cmux-next-terminal",
-        device: TerminalSizingDevice? = nil
+        device: TerminalSizingDevice? = nil,
+        wireStats: DaemonWireStats = .process
     ) async throws -> TerminalAttachment {
         DaemonLaunchTimings.shared.mark("terminal.attach_start")
         #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachStart, surface: target.surface.rawValue) }
         #endif
-        let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
+        let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge, role: .terminalAttach,
+                                          stats: wireStats)
         let attachment = TerminalAttachment(transport: transport, surface: target.surface)
         do {
             try await attachment.open(target: target, size: size, claimGeometry: claimGeometry,
@@ -126,7 +129,7 @@ public actor TerminalAttachment: TerminalByteChannel {
     private init(transport: LineTransport, surface: SurfaceID) {
         self.transport = transport
         resolvedSurface = SurfaceBox(surface)
-        let queue = TerminalEventQueue()
+        let queue = TerminalEventQueue(stats: transport.stats)
         self.queue = queue
         events = AsyncStream(unfolding: { await queue.next() }, onCancel: { queue.cancel() })
     }

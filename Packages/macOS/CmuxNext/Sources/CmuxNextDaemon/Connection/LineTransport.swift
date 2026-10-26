@@ -95,9 +95,16 @@ final class LineTransport: Sendable {
     /// The bridge child of this connection (``DaemonBridge``), killed and
     /// reaped when the connection closes.
     private let child: BridgeChild?
+    /// Why this connection exists, for ``stats``.
+    let role: DaemonWireStats.Role
+    /// Where this connection's traffic is counted (lock-free; the reader thread records too).
+    let stats: DaemonWireStats
 
-    init(path: String, bridge: DaemonBridge? = nil) throws(DaemonError) {
+    init(path: String, bridge: DaemonBridge? = nil, role: DaemonWireStats.Role = .unclassified,
+         stats: DaemonWireStats = .process) throws(DaemonError) {
         self.path = path
+        self.role = role
+        self.stats = stats
         let fd: Int32
         if let bridge {
             let opened = try bridge.open()
@@ -109,6 +116,7 @@ final class LineTransport: Sendable {
         }
         socket = Mutex(Socket(fd: fd))
         writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write")
+        stats.connectionOpened(role, bridged: bridge != nil)
     }
 
     private static func connect(_ path: String) throws(DaemonError) -> Int32 {
@@ -148,12 +156,19 @@ final class LineTransport: Sendable {
 
     deinit {
         writer.close()
-        socket.withLock { socket in
-            if socket.fd >= 0 {
-                Darwin.close(socket.fd)
-                socket.fd = -1
-            }
+        closeDescriptor()
+    }
+
+    /// Closes the descriptor once (the reader's exit or deinit, whichever comes first) and counts
+    /// the connection closed.
+    private func closeDescriptor() {
+        let closed = socket.withLock { socket -> Bool in
+            guard socket.fd >= 0 else { return false }
+            Darwin.close(socket.fd)
+            socket.fd = -1
+            return true
         }
+        if closed { stats.connectionClosed(role) }
     }
 
     /// Starts the reader thread. Call once.
@@ -229,7 +244,9 @@ final class LineTransport: Sendable {
             guard socket.fd >= 0, state.withLock({ $0.closed == nil }) else { return false }
             var line = payload
             line.append(0x0A)
-            return writer.write(line) == nil
+            guard writer.write(line) == nil else { return false }
+            stats.lineWritten(bytes: line.count)
+            return true
         }
     }
 
@@ -261,6 +278,7 @@ final class LineTransport: Sendable {
             var line = payload
             line.append(0x0A)
             writeFailure = socket.fd >= 0 ? writer.write(line)?.description : "socket closed"
+            if writeFailure == nil { stats.lineWritten(bytes: line.count) }
             return nil
         }
         if let early {
@@ -324,6 +342,7 @@ final class LineTransport: Sendable {
                 closeDetail = "read: \(String(cString: strerror(errno)))"
                 break
             }
+            stats.bytesRead(count)
             lines.append(chunk.prefix(count)) { route($0, decoder: decoder, onEvent: onEvent) }
             if lines.pending.count > Self.maxLineBytes {
                 closeDetail = "line exceeds \(Self.maxLineBytes) bytes"
@@ -336,12 +355,7 @@ final class LineTransport: Sendable {
         }
         failAll(reason)
         writer.close()
-        socket.withLock { socket in
-            if socket.fd >= 0 {
-                Darwin.close(socket.fd)
-                socket.fd = -1
-            }
-        }
+        closeDescriptor()
         onClose(reason)
     }
 
@@ -350,12 +364,16 @@ final class LineTransport: Sendable {
     var routedEventCount: UInt64 { state.withLock { $0.eventCount } }
 
     private func route(_ line: Data, decoder: JSONDecoder, onEvent: EventHandler) {
-        guard let envelope = try? decoder.decode(Envelope.self, from: line) else { return }
+        guard let envelope = try? decoder.decode(Envelope.self, from: line) else {
+            return stats.lineRead(.ignored, handedOff: false)
+        }
         // A v2 stream line goes to the stream handler of a dedicated
         // connection (`SessionJournalRead`); on the control connection it
         // travels with the raw events, in socket order (`session.events`).
         let streamed = envelope.type == "stream_item" || envelope.type == "stream_end"
+        let streamKind: DaemonWireStats.FrameKind = envelope.type == "stream_end" ? .streamEnd : .streamItem
         if streamed, let streamID = envelope.streamID, let handler = state.withLock({ $0.streamHandler }) {
+            stats.lineRead(streamKind, handedOff: true)
             return handler(streamID, line)
         }
         if let name = streamed ? Self.streamEvent : envelope.event {
@@ -364,17 +382,23 @@ final class LineTransport: Sendable {
                 state.eventCount += 1
                 return state.eventCount
             }
+            stats.lineRead(streamed ? streamKind : .event, handedOff: true)
             onEvent(name, line, index)
             return
         }
-        guard envelope.ok != nil || envelope.id != nil else { return }
+        guard envelope.ok != nil || envelope.id != nil else { return stats.lineRead(.ignored, handedOff: false) }
         let waiter: (UInt64, Waiter)? = state.withLock { state in
             let id = envelope.id ?? state.order.first
             guard let id, let waiter = state.pending.removeValue(forKey: id) else { return nil }
             state.order.removeAll { $0 == id }
             return (state.eventCount, waiter)
         }
-        guard let (barrier, waiter) = waiter else { return }
+        guard let (barrier, waiter) = waiter else { return stats.lineRead(.reply, handedOff: false) }
+        // A reply's waiter decodes its line once more (`WireCoding.decodeResponse`); a discarded
+        // or expired request's line is dropped here.
+        var decodedByWaiter = false
+        if case .reply = waiter, envelope.ok == true { decodedByWaiter = true }
+        stats.lineRead(.reply, handedOff: decodedByWaiter)
         if envelope.ok == true {
             if case .reply(_, let slot) = waiter { slot.resolve(.success(Response(line: line, eventBarrier: barrier))) }
             return
