@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 43809fd7d722d834588b3aab6384dbcdf8f755c500368d8dff2de87bc045e23d. */
+/* cmux-tui mux protocol 12, IR 195da6a914876ccf3bf483ea3f363412fe5db254bad31f7a559d0799b04d7ad1. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "43809fd7d722d834588b3aab6384dbcdf8f755c500368d8dff2de87bc045e23d" as const;
+export const SDK_IR_SHA256 = "195da6a914876ccf3bf483ea3f363412fe5db254bad31f7a559d0799b04d7ad1" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -5108,6 +5108,14 @@ export const EVENT_METADATA = {
       "attach-byte",
       "attach-render",
       "attach-browser"
+    ],
+    "emission": "emitted"
+  },
+  "server-diagnostic-site": {
+    "since": 12,
+    "capability": "diagnostic-sites-v1",
+    "streams": [
+      "subscribe"
     ],
     "emission": "emitted"
   },
@@ -39012,6 +39020,98 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "server-diagnostic-site": {
+    "additional_properties": false,
+    "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
+      "crate": {
+        "description": "Blocking and inversion: the crate of the call site without its version, or other. Never a path.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "server-diagnostic-site"
+        }
+      },
+      "family": {
+        "description": "blocking: a blocking call where blocking is disallowed (or a work item's wait for other work); inversion: a wait on work of lower QoS; hang: a request method that ran past the 250 ms watchdog threshold.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "blocking",
+            "inversion",
+            "hang"
+          ]
+        }
+      },
+      "file_hash": {
+        "description": "Blocking and inversion: 16 hex digits, FNV-1a of the file's path from the crate folder on. Never a path.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "kind": {
+        "description": "The blocking kind (cmux_threads BlockingKind names: fs, sleep, recv, priority-inversion, ...), or request for a hang.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "lane_sync": {
+        "description": "Blocking: a work item's wait for other work.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "line": {
+        "description": "Blocking and inversion: the call site's line.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "method": {
+        "description": "Hang: the request's command or v2 operation name, a colon written as a dot.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },

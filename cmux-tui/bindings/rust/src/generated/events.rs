@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 43809fd7d722d834588b3aab6384dbcdf8f755c500368d8dff2de87bc045e23d.
+// cmux-tui mux protocol 12, IR 195da6a914876ccf3bf483ea3f363412fe5db254bad31f7a559d0799b04d7ad1.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -854,6 +854,44 @@ pub struct ScrollChangedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ServerDiagnosticSiteEventFamily {
+    #[serde(rename = "blocking")]
+    Blocking,
+    #[serde(rename = "inversion")]
+    Inversion,
+    #[serde(rename = "hang")]
+    Hang,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerDiagnosticSiteEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
+    /// Blocking and inversion: the crate of the call site without its version, or other. Never a path.
+    #[serde(rename = "crate", default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub crate_: Option<String>,
+    /// blocking: a blocking call where blocking is disallowed (or a work item's wait for other work); inversion: a wait on work of lower QoS; hang: a request method that ran past the 250 ms watchdog threshold.
+    pub family: ServerDiagnosticSiteEventFamily,
+    /// Blocking and inversion: 16 hex digits, FNV-1a of the file's path from the crate folder on. Never a path.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub file_hash: Option<String>,
+    /// The blocking kind (cmux_threads BlockingKind names: fs, sleep, recv, priority-inversion, ...), or request for a hang.
+    pub kind: String,
+    /// Blocking: a work item's wait for other work.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub lane_sync: Option<bool>,
+    /// Blocking and inversion: the call site's line.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    /// Hang: the request's command or v2 operation name, a colon written as a dot.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SettingsChangedEventOrigin {
     #[serde(rename = "user")]
     User,
@@ -1243,6 +1281,7 @@ pub enum Event {
     ScreenRenamed(ScreenRenamedEvent),
     ScriptLog(ScriptLogEvent),
     ScrollChanged(ScrollChangedEvent),
+    ServerDiagnosticSite(ServerDiagnosticSiteEvent),
     SettingsChanged(SettingsChangedEvent),
     SizeState(SizeStateEvent),
     Status(StatusEvent),
@@ -1342,6 +1381,7 @@ impl Event {
             Self::ScreenRenamed(_) => Some("screen-renamed"),
             Self::ScriptLog(_) => Some("script-log"),
             Self::ScrollChanged(_) => Some("scroll-changed"),
+            Self::ServerDiagnosticSite(_) => Some("server-diagnostic-site"),
             Self::SettingsChanged(_) => Some("settings-changed"),
             Self::SizeState(_) => Some("size-state"),
             Self::Status(_) => Some("status"),
@@ -1440,6 +1480,7 @@ impl Event {
             Self::ScreenRenamed(_) => Some(&SCREEN_RENAMED_EVENT_METADATA),
             Self::ScriptLog(_) => Some(&SCRIPT_LOG_EVENT_METADATA),
             Self::ScrollChanged(_) => Some(&SCROLL_CHANGED_EVENT_METADATA),
+            Self::ServerDiagnosticSite(_) => Some(&SERVER_DIAGNOSTIC_SITE_EVENT_METADATA),
             Self::SettingsChanged(_) => Some(&SETTINGS_CHANGED_EVENT_METADATA),
             Self::SizeState(_) => Some(&SIZE_STATE_EVENT_METADATA),
             Self::Status(_) => Some(&STATUS_EVENT_METADATA),
@@ -1997,6 +2038,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("scroll-changed") => match serde_json::from_value::<ScrollChangedEvent>(raw.clone()) {
             Ok(event) => Event::ScrollChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("server-diagnostic-site") => match serde_json::from_value::<ServerDiagnosticSiteEvent>(raw.clone()) {
+            Ok(event) => Event::ServerDiagnosticSite(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

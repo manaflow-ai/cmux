@@ -28,6 +28,9 @@ import os
 /// the loop waits for the daemon socket to change or `retryWake` to fire.
 /// After `retry.socketRetries` failures that a new socket woke (a daemon
 /// that dies on connect) only `retryWake` does.
+///
+/// With ``DaemonConnectionConfiguration/reportsDiagnosticSites`` the reader hands each
+/// `server-diagnostic-site` line to ``diagnosticSites`` (one parse) and routes the event on as `unknown`.
 public actor DaemonConnection {
     public typealias EndpointProvider = @Sendable () async throws -> DaemonEndpoint
 
@@ -48,6 +51,8 @@ public actor DaemonConnection {
     public nonisolated let eventSourceID: UUID = UUID()
     /// The `mutation_id`s caused scopes sent on this connection, which name their echoes' cause.
     public nonisolated let mutationCauses = MutationCauseLedger()
+    /// The daemon's diagnostic sites this connection read, each once, held until a sink is installed.
+    public nonisolated let diagnosticSites = DaemonDiagnosticSiteRelay()
     /// Where events go: `events`, or the consumer of ``consumeEvents(_:)``; and each subscriber.
     nonisolated let route: DaemonEventRoute
 
@@ -263,10 +268,18 @@ public actor DaemonConnection {
             let raw = configuration.role == .pageRelay
             let decoder = transport.decoder
             let mutationCauses = mutationCauses
+            let diagnosticSites = configuration.reportsDiagnosticSites ? diagnosticSites : nil
             transport.start(
                 onCausedEvent: { [weak self] name, line, index, wireCause in
-                    let event = raw ? DaemonEvent.raw(name: name, line: line, decoder: decoder)
-                        : DaemonEvent.decode(name: name, line: line, decoder: decoder)
+                    let event: DaemonEvent
+                    if let diagnosticSites, name == DaemonDiagnosticSite.eventName {
+                        // Routed on with no payload: the sequence counts it; nothing but the relay reads it.
+                        if let site = try? decoder.decode(DaemonDiagnosticSite.self, from: line) { diagnosticSites.deliver(site) }
+                        event = .unknown(name: name, payload: .null)
+                    } else {
+                        event = raw ? DaemonEvent.raw(name: name, line: line, decoder: decoder)
+                            : DaemonEvent.decode(name: name, line: line, decoder: decoder)
+                    }
                     let envelope = DaemonEventEnvelope(
                         sequence: DaemonEventEnvelope.sequence(serial: serial, index: index), event: event, sourceID: eventSourceID,
                         cause: event.cause(wire: wireCause, recorded: mutationCauses))

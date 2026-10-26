@@ -84,6 +84,9 @@ public final class DaemonService {
     /// Watches each line the service's connections and its terminal attachments read (their reader threads'
     /// `daemon.line` scopes); nil watches nothing.
     @ObservationIgnored public let hangWatch: (any HangWatchScoping)?
+    /// The local daemon's diagnostic sites (`server-diagnostic-site`), each once across its connections and
+    /// restarts; the app's hang reports install their sink here (`WatchdogReporting`).
+    @ObservationIgnored public let diagnosticSites = DaemonDiagnosticSiteRelay()
 
     /// - Parameters:
     ///   - machineID: `local`, or the remote machine's id.
@@ -369,6 +372,7 @@ public final class DaemonService {
         Self.launchMark("daemon_connected")
         connection.heartbeat.follow(KeepaliveGate(mainWork.energy))
         self.connection = connection
+        connection.diagnosticSites.install { [diagnosticSites] in diagnosticSites.deliver($0) }
         rememberLaunchSnapshot(identity)
         resumeConnectionWaiters()
         store.noteHandshake(identity)

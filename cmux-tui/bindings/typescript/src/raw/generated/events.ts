@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 43809fd7d722d834588b3aab6384dbcdf8f755c500368d8dff2de87bc045e23d. */
+/* cmux-tui mux protocol 12, IR 195da6a914876ccf3bf483ea3f363412fe5db254bad31f7a559d0799b04d7ad1. */
 
 
 import type * as T from "./types.js";
@@ -615,6 +615,26 @@ export type ScrollChangedEvent = { event: "scroll-changed" } & {
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
+export type ServerDiagnosticSiteEvent = { event: "server-diagnostic-site" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
+  /** Blocking and inversion: the crate of the call site without its version, or other. Never a path. */
+  "crate"?: string;
+  /** blocking: a blocking call where blocking is disallowed (or a work item's wait for other work); inversion: a wait on work of lower QoS; hang: a request method that ran past the 250 ms watchdog threshold. */
+  "family": "blocking" | "inversion" | "hang";
+  /** Blocking and inversion: 16 hex digits, FNV-1a of the file's path from the crate folder on. Never a path. */
+  "file_hash"?: string;
+  /** The blocking kind (cmux_threads BlockingKind names: fs, sleep, recv, priority-inversion, ...), or request for a hang. */
+  "kind": string;
+  /** Blocking: a work item's wait for other work. */
+  "lane_sync"?: boolean;
+  /** Blocking and inversion: the call site's line. */
+  "line"?: number;
+  /** Hang: the request's command or v2 operation name, a colon written as a dot. */
+  "method"?: string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
 export type SettingsChangedEvent = { event: "settings-changed" } & {
   /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
   "cause"?: T.EventCause;
@@ -925,6 +945,7 @@ export type KnownCmuxEvent =
   | ScreenRenamedEvent
   | ScriptLogEvent
   | ScrollChangedEvent
+  | ServerDiagnosticSiteEvent
   | SettingsChangedEvent
   | SizeStateEvent
   | StatusEvent
@@ -1006,6 +1027,7 @@ export type KnownSubscribeEvent =
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | ServerDiagnosticSiteEvent
   | SettingsChangedEvent
   | SizeStateEvent
   | StatusEvent

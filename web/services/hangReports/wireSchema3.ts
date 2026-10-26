@@ -203,6 +203,20 @@ export const BlockingDetail = Schema.Struct({
   context: Schema.String.pipe(Schema.pattern(RAW_LABEL_PATTERN)),
 });
 
+/** The client's `DaemonDiagnosticSite.key`: the daemon site's crate, file hash and line, or its request method. */
+const DAEMON_SITE_PATTERN = /^daemon-[a-z0-9._-]{1,96}$/;
+
+/**
+ * `hangs[].daemon` of a daemon sample (p02-threads-233): one site the local
+ * daemon saw for the first time in its life. No path: a site is a crate, a
+ * file hash and a line, or a request method.
+ */
+export const DaemonDetail = Schema.Struct({
+  family: Schema.Literal("blocking", "inversion", "hang"),
+  kind: Schema.String.pipe(Schema.pattern(RAW_LABEL_PATTERN)),
+  site: Schema.String.pipe(Schema.pattern(DAEMON_SITE_PATTERN)),
+});
+
 /** `hangs[].task` of a watchdog hang (p06-scheduler-203): the scheduled task's owner and class. */
 export const MainTask = Schema.Struct({
   owner: Schema.String.pipe(Schema.pattern(TASK_OWNER_PATTERN)),
@@ -225,6 +239,11 @@ export const BLOCKING_KINDS: ReadonlySet<string> = new Set([
 ]);
 /** `BlockingContext` raw values (CmuxNextCompat/Threading/BlockingContext.swift). */
 export const BLOCKING_CONTEXTS: ReadonlySet<string> = new Set(["main", "pool", "lane", "dedicated", "cpu-lane", "lane-sync"]);
+/** cmux-tui `cmux_threads::BlockingKind` names, and `request` for a slow daemon request. */
+export const DAEMON_KINDS: ReadonlySet<string> = new Set([
+  "fs", "process-spawn", "process-wait", "recv", "join", "condvar-wait", "sleep", "sqlite", "block-on", "ipc-reply",
+  "fd-read", "fd-write", "lock-wait", "priority-inversion", "request",
+]);
 /** `MainWorkClass` descriptions and `HangSample.MainTask.unattributed`. */
 export const TASK_CLASSES: ReadonlySet<string> = new Set([
   "input", "frame", "userBlocking", "visible", "automation", "background", "idle", "unattributed",

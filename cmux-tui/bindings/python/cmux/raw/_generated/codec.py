@@ -779,6 +779,7 @@ MODEL_BY_PATH = {
     'events/screen-renamed/payload': models.ScreenRenamedEvent,
     'events/script-log/payload': models.ScriptLogEvent,
     'events/scroll-changed/payload': models.ScrollChangedEvent,
+    'events/server-diagnostic-site/payload': models.ServerDiagnosticSiteEvent,
     'events/settings-changed/payload': models.SettingsChangedEvent,
     'events/size-state/payload': models.SizeStateEvent,
     'events/status/payload': models.StatusEvent,

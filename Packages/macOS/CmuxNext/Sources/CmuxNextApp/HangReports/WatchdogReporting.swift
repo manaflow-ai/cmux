@@ -13,7 +13,8 @@ import CmuxNextWakeups
 /// spike of 250 ms and up to crash reporting (rate-limited); and both to opt-in hang reports
 /// (``HangReportsController``), whose sink does nothing while they are off, as each committed key's `key.frame`
 /// time (`AppServices.inputFrameSignposts`); with the main thread's phase
-/// (`main_thread_phase`, `cef_pump`). The blocking detector's new call sites go to ``BlockingReportSink``.
+/// (`main_thread_phase`, `cef_pump`). The blocking detector's new call sites go to ``BlockingReportSink``, and so
+/// do the local daemon's (`server-diagnostic-site`, ``DaemonService/diagnosticSites``), each on a best-effort lane.
 @MainActor
 enum WatchdogReporting {
     /// Wires `watchdog` and returns this launch's hang report controller (held by `AppProcessRoot`).
@@ -33,10 +34,15 @@ enum WatchdogReporting {
             daemonPID: { [weak services] in services?.daemon.identity?.pid },
             wireSchema: .written(serverAcceptsSchema3: services.features.isEnabled(.hangReportsSchema3)))
         let collector = hangReports.collector
-        // Replays the sites the detector recorded before this point (BlockingDetector.install).
-        services.blocking.install(sink: BlockingReportSink(collector: collector, nonFatal: .init(
+        let blockingSink = BlockingReportSink(collector: collector, nonFatal: .init(
             consented: { reporter.isStarted },
-            send: { reporter.captureNonFatal($0.message, type: $0.type, fingerprint: $0.fingerprint, tags: $0.tags, extra: $0.extra) })))
+            send: { reporter.captureNonFatal($0.message, type: $0.type, fingerprint: $0.fingerprint, tags: $0.tags, extra: $0.extra) }))
+        // Replays the sites the detector recorded before this point (BlockingDetector.install).
+        services.blocking.install(sink: blockingSink)
+        // Replays the daemon sites read before this point; each goes off the reader thread (the sink may save).
+        services.daemon.diagnosticSites.install { [work = services.work] site in
+            work.post(.bestEffort, mayBlock: .files) { blockingSink.record(daemonSite: site) }
+        }
         watchdog.onHang = { hang in
             reporter.reportHang(duration: hang.duration, addresses: hang.addresses, otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) },
                                 phase: hang.phase, attribution: .init(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass, location: hang.attribution.location, turnNanos: hang.attribution.turnNanos))

@@ -286,7 +286,9 @@ impl SurfaceSessionScope {
             | MuxEvent::ClientDetached(_)
             | MuxEvent::ClientListInvalidated
             | MuxEvent::TreeChanged
-            | MuxEvent::TreeSelectionChanged => false,
+            | MuxEvent::TreeSelectionChanged
+            // The daemon's sites go to the app's control connection only.
+            | MuxEvent::DiagnosticSite(_) => false,
             MuxEvent::GraphicsStatus(_)
             | MuxEvent::Status(_)
             | MuxEvent::ConfigReloadRequested

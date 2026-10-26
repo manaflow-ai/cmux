@@ -209,7 +209,7 @@ struct DaemonEventSingleDecodeTests {
         "config-reload-requested", "conversation-inbox-changed", "detached", "empty", "frame", "graphics-status",
         "loopback-closed", "loopback-credit", "loopback-data", "loopback-eof", "machine-usage-changed", "output",
         "participant-avatar-changed", "program-status-changed", "render-delta", "render-state", "resized", "script-log",
-        "settings-changed", "size-state", "status", "surface-output", "surface-resize-failed", "terminal-input-unclaimed",
+        "server-diagnostic-site", "settings-changed", "size-state", "status", "surface-output", "surface-resize-failed", "terminal-input-unclaimed",
         "terminal-reaped", "url-open", "vt-state", "window-title-requested",
     ]
 

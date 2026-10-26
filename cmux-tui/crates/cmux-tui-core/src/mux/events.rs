@@ -183,6 +183,10 @@ pub enum MuxEvent {
     /// The daemon's machine-level model spend readout changed. `None` means
     /// the readout is unavailable and frontends must hide it.
     MachineUsageChanged(Option<MachineUsage>),
+    /// A blocking, priority-inversion or slow-request site the daemon saw
+    /// for the first time in this life (`diagnostic-sites-v1`,
+    /// diagnostics/diagnostic_sites.rs).
+    DiagnosticSite(Arc<crate::diagnostics::DiagnosticSite>),
     /// Every workspace is gone.
     Empty,
 }

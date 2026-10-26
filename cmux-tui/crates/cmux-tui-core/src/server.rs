@@ -234,6 +234,7 @@ mod responses;
 mod rows;
 mod screen_json;
 mod server_stats;
+pub(crate) use server_stats::{DIAGNOSTIC_SITES_CAPABILITY, forward_diagnostic_sites};
 mod session_stream;
 mod split_kind;
 mod split_respawn;

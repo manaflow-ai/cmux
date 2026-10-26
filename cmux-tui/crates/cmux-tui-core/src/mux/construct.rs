@@ -457,6 +457,7 @@ impl Mux {
                 crate::server::ServerSurfaceOperationAdmission::default(),
             ),
             request_watchdog: crate::server::RequestWatchdog::default(),
+            diagnostic_sites: crate::diagnostics::DiagnosticSites::default(),
             work,
             git_sequences: crate::git_ops::Sequences::default(),
             pairing: PairingBroker::new(),
@@ -466,9 +467,11 @@ impl Mux {
         });
         mux.exit_settles.bind(Arc::downgrade(&mux));
         // A process with a hang log (the headless owner) watches its holder
-        // links' frames on its first mux's watchdog, from before adoption.
+        // links' frames on its first mux's watchdog, from before adoption,
+        // and pushes its diagnostic sites to the app through that mux.
         if cmux_panic_log::hang::installed() {
             mux.request_watchdog.watch_for_process();
+            crate::server::forward_diagnostic_sites(&mux);
         }
         mux.mux_work.bind(Arc::downgrade(&mux));
         mux.start_command_history_for_persistent_registry();

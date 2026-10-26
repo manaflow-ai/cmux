@@ -111,6 +111,8 @@ extension DaemonService {
         configuration.localHeartbeat = true
         configuration.echoesPlacementShift = echoesPlacementShift
         configuration.hangWatch = hangWatch
+        // The local daemon's diagnostic sites go to this app's hang reports (``DaemonService/diagnosticSites``).
+        configuration.reportsDiagnosticSites = true
         return configuration
     }
 

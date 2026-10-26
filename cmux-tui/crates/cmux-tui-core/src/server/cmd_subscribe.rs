@@ -68,19 +68,31 @@ pub(super) fn subscribe_command(
     // each event says what set it off (spec/events.md "Event cause").
     let caused_events =
         mux.control_clients.supports_capability(client, crate::event_cause::CAPABILITY);
+    // `diagnostic-sites-v1`: the daemon's diagnostic sites, to the person's
+    // own local app only. Read after `events` subscribed, so a site noted in
+    // between comes twice rather than never (the app keeps one).
+    let diagnostic_client = trusted_pairing_client
+        && page_events.is_none()
+        && mux.control_clients.supports_capability(client, super::DIAGNOSTIC_SITES_CAPABILITY);
+    let seen_sites = if diagnostic_client { mux.diagnostic_sites.snapshot() } else { Vec::new() };
     let writer = writer.clone();
     // Its events share the reply FIFO (spec/transports.md "Reply and event order").
     let outbound_stream = writer.start_control_stream(&subscription_overflow_json())?;
     cmux_threads::spawn("mux-events-out", REQUEST_THREAD_QOS, move || {
         let mut transport_overflow = false;
-        for challenge in pending_pairings {
-            let value = json!({
+        let pairings = pending_pairings.into_iter().map(|challenge| {
+            json!({
                 "event": "pairing-requested",
                 "request": challenge.id,
                 "code": challenge.code,
                 "peer": challenge.peer,
                 "expires_in": challenge.expires_in,
-            });
+            })
+        });
+        let sites = seen_sites
+            .into_iter()
+            .map(|site| subscribed_event_json(&MuxEvent::DiagnosticSite(site)));
+        for value in pairings.chain(sites) {
             if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
                 transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
                 break;
@@ -247,6 +259,7 @@ pub(super) fn subscribe_command(
                 {
                     continue;
                 }
+                MuxEvent::DiagnosticSite(_) if !diagnostic_client => continue,
                 MuxEvent::PairingRequested(challenge) => json!({
                     "event": "pairing-requested",
                     "request": challenge.id,
@@ -426,6 +439,11 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::MachineUsageChanged(usage) => {
             let mut payload = machine_usage_json(usage.as_ref());
             payload.insert("event", json!("machine-usage-changed"));
+            payload
+        }
+        MuxEvent::DiagnosticSite(site) => {
+            let mut payload = site.fields();
+            payload.insert("event", json!("server-diagnostic-site"));
             payload
         }
         MuxEvent::ConfigReloadRequested => json!({"event": "config-reload-requested"}),

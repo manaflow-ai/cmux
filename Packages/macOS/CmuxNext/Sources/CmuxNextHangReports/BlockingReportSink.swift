@@ -12,6 +12,11 @@ public import Foundation
 /// violation's ``BlockingContext`` (the main thread, a shared pool thread or a `.cpu` lane item) and
 /// image UUID + offset frames only.
 ///
+/// ``record(daemonSite:)`` takes the daemon's sites (``DaemonDiagnosticSite``, the `server-diagnostic-site`
+/// events of the local daemon, p02-threads-233) the same way, with the daemon as their source: one
+/// ``HangSample/Source/daemon`` sample each and the same Sentry budget. The app calls it on a background lane,
+/// never on the connection's reader thread.
+///
 /// ```swift
 /// services.blocking.install(sink: BlockingReportSink(collector: collector, nonFatal: .init(
 ///     consented: { reporter.isStarted },
@@ -44,6 +49,20 @@ public final class BlockingReportSink: BlockingViolationSink {
             tags = ["blocking_kind": violation.kind.rawValue, "blocking_context": violation.context.rawValue]
             extra = ["frames": violation.frames.map { "\($0.imageUUID.uuidString)+0x\(String($0.offset, radix: 16))" }
                 .joined(separator: "\n")]
+        }
+
+        /// The event of the daemon site `site`: `daemon blocking: fs`, `daemon inversion: priority-inversion`,
+        /// `daemon hang: request`, grouped by the site's ``DaemonDiagnosticSite/key``.
+        public init(daemonSite site: DaemonDiagnosticSite) {
+            message = "daemon \(site.family.rawValue): \(site.kind)"
+            type = switch site.family {
+            case .blocking: "DaemonBlocking"
+            case .inversion: "DaemonInversion"
+            case .hang: "DaemonHang"
+            }
+            fingerprint = ["daemon-\(site.family.rawValue)", site.key]
+            tags = ["blocking_kind": site.kind, "blocking_context": "daemon"]
+            extra = ["site": site.key]
         }
 
         /// The thread's name in the message and fingerprint, and in the type.
@@ -96,8 +115,9 @@ public final class BlockingReportSink: BlockingViolationSink {
     private let nonFatal: NonFatal
     private let store: LastSentStore
     private let now: @Sendable () -> Date
-    // Lock carve-out: only the detector's serial drain queue calls record, so it is never contended;
-    // the lock only makes the class Sendable. Nil until the first consented site loads the saved times.
+    // Lock carve-out: the detector's serial drain queue calls record, and one background lane item per new
+    // daemon site (a few per daemon life) calls record(daemonSite:); neither waits on anything under it.
+    // Nil until the first consented site loads the saved times.
     private let budget = Mutex<BlockingReportBudget?>(nil)
 
     /// Makes the value from its parts.
@@ -118,8 +138,18 @@ public final class BlockingReportSink: BlockingViolationSink {
     /// Takes one new site (the detector's drain queue).
     public func record(_ violation: BlockingViolation) {
         collector?.noteBlocking(violation)
+        send(site: BlockingReportBudget.site(of: violation)) { NonFatalEvent(violation: violation, site: $0) }
+    }
+
+    /// Takes one daemon site (a background lane): its sample, and its non-fatal event within the same budget.
+    public func record(daemonSite: DaemonDiagnosticSite) {
+        collector?.noteDaemonSite(daemonSite)
+        send(site: daemonSite.key) { _ in NonFatalEvent(daemonSite: daemonSite) }
+    }
+
+    /// Sends the event of `site` when crash reporting runs and the budget admits it.
+    private func send(site: String, event: (String) -> NonFatalEvent) {
         guard nonFatal.consented() else { return }
-        let site = BlockingReportBudget.site(of: violation)
         let store = store
         let at = now()
         let admitted: [String: Date]? = budget.withLock { budget in
@@ -130,6 +160,6 @@ public final class BlockingReportSink: BlockingViolationSink {
         }
         guard let admitted else { return }
         store.save(admitted)
-        nonFatal.send(NonFatalEvent(violation: violation, site: site))
+        nonFatal.send(event(site))
     }
 }

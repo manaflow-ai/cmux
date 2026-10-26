@@ -33,6 +33,8 @@ mod owner_panic_log;
 #[cfg(debug_assertions)]
 pub use owner_panic_log::spawn_owner_hang_test;
 pub use owner_panic_log::{owner_hang_log_path, owner_panic_log_path};
+mod diagnostic_sites;
+pub use diagnostic_sites::{DiagnosticSite, DiagnosticSites, MAX_DIAGNOSTIC_SITES};
 mod slow_requests;
 pub use slow_requests::{SlowRequest, SlowRequestFrame, SlowRequestsSnapshot};
 mod method_latency;

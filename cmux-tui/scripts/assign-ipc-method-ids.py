@@ -171,6 +171,7 @@ EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "daemon-events": (0xC2, "Clients, daemon lifetime, settings, pairing and machine state.", (
         "client-*", "daemon-shutdown", "config-reload-requested", "keybindings-changed",
         "settings-changed", "pairing-*", "machine-usage-changed", "activity-changed",
+        "server-diagnostic-site",
     )),
     "agent-events": (0xC3, "Agents and the agent inventory.", ("agent-*",)),
     "personal-events": (0xC4, "Personal profiles, bookmarks and history.", (
@@ -262,7 +263,9 @@ RELEASES_SLOT: dict[str, str] = {
 EVENT_PRIORITY: dict[str, tuple[str, ...]] = {
     "input": ("output", "render-delta", "render-state", "frame"),
     "bulk": ("surface-output", "loopback-data", "loopback-eof"),
-    "background": ("machine-usage-changed", "activity-changed", "agent-inventory-changed"),
+    "background": (
+        "machine-usage-changed", "activity-changed", "agent-inventory-changed", "server-diagnostic-site",
+    ),
 }
 
 # Ordering --------------------------------------------------------------------

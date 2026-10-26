@@ -639,6 +639,9 @@ impl Shared {
 
     fn record(&self, slot: usize, word: u64, request: SlowRequest) {
         self.total.fetch_add(1, Ordering::Relaxed);
+        // The daemon's first slow run of each method goes to the app's hang
+        // reports (`server-diagnostic-site`; the forwarder keeps the first).
+        cmux_threads::blocking::note_hang_site(request.method);
         let started = self.epoch + Duration::from_millis(request.started_ms);
         if let Some(trace) = crate::debug_spans::Trace::start("slow-request", started) {
             crate::debug_spans::install(Some(trace));

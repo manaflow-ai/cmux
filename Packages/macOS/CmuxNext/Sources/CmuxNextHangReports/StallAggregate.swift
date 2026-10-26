@@ -94,9 +94,13 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
         other.blocking.forEach { keepBlocking($0) }
     }
 
-    /// Whether a blocking sample of this site would be kept (it is new and there is room).
+    /// Whether a blocking sample of this site would be kept (it is new and there is room). A daemon sample's
+    /// site is its ``HangSample/Daemon/site``, whatever kind it names.
     public func wantsBlockingSample(_ sample: HangSample) -> Bool {
-        blocking.count < Self.maxSamples && !blocking.contains(sample)
+        let site = sample.daemon?.site
+        return blocking.count < Self.maxSamples && !blocking.contains { kept in
+            site.map { kept.daemon?.site == $0 } ?? (kept == sample)
+        }
     }
 
     /// Forgets the blocking samples (a saved aggregate a build without them reads).

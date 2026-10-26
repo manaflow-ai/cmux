@@ -132,7 +132,7 @@
   "daemon-events": {
    "id": 194,
    "description": "Clients, daemon lifetime, settings, pairing and machine state.",
-   "next_ordinal": 12
+   "next_ordinal": 13
   },
   "agent-events": {
    "id": 195,
@@ -39431,6 +39431,108 @@
     "additional_properties": false
    },
    "event_id": 49673,
+   "priority": "background"
+  },
+  "server-diagnostic-site": {
+   "since": 12,
+   "capability": "diagnostic-sites-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "server-diagnostic-site"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "family": {
+      "type": {
+       "kind": "enum",
+       "values": [
+        "blocking",
+        "inversion",
+        "hang"
+       ]
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "blocking: a blocking call where blocking is disallowed (or a work item's wait for other work); inversion: a wait on work of lower QoS; hang: a request method that ran past the 250 ms watchdog threshold."
+     },
+     "kind": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The blocking kind (cmux_threads BlockingKind names: fs, sleep, recv, priority-inversion, ...), or request for a hang."
+     },
+     "crate": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "description": "Blocking and inversion: the crate of the call site without its version, or other. Never a path."
+     },
+     "file_hash": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "description": "Blocking and inversion: 16 hex digits, FNV-1a of the file's path from the crate folder on. Never a path."
+     },
+     "line": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "description": "Blocking and inversion: the call site's line."
+     },
+     "lane_sync": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "description": "Blocking: a work item's wait for other work."
+     },
+     "method": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "description": "Hang: the request's command or v2 operation name, a colon written as a dot."
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
+     }
+    },
+    "additional_properties": false
+   },
+   "event_id": 49676,
    "priority": "background"
   },
   "url-open": {

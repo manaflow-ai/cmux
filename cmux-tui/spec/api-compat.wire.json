@@ -1813,6 +1813,10 @@
         "id": 49161,
         "priority": "control"
       },
+      "server-diagnostic-site": {
+        "id": 49676,
+        "priority": "background"
+      },
       "settings-changed": {
         "id": 49674,
         "priority": "control"

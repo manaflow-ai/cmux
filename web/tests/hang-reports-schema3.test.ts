@@ -205,6 +205,50 @@ describe("POST /api/hang-reports schema 3", () => {
     expect((payload.scroll_jank as { histograms: unknown[] }).histograms.length).toBe(2);
   });
 
+  test("stores the local daemon's sites and drops one of a kind this server does not know (p02-threads-233)", async () => {
+    const report = fixture();
+    const site = (kind: string, site: string): Hang => ({
+      source: "daemon", kind: "blocking", durationMs: 0, frames: [], daemon: { family: "blocking", kind, site },
+    });
+    report.hangs.push(site("fs", "daemon-cmux-tui-core-9f2c4e1a7b3d5c60-412"));
+    report.hangs.push({ ...site("request", "daemon-hang-frame.apps"), daemon: { family: "hang", kind: "request", site: "daemon-hang-frame.apps" } });
+    report.hangs.push(site("gpu-wait", "daemon-cmux-tui-core-9f2c4e1a7b3d5c60-413"));
+    const payload = await expectStored(report);
+    const daemon = (payload.hangs as Hang[]).filter((hang) => hang.source === "daemon");
+    expect(daemon.map((hang) => hang.daemon)).toEqual([
+      { family: "blocking", kind: "fs", site: "daemon-cmux-tui-core-9f2c4e1a7b3d5c60-412" },
+      { family: "hang", kind: "request", site: "daemon-hang-frame.apps" },
+    ]);
+    expect(payload.dropped).toMatchObject({ labels: 1 });
+  });
+
+  test("answers 400 for a daemon sample of the wrong shape", async () => {
+    const daemonSample = (): Hang => ({
+      source: "daemon", kind: "blocking", durationMs: 0, frames: [],
+      daemon: { family: "blocking", kind: "fs", site: "daemon-cmux-tui-core-9f2c4e1a7b3d5c60-412" },
+    });
+    const cases: Array<(hang: Hang) => void> = [
+      (hang) => { hang.durationMs = 3; },
+      (hang) => { hang.kind = "hang"; },
+      (hang) => { delete hang.daemon; },
+      (hang) => { hang.blocking = { kind: "file-io", context: "main" }; },
+      (hang) => { hang.frames = [{ image: "other" }]; },
+      (hang) => { hang.daemon = { family: "crash", kind: "fs", site: "daemon-x" }; },
+      (hang) => { hang.daemon = { family: "blocking", kind: "fs", site: "/Users/alice/src/lib.rs" }; },
+      (hang) => { hang.daemon = { family: "blocking", kind: "fs", site: "daemon-x", file: "lib.rs" }; },
+      (hang) => { hang.source = "detector"; },
+    ];
+    for (const [index, mutate] of cases.entries()) {
+      const report = fixture();
+      const hang = daemonSample();
+      mutate(hang);
+      report.hangs.push(hang);
+      const response = await POST(request(report));
+      expect({ index, status: response.status }).toEqual({ index, status: 400 });
+    }
+    expect(repository.rows.size).toBe(0);
+  });
+
   test("drops key, PTY, per-input and flow records from the black box and counts them", async () => {
     const report = fixture();
     const planted = [

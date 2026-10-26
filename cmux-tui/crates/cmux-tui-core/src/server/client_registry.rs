@@ -687,6 +687,7 @@ impl ClientRegistry {
                     || capability == super::participant_avatars::PARTICIPANT_AVATARS_CAPABILITY
                     || capability == super::chief_registry_resource::CHIEF_EVENTS_CAPABILITY
                     || capability == crate::event_cause::CAPABILITY
+                    || capability == super::DIAGNOSTIC_SITES_CAPABILITY
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }

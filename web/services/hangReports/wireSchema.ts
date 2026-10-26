@@ -18,6 +18,7 @@ import {
 import {
   BlackboxEvent,
   BlockingDetail,
+  DaemonDetail,
   FieldHistograms,
   InputLatencyEdges,
   InputLatencyRow,
@@ -127,17 +128,21 @@ const Hang = Schema.Struct({
 /**
  * A schema 3 hang sample (the client's `HangSample`): also the blocking
  * detector's call sites (`source` `detector`, `kind` `blocking`, no duration,
- * a `blocking` object) and a watchdog hang's scheduled `task`. The pairing
- * rules are the client's (HangReportServerRules.swift).
+ * a `blocking` object), the local daemon's sites (`source` `daemon`, `kind`
+ * `blocking`, no duration or stack, a `daemon` object) and a watchdog hang's
+ * scheduled `task`. The pairing rules are the client's
+ * (HangReportServerRules.swift).
  */
 const HangV3 = Schema.Struct({
-  source: Schema.Literal("metrickit", "watchdog", "detector"),
+  source: Schema.Literal("metrickit", "watchdog", "detector", "daemon"),
   kind: Schema.Literal("hang", "stall", "blocking"),
   ...hangFields,
   blocking: optionalNullable(BlockingDetail),
+  daemon: optionalNullable(DaemonDetail),
   task: optionalNullable(MainTask),
 }).pipe(Schema.filter(isPairedHang, {
-  message: () => "a blocking object goes with a detector sample of no duration; a task with a watchdog hang",
+  message: () =>
+    "a blocking object goes with a detector sample of no duration, a daemon object with a daemon sample of no duration or stack; a task with a watchdog hang",
 }));
 
 const CpuException = Schema.Struct({
@@ -299,20 +304,26 @@ export function decodeHangReport(body: unknown): HangReport | null {
 }
 
 /**
- * The client's pairing (HangReportServerRules.swift): a detector sample is
- * exactly a `blocking` kind, carries the `blocking` object and no duration;
- * only a watchdog hang names its `task`.
+ * The client's pairing (HangReportServerRules.swift): a detector sample
+ * carries the `blocking` object and a daemon sample the `daemon` object, both
+ * are exactly the `blocking` kind with no duration, and a daemon sample has no
+ * stack; only a watchdog hang names its `task`.
  */
 function isPairedHang(hang: {
   readonly source: string;
   readonly kind: string;
   readonly durationMs: number;
+  readonly frames: ReadonlyArray<unknown>;
   readonly blocking?: unknown;
+  readonly daemon?: unknown;
   readonly task?: unknown;
 }): boolean {
   const detector = hang.source === "detector";
-  if (detector !== (hang.kind === "blocking") || detector !== (hang.blocking != null)) return false;
-  if (detector && hang.durationMs !== 0) return false;
+  const daemon = hang.source === "daemon";
+  if ((detector || daemon) !== (hang.kind === "blocking")) return false;
+  if (detector !== (hang.blocking != null) || daemon !== (hang.daemon != null)) return false;
+  if ((detector || daemon) && hang.durationMs !== 0) return false;
+  if (daemon && hang.frames.length > 0) return false;
   return hang.task == null || (hang.source === "watchdog" && hang.kind === "hang");
 }
 
