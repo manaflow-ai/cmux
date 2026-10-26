@@ -22,7 +22,9 @@ nothing received. This guard launches a Debug `cmux DEV <tag>.app` twice, with S
 
 After each crash it prints the crash keys the crash path wrote (`run.crashkeys` in the marker folder,
 p10-stability-207): the running action's id, pane kind, Chromium state, daemon epoch and hung-thread kinds,
-numbers only. Report only; `--expect-crash-keys` (run by hand on the fleet) also fails a run with no fresh record.
+numbers only. Report only; `--expect-crash-keys` (run by hand on the fleet) also fails a run whose fresh record
+names no daemon epoch: every launched app connects to its daemon before the gate crashes it, so a record without
+`daemon_epoch` (or with no key at all) means the keys were never wired or never written.
 
 Before each crash it checks with `sample` that Sentry's primary Mach handler thread runs, so the
 guard holds the failing setup. A process that does not end is sampled into --out and then stopped
@@ -47,7 +49,7 @@ parser.add_argument("--suspended-seconds", type=float, default=20)
 # suspended is opt-in (`--runs suspended`): run it yourself on the fleet; CI keeps its two runs.
 parser.add_argument("--runs", default="exception,frozen", help="comma list of exception, frozen, suspended")
 parser.add_argument("--expect-crash-keys", action="store_true",
-                    help="fail a run whose crash path wrote no fresh run.crashkeys (report only without it)")
+                    help="fail a run whose fresh run.crashkeys names no daemon_epoch (report only without it)")
 opts = parser.parse_args()
 
 bundle = os.path.realpath(opts.app).rstrip("/")
@@ -191,8 +193,8 @@ def run(kind):
                     return f"suspended: no fresh {name} in {folder}"
         keys = crash_keys(started)
         print(f"crash-ends-app-gate: {kind}: crash keys: {keys or 'none written'}", flush=True)
-        if opts.expect_crash_keys and keys is None:
-            return f"{kind}: the crash path wrote no fresh run.crashkeys in {marker_folder()}"
+        if opts.expect_crash_keys and not re.search(r"(^| )daemon_epoch=[1-9]", keys or ""):
+            return f"{kind}: the crash path wrote no fresh run.crashkeys naming the daemon epoch in {marker_folder()} ({keys or 'none'})"
         print(f"crash-ends-app-gate: {kind}: ended in {elapsed:.1f} s (exit status {process.returncode})", flush=True)
         return None
     finally:

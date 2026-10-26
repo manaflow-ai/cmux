@@ -66,6 +66,32 @@ private func threadAllocations(_ body: () -> Void) -> Int? {
         #expect(read.hungThread(at: 0) == CrashKeySlots.HungThread(port: 4242, kind: 2))
     }
 
+    /// The crash path's own read: the record line written straight from the block's words (what
+    /// `CrashReporter.recordCrashKeys()` runs in a fatal-signal handler), and from a snapshot.
+    @Test func writingTheCrashRecordMakesNoAllocation() throws {
+        let keys = CrashKeySlots()
+        keys.set(.actionID, .max)
+        keys.set(.paneKind, CrashKeySlots.PaneKind.browser.rawValue)
+        keys.set(.cefState, CrashKeySlots.CEFState.inPump.rawValue)
+        keys.set(.daemonEpoch, 12)
+        keys.noteHung(CrashKeySlots.HungThread(port: 4242, kind: 3))
+        let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: CrashKeySlots.maxRecordBytes, alignment: 8)
+        defer { buffer.deallocate() }
+        // Warm-up outside the count, as the app's launch does (`CrashReporter.attachCrashKeys`).
+        _ = CrashKeySlots.writeRecord(wordsAt: keys.wordsAddress, into: buffer)
+        _ = keys.snapshot().writeRecord(into: buffer)
+        var fromWords = 0, fromSnapshot = 0
+        let measured = try #require(threadAllocations {
+            fromWords = CrashKeySlots.writeRecord(wordsAt: keys.wordsAddress, into: buffer)
+            fromSnapshot = keys.snapshot().writeRecord(into: buffer)
+        })
+        #expect(measured == 0, "writing the crash record made \(measured) heap allocations")
+        #expect(fromWords == fromSnapshot)
+        let line = String(decoding: UnsafeRawBufferPointer(rebasing: buffer[..<fromSnapshot]), as: UTF8.self)
+        #expect(line == "crash_keys action_id=\(UInt64.max) pane_kind=2 cef_state=3 daemon_epoch=12 hung_threads=1 hung_kind_0=3\n")
+        #expect(CrashKeySlots.writeRecord(wordsAt: 0, into: buffer) == "crash_keys\n".utf8.count, "no block: an empty record")
+    }
+
     @Test func aScopedKeyPutsTheOuterValueBack() {
         let keys = CrashKeySlots()
         keys.withKey(.actionID, 1) {

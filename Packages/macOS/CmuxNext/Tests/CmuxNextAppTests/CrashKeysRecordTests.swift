@@ -37,6 +37,31 @@ struct CrashKeysRecordTests {
         #expect(CrashKeys(record: "not a record") == nil)
     }
 
+    /// The next launch puts the previous run's keys into that run's app report and its GitHub issue text,
+    /// scrubbed: only the names and numbers the crash path writes.
+    @MainActor
+    @Test func thePreviousRunsKeysReachItsReportAndIssue() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "crash-keys-report-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let planted = directory.appending(path: "run.crashkeys.previous")
+        try "crash_keys action_id=255 pane_kind=1 daemon_epoch=4 hung_threads=1 hung_kind_0=3 path=/Users/someone\n"
+            .write(to: planted, atomically: true, encoding: .utf8)
+        let keys = try #require(AppRunMarker.readCrashKeys(planted))
+        let previous = PreviousRun(pid: 4242, launched: Date(timeIntervalSince1970: 1_790_000_000), recovery: false,
+                                   survived: true, signal: SIGSEGV, quitting: false)
+        let service = CrashRecoveryService(bundleID: "com.cmuxterm.test.crashkeys", marksRun: false)
+        let tags = try #require(service.appReport(previous, crashKeys: keys)["crash_keys"] as? [String: String])
+        #expect(tags["crash_key.action_id"] == "ff")
+        #expect(tags["crash_key.pane_kind"] == "terminal")
+        #expect(tags["crash_key.daemon_epoch"] == "4")
+        #expect(tags["crash_key.hung_thread_kinds"] == "lane")
+        #expect(service.appReport(previous)["crash_keys"] == nil, "a run with no record has no keys")
+        let issue = CrashIssueReport(previous: previous, version: "1", bundleID: "b", crashKeys: keys)
+        #expect(issue.body.contains("- Crash keys: crash_key.action_id=ff crash_key.daemon_epoch=4"), "\(issue.body)")
+        #expect(!issue.body.contains("/Users/someone"))
+    }
+
     @Test func theWrittenLineRoundTripsAndFitsItsBuffer() throws {
         let slots = CrashKeySlots()
         slots.set(.actionID, .max)

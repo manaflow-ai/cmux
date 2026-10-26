@@ -65,6 +65,13 @@ public struct CrashKeys: Sendable, Equatable {
 
     /// The keys as a report's tags (``CmuxNextWakeups/CrashKeySlots/Snapshot/tags``).
     public var tags: [String: String] { snapshot.tags }
+
+    /// The tags as one `crash_key.<name>=<value>` line sorted by name, `none` when no key is set (a log line,
+    /// an issue's text).
+    public var tagLine: String {
+        let tags = tags
+        return tags.isEmpty ? "none" : tags.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
+    }
 }
 
 // MARK: - The crash path

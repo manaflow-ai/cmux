@@ -61,6 +61,10 @@ fn writing_scoping_and_reading_keys_allocates_nothing() {
         std::hint::black_box(crash_keys::get(Key::ActionId));
         drop(outer);
         crash_keys::clear_hung(77);
+        // A thread's own key (a request's method): its first use on this thread too.
+        let own = crash_keys::scoped_thread(Key::CefState, 3);
+        std::hint::black_box(crash_keys::thread_value(Key::CefState));
+        drop(own);
     });
     assert_eq!(count, 0, "the crash keys allocated {count} times");
     assert_eq!(inner_read, 1);

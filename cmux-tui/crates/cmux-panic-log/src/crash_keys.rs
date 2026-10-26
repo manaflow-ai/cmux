@@ -18,7 +18,26 @@
 //! crash path writes (`CrashKeys` in CmuxNextCrashReporting):
 //! `crash_keys action_id=1234 daemon_epoch=3 hung_threads=1 hung_kind_0=3`.
 //! The panic hook adds the same keys to each panic line as `crash_keys`.
+//!
+//! Two scopes. [`set`] and [`scoped`] write the process's value, for state
+//! one owner moves (an epoch). A daemon serves many requests at once on a
+//! pool of threads, so a request's [`Key::ActionId`] is this thread's own
+//! instead ([`scoped_thread`], and [`keyed`] for a future: set for each poll
+//! on the thread polling it). The panic hook runs on the panicking thread,
+//! so its line names the request that thread was running; a thread's value
+//! wins over the process's in [`snapshot`].
+//!
+//! Who writes what: the acpmux daemon names each request's method
+//! ([`keyed`] around its dispatch, `server/mod.rs`) and the session owner
+//! each command's (`connection_frame.rs`). Pane kind, Chromium state and
+//! daemon epoch are the app's keys (`CrashKeySlots` in CmuxNextWakeups);
+//! these processes keep the slots so the record format is one, and set
+//! none. The hung threads are for the daemons' hang watch to name
+//! ([`note_hung`]), which p09-observability-071 wires.
 
+use std::cell::Cell;
+use std::future::Future;
+use std::marker::PhantomData;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// One single-word key. The names and their order match the app's
@@ -76,6 +95,12 @@ const ZERO: AtomicU64 = AtomicU64::new(0);
 static KEYS: [AtomicU64; 4] = [ZERO; 4];
 static HUNG: [AtomicU64; HUNG_THREAD_CAPACITY] = [ZERO; HUNG_THREAD_CAPACITY];
 
+thread_local! {
+    /// This thread's own values (0: none), over the process's. Const
+    /// initialized with no destructor: reading or writing allocates nothing.
+    static THREAD_KEYS: [Cell<u64>; 4] = const { [const { Cell::new(0) }; 4] };
+}
+
 /// A catalog name (an action id, a request method) as a key value: FNV-1a 64
 /// of its UTF-8 bytes, never 0. The app's `CrashKeySlots.stableKey` computes
 /// the same number.
@@ -118,6 +143,50 @@ impl Drop for Scoped {
     fn drop(&mut self) {
         set(self.key, self.outer);
     }
+}
+
+/// This thread's own value of `key` (0 when it has none; also after the
+/// thread's locals are gone).
+pub fn thread_value(key: Key) -> u64 {
+    THREAD_KEYS.try_with(|keys| keys[key.index()].get()).unwrap_or(0)
+}
+
+/// Sets `key` to `value` on this thread until the guard drops, then puts
+/// this thread's value it replaced back. For work many threads run at once
+/// (requests on a pool); the guard stays on its thread.
+#[must_use = "the key is put back when the guard drops"]
+pub fn scoped_thread(key: Key, value: u64) -> ThreadScoped {
+    let outer = THREAD_KEYS.try_with(|keys| keys[key.index()].replace(value)).unwrap_or(0);
+    ThreadScoped { key, outer, _thread: PhantomData }
+}
+
+/// A key set by [`scoped_thread`]; dropping it restores this thread's outer
+/// value. Not `Send`: it belongs to the thread that set it.
+#[derive(Debug)]
+pub struct ThreadScoped {
+    key: Key,
+    outer: u64,
+    _thread: PhantomData<*const ()>,
+}
+
+impl Drop for ThreadScoped {
+    fn drop(&mut self) {
+        let _ = THREAD_KEYS.try_with(|keys| keys[self.key.index()].set(self.outer));
+    }
+}
+
+/// Runs `future` with `key` set to `value` on whichever thread polls it,
+/// for each poll ([`scoped_thread`] around each one, like `tracing`'s
+/// `Instrumented`): a panic while the future runs names it, and a future
+/// that moves between a runtime's workers takes its key along. Allocates
+/// nothing.
+pub async fn keyed<F: Future>(key: Key, value: u64, future: F) -> F::Output {
+    let mut future = std::pin::pin!(future);
+    std::future::poll_fn(|context| {
+        let _key = scoped_thread(key, value);
+        future.as_mut().poll(context)
+    })
+    .await
 }
 
 /// A thread a hang reporter found past its deadline whose scope is still
@@ -177,12 +246,16 @@ pub fn clear_hung(id: u32) {
     }
 }
 
-/// Every key and hung-thread entry now, with relaxed loads: no allocation,
-/// no lock.
+/// Every key and hung-thread entry now, as the calling thread sees them
+/// (its own value of a key, else the process's), with relaxed loads: no
+/// allocation, no lock.
 pub fn snapshot() -> Snapshot {
     let mut snapshot = Snapshot::default();
     for key in Key::ALL {
-        snapshot.keys[key.index()] = get(key);
+        snapshot.keys[key.index()] = match thread_value(key) {
+            0 => get(key),
+            own => own,
+        };
     }
     for (slot, entry) in snapshot.hung.iter_mut().zip(&HUNG) {
         *slot = entry.load(Ordering::Relaxed);
@@ -384,7 +457,7 @@ mod tests {
         assert!(Snapshot::parse("not a record").is_none());
     }
 
-    /// The one unit test that touches the process's keys (the others build snapshots by hand).
+    /// Each unit test that touches the process's keys uses a key no other one does.
     #[test]
     fn a_scope_puts_the_outer_value_back_and_a_full_table_names_no_more() {
         let _outer = scoped(Key::CefState, 2);
@@ -404,6 +477,44 @@ mod tests {
             clear_hung(id);
         }
         assert!(snapshot().hung_threads().next().is_none());
+    }
+
+    #[test]
+    fn a_thread_key_wins_over_the_process_key_on_its_own_thread_only() {
+        let _process = scoped(Key::PaneKind, 4);
+        {
+            let _own = scoped_thread(Key::PaneKind, 9);
+            assert_eq!(snapshot().get(Key::PaneKind), 9);
+            let other = std::thread::spawn(|| snapshot().get(Key::PaneKind)).join().unwrap();
+            assert_eq!(other, 4, "another thread saw this thread's key");
+        }
+        assert_eq!(snapshot().get(Key::PaneKind), 4, "the thread's outer value is back");
+    }
+
+    #[test]
+    fn a_keyed_future_names_its_key_in_each_poll_only() {
+        let mut seen = Vec::new();
+        {
+            let future = keyed(
+                Key::ActionId,
+                42,
+                std::future::poll_fn(|context| {
+                    seen.push(thread_value(Key::ActionId));
+                    if seen.len() < 2 {
+                        context.waker().wake_by_ref();
+                        std::task::Poll::Pending
+                    } else {
+                        std::task::Poll::Ready(())
+                    }
+                }),
+            );
+            let mut future = std::pin::pin!(future);
+            let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+            assert!(future.as_mut().poll(&mut context).is_pending());
+            assert_eq!(thread_value(Key::ActionId), 0, "the key outlived its poll");
+            assert!(future.as_mut().poll(&mut context).is_ready());
+        }
+        assert_eq!(seen, vec![42, 42]);
     }
 
     #[test]
