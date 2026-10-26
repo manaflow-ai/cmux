@@ -248,7 +248,7 @@ pub(super) fn rebuild(
                     Ok((dir.join(name), meta))
                 })
                 .collect::<io::Result<Vec<_>>>(),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(BTreeSet::new()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
             Err(e) => Err(e),
         }
         .map_err(|e| format!("cannot snapshot {}: {e}", dir.display()))?;
