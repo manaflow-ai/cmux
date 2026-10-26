@@ -7,6 +7,7 @@ import {
   KEEP_ALIVE_OP,
   PageKeepAlive,
   pageError,
+  RECEIVE_MANY_NAME,
   RESTORE_NAME,
   takePageRestore,
   type PageClient,
@@ -72,6 +73,58 @@ describe("pageClient held events", () => {
     await client.subscribe("cmux.test.state", (_data, _seq, meta) => metas.push(meta));
     client.receive({ t: "ev", sub: 7, seq: 1, data: {}, opid: "op-1" });
     expect(metas).toEqual([{ opid: "op-1" }]);
+  });
+});
+
+describe("pageClient frame batches", () => {
+  test("receiveMany handles one frame's envelopes in send order", async () => {
+    const target: Record<string, unknown> = {};
+    let nextSub = 7;
+    const client = new BridgePageClient(
+      {
+        postMessage: async (body) => {
+          const envelope = body as { t: string; id: number };
+          if (envelope.t === "sub") return { t: "ok", id: envelope.id, value: { sub: nextSub++ } };
+          return { t: "ok", id: envelope.id, value: null };
+        },
+      },
+      target,
+    );
+    const seen: unknown[] = [];
+    await client.subscribe("cmux.test.a", (data) => seen.push(data));
+    const receiveMany = target[RECEIVE_MANY_NAME] as (messages: unknown) => void;
+    receiveMany([
+      { t: "ev", sub: 7, seq: 1, data: { n: 0 } },
+      { t: "evs", events: [{ t: "ev", sub: 7, seq: 2, data: { n: 1 } }] },
+      { t: "ev", sub: 7, seq: 3, data: { n: 2 } },
+    ]);
+    expect(seen).toEqual([{ n: 0 }, { n: 1 }, { n: 2 }]);
+  });
+
+  test("a listener that throws does not stop the envelopes after it", async () => {
+    const client = makeClient();
+    const seen: number[] = [];
+    await client.subscribe("cmux.test.a", (data) => {
+      const { n } = data as { n: number };
+      if (n === 0) throw new Error("listener failed");
+      seen.push(n);
+    });
+    const error = console.error;
+    console.error = () => {};
+    try {
+      client.receiveMany([
+        { t: "ev", sub: 7, seq: 1, data: { n: 0 } },
+        { t: "ev", sub: 7, seq: 2, data: { n: 1 } },
+      ]);
+    } finally {
+      console.error = error;
+    }
+    expect(seen).toEqual([1]);
+  });
+
+  test("a value that is not a list is ignored", () => {
+    const client = makeClient();
+    expect(() => client.receiveMany({ t: "ev" })).not.toThrow();
   });
 });
 

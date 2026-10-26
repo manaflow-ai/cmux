@@ -409,20 +409,32 @@ final class AppServices {
     /// The New Tab page on the app's one preload slot, which it installs on `webUI` (instant open, p13-webui-044).
     private(set) lazy var newTabSpares = NewTabPreload.app(self)
     /// The spare React page hosts for Settings, History and Cloud.
-    private(set) lazy var pageHostPool = PageHostPool(memory: memoryCoordinator, policy: .init(preloadOnMakeVisible: features.isEnabled(.pageRendererAtFirstShow)),
-                                                      hoverFrameInput: hoverFrameInput)
+    private(set) lazy var pageHostPool: PageHostPool = {
+        let pool = PageHostPool(memory: memoryCoordinator, policy: .init(preloadOnMakeVisible: features.isEnabled(.pageRendererAtFirstShow)),
+                                hoverFrameInput: hoverFrameInput)
+        pool.scriptFrames = pageScriptFrame
+        return pool
+    }()
     /// The one owner of cmux pages (p13-webui.md 3.A): every page view opens and closes through it.
     /// Every page follows `browser.defaultEngine` (Chromium by default) through its one Chromium host.
     /// Its views are listed in `PageRegistry.processWide` while the static forwarders remain (p13-webui-010).
-    private(set) lazy var webUI: WebUIHost = WebUIHost(
-        chromium: ChromiumPageHost(
-            chromium: cache.chromium,  // the engine at the first page opened in Chromium, not here
-            preference: { [weak self] in
-                self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
-            },
-            keyRouter: keyRouter, work: work),
-        openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
-        hoverFrameInput: hoverFrameInput)
+    private(set) lazy var webUI: WebUIHost = {
+        let host = WebUIHost(
+            chromium: ChromiumPageHost(
+                chromium: cache.chromium,  // the engine at the first page opened in Chromium, not here
+                preference: { [weak self] in
+                    self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
+                },
+                keyRouter: keyRouter, work: work),
+            openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
+            hoverFrameInput: hoverFrameInput)
+        host.scriptFrames = pageScriptFrame
+        return host
+    }()
+    /// The frame cmux pages deliver their router envelopes on, one board task per page per frame
+    /// (`pageScriptFrames`, default off, p06-scheduler-222); nil while the feature is off.
+    private(set) lazy var pageScriptFrame: PageScriptFrame? = features.isEnabled(.pageScriptFrames)
+        ? FrameBatchQueue(owner: "pages.scripts", budgeted: .visible, on: mainWork).pageScriptFrame(causes: mainWork.causes) : nil
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
     private(set) lazy var iconPicker = IconPickerService(services: self, webUI: webUI)
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
