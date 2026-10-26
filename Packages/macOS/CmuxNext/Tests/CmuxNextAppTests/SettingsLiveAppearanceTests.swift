@@ -35,8 +35,8 @@ import Testing
         try await body(SettingsPageProvider(settings: settings), settings)
     }
 
-    private func call(_ page: SettingsPageProvider, _ op: String, _ key: String, _ value: JSONValue? = nil) async throws {
-        var params: JSONValue = ["key": .string(key)]
+    private func call(_ page: SettingsPageProvider, _ op: String, _ key: String, _ value: CmuxNextSettings.JSONValue? = nil) async throws {
+        var params: CmuxNextSettings.JSONValue = ["key": .string(key)]
         if let value, case .object(var members) = params {
             members["value"] = value
             params = .object(members)
@@ -123,7 +123,7 @@ import Testing
 
     @Test func committedControlsApplyWithoutAFileWatcherAndSurviveReload() async throws {
         try await withPage { page, settings in
-            let values: [(String, JSONValue)] = [
+            let values: [(String, CmuxNextSettings.JSONValue)] = [
                 ("appearance.statusIndicator.style", .string("braille")),
                 ("appearance.statusIndicator.animation", .string("static")),
                 ("appearance.statusIndicator.size", .number(1.5)),
