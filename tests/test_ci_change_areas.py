@@ -3050,10 +3050,13 @@ def test_webviews_bun_jobs_match_dev_engines_pin() -> None:
 
 def test_react_apps_check_keeps_a_stable_aggregate_gate() -> None:
     block = workflow_job_block("react-apps-check", WEB_WORKFLOW)
-    assert "needs: [web-subarea-scope, react-apps-check-shard, react-doctor]" in block
+    assert "needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-check, react-doctor]" in block
     assert "react-apps-check-shard" in block
+    assert "react-apps-base-check" in block
     assert "react-doctor" in block
-    assert "if: ${{ !cancelled() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}" in block
+    assert "if: ${{ always() && inputs.web == 'true' &&" in block
+    assert "github.ref == 'refs/heads/feat-cmux-next'" in block
+    assert "github.base_ref == 'feat-cmux-next'" in block
 
 
 def test_react_doctor_runs_as_an_independent_required_lane() -> None:

@@ -245,15 +245,10 @@ class ChecksJobStructure(unittest.TestCase):
         self.assertEqual(sum("--only rust" in run for run in godfile_runs), 1, godfile_runs)
 
 
-class WebviewsWarnSplitCoversCheck(unittest.TestCase):
-    """Under CMUX_NEXT_STYLE_GUARDS=warn, ci-web runs `bun run check` as separate commands.
+class WebviewsCheckChainCoversCheck(unittest.TestCase):
+    """ci-web runs every command in webviews/package.json's check chain."""
 
-    A check added to package.json's `check` script but not to that list would stop
-    running on feat-cmux-next without a warning or a failure (#22492's
-    check:switch-fetches did).
-    """
-
-    def test_every_part_of_bun_run_check_runs_in_the_warn_branch(self) -> None:
+    def test_every_part_of_bun_run_check_runs_and_fails_red(self) -> None:
         package = json.loads((ROOT / "webviews/package.json").read_text(encoding="utf-8"))
         parts = [part.strip() for part in package["scripts"]["check"].split("&&")]
         jobs = yaml.safe_load((ROOT / ".github/workflows/ci-web.yml").read_text(encoding="utf-8"))["jobs"]
@@ -264,28 +259,16 @@ class WebviewsWarnSplitCoversCheck(unittest.TestCase):
             if step.get("id") == "webviews-check"
         ]
         self.assertEqual(len(runs), 1, "one webviews-check step")
-        warn_branch = runs[0].split("fi\n", 1)[1]
-        loop = re.search(r"for check in ([^;]+); do", warn_branch)
-        self.assertIsNotNone(loop, "the warn branch loops over the style checks")
-        looped = set(loop.group(1).split())
-        # The warn branch runs fast_gate_webviews_checks.py, which runs each of its CHECKS (#24252).
-        import fast_gate_webviews_checks
-        gated = set()
-        if re.search(r"fast_gate_webviews_checks\.py[^\n]*\|\| status=1", warn_branch):
-            gated = set(fast_gate_webviews_checks.CHECKS)
-        gated_commands = {package["scripts"][name] for name in gated if name in package["scripts"]}
-        for part in parts:
-            if part.startswith("vp "):
-                self.assertTrue(
-                    part in gated_commands or f"./node_modules/.bin/{part} ||" in warn_branch,
-                    f"`{part}` from webviews/package.json check does not run when CMUX_NEXT_STYLE_GUARDS=warn",
-                )
-                continue
-            name = part.removeprefix("bun run ").strip()
-            self.assertTrue(
-                name in looped or name in gated or f"bun run {name} || status=1" in warn_branch,
-                f"`{part}` from webviews/package.json check does not run when CMUX_NEXT_STYLE_GUARDS=warn",
-            )
+        run = runs[0]
+        self.assertIn('require("./package.json").scripts.check.split("&&")', run)
+        self.assertIn("while IFS= read -r piece", run)
+        self.assertIn('PATH="$PWD/node_modules/.bin:$PATH" sh -c "$piece"', run)
+        self.assertIn('echo "::error title=webviews check::$piece"', run)
+        self.assertIn('exit "$status"', run)
+        self.assertNotIn("for check in check:", run)
+        self.assertNotIn("warn-only", run)
+        self.assertNotIn("CMUX_NEXT_STYLE_GUARDS", run)
+        self.assertGreaterEqual(len(parts), 10)
 
 
 class ReferencedFilesExist(unittest.TestCase):

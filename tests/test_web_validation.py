@@ -80,7 +80,7 @@ class WebValidationTests(unittest.TestCase):
         aggregate = self._ci_web_job_block(workflow, "react-apps-check")
         self.assertIn("GITHUB_REF", aggregate)
         self.assertIn("GITHUB_BASE_REF", aggregate)
-        self.assertIn("base_push", aggregate)
+        self.assertIn("base_line", aggregate)
 
     def test_web_inputs_and_mixed_changes_are_selected(self):
         for path in (
