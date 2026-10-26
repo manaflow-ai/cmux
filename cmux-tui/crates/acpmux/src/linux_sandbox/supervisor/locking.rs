@@ -140,6 +140,31 @@ mod tests {
         worker.join().unwrap();
     }
 
+    #[test]
+    fn lock_file_is_owner_write_only() {
+        if unsafe { geteuid() } == 0 {
+            eprintln!("skipped: lock readability test requires a non-root uid");
+            return;
+        }
+        let path = format!("/tmp/acpmux-lock-mode-{}", std::process::id());
+        let file = open_at(AT_FDCWD, &path, O_CREAT | O_EXCL | O_RDWR, 0o600).unwrap();
+        let info = stat(file.as_raw_fd()).unwrap();
+        assert_eq!(info.st_mode & (S_IFMT | 0o777), S_IFREG | 0o200);
+        drop(file);
+        assert!(matches!(open_at(AT_FDCWD, &path, O_RDONLY, 0), Err(EACCES)));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn preexisting_lock_mode_is_refused() {
+        let path = format!("/tmp/acpmux-lock-preexisting-{}", std::process::id());
+        let file = open_at(AT_FDCWD, &path, O_CREAT | O_EXCL | O_RDWR, 0o600).unwrap();
+        let info = stat(file.as_raw_fd()).unwrap();
+        assert_eq!(info.st_mode & 0o777, 0o200);
+        drop(file);
+        let _ = std::fs::remove_file(path);
+    }
+
     /// A competing daemon's flock is held until the waiting thread observes stop.
     #[test]
     fn external_flock_blocks_until_stop() {
