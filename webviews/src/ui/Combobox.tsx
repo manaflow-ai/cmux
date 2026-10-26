@@ -48,6 +48,8 @@ export interface ComboboxProps {
   renderItem?(value: string): ReactNode;
   /** A rich row's accessible name; its identity remains the stable suggestion string. */
   itemLabel?(value: string): string;
+  /** The committed choice, distinct from the transient keyboard highlight. */
+  isItemCurrent?(value: string): boolean;
   /** Readable Tab completion for suggestions identified by an opaque key. */
   completionText?(value: string): string;
   /** The highlighted suggestion changed; undefined when none is. `by` says whether the arrow keys
@@ -77,6 +79,7 @@ export function Combobox({
   rootClassName,
   renderItem,
   itemLabel,
+  isItemCurrent,
   completionText,
   onHighlight,
 }: ComboboxProps) {
@@ -145,10 +148,13 @@ export function Combobox({
       event.preventBaseUIHandler?.();
       onCancel();
     } else if (event.key === "Tab" && !event.shiftKey && suggestions.length) {
+      const next = highlightedRef.current ?? suggestions[0];
+      const completed = completionText?.(next) ?? next;
+      // A completed field is a normal Tab stop: keyboard users can reach actions beside the list.
+      if (typed === completed) return;
       event.preventDefault();
       event.preventBaseUIHandler?.();
-      const next = highlightedRef.current ?? suggestions[0];
-      update(completionText?.(next) ?? next);
+      update(completed);
     }
   };
   const enabledSuggestions = suggestions.filter((item) => !isItemDisabled?.(item));
@@ -169,6 +175,7 @@ export function Combobox({
             key={item}
             value={item}
             aria-label={itemLabel?.(item)}
+            aria-current={isItemCurrent?.(item) ? true : undefined}
             className={cx("ui-combobox-item", itemClassName)}
             render={<li />}
             onClick={() => onSubmit(item)}
@@ -185,6 +192,7 @@ export function Combobox({
           role="option"
           aria-disabled="true"
           aria-label={itemLabel?.(item)}
+          aria-current={isItemCurrent?.(item) ? true : undefined}
           aria-selected="false"
           data-disabled
           className={cx("ui-combobox-item", itemClassName)}

@@ -644,6 +644,7 @@ function LocationPicker({
             if (options.some((option) => option.id === id) || (allowPath && /^(?:\/|~\/)/.test(id))) pick(id);
           }}
           onCancel={() => changeOpen(false)}
+          cancelOnBlur={false}
           autoHighlight={kind === "computer" ? "always" : false}
           // Escape closes back onto the folder chip (escapeFocus.ts).
           onCommand={(event) => {
@@ -655,6 +656,8 @@ function LocationPicker({
           listClassName="acpmux-location-folders m-0 list-none border-t-[0.5px] border-edge p-0 pt-1 [&:not([hidden])]:mt-1"
           itemClassName="acpmux-menu-item cursor-default rounded-lg data-[highlighted]:bg-hover"
           itemLabel={(id) => options.find((option) => option.id === id)?.label ?? id}
+          completionText={(id) => options.find((option) => option.id === id)?.label ?? id}
+          isItemCurrent={(id) => id === selected}
           renderItem={(path) => {
             const folder = options.find((option) => option.id === path);
             const suffix = suffixes?.get(path);
