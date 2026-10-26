@@ -56,9 +56,9 @@ public final class PageHostPool {
     /// - Parameter memoryPressure: the app's one memory pressure service (a test passes events from a
     ///   source it drives); a warning or critical level drops the parked spare.
     /// - Parameter processGroups: The app's ``WebUIHost/processGroups``, so a spare's page is in the
-    ///   pages' pool and its group's store (a test leaves the default, groups of its own).
+    ///   pages' pool and its group's store (a test passes groups of its own).
     public init(memoryPressure: MemoryPressureEvents, policy: Policy = Policy(), options: PageEngineOptions = .standard,
-                processGroups: PageProcessGroups = WebUIHost.makeProcessGroups(),
+                processGroups: PageProcessGroups,
                 clock: any Clock<Duration> = ContinuousClock(),
                 activity: @escaping () -> UInt64 = { ExpectedActivity.shared.total },
                 isTrackingMenu: @escaping () -> Bool = { RunLoop.main.currentMode == .eventTracking }) {
@@ -99,6 +99,9 @@ public final class PageHostPool {
             scheduleBuild()
             return nil
         }
+        // The spare's data store is its own page's group's; a page whose group shares another store
+        // (the `pageProcessGroups` feature) opens fresh in its own group.
+        guard processGroups.mayShow(descriptor.processGroup, inViewMadeFor: host.madeForGroup) else { return nil }
         let start = ContinuousClock.now
         spare = nil
         spareReady = false

@@ -53,12 +53,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// Chromium and WebKit put each cmux page in its capability group, so pages of one group share a renderer and pages of different groups never do. WebKit agent pages share without it.
+    /// Chromium and WebKit put each cmux page in its capability group, so pages of one group share a renderer and pages of different groups never do; WebKit pages of one group also share one in-memory store (localStorage) for the app's life, and WebKit agent pages share without it.
     public static let pageProcessGroups = Feature(
         index: 3,
         name: "pageProcessGroups",
         owner: "PL-webui",
-        description: "Chromium and WebKit put each cmux page in its capability group, so pages of one group share a renderer and pages of different groups never do. WebKit agent pages share without it.",
+        description: "Chromium and WebKit put each cmux page in its capability group, so pages of one group share a renderer and pages of different groups never do; WebKit pages of one group also share one in-memory store (localStorage) for the app's life, and WebKit agent pages share without it.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,

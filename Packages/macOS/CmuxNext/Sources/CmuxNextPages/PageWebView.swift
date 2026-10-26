@@ -100,6 +100,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var dynamicResources: (any PageDynamicResourceSource)?
     /// True when this view came from ``PageHostPool`` and may be rebound to another bundled page.
     public let isPooled: Bool
+    /// The process group of the page the view was made for, whose data store it has; a pooled
+    /// host's retarget keeps it (``PageProcessGroups/mayShow(_:inViewMadeFor:)``).
+    let madeForGroup: PageProcessGroup
     var pooledOwner: PagePooledOwner?
     /// Whether a pooled host has received real user input (a key or mouse event) since its claim.
     /// Page messages do not count: a parked page mounts when it is shown, so every claim starts
@@ -175,7 +178,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         self.init(request: PageOpenRequest(descriptor: descriptor, routes: routes, route: route,
                                            documentAttributes: documentAttributes, options: options,
                                            surface: surface, dynamicResources: dynamicResources),
-                  chromium: Self.chromiumHosting, openPanel: Self.openPanel, registry: .processWide)
+                  chromium: Self.chromiumHosting, openPanel: Self.openPanel, registry: .processWide,
+                  processGroups: WebUIHost.makeProcessGroups())
     }
 
     /// The root a page is served from without an explicit one: the DEBUG override, else this
@@ -249,6 +253,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     ///
     /// `chromium` makes the page's Chromium view when the policy picks Chromium (the app's
     /// ``chromiumHosting`` by default; tests pass a fake).
+    ///
+    /// The app opens pages through ``WebUIHost/open(_:)``, in its groups; a page made here has
+    /// groups of its own, so its own data store and process, as every page had before the groups.
     public convenience init?(descriptor: PageDescriptor, root: URL, routes: [PageRoute], route: String? = nil,
                              documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
                              surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil,
@@ -264,21 +271,27 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
          surface: SurfaceKind?, dynamicResources: (any PageDynamicResourceSource)?, pooled: Bool, load: Bool,
          openRequested: TimeInterval? = nil, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
          openPanel: MadeAheadOpenPanel? = PageWebView.openPanel, registry: PageRegistry = .processWide,
-         processGroups: PageProcessGroups = WebUIHost.makeProcessGroups(), trace: any PageTraceSink = TraceRuntime.shared) {
+         processGroups: PageProcessGroups, trace: any PageTraceSink = TraceRuntime.shared) {
         let constructionStart = openRequested ?? ProcessInfo.processInfo.systemUptime
         self.trace = trace
         self.descriptor = descriptor
         engineOptions = options
         isPooled = pooled
+        madeForGroup = descriptor.processGroup
         pooledOwner = nil
         themeSurface = surface
         self.dynamicResources = dynamicResources
         router = PageRouter(descriptor: descriptor, routes: routes)
         self.inputReadiness = inputReadiness
         let decision = Self.engineDecision(for: descriptor, options: options, hosting: chromium)
-        engineDecision = pooled || !load ? decision.webKitOnly : decision
-        webView = processGroups.webView(for: descriptor.processGroup, configuration: configuration, // webview-allow: the page host's WebKit engine
-                                        joins: pooled || !load || decision.engine == .webKit) { PageWKWebView(frame: .zero, configuration: $0) } // a Chromium page's view never loads
+        let engine = pooled || !load ? decision.webKitOnly : decision
+        engineDecision = engine
+        // A Chromium page's WebKit view never loads, so it joins no group.
+        webView = processGroups.webView(for: descriptor.processGroup, configuration: configuration,
+                                        joins: engine.engine == .webKit) {
+            // webview-allow: the page host's WebKit engine
+            PageWKWebView(frame: .zero, configuration: $0)
+        }
         inputReadiness.attach(webView)
         let webKitBridge = WebKitPageHostBridge(webView: webView)
         bridge = webKitBridge

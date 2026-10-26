@@ -178,7 +178,7 @@ extension MainPaneGutterSuites {
             let file = try Self.page("<html><body></body></html>")
             defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
             let model = AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent))
-            let newTab = try #require(AgentPaneView(model: model, source: .bundled(file)))
+            let newTab = try #require(AgentPaneView(model: model, source: .bundled(file), processGroups: WebUIHost.makeProcessGroups()))
             let rig = Rig(content: newTab)
             defer { rig.tearDown() }
             try expectOneEdge(rig, content: newTab, "New Tab")
@@ -200,7 +200,7 @@ extension MainPaneGutterSuites {
             let file = try Self.page("<html><body></body></html>")
             defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
             let newTab = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent)),
-                                                    source: .bundled(file)))
+                                                    source: .bundled(file), processGroups: WebUIHost.makeProcessGroups()))
             let web = Rig(content: newTab)
             defer { web.tearDown() }
             let plain = NSView()

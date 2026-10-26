@@ -130,9 +130,9 @@ public final class AgentPaneView: NSView {
     ///   - openPanel: The app's made-ahead open panel (`AppServices.openPanel`) for Add Files, Attach and a page's
     ///     file input, warmed when the pane reaches a window; nil (tests) shows no file picker and warms none.
     ///   - processGroups: The app's page groups (`WebUIHost.processGroups`), whose agent group this view's
-    ///     own WebKit host joins; nil takes `pageHost`'s, else groups of its own (tests).
+    ///     own WebKit host joins (tests pass groups of their own).
     public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
-                 pageHost: WebUIHost? = nil, openPanel: MadeAheadOpenPanel? = nil, processGroups: PageProcessGroups? = nil) {
+                 pageHost: WebUIHost? = nil, openPanel: MadeAheadOpenPanel? = nil, processGroups: PageProcessGroups) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         self.openPanel = openPanel
         fileChooser = openPanel.map { PageOpenPanel(openPanel: $0) }
@@ -162,8 +162,7 @@ public final class AgentPaneView: NSView {
         } else {
             let configuration = WKWebViewConfiguration()
             // The agent group's store in the pages' one pool (fonts are listed once per pool, R81 trace).
-            let groups = processGroups ?? pageHost?.processGroups ?? WebUIHost.makeProcessGroups()
-            groups.configure(configuration, for: PageDescriptor.agent.processGroup)
+            processGroups.configure(configuration, for: PageDescriptor.agent.processGroup)
             if renderRate != .capped {
                 WebKitRenderRate.apply(fullRate: true, to: configuration.preferences)
             }
@@ -181,7 +180,7 @@ public final class AgentPaneView: NSView {
             ConsoleErrorCapture(page: "agent-pane").install(in: configuration.userContentController)
             inputReadiness = PageInputReadiness(configuration: configuration)
             // Agent pages share web content processes, 8 per process (PageProcessGroups).
-            webView = groups.webView(for: PageDescriptor.agent.processGroup, configuration: configuration) {
+            webView = processGroups.webView(for: PageDescriptor.agent.processGroup, configuration: configuration, joins: true) {
                 // webview-allow: the old agent host (agent.pageHost off, or a dev-server page); the page host picks the engine otherwise
                 AgentPaneWKWebView(frame: .zero, configuration: $0)
             }

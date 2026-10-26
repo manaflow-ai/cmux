@@ -2,7 +2,7 @@
   "$schema": "../features.schema.json",
   "name": "pageProcessGroups",
   "owner": "PL-webui",
-  "description": "Chromium and WebKit put each cmux page in its capability group, so pages of one group share a renderer and pages of different groups never do. WebKit agent pages share without it.",
+  "description": "Chromium and WebKit put each cmux page in its capability group, so pages of one group share a renderer and pages of different groups never do; WebKit pages of one group also share one in-memory store (localStorage) for the app's life, and WebKit agent pages share without it.",
   "defaults": { "dev": false, "nightly": false, "release": false },
   "kind": "perfPath",
   "expires": "2026-12-20",

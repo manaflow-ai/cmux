@@ -31,7 +31,8 @@ struct PageProcessGroupsTests {
     @Test func eachGroupMakesOneStoreAndEveryViewIsInOnePool() {
         var made = 0
         let pool = WKProcessPool()
-        let groups = PageProcessGroups(processPool: pool, relatedGroups: [.agent]) {
+        let groups = PageProcessGroups(processPool: pool, relatedGroups: [.agent],
+                                       sharedStoreGroups: Set(PageProcessGroup.allCases)) {
             made += 1
             return WKWebsiteDataStore.nonPersistent()
         }
@@ -48,11 +49,14 @@ struct PageProcessGroupsTests {
 
     @Test func secretsAndSoloPagesAreNeverRelated() {
         let shared = WebUIHost.makeProcessGroups(sharesPageGroups: true)
-        let forced = PageProcessGroups(processPool: WKProcessPool(), relatedGroups: Set(PageProcessGroup.allCases)) {
+        let forced = PageProcessGroups(processPool: WKProcessPool(), relatedGroups: Set(PageProcessGroup.allCases),
+                                       sharedStoreGroups: []) {
             WKWebsiteDataStore.nonPersistent()
         }
         #expect(!forced.relatedGroups.contains(.secrets))
         #expect(!forced.relatedGroups.contains(.solo))
+        // A related group always shares its store: WebKit relates views only in one store.
+        #expect(forced.sharedStoreGroups == forced.relatedGroups)
         for groups in [shared, forced] {
             for group in [PageProcessGroup.secrets, .solo] {
                 let first = Self.make(groups, group)
@@ -72,6 +76,47 @@ struct PageProcessGroupsTests {
             let anchor = Self.make(on, group)
             #expect(Self.related(Self.make(on, group)) === anchor)
         }
+    }
+
+    /// Without the feature only agent pages share a store, as before the groups: two viewer pages
+    /// (diff, markdown) keep their own localStorage, freed when each closes.
+    @Test func withoutTheFeatureOnlyAgentPagesShareAStore() {
+        let off = WebUIHost.makeProcessGroups()
+        #expect(off.sharedStoreGroups == [.agent])
+        #expect(off.dataStore(for: .agent) === off.dataStore(for: .agent))
+        for group in PageProcessGroup.allCases where group != .agent {
+            #expect(off.dataStore(for: group) !== off.dataStore(for: group))
+        }
+        let on = WebUIHost.makeProcessGroups(sharesPageGroups: true)
+        for group in PageProcessGroup.allCases {
+            #expect(on.dataStore(for: group) === on.dataStore(for: group))
+        }
+    }
+
+    /// A pooled spare made for Settings (`solo`) may show History or Cloud (`privileged`) only while
+    /// neither group shares a store; with the feature its store is not theirs.
+    @Test func aSpareShowsAnotherGroupsPageOnlyWhenNeitherSharesAStore() {
+        let off = WebUIHost.makeProcessGroups()
+        #expect(off.mayShow(PageDescriptor.history.processGroup, inViewMadeFor: PageDescriptor.settings.processGroup))
+        #expect(!off.mayShow(.agent, inViewMadeFor: .solo))
+        let on = WebUIHost.makeProcessGroups(sharesPageGroups: true)
+        #expect(!on.mayShow(PageDescriptor.history.processGroup, inViewMadeFor: PageDescriptor.settings.processGroup))
+        #expect(on.mayShow(.solo, inViewMadeFor: .solo))
+    }
+
+    /// The spare is made in the groups the pool was given (the app's), so it relates and anchors
+    /// there, not in groups of its own.
+    @Test func aPooledSpareIsMadeInThePoolsGroups() throws {
+        // The built Settings page wins when bundled; otherwise this root serves it (first registration wins).
+        PageID.registerBundledRoot(try Self.pageRoot(), for: PageDescriptor.settings.id)
+        let groups = WebUIHost.makeProcessGroups(sharesPageGroups: true)
+        let recipe = try #require(PageWebView.pooledHostRecipe(.settings, processGroups: groups))
+        #expect(recipe.processGroups === groups)
+        #expect(recipe.configuration.websiteDataStore === groups.dataStore(for: .solo))
+        let spare = PageWebView(recipe: recipe)
+        defer { spare.close() }
+        #expect(spare.madeForGroup == .solo)
+        #expect(spare.webView.configuration.processPool === groups.processPool)
     }
 
     @Test func aViewNeverJoinsAnotherGroupsAnchor() {
@@ -145,7 +190,7 @@ struct PageProcessGroupsTests {
     private static func make(_ groups: PageProcessGroups, _ group: PageProcessGroup) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         groups.configure(configuration, for: group)
-        return groups.webView(for: group, configuration: configuration) { WKWebView(frame: .zero, configuration: $0) }
+        return groups.webView(for: group, configuration: configuration, joins: true) { WKWebView(frame: .zero, configuration: $0) }
     }
 
     private static func related(_ view: WKWebView) -> WKWebView? {

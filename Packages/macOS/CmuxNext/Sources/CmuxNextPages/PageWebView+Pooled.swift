@@ -11,6 +11,8 @@ struct PooledHostRecipe {
     let inputReadiness: PageInputReadiness
     let options: PageEngineOptions
     let owner: PagePooledOwner
+    /// The groups the configuration's pool and store come from; the view relates in them.
+    let processGroups: PageProcessGroups
 }
 
 final class PagePooledOwner {
@@ -40,12 +42,14 @@ extension PageWebView {
             guard let view = owner?.view else { return nil }
             return PageServedHosts.served(host: host, current: view.descriptor, dynamicSource: view.dynamicResources)
         }
-        let host = hostConfiguration(handler: handler, documentAttributes: [:], options: options, group: served.processGroup, in: processGroups)
+        let host = hostConfiguration(handler: handler, documentAttributes: [:], options: options,
+                                     group: served.processGroup, in: processGroups)
         // The spare's document is parked until a claim binds routes (PageWebView+Claim.swift).
         host.configuration.userContentController.addUserScript(
             WKUserScript(source: parkedScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         return PooledHostRecipe(served: served, configuration: host.configuration,
-                                inputReadiness: host.inputReadiness, options: options, owner: owner)
+                                inputReadiness: host.inputReadiness, options: options, owner: owner,
+                                processGroups: processGroups)
     }
 
     /// True while the view is the pool's parked spare (hidden, not claimed by any page).
@@ -55,7 +59,8 @@ extension PageWebView {
     convenience init(recipe: PooledHostRecipe, routes: [PageRoute] = []) {
         self.init(descriptor: recipe.served, configuration: recipe.configuration,
                   inputReadiness: recipe.inputReadiness, routes: routes, route: nil,
-                  options: recipe.options, surface: nil, dynamicResources: nil, pooled: true, load: false)
+                  options: recipe.options, surface: nil, dynamicResources: nil, pooled: true, load: false,
+                  processGroups: recipe.processGroups)
         pooledOwner = recipe.owner
         recipe.owner.view = self
     }

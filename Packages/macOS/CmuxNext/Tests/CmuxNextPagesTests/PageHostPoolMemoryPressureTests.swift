@@ -13,6 +13,7 @@ import Testing
         var policy = PageHostPool.Policy()
         policy.idleInput = .milliseconds(5)
         let pool = PageHostPool(memoryPressure: MemoryPressureEvents(source: source), policy: policy,
+                                processGroups: WebUIHost.makeProcessGroups(),
                                 activity: { 0 }, isTrackingMenu: { false })
         defer { pool.dropSpare() }
         pool.follow(window)

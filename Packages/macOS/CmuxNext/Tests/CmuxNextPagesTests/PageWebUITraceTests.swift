@@ -20,7 +20,7 @@ struct PageWebUITraceTests {
         return PageWebView(descriptor: descriptor, configuration: configuration,
                            inputReadiness: PageInputReadiness(configuration: configuration), routes: [], route: nil,
                            options: .standard, surface: nil, dynamicResources: nil, pooled: false, load: load,
-                           chromium: chromium, trace: recorder)
+                           chromium: chromium, processGroups: WebUIHost.makeProcessGroups(), trace: recorder)
     }
 
     @Test func aNewViewPaintedInChromiumIsOneOpenEndingInChromium() async throws {
@@ -176,7 +176,7 @@ private struct SchemeRig {
         view = PageWebView(descriptor: descriptor, configuration: configuration,
                            inputReadiness: PageInputReadiness(configuration: configuration), routes: [], route: nil,
                            options: .standard, surface: nil, dynamicResources: nil, pooled: false, load: false,
-                           chromium: nil, trace: PageTraceRecorder())
+                           chromium: nil, processGroups: WebUIHost.makeProcessGroups(), trace: PageTraceRecorder())
     }
 
     func task(_ path: String, method: String = "GET") throws -> FakeSchemeTask {

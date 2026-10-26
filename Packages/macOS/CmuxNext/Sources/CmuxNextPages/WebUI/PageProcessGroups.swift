@@ -2,7 +2,8 @@ public import WebKit
 
 /// The WebKit side of the page process groups (plans/cmux-next/chrome-parity/p13-webui.md 3.B): one
 /// process pool for every page and agent view, one non-persistent data store per
-/// ``PageProcessGroup``, and web content processes shared within a group, at most
+/// ``PageProcessGroup`` that shares stores (``sharedStoreGroups``; a page of another group gets a store
+/// of its own, freed with it), and web content processes shared within a related group, at most
 /// ``pagesPerProcess`` pages per process. ``WebUIHost`` owns the app's one instance.
 ///
 /// WebKit starts a web content process for every web view, also when the views share one
@@ -16,11 +17,11 @@ public import WebKit
 /// 55 New Tab pages without groups ran 54 WebContent processes (3.8 to 4.5 GB, plans/cmux-next/sequoia-lag.md).
 ///
 /// `solo` and `secrets` pages are never related to another view (``PageProcessGroup/sharesRenderer``),
-/// whatever ``init(processPool:pagesPerProcess:relatedGroups:makeStore:)`` is given.
+/// whatever ``init(processPool:pagesPerProcess:relatedGroups:sharedStoreGroups:makeStore:)`` is given.
 ///
 /// ```swift
 /// groups.configure(configuration, for: .agent)
-/// let view = groups.webView(for: .agent, configuration: configuration, make: makePageView)
+/// let view = groups.webView(for: .agent, configuration: configuration, joins: true, make: makePageView)
 /// ```
 @MainActor
 public final class PageProcessGroups {
@@ -31,6 +32,9 @@ public final class PageProcessGroups {
     public let pagesPerProcess: Int
     /// The groups whose views share processes; never `solo` or `secrets`.
     public let relatedGroups: Set<PageProcessGroup>
+    /// The groups whose pages share one data store for the app's life (every related group too:
+    /// WebKit relates views only in one store). Pages of other groups get a new store each.
+    public let sharedStoreGroups: Set<PageProcessGroup>
     private let makeStore: @MainActor () -> WKWebsiteDataStore
     private var stores: [PageProcessGroup: WKWebsiteDataStore] = [:]
     private var anchors: [PageProcessGroup: Anchor] = [:]
@@ -46,21 +50,33 @@ public final class PageProcessGroups {
     ///   - pagesPerProcess: The most pages one process serves (at least 1).
     ///   - relatedGroups: The groups whose views share processes; groups that do not share a
     ///     renderer are dropped.
-    ///   - makeStore: Makes a group's data store, once per group on its first use.
+    ///   - sharedStoreGroups: The groups whose pages share one data store; the related groups are added.
+    ///   - makeStore: Makes a data store: once per shared group on its first use, else once per page.
     public init(processPool: WKProcessPool, pagesPerProcess: Int = 8, relatedGroups: Set<PageProcessGroup>,
-                makeStore: @escaping @MainActor () -> WKWebsiteDataStore) {
+                sharedStoreGroups: Set<PageProcessGroup>, makeStore: @escaping @MainActor () -> WKWebsiteDataStore) {
         self.processPool = processPool
         self.pagesPerProcess = max(pagesPerProcess, 1)
-        self.relatedGroups = relatedGroups.filter(\.sharesRenderer)
+        let related = relatedGroups.filter(\.sharesRenderer)
+        self.relatedGroups = related
+        self.sharedStoreGroups = sharedStoreGroups.union(related)
         self.makeStore = makeStore
     }
 
-    /// The data store of `group`'s pages, made on its first use.
+    /// The data store of a new `group` page: the group's one store (made on its first use) when the
+    /// group shares stores, else a new store for that page alone.
     public func dataStore(for group: PageProcessGroup) -> WKWebsiteDataStore {
+        guard sharedStoreGroups.contains(group) else { return makeStore() }
         if let store = stores[group] { return store }
         let store = makeStore()
         stores[group] = store
         return store
+    }
+
+    /// Whether a WebKit view made for a `madeFor` page may show a `group` page (a pooled spare
+    /// claimed for another page): its data store must be the one a new `group` page gets, so either
+    /// the groups match or neither shares a store (each page has its own).
+    public func mayShow(_ group: PageProcessGroup, inViewMadeFor madeFor: PageProcessGroup) -> Bool {
+        group == madeFor || (!sharedStoreGroups.contains(group) && !sharedStoreGroups.contains(madeFor))
     }
 
     /// Sets `configuration`'s process pool and `group`'s data store.
@@ -72,12 +88,13 @@ public final class PageProcessGroups {
     /// Makes a `group` page's web view with `make` from `configuration` (set up by
     /// ``configure(_:for:)``). In a related group it is related to the group's current anchor while
     /// that view lives, has room and uses the same pool and store; otherwise it becomes the anchor.
-    /// A view of a group that is not related is made as it is.
+    /// A view of a group that is not related, or that does not `join`, is made as it is.
     ///
-    /// Call it only for a view that will load: relating a view starts its anchor's process.
+    /// - Parameter joins: False for a view that never loads (a Chromium page's WebKit view): relating
+    ///   it would start its anchor's process, and as the anchor it would hold no process for the next pages.
     public func webView<View: WKWebView>(for group: PageProcessGroup, configuration: WKWebViewConfiguration,
-                                         make: (WKWebViewConfiguration) -> View) -> View {
-        guard relatedGroups.contains(group) else { return make(configuration) }
+                                         joins: Bool, make: (WKWebViewConfiguration) -> View) -> View {
+        guard joins, relatedGroups.contains(group) else { return make(configuration) }
         if var anchor = anchors[group], let view = anchor.view, anchor.members < pagesPerProcess,
            view.configuration.processPool === configuration.processPool,
            view.configuration.websiteDataStore === configuration.websiteDataStore,

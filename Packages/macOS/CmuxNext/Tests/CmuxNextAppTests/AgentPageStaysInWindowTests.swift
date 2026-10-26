@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextPages
 @testable import CmuxNextTabs
 import Foundation
 import Testing
@@ -44,7 +45,7 @@ import Testing
         window.orderFrontRegardless()
 
         let page = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent)),
-                                              source: .bundled(file)))
+                                              source: .bundled(file), processGroups: WebUIHost.makeProcessGroups()))
         defer { page.close() }
         let probe = WindowProbe()
         page.addSubview(probe)

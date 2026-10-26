@@ -41,8 +41,9 @@ public final class WebUIHost {
     ///   - registry: Where opened views are listed (the app passes ``PageRegistry/processWide``
     ///     until p13-webui-010; a test leaves the default, its own registry).
     ///   - clock: The Chromium deadline's clock.
-    ///   - sharesPageGroups: The `pageProcessGroups` feature: `privileged` and `viewer` pages share
-    ///     WebKit processes too, not only agent pages (``makeProcessGroups(sharesPageGroups:)``).
+    ///   - sharesPageGroups: The `pageProcessGroups` feature: every group's pages share one WebKit
+    ///     data store and `privileged` and `viewer` pages share processes too, not only agent pages
+    ///     (``makeProcessGroups(sharesPageGroups:)``).
     public init(chromium: (any PageChromiumHosting)?, openPanel: MadeAheadOpenPanel?,
                 memoryPressure: MemoryPressureEvents, registry: PageRegistry = PageRegistry(),
                 clock: any Clock<Duration> = ContinuousClock(), sharesPageGroups: Bool = false) {
@@ -54,18 +55,21 @@ public final class WebUIHost {
         processGroups = Self.makeProcessGroups(sharesPageGroups: sharesPageGroups)
     }
 
-    /// WebKit process groups in the page pool, each group's pages in one non-persistent store
-    /// (page storage is in memory only, as Chrome's off-the-record WebUI pages). Agent pages share
-    /// processes, as the old agent host did; the `privileged` and `viewer` groups share only with
-    /// `sharesPageGroups` (the `pageProcessGroups` feature); `solo` and `secrets` never do.
+    /// WebKit process groups in the page pool; every store is non-persistent (page storage is in
+    /// memory only, as Chrome's off-the-record WebUI pages). Agent pages share one store and their
+    /// processes, as the old agent host did. With `sharesPageGroups` (the `pageProcessGroups`
+    /// feature) each other group's pages share one store for the app's life too, and `privileged`
+    /// and `viewer` pages share processes; `solo` and `secrets` pages never share a process. Without
+    /// it each of those pages has a store of its own, freed when the page closes.
     ///
-    /// A view made outside a host (a pooled spare, a test) takes groups made here too, so no store
-    /// is made anywhere else.
+    /// The app makes one through its ``WebUIHost``; a page view made outside a host (the static
+    /// `PageWebView` initializers, a test) passes groups made here.
     ///
-    /// - Parameter sharesPageGroups: Whether `privileged` and `viewer` pages share processes.
+    /// - Parameter sharesPageGroups: The `pageProcessGroups` feature.
     public static func makeProcessGroups(sharesPageGroups: Bool = false) -> PageProcessGroups {
         PageProcessGroups(processPool: PageProcessPool.shared,
                           relatedGroups: sharesPageGroups ? [.agent, .privileged, .viewer] : [.agent],
+                          sharedStoreGroups: sharesPageGroups ? Set(PageProcessGroup.allCases) : [.agent],
                           makeStore: { WKWebsiteDataStore.nonPersistent() })
     }
 
