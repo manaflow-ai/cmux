@@ -5,6 +5,7 @@ the publisher steps that stamp and publish it."""
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -61,23 +62,27 @@ stamp = workflow.index("Stamp the tip feed, its key and a build number")
 check(stamp < workflow.index("Sign and verify cmux NEXT DEV"), "the stamp happens before signing")
 check("secrets.NIGHTLY_SPARKLE_PRIVATE_KEY" in workflow and "secrets.SPARKLE_NEXT_PRIVATE_KEY" not in workflow,
       "the tip feed uses the release environment's NIGHTLY Sparkle key")
-tip = workflow[workflow.index("\n  tip:\n"):]
-check("environment: release" in tip, "the tip job runs in the existing release environment")
-check("concurrency:" not in tip and "cancel-in-progress" not in tip, "a newer tip build never cancels or evicts another")
-check(tip.index("notarytool submit") < tip.index("./scripts/sparkle_generate_appcast.sh"), "the DMG is notarized before the feed names it")
+tip_dmg = workflow[workflow.index("\n  tip-dmg:\n"):workflow.index("\n  tip:\n")]
+tip = workflow[workflow.index("\n  tip:\n"):workflow.index("\n  tip-deltas:\n")]
+tip_deltas = workflow[workflow.index("\n  tip-deltas:\n"):]
+for job, label in ((tip_dmg, "tip-dmg"), (tip, "tip"), (tip_deltas, "tip-deltas")):
+    check("environment: release" in job, f"{label} runs in the existing release environment")
+    check("concurrency:" not in job and "cancel-in-progress" not in job, f"a newer tip build never cancels or evicts another ({label})")
+    check("needs.sign.outputs.build != ''" in job.split("steps:")[0], f"only a stamped build gets a tip DMG ({label})")
+    check(job.split("needs:")[0].count("continue-on-error: true") == 1,
+          f"a red {label} job never makes the dispatcher re-publish the same source run")
+check(tip_dmg.index("notarytool submit") < tip_dmg.index("./scripts/sparkle_generate_appcast.sh"), "the DMG is notarized before the feed names it")
 uploads = tip[tip.index("Upload the tip feed to R2"):]
 check(uploads.index("upload \"tip-new/") < uploads.index("r2_cas.py put"),
       "archives upload before the feed that names them")
 check("TIP_APP_FLOOR_SHA: df21458196edaaf3de5192da56ecd2a315aacae7" in workflow
       and 'compare/$TIP_APP_FLOOR_SHA...$SOURCE_SHA' in workflow,
       "a source from before the tip app (#24954) gets no tip feed")
-check("needs.sign.outputs.build != ''" in tip.split("steps:")[0], "only a stamped build gets a tip DMG")
-check('[[ "$app_key" == "$signing_key" ]]' in tip, "the feed key must be the key the app in the DMG trusts")
-check("generate_appcast did not add edSignature" in tip, "the sign_update fallback never publishes")
-check(tip.index('[[ "$app_key" == "$signing_key" ]]') < tip.index("./scripts/sparkle_generate_appcast.sh"),
+check('[[ "$app_key" == "$signing_key" ]]' in tip_dmg and '[[ "$app_build" == "$TIP_BUILD" ]]' in tip_dmg,
+      "the feed key must be the key the app in the DMG trusts, and the DMG must hold this build")
+check("generate_appcast did not add edSignature" in tip_dmg, "the sign_update fallback never publishes")
+check(tip_dmg.index('[[ "$app_key" == "$signing_key" ]]') < tip_dmg.index("./scripts/sparkle_generate_appcast.sh"),
       "the key is checked before the feed is generated")
-check(tip.split("needs:")[0].count("continue-on-error: true") == 1,
-      "a red tip job never makes the dispatcher re-publish the same source run")
 sign = workflow[workflow.index("\n  sign:\n"):workflow.index("\n  verify:\n")]
 verify = workflow[workflow.index("\n  verify:\n"):workflow.index("\n  publish:\n")]
 # The signer runs on Linux (rcodesign): no keychain, no DMG and no notarization there.
@@ -91,18 +96,18 @@ check(all(line.strip().startswith("[[ -n") for line in sign_code.splitlines() if
       "the Sparkle private key reaches the key derivation by environment, never on a command line")
 check("notary_id" not in workflow, "the tip job makes its own notarization submission")
 # The tip job builds, signs and submits the DMG, with a keychain it deletes before notarizing.
-steps = [tip.find(marker) for marker in (
+steps = [tip_dmg.find(marker) for marker in (
     "name: Download the signed app\n", "codesign --verify --deep --strict", "-format ULMO",
     "signing-keychain.sh create", "codesign --force --timestamp --keychain", "signing-keychain.sh delete",
     "notarytool submit", 'notarytool wait "$id"', "xcrun stapler staple", "./scripts/sparkle_generate_appcast.sh")]
 check(-1 not in steps and steps == sorted(steps), "tip: unpack and codesign the signed app, build the DMG, sign it, delete the keychain, then notarize")
-check(tip.count("if: always()") >= 2, "the tip job deletes its keychain whatever happens")
+check(tip_dmg.count("if: always()") >= 2, "tip-dmg deletes its keychain whatever happens")
 publish = workflow[workflow.index("\n  publish:\n"):workflow.index("\n  tip:\n")]
 # Apple's codesign runs in verify now, so publish and tip ship only what verify passed. A skipped
 # or cancelled verify has empty outputs and a result other than success: both block.
-for job, label in ((publish, "publish"), (tip, "tip")):
+for job, label, needs in ((publish, "publish", "needs: [sign, verify]"), (tip, "tip", "needs: [sign, verify, tip-dmg]")):
     head = job.split("steps:")[0]
-    check("needs: [sign, verify]" in head and "needs.verify.result == 'success'" in head
+    check(needs in head and "needs.verify.result == 'success'" in head
           and "needs.verify.outputs.verified == 'true'" in head and "needs.sign.result == 'success'" in head,
           f"{label} needs verify to succeed with verified 'true'")
 runner = workflow[workflow.index("\n  runner:\n"):workflow.index("\n  verify:\n")]
@@ -121,7 +126,7 @@ check("verified: ${{ steps.check.outputs.verified }}" in verify
 check("tip" not in publish.split("needs:")[1].split("\n")[0], "the rolling prerelease never waits for the tip feed")
 # Freshness (2026-10-26: nothing published for six hours): the signer never waits on the 12 vCPU
 # macOS label, and no shared group evicts a newer handoff while a signer waits.
-check(all("12vcpu" not in line for job in (sign, tip) for line in job.splitlines() if line.strip().startswith("runs-on:")),
+check(all("12vcpu" not in line for job in (sign, tip_dmg, tip, tip_deltas) for line in job.splitlines() if line.strip().startswith("runs-on:")),
       "sign and tip never queue on blacksmith-12vcpu-macos-26")
 check("concurrency:" not in sign.split("steps:")[0], "no concurrency group evicts a newer DEV handoff while a signer waits")
 # No group anywhere in the publisher (a group replaces a pending run): the newest write wins instead.
@@ -139,11 +144,95 @@ publish_step = publish[publish.index("- name: Publish the rolling GitHub prerele
 check("timeout-minutes: 45" in publish_step.split("run: |")[0] and "--ttl 3000" in publish_step
       and "(( wait > 900 - waited ))" in publish_step,
       "the publish lease outlives the publish step, so it is never taken from a run still writing")
-check("TIP_RUN_TAG: r${{ github.run_id }}-${{ github.run_attempt }}" in tip
-      and 'cmux-NEXT-DEV-$TIP_BUILD.dmg' not in tip
-      and "SPARKLE_DELTA_NAME_PREFIX: cmux-NEXT-DEV-tip-${{ github.run_id }}-${{ github.run_attempt }}-" in tip,
-      "each attempt's tip archive and deltas have their own names, so a re-run never hits an earlier upload")
+check("TIP_RUN_TAG: r${{ github.run_id }}-${{ github.run_attempt }}" in tip_dmg
+      and "TIP_RUN_TAG: r${{ github.run_id }}-${{ github.run_attempt }}" in tip
+      and "DMG_RUN_TAG: ${{ needs.tip-dmg.outputs.run_tag }}" in tip
+      and 'cmux-NEXT-DEV-$TIP_BUILD.dmg' not in tip_dmg + tip
+      and "SPARKLE_DELTA_NAME_PREFIX: cmux-NEXT-DEV-tip-${{ github.run_id }}-${{ github.run_attempt }}-" in tip_deltas,
+      "each tip-dmg and each tip attempt has its own names, so a re-run never shares an upload with an earlier one")
 check("--write-once" in tip, "tip archives and deltas are write-once, so a feed's signature always matches its bytes")
+
+# Move 4 (Leo, 2026-10-26: "And I thought we were incremental..."): tip-dmg builds, signs and
+# notarizes while verify runs; tip, the only R2 writer, still needs verify.
+import yaml
+jobs = yaml.safe_load(workflow)["jobs"]
+dmg_job, feed_job = jobs["tip-dmg"], jobs["tip"]
+check(dmg_job["needs"] == ["sign"] and "verify" not in dmg_job["if"], "tip-dmg starts right after sign, alongside verify")
+check(feed_job["needs"] == ["sign", "verify", "tip-dmg"] and "needs.tip-dmg.outputs.ready == 'true'" in feed_job["if"],
+      "tip writes the feed only after verify passed and tip-dmg handed off a ready DMG")
+dmg_steps = {step.get("name"): step for step in dmg_job["steps"]}
+build_dmg = dmg_steps["Build the tip DMG"]
+check("continue-on-error" not in build_dmg, "tip-dmg's codesign check is never advisory")
+build_run = build_dmg["run"]
+codesign_line = next(line for line in build_run.splitlines() if "codesign --verify --deep --strict" in line)
+check("|| true" not in build_run and "||" not in codesign_line and "set -euo pipefail" in build_run,
+      "a codesign error fails tip-dmg: no || true, and pipefail keeps codesign's status through tee")
+check('grep -q "sealed resource is missing or invalid" codesign-verify.log; then' in build_run
+      and build_run.index("sealed resource is missing or invalid") < build_run.index("hdiutil create"),
+      "a sealed resource missing or invalid fails tip-dmg before the DMG exists")
+order = [tip_dmg.find(marker) for marker in (
+    "codesign --verify --deep --strict", "hdiutil create", "codesign --force --timestamp", "notarytool submit",
+    "xcrun stapler staple", '[[ "$app_key" == "$signing_key" ]]', "./scripts/sparkle_generate_appcast.sh",
+    "python3 scripts/ci/tip_feed.py check", "name: Upload the tip DMG and appcast for tip", "name: Mark the tip DMG ready for tip")]
+check(-1 not in order and order == sorted(order),
+      "tip-dmg: codesign the app, build, sign, notarize and staple the DMG, check its key and build, then hand off")
+check("CF_R2_" not in tip_dmg and "r2_cas.py" not in tip_dmg and "upload-r2-object.py" not in tip_dmg,
+      "tip-dmg writes nothing public: R2 keys and uploads live only in tip, after verify")
+check(dmg_job["outputs"]["ready"] == "${{ steps.ready.outputs.ready }}" and dmg_steps["Mark the tip DMG ready for tip"]["id"] == "ready"
+      and "if" in dmg_steps["Mark the tip DMG ready for tip"] and "always()" not in dmg_steps["Mark the tip DMG ready for tip"]["if"],
+      "ready is set only by the step after the handoff upload, so a failed tip-dmg never reads as ready")
+check("handoff" in dmg_job["outputs"] and "cmux-next-dev-tip-$GITHUB_RUN_ATTEMPT" in tip_dmg
+      and feed_job["env"]["DMG_RUN_TAG"] == "${{ needs.tip-dmg.outputs.run_tag }}",
+      "each tip-dmg attempt hands off under its own artifact name, which tip reads from its outputs")
+check("ubuntu" in feed_job["runs-on"] and "macos" not in feed_job["runs-on"], "tip, left with only R2 writes, runs on Linux")
+feed_steps = [step.get("name") for step in feed_job["steps"]]
+check(feed_steps.index("Require the archive verify tested") < feed_steps.index("Upload the tip feed to R2")
+      and "if" not in feed_job["steps"][feed_steps.index("Upload the tip feed to R2")],
+      "tip checks the digest verify tested before any upload")
+verify_job = jobs["verify"]
+check(any(step.get("with", {}).get("name") == "cmux-next-dev-daily-tested" for step in verify_job["steps"])
+      and any(step.get("with", {}).get("name") == "cmux-next-dev-daily-tested" for step in feed_job["steps"]),
+      "tip reads the digest verify uploads after it passed")
+
+# The digest gate, run in bash.
+require = next(step for step in feed_job["steps"] if step.get("name") == "Require the archive verify tested")["run"]
+def run_require(built, tested, tag="r7-1", own="r7-1", extra=()):
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        (tmp / "tip-handoff").mkdir(); (tmp / "tip-tested").mkdir()
+        (tmp / "tip-handoff" / "built-from.sha256").write_text(built)
+        (tmp / "tip-tested" / "tested.sha256").write_text(tested)
+        (tmp / "tip-handoff" / "cmux-NEXT-DEV-102-r7-1.dmg").write_text("dmg")
+        (tmp / "tip-handoff" / "appcast-arm64.xml").write_text(open(feed(102, 100)).read().replace(
+            "DEV-102.dmg", "DEV-102-r7-1.dmg").replace("</item>", '<sparkle:deltas><enclosure url="https://files.cmux.com/nightly-next/tip/cmux-NEXT-DEV-tip-7-1-102-100.delta"/></sparkle:deltas></item>', 1))
+        for name in ("cmux-NEXT-DEV-tip-7-1-102-100.delta", *extra):
+            (tmp / "tip-handoff" / name).write_text("delta")
+        env = {"PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin", "DMG_RUN_TAG": tag, "TIP_RUN_TAG": own,
+               "TIP_BUILD": "102", "TIP_APPCAST": "appcast-arm64.xml"}
+        result = subprocess.run(["bash", "-e", "-c", require], cwd=tmp, env=env, capture_output=True, text=True, timeout=30)
+        placed = sorted(str(path.relative_to(tmp)) for path in (*tmp.glob("tip-new/*"), *tmp.glob("tip-out/*")))
+        feed_out = tmp / "tip-out" / "appcast-arm64.xml"
+        urls = [entry["url"] for entry in tip_feed.items(str(feed_out))] + sum(
+            (entry["deltas"] for entry in tip_feed.items(str(feed_out))), []) if feed_out.exists() else []
+        return result.returncode, placed, urls
+digest = "ab" * 32 + "  cmux-NEXT-DEV.zip\n"
+rc, placed, urls = run_require(digest, digest)
+check(rc == 0 and placed == ["tip-new/cmux-NEXT-DEV-102-r7-1.dmg", "tip-out/appcast-arm64.xml", "tip-out/cmux-NEXT-DEV-tip-7-1-102-100.delta"]
+      and f"{prefix}102-r7-1.dmg" in urls,
+      f"the tested archive's DMG, appcast and deltas go where the upload step reads them ({rc} {placed} {urls})")
+# Codex (2026-10-26): a re-run of tip alone (attempt 2) must not share objects with tip attempt 1,
+# whose late write or delete could otherwise land on them.
+rc, placed, urls = run_require(digest, digest, own="r7-2")
+check(rc == 0 and placed == ["tip-new/cmux-NEXT-DEV-102-r7-2.dmg", "tip-out/appcast-arm64.xml", "tip-out/cmux-NEXT-DEV-tip-7-2-102-100.delta"]
+      and f"{prefix}102-r7-2.dmg" in urls and "https://files.cmux.com/nightly-next/tip/cmux-NEXT-DEV-tip-7-2-102-100.delta" in urls
+      and not any("r7-1" in url or "tip-7-1-" in url for url in urls),
+      f"a tip re-run publishes tip-dmg's files under its own names, and the appcast names them ({rc} {placed} {urls})")
+rc, placed, urls = run_require(digest, digest, extra=("cmux-NEXT-DEV-tip-7-1-102-99.delta",))
+check(rc != 0, "the moved deltas and the appcast's delta URLs must match in number")
+rc, placed, urls = run_require(digest, "cd" * 32 + "  cmux-NEXT-DEV.zip\n")
+check(rc != 0 and placed == [], "a DMG around an archive verify did not test never reaches the upload")
+rc, placed, urls = run_require(digest, digest, tag="")
+check(rc != 0, "a handoff with no run tag never publishes")
 check(tip_feed.newest(feed(30, 50, 40)) == 50 and tip_feed.newest(feed()) == 0, "newest reads the feed's newest build")
 
 
@@ -375,11 +464,14 @@ def run_tip(lives, conflicts=(), fail_upload="", lost=(), pending=()):
                "REAL_PY": sys.executable, "TIP_R2_PREFIX": "nightly-next/tip", "TIP_APPCAST": "appcast-arm64.xml",
                "TIP_BUILD": "102", "TIP_RUN_TAG": "r7-1", "TIP_KEEP": "3", "SOURCE_SHA": "a" * 40,
                "TIP_BASE_URL": "https://files.cmux.com/nightly-next/tip", "GITHUB_STEP_SUMMARY": str(tmp / "summary"),
-               "R2_ENDPOINT": "https://r2.invalid", "FAIL_UPLOAD": fail_upload}
+               "R2_ENDPOINT": "https://r2.invalid", "FAIL_UPLOAD": fail_upload, "GITHUB_OUTPUT": str(tmp / "output")}
         result = subprocess.run(["bash", "-e", "-c", tip_script], cwd=tmp, env=env, capture_output=True, text=True, timeout=60)
         log = (tmp / "log").read_text() if (tmp / "log").exists() else ""
         written = sorted(tmp.glob("written*.xml"))
         last = [e["build"] for e in tip_feed.items(str(written[-1]))] if written else None
+        output = (tmp / "output").read_text() if (tmp / "output").exists() else ""
+        if result.returncode == 0 and written and log.count("r2 put") and "r2 delete" not in log:
+            check("written=true" in output and "run_tag=r7-1" in output, f"tip says it wrote the feed ({output!r})")
         return result.returncode, log, last, result.stderr
 rc, log, last, err = run_tip([(100, 99), (101, 100, 99)], conflicts=(1,))
 check(rc == 0 and last == [102, 101, 100] and "r2 delete" not in log,
@@ -398,6 +490,154 @@ check(rc != 0 and last == [102, 100, 99] and "r2 delete" not in log,
 rc, log, last, err = run_tip([(100, 99)], pending=(1,))
 check(rc != 0 and "r2 delete" not in log,
       f"a feed write that failed without an answer may still land, so the uploads stay ({rc} {log!r})")
+check("retention-days: 1" in tip_dmg.split("name: Upload the tip DMG and appcast for tip", 1)[1].split("- name:", 1)[0],
+      "the per-run DMG handoff is kept one day, not three")
+
+# Move 2 (Leo, 2026-10-26: "And I thought we were incremental..."): the full DMG first, deltas after.
+check("SPARKLE_PREVIOUS_ARCHIVES_DIR" not in tip_dmg and "tip-previous/" not in tip_dmg
+      and 'grep -q "<sparkle:deltas>" "tip-out/$TIP_APPCAST"' in tip_dmg,
+      "tip-dmg's appcast offers the full DMG alone, so the first feed write names no delta")
+delta_job = jobs["tip-deltas"]
+check(delta_job["needs"] == ["sign", "tip-dmg", "tip"] and "needs.tip.outputs.written == 'true'" in delta_job["if"]
+      and jobs["tip"]["outputs"]["written"] == "${{ steps.feed.outputs.written }}"
+      and tip.rstrip().endswith('echo "written=true" >> "$GITHUB_OUTPUT"'),
+      "tip-deltas starts only after tip wrote the full-DMG feed")
+check(delta_job.get("continue-on-error") is True and "concurrency" not in delta_job,
+      "tip-deltas is advisory and takes no concurrency group")
+check(delta_job["env"]["TIP_RUN_TAG"] == "${{ needs.tip.outputs.run_tag }}"
+      and jobs["tip"]["outputs"]["run_tag"] == "${{ steps.feed.outputs.run_tag }}",
+      "tip-deltas looks for the DMG name tip put in the feed")
+delta_upload = tip_deltas[tip_deltas.index("- name: Add the deltas to the tip feed"):]
+check(delta_upload.index("r2_cas.py get") < delta_upload.index("tip_feed.py add-deltas") < delta_upload.index("upload-r2-object.py")
+      < delta_upload.index("r2_cas.py put") and '--if-match "$etag"' in delta_upload and "--if-absent" not in delta_upload
+      and "--write-once" in delta_upload and "(( rc == 3 )) || exit" in delta_upload,
+      "the delta write is a compare-and-swap on the feed it read, after the write-once deltas, and never creates a feed")
+check(tip_deltas.index("tip_feed.py bases") < tip_deltas.index("./scripts/sparkle_generate_appcast.sh"),
+      "deltas are made only while this build's item takes them")
+
+# bases and add-deltas against feeds shaped like the live one.
+def live_feed(*builds, url_tag="r9-1", deltas_for=()):
+    body = []
+    for build in builds:
+        extra = (f'\n            <sparkle:deltas>\n                <enclosure url="{prefix}tip-1-1-{build}-1.delta" sparkle:deltaFrom="1" length="1" '
+                 f'type="application/octet-stream" sparkle:edSignature="ZA=="/>\n            </sparkle:deltas>') if build in deltas_for else ""
+        body.append(
+            f"        <item>\n            <title>{build}</title>\n            <sparkle:version>{build}</sparkle:version>\n"
+            f'            <enclosure url="{prefix}{build}-{url_tag}.dmg" length="{build}" type="application/octet-stream" '
+            f'sparkle:edSignature="c2ln{build}"/>{extra}\n        </item>\n')
+    text = ('<?xml version="1.0" standalone="yes"?>\n<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">\n'
+            f"    <channel>\n        <title>cmux NEXT DEV</title>\n{''.join(body)}    </channel>\n</rss>\n")
+    path = tempfile.NamedTemporaryFile("w", suffix=".xml", delete=False)
+    path.write(text)
+    path.close()
+    return path.name
+ours_url = f"{prefix}102-r9-1.dmg"
+check(tip_feed.bases(live_feed(102, 101, 100), 102, ours_url, 3) == ["ours", f"{prefix}101-r9-1.dmg", f"{prefix}100-r9-1.dmg"],
+      "deltas start from the feed's older builds")
+check(tip_feed.bases(live_feed(103, 102, 101), 102, ours_url, 3)[0].startswith("skip"), "a newer build takes no deltas for this one")
+check(tip_feed.bases(live_feed(101, 100), 102, ours_url, 3)[0].startswith("skip"), "a build no longer in the feed takes no deltas")
+check(tip_feed.bases(live_feed(102, 101, url_tag="r9-2"), 102, ours_url, 3)[0].startswith("skip"),
+      "another attempt's DMG for the same build takes none of this attempt's deltas")
+check(tip_feed.bases(live_feed(102, 101, deltas_for=(102,)), 102, ours_url, 3)[0].startswith("skip"), "deltas are added once")
+
+def generated_with_deltas(names, signature="c2ln102"):
+    deltas = "".join(f'<enclosure url="https://files.cmux.com/nightly-next/tip/{name}" sparkle:deltaFrom="101" length="5" '
+                     f'type="application/octet-stream" sparkle:edSignature="ZGVsdGE="/>' for name in names)
+    text = ('<?xml version="1.0"?><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"><channel>'
+            f'<item><title>102</title><sparkle:version>102</sparkle:version><enclosure url="{ours_url}" length="102" '
+            f'type="application/octet-stream" sparkle:edSignature="{signature}"/><sparkle:deltas>{deltas}</sparkle:deltas></item>'
+            f'<item><title>101</title><sparkle:version>101</sparkle:version><enclosure url="{prefix}101-r9-1.dmg" length="101" '
+            'type="application/octet-stream" sparkle:edSignature="c2ln101"/></item></channel></rss>')
+    path = tempfile.NamedTemporaryFile("w", suffix=".xml", delete=False)
+    path.write(text)
+    path.close()
+    return path.name
+files = tempfile.mkdtemp()
+delta_name = "cmux-NEXT-DEV-tip-7-1-102-101.delta"
+Path(files, delta_name).write_text("delta")
+live = live_feed(102, 101, 100)
+added = tip_feed.add_deltas(generated_with_deltas([delta_name]), live, 102, ours_url, files)
+added_path = feed()
+open(added_path, "w").write(added)
+entries = tip_feed.items(added_path)
+live_text = open(live).read()
+check([e["build"] for e in entries] == [102, 101, 100] and entries[0]["deltas"] == [f"https://files.cmux.com/nightly-next/tip/{delta_name}"]
+      and not tip_feed.check(added_path, 102),
+      "add-deltas gives this build's item its deltas and keeps the feed valid")
+check(tip_feed.DELTAS.sub("", added) == live_text and added.count("<sparkle:deltas>") == 1,
+      "add-deltas changes nothing but this build's deltas: every other byte, every other item, stays")
+for bad, why in ((lambda: tip_feed.add_deltas(generated_with_deltas([delta_name]), live_feed(103, 102, 101), 102, ours_url, files),
+                  "a newer build published since"),
+                 (lambda: tip_feed.add_deltas(generated_with_deltas([delta_name]), live_feed(101, 100), 102, ours_url, files),
+                  "this build left the feed")):
+    try:
+        bad()
+        check(False, f"add-deltas must add nothing when {why}")
+    except tip_feed.NothingToAdd:
+        pass
+for bad, why in ((lambda: tip_feed.add_deltas(generated_with_deltas([delta_name], signature="b3RoZXI="), live, 102, ours_url, files),
+                  "the generated item signs other bytes"),
+                 (lambda: tip_feed.add_deltas(generated_with_deltas(["not-uploaded.delta"]), live, 102, ours_url, files),
+                  "a delta was not uploaded by this run")):
+    try:
+        bad()
+        check(False, f"add-deltas must refuse when {why}")
+    except ValueError:
+        pass
+
+# The delta write, run in bash: R2 and the uploader stubbed, tip_feed.py real.
+delta_lines = delta_upload.split("run: |\n", 1)[1].splitlines()
+delta_body = []
+for line in delta_lines:
+    if line.strip() and len(line) - len(line.lstrip()) < 10:
+        break
+    delta_body.append(line)
+delta_script = textwrap.dedent("\n".join(delta_body))
+def run_deltas(lives, conflicts=(), pending=(), fail_upload=""):
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        (tmp / "bin").mkdir()
+        (tmp / "bin" / "python3").write_text(TIP_STUB_PY)
+        (tmp / "bin" / "python3").chmod(0o755)
+        (tmp / "scripts" / "ci").mkdir(parents=True)
+        (tmp / "scripts" / "ci" / "tip_feed.py").write_text((ROOT / "scripts/ci/tip_feed.py").read_text())
+        (tmp / "tip-out").mkdir()
+        (tmp / "tip-out" / delta_name).write_text("delta")
+        (tmp / "tip-out" / "appcast-arm64.xml").write_text(open(generated_with_deltas([delta_name])).read())
+        for n, builds in enumerate(lives, 1):
+            if builds is not None:
+                (tmp / f"live{n}.xml").write_text(open(live_feed(*builds)).read())
+        for name, ns in (("conflict", conflicts), ("pending", pending)):
+            for n in ns:
+                (tmp / f"{name}{n}").write_text("")
+        env = {"PATH": f"{tmp / 'bin'}:/usr/bin:/bin", "STUB_LOG": str(tmp / "log"), "STUB_DIR": str(tmp),
+               "REAL_PY": sys.executable, "TIP_R2_PREFIX": "nightly-next/tip", "TIP_APPCAST": "appcast-arm64.xml",
+               "TIP_BUILD": "102", "DMG_URL": ours_url, "GITHUB_STEP_SUMMARY": str(tmp / "summary"),
+               "R2_ENDPOINT": "https://r2.invalid", "FAIL_UPLOAD": fail_upload}
+        result = subprocess.run(["bash", "-e", "-c", delta_script], cwd=tmp, env=env, capture_output=True, text=True, timeout=60)
+        log = (tmp / "log").read_text() if (tmp / "log").exists() else ""
+        written = sorted(tmp.glob("written*.xml"))
+        last = tip_feed.items(str(written[-1])) if written else None
+        return result.returncode, log, last, result.stderr
+rc, log, last, err = run_deltas([(102, 101, 100)])
+check(rc == 0 and last and [e["build"] for e in last] == [102, 101, 100] and last[0]["deltas"] and "r2 delete" not in log
+      and log.index("upload ") < log.index("r2 put"),
+      f"the deltas upload, then the feed gains them ({rc} {err[-300:]})")
+rc, log, last, err = run_deltas([(102, 101, 100), (103, 102, 101)], conflicts=(1,))
+check(rc == 0 and log.count("r2 put") == 1 and log.count("r2 delete") == 1,
+      f"a newer build published during the delta write ends it, writes nothing and removes its deltas ({rc} {log!r})")
+rc, log, last, err = run_deltas([(102, 101, 100), (102, 101, 100)], conflicts=(1,))
+check(rc == 0 and log.count("r2 put") == 2 and log.count("upload ") == 1 and "r2 delete" not in log and last[0]["deltas"],
+      f"a lost race re-reads and writes again, uploading the deltas once ({rc} {log!r})")
+rc, log, last, err = run_deltas([(103, 102, 101)])
+check(rc == 0 and "upload " not in log and "r2 put" not in log, f"no deltas go up for a build that is no longer the newest ({rc} {log!r})")
+rc, log, last, err = run_deltas([None])
+check(rc == 0 and "upload " not in log and "r2 put" not in log, f"a missing feed is never created by the delta write ({rc} {log!r})")
+rc, log, last, err = run_deltas([(102, 101, 100)], pending=(1,))
+check(rc != 0 and "r2 delete" not in log, f"after a delta write with no clear answer the deltas stay ({rc} {log!r})")
+rc, log, last, err = run_deltas([(102, 101, 100)], fail_upload=".delta")
+check(rc != 0 and "r2 put" not in log, f"a failed delta upload writes no feed, which stays valid without deltas ({rc} {log!r})")
+
 # CMUX_TIMESTAMP=none makes the Linux signer drop the time stamp and the Developer ID check
 # (scripts/ci/rcodesign-sign-bundle-dev.sh); the publisher must never set it.
 check("CMUX_TIMESTAMP" not in workflow, "the DEV workflow never sets CMUX_TIMESTAMP")

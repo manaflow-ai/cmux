@@ -255,6 +255,38 @@ class SetupWait(unittest.TestCase):
 
 
 class Refusal(unittest.TestCase):
+    def test_refusals_only_queue_alarm_keeps_watching_until_dev_refusal(self):
+        clock = Clock()
+
+        def jobs(seconds):
+            found = [changes()(seconds)]
+            if seconds >= 300:
+                found.append(refused_job("cmux NEXT DEV Release compile"))
+            elif seconds >= 40:
+                found.append(job("cmux NEXT DEV Release compile", labels=[MINI], created=40))
+            return found
+
+        api = FakeAPI(clock, jobs, marker=True, settles_after=10)
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, path=rescue.CMUX_NEXT_WORKFLOW_PATH,
+                               side=True, refusals_only=True)
+        outcome = rescue.follow(api, target, seconds=90, queue_rounds="0",
+                                now=clock.now, sleep=clock.sleep, log=lambda text: None)
+        self.assertEqual(outcome, "done")
+        self.assertIn("rerun", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+
+    def test_dev_refusal_reruns_every_job_after_a_completed_run(self):
+        clock = Clock()
+        api = FakeAPI(clock, lambda seconds: [refused_job("cmux NEXT DEV Release compile")],
+                      marker=True, finished=lambda seconds: True, conclusion="failure")
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, path=rescue.CMUX_NEXT_WORKFLOW_PATH,
+                               side=True)
+        outcome = rescue.follow(api, target, seconds=90, queue_rounds="0",
+                                now=clock.now, sleep=clock.sleep, log=lambda text: None)
+        self.assertEqual(outcome, "done")
+        self.assertIn("rerun", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+
     def test_missing_pinned_xcode_on_owned_runner_is_refused_even_after_helper_build(self):
         steps = [
             {"name": "Set up job", "conclusion": "success"},
