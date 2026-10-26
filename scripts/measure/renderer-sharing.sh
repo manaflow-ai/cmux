@@ -4,6 +4,8 @@
 # cmux-next DEV app at this checkout, then runs scripts/cmux-next/bench_renderer_sharing.py: 100
 # Chromium tabs over 20 sites (siteN.test on one local server), each shown and timed from the open
 # action to its title; then renderers, tabs per renderer, footprint (renderers, app, total, shared).
+# An agent's CDP session stays on the first tab (--agent-cdp; --arg=--no-agent-cdp drops it): with fork
+# API 29 same-site tabs still share, at most 2 main frames per renderer below the limit (p07-memory 046).
 # Runs alone on the worker because it launches an app:
 #   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/renderer-sharing.sh \
 #     --ref <sha> --artifact artifacts/renderer-sharing/report.json [--arg=--tabs=100] [--arg=--sites=20]
@@ -24,4 +26,4 @@ if [[ -z "$app" || ! -d "$app" ]]; then
   exit 1
 fi
 # A fleet step has no LaunchServices session: run the app binary itself (bench_memory.launch).
-CMUX_BENCH_LAUNCH=direct python3 scripts/cmux-next/bench_renderer_sharing.py --app "$app" --out "$out/report.json" "$@"
+CMUX_BENCH_LAUNCH=direct python3 scripts/cmux-next/bench_renderer_sharing.py --app "$app" --out "$out/report.json" --agent-cdp "$@"
