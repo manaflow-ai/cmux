@@ -332,6 +332,8 @@ export function useSendWhenAttached(pending: number, scope?: string, cancels = 0
   const held = useRef<(() => void) | undefined>(undefined);
   const count = useRef(pending);
   count.current = pending;
+  // Keep this effect above the `pending` one: React runs them in order, so a cancel that takes the
+  // last tile clears the held prompt before the `pending` effect could send it.
   useEffect(() => {
     held.current = undefined;
   }, [scope, cancels]);
