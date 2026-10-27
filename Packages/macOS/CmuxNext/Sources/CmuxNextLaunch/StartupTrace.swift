@@ -95,7 +95,9 @@ public final class StartupTrace: Sendable {
         self.configuration = configuration
         self.processStartNanos = processStartNanos
         self.now = now ?? { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
+        // timer-class-allow: off-main: the deadline only posts the close on the files lane's sequence; it runs no main-thread job
         deadline = DemandTimer(owner: "StartupTrace.deadline", clock: clock)
+        // timer-class-allow: off-main: the periodic drain only posts a drain on the files lane's sequence; it runs no main-thread job
         flushTimer = DemandTimer(owner: "StartupTrace.flush", clock: clock)
         let capacity = configuration.capacity
         ringBytes = 2 * capacity * MemoryLayout<StartupTraceRecord>.stride

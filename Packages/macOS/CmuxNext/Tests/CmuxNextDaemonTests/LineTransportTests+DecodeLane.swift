@@ -110,8 +110,10 @@ extension LineTransportTests {
         let returned = Mutex(false)
         let reader = LaneReader {
             lane.post(.heavy, bytes: 8) { gate.wait() }
-            // 16 bytes queued: above the high water, the reader parks here.
+            lane.waitForRoom()
+            // 16 bytes queued: above the high water, the reader parks in its wait after the line.
             lane.post(.heavy, bytes: 8) {}
+            lane.waitForRoom()
             returned.withLock { $0 = true }
         }
         var blockEvents = blocks.makeAsyncIterator()

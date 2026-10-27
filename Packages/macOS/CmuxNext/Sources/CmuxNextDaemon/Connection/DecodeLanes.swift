@@ -16,9 +16,9 @@ import Foundation
 /// heavy one carries the reader's class and so raises the queue to it until it runs (GCD's QoS override of a
 /// serial queue, Chrome's `UpdatePriority` of a sequence).
 ///
-/// Bounded: the reader waits while more than ``highWater`` line bytes are queued, until they drain to
-/// ``lowWater``. Lane items never wait on a consumer (a bounded consumer's wait is the reader's,
-/// ``EventDispatch/readerWait``), so that wait always ends.
+/// Bounded: the reader waits (``waitForRoom()``, after each line and outside its hang scope) while more than
+/// ``highWater`` line bytes are queued, until they drain to ``lowWater``. Lane items never wait on a consumer (a
+/// bounded consumer's wait is the reader's, ``EventDispatch/readerWait``), so that wait always ends.
 ///
 /// Only the connection's reader thread posts; ``post(_:bytes:_:)`` relies on that.
 final class DecodeLane: Sendable {
@@ -79,7 +79,7 @@ final class DecodeLane: Sendable {
     }
 
     /// Reader thread. Runs `work` inline when it is light and nothing of the lane is queued or running, else
-    /// queues it behind everything posted before; then waits while the backlog is above ``highWater``.
+    /// queues it behind everything posted before. Never waits: the reader calls ``waitForRoom()`` after the line.
     func post(_ weight: Weight, bytes: Int, _ work: @escaping @Sendable () -> Void) {
         // Acquiring: the effects of every finished item are visible to an inline one.
         if weight == .light, pending.load(ordering: .acquiring) == 0 {
@@ -97,7 +97,6 @@ final class DecodeLane: Sendable {
         } else {
             queue.async(execute: run)
         }
-        waitForRoom()
     }
 
     /// Items queued or running on the lane (tests, diagnostics).
@@ -118,8 +117,9 @@ final class DecodeLane: Sendable {
         if left <= lowWater, readerParked.exchange(false, ordering: .sequentiallyConsistent) { readerWake.signal() }
     }
 
-    /// Parks the reader while the backlog is above ``highWater``, until it drains to ``lowWater``.
-    private func waitForRoom() {
+    /// Reader thread, after each line and outside its hang scope (a wait for a queue slot is not a hang): parks
+    /// while the backlog is above ``highWater``, until it drains to ``lowWater``. Returns at once otherwise.
+    func waitForRoom() {
         guard pendingBytes.load(ordering: .sequentiallyConsistent) > highWater else { return }
         onReaderBlocked?()
         readerParked.store(true, ordering: .sequentiallyConsistent)
@@ -138,8 +138,9 @@ final class DecodeLane: Sendable {
 struct EventDispatch: Sendable {
     /// Reader thread: the event's weight, from its name and size only (it must not parse the line).
     var weigh: @Sendable (_ name: String, _ line: Data) -> DecodeLane.Weight
-    /// Reader thread, after each event is handed over: the backpressure wait of the bounded consumer the handler
-    /// feeds (``TerminalEventQueue/waitForRoom()``). The handler itself never waits.
+    /// Reader thread, after each line it handled: the backpressure wait of the bounded consumer the handler
+    /// feeds (``TerminalEventQueue/waitWhileFull()``, ``DaemonEventRoute/waitWhileReaderParked()``), outside the
+    /// line's hang scope. The handler itself never waits.
     var readerWait: (@Sendable () -> Void)?
 
     init(weigh: @escaping @Sendable (_ name: String, _ line: Data) -> DecodeLane.Weight,
@@ -150,7 +151,12 @@ struct EventDispatch: Sendable {
 
     /// Every event decodes on the lane's queue: a control connection's events and the other roles' (p05-ipc-144:
     /// control decode on a serial queue, never on the reader).
-    static var control: EventDispatch { EventDispatch { _, _ in .heavy } }
+    static var control: EventDispatch { control(readerWait: nil) }
+
+    /// ``control`` with the reader's wait for the consumer its handler feeds (``DaemonEventRoute/waitWhileReaderParked()``).
+    static func control(readerWait: (@Sendable () -> Void)?) -> EventDispatch {
+        EventDispatch(weigh: { _, _ in .heavy }, readerWait: readerWait)
+    }
 }
 
 extension DaemonWireStats.Role {

@@ -20,6 +20,13 @@ extension LineTransport {
         var controlStreams: Set<String> = []
         /// Gets resource API stream lines (`stream_item`, `stream_end`).
         var streamHandler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?
+        /// The reader cuts 0xFF frames: set once the handshake asks for `ipc-frames-v2`, before the daemon
+        /// can send one.
+        var acceptsFrames = false
+        /// Typed requests go as REQUEST frames (``FramedRequests``); nil keeps them lines.
+        var framing: FramedRequests?
+        /// What the handshake was granted (``DaemonWireGrants``).
+        var grants = DaemonWireGrants.linesOnly
 
         /// Takes every deadline due at `now` out and marks its request expired: what each one's
         /// `timedOut` needs. The timer is no longer armed (its fire called this).
@@ -50,7 +57,7 @@ extension LineTransport {
         return { start.duration(to: clock.now) }
     }
 
-    /// A connected, close-on-exec, no-SIGPIPE Unix socket to `path`.
+    /// A connected, close-on-exec Unix socket to `path` that never raises SIGPIPE.
     static func connect(_ path: String) throws(DaemonError) -> Int32 {
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw .connectFailed(path: path, errno: errno) }
