@@ -25,6 +25,13 @@ public protocol UpdateActionDelegate: AnyObject {
     /// An idle-policy install is about to start with nobody clicking: run what a click runs
     /// first (preflight, records). False keeps the update staged for the user.
     func updaterPrepareAutomaticInstall() -> Bool
+
+    /// An idle-policy install is about to hand `build` to Sparkle. True when the host quits now
+    /// and reopens itself without activating: Sparkle relaunches through LaunchServices, which
+    /// brings the app to the front before any of its code runs. Sparkle then installs the
+    /// update as the app exits, with no relaunch of its own. False lets Sparkle install and
+    /// relaunch, as a click does.
+    func updaterQuitsForAutomaticInstall(build: String) -> Bool
 }
 
 extension UpdateActionDelegate {
@@ -33,4 +40,7 @@ extension UpdateActionDelegate {
 
     /// Hosts with nothing to prepare let the automatic install start.
     public func updaterPrepareAutomaticInstall() -> Bool { true }
+
+    /// Hosts that do not reopen themselves let Sparkle relaunch.
+    public func updaterQuitsForAutomaticInstall(build: String) -> Bool { false }
 }

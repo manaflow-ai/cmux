@@ -305,6 +305,18 @@ def forbidden_reason(label: str) -> str | None:
     return None
 
 
+# Runner variables the nightly, promote and DEV paths read
+# (tests/test_ci_nightly_no_hosted_mac.py keeps this complete). They never hold
+# a GitHub-hosted Mac. Leo, 2026-10-27: "THE GITHUB HOSTED MACS / ARE THE
+# SLOWEST THINGS / THEY PREVIOUSLY WREN'T EVEN UNDER CONSIDERATINO".
+NO_HOSTED_MAC_VARIABLES = frozenset({
+    "CI_IOS_INTERNAL_RUNNER", "CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER",
+    "LINUX_RUNNER",
+    "MACOS_RUNNER_15", "MACOS_RUNNER_26", "NIGHTLY_NEXT_TRAIN_RUNNER",
+})
+HOSTED_MAC_LABEL = re.compile(r"macos-(?:latest|\d+)(?:-[a-z0-9]+)*")
+
+
 def drifted_runner_variables(
     variables: dict[str, str],
 ) -> list[tuple[str, str, str]]:
@@ -316,6 +328,9 @@ def drifted_runner_variables(
     drifted = []
     for name, value in variables.items():
         if not isinstance(value, str):
+            continue
+        if name in NO_HOSTED_MAC_VARIABLES and HOSTED_MAC_LABEL.fullmatch(value.strip().lower()):
+            drifted.append((name, value.strip(), "names a GitHub-hosted Mac; the nightly path takes the fleet, then Blacksmith"))
             continue
         if name == POOL_ORDER_VARIABLE:
             reason = pool_order_reason(value.strip())

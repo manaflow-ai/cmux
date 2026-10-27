@@ -643,7 +643,7 @@ class PathRoutingStructure(unittest.TestCase):
             with self.subTest(job=job_id):
                 steps = jobs[job_id]["steps"]
                 names = [step.get("name") for step in steps]
-                download = steps[names.index("Download the web bundles this run's Linux job built")]
+                download = steps[names.index("Download the web bundles this run's bundle job built")]
                 self.assertEqual(download["id"], "web-bundle-artifact")
                 self.assertTrue(download["uses"].startswith("actions/download-artifact@"))
                 self.assertEqual(download["with"]["name"], upload["with"]["name"])
