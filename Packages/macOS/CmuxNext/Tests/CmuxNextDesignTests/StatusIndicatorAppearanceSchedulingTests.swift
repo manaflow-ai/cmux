@@ -14,19 +14,8 @@ import Testing
         func statusIndicatorResync() { resyncs += 1 }
     }
 
-    @MainActor private final class Centers {
-        let app = NotificationCenter()
-        let workspace = NotificationCenter()
-        private(set) lazy var appEvents = AppEvents(center: app)
-        private(set) lazy var workspaceEvents = AppEvents(center: workspace)
-    }
-
-    private static func work() -> MainWorkScheduler {
-        MainWorkScheduler.testing { _ in StillLink() }
-    }
-
     @Test func resyncMomentsAreAppEventsSubscriptionsMadeOnlyWhenObserved() {
-        let centers = Centers()
+        let centers = StatusIndicatorTestFollows()
         let appearance = StatusIndicatorAppearance(windows: { [] })
         let client = Client()
         appearance.register(client)
@@ -34,8 +23,7 @@ import Testing
         #expect(client.resyncs == 0, "an appearance nobody started observed a center")
         #expect(!centers.appEvents.isObserving(NSApplication.didBecomeActiveNotification))
 
-        let work = Self.work()
-        appearance.observe(on: work, appEvents: centers.appEvents, workspaceEvents: centers.workspaceEvents)
+        centers.start(appearance)
         for name in [NSApplication.didBecomeActiveNotification, NSApplication.didUnhideNotification, NSWindow.didBecomeMainNotification] {
             #expect(centers.appEvents.subscriberCount(name) == 1, "\(name.rawValue) has no subscription")
         }
@@ -49,13 +37,13 @@ import Testing
         #expect(client.resyncs == 3, "each moment resyncs once in its post's turn")
 
         // A second start makes no second set of subscriptions.
-        appearance.observe(on: work, appEvents: centers.appEvents, workspaceEvents: centers.workspaceEvents)
+        centers.start(appearance)
         #expect(centers.appEvents.subscriberCount(NSApplication.didBecomeActiveNotification) == 1)
-        withExtendedLifetime(work) {}
+        withExtendedLifetime(centers) {}
     }
 
     @Test func observingReadsTheLiveConfigAtOnce() {
-        let centers = Centers()
+        let centers = StatusIndicatorTestFollows()
         let appearance = StatusIndicatorAppearance(windows: { [] })
         let live = StatusIndicatorConfig.current
         var stale = live
@@ -65,17 +53,10 @@ import Testing
         appearance.register(client)
         #expect(!appearance.isObserving)
 
-        let work = Self.work()
-        appearance.observe(on: work, appEvents: centers.appEvents, workspaceEvents: centers.workspaceEvents)
+        centers.start(appearance)
         #expect(appearance.isObserving)
         #expect(appearance.config == live, "the first read did not apply the config changed before the start")
         #expect(client.changes == [live], "the clients were not told once")
-        withExtendedLifetime(work) {}
+        withExtendedLifetime(centers) {}
     }
-}
-
-@MainActor
-private final class StillLink: FrameLink {
-    var isPaused = false
-    func invalidate() {}
 }

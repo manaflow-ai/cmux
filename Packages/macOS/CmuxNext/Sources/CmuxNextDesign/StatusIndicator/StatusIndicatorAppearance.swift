@@ -142,8 +142,9 @@ public final class StatusIndicatorAppearance {
     /// Whether ``observe(on:appEvents:workspaceEvents:)`` ran (tests).
     var isObserving: Bool { observation != nil }
 
-    /// Follows the config and the resync moments. The composition root calls it once, before the windows
-    /// build; its first read applies any change made since ``shared`` was made. Later calls do nothing.
+    /// Follows the config and the resync moments. The composition root calls it once, before the first window
+    /// opens (`AppDelegate`, before `WindowManager.restoreWhenLoaded`); its first read applies any change made
+    /// since ``shared`` was made. Later calls do nothing.
     ///
     /// - Parameters:
     ///   - mainWork: The app's one main-thread scheduler: a config change restyles in one posted task.
