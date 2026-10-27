@@ -121,6 +121,15 @@ struct ChatDockLinkSplitMotionTests {
             root.syncWithModel()
         }
 
+        /// The production pane placement callback's layout operation, used as the destination of
+        /// AgentPaneView.openURL in the native navigation seam test.
+        func openBeside(_ url: URL, _ modifiers: NSEvent.ModifierFlags) {
+            _ = url
+            _ = modifiers
+            model.handOffContent(of: ChatDockLinkSplitMotionTests.anchor)
+            show(ChatDockLinkSplitMotionTests.docked)
+        }
+
         func host(_ pane: PaneID) -> PaneHostView? { root.context.hosts[pane] }
         var screen: ScreenContentView? { root.screenViews["s"] }
         func step() { _ = root.advanceFrame(ChatDockLinkSplitMotionTests.dt) }
@@ -467,31 +476,29 @@ struct ChatDockLinkSplitMotionTests {
     @Test func aRightChatOpensAtItsFullSizeFromTheRightEdge() async throws { try await openRightSplit(.chat) }
 
     /// The app's native navigation seam consumes a clicked URL, cancels the page navigation, and
-    /// applies the beside layout once. This drives the same decision/open callback that
-    /// `AgentPaneView+PageHost` installs on `PageWebView`; the Chromium browser test cannot reach
-    /// that Swift callback.
-    @Test func aClickedAgentLinkCancelsThePageAndMovesTheChatOnce() {
-        let screen = Screen(.plain)
+    /// applies the beside layout once. This builds the production AgentPaneView/PageWebView host,
+    /// invokes the callbacks installed by `attachPage`, and observes the resulting layout state.
+    @Test func aClickedAgentLinkCancelsThePageAndMovesTheChatOnce() async throws {
+        let screen = Screen(.chat)
         defer { screen.close() }
-        let source = AgentPaneSource.bundled(URL(string: "cmux-agent://pane/index.html")!)
+        let chat = try #require(screen.provider.chat)
+        let deadline = Date().addingTimeInterval(10)
+        while chat.page == nil, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        let page = try #require(chat.page, "the production AgentPaneView did not attach PageWebView")
         let url = URL(string: "https://example.com/native-pane")!
-        let gestures = AgentPaneUserGestures()
-        gestures.record(click: true)
-        var moves = 0
-        var opened: [URL] = []
-        let policy = AgentPaneNavigation.handle(
-            url: url, source: source, userClicked: true, mainFrame: true, modifiers: [], gestures: gestures,
-            open: { openedURL, _ in
-                opened.append(openedURL)
-                moves += 1
-                screen.model.handOffContent(of: Self.anchor)
-                screen.show(Self.docked)
-            }
-        )
-        #expect(policy == .cancel, "the native delegate must cancel the web view navigation")
-        #expect(opened == [url])
-        #expect(moves == 1, "the installed native link callback opened the beside layout more than once")
-        #expect(screen.model.screens.first?.layout.contains(Self.dock) == true)
+
+        // The app's pane controller supplies this production placement callback; the test's Screen
+        // owns the same LayoutModel operation and does not bypass AgentPaneView's installed hooks.
+        chat.openURL = screen.openBeside
+        chat.model.transport.gestures.record(click: true)
+        let policy = page.onNavigate?(PageNavigation(url: url, userClicked: true, mainFrame: true))
+        #expect(policy == .openExternal, "the installed PageWebView host did not route the clicked external link")
+        page.onOpenExternal?(url)
+
+        #expect(screen.model.screens.first?.layout.contains(Self.dock) == true,
+                "the installed AgentPaneView callback did not apply the beside layout")
+        #expect(screen.model.screens.first?.layout.columns.contains { $0.dock?.role == .agentChat } == true,
+                "the chat was not docked by the production placement callback")
     }
 
     private func openRightSplit(_ kind: Content) async throws {

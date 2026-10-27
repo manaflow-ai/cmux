@@ -10,8 +10,14 @@ extension AgentPaneView {
         page.autoresizingMask = [.width, .height]
         page.onOpenExternal = { [weak self, weak page] url in
             guard let self else { return }
-            let modifiers = page?.externalLinkModifiers ?? []
-            _ = AgentPaneNavigation.openOutside(url, gestures: self.model.transport.gestures) { self.openURL($0, modifiers) }
+            // PageWebView has already cancelled the navigation and routed it here after onNavigate
+            // returned `.openExternal`; keep the actual gesture check and pane placement on the
+            // same production seam as the legacy WKNavigationDelegate.
+            _ = AgentPaneNavigation.handle(
+                url: url, source: self.source, userClicked: true, mainFrame: true,
+                modifiers: page?.externalLinkModifiers ?? [], gestures: self.model.transport.gestures,
+                open: self.openURL
+            )
         }
         page.onNavigate = { [weak self] navigation in
             guard let self else { return .cancel }
