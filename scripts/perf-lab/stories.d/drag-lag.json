@@ -1,7 +1,7 @@
 {
   "id": "drag-lag",
   "tier": "T1",
-  "description": "Drag lag at a fast hand pace (drag-lag-live.py): column edge, tab, sidebar row and workspace (a row out of the sidebar into the content) drags of debug.mouse moves every 1/120 s over 30 workspaces and a five-column window; each move's reply time (its main-thread work and backlog), the daemon round trip during and after each drag, failed drags, the tab and workspace drags' window calls (debug.frames render counters, in drag-lag.json only) and the app's timed out errors, light session.",
+  "description": "Drag lag at a fast hand pace (drag-lag-live.py): column edge, tab, sidebar row and workspace (a row out of the sidebar into the content) drags of debug.mouse moves every 1/120 s over 30 workspaces and a five-column window; each move's reply time (its main-thread work and backlog), the daemon round trip during and after each drag, failed drags, the tab and workspace drags' window calls (debug.frames render counters, in untimed drags of their own, in drag-lag.json only) and the app's timed out errors, light session.",
   "command": ["scripts/cmux-next/drag-lag-live.py"],
   "session": "light",
   "engine": "none",

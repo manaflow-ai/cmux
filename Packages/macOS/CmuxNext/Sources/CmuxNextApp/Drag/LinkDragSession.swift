@@ -21,7 +21,9 @@ import CmuxNextWakeups
 ///
 /// With `motion.renderServer` on the pill (``LinkDragGhost``) shows in the source window's overlay while
 /// the pointer is over that window and the window shows the pill in front, as the tab drag ghost does
-/// (p03-rendering-035): a pointer move there moves one view, with no window call.
+/// (p03-rendering-035): a pointer move there moves one view, with no window call. The window a release
+/// opens the link in is the screen's window under the pointer either way (another app's window or a cmux
+/// window that is no layout window, Settings for one, takes the drop from every window behind it).
 @MainActor
 final class LinkDragSession {
     /// The layout's drag key for a link (it names no tab; a link drag never emits a tab drop).
@@ -29,6 +31,8 @@ final class LinkDragSession {
 
     /// The app's services (they own this session and outlive it).
     private weak var services: AppServices?
+    /// `motion.renderServer`, read once per drag (tests inject it).
+    private let rendersOnServer: @MainActor () -> Bool
     private var drag: Drag?
 
     private final class Drag {
@@ -50,20 +54,25 @@ final class LinkDragSession {
         }
     }
 
-    init(services: AppServices) {
+    init(services: AppServices, rendersOnServer: @escaping @MainActor () -> Bool = { LayoutTunables.motionRenderServer.value }) {
         self.services = services
+        self.rendersOnServer = rendersOnServer
     }
 
     var isDragging: Bool { drag != nil }
+    /// The running drag's pill (tests, diagnostics).
+    var ghost: LinkDragGhost? { drag?.ghost }
+    /// The window whose layout shows the drop preview now (tests, diagnostics).
+    var target: WindowController? { drag?.window }
 
     /// Starts dragging `url` from `screenPoint`; false (nothing starts) for a link that does not
     /// drag (``LinkDragItem``) or while another drag runs, so the chat selects text instead.
     func begin(_ url: URL, screenPoint: CGPoint) -> Bool {
         guard let services, drag == nil, !services.dragSession.isDragging,
               let item = LinkDragItem(url, browserEnabled: LinkRouter.shared.routing().browserEnabled) else { return false }
-        // The press is in a chat of the frontmost window under it: the drag's source window.
-        let source = services.dragSession.window(at: screenPoint, in: services.dragSession.windowOrder(source: nil, ghost: nil))
-        let ghost = LinkDragGhost(title: item.title, sourceWindow: source?.window, rendersOnServer: LayoutTunables.motionRenderServer.value)
+        // The press is in a chat of the window on screen under it: the drag's source window.
+        let source = window(at: screenPoint, below: 0)
+        let ghost = LinkDragGhost(title: item.title, sourceWindow: source?.window, rendersOnServer: rendersOnServer())
         let drag = Drag(item: item, ghost: ghost, sourceID: source?.state.id)
         drag.input = services.inputTap.subscribe(class: TabDragSession.dragInput, phase: .intercept(order: .dragSession)) { [weak self] event in
             self?.handle(event) ?? .pass
@@ -98,14 +107,32 @@ final class LinkDragSession {
         }
     }
 
-    /// One pointer event of the drag. One walk of the app's windows (front to back) serves the pill's host and
-    /// the window under the pointer (``TabDragWindowPick``: page child windows, the overlay panel and the pill's
-    /// panel are looked through, so a page counts as its window).
+    /// The app window on screen under `screenPoint` (a page's child window counts as its parent), below the
+    /// window numbered `below` (0: the topmost). The screen's order of every app's windows: another app's window,
+    /// or a cmux window that is no layout window, over the pointer means no window.
+    private func window(at screenPoint: CGPoint, below: Int) -> WindowController? {
+        guard let services else { return nil }
+        let number = NSWindow.windowNumber(at: screenPoint, belowWindowWithWindowNumber: below)
+        var window = NSApp.window(withWindowNumber: number)
+        while let child = window, !services.windows.controllers.contains(where: { $0.window === child }), let parent = child.parent {
+            window = parent
+        }
+        return services.windows.controllers.first { $0.window === window && window != nil }
+    }
+
+    /// One pointer event of the drag. The window under the pointer is the screen's (``window(at:below:)``, below
+    /// the pill's panel while it shows). On the render server, while that is the source window, the tab drag's
+    /// hold rule (``TabDragSession/holds(_:at:in:)``, one walk of the app's windows) decides whether the source
+    /// window's overlay holds the pill.
     private func update(_ screenPoint: CGPoint) {
-        guard let drag, let tabDrags = services?.dragSession else { return }
-        let order = tabDrags.windowOrder(source: drag.ghost.sourceWindow, ghost: drag.ghost.panel)
-        drag.ghost.move(to: screenPoint, holds: TabDragSession.holds(drag.sourceID, at: screenPoint, in: order))
-        let controller = tabDrags.window(at: screenPoint, in: order)
+        guard let drag else { return }
+        let panel = drag.ghost.panel
+        let controller = window(at: screenPoint, below: panel.isVisible ? panel.windowNumber : 0)
+        var holds: ((CGRect) -> Bool)?
+        if drag.ghost.rendersOnServer, let id = drag.sourceID, controller?.state.id == id, let tabDrags = services?.dragSession {
+            holds = TabDragSession.holds(id, at: screenPoint, in: tabDrags.windowOrder(source: drag.ghost.sourceWindow, ghost: panel))
+        }
+        drag.ghost.move(to: screenPoint, holds: holds)
         if let old = drag.window, old !== controller { old.content?.layoutView.cancelTabDrag() }
         drag.window = controller
         drag.plan = nil

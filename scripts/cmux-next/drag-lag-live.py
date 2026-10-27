@@ -142,17 +142,20 @@ def action(name, **params):
     return rpc("action.run", {"action": name, **params})
 
 
-def paced_drag(key, x, y, to_x, to_y, moves):
+def paced_drag(key, x, y, to_x, to_y, moves, back=False, timed=True):
     """A held drag: one `debug.mouse` move per 1/120 s (a fast hand), timing each reply. Its report block goes to
-    SUMMARY[key] and its reply times to MOVES[key]."""
+    SUMMARY[key] and its reply times to MOVES[key]. `back`: the drag returns to its start before the release.
+    `timed=False` (counted_drag) records nothing but a press that failed."""
     mouse = lambda **p: rpc("debug.mouse", p)
     if "error" in (mouse(action="drag", x=x, y=y, to_x=x, to_y=y, steps=1, release=False) or {}):
-        SUMMARY[key] = {"error": "could not press"}
+        SUMMARY[key if timed else f"{key}_window_calls"] = {"error": "could not press"}
         return
+    path = [(x + (to_x - x) * move / moves, y + (to_y - y) * move / moves) for move in range(1, moves + 1)]
+    if back:
+        path += path[-2::-1] + [(x, y)]
     last, times = (x, y), []
     try:
-        for move in range(1, moves + 1):
-            point = (x + (to_x - x) * move / moves, y + (to_y - y) * move / moves)
+        for point in path:
             started = time.monotonic()
             mouse(action="drag", x=last[0], y=last[1], to_x=point[0], to_y=point[1], steps=1, press=False, release=False)
             times.append((time.monotonic() - started) * 1000)
@@ -160,8 +163,17 @@ def paced_drag(key, x, y, to_x, to_y, moves):
             time.sleep(max(0, 1 / 120 - times[-1] / 1000))  # test harness: pointer pace
     finally:
         mouse(action="drag", x=last[0], y=last[1], to_x=last[0], to_y=last[1], steps=1, press=False, release=True)
-    MOVES[key] = times
-    SUMMARY[key] = results.latency_block(times)
+    if timed:
+        MOVES[key] = times
+        SUMMARY[key] = results.latency_block(times)
+
+
+def counted_drag(key, x, y, to_x, to_y, moves, back=False):
+    """One more drag, untimed, under the render counters (WindowCalls): SUMMARY["<key>_window_calls"] only. The
+    counting hooks wrap every frame, layout and window call, so no timed drag (paced_drag) or daemon probe runs
+    under them."""
+    with WindowCalls(key):
+        paced_drag(key, x, y, to_x, to_y, moves, back=back, timed=False)
 
 
 def column_edges():
@@ -234,11 +246,25 @@ def drags():
         if frame and target:
             sx, sy = center(frame)
             tx, ty = center(target)
-            with DaemonProbe() as probe, WindowCalls("tab_drag"):
+            with DaemonProbe() as probe:
                 paced_drag("tab_drag", sx, sy, tx, ty + 200, opts.moves)
                 time.sleep(2)  # test harness: the probe's tail after the drag
             probed("daemon_during_tab_drag", probe)
     SUMMARY.setdefault("tab_drag", {"error": f"no two-tab strip: {json.dumps(strips())[:400]}"})
+
+    # The tab drag's window calls, in a drag of its own after the timed one: a tab of a two-tab strip out over
+    # another strip's pane and back, released where it started (p03-rendering-118).
+    two = next((s for s in strips() if len(s.get("tabs") or []) >= 2), None)
+    others = [s for s in strips() if s is not two]
+    if two and others:
+        tab = (two.get("tabs") or [])[-1]
+        frame = tab.get("frame") or tab.get("window_frame")
+        target = others[0].get("frame") or others[0].get("window_frame")
+        if frame and target:
+            sx, sy = center(frame)
+            tx, ty = center(target)
+            counted_drag("tab_drag", sx, sy, tx, ty + 200, opts.moves, back=True)
+    SUMMARY.setdefault("tab_drag_window_calls", {"error": f"no two-tab strip: {json.dumps(strips())[:400]}"})
 
     rows = sidebar_rows()
     if len(rows) >= 8:
@@ -262,9 +288,8 @@ def drags():
         frame = rows[1 if len(rows) > 1 else 0].get("window_frame")
         if frame:
             sx, sy = center(frame)
-            with WindowCalls("workspace_drag"):
-                paced_drag("workspace_drag", sx, sy, content[0], content[1], opts.moves)
-    SUMMARY.setdefault("workspace_drag", {"error": f"rows={len(rows)} content={content}"})
+            counted_drag("workspace_drag", sx, sy, content[0], content[1], opts.moves)
+    SUMMARY.setdefault("workspace_drag_window_calls", {"error": f"rows={len(rows)} content={content}"})
 
 
 def content_point():
@@ -293,6 +318,8 @@ class WindowCalls:
 
     def __exit__(self, *_):
         stopped = rpc("debug.frames", {"action": "stop"}, timeout=60) or {}
+        if "error" in (SUMMARY.get(f"{self.key}_window_calls") or {}):
+            return  # the drag did not run (paced_drag recorded why)
         if not self.armed or not isinstance(stopped, dict) or "window_calls" not in stopped:
             SUMMARY[f"{self.key}_window_calls"] = {"error": f"render counters unavailable: {str(stopped)[:200]}"}
             return
