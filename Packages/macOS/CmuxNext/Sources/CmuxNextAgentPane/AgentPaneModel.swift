@@ -267,7 +267,7 @@ public final class AgentPaneModel {
         newTab = page
     }
     /// The reply for one page request.
-    public func respond(to request: AgentPaneRequest) async -> [String: Any] {
+    public func respond(to request: AgentPaneRequest, userGesture: Bool = false) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
@@ -412,7 +412,7 @@ public final class AgentPaneModel {
             replyLinks.remoteImageLoader = transport.remoteImageLoader
             return await respond(to: reply)
         case .saveFile(let save): return await saveFile(save)
-        case .composerSetting(let path, let show): return await setComposer(path, show)
+        case .composerSetting(let path, let show): return await setComposer(path, show, userGesture: userGesture)
         case .displaySetting(let path, let value): return await setDisplay(path, value)
         case .toolCard(let card, let action, let value): return AgentPaneToolCard.respond(card: card, action: action, value: value, in: self)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)
