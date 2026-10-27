@@ -495,6 +495,10 @@ REFUSAL_RESCUE_ATTEMPT = LAST_OWNED_ATTEMPT + 1
 # token for its mutations. A re-run by anyone else is a person's (owned_rerun()). Run 40444295785, a DEV
 # daily, went through 10 cmux-bot attempts on the minis while only github-actions[bot] counted here.
 RESCUE_ACTORS = frozenset({"github-actions[bot]", "cmux-bot[bot]"})
+# ci.yml's placement (pr_runner_pool.RESCUE_ACTOR, ci-macos.yml's pr_retry_runner) still moves only
+# github-actions[bot]'s attempt 3 off the minis, so a cmux-bot re-run of CI stays a person's here: it
+# goes back to the minis and is watched.
+CI_RESCUE_ACTOR = "github-actions[bot]"
 # Why a pull request's run at its open head is left alone (queue_janitor.py shares it).
 OPEN_HEAD_RULE = ("never cancelled: an open pull request's run at its head is never cancelled by anything "
                   "automatic; the controller's fall-through moves its compile instead")
@@ -502,7 +506,7 @@ OPEN_HEAD_RULE = ("never cancelled: an open pull request's run at its head is ne
 
 def owned_rerun(run: Mapping[str, Any]) -> bool:
     """A re-run of a CI run whose owned jobs go back to the minis, so it is watched like attempt 1: attempt 2,
-    or a later one of a pull request someone other than the bot (RESCUE_ACTORS) started."""
+    or a later one of a pull request someone other than the bot (CI_RESCUE_ACTOR; cmux-next: RESCUE_ACTORS) started."""
     attempt = int(run.get("run_attempt") or 0)
     if attempt <= 1:
         return False
@@ -513,7 +517,7 @@ def owned_rerun(run: Mapping[str, Any]) -> bool:
         # on attempt three; bot attempt three is watched for refusals only.
         return actor not in RESCUE_ACTORS or attempt <= REFUSAL_RESCUE_ATTEMPT
     return run.get("path") == CI_WORKFLOW_PATH and (attempt <= LAST_OWNED_ATTEMPT or (
-        run.get("event") == "pull_request" and actor not in RESCUE_ACTORS))
+        run.get("event") == "pull_request" and actor != CI_RESCUE_ACTOR))
 # The runner's own steps, which run before glaeda's hook decides.
 SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
 XCODE_SELECTION_STEPS = frozenset({"Select Xcode", "Select helper Xcode"})
@@ -1034,7 +1038,8 @@ class GitHub:
         self.sleep(wait)
         return True
 
-    def request(self, method: str, path: str, *, own_token: bool = False, body: Mapping | None = None) -> Any:
+    def request(self, method: str, path: str, *, own_token: bool = False, body: Mapping | None = None,
+                before_retry: Callable[[], None] | None = None) -> Any:
         headers = self.read_headers if method == "GET" and not own_token else self.headers
         data = json.dumps(body).encode() if body is not None else None
         request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", method=method, headers=headers, data=data)
@@ -1047,9 +1052,12 @@ class GitHub:
             self._limits.tries = 0
         except urllib.error.HTTPError as error:
             if headers is self.headers and error.code in (403, 429) and self._wait_for_rate_limit(method, path, error):
-                # The same request again, after the wait (a refused request did nothing on GitHub's side).
+                # The same request again, after the wait (a refused request did nothing on GitHub's side),
+                # unless what it acts on changed meanwhile (before_retry raises).
+                if before_retry is not None:
+                    before_retry()
                 return self.request(method, path, own_token=own_token,
-                                    body=json.loads(data) if data is not None else None)
+                                    body=json.loads(data) if data is not None else None, before_retry=before_retry)
             if error.code not in (401, 403, 429) or headers is self.headers:
                 raise
             if error.code in (403, 429):
@@ -1207,12 +1215,28 @@ class GitHub:
         self.request("POST", f"/actions/runs/{run_id}/force-cancel")
 
     def rerun(self, run_id: int, next_attempt: int) -> None:
-        self.request("POST", f"/actions/runs/{run_id}/rerun")
+        self.request("POST", f"/actions/runs/{run_id}/rerun", before_retry=self._still_finished(run_id, next_attempt))
         self.request_ui_tests(run_id, next_attempt)
 
     def rerun_failed(self, run_id: int, next_attempt: int) -> None:
-        self.request("POST", f"/actions/runs/{run_id}/rerun-failed-jobs")
+        self.request("POST", f"/actions/runs/{run_id}/rerun-failed-jobs",
+                     before_retry=self._still_finished(run_id, next_attempt))
         self.request_ui_tests(run_id, next_attempt)
+
+    def _still_finished(self, run_id: int, next_attempt: int) -> Callable[[], None]:
+        """A re-run sent again after a rate-limit wait only while the run is still the finished attempt it re-runs.
+
+        Two watches can own one failed attempt (a cmux-next `completed` event's and the sweeper's): the
+        other's re-run may have started, and even finished, during the wait, and sending this one then
+        would start one attempt more than either meant (rescue() checked the attempt only before the wait).
+        """
+        def check() -> None:
+            run = self.run(run_id) or {}
+            attempt = int(run.get("run_attempt") or 0)
+            if attempt != next_attempt - 1 or run.get("status") != "completed":
+                raise Aborted(f"run {run_id} is at attempt {attempt} ({run.get('status') or 'unknown'}) after a "
+                              f"rate-limit wait; someone else already re-ran it, so it is not re-run again")
+        return check
 
     def request_ui_tests(self, run_id: int, attempt: int) -> None:
         """Start ci-ui-tests.yml for the attempt a re-run of a pull request's CI began.

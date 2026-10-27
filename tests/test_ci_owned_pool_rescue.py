@@ -1633,6 +1633,12 @@ class SideLanes(unittest.TestCase):
         self.assertEqual(rescue.next_attempt(target), "attempt 4 takes Blacksmith: a mini refused attempt 3")
         self.assertEqual(rescue.sweep_target({**run, "run_attempt": 4}, "manaflow-ai/cmux", late=False),
                          "attempt 4")
+        # ci.yml's placement moves only github-actions[bot]'s attempt 3 to Blacksmith (pr_runner_pool), so a
+        # cmux-bot re-run of a pull request's CI still goes back to the minis and is still watched.
+        for actor, watched in ((CMUX_BOT, True), (ACTIONS_BOT, False)):
+            self.assertEqual(rescue.owned_rerun({"path": rescue.CI_WORKFLOW_PATH, "event": "pull_request",
+                                                 "run_attempt": 3, "triggering_actor": {"login": actor}}),
+                             watched, actor)
         # A person's attempt 3 stays minis-first and is not refusals only.
         person = rescue.sweep_target({**run, "triggering_actor": {"login": "teamleaderleo"}},
                                      "manaflow-ai/cmux", late=False)
@@ -2882,6 +2888,25 @@ class Tokens(unittest.TestCase):
         self.assertEqual(waits, [60, 120, 7])
         self.assertEqual([entry[:2] for entry in seen], [("POST", f"{rescue.API}/repos/o/r/actions/runs/7/rerun-failed-jobs")] * 4)
         self.assertTrue(all(entry[2] == "Bearer repo-token" for entry in seen))
+
+    def test_a_re_run_waiting_out_a_rate_limit_is_not_sent_once_someone_else_re_ran_the_run(self):
+        # A cmux-next `completed` watch and the sweeper can own one failed attempt; the other's re-run
+        # may start during this one's wait.
+        limited = b'{"message": "API rate limit exceeded for installation."}'
+        for moved, sent in (({"run_attempt": 3, "status": "queued"}, 1), ({"run_attempt": 2, "status": "completed"}, 2)):
+            with self.subTest(moved=moved):
+                seen, patch = self.refusing([(403, {}, limited)])
+                with patch, unittest.mock.patch.object(rescue.GitHub, "run", lambda api, run_id: moved):
+                    api = rescue.GitHub("repo-token", "o/r")
+                    api.sleep = lambda seconds: None
+                    api.request_ui_tests = lambda run_id, attempt: None
+                    if sent == 1:
+                        with self.assertRaisesRegex(rescue.Aborted, "someone else already re-ran it"):
+                            api.rerun_failed(7, 3)
+                    else:
+                        api.rerun_failed(7, 3)
+                posts = [entry for entry in seen if entry[0] == "POST"]
+                self.assertEqual(len(posts), sent)
 
     def test_an_app_read_refused_with_429_goes_on_github_token(self):
         seen, patch = self.refusing([(429, {}, b"")])
