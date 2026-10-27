@@ -757,6 +757,11 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     if let Some(pid) = crate::startup_env::owner_app_pid() {
         command.env(crate::startup_env::OWNER_APP_PID_ENV, pid);
     }
+    // And the allocator check of a sampled launch (startup_env.rs): the owner
+    // starts under it and takes it out of its own environment again.
+    if let Some(probguard) = crate::startup_env::malloc_probguard() {
+        command.env(crate::startup_env::MALLOC_PROBGUARD_ENV, probguard);
+    }
     #[cfg(unix)]
     let (ready, ready_writer) = ready_pipe(&mut command)?;
     #[cfg(unix)]

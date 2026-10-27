@@ -141,6 +141,8 @@ public struct DaemonLauncher: Sendable {
     /// environment at startup and honors it only inside its own app bundle, so no child inherits it (bead cx-e0cs).
     /// `resolvedTerminalEnvironment` adds the keys the app looks up on the disk off the main thread (Ghostty's `TERM`
     /// and resources), awaited when `server ensure` builds its environment, over `terminalEnvironment`.
+    /// `probGuardRoll`: this launch's draw for the allocator check (``DaemonLaunchEnvironment``), which joins
+    /// `daemonEnvironment`.
     public static func forApp(
         work: BackgroundWork,
         build: BuildIdentity,
@@ -151,7 +153,8 @@ public struct DaemonLauncher: Sendable {
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         socketMemory: DaemonSocketMemory = DaemonSocketMemory(),
         applicationSupport: URL = DaemonLauncher.applicationSupportDirectory(),
-        wireStats: DaemonWireStats? = nil
+        wireStats: DaemonWireStats? = nil,
+        probGuardRoll: Double = .random(in: 0..<1)
     ) throws -> DaemonLauncher {
         let binary = try resolveBinary(bundle: bundle, environment: processEnvironment)
         DaemonLaunchTimings.shared.mark("daemon.binary_resolved")
@@ -168,7 +171,9 @@ public struct DaemonLauncher: Sendable {
         let cli = bundle.resourceURL.map { BundledCLIEnvironment(binDirectory: $0.path + "/bin", pathIntegration: nil) }
         let environment = appEnvironment(cache: .shared, base: processEnvironment, overrides: overrides,
                                          resolved: resolvedTerminalEnvironment, cli: cli)
-        return DaemonLauncher(work: work, configuration: configuration, environment: { await environment().merging(daemonEnvironment) { _, owner in owner } },
+        let checks = DaemonLaunchEnvironment(kind: build.kind, processEnvironment: processEnvironment, roll: probGuardRoll)
+        let ownerEnvironment = daemonEnvironment.merging(checks.environment) { own, _ in own }
+        return DaemonLauncher(work: work, configuration: configuration, environment: { await environment().merging(ownerEnvironment) { _, owner in owner } },
                               wireStats: wireStats)
     }
 

@@ -34,6 +34,8 @@ pub(crate) unsafe fn take_link_token_from_env() {
     // SAFETY: as above.
     unsafe { take_owner_app_pid() };
     // SAFETY: as above.
+    unsafe { take_malloc_probguard() };
+    // SAFETY: as above.
     #[cfg(target_os = "linux")]
     unsafe {
         capture_systemd_listen_env();
@@ -59,6 +61,8 @@ pub(crate) unsafe fn take_link_token_from_env() {
     unsafe { cmux_tui_core::chief_brains::take_from_env() };
     // SAFETY: forwarded from this function's own contract (see # Safety).
     unsafe { take_owner_app_pid() };
+    // SAFETY: forwarded from this function's own contract (see # Safety).
+    unsafe { take_malloc_probguard() };
 }
 
 /// Read the Cloud template settings and remove them from this process's
@@ -182,6 +186,30 @@ pub(crate) fn take_systemd_listen_env() -> SystemdListenEnv {
 /// The owning app's pid this process was started with (see above).
 pub(crate) fn owner_app_pid() -> Option<String> {
     OWNER_APP_PID.get().cloned().flatten()
+}
+
+/// libmalloc's sampled guard pages (macOS `malloc(3)`, Apple's GWP-ASan). The app
+/// sets it for the `server ensure` of a sampled Nightly launch
+/// (DaemonLaunchEnvironment.swift), which hands it to the owner it spawns
+/// (`local_owner.rs`). libmalloc reads it before `main`, so taking it out of
+/// the environment here keeps it for this process and for no terminal, shell
+/// or program the owner starts.
+pub(crate) const MALLOC_PROBGUARD_ENV: &str = "MallocProbGuard";
+static MALLOC_PROBGUARD: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+
+/// # Safety
+///
+/// As [`take_link_token_from_env`]: no other thread may exist yet.
+unsafe fn take_malloc_probguard() {
+    let value = std::env::var(MALLOC_PROBGUARD_ENV).ok().filter(|value| !value.is_empty());
+    // SAFETY: forwarded from this function's own contract (see # Safety).
+    unsafe { std::env::remove_var(MALLOC_PROBGUARD_ENV) };
+    let _ = MALLOC_PROBGUARD.set(value);
+}
+
+/// The `MallocProbGuard` value this process was started with (see above).
+pub(crate) fn malloc_probguard() -> Option<String> {
+    MALLOC_PROBGUARD.get().cloned().flatten()
 }
 
 /// The brain tools socket this process was started with (see above).

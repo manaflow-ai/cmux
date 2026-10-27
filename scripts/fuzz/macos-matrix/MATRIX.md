@@ -148,6 +148,8 @@ has the exit code, stdout, stderr, the runner commit (`runner_ref`) and the sour
   links. `test_probe_names.sh` checks each refusal (run it on a fleet host).
 - `CMUX_MATRIX_APP` holds the build's app path in the guest, for a later probe that needs the app.
 - Probes: `url-root-parent` (issue #4529): `"/.."` on 14.8.7 and 15.7.7, `"/"` on 26.6.2 (2026-10-24).
+- `malloc-probguard` (p10-stability-201): libmalloc honors `MallocProbGuard=1`, the check a sampled 5 %
+  of Nightly daemon starts run under. Not run yet on any major.
 - `key-change-cost` (issue #24913): ms of one key-window change between a window and its child window, with
   0-120 hidden workspace-like view trees in the window and out of it (does a hidden tree cost a key change?).
 - `render-motion-survival` (spike p03-rendering-016, rendering-DESIGN.md "Spike 016"): whether an additive
@@ -232,7 +234,7 @@ app (the guest copy is re-signed ad hoc without the hardened runtime).
 | --- | --- | --- | --- |
 | `gmalloc` | `DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib` (Guard Malloc) | off | crash `.ips` |
 | `scribble` | `MallocScribble=1 MallocGuardEdges=1` | off | crash `.ips` |
-| `probguard` | `MallocProbGuard=1` (sampled guard pages, Apple's GWP-ASan) | off | crash `.ips` |
+| `probguard` | `MallocProbGuard=1` (sampled guard pages, Apple's GWP-ASan), passed on to the daemon the app starts | off | crash `.ips` |
 | `mtc` | the host Xcode's `libMainThreadChecker.dylib`, copied into the guest | on | `mtc-stderr.txt` |
 | `coop-strict` | `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1` (one-thread Swift concurrency pool) | on | crash `.ips`, hangs |
 | `asan`, `tsan`, `ubsan` | a sanitizer app (`reload.sh --config asan\|tsan\|ubsan`, bundle id suffix `.asan` and so on), `*SAN_OPTIONS=log_path=/tmp/fuzz-san/NAME` | off | `NAME-reports.txt` |

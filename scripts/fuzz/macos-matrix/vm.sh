@@ -25,9 +25,13 @@
 #              code, stdout and stderr. Exit 0 is PASS, 1 is FAIL, anything else is no verdict
 #              (a probe must catch its errors and exit 1 for a FAIL: a trap is no verdict).
 #              The probe never runs on the host. It tests the OS, not the build (BUILD is still
-#              copied into the guest, so a probe may use it).
+#              copied into the guest, so a probe may use it). malloc-probguard: libmalloc honors
+#              MallocProbGuard=1 on the major (a use after free faults under it), which a sampled 5 %
+#              of Nightly daemon starts run under (DaemonLaunchEnvironment.swift).
 #   --diag     fuzz and repro: run the app under a check (diag.py): gmalloc, scribble, probguard,
 #              mtc, coop-strict, or asan|tsan|ubsan (a sanitizer app: reload.sh --config asan|tsan|ubsan).
+#              probguard reaches the app's daemon too: the app passes MallocProbGuard=1 on to the
+#              `server ensure` that starts it (DaemonLaunchEnvironment.swift), never to its terminals.
 #              The guest copy of the app is re-signed ad hoc; malloc and sanitizer checks run with
 #              Chromium off (that copy loses its CEF runtime and opens WebKit tabs). summary.json's
 #              "diag" has the launch environment, the Chromium state, the app's malloc zones (default zone first) and the check's reports; a
