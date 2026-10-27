@@ -64,8 +64,10 @@ extension HomeController {
         guard key.hasPrefix("part:"), let colon = key.lastIndex(of: ":") else { return nil }
         guard let index = Int(key.suffix(from: key.index(after: colon))) else { return nil }
         // "part:" is five characters; "part:3" has no item key between it and the last colon.
-        let start = key.index(key.startIndex, offsetBy: 5)
-        guard start <= colon else { CrashGuard.fault("row key without an item key: \(key)"); return nil }
+        guard key.index(key.startIndex, offsetBy: 5, limitedBy: colon) != nil else {
+            CrashGuard.fault("row key without an item key: \(key)")
+            return nil
+        }
         let raw = String(key.prefix(upTo: colon).dropFirst(5))
         guard let item = items.first(where: { $0.key.rawValue == raw }), index < item.parts.count, let part = item.parts[checked: index]
         else { return nil }

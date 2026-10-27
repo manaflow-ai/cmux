@@ -1,0 +1,18 @@
+{
+  "id": "swift-chromium-host-control",
+  "tier": "builder",
+  "description": "ChromiumHostControlSendBench: us per ChromiumHostControlChannel.send, the direct write to a reading host and the outbox push to a host that never reads (geometry coalescing), 20,000 sends each.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-chromium-host-control", "--filter", "ChromiumHostControlSendBench", "--env", "CMUX_CHROMIUM_HOST_CONTROL_BENCH=1"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.chromium_host_control\\.(direct_write|outbox_push)", "unit": "us", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 1200,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/ChromiumHostControlSendBench.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "PL-cefhost",
+  "component": "Chromium>HostControl",
+  "hot_paths": ["cef-host-control"]
+}

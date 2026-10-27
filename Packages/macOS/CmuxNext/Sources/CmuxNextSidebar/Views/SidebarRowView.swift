@@ -179,7 +179,7 @@ class SidebarRowView: NSView {
         if newSize != oldSize { needsLayout = true }
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: only invalidates: AppKit draws a hidden view when it shows
         super.viewDidChangeEffectiveAppearance()
         // invalidate: the appearance changed; layer colors resolve again.
         needsDisplay = true
