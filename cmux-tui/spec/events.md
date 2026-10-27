@@ -997,7 +997,7 @@ object{event:"scroll-changed",surface:Id,offset:uint64,at_bottom:boolean}
 
 Meaning: A PTY surface viewport moved within its scrollback. The event is emitted after a settled viewport mutation from user scrolling, `scroll-surface`, input snapping the viewport to the live bottom, or PTY output that changes the viewport position. `offset` is the same row offset used by the scrollbar geometry, and `at_bottom` is true when the viewport is pinned to the live bottom.
 
-Protocol v6 subscribe streams receive all scroll changes, and byte attach streams receive changes for the attached surface only. Both v7 tree-event modes retain that subscribe delivery, and render attach streams also receive changes for their attached surface. This pre-v7 overlap is retained for v6 compatibility and is the exception described in [Event Scoping](#event-scoping).
+Protocol v6 subscribe streams receive all scroll changes, and byte attach streams receive changes for the attached surface only. Both v7 tree-event modes retain that subscribe delivery, and render attach streams also receive changes for their attached surface, whichever connection moved the viewport, plus one at attach when the viewport is scrolled back ([render.md](render.md#stream-ordering)). This pre-v7 overlap is retained for v6 compatibility and is the exception described in [Event Scoping](#event-scoping).
 
 Example:
 

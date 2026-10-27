@@ -984,21 +984,16 @@ impl Mux {
         self.with_state(Self::active_surface_in_state)
     }
 
-    /// Scroll one backend-owned view without mutating the terminal runtime
-    /// shared by the terminal's other placements.
+    /// Scroll the daemon's terminal viewport for a protocol command
+    /// (`scroll-surface`, `terminal.viewport.scroll`): the viewport that
+    /// `read-screen`, render attaches and input snapping use (spec/commands.md
+    /// "scroll-surface"). A move announces `scroll-changed` to every render
+    /// attach of the terminal, ordered before the frame with the moved rows,
+    /// and to every placement on the event bus. An in-process frontend's own
+    /// view ([`Surface::view_scroll_delta`]) is frontend state, like a byte
+    /// client's mirror, and a protocol command does not move it.
     pub fn scroll_surface_viewport(&self, surface: &Surface, delta: isize) -> anyhow::Result<()> {
-        let before = surface.view_scrollbar();
-        let after = surface.view_scroll_delta(delta)?;
-        if after != before
-            && let Some(scrollbar) = after
-        {
-            self.emit(MuxEvent::ScrollChanged {
-                surface: surface.id,
-                offset: scrollbar.offset,
-                at_bottom: !scrollbar.scrolled_back(),
-            });
-        }
-        Ok(())
+        surface.scroll_delta(delta)
     }
 
     fn workspace_key_for_pane(&self, pane: PaneId) -> Option<String> {

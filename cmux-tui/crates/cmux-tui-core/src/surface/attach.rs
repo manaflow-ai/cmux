@@ -105,6 +105,14 @@ impl Surface {
                 drop(tap);
                 false
             } else {
+                // `render-state` carries no viewport position, and a client
+                // starts at the live bottom. A viewport scrolled back when
+                // the snapshot was taken is announced as the stream's first
+                // event, under the same terminal lock, so no later move can
+                // land between them (spec/render.md "Stream Ordering").
+                if let (offset, false) = terminal_scroll_position(&term) {
+                    tap.send(RenderAttachFrame::ScrollChanged { offset, at_bottom: false });
+                }
                 render.taps.push(tap);
                 true
             };

@@ -8711,7 +8711,7 @@ character boundary and answers `truncated: true`. Errors: `range_evicted`,
 | status | implemented |
 | since | protocol 5 |
 
-Scrolls a PTY surface viewport by row delta. Negative values scroll up. Positive values scroll down. This changes the terminal viewport state used by `read-screen` and renderers.
+Scrolls a PTY surface viewport by row delta. Negative values scroll up. Positive values scroll down. This changes the terminal viewport state used by `read-screen` and renderers. A move emits `scroll-changed` to subscribers and to the attach streams of the surface, including render attaches on other connections; a render attach receives it before the `render-delta` that shows the moved rows.
 
 Params:
 
