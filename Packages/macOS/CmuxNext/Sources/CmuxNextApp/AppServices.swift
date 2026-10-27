@@ -759,6 +759,7 @@ final class AppServices {
         }
         _ = cache  // built here, as before
         pages.createTabs = cache.createTabs  // a page tab's close ends its create.tab wait
+        pages.findWindow = { [weak self] key in self.flatMap { $0.pages.window(showing: key, among: $0.windows.controllers) } }  // a page tab whose window closed
         pages.showsStandIns = self.features.isEnabled(.pageStandIn)
         pages.sharesChromiumWindows = self.features.isEnabled(.pageTabsShareChromiumWindow)
         DebugTimings.markLaunch("services.cache")
