@@ -638,7 +638,8 @@
    "method": "_acpmux/prewarm",
    "params": {
     "harness": 1,
-    "cwd": 1
+    "cwd": 1,
+    "release": 1
    }
   },
   "mode_fields": null,

@@ -192,6 +192,10 @@ export function Combobox({
             aria-current={isItemCurrent?.(item) ? true : undefined}
             className={cx("ui-combobox-item", itemClassName)}
             render={<li />}
+            onPointerDownCapture={() => {
+              // A new gesture cannot inherit a press whose click was cancelled outside.
+              pressActivatedRef.current = undefined;
+            }}
             onMouseDown={(event) => {
               if (event.button !== 0) {
                 pressActivatedRef.current = undefined;
@@ -208,7 +212,9 @@ export function Combobox({
               const pressed = pressActivatedRef.current;
               pressActivatedRef.current = undefined;
               if (pressed === item && event.detail > 0) return;
-              if (event.detail === 0 && !isItemDisabled?.(item)) onSubmit(item);
+              // Base UI cancels pointerdown to retain input focus. Browsers then omit the
+              // compatibility mousedown, so a primary click must also activate on its own.
+              if (event.button === 0 && !isItemDisabled?.(item)) onSubmit(item);
             }}
           >
             {renderItemContent(item)}

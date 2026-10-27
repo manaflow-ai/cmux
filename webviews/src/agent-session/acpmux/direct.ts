@@ -83,6 +83,7 @@ import { shownPresence } from "./multiplayer/LivePresence";
 import { PresenceClient } from "./multiplayer/presenceClient";
 import { recordedConversationEvents } from "./conversation/exportEvents";
 import { markPullRequestActivityVersion, pullRequestRowKey } from "./summary/transcriptPullRequests";
+import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -5415,6 +5416,23 @@ export class AcpmuxDirectClient {
       this.routeTrustRefusal(error);
     });
   }
+  /// The folder a new chat's bare start goes to (`startSession` with no folder: the pane's
+  /// inherited one); undefined when acpmux picks it or the chat starts on another machine.
+  newChatCwd(): string | undefined {
+    return this.startsOnSend ? undefined : this.host.cwd;
+  }
+  /// The typing prewarm of a new chat (newChatPrewarm.ts): hints acpmux's pool like `prewarm`,
+  /// without a harness for acpmux's default. Silent: a folder without a Trust answer asks nothing
+  /// while the person types; the chat's own start asks at Enter.
+  typingPrewarm(harness: string | undefined, cwd: string): void {
+    if (!this.prewarmSupported) return;
+    void this.request(PREWARM_METHOD, harness ? { harness, cwd } : { cwd }).catch(() => undefined);
+  }
+  /// Takes a typing prewarm back (the prompt cleared, the chat left unsent): its warm agent ends.
+  releasePrewarm(harness: string | undefined, cwd: string): void {
+    if (!this.prewarmSupported) return;
+    void this.request(PREWARM_METHOD, { ...(harness ? { harness } : {}), cwd, release: true }).catch(() => undefined);
+  }
   /// The permission mode acpmux would start a new chat on `harness` in `cwd` in (cx-wx93i),
   /// as acpmux decides it; undefined when it would set none, does not know, or predates the method.
   /// Rejects when it could not be asked (no socket, the request failed): that is no answer.
@@ -6262,7 +6280,15 @@ function harnessStart(value: unknown): AcpmuxSnapshot["catalog"][number]["start"
 export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
   const harnesses = value?.harnesses ?? value?.items ?? value ?? [];
   const entries: any[] = Array.isArray(harnesses) ? harnesses : harnessEntries(harnesses, value?.defaultHarness);
-  return entries.map((harness: any) => ({
+  const catalog = entries.map(catalogEntry);
+  // Every AgentMark given a harness id draws its icon (shared/harnessIcons.ts).
+  rememberHarnessIcons(catalog);
+  return catalog;
+}
+
+function catalogEntry(harness: any): AcpmuxSnapshot["catalog"][number] {
+  const iconSpec = parseHarnessIconSpec(harness.iconSpec);
+  return {
     id: String(harness.id ?? harness.name),
     name: agentName(
       String(harness.id ?? harness.name),
@@ -6275,6 +6301,7 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
     models: (harness.models ?? []).map((model: any) => catalogModel(model)),
     ...(typeof harness.family === "string" && harness.family ? { family: harness.family } : {}),
     ...(typeof harness.icon === "string" && harness.icon ? { icon: harness.icon } : {}),
+    ...(iconSpec ? { iconSpec } : {}),
     // A terminal harness (Muse Code) runs in a terminal tab, never as a chat: no picker lists it.
     ...(harness.kind === "terminal" ? { pickable: false } : {}),
     ...(harnessStart(harness.start) ? { start: harnessStart(harness.start) } : {}),
@@ -6285,7 +6312,7 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
     // failed model probe (`probeError`).
     ...(harnessRefusal(harness) ? { unavailable: harnessRefusal(harness) } : {}),
     ...(!harness.unavailable && harnessRefusal(harness) ? { probeFailed: true } : {}),
-  }));
+  };
 }
 
 /// Whether the person can see the page: WebKit reports `hidden` for a web view out of its window,
