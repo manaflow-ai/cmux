@@ -41,6 +41,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+from urllib.parse import parse_qs, urlsplit
 
 HERE = Path(__file__).resolve().parent.parent
 ROOT = HERE.parent.parent
@@ -242,28 +243,52 @@ class FakeApp:
 
 class FakeHost:
     """`debug.chromium_host` of a Debug app with the host on (ChromiumHostPrototype's report): `open` starts a host
-    (pid 520, then 530, ...) that shows the page; a SIGKILL restarts it with the page (first end); the crash URL ends
-    it by SIGTRAP and, inside the 60 s window, keeps it ended with no page shown."""
+    (pid 520, then 530, ...) or navigates the running one; a SIGKILL restarts it on the saved page (first end); the
+    crash URL ends it by SIGTRAP and, inside the 60 s window, keeps it ended with no page shown.
 
-    def __init__(self, crash_url_ends=True):
-        self.crash_url_ends = crash_url_ends
+    As ChromiumHostSession does, the report keeps title, error, restarts and exits across hosts (`stale` presets
+    them, as an earlier run in the same app leaves them), and a new host reports its context at once but the
+    page's title only once its load commits (`load_after` reports later). The page titles itself as the served page
+    does: `?host=STEP` gives "crash-e2e STEP LOAD", a plain URL "crash-e2e". `restart_loads` / `reopen_loads` False:
+    the host after the kill / after the crash never loads its page."""
+
+    def __init__(self, crash_url_ends=True, restart_loads=True, reopen_loads=True, load_after=2, **stale):
+        self.crash_url_ends, self.restart_loads, self.reopen_loads = crash_url_ends, restart_loads, reopen_loads
+        self.load_after, self.loads, self.url, self.pending = load_after, 0, "", None
         self.next_pid, self.ops, self.opened, self.ended_pids = 520, [], [], set()
         self.state = {"phase": "none", "pid": 0, "restarts": 0, "exits": [], "shown_context_id": 0, "title": "",
                       "error": "", "enabled": True, "app_pid": os.getpid()}
+        self.state.update(stale)
 
-    def start(self, title):
-        self.state.update(phase="running", pid=self.next_pid, shown_context_id=self.next_pid, title=title)
+    def load(self, url):
+        self.pending = [url, self.load_after]
+
+    def start(self, loads=True):
+        self.state.update(phase="running", pid=self.next_pid, shown_context_id=self.next_pid)
         self.next_pid += 10
+        if loads:
+            self.load(self.url)
 
     def end(self, exit_text):
         self.ended_pids.add(self.state["pid"])
         self.state["exits"] = self.state["exits"] + [exit_text]
+        self.pending = None
 
     def killed(self, pid, sig):
         assert pid == self.state["pid"] and sig == crash.signal.SIGKILL, (pid, sig)
         self.end(f"signal {int(sig)}")
         self.state["restarts"] += 1
-        self.start(self.state["title"])
+        self.start(loads=self.restart_loads)
+
+    def commit_load(self):
+        if not self.pending or self.state["phase"] != "running":
+            return
+        self.pending[1] -= 1
+        if self.pending[1] <= 0:
+            step = parse_qs(urlsplit(self.pending[0]).query).get("host")
+            self.loads += 1
+            self.state["title"] = f"{crash.PAGE_TITLE} {step[0]} {self.loads}" if step else crash.PAGE_TITLE
+            self.pending = None
 
     def __call__(self, params):
         op = params.get("op")
@@ -275,11 +300,21 @@ class FakeHost:
                 if self.crash_url_ends:
                     self.end("signal 5")
                     self.state.update(phase="ended: ended twice within 60 seconds: signal 5", shown_context_id=0)
-            elif self.state["phase"] != "running":
-                self.start(crash.PAGE_TITLE)
+            else:
+                self.url = url
+                if self.state["phase"] == "running":
+                    self.load(url)
+                else:
+                    self.start(loads=self.reopen_loads or not self.ended_pids)
         elif op == "close" and self.state["phase"] == "running":
             self.state.update(phase="idle", shown_context_id=0)
+        self.commit_load()
         return dict(self.state)
+
+
+def bounded_wait(check, seconds, step=0.25):
+    """crash.wait without the clock: a few tries, so a host that never shows the page fails at once."""
+    return next((value for value in (check() for _ in range(10)) if value), None)
 
 
 class Cases(unittest.TestCase):
@@ -381,28 +416,64 @@ class Cases(unittest.TestCase):
         drv.tables("\n".join(line for line in PS.splitlines() if "renderer-client-id=9" not in line))
         return app, drv
 
+    def run_host_page(self, host):
+        _, drv = self.host_page_driver(host)
+        with mock.patch.object(crash.os, "kill", side_effect=getattr(host, "killed", None)) as killed, \
+                mock.patch.object(crash, "alive", side_effect=lambda pid: pid not in host.ended_pids), \
+                mock.patch.object(crash, "wait", side_effect=bounded_wait):
+            [res] = drv.chromium_cases("tab_1", {"host"})
+        return res, drv, killed
+
     def test_host_page_case_crashes_the_host_app_twice_and_cmux_stays_up(self):
         host = FakeHost()
-        app, drv = self.host_page_driver(host)
-        with mock.patch.object(crash.os, "kill", side_effect=host.killed) as killed, \
-                mock.patch.object(crash, "alive", side_effect=lambda pid: pid not in host.ended_pids), \
-                mock.patch.object(crash.time, "sleep"):
-            [res] = drv.chromium_cases("tab_1", {"host"})
+        res, drv, killed = self.run_host_page(host)
         self.assertEqual(res.outcome, crash.SURVIVED, res.detail)
         self.assertIsNotNone(res.recover_ms)
         killed.assert_called_once_with(520, crash.signal.SIGKILL)  # the proved host, never the app
-        self.assertEqual(host.opened, ["http://127.0.0.1:1/", crash.HOST_CRASH_URL, "http://127.0.0.1:1/"])
+        open_url, crash_url, reopen_url = host.opened
+        self.assertRegex(open_url, r"^http://127\.0\.0\.1:1/\?host=open\.[0-9a-f]{8}$")
+        self.assertEqual(crash_url, crash.HOST_CRASH_URL)
+        self.assertEqual(reopen_url, open_url.replace("host=open.", "host=reopen."))  # the same run, its own step
         self.assertEqual(host.ops[-1], "close")  # the host page never outlives the case
         self.assertEqual(drv.failures, [])
         self.assertEqual(drv.not_measured, {})
 
+    def test_host_page_case_ignores_what_an_earlier_host_left_in_the_report(self):
+        # An earlier run in the same app (or chromium-host-bench) left a renderer-gone error, its restarts and exits,
+        # and the plain page's title: the report keeps them, and none of them is about this run.
+        host = FakeHost(error="renderer ended (status 2)", restarts=1, exits=["signal 9", "signal 5"],
+                        title=crash.PAGE_TITLE, phase="ended: ended twice within 60 seconds: signal 5", pid=510)
+        res, drv, _ = self.run_host_page(host)
+        self.assertEqual(res.outcome, crash.SURVIVED, res.detail)
+        self.assertEqual(drv.not_measured, {})
+
+    def test_host_page_case_dies_when_the_restarted_host_never_loads_the_page(self):
+        # The new host reports its context, but the report still has the killed host's title.
+        res, _, _ = self.run_host_page(FakeHost(restart_loads=False))
+        self.assertEqual(res.outcome, crash.DIED)
+        self.assertIn("no new host loaded the saved page", res.detail)
+
+    def test_host_page_case_dies_when_the_reopened_host_never_loads_the_page(self):
+        # The crashed navigation never committed, so the report still has the restarted host's title.
+        res, _, _ = self.run_host_page(FakeHost(reopen_loads=False))
+        self.assertEqual(res.outcome, crash.DIED)
+        self.assertIn("opening the page again starts no host with it", res.detail)
+
+    def test_host_page_case_names_a_host_that_cannot_start(self):
+        phase, opened = "ended: could not start (exit 65): the Chromium framework did not load", []
+
+        def host(params):
+            if params.get("op") == "open":
+                opened.append(params["url"])
+            return {"phase": phase if opened else "none", "enabled": True, "error": "renderer ended (status 2)",
+                    "pid": 0}
+        res, _, killed = self.run_host_page(host)
+        killed.assert_not_called()
+        self.assertEqual(res.outcome, crash.NOT_MEASURABLE)
+        self.assertIn("could not start (exit 65)", res.detail)
+
     def test_host_page_case_dies_when_the_crash_url_does_not_end_the_host(self):
-        host = FakeHost(crash_url_ends=False)
-        _, drv = self.host_page_driver(host)
-        with mock.patch.object(crash.os, "kill", side_effect=host.killed), \
-                mock.patch.object(crash, "alive", side_effect=lambda pid: pid not in host.ended_pids), \
-                mock.patch.object(crash, "wait", side_effect=lambda check, seconds, step=0.25: check()):
-            [res] = drv.chromium_cases("tab_1", {"host"})
+        res, _, _ = self.run_host_page(FakeHost(crash_url_ends=False))
         self.assertEqual(res.outcome, crash.DIED)
         self.assertIn("did not end the host", res.detail)
 

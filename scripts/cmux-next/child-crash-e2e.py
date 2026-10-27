@@ -68,7 +68,7 @@ Two modes:
       [--host-arms off,on] [--runs 3] [--only ...] [--build-config bench] [--session light]
   child-crash-e2e.py --socket PATH [--app-pid PID] [--only renderer,gpu,webkit,agent]  (that set is the default)
 """
-import argparse, dataclasses, functools, http.server, json, os, signal, socket, subprocess, sys, tempfile, threading, time
+import argparse, dataclasses, functools, http.server, json, os, secrets, signal, socket, subprocess, sys, tempfile, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -304,6 +304,19 @@ def probe_rows(path):
         return []
 
 
+def host_refused(reply):
+    """True when `debug.chromium_host` refused the call itself (an `error` and no host report). A host report always
+    carries `error`: the last error any host of the session sent, so it proves nothing about this call."""
+    return isinstance(reply, dict) and bool(reply.get("error")) and "phase" not in reply
+
+
+def host_start_failure(report):
+    """The host report's phase when its host could not start (ChromiumHostSession: a launch failure, or an exit
+    status of ChromiumHostExit.startFailures), else None. A crash end reads "ended: ended twice within ..."."""
+    phase = str((report or {}).get("phase", ""))
+    return phase if phase.startswith(("ended: could not start", "ended: launch failed")) else None
+
+
 def missing_method(reply):
     """True when the app answered that it has no such method (a build without the debug method)."""
     error = (reply or {}).get("error") if isinstance(reply, dict) else None
@@ -343,7 +356,12 @@ def uptime():
 def serve():
     root = tempfile.mkdtemp(prefix="child-crash-e2e-")
     with open(os.path.join(root, "index.html"), "w") as page:
-        page.write(f"<!doctype html><title>{PAGE_TITLE}</title><p id=alive>alive</p>")
+        # With `?host=STEP` (the host case) each load titles itself "crash-e2e STEP LOAD", LOAD new on every load:
+        # the host report keeps the last title across hosts, so only a fresh title proves a fresh load.
+        page.write(f"<!doctype html><title>{PAGE_TITLE}</title><p id=alive>alive</p><script>"
+                   "var step = new URLSearchParams(location.search).get('host');"
+                   f"if (step) document.title = '{PAGE_TITLE} ' + step + ' ' + Math.random().toString(36).slice(2);"
+                   "</script>")
 
     class Quiet(http.server.SimpleHTTPRequestHandler):
         def log_message(self, *args):
@@ -689,36 +707,49 @@ class Driver:
         probe = host_state()
         if missing_method(probe):
             return NOT_MEASURABLE, "this build has no debug.chromium_host (Debug and bench builds only)", None
-        if probe.get("error") and "phase" not in probe:
+        if host_refused(probe):
             return NOT_MEASURABLE, f"debug.chromium_host does not answer: {probe['error']}", None
         if not probe.get("enabled"):
             return NOT_MEASURABLE, f"{HOST_FEATURE} is off in this app (no Chromium host app runs)", None
         pane = {"pane": self.layout["browser_pane"]} if self.layout else {}
+        # The report's title, error, restarts and exits outlive a host (the prototype keeps its session across
+        # close), so each step loads its own page and counts only what changed after it.
+        run = secrets.token_hex(4)
 
-        def shown(previous=None, restarts=0):
-            """The host state once a host other than `previous` shows our page (after `restarts` restarts)."""
+        def shown(step, previous_pid=None, previous_title=None, restarts=0):
+            """The host state once a host other than `previous_pid` shows a load of `step`'s page other than
+            `previous_title`, after at least `restarts` restarts."""
             state = host_state()
-            fresh = state.get("pid") and state.get("pid") != previous
-            ok = fresh and state.get("restarts", 0) >= restarts and state.get("shown_context_id") and state.get("title") == PAGE_TITLE
+            title = str(state.get("title", ""))
+            ok = (state.get("pid") and state.get("pid") != previous_pid and state.get("restarts", 0) >= restarts
+                  and state.get("shown_context_id") and title.startswith(f"{PAGE_TITLE} {step}.{run} ")
+                  and title != previous_title)
             return state if ok else None
 
+        def open_page(step, **previous):
+            """Opens `step`'s page: (the host state once it shows, why the host app cannot start)."""
+            opened = self.call("debug.chromium_host", {"op": "open", "url": f"{self.url}?host={step}.{run}", **pane})
+            if host_refused(opened):
+                return None, f"the Chromium host app does not start: {opened['error']}"
+            state = wait(lambda: (lambda s: s if host_start_failure(s) else shown(step, **previous))(host_state()), 90)
+            if state and host_start_failure(state):
+                return None, f"the Chromium host app does not start: {state['phase']}"
+            return state, None
+
         try:
-            opened = self.call("debug.chromium_host", {"op": "open", "url": self.url, **pane})
-            if opened.get("error"):  # a host report always has `error`, empty unless the start failed
-                return NOT_MEASURABLE, f"the Chromium host app does not start: {opened['error']}", None
-            first = wait(shown, 90)
+            first, cannot_start = open_page("open")
+            if cannot_start:
+                return NOT_MEASURABLE, cannot_start, None
             if not first:
-                state = host_state()
-                if str(state.get("phase", "")).startswith("ended") and not state.get("restarts"):
-                    return NOT_MEASURABLE, f"the Chromium host app does not start: {state.get('phase')}", None
-                return DIED, f"the host app never showed the page: {state}", None
+                return DIED, f"the host app never showed the page: {host_state()}", None
             host = int(first["pid"])
             self.check("host: the page's browser process is the host app, not cmux",
                        host != self.app_pid and first.get("app_pid") == self.app_pid, first)
             at = self.kill("host", host)
             if at is None:
                 return NOT_MEASURABLE, f"host pid {host} not proved the app's", None
-            restarted = wait(lambda: shown(previous=host, restarts=1), 90)
+            restarted = wait(lambda: shown("open", previous_pid=host, previous_title=first["title"],
+                                           restarts=first.get("restarts", 0) + 1), 90)
             if not restarted:
                 return DIED, f"no new host loaded the saved page after the kill: {host_state()}", None
             recover = round((time.monotonic() - at) * 1000, 1)
@@ -742,11 +773,9 @@ class Driver:
             if tab:
                 self.check("host: the Chromium tab in cmux answers after the host crash", self.answers(tab))
 
-            last = int(state.get("pid") or second)
-            reopened = self.call("debug.chromium_host", {"op": "open", "url": self.url, **pane})
-            back = not reopened.get("error") and wait(lambda: shown(previous=last), 90)
+            back, cannot_start = open_page("reopen", previous_pid=int(state.get("pid") or second))
             if not back:
-                return DIED, f"opening the page again starts no host with it: {reopened or host_state()}", None
+                return DIED, f"opening the page again starts no host with it: {cannot_start or host_state()}", None
             return SURVIVED, "", recover
         finally:
             self.call("debug.chromium_host", {"op": "close"})
