@@ -125,16 +125,8 @@ const callOf = (rows: AcpmuxRow[], id: string) => {
 };
 
 test("background completion invalidates a mixed streaming activity summary", async () => {
-  const daemon = fakeDaemon(
-    record([
-      ...backgroundCall("bg", "npm run dev"),
-      [
-        "in",
-        "agent_thought_chunk",
-        update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "thinking" } }),
-      ],
-    ]),
-  );
+  const thought = update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "thinking" } });
+  const daemon = fakeDaemon(record([...backgroundCall("bg", "npm run dev"), ["in", "agent_thought_chunk", thought]]));
   const { client, rows } = await connect(daemon);
   try {
     expect(sessionSummary(rows()).backgroundTasks[0]?.state).toBe("running");

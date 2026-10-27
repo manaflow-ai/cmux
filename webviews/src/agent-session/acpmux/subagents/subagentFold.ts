@@ -136,6 +136,7 @@ export class SubagentFold {
   private readonly own = new Map<string, ChildEntry[]>();
   private readonly viewRevisions = new Map<string, ViewRevisions>();
   private readonly settledViews = new Map<string, string>();
+  private readonly viewTools = new Map<string, Map<string, boolean>>();
   /// Each subagent view's rows, while its version holds.
   private readonly drawn = new Map<string, { version: number; rows: AcpmuxRow[] }>();
   private readonly versions = new Map<string, number>();
@@ -547,9 +548,7 @@ export class SubagentFold {
         drawn = { version, rows: childRows(id, entries, this.agents, version) };
         this.drawn.set(id, drawn);
       }
-      // A child can start with streamed message chunks before any settled event bumps its view.
-      // Give it a stable producer revision immediately, so every streamed snapshot reuses the
-      // derived rows instead of falling back to an O(rows) scan.
+      // Publish revisions from the first chunk, avoiding the unversioned O(rows) fallback.
       const revisions = this.viewRevisions.get(id) ?? {
         activity: Symbol(),
         command: Symbol(),
@@ -569,12 +568,17 @@ export class SubagentFold {
     entries.push(entry);
     this.own.set(id, entries);
     const update = entry.update;
-    const streaming =
-      update?.sessionUpdate === "agent_message_chunk" ||
-      update?.sessionUpdate === "agent_thought_chunk" ||
-      ((update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") &&
-        update?.status !== "completed" &&
-        update?.status !== "failed");
+    let streaming = update?.sessionUpdate === "agent_message_chunk" || update?.sessionUpdate === "agent_thought_chunk";
+    if (update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") {
+      const tools = this.viewTools.get(id) ?? new Map<string, boolean>();
+      const call = String(update.toolCallId ?? `tool-${entry.event.seq}`);
+      const settled =
+        update.status === undefined ? tools.get(call) : update.status === "completed" || update.status === "failed";
+      // New tools and every update of a settled tool change the summary, even without a status.
+      streaming = tools.has(call) && !settled;
+      tools.set(call, settled ?? false);
+      this.viewTools.set(id, tools);
+    }
     if (!streaming) this.bumpViewRevision(id);
     this.bump(id);
   }
