@@ -321,8 +321,10 @@ class Smoke:
         g = self.g
         # sudo -n first: the hardened runtime refuses task_for_pid to a non-root caller (as for sample).
         # The alarm ends leaks in the guest at its deadline, so it never holds the app suspended into the quit.
-        r = g.sh(f"if sudo -n true 2>/dev/null; then s='sudo -n'; else s=; fi; $s /usr/bin/perl -e 'alarm shift; exec @ARGV' "
-                 f"{leakcheck.TIMEOUT} /usr/bin/leaks {' '.join(leakcheck.ARGS)} {pid} >{LEAKS_FILE} 2>&1; echo $?",
+        # Both branches written out: the guest login shell is zsh, which does not word-split "$s"-style prefixes,
+        # and a plain `||` fallback would run leaks twice, as it exits 1 when it finds leaks.
+        run = f"/usr/bin/perl -e 'alarm shift; exec @ARGV' {leakcheck.TIMEOUT} /usr/bin/leaks {' '.join(leakcheck.ARGS)} {pid}"
+        r = g.sh(f"if sudo -n true 2>/dev/null; then sudo -n {run}; else {run}; fi >{LEAKS_FILE} 2>&1; echo $?",
                  timeout=leakcheck.TIMEOUT + 30)
         lines = r.stdout.strip().splitlines()
         status = int(lines[-1]) if lines and lines[-1].isdigit() else (r.returncode or 124)

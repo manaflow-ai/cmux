@@ -1,16 +1,25 @@
 #!/usr/bin/env python3
-"""leakcheck.parse on `leaks` output in its list and tree formats, and on its errors.
+"""leakcheck.parse on `leaks` output in its list and tree formats, and on its errors; the smoke's leaks row
+through a fake guest.
 
 python3 -I scripts/fuzz/macos-matrix/test_leakcheck.py (no Mac needed).
 """
 
+from __future__ import annotations
+
+import json
 import os
+import re
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import leakcheck  # noqa: E402
+import smoke  # noqa: E402
 
 HEADER = """Process:         cmux DEV [4242]
 Path:            /Applications/cmux DEV.app/Contents/MacOS/cmux DEV
@@ -81,6 +90,87 @@ class ParseTest(unittest.TestCase):
     def test_summary_line(self):
         line = leakcheck.summary_line(leakcheck.parse(LIST, 1))
         self.assertEqual(line, "leaks: 4 blocks, 240 bytes; top __NSDictionaryM 1x 128 B, __NSArrayM 2x 96 B, malloc 1x 16 B")
+
+
+class FakeVNC:
+    def __init__(self, *_):
+        pass
+
+    def screenshot_png(self) -> bytes:
+        return b"png"
+
+
+class FakeGuest:
+    """The guest of Smoke.finish: `leaks` answers the scripted status and output; the quit ends the app with status 0."""
+
+    def __init__(self, leaks_status: int, leaks_text: str):
+        self.leaks_status, self.leaks_text = leaks_status, leaks_text
+        self.commands: list[str] = []
+        self.quit = False
+
+    def sh(self, cmd: str, timeout: float = 30) -> subprocess.CompletedProcess:
+        self.commands.append(cmd)
+        if "/usr/bin/leaks" in cmd:
+            out = f"{self.leaks_status}\n"
+        elif cmd == f"cat {smoke.LEAKS_FILE}":
+            out = self.leaks_text
+        elif cmd.startswith(f"cat {smoke.EXIT_FILE}"):
+            out = "0\n" if self.quit else ""
+        else:
+            out = ""
+        return subprocess.CompletedProcess(cmd, 0, out, "")
+
+    def pid(self) -> int | None:
+        return None if self.quit else 4242
+
+    def cmux(self, args, timeout: float = 15) -> subprocess.CompletedProcess:
+        if "quitEndEverything" in args[-1]:
+            self.quit = True
+        return subprocess.CompletedProcess(args, 0, json.dumps({"ok": True}) + "\n", "")
+
+
+class SmokeLeaks(unittest.TestCase):
+    def finish(self, guest: FakeGuest) -> tuple[dict, str]:
+        with tempfile.TemporaryDirectory() as out, mock.patch.object(smoke, "RFB", FakeVNC), \
+                mock.patch.object(smoke, "REPORT_MINIMUM", 0), mock.patch.object(time, "sleep", lambda _: None):
+            suite = smoke.Smoke(guest, "127.0.0.1:5900:pw", out)
+            suite.required = ("quit",)
+            suite.finish()
+            with open(os.path.join(out, "leaks.txt")) as written:
+                return suite.result, written.read()
+
+    def leaks_command(self, guest: FakeGuest) -> str:
+        commands = [c for c in guest.commands if "/usr/bin/leaks" in c]
+        self.assertEqual(len(commands), 1, guest.commands)
+        return commands[0]
+
+    def test_the_command_writes_both_branches_out_for_zsh(self):
+        guest = FakeGuest(1, LIST)
+        self.finish(guest)
+        command = self.leaks_command(guest)
+        # zsh does not word-split an unquoted parameter: no command word may come from a variable.
+        self.assertIsNone(re.search(r"(^|[;&|]|\bthen|\belse)\s*\$", command), command)
+        leaks = f"/usr/bin/perl -e 'alarm shift; exec @ARGV' {leakcheck.TIMEOUT} /usr/bin/leaks -list -nocontext 4242;"
+        self.assertIn(f"then sudo -n {leaks}", command)
+        self.assertIn(f"else {leaks}", command)
+        self.assertTrue(command.endswith(f"fi >{smoke.LEAKS_FILE} 2>&1; echo $?"), command)
+
+    def test_the_row_is_parsed_from_the_status_and_the_output(self):
+        result, written = self.finish(FakeGuest(1, LIST))
+        self.assertEqual(written, LIST)
+        self.assertEqual(result["leaks"], {"pid": 4242, **leakcheck.parse(LIST, 1)})
+        self.assertEqual((result["leaks"]["leaks"], result["leaks"]["bytes"]), (4, 240))
+        self.assertEqual(result["leaks"]["top_types"][0]["type"], "__NSDictionaryM")
+        self.assertTrue(result["steps"]["quit"]["ok"])
+        self.assertTrue(result["ok"])
+
+    def test_a_leaks_error_leaves_the_quit_and_the_verdict_alone(self):
+        result, _ = self.finish(FakeGuest(127, "zsh:1: command not found: sudo -n\n"))
+        self.assertIn("leaks exit 127", result["leaks"]["error"])
+        self.assertEqual(result["steps"]["quit"],
+                         {"ok": True, "detail": {"run": {"ok": True}, "exit_status": 0, "detail": None}})
+        self.assertEqual(result["failed_steps"], [])
+        self.assertTrue(result["ok"])
 
 
 if __name__ == "__main__":
