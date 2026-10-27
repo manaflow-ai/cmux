@@ -2,6 +2,7 @@
 //! spawns with: its profile, its preset's env, args and system prompt file.
 
 use super::*;
+use crate::no_panic::JsonExt;
 
 use crate::config::check_preset_args;
 
@@ -25,7 +26,7 @@ impl Hub {
             crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id, all);
         let mut params = json!({"cwd": meta.cwd, "mcpServers": servers});
         if let Some(id) = session_id {
-            params["sessionId"] = json!(id);
+            params.set("sessionId", json!(id));
         }
         params
     }
@@ -150,12 +151,12 @@ impl Hub {
                     *program = super::resolve::remote_executable(program)?;
                     super::resolve::refuse_remote_cwd_executable(program, &meta.cwd)?;
                 } else {
-                    super::resolve::fix_remote_executable(&mut p)?;
-                    super::resolve::refuse_remote_cwd_executable(&p.argv[0], &meta.cwd)?;
+                    let program = super::resolve::fix_remote_executable(&mut p)?;
+                    super::resolve::refuse_remote_cwd_executable(program, &meta.cwd)?;
                 }
             } else {
-                super::resolve::fix_remote_executable(&mut p)?;
-                super::resolve::refuse_remote_cwd_executable(&p.argv[0], &meta.cwd)?;
+                let program = super::resolve::fix_remote_executable(&mut p)?;
+                super::resolve::refuse_remote_cwd_executable(program, &meta.cwd)?;
             }
             p.env.insert(crate::agent::REMOTE_ENV_POLICY_KEY.into(), "1".into());
         }

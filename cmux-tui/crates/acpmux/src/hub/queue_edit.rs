@@ -6,6 +6,7 @@
 
 use super::queue::PromptRun;
 use super::*;
+use crate::no_panic::JsonExt;
 use std::sync::atomic::Ordering;
 
 /// How long Send now waits for the agent to stop its step for a steer.
@@ -109,7 +110,7 @@ impl Hub {
             return Err(super::queue::moving_error());
         }
         let mut reply = json!({"sessionId": session.id, "promptId": prompt_id, "op": op});
-        reply["ok"] = match op {
+        let ok = match op {
             "update" => {
                 let edit = Edit::parse(params)?;
                 json!(self.update_queued(session, prompt_id, edit, control, trust_gate, device))
@@ -126,12 +127,12 @@ impl Hub {
                     Some(sent) => Some(sent),
                     None => self.step_now(session, prompt_id, control, device).await?,
                 };
-                reply["sent"] = json!(sent);
+                reply.set("sent", json!(sent));
                 json!(sent.is_some())
             }
             "interrupt" => {
                 let sent = self.interrupt_for_queued(session, prompt_id).await;
-                reply["sent"] = json!(sent);
+                reply.set("sent", json!(sent));
                 json!(sent.is_some())
             }
             "resume" => json!(self.resume_queue(session)),
@@ -141,6 +142,7 @@ impl Hub {
                 return Err(RpcError::invalid_params(e));
             }
         };
+        reply.set("ok", ok);
         Ok(reply)
     }
 
@@ -193,7 +195,7 @@ impl Hub {
         // Its images, kept and named as `queued` names them (`prompt_images.rs`).
         let images = super::prompt_images::keep(&run.blocks);
         if !images.is_empty() {
-            msg["images"] = Value::Array(images);
+            msg.set("images", Value::Array(images));
         }
         let inline_parts = super::prompt_images::inline_parts(
             &run.blocks,
@@ -201,10 +203,10 @@ impl Hub {
             run.display_parts.as_ref(),
         );
         if !inline_parts.is_empty() {
-            msg["inlineParts"] = Value::Array(inline_parts);
+            msg.set("inlineParts", Value::Array(inline_parts));
         }
         if let Some(display_parts) = &run.display_parts {
-            msg["displayParts"] = display_parts.clone();
+            msg.set("displayParts", display_parts.clone());
         }
         super::session::mark_pasted(&mut msg, &run.blocks);
         self.append(session, "mux", "queue_updated", msg);

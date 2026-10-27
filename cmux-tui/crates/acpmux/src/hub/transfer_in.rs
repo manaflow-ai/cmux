@@ -21,6 +21,7 @@ use super::transfer_out::{
     MAX_BUNDLE, MAX_FILES, MAX_PAGE, TRANSFER_SCHEMA, inside, transfers_dir,
 };
 use super::*;
+use crate::no_panic::JsonExt;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 
@@ -52,7 +53,8 @@ fn receive_manifest(dir: &Path) -> Result<(Value, Vec<(String, u64)>), RpcError>
     let text = std::fs::read_to_string(dir.join("manifest.json"))
         .map_err(|e| transfer_error("unknown", e))?;
     let manifest: Value = serde_json::from_str(&text).map_err(|e| transfer_error("unknown", e))?;
-    let files = manifest["files"]
+    let files = manifest
+        .field("files")
         .as_array()
         .map(|files| {
             files
@@ -85,10 +87,10 @@ impl Hub {
             Some(g) => Some(Guard::parse(g).await?),
             None => None,
         };
-        if manifest["schema"] != TRANSFER_SCHEMA {
+        if manifest.field("schema") != TRANSFER_SCHEMA {
             return Err(transfer_error("schema", format!("this daemon takes {TRANSFER_SCHEMA}")));
         }
-        let id = manifest["sessionId"].as_str().unwrap_or("");
+        let id = manifest.field("sessionId").as_str().unwrap_or("");
         if !super::transfer::is_plain_id(id) {
             return Err(RpcError::invalid_params(format!("transfer: bad session id {id:?}")));
         }
@@ -97,12 +99,12 @@ impl Hub {
         if here.is_some_and(|s| !self.moved_away(&s)) {
             return Err(transfer_error("exists", format!("chat {id} is here already")));
         }
-        let harness = manifest["session"]["harness"].as_str().unwrap_or("");
+        let harness = manifest.field("session").field("harness").as_str().unwrap_or("");
         if !self.config.read().await.harnesses.contains_key(harness) {
             let e = transfer_error("harness", format!("agent {harness:?} is not configured here"));
             return Err(e.with_data(json!({"harness": harness})));
         }
-        let files = manifest["files"].as_array().cloned().unwrap_or_default();
+        let files = manifest.field("files").as_array().cloned().unwrap_or_default();
         let mut total = 0u64;
         for f in &files {
             inside(Path::new("/"), f["path"].as_str().unwrap_or(""))?;
@@ -115,7 +117,7 @@ impl Hub {
             self.guarded_receive_check(g, &manifest).await?;
         }
         let _receives = RECEIVES.lock().await;
-        let transfer_id = manifest["transferId"].as_str().unwrap_or("");
+        let transfer_id = manifest.field("transferId").as_str().unwrap_or("");
         let Some(mark) = forgotten(transfer_id) else {
             return Err(RpcError::invalid_params(format!("transfer: bad move id {transfer_id:?}")));
         };
@@ -135,7 +137,7 @@ impl Hub {
         made.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         let mut answer = json!({"receiveId": receive_id, "sessionId": id});
         if guard.is_some() {
-            answer["guarded"] = json!(true);
+            answer.set("guarded", json!(true));
         }
         Ok(answer)
     }
@@ -195,7 +197,7 @@ impl Hub {
         }
         let from = params.get("from").cloned().unwrap_or(Value::Null);
         // Back where it once moved from: its closed copy gives way (below).
-        let id = manifest["sessionId"].as_str().unwrap_or("");
+        let id = manifest.field("sessionId").as_str().unwrap_or("");
         let old = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         let old = old.filter(|s| self.moved_away(s));
         let mut replace_native = false;
@@ -205,7 +207,7 @@ impl Hub {
                 self.guard_session(&bundle, g, text("cwd"), &from, replaceable.as_deref()).await?;
             replace_native = replace;
             // The chat it imports is the one the receive was refused or allowed for.
-            if Some(meta.id.as_str()) != manifest["sessionId"].as_str() {
+            if Some(meta.id.as_str()) != manifest.field("sessionId").as_str() {
                 return Err(transfer_error("schema", "session.json names another chat"));
             }
         }
@@ -216,7 +218,7 @@ impl Hub {
             let path = bundle.join("session.json");
             let edited = std::fs::read(&path).map_err(anyhow::Error::from).and_then(|raw| {
                 let mut meta: Value = serde_json::from_slice(&raw)?;
-                meta["cwd"] = json!(cwd);
+                meta.set("cwd", json!(cwd));
                 Ok(std::fs::write(&path, serde_json::to_vec_pretty(&meta)?)?)
             });
             edited.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
@@ -235,7 +237,7 @@ impl Hub {
             let cwd = text("cwd").map(PathBuf::from).or_else(|| {
                 let raw = std::fs::read(bundle.join("session.json")).ok()?;
                 let meta: Value = serde_json::from_slice(&raw).ok()?;
-                meta["cwd"].as_str().map(PathBuf::from)
+                meta.field("cwd").as_str().map(PathBuf::from)
             });
             if !cwd.as_ref().is_some_and(|c| c.is_dir()) {
                 let e = transfer_error("cwd", "the chat's folder is not here; pass cwd");
@@ -252,7 +254,7 @@ impl Hub {
         if let Some(g) = &guard {
             self.append(&session, "mux", "transfer_guarded", g.to_value());
         }
-        let transfer_id = manifest["transferId"].clone();
+        let transfer_id = manifest.field("transferId").clone();
         self.append(
             &session,
             "mux",
@@ -282,7 +284,7 @@ impl Hub {
             let name = entry.file_name().to_string_lossy().into_owned();
             if name.starts_with("in-")
                 && receive_manifest(&entry.path())
-                    .is_ok_and(|(manifest, _)| manifest["transferId"] == transfer_id)
+                    .is_ok_and(|(manifest, _)| manifest.field("transferId") == transfer_id)
             {
                 let _ = std::fs::remove_dir_all(entry.path());
             }
@@ -291,7 +293,7 @@ impl Hub {
         let mut landed = false;
         if let Some(session) = here {
             let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-                landed |= e.kind == "transferred_in" && e.msg["transferId"] == transfer_id;
+                landed |= e.kind == "transferred_in" && e.msg.field("transferId") == transfer_id;
                 !landed
             });
         }

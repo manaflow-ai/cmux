@@ -38,6 +38,7 @@
 use super::*;
 use crate::agent::Attached;
 use crate::agent_host::{self, HostRecord, Liveness};
+use crate::no_panic::JsonExt;
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
@@ -641,7 +642,7 @@ impl Hub {
             "hostBuild": p.record.host_build.clone()
         });
         if session.meta().remote_origin {
-            started["remoteEnvPolicy"] = crate::agent::REMOTE_ENV_POLICY_ID.into();
+            started.set("remoteEnvPolicy", crate::agent::REMOTE_ENV_POLICY_ID.into());
         }
         self.append(session, "mux", "host_started", started);
         {
