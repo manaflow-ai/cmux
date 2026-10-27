@@ -25,7 +25,7 @@ import Testing
         #expect(!activity(of: strip).contains(.activeAlways), "the tab strip wakes for moves while cmux is inactive")
         #expect(activity(of: strip).contains(.activeInActiveApp))
 
-        let bar = SavedGroupsBarView(model: SavedGroupsBarModel())
+        let bar = SavedGroupsBarView(model: SavedGroupsBarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         #expect(activity(of: bar) == [.activeInActiveApp])
 
         let swatch = TabGroupSwatchView(color: .blue)
