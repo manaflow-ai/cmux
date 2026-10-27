@@ -160,11 +160,16 @@ impl Hub {
         (before, state.clone())
     }
 
-    /// The times MDM or the team policy forced `sessions.allowFullAccess` off: a count, so an
-    /// unset after an off does not hide it from a watcher that has not looked yet (review 46 of
-    /// #23322).
-    pub(super) fn full_access_off_watch(&self) -> tokio::sync::watch::Receiver<u64> {
-        self.start_mode_state.1.subscribe()
+    /// The times MDM or the team policy forced `sessions.allowFullAccess` off (a count, so an
+    /// unset after an off does not hide it from a watcher that has not looked yet; review 46 of
+    /// #23322), marked seen, and whether it forces it off now: read together under the state lock,
+    /// which both change under (review 75), so an unset between two reads cannot hide an off.
+    pub(super) fn full_access_off_now(&self) -> (tokio::sync::watch::Receiver<u64>, u64, bool) {
+        let cell = self.start_mode_state.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut offs = self.start_mode_state.1.subscribe();
+        let seen = *offs.borrow_and_update();
+        let off = cell.as_ref().is_some_and(|s| s.full_access_managed == Some(false));
+        (offs, seen, off)
     }
 
     /// The `sessions.allowFullAccess` MDM or the team policy forces, as last pushed.

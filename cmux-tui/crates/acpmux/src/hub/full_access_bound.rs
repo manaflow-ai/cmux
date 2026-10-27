@@ -239,13 +239,12 @@ impl Hub {
         if runs_full_access(&FullAccessView::of_argv(argv)).is_none() {
             return Ok(None);
         }
-        // The count before the state: an off counted after this is the probe's to end on, and one
-        // counted before it is seen here (both change under the state lock).
-        let mut offs = self.full_access_off_watch();
-        let seen = *offs.borrow_and_update();
+        // The count and the state, read together (review 75): an off counted after this is the
+        // probe's to end on.
+        let (offs, seen, off) = self.full_access_off_now();
         #[cfg(test)]
         after_off_count(self);
-        if self.full_access_managed_off() {
+        if off {
             anyhow::bail!("its profile pins full access, which MDM forces off");
         }
         Ok(Some(OffWatch { offs, seen }))
@@ -253,13 +252,12 @@ impl Hub {
 
     /// MDM's off as a start that begins now sees it (`OffLatch`).
     pub(super) fn off_latch(&self) -> OffLatch {
-        // The count before the state: an off counted after this changes the count, and one
-        // counted before it is in the state (both change under the state lock).
-        let offs = self.full_access_off_watch();
-        let seen = *offs.borrow();
+        // The count and the state, read together (review 75): an off counted after this changes
+        // the count.
+        let (offs, seen, was_off) = self.full_access_off_now();
         #[cfg(test)]
         after_off_count(self);
-        OffLatch { offs, seen, was_off: self.full_access_managed_off() }
+        OffLatch { offs, seen, was_off }
     }
 
     /// MDM has just forced full access off (`apply_full_access_push`).
@@ -272,7 +270,7 @@ impl Hub {
 
 #[cfg(test)]
 thread_local! {
-    /// Test seam (review 75): runs right after a start read MDM's off count.
+    /// Test seam (review 75): runs right after a start read MDM's off.
     static AFTER_OFF_COUNT: std::cell::Cell<Option<fn(&Hub)>> = const { std::cell::Cell::new(None) };
 }
 
@@ -320,7 +318,7 @@ impl OffLatch {
     }
 }
 
-/// The times MDM forced full access off (`Hub::full_access_off_watch`), and the count a probe
+/// The times MDM forced full access off (`Hub::full_access_off_now`), and the count a probe
 /// started under (`probe_bound`).
 pub(super) struct OffWatch {
     offs: tokio::sync::watch::Receiver<u64>,
