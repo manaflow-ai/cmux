@@ -290,6 +290,8 @@ pub fn start_idle_terminal_reaper(
     mux: Weak<Mux>,
     _interval: Duration,
 ) -> std::io::Result<IdleTerminalReaper> {
+    // unbounded-allow: one Wake per detach or policy change and one Stop; each wake runs one reap
+    // pass, which reads the latest state
     let (stop, messages) = mpsc::channel::<ReaperMessage>();
     if let Some(owner) = mux.upgrade() {
         *owner.idle_close_waker.lock().unwrap() = Some(stop.clone());

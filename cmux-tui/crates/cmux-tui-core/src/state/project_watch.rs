@@ -9,10 +9,10 @@ use cmux_threads::checked::fs as files;
 use cmux_threads::checked::sync as waits;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Weak};
 use std::time::SystemTime;
 
+use cmux_config::watch::queue::{DEFAULT_CAPACITY, EventReceiver, event_queue};
 use notify::Watcher as _;
 
 use crate::mux::Mux;
@@ -42,10 +42,8 @@ fn note(message: &str) {
 
 #[track_caller]
 fn run(mux: &Weak<Mux>, layout: &Layout) {
-    let (sender, events) = channel();
-    let watcher = notify::recommended_watcher(move |event| {
-        let _ = sender.send(event);
-    });
+    let (sender, events) = event_queue(DEFAULT_CAPACITY);
+    let watcher = notify::recommended_watcher(sender);
     let mut watcher = match watcher {
         Ok(watcher) => Some(watcher),
         Err(error) => {
@@ -102,9 +100,9 @@ fn fingerprint(dirs: &[PathBuf]) -> Vec<(PathBuf, Option<(u64, SystemTime)>)> {
 
 /// Waits for an event on a source file, then drains the burst queued behind
 /// it. False when the watch ended.
-fn next_relevant(events: &Receiver<notify::Result<notify::Event>>) -> bool {
+fn next_relevant(events: &EventReceiver) -> bool {
     loop {
-        let Ok(event) = waits::recv(events) else { return false };
+        let Ok(event) = events.recv_with(waits::recv) else { return false };
         if relevant(&event) {
             while events.try_recv().is_ok() {}
             return true;
@@ -112,9 +110,10 @@ fn next_relevant(events: &Receiver<notify::Result<notify::Event>>) -> bool {
     }
 }
 
+/// An error or a rescan (the queue overflowed) may have dropped a change.
 fn relevant(event: &notify::Result<notify::Event>) -> bool {
     let Ok(event) = event else { return true };
-    event.paths.iter().any(|path| is_source_path(path))
+    event.need_rescan() || event.paths.iter().any(|path| is_source_path(path))
 }
 
 /// A source file, its write-ahead log or a temporary copy an editor renames
@@ -174,6 +173,17 @@ mod tests {
         assert!(relevant(&event("/a/.t3/userdata/state.sqlite-wal")));
         assert!(relevant(&event("/a/User/globalStorage/storage.json")));
         assert!(!relevant(&event("/a/.codex/logs_2.sqlite-wal")));
+    }
+
+    #[test]
+    fn an_overflowed_event_queue_rescans_the_sources() {
+        let (sender, events) = event_queue(1);
+        for path in ["/a/unrelated.json", "/a/other.json"] {
+            sender.send(event(path)).unwrap();
+        }
+        // The dropped event may have been a source file: the queue's rescan
+        // wakes the watch although no queued event names one.
+        assert!(next_relevant(&events));
     }
 
     #[test]

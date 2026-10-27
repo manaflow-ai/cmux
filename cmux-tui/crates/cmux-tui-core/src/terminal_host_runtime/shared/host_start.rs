@@ -100,6 +100,8 @@ pub(crate) fn start_host_runtime(
         let _ = terminal_metadata.take_shell_marks();
     }
     let initial_colors = term.color_overrides();
+    // unbounded-allow: one request per drain check of an exited host; the worker rereads the state
+    // for each
     let (exit_publish_requests, exit_publish_receiver) = mpsc_channel();
     let (parser_commands, parser_command_receiver) = sync_channel(HOST_PARSER_QUEUE_CAPACITY);
     let shared = Arc::new(HostShared {

@@ -275,9 +275,9 @@ pub(crate) fn serve_client_with_snapshot_timeout(
     write_frame(&mut stream, &hello_response)?;
 
     let client = host.next_client.fetch_add(1, Ordering::Relaxed);
-    // Queue admission is bounded by HostTap's byte counters. A fixed
-    // channel capacity would make harmless PTY fragmentation observable
-    // as a renderer disconnect.
+    // unbounded-allow: admission is bounded by HostTap's byte counters
+    // (MAX_HOST_CLIENT_QUEUED_BYTES); a fixed channel capacity would make harmless PTY
+    // fragmentation observable as a renderer disconnect
     let (sender, receiver) = mpsc_channel();
     let tap = HostTap::new(sender, Arc::new(stream.try_clone()?), MAX_HOST_CLIENT_QUEUED_BYTES);
     let command_sender = tap.clone();

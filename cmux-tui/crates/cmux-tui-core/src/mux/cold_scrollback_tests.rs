@@ -305,3 +305,14 @@ fn cold_scrollback_psi_thresholds_match_the_pressure_source() {
     assert_eq!(psi_pressure(&psi(40.0, 15.0)), MemoryPressure::Critical);
     assert_eq!(psi_pressure("garbage"), MemoryPressure::Normal);
 }
+
+#[test]
+fn cold_scrollback_wakes_coalesce_into_one_queued_wake() {
+    let (sender, wakes) = mpsc::sync_channel::<()>(1);
+    let wake = ColdScrollbackWake(sender);
+    for _ in 0..1000 {
+        wake.wake();
+    }
+    assert!(wakes.try_recv().is_ok());
+    assert!(wakes.try_recv().is_err(), "a burst of wakes queues one");
+}

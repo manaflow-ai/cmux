@@ -360,8 +360,11 @@ fn start_delivery_workers(
     let requested = delivery_worker_count(
         std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get),
     );
+    // unbounded-allow: jobs are admitted only while fewer than `capacity` run (`active.len() <
+    // workers.capacity`)
     let (job_tx, job_rx) = mpsc::channel::<DeliveryJob>();
     let job_rx = Arc::new(Mutex::new(job_rx));
+    // unbounded-allow: one completion per admitted job, at most `capacity` at a time
     let (completion_tx, completion_rx) = mpsc::channel::<DeliveryCompletion>();
     let mut capacity = 0;
     let mut handles = Vec::with_capacity(requested);
@@ -596,6 +599,8 @@ fn run_dispatcher(mux: Weak<Mux>, claim: &mut DispatcherClaim, runtime: Arc<Jour
 
 impl DeliveryWorkers {
     fn shutdown(&mut self) {
+        // unbounded-allow: never sent on: it only replaces the live sender so the workers see the
+        // close
         let (closed, _) = mpsc::channel();
         let sender = std::mem::replace(&mut self.sender, closed);
         drop(sender);

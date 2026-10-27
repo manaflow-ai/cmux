@@ -14,9 +14,9 @@ use cmux_threads::checked::sync as waits;
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Weak};
 
+use cmux_config::watch::queue::{DEFAULT_CAPACITY, EventReceiver, event_queue};
 use notify::Watcher as _;
 use serde_json::json;
 
@@ -192,10 +192,8 @@ fn watch(
     customize: Option<PathBuf>,
     mut prints: Prints,
 ) {
-    let (sender, events) = channel();
-    let watcher = notify::recommended_watcher(move |event| {
-        let _ = sender.send(event);
-    });
+    let (sender, events) = event_queue(DEFAULT_CAPACITY);
+    let watcher = notify::recommended_watcher(sender);
     let mut watcher = match watcher {
         Ok(watcher) => watcher,
         Err(error) => {
@@ -271,15 +269,15 @@ fn watch_roots(dirs: [Option<&Path>; 2]) -> Vec<PathBuf> {
     roots
 }
 
-/// Waits for an event on a path `relevant` accepts, then drains the burst
-/// queued behind it. False when the watch ended.
-fn next_burst(
-    events: &Receiver<notify::Result<notify::Event>>,
-    relevant: &dyn Fn(&Path) -> bool,
-) -> bool {
+/// Waits for an event on a path `relevant` accepts, or a rescan (the queue
+/// overflowed), then drains the burst queued behind it. False when the
+/// watch ended.
+fn next_burst(events: &EventReceiver, relevant: &dyn Fn(&Path) -> bool) -> bool {
     loop {
-        let Ok(event) = waits::recv(events) else { return false };
-        if event.is_ok_and(|event| event.paths.iter().any(|path| relevant(path))) {
+        let Ok(event) = events.recv_with(waits::recv) else { return false };
+        if event
+            .is_ok_and(|event| event.need_rescan() || event.paths.iter().any(|path| relevant(path)))
+        {
             while events.try_recv().is_ok() {}
             return true;
         }

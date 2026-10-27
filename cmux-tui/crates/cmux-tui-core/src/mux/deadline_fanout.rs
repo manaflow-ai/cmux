@@ -186,6 +186,7 @@ where
         .take(items.len())
         .collect::<Vec<_>>();
     let operation = Arc::new(operation);
+    // unbounded-allow: one message per submitted item, at most `items.len()`
     let (sender, receiver) = std::sync::mpsc::channel();
     let mut submitted = 0;
     for (index, item) in items.iter().cloned().enumerate() {

@@ -148,6 +148,7 @@ impl TerminalWorkPool {
         &self,
         jobs: Vec<Box<dyn FnOnce() -> T + Send>>,
     ) -> Vec<std::thread::Result<T>> {
+        // unbounded-allow: one message per job, at most `count`
         let (sender, receiver) = std::sync::mpsc::channel();
         let count = jobs.len();
         for (index, job) in jobs.into_iter().enumerate() {

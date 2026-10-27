@@ -49,6 +49,8 @@ pub(super) struct AcpmuxEnergy {
 impl AcpmuxEnergy {
     /// Starts the relay thread for `mode`.
     pub(super) fn start(mode: &Arc<EnergyMode>) -> io::Result<Self> {
+        // unbounded-allow: one message per energy mode change and per acpmux connection; the relay
+        // writes each at once with a write timeout
         let (inbox, relay) = mpsc::channel();
         let edges = inbox.clone();
         let watch = mode.watch(move || {

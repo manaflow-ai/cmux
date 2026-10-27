@@ -458,6 +458,7 @@ impl Slot {
     pub(crate) fn start_for_control(&self, chief: &str) -> Option<mpsc::Receiver<bool>> {
         let sender = self.sender.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(sender) = sender.as_ref() {
+            // unbounded-allow: one message, the supervisor's answer
             let (reply, answer) = mpsc::channel();
             let sent = sender.send(Signal::Control(chief.to_owned(), Some(reply))).is_ok();
             return sent.then_some(answer);
@@ -486,6 +487,7 @@ impl Slot {
         }
         let sender = self.sender.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(sender) = sender.as_ref() {
+            // unbounded-allow: one message, the supervisor's answer
             let (reply, answer) = mpsc::channel();
             if sender.send(Signal::Created(Box::new(record.clone()), Some(reply))).is_ok() {
                 return Some(BrainPending::Wait(answer));
@@ -503,6 +505,7 @@ impl Slot {
         // A create always waits (other early signals stop at EARLY_MAX; creates
         // are bounded by MAX_CHIEFS), so its brain is never dropped.
         let mut early = self.early.lock().unwrap_or_else(PoisonError::into_inner);
+        // unbounded-allow: one message, the supervisor's answer
         let (reply, answer) = mpsc::channel();
         early.push(Signal::Created(Box::new(record.clone()), Some(reply)));
         drop(early);
@@ -528,6 +531,7 @@ impl ChiefBrains {
             slot.sender.lock().unwrap_or_else(PoisonError::into_inner).take();
             slot.early.lock().unwrap_or_else(PoisonError::into_inner).clear();
         }
+        // unbounded-allow: one message, the shutdown's end
         let (done, ended) = mpsc::channel();
         if self.sender.send(Signal::Shutdown(done)).is_ok() {
             let _ = waits::recv_timeout(&ended, SHUTDOWN_GRACE + Duration::from_secs(1));
@@ -550,6 +554,8 @@ pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
     if let Some(gate) = std::env::var_os("CMUX_TUI_TEST_CHIEF_BRAINS_GATE") {
         let _ = files::open(gate);
     }
+    // unbounded-allow: one signal per committed registry write or control call (chiefs are capped
+    // at MAX_CHIEFS, early signals at EARLY_MAX); the supervisor takes each in turn
     let (sender, inbox) = mpsc::channel();
     {
         let slot = &mux.chiefs().brains;

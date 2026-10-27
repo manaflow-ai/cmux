@@ -242,6 +242,7 @@ struct Kept {
 impl Pipe {
     fn read(mut reader: impl Read + Send + 'static, limit: usize) -> Self {
         let kept = Arc::new(Mutex::new(Kept::default()));
+        // unbounded-allow: one message, when the pipe closes
         let (sender, done) = mpsc::channel();
         let buffer = Arc::clone(&kept);
         let half = limit / 2;

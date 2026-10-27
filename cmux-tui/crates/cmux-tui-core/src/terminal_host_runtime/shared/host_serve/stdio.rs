@@ -311,6 +311,7 @@ fn wait_at_test_gate(variable: &str) {
     let Some(gate) = std::env::var_os(variable).filter(|gate| Path::new(gate).exists()) else {
         return;
     };
+    // unbounded-allow: one message, when the gate opens (debug builds)
     let (opened, wait) = std::sync::mpsc::channel();
     let _ = thread::Builder::new().name("host-test-gate".into()).spawn(move || {
         let _ = files::open(&gate);

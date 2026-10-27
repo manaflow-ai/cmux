@@ -28,21 +28,22 @@
 //!   compressor (plans/cmux-next/cold-scrollback-DESIGN.md). Chrome on macOS
 //!   leaves idle pages to the kernel compressor.
 
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 
 use cmux_threads::ThreadQos;
 
 use super::*;
 use crate::surface::{ColdFreeze, ThawWake};
 
-/// Wakes the cold-scrollback worker; a send never blocks.
+/// Wakes the cold-scrollback worker; a send never blocks. One queued wake
+/// covers every later one: each pass reads every terminal's latest state.
 #[derive(Clone)]
-pub(crate) struct ColdScrollbackWake(Sender<()>);
+pub(crate) struct ColdScrollbackWake(SyncSender<()>);
 
 impl ColdScrollbackWake {
     pub(crate) fn wake(&self) {
-        // The worker is gone only with its mux.
-        let _ = self.0.send(());
+        // Full: a wake is already queued. The worker is gone only with its mux.
+        let _ = self.0.try_send(());
     }
 }
 
@@ -243,7 +244,7 @@ impl Mux {
     /// lock, so a terminal is either in the catalog the first pass reads or
     /// its insert wakes the worker.
     pub(crate) fn install_cold_scrollback_wake(self: &Arc<Self>) -> Option<Receiver<()>> {
-        let (sender, wakes) = mpsc::channel::<()>();
+        let (sender, wakes) = mpsc::sync_channel::<()>(1);
         let wake = ColdScrollbackWake(sender);
         self.cold_scrollback_wake.set(wake.clone()).ok()?;
         // Every clone of the state shares this cell, so it is set once.

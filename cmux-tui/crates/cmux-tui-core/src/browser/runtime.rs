@@ -286,6 +286,7 @@ pub(crate) fn new_surface_with_resource_identity(
     let frame_epoch = Arc::new(FrameEpoch::default());
     let provider_waiters = mux.upgrade().map(|mux| mux.browser_provider_registry());
     #[cfg(test)]
+    // unbounded-allow: tests only (cfg(test)): one message when the worker ends
     let (worker_done_tx, worker_done_rx) = std::sync::mpsc::channel();
     #[cfg(test)]
     let worker_done_tx = Some(worker_done_tx);
