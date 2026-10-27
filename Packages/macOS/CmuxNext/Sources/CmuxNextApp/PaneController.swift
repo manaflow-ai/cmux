@@ -156,8 +156,11 @@ final class PaneController: SurfacePresenter, PresentablePane {
                 guard let self, let structure = structure.value else { return }
                 // A tab moved in or out of this pane (its record's tabs changed): the workspace's layout and every
                 // moved strip change in this turn, under one topology, so focus follows the tab at once.
-                if self.stripIsStale { self.workspace?.applyMovedTabs() }
-                guard !Task.isCancelled else { return } // that apply removed this pane (teardown cancels this task)
+                if self.stripIsStale {
+                    self.workspace?.applyMovedTabs()
+                    guard !Task.isCancelled else { return } // that apply removed this pane (teardown cancels this task)
+                    if !self.stripIsStale { continue } // it mapped this strip from the store already: no second map
+                }
                 self.apply(self.compose(structure))
             }
         }
