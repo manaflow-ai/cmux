@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """SCRATCH (never lands): new-terminal-first-keys.py on several fleet apps in one step: --apps-sha256 A,B,C [--modes ...]."""
-import argparse, os, subprocess, sys
+import argparse, json, os, subprocess, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 p = argparse.ArgumentParser()
 p.add_argument("--app"); p.add_argument("--out", required=True); p.add_argument("--json"); p.add_argument("--tag")
@@ -8,6 +8,7 @@ p.add_argument("--apps-sha256", required=True)
 p.add_argument("--variants", default="debug", help="comma list of debug, real, background")
 opts, rest = p.parse_known_args()
 status = 0
+report = {"apps": []}
 for sha in opts.apps_sha256.split(","):
     got = subprocess.run([sys.executable, os.path.join(HERE, "fleet-app-fetch.py"), "--sha256", sha, "--dest",
                           os.path.join(opts.out, "apps", sha[:12])], capture_output=True, text=True, check=True)
@@ -19,4 +20,13 @@ for sha in opts.apps_sha256.split(","):
         run = subprocess.run([sys.executable, os.path.join(HERE, "new-terminal-first-keys.py"), "--app", app, "--out", out,
                               "--json", os.path.join(out, "first-keys.json")] + extra + rest)
         status = max(status, run.returncode)
+        try:
+            with open(os.path.join(out, "first-keys.json")) as handle:
+                one = json.load(handle)
+        except (OSError, ValueError) as error:
+            one = {"error": repr(error)}
+        report["apps"].append({"sha256": sha, "app": os.path.basename(app), "variant": variant, "exit": run.returncode, **one})
+        if opts.json:  # the step's artifact (artifacts/split-spring/report.json): written after every run
+            with open(opts.json, "w") as handle:
+                json.dump(report, handle, indent=1)
 sys.exit(0)

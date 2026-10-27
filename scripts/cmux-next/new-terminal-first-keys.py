@@ -42,6 +42,10 @@ parser.add_argument("--background", action="store_true",
                     help="keep the app inactive (CMUX_NEXT_NO_ACTIVATE): a key the app holds and sends again then has no key "
                          "window to go to, so only the inactive-window path is measured")
 parser.add_argument("--max-lost", type=int, default=0, help="tabs that may lose keys before the check fails")
+parser.add_argument("--focus-timeline", type=int, default=0,
+                    help="before the keyed tabs: N new tabs with no key, debug.focus read back to back for --timeline-ms after "
+                         "the newSurface reply; prints when the first responder and the focus model change (SCRATCH)")
+parser.add_argument("--timeline-ms", type=float, default=1500)
 opts, _unknown = parser.parse_known_args()
 
 OUT = os.path.abspath(opts.out)
@@ -80,6 +84,42 @@ def focused_line():
     return lines[-1] if lines else ""
 
 
+def focus_sample():
+    reply = CONTROL.rpc("debug.focus", timeout=20)
+    windows = (reply or {}).get("windows") or [] if isinstance(reply, dict) else []
+    w = windows[0] if windows else {}
+    model, appkit = w.get("model") or {}, w.get("appkit") or {}
+    return {"fr": appkit.get("first_responder"), "cls": appkit.get("classified"), "resolved": model.get("resolved"),
+            "tab": model.get("resolved_tab"), "pane": model.get("resolved_pane"), "exp": model.get("expectation"),
+            "gen": model.get("generation"), "key": w.get("is_key"), "layout": w.get("layout_focused_pane"),
+            "ghostty": (reply or {}).get("ghostty_focused_tabs") if isinstance(reply, dict) else None,
+            "events": (w.get("recent_events") or [])[-4:]}
+
+
+def focus_timeline(index):
+    """newSurface, then debug.focus back to back: each change of the first responder or the focus model, with its time."""
+    t0 = time.perf_counter()
+    reply = CONTROL.action("newSurface", focus=True)
+    reply_ms = round((time.perf_counter() - t0) * 1000, 2)
+    changes, last, reads = [], None, 0
+    while (time.perf_counter() - t0) * 1000 < opts.timeline_ms:
+        r0 = time.perf_counter()
+        sample = focus_sample()
+        reads += 1
+        brief = {k: sample[k] for k in ("fr", "resolved", "tab", "exp", "key", "layout")}
+        if brief != last:
+            changes.append({"ms": round((r0 - t0) * 1000, 1), "read_ms": round((time.perf_counter() - r0) * 1000, 1), **sample})
+            last = brief
+    entry = {"tab": index, "reply_ms": reply_ms, "reply": json.dumps(reply)[:200], "reads": reads, "changes": changes}
+    result.setdefault("timeline", []).append(entry)
+    note(f"  timeline {index}: reply {reply_ms} ms, {reads} reads")
+    for change in changes:
+        note(f"    +{change['ms']:7.1f} ms (read {change['read_ms']} ms) fr={change['fr']} resolved={change['resolved']} tab={change['tab']} "
+             f"exp={change['exp']} key={change['key']} layout={change['layout']} ghostty={change['ghostty']} ev={change['events'][-2:]}")
+    CONTROL.action("closeTab")
+    time.sleep(1.0)
+
+
 def first_key_ms(rows, base):
     """The first typed key's key-to-frame: the probe row of press `base` (each launch numbers presses from 0)."""
     for row in rows:
@@ -110,24 +150,34 @@ def main():
                 hid_input.bring_front(bench.process.pid)
         poster = hid_input.poster_for(opts.input, control=CONTROL)
         typed = "".join(hid_input.LETTERS[i % 26] for i in range(opts.keys))
+        for index in range(opts.focus_timeline):
+            focus_timeline(index)
         for index in range(opts.tabs):
             before = hid_input.probe_rows(PROBE)
             base = max([int(r["index"]) for r in before if (r.get("index") or "").isdigit()], default=-1) + 1
             t0 = time.perf_counter()
             reply = CONTROL.action("newSurface", focus=True)
             reply_ms = round((time.perf_counter() - t0) * 1000, 2)
+            answers = []
             for key in range(opts.keys):
                 k0 = time.perf_counter()
-                poster.key(typed[key])
+                answer = poster.key(typed[key])
+                if isinstance(answer, dict):
+                    answers.append({"at_ms": round((k0 - t0) * 1000, 1), "handled_by": answer.get("handled_by"),
+                                    "trace": (answer.get("trace") or [])[:3]})
                 rest = opts.interval - (time.perf_counter() - k0)
                 if rest > 0 and key + 1 < opts.keys:
                     time.sleep(rest)  # one key in flight, at a typist's pace
             time.sleep(opts.settle)
             line = focused_line()
             tab = {"tab": index, "reply_ms": reply_ms, "reply": json.dumps(reply)[:160], "line": line[-120:],
-                   "all": line.endswith(typed), "first_key_ms": first_key_ms(hid_input.probe_rows(PROBE), base)}
+                   "all": line.endswith(typed), "first_key_ms": first_key_ms(hid_input.probe_rows(PROBE), base),
+                   "keys_ms": [first_key_ms(hid_input.probe_rows(PROBE), base + k) for k in range(opts.keys)], "answers": answers}
             result["tabs"].append(tab)
-            note(f"  tab {index}: {'ok  ' if tab['all'] else 'LOST'} {line[-40:]!r} first key {tab['first_key_ms']} ms")
+            note(f"  tab {index}: {'ok  ' if tab['all'] else 'LOST'} {line[-40:]!r} first key {tab['first_key_ms']} ms keys {tab['keys_ms']}")
+            if not tab["all"]:
+                for answer in answers:
+                    note(f"      key at +{answer['at_ms']} ms: {answer['handled_by']} {answer['trace'][:2]}")
             CONTROL.action("terminal.sendText", {"text": "\x15"})
             CONTROL.action("closeTab")
             time.sleep(1.0)  # the close settles
