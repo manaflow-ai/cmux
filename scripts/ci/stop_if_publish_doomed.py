@@ -5,7 +5,7 @@
 
 Reads this run attempt's jobs once (GITHUB_API_URL, GITHUB_REPOSITORY,
 GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, GH_TOKEN) and exits 1, with an ::error
-naming the job, when one of JOB concluded failure or cancelled: the run can
+naming the job, when one of JOB concluded failure, cancelled or timed_out: the run can
 no longer publish, so the job gives its runner back instead of compiling or
 uploading for nothing. Any other state, and any error reading the jobs, exits
 0: the check never stops a run on missing data. One read per call, no retry,
@@ -31,6 +31,10 @@ def jobs_of_attempt() -> list[dict]:
         return json.load(response)["jobs"]
 
 
+# Job conclusions after which publish-nightly, which needs the job, never runs.
+DOOMED = ("failure", "cancelled", "timed_out")
+
+
 def main(watched: list[str]) -> int:
     if not watched:
         print("usage: stop_if_publish_doomed.py JOB [JOB ...]", file=sys.stderr)
@@ -41,7 +45,7 @@ def main(watched: list[str]) -> int:
         print(f"::warning title=Publish check::could not read this run's jobs ({error}); carrying on")
         return 0
     for job in jobs:
-        if job.get("name") in watched and job.get("conclusion") in ("failure", "cancelled"):
+        if job.get("name") in watched and job.get("conclusion") in DOOMED:
             print(f"::error title=Run cannot publish::{job['name']} {job['conclusion']} "
                   f"({job.get('html_url', '')}), and publish-nightly needs it; stopping here to free this runner")
             return 1
