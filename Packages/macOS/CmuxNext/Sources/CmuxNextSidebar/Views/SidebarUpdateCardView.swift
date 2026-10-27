@@ -41,6 +41,7 @@ final class SidebarUpdateCardView: NSView {
             oldValue?.onHeightChange = nil
             oldValue?.view.removeFromSuperview()
             highlights?.onAction = { [weak self] in self?.hideNotes() }
+            highlights?.onHeightChange = { [weak self] in self?.highlightsHeightChanged() }
             parkHighlights()
         }
     }

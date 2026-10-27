@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSidebar
@@ -10,7 +11,8 @@ import CmuxNextSignposts
 /// into its panel; every later open reuses that panel, page
 /// and provider (a session swap, no cold load), and a close only hides the panel.
 /// With feature `memoryOverlayPagesOnFirstUse` (``OverlayPageRelease``) the launch makes no picker, and the
-/// warm one goes five minutes after its close, or at memory pressure: the next open makes it again.
+/// warm one goes once unused (five minutes after its close at the Memory Saver mode's medium), or at memory
+/// pressure: the next open makes it again.
 /// One picker at a time: a new open cancels the previous one. ``open`` is what
 /// `debug.popups` lists, so preflights prove it opened.
 @MainActor
@@ -65,7 +67,7 @@ final class IconPickerService {
     init(services: AppServices?, webUI: WebUIHost, release terms: OverlayPageReleaseTerms? = nil) {
         self.services = services
         self.webUI = webUI
-        release = terms?.release(owner: "iconPicker") { [weak self] in self?.releaseWarm() ?? true }
+        release = terms?.release(owner: "iconPicker", inUse: { [weak self] in self?.isInUse ?? false }) { [weak self] in self?.dropWarm() }
     }
 
     /// Whether the panel, page and provider exist, so an open reuses them.
@@ -175,15 +177,16 @@ final class IconPickerService {
         return made
     }
 
-    /// The release's call: ends the warm picker's page through its host and drops the panel and provider. False
-    /// while it is open or still fading out.
-    private func releaseWarm() -> Bool {
-        guard let warm else { return true }
-        guard open == nil, !fade.isClosing else { return false }
+    /// Whether the picker is open or still fading out, so its release waits.
+    private var isInUse: Bool { open != nil || fade.isClosing }
+
+    /// The release's call, made only while the picker is neither open nor fading: ends the warm picker's page through
+    /// its host and drops the panel and provider.
+    private func dropWarm() {
+        guard let warm else { return }
         self.warm = nil
         warm.panel.close()
         webUI.close(warm.page)
-        return true
     }
 
     /// An anchor at workspace `id`'s sidebar row in the window that lists it, else the middle of

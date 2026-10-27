@@ -4,114 +4,126 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFeatures
+import CmuxNextHibernation
+import CmuxNextMemory
 @testable import CmuxNextPages
+@testable import CmuxNextSidebar
 import CmuxNextWakeups
 import Foundation
 import Testing
 
 /// Overlay and made-ahead pages (`ContentKind.overlayPage`, feature `memoryOverlayPagesOnFirstUse`, p07-memory-086):
-/// none is made before its first open, a closed one goes five minutes after its close on one background deadline,
-/// a hidden one goes at warning pressure, and the next open makes it again. The deadlines fire on a hand-fired
-/// ``MainDeadlineRig``; the pressure comes from a ``ManualMemoryLevelRegistry``.
+/// none is made before its first open, and the App's one overlay page planner (``OverlayPageDiscards`` over the
+/// ``ContentDiscardScheduler`` every kind goes through) lets a closed one go after its release time as the Memory
+/// Saver mode scales it, or on the urgent pace from warning pressure on; the next open makes it again. Time and
+/// pressure are the ``OverlayPagePlannerRig``'s.
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct OverlayPageReleaseTests {
-    /// Content that counts its releases and can be held busy.
+    /// Content that counts its drops and can be held in use.
     @MainActor private final class Content {
         var busy = false
-        private(set) var released = 0
-        func release() -> Bool {
-            guard !busy else { return false }
-            released += 1
-            return true
-        }
+        private(set) var dropped = 0
+        func drop() { dropped += 1 }
     }
 
-    private static let releaseAfter = OverlayPageRelease.defaultReleaseAfter
-
-    private static func release(_ content: Content, rig: MainDeadlineRig, memory: ManualMemoryLevelRegistry? = nil) -> OverlayPageRelease {
-        OverlayPageReleaseTerms(deadlines: rig.deadlines, memory: memory).release(owner: "test") { content.release() }
+    private static func release(_ content: Content, planner: OverlayPagePlannerRig) -> OverlayPageRelease {
+        planner.terms().release(owner: "test", inUse: { content.busy }) { content.drop() }
     }
 
-    /// Whether the rig's next wake is the release, `releaseAfter` from now.
-    private static func releaseIsDue(_ rig: MainDeadlineRig) -> Bool {
-        guard let next = rig.deadlines.nextFire else { return false }
-        return next >= releaseAfter && next <= releaseAfter + .seconds(1)
-    }
+    // MARK: The release on the planner
 
-    // MARK: The release
-
-    @Test func noPrewarmBeforeTheFirstShowAndNoneAgainAfterARelease() {
+    @Test func noPrewarmBeforeTheFirstShowAndNoneAgainAfterARelease() async {
         let content = Content()
-        let rig = MainDeadlineRig()
-        let release = Self.release(content, rig: rig)
+        let planner = OverlayPagePlannerRig()
+        let release = Self.release(content, planner: planner)
         #expect(!release.allowsPrewarm, "a launch warm-up may make the content before anyone opened it")
         release.didShow()
         #expect(release.allowsPrewarm)
         release.didMake()
         release.didHide()
-        rig.fireAndRun()
-        #expect(content.released == 1)
+        await planner.pass(301)
+        #expect(content.dropped == 1 && release.releases == 1)
         #expect(!release.allowsPrewarm, "a warm-up may remake released content with no open")
+        #expect(planner.scheduler.discardedCount == 1, "the release is not counted as an overlay page discard")
     }
 
-    @Test func closedContentGoesFiveMinutesAfterItsCloseAndAnOpenCallsItOff() {
+    @Test func closedContentGoesFiveMinutesAfterItsCloseAndAnOpenCallsItOff() async {
         let content = Content()
-        let rig = MainDeadlineRig()
-        let release = Self.release(content, rig: rig)
+        let planner = OverlayPagePlannerRig()
+        let release = Self.release(content, planner: planner)
         release.didShow()
         release.didMake()
-        #expect(rig.deadlines.nextFire == nil, "a release was armed while the content shows")
+        #expect(!planner.scheduler.hasDeadline, "a release was armed while the content shows")
         release.didHide()
-        #expect(Self.releaseIsDue(rig), "no one-shot release five minutes after the close")
+        #expect(planner.scheduler.nextCheck == 300, "no release five minutes after the close")
 
-        rig.advance(by: .seconds(200))
+        await planner.pass(200)
         release.didShow()
-        #expect(!release.isReleasePending, "an open did not call the release off")
+        #expect(!planner.scheduler.hasDeadline, "an open did not call the release off")
         release.didHide()
-        #expect(Self.releaseIsDue(rig), "the second close did not start the five minutes again")
+        await planner.pass(200)
+        #expect(content.dropped == 0, "the release counted from the first close, not the last")
 
-        rig.fireAndRun()
-        #expect(content.released == 1 && !release.isHolding)
-        #expect(rig.deadlines.nextFire == nil, "a deadline stayed armed with nothing held")
+        await planner.pass(101)
+        #expect(content.dropped == 1 && !release.isHolding)
+        #expect(!planner.scheduler.hasDeadline, "a deadline stayed armed with nothing held")
     }
 
-    @Test func contentStillInUseIsKeptAndLookedAtAgain() {
+    @Test func contentStillInUseIsKeptAndLookedAtOneReleaseTimeLater() async {
         let content = Content()
-        let rig = MainDeadlineRig()
-        let release = Self.release(content, rig: rig)
+        let planner = OverlayPagePlannerRig()
+        let release = Self.release(content, planner: planner)
         release.didShow()
         release.didMake()
         release.didHide()
         content.busy = true  // still fading out, or its sheet shows
-        rig.fireAndRun()
-        #expect(content.released == 0 && release.isHolding)
-        #expect(Self.releaseIsDue(rig), "content in use at its deadline was not looked at again")
+        await planner.pass(301)
+        #expect(content.dropped == 0 && release.isHolding)
+        #expect(planner.scheduler.exemptions[release.key] == .visible, "the planner does not say why the content stays")
+        #expect(planner.scheduler.nextCheck == 300, "content in use is looked at again after \(planner.scheduler.nextCheck ?? -1) s")
         content.busy = false
-        rig.fireAndRun()
-        #expect(content.released == 1)
+        await planner.pass(300)
+        #expect(content.dropped == 1)
     }
 
-    @Test func warningPressureReleasesHiddenContentAtTheNextFireAndKeepsShownContent() {
+    @Test func warningPressureReleasesHiddenContentTenSecondsAfterItsCloseAndKeepsShownContent() async {
         let content = Content()
-        let rig = MainDeadlineRig()
-        let memory = ManualMemoryLevelRegistry()
-        let release = Self.release(content, rig: rig, memory: memory)
-        #expect(memory.liveCount == 1, "the release is not a memory consumer")
+        let planner = OverlayPagePlannerRig(level: .warning)
+        let release = Self.release(content, planner: planner)
         release.didShow()
         release.didMake()
-
-        memory.send(.warning)
-        #expect(content.released == 0, "pressure released content in the turn of the level change")
-        #expect(rig.deadlines.nextFire == nil, "pressure armed a release for content that shows")
+        await planner.pass(60)
+        #expect(content.dropped == 0, "pressure released content that shows")
 
         release.didHide()
-        #expect(content.released == 0, "the close released the content in its own turn")
-        rig.fireAndRun()
-        #expect(content.released == 1, "hidden content was kept at warning pressure")
+        #expect(content.dropped == 0, "the close released the content in its own turn")
+        #expect(planner.scheduler.nextCheck == 10, "the urgent pace's 10 s hidden")
+        await planner.pass(11)
+        #expect(content.dropped == 1, "hidden content was kept at warning pressure")
+    }
 
-        release.cancel()
-        #expect(memory.liveCount == 0)
+    @Test func theReleaseTimeFollowsTheMemorySaverMode() async {
+        let content = Content()
+        let planner = OverlayPagePlannerRig()
+        let release = Self.release(content, planner: planner)
+        planner.scheduler.memorySaverModeDidChange(.off)
+        release.didShow()
+        release.didMake()
+        release.didHide()
+        await planner.pass(3_600)
+        #expect(content.dropped == 0, "Memory Saver off released an overlay page proactively")
+
+        planner.scheduler.memorySaverModeDidChange(.aggressive)
+        release.didShow()
+        release.didHide()
+        await planner.pass(151)
+        #expect(content.dropped == 1, "aggressive Memory Saver kept a closed overlay page past half its release time")
+    }
+
+    @Test func theAppCountsOverlayPageDiscardsOnlyWhileAFeatureReleasesThem() {
+        #expect(MemoryHistograms.discardKinds(overlayPages: true).contains(ContentKind.overlayPage.rawValue))
+        #expect(!MemoryHistograms.discardKinds(overlayPages: false).contains(ContentKind.overlayPage.rawValue))
     }
 
     // MARK: The icon picker
@@ -135,8 +147,8 @@ struct OverlayPageReleaseTests {
         let rig = MainDeadlineRig()
         let retirer = PageRetirer(deadlines: rig.deadlines)
         let host = WebUIHost(chromium: nil, openPanel: nil, memory: ManualMemoryLevelRegistry(), retirer: retirer)
-        let picker = IconPickerService(services: nil, webUI: host,
-                                       release: OverlayPageReleaseTerms(deadlines: rig.deadlines, memory: nil))
+        let planner = OverlayPagePlannerRig()
+        let picker = IconPickerService(services: nil, webUI: host, release: planner.terms())
 
         // The launch's afterStartup post (LaunchFirstOpenWarmups) at Home idle.
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in picker.prepare { done.resume() } }
@@ -147,17 +159,15 @@ struct OverlayPageReleaseTests {
         #expect(first.createdPage)
         weak var page: PageWebView?
         page = try #require(picker.open?.page)
-        #expect(picker.release?.isReleasePending == false, "a release was armed while the picker shows")
+        #expect(!planner.scheduler.hasDeadline, "a release was armed while the picker shows")
 
         picker.open?.provider.finish(.cancel)
         #expect(picker.open == nil && picker.isWarm, "the close dropped the page at once")
-        #expect(Self.releaseIsDue(rig), "no release five minutes after the close")
+        #expect(planner.scheduler.nextCheck == 300, "no release five minutes after the close")
 
-        autoreleasepool {
-            rig.fireAndRun()
-            retirer.closeRetired()
-        }
-        #expect(!picker.isWarm, "the unused picker was kept past its deadline")
+        await planner.pass(301)
+        autoreleasepool { retirer.closeRetired() }
+        #expect(!picker.isWarm, "the unused picker was kept past its release time")
         #expect(host.openPages.isEmpty)
         #expect(page == nil, "the released picker's page is still alive")
 
@@ -177,28 +187,117 @@ struct OverlayPageReleaseTests {
         return tab
     }
 
-    /// The bubble's open and close are its release's show and hide (a bubble needs a screen to show; its open on
-    /// one is ExtensionsMenuPerformanceTests'), so this drives them on the release.
-    @Test func theExtensionsBubbleBuildsNoRowsBeforeItsFirstOpenAndDropsThemOnceUnused() throws {
-        let rig = MainDeadlineRig()
-        let controller = ExtensionsMenuController(mainWork: rig.work)
-        controller.releaseWhenUnused(OverlayPageReleaseTerms(deadlines: rig.deadlines, memory: nil))
-        let release = try #require(controller.release)
-        let tab = Self.extensionsTab()
-
-        controller.prepare(host: tab)  // the toolbar's idle prepare once a tab binds
+    @Test func theExtensionsBubbleBuildsNoRowsBeforeItsFirstOpen() throws {
+        let controller = ExtensionsMenuController(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        controller.releaseWhenUnused(OverlayPagePlannerRig().terms())
+        controller.prepare(host: Self.extensionsTab())  // the toolbar's idle prepare once a tab binds
         #expect(controller.content.rows.isEmpty, "a pane whose bubble never opened built its rows")
+    }
 
-        release.didShow()  // the first open
-        release.didHide()
+    /// The bubble's own open and close drive its release (a bubble needs a screen to show).
+    @Test(.enabled("a bubble needs a screen to show") { await !NSScreen.screens.isEmpty })
+    func theExtensionsBubblesOpenAndCloseDriveItsRelease() async throws {
+        let planner = OverlayPagePlannerRig()
+        let controller = ExtensionsMenuController(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        controller.releaseWhenUnused(planner.terms())
+        let tab = Self.extensionsTab()
+        let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1024, height: 768)
+        let window = NSWindow(contentRect: NSRect(x: screen.minX + 20, y: screen.minY + 20, width: 600, height: 500),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let anchor = NSView(frame: NSRect(x: 560, y: 460, width: 28, height: 28))
+        window.contentView?.addSubview(anchor)
+        window.orderFrontRegardless()
+        let handler = ExtensionsMenu.DirectHandler(host: tab) { _ in }
+
+        controller.show(host: tab, handler: handler, anchor: anchor)
+        try #require(controller.isShown, "the bubble did not show")
+        #expect(controller.content.rows.count == 3)
+        #expect(!planner.scheduler.hasDeadline, "a release was armed while the bubble shows")
+        controller.close()
+        #expect(planner.scheduler.nextCheck == 300, "the close armed no release")
         controller.prepare(host: tab)
         #expect(controller.content.rows.count == 3, "a pane whose bubble opened no longer builds its rows ahead")
-        #expect(Self.releaseIsDue(rig), "no release five minutes after the close")
 
-        rig.fireAndRun()
+        await planner.pass(301)
         #expect(controller.content.rows.isEmpty, "the unused bubble kept its rows")
         controller.prepare(host: tab)
         #expect(controller.content.rows.isEmpty, "a released bubble rebuilt its rows with no open")
+        controller.show(host: tab, handler: handler, anchor: anchor)
+        #expect(controller.content.rows.count == 3, "the open after a release did not build the rows")
+        controller.close()
+    }
+
+    // MARK: The update card's highlights
+
+    /// The page is made on the hover, held for the release only once it measured itself (so pressure at the card's
+    /// show cannot end it before it could open), and made again in the card's view after a release.
+    @Test func theHighlightsPageIsMadeOnTheHoverAndMadeAgainAfterAWarningRelease() async throws {
+        let planner = OverlayPagePlannerRig(level: .warning)
+        let services = Self.services()  // the island holds it weakly
+        let island = UpdateSurfaceIsland(kind: .ready, services: services, release: planner.terms())
+        defer { island.close(); withExtendedLifetime(services) {} }
+        #expect(island.page == nil, "the highlights page was made before the first hover")
+        var heights = 0
+        island.onHeightChange = { heights += 1 }
+
+        island.didPark()  // the card parks the view
+        island.willShow()  // the first hover
+        let first = try #require(island.page, "the hover made no page")
+        #expect(first.superview === island.view && island.lifecycleKey != nil)
+        await planner.pass(60)
+        #expect(island.page === first, "warning pressure ended the page before it measured itself")
+
+        island.provider.onHeight?(240)
+        #expect(island.contentHeight > 0 && heights == 1, "the page's height did not reach the card")
+        island.didShow()  // the popup opens
+        await planner.pass(60)
+        #expect(island.page === first, "pressure released the highlights while they show")
+
+        island.didPark()  // the popup closed
+        await planner.pass(11)
+        #expect(island.page == nil && island.lifecycleKey == nil, "hidden highlights were kept at warning pressure")
+        #expect(island.contentHeight == 0 && first.superview == nil)
+
+        island.willShow()  // the next hover
+        let again = try #require(island.page, "the hover after a release made no page")
+        #expect(again !== first && again.superview === island.view && island.lifecycleKey != nil)
+        island.provider.onHeight?(240)
+        #expect(island.contentHeight > 0 && heights == 2, "the remade page's height did not reach the card")
+    }
+
+    /// A highlights surface whose page the hover makes; the test measures it.
+    @MainActor private final class LazyHighlights: SidebarSurfaceIsland {
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 1))
+        var contentHeight: CGFloat = 0
+        var onHeightChange: (() -> Void)?
+        var onAction: (() -> Void)?
+        var onDismiss: (() -> Void)?
+        private(set) var asked = 0
+        private(set) var shows = 0
+        func close() {}
+        func willShow() { if contentHeight == 0 { asked += 1 } }
+        func didShow() { shows += 1 }
+        func measure(_ height: CGFloat) {
+            contentHeight = height
+            onHeightChange?()
+        }
+    }
+
+    @Test func theCardAsksForItsHighlightsOnTheHoverAndOpensThemOnceMeasured() async throws {
+        let h = try await UpdateCardHoverParityTests().make()
+        defer { h.tearDown() }
+        try #require(!h.card.isHidden, "the staged update shows no card")
+        let highlights = LazyHighlights()
+        h.card.highlights = highlights
+
+        h.card.showNotes()  // the hover
+        #expect(highlights.asked == 1, "the hover did not ask for the page")
+        #expect(!h.card.notesAreShown && highlights.shows == 0, "a popup opened before the page measured itself")
+        highlights.measure(240)
+        h.card.showNotes()  // the pointer's next move over the card
+        #expect(h.card.notesAreShown && highlights.shows == 1, "the measured highlights did not open")
     }
 
     // MARK: The app's wiring
@@ -209,22 +308,27 @@ struct OverlayPageReleaseTests {
         return AppServices(environment: AppEnvironment.current([:]), features: features)
     }
 
-    @Test func theFeatureHandsTheTermsToTheIconPickerAndTheUpdateHighlightsOnly() {
+    @Test func theFeatureHandsTheTermsToTheIconPickerAndTheUpdateHighlightsOnly() throws {
         let on = Self.services(enabling: [Feature.memoryOverlayPagesOnFirstUse.name])
-        let terms = on.overlayPageRelease
-        #expect(terms?.releaseAfter == OverlayPageRelease.defaultReleaseAfter)
+        let terms = try #require(on.overlayPageRelease)
+        #expect(terms.releaseAfter == OverlayPageRelease.defaultReleaseAfter)
+        #expect(terms.planner === on.overlayPageDiscards, "the terms are not on the app's one overlay page planner")
+        #expect(on.overlayPageDiscards.scheduler.kind == .overlayPage && on.overlayPageDiscards.scheduler.urgentAtWarning)
         #expect(on.iconPicker.release != nil, "the icon picker is kept for good with the feature on")
-        let ready = UpdateSurfaceIsland(kind: .ready, services: on), updated = UpdateSurfaceIsland(kind: .updated, services: on)
+        let islands = UpdateSurfaceIslands(services: on)
+        let ready = try #require(islands.island(.ready) as? UpdateSurfaceIsland)
+        let updated = try #require(islands.island(.updated) as? UpdateSurfaceIsland)
         defer { ready.close(); updated.close() }
-        #expect(ready.release != nil, "the parked highlights page is kept for good")
-        #expect(updated.release == nil, "the shown Updated card's page has a release")
+        #expect(ready.release != nil, "the highlights page is kept for good")
+        #expect(ready.page == nil, "the highlights page was made at the card's show, before any hover")
+        #expect(updated.release == nil && updated.page != nil, "the shown Updated card's page has a release")
 
         let off = Self.services()
         #expect(!off.features.isEnabled(.memoryOverlayPagesOnFirstUse), "the feature must default off")
         #expect(off.overlayPageRelease == nil && off.iconPicker.release == nil)
-        let offReady = UpdateSurfaceIsland(kind: .ready, services: off)
+        let offReady = try #require(UpdateSurfaceIslands(services: off).island(.ready) as? UpdateSurfaceIsland)
         defer { offReady.close() }
-        #expect(offReady.release == nil)
+        #expect(offReady.release == nil && offReady.page != nil, "with the feature off the card's show no longer makes the page")
     }
 
     @Test func withoutTheFeatureTheIconPickerStaysWarmAfterItsClose() async {

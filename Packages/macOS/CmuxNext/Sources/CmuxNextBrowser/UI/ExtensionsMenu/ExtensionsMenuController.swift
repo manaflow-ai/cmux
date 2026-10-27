@@ -170,18 +170,21 @@ final class ExtensionsMenuController {
     /// controller: a later call keeps the first release.
     func releaseWhenUnused(_ terms: OverlayPageReleaseTerms) {
         guard release == nil else { return }
-        release = terms.release(owner: "extensionsMenu") { [weak self] in self?.releaseRows() ?? true }
+        release = terms.release(owner: "extensionsMenu", inUse: { [weak self] in self?.isInUse ?? false }) { [weak self] in
+            self?.dropRows()
+        }
     }
 
-    /// The release's call: drops the rows and their icons, so the next open builds them again. False while the
-    /// bubble or its context menu shows.
-    private func releaseRows() -> Bool {
-        guard !isShown, presentedContextMenu == nil else { return false }
+    /// Whether the bubble or its context menu shows, so the release waits.
+    private var isInUse: Bool { isShown || presentedContextMenu != nil }
+
+    /// The release's call, made only while neither the bubble nor its context menu shows: drops the rows and their
+    /// icons, so the next open builds them again.
+    private func dropRows() {
         observedInputs = nil
         content.update([], site: nil)
         icons.removeAll()
         panelWarm = false
-        return true
     }
 
     /// Whether the panel has been on screen once.
