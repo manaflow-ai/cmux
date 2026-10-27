@@ -54,6 +54,33 @@ extension CloudStrings {
                               table: "Cloud", bundle: .module), machine, workspace)
     }
 
+    /// `cloud enroll-machine` with a name ssh can't use as a host alias.
+    static var enrollNameInvalid: String {
+        String(localized: "cloud.cli.enrollNameInvalid",
+               defaultValue: "The machine's ssh name must be letters, digits, dots, dashes or underscores: pass --name lane-vm-N.",
+               table: "Cloud", bundle: .module)
+    }
+
+    /// `cloud enroll-machine` on a machine the server gave no private address yet.
+    static var enrollNoAddress: String {
+        String(localized: "cloud.cli.enrollNoAddress",
+               defaultValue: "This Cloud machine has no private address yet, so ssh can't reach it. Try again once it is running.",
+               table: "Cloud", bundle: .module)
+    }
+
+    /// `cloud enroll-machine --ssh-key FILE` that is not one readable ssh-ed25519 public key.
+    static func enrollKeyUnreadable(_ path: String) -> String {
+        String(format: String(localized: "cloud.cli.enrollKeyUnreadable",
+                              defaultValue: "Can't use the ssh key %@: it must be one ssh-ed25519 public key. Pass --ssh-key with an absolute path.",
+                              table: "Cloud", bundle: .module), path)
+    }
+
+    /// `cloud enroll-machine`: the machine's side failed; `output` is its own error text.
+    static func enrollAuthorizeFailed(_ output: String) -> String {
+        String(format: String(localized: "cloud.cli.enrollAuthorizeFailed", defaultValue: "Couldn't set up ssh on the machine: %@",
+                              table: "Cloud", bundle: .module), output)
+    }
+
     /// `cloud new-machine --bootstrap lane` (or a bootstrap kind it does not know) with no script.
     static var bootstrapScriptRequired: String {
         String(localized: "cloud.cli.bootstrapScriptRequired",
