@@ -852,6 +852,7 @@ impl Hub {
             replaced: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             stops: AtomicU64::new(0),
+            status_writes: AtomicU64::new(0),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),
             hidden: std::sync::atomic::AtomicUsize::new(0),
@@ -1268,6 +1269,15 @@ impl Hub {
     /// `reopen` is the stop count a reopen is for ([`Self::reopen`]), checked under the meta lock,
     /// which `kill`'s close takes after it counts the stop.
     fn write_status(&self, session: &Session, status: SessionStatus, reopen: Option<u64>) -> bool {
+        // From before the status is set to after it is logged.
+        session.status_writes.fetch_add(1, Ordering::SeqCst);
+        struct Done<'a>(&'a AtomicU64);
+        impl Drop for Done<'_> {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+        let _done = Done(&session.status_writes);
         let (was, link) = {
             let mut m = session.meta.lock().unwrap();
             let was = m.status;

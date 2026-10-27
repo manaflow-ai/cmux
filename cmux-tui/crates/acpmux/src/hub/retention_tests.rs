@@ -70,15 +70,16 @@ async fn a_chat_written_to_while_its_log_was_read_is_left_whole() {
     let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, &root).unwrap());
     let session = hub.resolve("old").unwrap();
     let hosted = std::collections::HashSet::new();
-    let seen = hub.retainable(&session, now_ms(), &hosted).unwrap_or_else(|why| panic!("{why}"));
-    assert!(hub.untouched(&session, seen), "nothing happened to it since");
+    let cutoff = now_ms() + 1000;
+    let seen = hub.retainable(&session, cutoff, &hosted).unwrap_or_else(|why| panic!("{why}"));
+    assert!(hub.untouched(&session, seen, cutoff), "nothing happened to it since");
     // While the pass read its log, it was reopened and closed again: each status write stamps
     // the chat before its record waits for the append lock the pass holds (`write_status`).
     std::thread::sleep(std::time::Duration::from_millis(2));
     assert!(hub.reopen(&session, session.stops.load(Ordering::SeqCst)));
     hub.set_status(&session, SessionStatus::Closed);
     assert_eq!(session.status(), SessionStatus::Closed);
-    assert!(!hub.untouched(&session, seen), "a chat closed just now is not compacted");
+    assert!(!hub.untouched(&session, seen, cutoff), "a chat closed just now is not compacted");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -153,6 +154,54 @@ async fn a_closed_chat_is_as_old_as_its_log() {
     let pass = hub.retention_pass(RetentionRequest::default()).await.unwrap();
     assert_eq!((&pass["chats"], &pass["skipped"]["recent"]), (&json!(1), &json!(1)), "{pass}");
     assert_eq!(pass["largest"][0]["sessionId"], "log-old", "{pass}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A close sets its status and stamp, then logs its record: a pass that looks in between sees an
+/// old log and today's stamp, and must still leave the chat whole.
+#[tokio::test]
+async fn a_chat_whose_close_is_not_logged_yet_is_left_whole() {
+    let root = std::env::temp_dir().join(format!("acpmux-retention-{}", uuid::Uuid::now_v7()));
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    let store = crate::store::open(&cfg.store, &root).unwrap();
+    let meta = json!({
+        "schema": crate::store::META_SCHEMA, "id": "c", "name": "c", "harness": "claude",
+        "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2,
+    });
+    store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+    let record = |seq: u64| crate::store::EventRecord {
+        seq,
+        at: 2,
+        dir: "mux".into(),
+        kind: "status".into(),
+        msg: json!({"status": "idle"}),
+        host_seq: None,
+    };
+    store.append("c", &record(1)).unwrap();
+    store.close_log("c");
+    drop(store);
+    let month = std::time::SystemTime::now() - std::time::Duration::from_secs(30 * 86_400);
+    let segment = root.join("sessions/c/events/000001.ndjson");
+    std::fs::File::options().append(true).open(&segment).unwrap().set_modified(month).unwrap();
+    let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, &root).unwrap());
+    let session = hub.resolve("c").unwrap();
+    let cutoff = now_ms() - 14 * 86_400_000;
+    let hosted = std::collections::HashSet::new();
+    // The close between its status and its record, as `write_status` leaves it.
+    session.status_writes.fetch_add(1, Ordering::SeqCst);
+    {
+        let mut m = session.meta.lock().unwrap();
+        m.status = SessionStatus::Closed;
+        m.updated_at = now_ms();
+    }
+    let seen = hub.retainable(&session, cutoff, &hosted).unwrap_or_else(|why| panic!("{why}"));
+    assert!(!hub.untouched(&session, seen, cutoff), "its close is under way");
+    // Its record logged after the pass looked: the log is new again.
+    hub.store.append("c", &record(2)).unwrap();
+    session.status_writes.fetch_sub(1, Ordering::SeqCst);
+    assert!(!hub.untouched(&session, seen, cutoff), "it closed just now");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
