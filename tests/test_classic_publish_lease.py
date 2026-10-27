@@ -73,7 +73,7 @@ class ClassicPublishLeaseTests(unittest.TestCase):
         return {"LEASE_KEY": LEASE, "CLAIM_KEY": CLAIM, "LEASE_OWNER": owner, "LEASE_WAIT": str(wait),
                 "RUNNER_TEMP": self.tmp.name}
 
-    def acquire(self, build, owner, wait=0, on_sleep=None):
+    def acquire(self, build, owner, wait=0, on_sleep=None, finished=lambda owner, env: True):
         clock = Clock()
 
         def sleep(seconds):
@@ -82,7 +82,7 @@ class ClassicPublishLeaseTests(unittest.TestCase):
                 on_sleep(clock.now)
 
         lease.acquire(build, env=self.env(owner, wait), clock=clock, sleep=sleep,
-                      heartbeat=lambda key, who: self.beats.append(who))
+                      heartbeat=lambda key, who: self.beats.append(who), finished=finished)
 
     def claim(self, build, owner, age=0.0):
         lease._put(CLAIM, {"build": build, "owner": owner}, self.fake.read(CLAIM)[0])
@@ -144,6 +144,42 @@ class ClassicPublishLeaseTests(unittest.TestCase):
         self.assertTrue(r2.holds(LEASE, "b"))
         with self.assertRaises(RuntimeError):
             lease.check(self.env("a"))
+
+    def test_an_expired_lease_is_taken_only_once_its_holders_run_has_completed(self):
+        self.acquire(100, "11-1-publish")
+        self.fake.age(LEASE, lease.LEASE_TTL + 1)  # every renewal failed, but the job may still write
+        asked = []
+        running = lambda owner, env: asked.append(owner) or False
+        with self.assertRaises(RuntimeError):
+            self.acquire(200, "22-1-publish", finished=running)
+        self.assertEqual(asked, ["11-1-publish"])
+        self.assertTrue(r2.holds(LEASE, "11-1-publish"))
+        self.acquire(200, "22-1-publish", finished=lambda owner, env: owner == "11-1-publish")
+        self.assertTrue(r2.holds(LEASE, "22-1-publish"))
+
+    def test_a_malformed_holder_counts_as_running(self):
+        self.assertFalse(lease.run_finished("not-a-run", {"GITHUB_REPOSITORY": "o/r"}))
+
+    def test_a_claimant_overtaken_before_it_won_the_lock_steps_back(self):
+        real = lease.try_lock
+
+        def try_lock(key, owner, env, finished):
+            won = real(key, owner, env, finished)
+            if owner == "a" and won and not self.overtaken:
+                self.overtaken = True
+                self.claim(200, "b")  # b claimed between a's claim and a's lock
+            return won
+
+        self.overtaken = False
+        lease.try_lock = try_lock
+        try:
+            with self.assertRaises(RuntimeError):
+                self.acquire(100, "a")
+        finally:
+            lease.try_lock = real
+        self.assertFalse(r2.holds(LEASE, "a"))
+        self.acquire(200, "b")
+        self.assertTrue(r2.holds(LEASE, "b"))
 
     def test_check_renews_and_tolerates_losing_the_write_to_the_heartbeat(self):
         self.acquire(100, "a")

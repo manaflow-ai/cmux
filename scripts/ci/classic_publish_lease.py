@@ -19,9 +19,11 @@ share an R2 lease, and waiting writers queue by build:
     lives, so a holder keeps it through any rate-limit wait. Each renewal
     writes new bytes, so the lease's ETag changes and a waiter that read it
     expired cannot then take it. `check` runs before each write and fails the
-    job when the lease is gone. A holder whose job died frees it LEASE_TTL
-    later. Another writer can take a lease from a live holder only after
-    every renewal failed for LEASE_TTL while R2 answered that writer.
+    job when the lease is gone.
+  - A lease that expired without a release is taken over only once the
+    holder's workflow run attempt has completed (its owner names the run and
+    attempt; GitHub's API says), so a holder that lost its renewals but still
+    writes is never overlapped. An unreadable answer counts as still running.
 
     classic_publish_lease.py acquire --build N
         Waits for its turn (LEASE_WAIT seconds at most), takes the lease and
@@ -31,8 +33,9 @@ share an R2 lease, and waiting writers queue by build:
     classic_publish_lease.py release
         Stops the heartbeat, releases the lease and withdraws the claim.
 
-Reads LEASE_KEY, CLAIM_KEY, LEASE_OWNER and RUNNER_TEMP, and r2_cas.py's
-R2 variables, from the environment.
+Reads LEASE_KEY, CLAIM_KEY, LEASE_OWNER (RUN_ID-ATTEMPT-JOB), RUNNER_TEMP,
+GITHUB_REPOSITORY and GH_TOKEN, and r2_cas.py's R2 variables, from the
+environment.
 """
 
 from __future__ import annotations
@@ -90,7 +93,31 @@ def withdraw(key: str, owner: str) -> None:
         _put(key, {"withdrawn": True}, etag)  # a lost race means another waiter claimed
 
 
-def acquire(build: int, env=os.environ, clock=time.monotonic, sleep=time.sleep, heartbeat=None) -> None:
+def run_finished(owner: str, env=os.environ) -> bool:
+    """Whether the run attempt that owner (RUN_ID-ATTEMPT-JOB) names has completed."""
+    parts = owner.split("-", 2)
+    if len(parts) < 2 or not (parts[0].isdigit() and parts[1].isdigit()):
+        return False
+    result = subprocess.run(
+        ["gh", "api", f"repos/{env['GITHUB_REPOSITORY']}/actions/runs/{parts[0]}/attempts/{parts[1]}", "--jq", ".status"],
+        capture_output=True, text=True, check=False, env=env,
+    )
+    return result.returncode == 0 and result.stdout.strip() == "completed"
+
+
+def try_lock(key: str, owner: str, env=os.environ, finished=run_finished) -> bool:
+    """One attempt at the lease: free when absent or released, or expired with
+    its holder's run completed."""
+    etag, body, age = r2_cas.read(key)
+    current = _json(body)
+    if etag is not None and not current.get("released"):
+        if age <= LEASE_TTL or not finished(str(current.get("owner", "")), env):
+            return False
+    return _put(key, {"owner": owner}, etag)
+
+
+def acquire(build: int, env=os.environ, clock=time.monotonic, sleep=time.sleep, heartbeat=None,
+            finished=run_finished) -> None:
     lease, claim_key, owner = env["LEASE_KEY"], env["CLAIM_KEY"], env["LEASE_OWNER"]
     deadline = clock() + int(env.get("LEASE_WAIT", "18000"))
     while True:
@@ -104,10 +131,14 @@ def acquire(build: int, env=os.environ, clock=time.monotonic, sleep=time.sleep, 
             turn = True
         else:
             turn = claimed == build  # the same build (a rerun) may contend too
-        if turn and r2_cas.lock(lease, owner, LEASE_TTL, 0):
-            withdraw(claim_key, owner)
-            (heartbeat or start_heartbeat)(lease, owner)
-            return
+        if turn and try_lock(lease, owner, env, finished):
+            _, newest = live_claim(claim_key)
+            if newest.get("owner") not in (None, owner) and int(newest.get("build", 0) or 0) > build:
+                r2_cas.unlock(lease, owner)  # a newer build claimed meanwhile: its turn first
+            else:
+                withdraw(claim_key, owner)
+                (heartbeat or start_heartbeat)(lease, owner)
+                return
         if clock() >= deadline:
             withdraw(claim_key, owner)
             raise RuntimeError(f"no turn at the {lease} lease within the wait")
