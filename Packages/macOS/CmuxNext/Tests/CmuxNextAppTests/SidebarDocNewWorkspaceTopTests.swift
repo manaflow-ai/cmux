@@ -57,6 +57,25 @@ import Testing
         sections.flatMap(\.workspaces).compactMap(\.resourceID?.rawValue)
     }
 
+    /// `afterCurrent` while the document places none of the rows yet (a fresh session): the current workspace is
+    /// itself unplaced, so the new row lists right after it once the unplaced rows are listed, not first or last
+    /// (CmdNRowSlotTests drew it first for a frame, then at its slot).
+    @Test(arguments: [false, true]) func aNewRowFindsAnUnplacedNeighbour(newRowsFirst: Bool) throws {
+        let empty = SidebarDocProjection(rows: [], records: SidebarDocRecords(sections: [
+            Self.machine: SidebarDocSection(id: Self.machine, kind: .machine(session: Self.session)),
+        ], items: [:]), revision: 1)
+        let store = DaemonStore()
+        store.apply(snapshot: DaemonTree(workspaces: ["ws-1", "ws-2", "ws-3", "ws-new"].enumerated().map { index, id in
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: UInt64(index + 1)), key: nil, resourceID: ResourceID(rawValue: id), name: id)
+        }))
+        let current = try #require(store.workspaces.first { $0.resourceID?.rawValue == "ws-2" }).id
+        let doc = SidebarDocSections()
+        doc.placesNewRowsFirst = { newRowsFirst }
+        doc.unplacedAnchor = { $0.resourceID?.rawValue == "ws-new" ? .after(current) : nil }
+        let order = Self.order(doc.sections(empty, session: Self.session, workspaces: store.workspaces))
+        #expect(order == (newRowsFirst ? ["ws-3", "ws-2", "ws-new", "ws-1"] : ["ws-1", "ws-2", "ws-new", "ws-3"]))
+    }
+
     @Test func aLiveWorkspaceTheDocumentDoesNotPlaceYetListsFirstBelowHome() {
         let store = Self.store(fresh: ["ws-new"])
         let sections = SidebarDocSections().sections(Self.projection(), session: Self.session, workspaces: store.workspaces)

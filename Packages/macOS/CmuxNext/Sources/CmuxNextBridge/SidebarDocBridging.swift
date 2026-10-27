@@ -178,35 +178,58 @@ public final class SidebarDocSections {
         }
         let placed = Set(projection.items.keys.filter { $0.sessionID == session }.map(\.workspaceID))
         let unplaced = workspaces.filter { w in !listed.contains(w.id) && !(w.resourceID.map { placed.contains($0.rawValue) } ?? false) }
-        // In creation order, so a new workspace beside another new one finds it listed.
+        // In creation order, so a new workspace beside another new one finds it listed. One whose neighbour is
+        // not listed yet (itself unplaced: the document has not placed it either) waits for the unplaced rows.
+        var waiting: [(WorkspaceModel, UnplacedAnchor)] = []
         let unanchored = unplaced.filter { workspace in
             guard let anchor = unplacedAnchor(workspace) else { return true }
-            return !Self.insert(workspace, beside: anchor, into: &sections, within: machineSections)
+            if !Self.insert(workspace, beside: anchor, into: &sections, within: machineSections) { waiting.append((workspace, anchor)) }
+            return false
         }
+        let first = placesNewRowsFirst()
+        var own = machineSections
         if !unanchored.isEmpty {
-            if placesNewRowsFirst() {
+            if first {
                 // Newest first, as the daemon places them: the store lists a new workspace last, and its
                 // personal row comes with its item, so the unplaced ones have none to order them by yet.
+                let before = sections.count
                 Self.insertFirst(unplacedOrder(Array(unanchored.reversed())), into: &sections, machineSections: machineSections)
+                own += sections.count - before
             } else {
                 loose += unplacedOrder(unanchored)
             }
         }
         flush()
+        // The trailing loose run of unplaced rows is the machine's own too (band groups sit before it).
+        let trailing = !first && !unanchored.isEmpty ? sections.count - 1 : nil
+        for (workspace, anchor) in waiting {
+            if Self.insert(workspace, beside: anchor, into: &sections, within: own) { continue }
+            if let trailing, Self.insert(workspace, beside: anchor, into: &sections, within: trailing + 1, from: trailing) { continue }
+            // Its neighbour is not listed here: where the others go.
+            if first {
+                let before = sections.count
+                Self.insertFirst([workspace], into: &sections, machineSections: own)
+                own += sections.count - before
+            } else if let last = trailing ?? sections.indices.last(where: { sections[$0].group == nil }) {
+                sections[last] = CmuxNextDaemon.SidebarSection(group: nil, workspaces: sections[last].workspaces + [workspace])
+            } else {
+                sections.append(CmuxNextDaemon.SidebarSection(group: nil, workspaces: [workspace]))
+            }
+        }
         if sections.isEmpty { sections.append(CmuxNextDaemon.SidebarSection(group: nil, workspaces: [])) }
         return sections
     }
 
     /// Lists `workspace` beside the workspace `anchor` names, in that one's section (its group, or its
-    /// loose run), among the machine's own first `within` sections (not Pinned or a custom section's
+    /// loose run), among the machine's own sections `start..<within` (not Pinned or a custom section's
     /// group). False when they do not list that workspace, or a group anchor's workspace is not in a group.
     public static func insert(_ workspace: WorkspaceModel, beside anchor: UnplacedAnchor, into sections: inout [CmuxNextDaemon.SidebarSection],
-                              within: Int) -> Bool {
+                              within: Int, from start: Int = 0) -> Bool {
         let id: String
         switch anchor {
         case .before(let anchor), .after(let anchor), .afterInGroup(let anchor), .lastInGroupOf(let anchor): id = anchor
         }
-        for (index, section) in sections.enumerated().prefix(within) {
+        for (index, section) in sections.enumerated().prefix(within) where index >= start {
             guard let at = section.workspaces.firstIndex(where: { $0.id == id }) else { continue }
             var workspaces = section.workspaces
             switch anchor {
