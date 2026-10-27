@@ -137,7 +137,7 @@ extension UpdateController {
                     return
                 }
                 remaining -= 1
-                try? await self.clock.sleep(for: self.readyRetryDelay)
+                try? await self.clock.sleep(for: self.readyRetryDelay, tolerance: nil)
                 if Task.isCancelled { return }
             }
 

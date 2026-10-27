@@ -2,13 +2,23 @@ import Foundation
 import Testing
 @testable import CmuxUpdater
 
+/// One `sleep(for:tolerance:)` call the code under test made.
+struct RequestedSleep: Equatable, Sendable {
+    var duration: Duration
+    var tolerance: Duration?
+}
+
 /// Immediate for the sub-second plumbing delays; parks second-or-longer deadlines until the test
-/// releases them with ``fireDeadlines()`` so watchdog time is explicit.
+/// releases them with ``fireDeadlines()`` so watchdog time is explicit. Records every request, so a
+/// test can check the leeway and the backoff each wait asked for.
 actor TestDeadlineClock: UpdateClock {
     private var parked: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    /// Every sleep requested so far, in order.
+    private(set) var requests: [RequestedSleep] = []
 
-    func sleep(for duration: Duration) async throws {
+    func sleep(for duration: Duration, tolerance: Duration?) async throws {
         try Task.checkCancellation()
+        requests.append(RequestedSleep(duration: duration, tolerance: tolerance))
         guard duration >= .seconds(1) else { return }
         let id = UUID()
         try await withTaskCancellationHandler {

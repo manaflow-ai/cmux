@@ -174,7 +174,7 @@ final class UpdateRelaunchGate {
         waitTask = Task { @MainActor [weak self, clock] in
             while !Task.isCancelled {
                 do {
-                    try await clock.sleep(for: interval)
+                    try await clock.sleep(for: interval, tolerance: nil)
                 } catch {
                     return
                 }

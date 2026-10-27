@@ -28,7 +28,7 @@ extension UpdateController {
         wakeCheckTask?.cancel()
         wakeCheckTask = Task { @MainActor [weak self] in
             guard let clock = self?.clock else { return }
-            try? await clock.sleep(for: Self.wakeCheckDelay)
+            try? await clock.sleep(for: Self.wakeCheckDelay, tolerance: nil)
             guard !Task.isCancelled, let self else { return }
             self.wakeCheckTask = nil
             self.checkAfterWake(lastCheck: self.updater.lastUpdateCheckDate)

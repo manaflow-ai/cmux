@@ -389,7 +389,7 @@ final class UpdateDriver {
         checkTimeoutTask = Task { @MainActor [weak self] in
             guard let self else { return }
             // Bounded, cancellable check-timeout deadline via the injected clock.
-            try? await self.clock.sleep(for: .seconds(self.checkTimeoutDuration))
+            try? await self.clock.sleep(for: .seconds(self.checkTimeoutDuration), tolerance: nil)
             guard !Task.isCancelled else { return }
             guard case .checking = self.model.state else { return }
             self.setState(.notFound(.init(acknowledgement: {})))
