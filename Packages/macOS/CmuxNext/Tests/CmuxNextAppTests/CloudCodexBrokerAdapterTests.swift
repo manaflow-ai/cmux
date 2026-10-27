@@ -167,6 +167,22 @@ done
         #expect(adapter.pendingCleanup.contains("vm"))
     }
 
+    @Test func deletingMachineCancelsItsPendingLoginPrompt() async throws {
+        let (root, launch) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let gate = CloudCodexBrokerTests.Gate()
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        let pending = Task { try await adapter.run(machineID: "vm", scope: scope, confirmed: true) { _ in await gate.pause(); return true } }
+        await gate.entered()
+        try await adapter.revoke(machineID: "vm", scope: scope)
+        await gate.open()
+        await #expect(throws: (any Error).self) { try await pending.value }
+        #expect(await files.read("vm", CloudCodexBroker.accessPath) == nil)
+        await adapter.shutdown()
+    }
+
     @Test func allConcurrentTransfersWaitForPolicyTeardown() async throws {
         let (root, launch) = try fixture()
         defer { try? FileManager.default.removeItem(at: root) }
