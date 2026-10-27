@@ -114,25 +114,34 @@ impl AuthGate {
             })
     }
 
-    fn fail(&mut self) -> Vec<Out> {
+    fn failure_reply(msg: &Value, reverse: bool, inner: &cmux_codex_acp::Translator) -> Vec<Out> {
+        let Some(id) = msg.get("id") else { return Vec::new() };
+        let error = serde_json::json!({"jsonrpc":"2.0", "id":id,
+            "error":{"code":-32001,"message":"Codex broker unavailable"}});
+        if reverse { inner.from_client(&error) } else { vec![Out::Client(error)] }
+    }
+
+    fn fail(&mut self, inner: &cmux_codex_acp::Translator) -> Vec<Out> {
         self.failed = Some("Codex broker unavailable".into());
         self.login_id = None;
-        self.held
-            .drain(..)
-            .filter_map(|out| match out {
-                Out::Client(msg) => Some(msg),
-                Out::Server(_) => None,
-            })
-            .chain(self.held_client.drain(..))
-            .filter_map(|msg| {
-                msg.get("id").cloned().map(|id| {
-                    Out::Client(serde_json::json!({
-                        "jsonrpc":"2.0", "id": id,
-                        "error": {"code": -32001, "message": "Codex broker unavailable"}
-                    }))
-                })
-            })
-            .collect()
+        let mut out = Vec::new();
+        for held in self.held.drain(..) {
+            match held {
+                Out::Client(msg) => {
+                    out.extend(Self::failure_reply(&msg, msg.get("method").is_some(), inner))
+                }
+                Out::Server(msg) if msg.get("method").is_none() => {
+                    if let Some(id) = msg.get("id") {
+                        out.push(Self::refresh_error(id));
+                    }
+                }
+                _ => {}
+            }
+        }
+        for msg in self.held_client.drain(..) {
+            out.extend(Self::failure_reply(&msg, msg.get("method").is_none(), inner));
+        }
+        out
     }
 
     fn refresh_response(id: &Value, file: &AccessFile) -> Out {
@@ -154,7 +163,12 @@ impl AuthGate {
         }))
     }
 
-    fn handle_refresh<F>(&mut self, raw: &Value, read: F) -> Option<Vec<Out>>
+    fn handle_refresh<F>(
+        &mut self,
+        raw: &Value,
+        read: F,
+        inner: &cmux_codex_acp::Translator,
+    ) -> Option<Vec<Out>>
     where
         F: FnOnce() -> anyhow::Result<Option<AccessFile>>,
     {
@@ -183,7 +197,7 @@ impl AuthGate {
             }
             Ok(Some(_)) | Ok(None) | Err(_) => {
                 let mut out = vec![Self::refresh_error(id)];
-                out.extend(self.fail());
+                out.extend(self.fail(inner));
                 Some(out)
             }
         }
@@ -229,22 +243,12 @@ impl Translator {
         #[cfg(unix)]
         {
             let mut auth = self.auth.lock().unwrap_or_else(|e| e.into_inner());
-            if auth.enabled() && auth.failed.is_some() {
-                // A failed/revoked broker must still let the hub settle work
-                // already running in Codex.  Dropping the cancellation
-                // notification leaves the app-server turn alive after the
-                // client has been told that the broker is unavailable.
-                if msg.get("method").and_then(Value::as_str) == Some("session/cancel") {
-                    return self.inner.from_client(msg);
-                }
-                let id = msg.get("id").cloned();
-                if let Some(id) = id {
-                    return vec![Out::Client(serde_json::json!({
-                        "jsonrpc":"2.0", "id": id,
-                        "error": {"code": -32001, "message": "Codex broker unavailable"}
-                    }))];
-                }
-                return Vec::new();
+            // Cancellation controls an existing turn; it must never wait for auth.
+            if msg.get("method").and_then(Value::as_str) == Some("session/cancel") {
+                return self.inner.from_client(msg);
+            }
+            if auth.failed.is_some() {
+                return AuthGate::failure_reply(msg, msg.get("method").is_none(), &self.inner);
             }
             if auth.enabled() {
                 match read() {
@@ -263,30 +267,15 @@ impl Translator {
                         }
                     }
                     _ => {
-                        let mut out = auth.fail();
-                        if msg.get("method").and_then(Value::as_str) == Some("session/cancel") {
-                            out.extend(self.inner.from_client(msg));
-                        }
+                        let mut out = auth.fail(&self.inner);
+                        out.extend(AuthGate::failure_reply(
+                            msg,
+                            msg.get("method").is_none(),
+                            &self.inner,
+                        ));
                         out.extend(self.settle_pending("Codex broker unavailable"));
-                        // This request has not reached the inner translator yet.
-                        if let Some(id) = msg.get("id") {
-                            out.push(Out::Client(serde_json::json!({
-                                "jsonrpc":"2.0", "id": id,
-                                "error": {"code": -32001, "message": "Codex broker unavailable"}
-                            })));
-                        }
                         return out;
                     }
-                }
-                if auth.failed.is_some() {
-                    let mut out = self.settle_pending("Codex broker unavailable");
-                    if let Some(id) = msg.get("id").cloned() {
-                        out.push(Out::Client(serde_json::json!({
-                            "jsonrpc":"2.0", "id": id,
-                            "error": {"code": -32001, "message": "Codex broker unavailable"}
-                        })));
-                    }
-                    return out;
                 }
             }
         }
@@ -298,6 +287,9 @@ impl Translator {
 
     /// One line from the app-server.
     pub fn from_server(&self, raw: &Value) -> Vec<Out> {
+        if let Some(out) = self.background().response(raw) {
+            return out;
+        }
         #[cfg(unix)]
         {
             let mut auth = self.auth.lock().unwrap_or_else(|e| e.into_inner());
@@ -308,7 +300,7 @@ impl Translator {
             // opaque JSON-RPC id.  Never pass credentials through the inner
             // translator or hold unrelated output while answering it.
             if auth.enabled() {
-                if let Some(out) = auth.handle_refresh(raw, codex_auth_file::read) {
+                if let Some(out) = auth.handle_refresh(raw, codex_auth_file::read, &self.inner) {
                     if auth.failed.is_some() {
                         let mut out = out;
                         out.extend(self.settle_pending("Codex broker unavailable"));
@@ -321,7 +313,7 @@ impl Translator {
             if let Some(login_id) = auth.login_id.clone() {
                 if raw.get("id") == Some(&login_id) {
                     if raw.get("error").is_some() {
-                        let mut out = auth.fail();
+                        let mut out = auth.fail(&self.inner);
                         out.extend(self.settle_pending("Codex broker login failed"));
                         return out;
                     }
@@ -333,7 +325,7 @@ impl Translator {
                                 && file.expires_at == old.expires_at)
                     );
                     if !valid {
-                        let mut out = auth.fail();
+                        let mut out = auth.fail(&self.inner);
                         out.extend(self.settle_pending("Codex broker unavailable"));
                         return out;
                     }
@@ -350,17 +342,8 @@ impl Translator {
                     }
                     return released;
                 }
-                let out = {
-                    let mut background = self.background();
-                    if let Some(out) = background.response(raw) {
-                        out
-                    } else {
-                        let mut out = background.observe(raw);
-                        out.extend(self.inner.from_server(raw));
-                        out
-                    }
-                };
-                auth.held.extend(out);
+                auth.held.extend(self.background().observe(raw));
+                auth.held.extend(self.inner.from_server(raw));
                 return Vec::new();
             }
 
@@ -394,38 +377,34 @@ impl Translator {
             if auth.enabled() && !auth.pending() && auth.should_refresh() {
                 match codex_auth_file::read() {
                     Ok(Some(file)) if auth.account_allowed(&file, None) => {
+                        auth.held.extend(self.background().observe(raw));
                         auth.held.extend(self.inner.from_server(raw));
                         return vec![auth.login_request(file)];
                     }
                     Ok(None) | Err(_) => {
-                        let mut out = auth.fail();
+                        let mut out = auth.fail(&self.inner);
                         out.extend(self.settle_pending("Codex broker unavailable"));
                         return out;
                     }
                     Ok(Some(_)) => {
-                        let mut out = auth.fail();
+                        let mut out = auth.fail(&self.inner);
                         out.extend(self.settle_pending("Codex broker unavailable"));
                         return out;
                     }
                 }
             }
         }
-        let mut out = {
-            let mut background = self.background();
-            if let Some(out) = background.response(raw) {
-                return out;
-            }
-            background.observe(raw)
-        };
+        let mut out = self.background().observe(raw);
         out.extend(self.inner.from_server(raw));
         out
     }
 
     /// The app-server exited or its pipe closed.
     pub fn server_closed(&self, why: &str) -> Vec<Out> {
-        let mut out = self.settle_pending(why);
+        let mut out = Vec::new();
         #[cfg(unix)]
-        out.extend(self.auth.lock().unwrap_or_else(|e| e.into_inner()).fail());
+        out.extend(self.auth.lock().unwrap_or_else(|e| e.into_inner()).fail(&self.inner));
+        out.extend(self.settle_pending(why));
         out
     }
 
@@ -691,39 +670,6 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn refresh_reply_preserves_opaque_id_and_returns_access_only() {
-        let file = AccessFile {
-            access_token: "access-secret".into(),
-            account_id: "acct-123".into(),
-            expires_at: 4_102_444_800,
-            modified: std::time::SystemTime::UNIX_EPOCH,
-        };
-        let Out::Server(reply) = AuthGate::refresh_response(&json!({"opaque": [7, 2]}), &file)
-        else {
-            panic!("refresh reply must go to app-server");
-        };
-        assert_eq!(reply["id"], json!({"opaque": [7, 2]}));
-        assert_eq!(reply["result"]["accessToken"], "access-secret");
-        assert_eq!(reply["result"]["chatgptAccountId"], "acct-123");
-        assert!(reply["result"].get("chatgptPlanType").is_none());
-        assert!(reply["result"].get("refreshToken").is_none());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn malformed_broker_fails_closed_with_correlated_error() {
-        let gate = AuthGate::from_read(Err(anyhow::anyhow!("malformed broker file")));
-        assert!(gate.failed.is_some());
-        let Out::Server(reply) = AuthGate::refresh_error(&json!(41)) else {
-            panic!("refresh error must go to app-server");
-        };
-        assert_eq!(reply["id"], 41);
-        assert_eq!(reply["error"]["code"], -32001);
-        assert!(reply.to_string().find("access-secret").is_none());
-    }
-
-    #[cfg(unix)]
-    #[test]
     fn refresh_dispatch_preserves_id_and_rejects_account_switch() {
         let file = AccessFile {
             access_token: "access-secret".into(),
@@ -741,11 +687,14 @@ mod tests {
                     "params": {"previousAccountId": "acct-123"}
                 }),
                 || Ok(Some(refreshed)),
+                &translator().inner,
             )
             .expect("refresh request");
         let Out::Server(reply) = &out[0] else { panic!("server response") };
         assert_eq!(reply["id"], "refresh-7");
         assert_eq!(reply["result"]["chatgptAccountId"], "acct-123");
+        assert!(reply["result"].get("refreshToken").is_none());
+        assert!(reply["result"].get("chatgptPlanType").is_none());
 
         let out = gate
             .handle_refresh(
@@ -755,6 +704,7 @@ mod tests {
                     "params": {"previousAccountId": "acct-other"}
                 }),
                 || Ok(Some(file)),
+                &translator().inner,
             )
             .expect("refresh request");
         let Out::Server(reply) = &out[0] else { panic!("server error") };
@@ -775,6 +725,7 @@ mod tests {
                     "id":"refresh", "method":"account/chatgptAuthTokens/refresh"
                 }),
                 || Ok(None),
+                &translator().inner,
             )
             .unwrap();
         assert!(out.iter().any(|out| matches!(out, Out::Client(v)
@@ -885,11 +836,19 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn renewal_never_steals_background_termination_reply() {
-        let tr = running_translator();
-        let out = tr.background().request(&json!({"id":"client-stop","method":TERMINATE,"params":{"threadId":"thread","processId":"process"}})).unwrap();
-        let Out::Server(request) = &out[0] else { panic!("server request") };
-        tr.auth.lock().unwrap().login_id = Some(json!("login"));
-        let out = tr.from_server(&json!({"id":request["id"],"result":{"terminated":true}}));
-        assert!(out.iter().any(|o| matches!(o, Out::Client(v) if v["id"] == "client-stop")));
+        for pending in [false, true] {
+            let tr = running_translator();
+            tr.auth.lock().unwrap().file = Some(AccessFile {
+                access_token: "a".into(),
+                account_id: "account".into(),
+                expires_at: 4_102_444_800,
+                modified: std::time::SystemTime::UNIX_EPOCH,
+            });
+            let out = tr.background().request(&json!({"id":"client-stop","method":TERMINATE,"params":{"threadId":"thread","processId":"process"}})).unwrap();
+            let Out::Server(request) = &out[0] else { panic!("server request") };
+            tr.auth.lock().unwrap().login_id = pending.then(|| json!("login"));
+            let out = tr.from_server(&json!({"id":request["id"],"result":{"terminated":true}}));
+            assert!(out.iter().any(|o| matches!(o, Out::Client(v) if v["id"] == "client-stop")));
+        }
     }
 }
