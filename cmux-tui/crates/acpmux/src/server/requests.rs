@@ -892,7 +892,7 @@ async fn dispatch_request(
                 // A dedicated agent VM (vmHost): a session its owner's peer
                 // daemon starts with no policy runs approve-all; the VM is the
                 // sandbox (hub/remote_sandbox.rs). Web clients still ask.
-                let vm_host = hub.config.read().await.vm_host;
+                let vm_host = hub.vm_host().await;
                 if !asked_policy
                     && crate::hub::vm_host_peer_approves(
                         vm_host,
@@ -1290,6 +1290,7 @@ async fn dispatch_request(
         "_acpmux/peers" => Ok(json!({"peers": hub.peers()})),
         "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin).await),
         "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
+        super::vm_host::METHOD => super::vm_host::handle(hub, conn, &params).await,
         // This daemon's copy of a peer session's events (`hub/peer_snapshot.rs`): transcripts
         // this machine's clients read, so for the app and the unix socket only.
         "_acpmux/peer_snapshot" if conn.origin.web_class() => Err(RpcError::invalid_params(
