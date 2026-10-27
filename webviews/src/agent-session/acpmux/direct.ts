@@ -2231,7 +2231,7 @@ export class AcpmuxDirectClient {
     this.summary = { ...kept.summary, ...listed };
     this.learnChatThread();
     // A paused queue's failed turn no longer runs, whatever status acpmux last listed (`staleRun`).
-    this.turnOpen = listed?.status === "running" && !this.staleRun(listed);
+    this.turnOpen = this.liveRunning(this.summary);
     // Only acpmux says what is pending (attach's `session.pending`): a replayed ask is history
     // here. The marks it left on its own rows (an edit "awaiting permission") stand until the
     // attach replays the page, as they do on a page whose decision it does not hold either.
@@ -4959,7 +4959,7 @@ export class AcpmuxDirectClient {
     }
     // A prompt behind the shown chat's running turn waits in the queue: it shows there from the
     // send on, never first as a transcript bubble that acpmux's `queued` record then moves.
-    const waits = !steer && shown === sessionId && this.turnOpen;
+    const waits = !steer && shown === sessionId && this.liveRunning();
     const generation = this.selectionGeneration;
     // The prompt's way to acpmux and the agent, drawn on its row (composer-delivery-DESIGN.md).
     const before = this.deliveries.get(promptId);
@@ -6039,7 +6039,7 @@ export class AcpmuxDirectClient {
       sessionId,
       harness: typeof summary?.harness === "string" ? summary.harness : undefined,
       ...(typeof summary?.model === "string" && summary.model ? { model: summary.model } : {}),
-      empty: this.rows.size === 0 && this.queue.length === 0 && turns === 0 && !this.turnOpen,
+      empty: this.rows.size === 0 && this.queue.length === 0 && turns === 0 && !this.liveRunning(summary),
       ...(local && typeof summary?.cwd === "string" && summary.cwd ? { cwd: summary.cwd } : {}),
       ...(Array.isArray(summary?.configOptions) ? { configOptions: summary.configOptions } : {}),
     };
