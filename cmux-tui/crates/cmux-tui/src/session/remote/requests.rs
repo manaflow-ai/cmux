@@ -105,6 +105,7 @@ impl RemoteSession {
                 RequestDeadline::Fixed(timeout) => timeout,
                 RequestDeadline::Attach => unreachable!(),
             };
+            // wakeup-allow: deadline the request's one deadline; the response ends the wait first
             return match rx.recv_timeout(timeout) {
                 Ok(response) => Ok(response),
                 Err(RecvTimeoutError::Timeout) => Err(RemoteRequestError::Timeout),
@@ -132,6 +133,7 @@ impl RemoteSession {
             let Some(wait) = deadline.next_wait(now, request_progress, attach_progress) else {
                 return Err(RemoteRequestError::Timeout);
             };
+            // wakeup-allow: bounded the attach wait's idle deadline, renewed only by attach progress, at most REMOTE_ATTACH_MAX_TIMEOUT; the response ends it first
             match rx.recv_timeout(wait) {
                 Ok(response) => return Ok(response),
                 Err(RecvTimeoutError::Disconnected) if self.shutdown.load(Ordering::Acquire) => {

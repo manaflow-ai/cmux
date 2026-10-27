@@ -28,10 +28,12 @@
 pub(crate) mod acpmux;
 pub(crate) mod chief;
 mod copy;
+#[cfg(test)]
+mod tests;
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use cmux_agent_pane_policy::build_identity::BuildIdentity;
 
@@ -46,6 +48,8 @@ pub(crate) const RECORD: &str = "adopted.json";
 pub(crate) const CHILD_ENV: &str = "CMUX_ADOPT_BUILD_HOMES_CHILD";
 /// How long an adoption waits for another one of the same home.
 const LOCK_WAIT: Duration = Duration::from_secs(30);
+/// The thread that waits for a held lock ([`lock_within`]).
+const LOCK_THREAD: &str = "cmux-adopt-lock";
 
 /// What one adoption did.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -99,10 +103,7 @@ impl Steps {
 /// An exclusive lock on `path` (created), or None while another process
 /// holds it.
 pub(crate) fn try_lock(path: &Path) -> std::io::Result<Option<File>> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(path)?;
+    let file = open_lock(path)?;
     match file.try_lock() {
         Ok(()) => Ok(Some(file)),
         Err(std::fs::TryLockError::WouldBlock) => Ok(None),
@@ -110,17 +111,36 @@ pub(crate) fn try_lock(path: &Path) -> std::io::Result<Option<File>> {
     }
 }
 
+fn open_lock(path: &Path) -> std::io::Result<File> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(path)
+}
+
 /// [`try_lock`], waiting up to [`LOCK_WAIT`] for another holder.
 pub(crate) fn wait_lock(path: &Path) -> std::io::Result<Option<File>> {
-    let deadline = Instant::now() + LOCK_WAIT;
-    loop {
-        if let Some(file) = try_lock(path)? {
-            return Ok(Some(file));
-        }
-        if Instant::now() >= deadline {
-            return Ok(None);
-        }
-        std::thread::sleep(Duration::from_millis(50));
+    lock_within(path, LOCK_WAIT)
+}
+
+/// The exclusive lock on `path` (created) once its holder releases it, or
+/// None after `limit`. The kernel wakes the wait when the lock is free
+/// (`flock`); it used to re-try every 50-100 ms. The blocking lock runs on
+/// its own thread so that `limit` bounds it: when the limit passes first,
+/// that thread drops the lock as soon as it gets it.
+pub(crate) fn lock_within(path: &Path, limit: Duration) -> std::io::Result<Option<File>> {
+    if let Some(file) = try_lock(path)? {
+        return Ok(Some(file));
+    }
+    let file = open_lock(path)?;
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    cmux_threads::spawn(LOCK_THREAD, cmux_threads::ThreadQos::Utility, move || {
+        let _ = sender.send(file.lock().map(|()| file));
+    })?;
+    // wakeup-allow: deadline the adoption's one bound on another holder; the lock's release ends the wait first
+    match receiver.recv_timeout(limit) {
+        Ok(locked) => locked.map(Some),
+        Err(_) => Ok(None),
     }
 }
 
@@ -129,18 +149,6 @@ pub(crate) fn wait_lock(path: &Path) -> std::io::Result<Option<File>> {
 pub(crate) fn held(path: &Path) -> bool {
     let Ok(file) = std::fs::OpenOptions::new().read(true).open(path) else { return false };
     matches!(file.try_lock(), Err(std::fs::TryLockError::WouldBlock))
-}
-
-/// Waits up to `limit` until no process holds `path`; true when free.
-pub(crate) fn wait_free(path: &Path, limit: Duration) -> bool {
-    let deadline = Instant::now() + limit;
-    while held(path) {
-        if Instant::now() >= deadline {
-            return false;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    true
 }
 
 /// `(compact stamp for names, RFC 3339 UTC)` of now.

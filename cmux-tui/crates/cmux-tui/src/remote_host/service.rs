@@ -118,6 +118,7 @@ fn lock_released_within(bound: Duration) -> bool {
     std::thread::spawn(move || {
         let _ = tx.send(file.lock().is_ok());
     });
+    // wakeup-allow: deadline the one stop bound; the released lock ends the wait first
     rx.recv_timeout(bound).unwrap_or(false)
 }
 
@@ -203,6 +204,7 @@ fn wait_ready(reader: std::io::PipeReader, log: &Path) -> anyhow::Result<()> {
         let _ = std::io::BufRead::read_line(&mut std::io::BufReader::new(reader), &mut line);
         let _ = tx.send(line);
     });
+    // wakeup-allow: deadline the one bound on the server's ready line; the line ends the wait first
     match rx.recv_timeout(READY_BOUND) {
         Ok(line) if line.trim() == "ready" => Ok(()),
         Ok(line) if line.trim() == "disabled" => {

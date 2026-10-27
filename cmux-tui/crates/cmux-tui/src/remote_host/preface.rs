@@ -48,6 +48,7 @@ pub(crate) fn read_line(stream: &mut TcpStream, deadline: Instant) -> io::Result
         if left.is_zero() {
             return Err(io::Error::new(io::ErrorKind::TimedOut, "preface line timed out"));
         }
+        // wakeup-allow: deadline the preface line's one deadline (the rest of it per byte); the peer's bytes end each read first
         stream.set_read_timeout(Some(left))?;
         match stream.read(&mut byte)? {
             0 => return Ok(None),

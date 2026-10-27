@@ -1413,6 +1413,7 @@ impl InteractiveWriter {
                     "ordered remote write did not complete before its deadline",
                 ));
             }
+            // wakeup-allow: deadline the ordered write's one deadline; its completion or a failure ends the wait first
             let (next, timeout) = self
                 .shared
                 .changed
@@ -1484,6 +1485,7 @@ impl InteractiveWriter {
             if remaining.is_zero() {
                 break;
             }
+            // wakeup-allow: deadline the close's one bound on the writer; the writer's end ends the wait first
             let (next, timeout) = self
                 .shared
                 .changed

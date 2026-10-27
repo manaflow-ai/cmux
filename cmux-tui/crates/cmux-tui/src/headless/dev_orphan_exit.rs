@@ -179,6 +179,7 @@ impl OrphanClock for SystemClock {
         state: MutexGuard<'a, WatchState>,
         timeout: Duration,
     ) -> MutexGuard<'a, WatchState> {
+        // wakeup-allow: deadline the seam's timed wait: the caller's one orphan-grace deadline
         changed.wait_timeout(state, timeout).unwrap_or_else(PoisonError::into_inner).0
     }
 }
@@ -267,6 +268,7 @@ impl OrphanWatch {
             state = match decision {
                 Decision::Exit => return true,
                 Decision::Serve => self.changed.wait(state).unwrap_or_else(PoisonError::into_inner),
+                // wakeup-allow: deadline the end of the orphan grace, once per idle period; a change of the owner's state ends it first
                 Decision::Wait(timeout) => self.clock.wait_timeout(&self.changed, state, timeout),
             };
         }

@@ -3,7 +3,8 @@
 //! A Cloud VM daemon learns its coderouter identity from the model-plane env
 //! (`CMUX_CODEROUTER_URL` and `CMUX_VM_ID`, in the process environment or in
 //! `$HOME/.config/cmux/model-plane.env`) and polls
-//! `GET {url}/api/coderouter/vm-usage/self` at a low cadence. The Freestyle
+//! `GET {url}/api/coderouter/vm-usage/self` 5 s after start, then every
+//! 5 minutes as a maintenance job (the endpoint has no push). The Freestyle
 //! edge injects the real credential; the guest only sends a public
 //! placeholder bearer. The latest totals land in the mux as
 //! [`MachineUsage`], which the protocol exposes through `machine-usage` and
@@ -20,6 +21,7 @@ use std::sync::{Arc, Weak};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use cmux_tui_core::wake::{JobSpec, Placement};
 use cmux_tui_core::{MachineUsage, Mux};
 use serde::Deserialize;
 use tokio::sync::Notify;
@@ -31,7 +33,11 @@ const USAGE_PATH: &str = "/api/coderouter/vm-usage/self";
 /// The guest never holds a credential; the edge replaces this bearer.
 const PLACEHOLDER_BEARER: &str = "cmux-vm-edge-placeholder";
 const STARTUP_DELAY: Duration = Duration::from_secs(5);
-const POLL_INTERVAL: Duration = Duration::from_secs(5 * 60);
+const POLL_JOB: JobSpec = JobSpec {
+    name: "machine_usage.refresh",
+    period: Duration::from_secs(5 * 60),
+    skippable_in_saver: true,
+};
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_BODY_BYTES: usize = 64 * 1024;
 const LOG_AREA: &str = "machine-usage";
@@ -254,7 +260,7 @@ impl ReportedState {
     }
 }
 
-/// Handle to the background poller. `stop` interrupts any sleep or request
+/// Handle to the background poller. `stop` interrupts any wait or request
 /// in flight and joins the thread.
 pub(crate) struct UsagePoller {
     stop: Arc<Notify>,
@@ -276,19 +282,44 @@ impl Drop for UsagePoller {
     }
 }
 
-/// Start polling when the process resolves a usage source; otherwise `None`.
-pub(crate) fn start_poller(mux: Weak<Mux>) -> Option<UsagePoller> {
+/// Start polling when the process resolves a usage source (Cloud VMs carry
+/// coderouter identity in their model-plane env); otherwise `None`.
+/// The mux's maintenance clock asks for each refresh after the first, on its
+/// 5-minute wall-clock grid, phased by the VM id so that VMs do not all ask
+/// at once (Chrome's component updater spreads its checks the same way).
+pub(crate) fn start_poller(mux: &Arc<Mux>) -> Option<UsagePoller> {
     let env_file = default_env_file_path();
     let contents = read_env_file(env_file.as_deref());
     let source = resolve_source(|key| std::env::var(key).ok(), contents.as_deref())?;
-    start_poller_with_source(mux, source, STARTUP_DELAY, POLL_INTERVAL)
+    let refresh = Arc::new(Notify::new());
+    let wake = Arc::clone(&refresh);
+    let registered = mux.maintenance_clock().and_then(|clock| {
+        clock
+            .register_placed(POLL_JOB, placement(&source), move || wake.notify_one())
+            .map_err(std::io::Error::other)
+    });
+    if let Err(error) = registered {
+        crate::client_log::log("DEBUG", LOG_AREA, &format!("refresh job failed: {error}"));
+        return None;
+    }
+    start_poller_with_source(Arc::downgrade(mux), source, STARTUP_DELAY, refresh)
 }
 
+/// The refresh's place on the grid: a phase from the VM id; the fetch 5 s
+/// after start counts as the run at registration.
+fn placement(source: &UsageSource) -> Placement {
+    let phase =
+        source.vm_id.bytes().fold(0_u64, |hash, byte| hash.wrapping_mul(31) ^ u64::from(byte));
+    Placement { phase, ran_at_registration: true }
+}
+
+/// Polls once `startup_delay` after the start, then once per `refresh`
+/// notification.
 fn start_poller_with_source(
     mux: Weak<Mux>,
     source: UsageSource,
     startup_delay: Duration,
-    interval: Duration,
+    refresh: Arc<Notify>,
 ) -> Option<UsagePoller> {
     let stop = Arc::new(Notify::new());
     let stop_for_thread = stop.clone();
@@ -304,7 +335,7 @@ fn start_poller_with_source(
                 return;
             }
         };
-        runtime.block_on(poll_loop(mux, source, stop_for_thread, startup_delay, interval));
+        runtime.block_on(poll_loop(mux, source, stop_for_thread, startup_delay, refresh));
     });
     match spawn {
         Ok(thread) => Some(UsagePoller { stop, thread: Some(thread) }),
@@ -320,7 +351,7 @@ async fn poll_loop(
     source: UsageSource,
     stop: Arc<Notify>,
     startup_delay: Duration,
-    interval: Duration,
+    refresh: Arc<Notify>,
 ) {
     // reqwest's rustls-no-provider build needs the workspace's ring provider
     // installed once per process before the first TLS client exists.
@@ -338,14 +369,13 @@ async fn poll_loop(
     };
     let url = source.usage_url();
     let mut reported = ReportedState::default();
-    let mut delay = startup_delay;
+    tokio::select! {
+        biased;
+        () = stop.notified() => return,
+        // wakeup-allow: deadline the one startup delay before the first fetch; a stop ends it first
+        () = tokio::time::sleep(startup_delay) => {}
+    }
     loop {
-        tokio::select! {
-            biased;
-            () = stop.notified() => return,
-            () = tokio::time::sleep(delay) => {}
-        }
-        delay = interval;
         let Some(mux) = mux.upgrade() else { return };
         let outcome = tokio::select! {
             biased;
@@ -356,6 +386,12 @@ async fn poll_loop(
             crate::client_log::log("DEBUG", LOG_AREA, &line);
         }
         mux.set_machine_usage(outcome.unwrap_or_default());
+        drop(mux);
+        tokio::select! {
+            biased;
+            () = stop.notified() => return,
+            () = refresh.notified() => {}
+        }
     }
 }
 
@@ -579,11 +615,12 @@ mod tests {
         let events = mux.subscribe();
         let source =
             UsageSource { coderouter_url: format!("http://{address}"), vm_id: "vm".into() };
+        let refresh = Arc::new(Notify::new());
         let poller = start_poller_with_source(
             Arc::downgrade(&mux),
             source,
             Duration::from_millis(1),
-            Duration::from_millis(1),
+            refresh.clone(),
         )
         .expect("poller starts");
 
@@ -598,6 +635,8 @@ mod tests {
             &|event| matches!(event, cmux_tui_core::MuxEvent::MachineUsageChanged(Some(usage)) if usage.vm_id == "vm-123"),
         );
         assert_eq!(mux.machine_usage().map(|usage| usage.total_tokens), Some(17));
+        assert_eq!(hits.load(Ordering::Acquire), 1, "no second fetch before the clock asks");
+        refresh.notify_one();
         wait(&|event| matches!(event, cmux_tui_core::MuxEvent::MachineUsageChanged(None)));
         assert_eq!(mux.machine_usage(), None);
         poller.stop();

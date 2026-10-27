@@ -440,7 +440,6 @@ impl Mux {
             access_requests: Default::default(),
             activity: Default::default(),
             energy: Default::default(),
-            #[cfg(target_os = "macos")]
             maintenance: OnceLock::new(),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
             idle_close_waker: Mutex::new(None),

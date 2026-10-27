@@ -26,9 +26,7 @@ use std::sync::{Arc, Weak};
 use super::Mux;
 use crate::server::energy_op::DaemonEnergy;
 use crate::server::energy_rule::PowerFacts;
-#[cfg(target_os = "macos")]
-use crate::wake::MaintenanceClock;
-use crate::wake::PowerReading;
+use crate::wake::{MaintenanceClock, PowerReading};
 
 impl Mux {
     /// Follows this Mac's power inputs into the daemon's own Energy Saver
@@ -45,9 +43,9 @@ impl Mux {
     }
 
     /// This process's one maintenance clock, started on first use and
-    /// following [`DaemonEnergy`]'s mode.
-    #[cfg(target_os = "macos")]
-    fn maintenance_clock(&self) -> io::Result<&MaintenanceClock> {
+    /// following [`DaemonEnergy`]'s mode. The daemon's periodic upkeep
+    /// registers here, so all of it shares one wake.
+    pub fn maintenance_clock(&self) -> io::Result<&MaintenanceClock> {
         if let Some(clock) = self.maintenance.get() {
             return Ok(clock);
         }

@@ -177,6 +177,7 @@ fn unanswered(stream: Box<dyn cmux_tui_core::platform::transport::Stream>) -> bo
         if remaining.is_zero() {
             return true;
         }
+        // wakeup-allow: deadline the probe's one deadline for the whole reply (the rest of it after an interrupted read); the reply ends the read first
         if connection.get_mut().set_read_timeout(Some(remaining)).is_err() {
             return false;
         }

@@ -189,6 +189,7 @@ impl GraphicsFenceWaiter {
                     "graphics processing fence timed out",
                 ));
             }
+            // wakeup-allow: bounded one image's fence wait, at most PROCESSING_FENCE_TIMEOUT (1 s) in 25 ms slices so a shutdown ends it; none while no image is drawn
             match self.responses.recv_timeout(remaining.min(PROCESSING_FENCE_SHUTDOWN_POLL)) {
                 Ok(response) => break response,
                 Err(RecvTimeoutError::Timeout) => {}

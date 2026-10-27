@@ -154,6 +154,13 @@ pub(crate) fn finish_server_shutdown<W, R>(
 /// starts runs by now, so none inherits that class.
 fn wait_for_stop(stopped: impl Fn() -> bool) {
     owner_start::register_main_thread();
+    wait_until_woken(stopped);
+}
+
+/// Blocks until `stopped`, re-checked on every [`wake_headless`] (no
+/// timeout): each flag `stopped` reads is set by a caller of
+/// [`wake_headless`].
+pub(crate) fn wait_until_woken(stopped: impl Fn() -> bool) {
     let (lock, wake) = &HEADLESS_WAKE;
     let mut generation = lock.lock().unwrap();
     while !stopped() {

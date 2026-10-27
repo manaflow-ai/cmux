@@ -366,13 +366,15 @@ impl ProviderMachineController {
         let local_ui = self.local_ui(self.active_local);
         let active_local = self.active_local;
         let pending_provider_switch = self.pending_provider_switch;
-        let stop = Arc::new(AtomicBool::new(false));
-        let worker_stop = stop.clone();
+        // One stop for both streams: stopping this one stops the provider's,
+        // whose end closes `provider_receiver` and so ends this worker's
+        // wait. It used to re-check its own stop every 250 ms.
+        let stop = provider_stop.clone();
         let (sender, receiver) = mpsc::sync_channel(8);
         let worker =
             std::thread::Builder::new().name("machine-local-overlay".into()).spawn(move || {
-                while !worker_stop.load(Ordering::Acquire) {
-                    match provider_receiver.recv_timeout(Duration::from_millis(250)) {
+                while !provider_stop.load(Ordering::Acquire) {
+                    match provider_receiver.recv() {
                         Ok(update) => {
                             let update = match update {
                                 MachineUpdate::Ui(ui) => MachineUpdate::Ui(Box::new(
@@ -394,8 +396,7 @@ impl ProviderMachineController {
                                 break;
                             }
                         }
-                        Err(mpsc::RecvTimeoutError::Timeout) => continue,
-                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                        Err(mpsc::RecvError) => break,
                     }
                 }
                 provider_stop.store(true, Ordering::Release);
@@ -1173,7 +1174,9 @@ impl ProviderMachineRuntime {
                         let _ = refresh_output.send(MachineUpdate::Ui(Box::new(ui)));
                         break;
                     }
-                    let event = match refresh_receiver.recv_timeout(Duration::from_millis(250)) {
+                    // The events worker holds the only sender: its end (on a
+                    // stop, a disconnect or an overflow) ends this wait.
+                    let event = match refresh_receiver.recv() {
                         Ok(ProviderRefreshSignal::Refresh(event)) => {
                             if matches!(&event, Some(protocol::ProviderEvent::SnapshotChanged(_))) {
                                 // Permit one follow-up invalidation while this authoritative
@@ -1202,8 +1205,7 @@ impl ProviderMachineRuntime {
                             let _ = refresh_output.send(MachineUpdate::Ui(Box::new(ui)));
                             break;
                         }
-                        Err(mpsc::RecvTimeoutError::Timeout) => continue,
-                        Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        Err(mpsc::RecvError) => {
                             if worker_refresh_overflowed.load(Ordering::Acquire) {
                                 let mut ui = machine_ui_state(
                                     &last_snapshot,

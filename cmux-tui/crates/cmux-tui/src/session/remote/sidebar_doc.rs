@@ -414,6 +414,7 @@ impl RemoteSession {
             forget();
             return Err(self.classify_transport_error(error).into());
         }
+        // wakeup-allow: deadline the request's one deadline; the response ends the wait first
         let response = match rx.recv_timeout(REMOTE_REQUEST_TIMEOUT) {
             Ok(response) => response,
             Err(RecvTimeoutError::Timeout) => {

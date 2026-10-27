@@ -793,9 +793,8 @@ pub struct Mux {
     /// This process's Energy Saver: the app's `energy.set` override over the
     /// daemon's own reading (server/energy_op.rs).
     pub(crate) energy: crate::server::energy_op::DaemonEnergy,
-    /// This process's maintenance clock, once the power source follow
-    /// starts it (mux/power_source.rs).
-    #[cfg(target_os = "macos")]
+    /// This process's one maintenance clock, started by its first user
+    /// (mux/power_source.rs).
     maintenance: OnceLock<crate::wake::MaintenanceClock>,
     idle_close: Mutex<idle_close::IdleCloseTracker>,
     /// Wakes the idle-close reaper when a policy changes.

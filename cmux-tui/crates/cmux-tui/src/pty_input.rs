@@ -458,6 +458,7 @@ impl PtyInputDispatcher {
             && Instant::now() < deadline
         {
             let remaining = deadline.saturating_duration_since(Instant::now());
+            // wakeup-allow: deadline the shutdown drain's one bound; the last write's completion ends the wait first
             let (next, _) = self.sender.queue.changed.wait_timeout(state, remaining).unwrap();
             state = next;
         }

@@ -211,13 +211,16 @@ fn quiesce(home: &Path, exe: Option<&Path>, steps: &mut Steps) -> Result<Vec<Fil
             .stdout(cmux_process::Stdio::null())
             .stderr(cmux_process::Stdio::null())
             .status();
-        if !super::wait_free(&daemon_lock, STOP_WAIT) {
-            return Err(format!(
-                "the acpmux daemon in {} did not stop ({status:?})",
-                home.display()
-            ));
-        }
-        steps.step(format!("the acpmux daemon in {} stopped", home.display()));
+        return match super::lock_within(&daemon_lock, STOP_WAIT) {
+            Ok(Some(file)) => {
+                steps.step(format!("the acpmux daemon in {} stopped", home.display()));
+                Ok(vec![file])
+            }
+            Ok(None) => {
+                Err(format!("the acpmux daemon in {} did not stop ({status:?})", home.display()))
+            }
+            Err(error) => Err(format!("{}: {error}", daemon_lock.display())),
+        };
     }
     match super::try_lock(&daemon_lock) {
         Ok(Some(file)) => Ok(vec![file]),

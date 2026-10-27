@@ -383,6 +383,7 @@ pub(crate) fn ensure_session(exe: &Path, session: &str) -> anyhow::Result<PathBu
         let _ = (&mut stdout).take(1024 * 1024).read_to_end(&mut buf);
         buf
     });
+    // wakeup-allow: deadline the one bound on `daemon ensure`; its exit ends the wait first
     let status = match child.wait_timeout(ENSURE_BOUND)? {
         Some(status) => status,
         None => {

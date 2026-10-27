@@ -112,7 +112,7 @@ mod update_notice;
 mod version_report;
 
 use headless::run_headless;
-pub(crate) use headless::wake_headless;
+pub(crate) use headless::{wait_until_woken, wake_headless};
 #[cfg(unix)]
 use loopback_policy::deny_daemon_listener_ports;
 use loopback_policy::loopback_forward_policy;
@@ -1105,6 +1105,7 @@ fn schema_socket_owner(
         Err(_) => return SchemaSocketOwner::Unverified,
     };
     let timeout = Some(std::time::Duration::from_millis(500));
+    // wakeup-allow: deadline the identify probe's one 500 ms bound; the reply ends the read first
     if stream.set_read_timeout(timeout).is_err() || stream.set_write_timeout(timeout).is_err() {
         return SchemaSocketOwner::Unverified;
     }
@@ -2247,7 +2248,7 @@ fn run_server(
     // Windows hosts get no orphan grace (no app bundles there to classify).
     #[cfg(unix)]
     host_orphan_policy::install();
-    owner_start::prepare(&args)?;
+    let owner_watch = owner_start::prepare(&args)?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
     let provider_management_listener = take_provider_management_listener()?;
@@ -2614,10 +2615,9 @@ fn run_server(
     let served_socket = pending_server.into_bound_path();
     mux.start_journal_plugin(served_socket.clone());
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
-    // Cloud VMs carry coderouter identity in their model-plane env; every
-    // other host resolves no source and gets no poller.
     #[cfg(unix)]
-    let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
+    let machine_usage_poller = coderouter_usage::start_poller(&mux);
+    owner_watch.watch_memory(&mux);
     #[cfg(unix)]
     cloud_conversations_backend::install(&mux);
     // Ends terminals that have had no tab placement for the reap grace

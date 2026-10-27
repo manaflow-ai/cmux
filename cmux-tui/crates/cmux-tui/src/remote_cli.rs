@@ -56,6 +56,7 @@ mod acpmux_peer;
 #[cfg(test)]
 mod remote_link_binding_tests;
 mod remote_link_mux;
+mod sidecar_monitor;
 use remote_link_mux::{mux_owner_args, socket_for};
 
 const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
@@ -66,6 +67,10 @@ const MAX_RPC_STDIN_LINE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_CLIENT_RELAY_ROUTES: usize = 4;
 const DETACHED_TERM_GRACE: Duration = Duration::from_millis(500);
 const DETACHED_KILL_GRACE: Duration = Duration::from_secs(1);
+/// The thread that wakes the remote sidecar on a termination signal.
+const SIDECAR_SIGNAL_THREAD: &str = "remote-sidecar-signal";
+/// How long a starting daemon's socket check waits before it connects again.
+const DETACHED_SOCKET_RETRY: Duration = Duration::from_millis(50);
 const FORWARD_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub fn is_remote_invocation(args: &[String]) -> bool {
@@ -585,11 +590,9 @@ fn connect_with_flags(
                 // Off by default (`CMUX_ACPMUX_CLOUD_PEER=1`); ends with this loop.
                 let _peer_bridge = acpmux_peer::AcpmuxPeerBridge::spawn(&connected.runtime);
                 let mut previous = None;
-                let mut finished = connected.runtime.subscribe_finished();
-                while !crate::shutdown_requested()
-                    && !connected.runtime.is_finished()
-                    && owner.is_none_or(parent_process_is)
-                {
+                let stop = wait_for_connected_stop(&connected.runtime, owner);
+                tokio::pin!(stop);
+                loop {
                     let snapshot = connected.runtime.connection_snapshot().await;
                     let mut topology = snapshot.clone();
                     if let Some(path) = topology.transport.selected_path.as_mut() {
@@ -607,21 +610,18 @@ fn connect_with_flags(
                         io::stdout().flush()?;
                         previous = Some(topology);
                     }
+                    // The connection publishes no change of its snapshot
+                    // (state, path), so it is sampled while the link runs.
                     tokio::select! {
-                        _ = finished.changed() => {},
+                        biased;
+                        stopped = &mut stop => break stopped,
                         _ = tokio::time::sleep(Duration::from_millis(100)) => {},
                     }
                 }
-                Ok::<_, io::Error>(())
             })?;
         } else {
             println!("{}", connected.runtime.info().local_socket.display());
-            while !crate::shutdown_requested()
-                && !connected.runtime.is_finished()
-                && owner.is_none_or(parent_process_is)
-            {
-                thread::sleep(Duration::from_millis(100));
-            }
+            tokio_runtime()?.block_on(wait_for_connected_stop(&connected.runtime, owner))?;
         }
         return connected.runtime.shutdown();
     }
@@ -636,6 +636,33 @@ fn connect_with_flags(
 struct ConnectedRuntime {
     runtime: crate::remote_runtime::ClientRuntimeHandle,
     route: String,
+}
+
+/// Waits for what ends a headless link: a termination signal, the end of
+/// the client runtime, or the exit of `owner` (the parent `--exit-with-parent`
+/// names). Each one is an event (the signal wake descriptor, the runtime's
+/// finished watch, NOTE_EXIT / pidfd); the loop used to re-check all three
+/// every 100 ms.
+async fn wait_for_connected_stop(
+    runtime: &crate::remote_runtime::ClientRuntimeHandle,
+    owner: Option<u32>,
+) -> io::Result<()> {
+    let mut finished = runtime.subscribe_finished();
+    if crate::shutdown_requested() || *finished.borrow() || runtime.is_finished() {
+        return Ok(());
+    }
+    let parent_exit = async {
+        match owner {
+            Some(owner) => wait_for_parent_exit(owner).await,
+            None => std::future::pending::<()>().await,
+        }
+    };
+    tokio::select! {
+        biased;
+        shutdown = crate::wait_for_shutdown_signal_peek_async() => shutdown,
+        _ = finished.wait_for(|finished| *finished) => Ok(()),
+        () = parent_exit => Ok(()),
+    }
 }
 
 fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
@@ -1757,10 +1784,15 @@ fn parent_process_is(_: u32) -> bool {
     true
 }
 
+/// The first and the longest delay of the `getppid` check where the kernel
+/// has no process-exit event.
+const PARENT_CHECK_FIRST: Duration = Duration::from_millis(100);
+const PARENT_CHECK_MAX: Duration = Duration::from_secs(5);
+
 /// Returns when the process `expected` (our parent at launch) exits. It
 /// waits on a kernel process-exit event (kqueue `NOTE_EXIT`, Linux pidfd);
 /// it used to re-check `getppid` every 100 ms. Kernels without pidfd keep
-/// the old check as a fallback.
+/// that check as a fallback, backing off to 5 s.
 ///
 /// The kernel wait runs on a detached thread, not tokio's blocking pool: a
 /// blocking task cannot be cancelled, so a runtime shut down by a signal
@@ -1776,8 +1808,11 @@ async fn wait_for_parent_exit(expected: u32) {
     if waiter.is_ok() && matches!(receiver.await, Ok(Ok(()))) {
         return;
     }
+    let mut delay = PARENT_CHECK_FIRST;
     while parent_process_is(expected) {
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        // wakeup-allow: backoff the kernel refused the exit event (Linux without pidfd); the check backs off to PARENT_CHECK_MAX
+        tokio::time::sleep(delay).await;
+        delay = (delay * 2).min(PARENT_CHECK_MAX);
     }
 }
 
@@ -2481,6 +2516,7 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
                 .block_on(complete_verified_daemon_stop(&state_dir, &parsed.session))?;
             return Ok(());
         }
+        // wakeup-allow: cli-only `cmux remote stop`'s wait for the daemon's exit and its socket and runtime file to go, at most 20 s
         thread::sleep(Duration::from_millis(50));
     }
     Err(anyhow!(catalog().remote.daemon_stop_timeout))
@@ -2532,7 +2568,7 @@ fn run_remote_sidecar(args: &[String]) -> anyhow::Result<()> {
     let mux_socket = flag_value(args, "--mux-socket")
         .map(PathBuf::from)
         .ok_or_else(|| anyhow!("remote-sidecar needs --mux-socket"))?;
-    let mut mux_monitor = open_mux_monitor(&mux_socket)?;
+    let mux_monitor = sidecar_monitor::open(&mux_socket)?;
     let state_dir = flag_value(args, "--state-dir").map(PathBuf::from);
     let link_socket = flag_value(args, "--link-socket").map(PathBuf::from);
     let runtime = start_daemon_runtime(
@@ -2553,25 +2589,20 @@ fn run_remote_sidecar(args: &[String]) -> anyhow::Result<()> {
             replaceable_sidecar: true,
         },
     )?;
-    let mut mux_disappeared = false;
-    let mut monitor_error = None;
-    while !crate::shutdown_requested() && !runtime.is_finished() {
-        match mux_monitor_disconnected(&mut mux_monitor, &mux_socket) {
-            Ok(false) => {}
-            Ok(true) => {
-                mux_disappeared = true;
-                break;
-            }
-            Err(error) => {
-                mux_disappeared = true;
-                monitor_error = Some(error);
-                break;
-            }
-        }
-    }
-    if !mux_disappeared {
+    // Three events end the sidecar, each one through wake_headless: a
+    // termination signal, the end of the runtime, the mux closing.
+    let mux_monitor = sidecar_monitor::MuxMonitor::start(mux_monitor)?;
+    let _ = cmux_threads::spawn(SIDECAR_SIGNAL_THREAD, cmux_threads::ThreadQos::Utility, || {
+        crate::wait_for_shutdown_signal_peek();
+        crate::wake_headless();
+    });
+    crate::wait_until_woken(|| {
+        crate::shutdown_requested() || runtime.is_finished() || mux_monitor.ended()
+    });
+    let Some(monitored) = mux_monitor.take() else {
         return runtime.shutdown();
-    }
+    };
+    let monitor_error = monitored.err().map(anyhow::Error::from);
 
     // The runtime owns its socket and metadata paths through shutdown. A
     // separate check-then-unlink cleanup can remove a replacement daemon that
@@ -2720,7 +2751,9 @@ fn wait_for_detached_socket(
         if connect_same_user_socket(socket).is_ok() {
             return Ok(());
         }
-        match child.try_wait() {
+        // The child's exit ends the retry delay at once (NOTE_EXIT / pidfd).
+        // wakeup-allow: bounded the socket retry runs only while a daemon starts, at most `timeout` (20 s)
+        match child.wait_timeout(DETACHED_SOCKET_RETRY) {
             Ok(Some(status)) => {
                 return Err(anyhow!(
                     "{process_name} exited {status}; inspect {}",
@@ -2741,7 +2774,6 @@ fn wait_for_detached_socket(
                 };
             }
         }
-        thread::sleep(Duration::from_millis(50));
     }
     match terminate_detached_process(child) {
         Ok(()) => Err(anyhow!("{process_name} did not create {}", socket.display())),
@@ -2753,7 +2785,7 @@ fn wait_for_detached_socket(
 }
 
 fn terminate_detached_process(child: &mut Child) -> io::Result<()> {
-    if child.try_wait()?.is_some() {
+    if wait_for_child_exit(child, Duration::ZERO)? {
         return Ok(());
     }
     signal_detached_process_group(child, libc::SIGTERM)?;
@@ -2780,66 +2812,15 @@ fn signal_detached_process_group(child: &Child, signal: libc::c_int) -> io::Resu
     if error.raw_os_error() == Some(libc::ESRCH) { Ok(()) } else { Err(error) }
 }
 
+/// Whether `child` exits within `timeout`: its exit event ends the wait
+/// (NOTE_EXIT / pidfd); it used to re-check every 10 ms.
 fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> io::Result<bool> {
-    let deadline = Instant::now() + timeout;
-    loop {
-        if child.try_wait()?.is_some() {
-            return Ok(true);
-        }
-        if Instant::now() >= deadline {
-            return Ok(false);
-        }
-        thread::sleep(Duration::from_millis(10));
-    }
+    // wakeup-allow: deadline the one grace bound of a stop; the child's exit ends the wait first
+    Ok(child.wait_timeout(timeout)?.is_some())
 }
 
 fn configure_detached_process(command: &mut Command) {
     command.new_session();
-}
-
-fn open_mux_monitor(path: &Path) -> anyhow::Result<UnixStream> {
-    let stream = connect_same_user_socket(path).with_context(|| {
-        format!("cannot attach remote sidecar to mux socket {}", path.display())
-    })?;
-    stream.set_read_timeout(Some(Duration::from_millis(250)))?;
-    Ok(stream)
-}
-
-fn mux_monitor_disconnected(stream: &mut UnixStream, path: &Path) -> anyhow::Result<bool> {
-    use std::os::unix::fs::FileTypeExt;
-
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_socket() => {}
-        Ok(_) => return Ok(true),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(true),
-        Err(error) => return Err(error.into()),
-    }
-
-    let mut byte = [0_u8; 1];
-    match stream.read(&mut byte) {
-        Ok(0) => Ok(true),
-        Ok(_) => Ok(false),
-        Err(error)
-            if matches!(
-                error.kind(),
-                io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut | io::ErrorKind::Interrupted
-            ) =>
-        {
-            Ok(false)
-        }
-        Err(error)
-            if matches!(
-                error.kind(),
-                io::ErrorKind::BrokenPipe
-                    | io::ErrorKind::ConnectionAborted
-                    | io::ErrorKind::ConnectionReset
-                    | io::ErrorKind::NotConnected
-            ) =>
-        {
-            Ok(true)
-        }
-        Err(error) => Err(error.into()),
-    }
 }
 
 fn open_private_daemon_file(path: &Path, append: bool) -> io::Result<fs::File> {
@@ -3727,28 +3708,6 @@ mod tests {
         promote_reachable_unix_routes(&mut routes);
 
         assert_eq!(routes, [candidate(local), candidate(websocket), candidate(missing)]);
-    }
-
-    #[test]
-    fn sidecar_mux_monitor_detects_the_connected_server_closing() {
-        let directory = tempfile::tempdir().unwrap();
-        let mux = directory.path().join("mux.sock");
-        let listener = std::os::unix::net::UnixListener::bind(&mux).unwrap();
-        let (accepted_tx, accepted_rx) = std::sync::mpsc::sync_channel(1);
-        let (close_tx, close_rx) = std::sync::mpsc::sync_channel(1);
-        let server = thread::spawn(move || {
-            let (stream, _) = listener.accept().unwrap();
-            accepted_tx.send(()).unwrap();
-            close_rx.recv().unwrap();
-            drop(stream);
-        });
-        let mut monitor = open_mux_monitor(&mux).unwrap();
-        accepted_rx.recv().unwrap();
-
-        assert!(!mux_monitor_disconnected(&mut monitor, &mux).unwrap());
-        close_tx.send(()).unwrap();
-        server.join().unwrap();
-        assert!(mux_monitor_disconnected(&mut monitor, &mux).unwrap());
     }
 
     #[cfg(unix)]

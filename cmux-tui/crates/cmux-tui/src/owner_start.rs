@@ -42,8 +42,10 @@ pub(crate) fn register_main_thread() -> bool {
 /// The headless owner also records every panic (`owner_panic`, cx-urd.59)
 /// and sends the ones not sent yet to Sentry (`crash_forward`), and watches
 /// its own memory (`memory_guard`), and fetches the signed invite-wave flags
-/// and the daily update answer (`background_checks`).
-pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
+/// and the daily update answer (`background_checks`). The memory guard
+/// starts once the mux exists ([`OwnerWatch::watch_memory`]).
+pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<OwnerWatch> {
+    let mut memory = None;
     if args.headless {
         owner_panic::install(&args.session);
         #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
@@ -56,7 +58,7 @@ pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
             .flat_map(|log| [log.clone(), memory_guard::memory_log_path(log)])
             .collect();
         let forwarder = crash_forward::start(logs);
-        memory_guard::spawn(panic_log, forwarder);
+        memory = memory_guard::prepare(panic_log, forwarder);
         background_checks::spawn();
     }
     if args.ephemeral && args.state.is_some() {
@@ -71,5 +73,19 @@ pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
             crate::cli::BIN
         );
     }
-    Ok(())
+    Ok(OwnerWatch { memory })
+}
+
+/// The owner's watchers that wait for its mux.
+pub(crate) struct OwnerWatch {
+    memory: Option<memory_guard::MemoryGuardStart>,
+}
+
+impl OwnerWatch {
+    /// Starts the memory guard on `mux`'s maintenance clock (headless only).
+    pub(crate) fn watch_memory(self, mux: &cmux_tui_core::Mux) {
+        if let Some(memory) = self.memory {
+            memory.start(mux);
+        }
+    }
 }
