@@ -74,6 +74,9 @@ final class HostView: NSView {
     /// cmux: Reply to Selection's quote over the message box (HostView+QuoteCard.swift); nil when none shows.
     var quoteCard: ReplyQuoteCardView?
     private(set) var demo: MessagesWindowView?
+    /// cmux: the Chief chat's zoom (MessagesLabHomeView.zoom): this view is laid out at its pane's size over the
+    /// zoom and drawn magnified by it; its bitmaps render at the window's scale times it (PaneHost+Scale.swift).
+    var contentZoom: CGFloat = 1
     weak var controller: ChatController? { didSet { scrollView.document.controller = controller } }
     /// MessagesLab b6760b6: the window's update observer and the window place the rows last read
     /// (PaneHost+WindowPlace.swift).
@@ -883,4 +886,17 @@ final class ChatController: NSObject, NSTextViewDelegate {
     func windowDidResize() { host.needsLayout = true }
 
     // The display change (colour space and scale): PaneHost+Scale.swift (followDisplay).
+}
+
+extension NSView {
+    /// cmux: the Chief chat's zoom (HostView.contentZoom) of the host this view is in, 1 outside one. A view's length
+    /// in its window also carries a canvas camera's scale, so a bitmap's scale reads the zoom here, not from `convert`.
+    var enclosingContentZoom: CGFloat {
+        var view = superview
+        while let v = view {
+            if let host = v as? HostView { return host.contentZoom }
+            view = v.superview
+        }
+        return 1
+    }
 }

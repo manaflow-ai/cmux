@@ -13,6 +13,7 @@ import type { AcpmuxSnapshot } from "./model";
 import { ProjectChooser, type Project } from "./ProjectChooser";
 import {
   defaultRow,
+  stepSelection,
   EMPTY_OMNIBAR,
   MAX_NEW_TAB_ENTRIES,
   omnibarContext,
@@ -414,14 +415,14 @@ export function NewTabPage({
   // The kind a prefix switched from, so Backspace in the empty field switches back.
   const [beforePrefix, setBeforePrefix] = useState<TabKind>();
   const field = useRef<HTMLInputElement>(null);
-  const { attachments, setAttachments, pending, loading, cancel, retry, attachError, drop, dropLanded } =
+  const { attachments, setAttachments, pending, unsettled, cancel, retry, attachError, drop, dropLanded } =
     useAttachmentIntake({
       allowImages: snapshot.summary?.promptCapabilities?.image !== false,
       pasteTarget: (target) => (kind === "agent" && field.current?.contains(target) ? { uploads: false } : undefined),
       dropZone: () => field.current?.closest(".acpmux-newtab") ?? null,
     });
   attachmentRef.current = attachments;
-  const holdForAttachments = useSendWhenAttached(loading);
+  const holdForAttachments = useSendWhenAttached(unsettled);
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page), staged attachments, and a kind or folder picked
   // (pages/shared/webSwap.ts).
@@ -580,9 +581,7 @@ export function NewTabPage({
     if ((event.key === "ArrowDown" || event.key === "ArrowUp") && rows.length) {
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
-      setSelected((current) =>
-        current < 0 && step < 0 ? rows.length - 1 : (current + step + rows.length) % rows.length,
-      );
+      setSelected((current) => stepSelection(current, step, rows.length));
     } else if (event.key === "Escape" && text) {
       event.preventDefault();
       setText("");
