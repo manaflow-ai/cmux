@@ -301,6 +301,7 @@ public final class ChromiumWarmup {
         guard self.reason == nil, isAvailable, !engine.isRunning, !stopped else { return }
         self.reason = reason
         // task-owner: one warm start per process; CEFEngine owns its lifetime
+        // main-hop-allow: CefInitialize is main-thread by Chromium's contract (architecture.md 5a); the Host's attach and disk reads run off main (ChromiumHostLaunchSlot)
         Task { [weak self] in
             await self?.engine.warmStart(reason: reason.rawValue)
             self?.warmStarted()
