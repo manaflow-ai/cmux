@@ -365,7 +365,11 @@ test("the managed mark is this Mac's: a peer's or another host's chat keeps its 
 for (const [why, first] of [
   [
     "an ask the host refused",
-    { code: -32000, message: "outside the roots", data: { origin: "native", code: "transport.path_outside_roots", method: "_acpmux/start_mode" } },
+    {
+      code: -32000,
+      message: "outside the roots",
+      data: { origin: "native", code: "transport.path_outside_roots", method: "_acpmux/start_mode" },
+    },
   ],
   ["an ask the daemon refused", { code: -32602, message: "harness codex is not available" }],
 ] as const) {
@@ -439,9 +443,7 @@ test("a full-access choice a chat offers only as a config option is managed too"
 test("a chat in full access whose narrower mode was refused keeps its menu once managed", async () => {
   // Review 48: the inverse of the two-row case. The current row is the full-access one; the only
   // other mode was refused. Managed off keeps the menu, with the current row saying why.
-  await render(reported("s1", "bypassPermissions"), () =>
-    Promise.reject(new Error("default is not allowed here")),
-  );
+  await render(reported("s1", "bypassPermissions"), () => Promise.reject(new Error("default is not allowed here")));
   const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
   await act(async () => void openPicker("Mode"));
   await act(async () => item("Manual")!.click());
@@ -457,8 +459,7 @@ test("a new connection forgets the managed mark, and a late answer from the old 
   const direct = await import("../src/agent-session/acpmux/direct");
   const client: Client = Object.create(direct.AcpmuxDirectClient.prototype);
   let releaseOld: (reply: unknown) => void = () => undefined;
-  (client as unknown as { request: () => Promise<unknown> }).request = () =>
-    new Promise((done) => (releaseOld = done));
+  (client as unknown as { request: () => Promise<unknown> }).request = () => new Promise((done) => (releaseOld = done));
   await answer({ harness: "claude", modeId: null, fullAccess: "managed" });
   let old: Promise<unknown> = Promise.resolve();
   await act(async () => {
