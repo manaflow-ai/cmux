@@ -43,7 +43,8 @@ public struct DaemonLauncher: Sendable {
         public var rememberedSocket: String?
         /// The app's install key (P8 3b-2): handed on stdin to an owner that
         /// `ensure` spawns, and proved by `client-hello` on each connection.
-        public var installKey: FrontendInstallKey?
+        /// The app's launchers read it on lanes (``FrontendInstallKeyStores/read(stateDirectory:on:)``).
+        public var installKey: FrontendInstallKeySource
         /// True when `binary` is the app bundle's own `bin/cmux-tui`, built from this tree. That build always accepts
         /// `--terminal-reap-grace-seconds` (since c40e1186701d), so the launcher passes it without the `--help` probe,
         /// which can time out on a loaded machine and start an owner that never reaps. An external binary
@@ -54,7 +55,7 @@ public struct DaemonLauncher: Sendable {
         public init(binary: URL, session: String, stateDirectory: URL? = nil, configFile: URL? = nil,
                     runtimeBase: URL = DaemonLauncher.userTemporaryDirectory(),
                     terminalReapGraceSeconds: UInt32 = 30, rememberedSocket: String? = nil,
-                    installKey: FrontendInstallKey? = nil, binaryIsBundled: Bool = false, webSocketPageOrigins: [String] = []) {
+                    installKey: FrontendInstallKeySource = .noKey, binaryIsBundled: Bool = false, webSocketPageOrigins: [String] = []) {
             self.binary = binary
             self.binaryIsBundled = binaryIsBundled
             self.webSocketPageOrigins = webSocketPageOrigins
@@ -141,7 +142,8 @@ public struct DaemonLauncher: Sendable {
     /// environment at startup and honors it only inside its own app bundle, so no child inherits it (bead cx-e0cs).
     /// `resolvedTerminalEnvironment` adds the keys the app looks up on the disk off the main thread (Ghostty's `TERM`
     /// and resources), awaited when `server ensure` builds its environment, over `terminalEnvironment`.
-    /// `installKeys` is the composition root's, so an unsigned build hands its daemon the install key.
+    /// `installKeys` is the composition root's, so an unsigned build hands its daemon the install key; the
+    /// signing team and the key file are read on `work`'s lanes, never on the caller's (main) thread.
     public static func forApp(
         work: BackgroundWork,
         build: BuildIdentity,
@@ -158,10 +160,9 @@ public struct DaemonLauncher: Sendable {
         let binary = try resolveBinary(bundle: bundle, environment: processEnvironment)
         DaemonLaunchTimings.shared.mark("daemon.binary_resolved")
         let (session, stateDirectory) = appNames(build: build, applicationSupport: applicationSupport, log: true)
-        let keyStore = installKeys.forApp(stateDirectory: stateDirectory)
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
                                           rememberedSocket: socketMemory.socket(session: session),
-                                          installKey: keyStore?.loadOrCreate(),
+                                          installKey: installKeys.read(stateDirectory: stateDirectory, on: work),
                                           binaryIsBundled: isBundledBinary(binary, bundle: bundle), webSocketPageOrigins: webSocketPageOrigins)
         var overrides = terminalEnvironment
         if let stateDirectory { overrides["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
@@ -192,8 +193,8 @@ public struct DaemonLauncher: Sendable {
         // An unsigned (DEV) build proves it is the app to an owner it started with this home's
         // install key, as with its own daemon: the owner then takes its origin.confirmation.issue
         // (a Home page's Chief create on the person's gesture). A signed build proves it by its
-        // code signature and gets no key.
-        let installKey = installKeys.forApp(stateDirectory: stateDirectory)?.loadOrCreate()
+        // code signature and gets no key. Read on `work`'s lanes: the Chief owner starts on main.
+        let installKey = installKeys.read(stateDirectory: stateDirectory, on: work)
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
                                           installKey: installKey, binaryIsBundled: isBundledBinary(binary, bundle: bundle))
         let environment = chiefEnvironment(processEnvironment)
@@ -349,14 +350,16 @@ public struct DaemonLauncher: Sendable {
         // progress stops for `ensureTimeout` (cx-n3bs). An external binary
         // may lack the option; the daemon's own restore bound ends it.
         let progress = configuration.binaryIsBundled
-        let arguments = Self.ensureArguments(configuration, reapGrace: await reapGrace, progress: progress)
+        let installKey = await configuration.installKey.key()
+        let arguments = Self.ensureArguments(configuration, sendsInstallKey: installKey != nil,
+                                             reapGrace: await reapGrace, progress: progress)
         DaemonLaunchTimings.shared.mark("daemon.ensure_start")
         defer { DaemonLaunchTimings.shared.mark("daemon.ensure_end") }
         let result = try await ProcessRunner.run(
             executable: configuration.binary,
             arguments: arguments,
             environment: environment,
-            stdin: configuration.installKey?.payload,
+            stdin: installKey?.payload,
             timeout: progress ? Self.ensureRestoreCap : max(ensureTimeout, Self.ensureRestoreCap),
             progressIdle: progress ? ensureTimeout : nil,
             clock: clock
@@ -364,14 +367,14 @@ public struct DaemonLauncher: Sendable {
         return try Self.parseEnsure(result)
     }
 
-    /// The `server ensure` command line for `configuration`. `reapGrace`
-    /// says whether the binary accepts `--terminal-reap-grace-seconds`
+    /// The `server ensure` command line for `configuration`. `sendsInstallKey`: the install key goes on stdin.
+    /// `reapGrace` says whether the binary accepts `--terminal-reap-grace-seconds`
     /// (``supportsReapGrace()``); a client without it refuses the option.
-    static func ensureArguments(_ configuration: Configuration, reapGrace: Bool = true,
+    static func ensureArguments(_ configuration: Configuration, sendsInstallKey: Bool, reapGrace: Bool = true,
                                 progress: Bool = false) -> [String] {
         ["--session", configuration.session, "--json", "server", "ensure"]
             + (reapGrace ? ["--terminal-reap-grace-seconds", String(configuration.terminalReapGraceSeconds)] : [])
-            + (configuration.installKey == nil ? [] : ["--install-key-stdin"])
+            + (sendsInstallKey ? ["--install-key-stdin"] : [])
             + (progress ? ["--restore-progress"] : []) + pageListenerArguments(configuration)
     }
 

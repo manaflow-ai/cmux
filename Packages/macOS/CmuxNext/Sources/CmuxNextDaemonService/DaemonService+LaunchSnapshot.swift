@@ -82,7 +82,7 @@ extension DaemonService {
     /// The local daemon's connection configuration, for the first connect
     /// begun in `main` (`prestart`) and for the connections after it.
     nonisolated static func localConfiguration(terminalEnvironment: (@Sendable () async -> [String: String])?,
-                                               resolvesShellIntegration: Bool, installKey: FrontendInstallKey?,
+                                               resolvesShellIntegration: Bool, installKey: FrontendInstallKeySource,
                                                echoesPlacementShift: Bool, retryWake: RetryWake? = nil,
                                                hangWatch: (any HangWatchScoping)? = nil) -> DaemonConnection.Configuration {
         // sessionEvents: the state resources (closed history, workspace status,

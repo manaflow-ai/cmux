@@ -31,7 +31,7 @@ struct AppServicesHangWatchTests {
         // The daemon: every connection's LineTransport and every terminal attachment take the service's.
         #expect((services.daemon.hangWatch as? AppHangWatch) === hangs)
         let local = DaemonService.localConfiguration(terminalEnvironment: nil, resolvesShellIntegration: false,
-                                                     installKey: nil, echoesPlacementShift: false, hangWatch: hangs)
+                                                     installKey: .noKey, echoesPlacementShift: false, hangWatch: hangs)
         #expect((local.hangWatch as? AppHangWatch) === hangs)
 
         // A terminal: its output lane registers and parses each chunk in a `terminal.feed` scope.

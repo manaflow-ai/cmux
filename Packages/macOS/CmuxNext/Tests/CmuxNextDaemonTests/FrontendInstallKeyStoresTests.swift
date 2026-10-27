@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextDaemon
@@ -32,5 +33,24 @@ import Testing
         // A key another user could read is not this app's.
         try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
         #expect(store.loadOrCreate() == nil)
+    }
+
+    /// A launcher's key is read on the lanes (the team on the system lane, the file on the files lane), once.
+    @Test func aLaunchersKeyIsReadOnceOnTheLanes() async throws {
+        let work = BackgroundWork(label: "test.install-key")
+        let directory = Self.stateDirectory()
+        let signedDirectory = Self.stateDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+            try? FileManager.default.removeItem(at: signedDirectory)
+        }
+        let source = FrontendInstallKeyStores(team: { nil }).read(stateDirectory: directory, on: work)
+        let key = try #require(await source.key())
+        #expect(await source.key() == key)
+        #expect(FrontendInstallKeyStores(team: { nil }).forApp(stateDirectory: directory)?.loadOrCreate() == key)
+
+        #expect(await FrontendInstallKeyStores(team: { "ABCDE12345" }).read(stateDirectory: signedDirectory, on: work).key() == nil)
+        #expect(!FileManager.default.fileExists(atPath: signedDirectory.path))
+        #expect(await FrontendInstallKeyStores(team: { nil }).read(stateDirectory: nil, on: work).key() == nil)
     }
 }

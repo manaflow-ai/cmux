@@ -21,7 +21,7 @@ struct OwnerRestartWaitsForChatTests {
         let launcher = DaemonLauncher(
             work: BackgroundWork(label: "test.daemon-launcher"),
             configuration: .init(binary: binary, session: "cnd-chat-\(id)", stateDirectory: root.appendingPathComponent("state"),
-                                 installKey: FrontendInstallKey.generate()),
+                                 installKey: .fixed(FrontendInstallKey.generate())),
             environment: { environment })
         // The app's owner connection; it reconnects to the restarted owner by itself.
         let owner = DaemonConnection(endpointProvider: launcher.endpointProvider)

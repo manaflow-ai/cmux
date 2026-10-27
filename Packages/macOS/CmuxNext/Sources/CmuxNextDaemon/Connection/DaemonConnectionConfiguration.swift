@@ -105,12 +105,17 @@ public struct DaemonConnectionConfiguration: Sendable {
 
 /// What the app's main connection proves in `client-hello`.
 public struct ClientHelloIdentity: Sendable {
-    /// Nil: role main only (the daemon may still verify the app by its
-    /// code signature).
-    public var installKey: FrontendInstallKey?
+    /// No key: role main only (the daemon may still verify the app by its
+    /// code signature). The handshake awaits it, so a key still read on the lanes never blocks a thread.
+    public var installKey: FrontendInstallKeySource
 
-    public init(installKey: FrontendInstallKey?) {
+    public init(installKey: FrontendInstallKeySource) {
         self.installKey = installKey
+    }
+
+    /// A key known now; nil proves nothing.
+    public init(installKey: FrontendInstallKey?) {
+        self.installKey = .fixed(installKey)
     }
 }
 

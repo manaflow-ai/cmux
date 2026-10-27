@@ -32,12 +32,13 @@ enum HandshakeLines {
             }
             return Replies(lines: lines, userOriginAllowed: false)
         }
+        let installKey = await hello.installKey.key()
         let first = await transport.pipeline([
             PipelinedLine(IdentifyRequest()),
-            PipelinedLine(ClientHelloRequest(role: .main, installID: hello.installKey?.installID)),
+            PipelinedLine(ClientHelloRequest(role: .main, installID: installKey?.installID)),
         ], timeout: configuration.requestTimeout)
         let started = (try? first[1].get()).flatMap { try? WireCoding.decodeResponse(ClientHelloRequest.Response.self, from: $0) }
-        let proof = helloProof(hello, start: first[1])
+        let proof = helloProof(installKey, start: first[1])
         let metadata = servesMachineMetadata(first[0]) ? [PipelinedLine(IdentifyRequest(machineMetadata: true))] : []
         let rest = await transport.pipeline((proof.map { [PipelinedLine($0)] } ?? []) + metadata + setup,
                                             timeout: configuration.requestTimeout)
@@ -81,9 +82,9 @@ enum HandshakeLines {
     /// Step 2 of `client-hello` when step 1 returned a nonce and the app
     /// holds an install key; nil otherwise (an older daemon answers step 1
     /// with an error, which only leaves the connection unverified).
-    static func helloProof(_ hello: ClientHelloIdentity,
+    static func helloProof(_ installKey: FrontendInstallKey?,
                            start: Result<LineTransport.Response, any Error>) -> ClientHelloProofRequest? {
-        guard let key = hello.installKey, let response = try? start.get(),
+        guard let key = installKey, let response = try? start.get(),
               let nonce = (try? WireCoding.decodeResponse(ClientHelloRequest.Response.self, from: response))?.nonce,
               let proof = key.proof(nonceHex: nonce) else { return nil }
         return ClientHelloProofRequest(installID: key.installID, proof: proof)

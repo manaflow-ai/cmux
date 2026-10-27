@@ -4,6 +4,7 @@
 @testable import CmuxNextBrowserImport
 @testable import CmuxNextCompat
 @testable import CmuxNextComputerUse
+import CmuxNextDaemon
 @testable import CmuxNextServer
 import CmuxNextTrace
 @testable import CmuxNextUpdater
@@ -97,6 +98,39 @@ struct OnceInitializerMainAccessTests {
         }
         #expect(sites.isEmpty, "an acpmux resolve asked securityd on the main thread: \(sites)")
         #expect(install.team == cold.team)
+    }
+
+    @Test("The daemon launcher built on main reads the signing team and the install key on the lanes")
+    func daemonLauncherInstallKey() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "once-launcher-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let suite = "once-launcher-\(UUID().uuidString)"
+        defer {
+            UserDefaults.standard.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: root)
+        }
+        let binary = root.appending(path: "cmux-tui")
+        try Data("#!/bin/sh\n".utf8).write(to: binary)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
+        // A team nobody loaded: the launcher used to ask securityd for it on main, then read the key file there.
+        let cold = SigningTeamInstall()
+        let installKeys = FrontendInstallKeyStores(team: { cold.team })
+        var launcher: DaemonLauncher?
+        var key: FrontendInstallKey?
+        let sites = await mainSites {
+            launcher = try? DaemonLauncher.forApp(
+                work: Self.work, build: BuildIdentity(bundleID: "com.cmuxterm.app.debug.once-launcher", bundledTag: nil),
+                installKeys: installKeys, terminalEnvironment: [:],
+                processEnvironment: [DaemonLauncher.binaryOverrideKey: binary.path],
+                socketMemory: DaemonSocketMemory(defaults: { UserDefaults(suiteName: suite) ?? .standard }),
+                applicationSupport: root)
+            key = await launcher?.configuration.installKey.key()
+        }
+        #expect(sites.isEmpty, "the daemon launcher asked securityd or read the key file on the main thread: \(sites)")
+        #expect(launcher != nil)
+        #expect(cold.isLoaded, "the team was never read, so the check above proves nothing")
+        // An unsigned test runner gets the 0600 key; a Team-signed one gets none.
+        #expect((key == nil) == (cold.team != nil))
     }
 
     @Test("The built-in ad blocker's folder read on the files lane is in memory for each tab's extension access")

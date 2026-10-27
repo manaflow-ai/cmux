@@ -29,7 +29,9 @@ extension DaemonLauncher {
         async let reapGrace = supportsReapGrace()
         let environment = await ensureEnvironment()
         let progress = configuration.binaryIsBundled
-        let arguments = Self.ensureArguments(configuration, reapGrace: await reapGrace, progress: progress)
+        let installKey = await configuration.installKey.key()
+        let arguments = Self.ensureArguments(configuration, sendsInstallKey: installKey != nil,
+                                             reapGrace: await reapGrace, progress: progress)
             + ["--replace-unresponsive"]
         // No progress line while the old owner is probed and stopped: the
         // silence bound covers that, then restore progress bounds the rest.
@@ -37,7 +39,7 @@ extension DaemonLauncher {
             executable: configuration.binary,
             arguments: arguments,
             environment: environment,
-            stdin: configuration.installKey?.payload,
+            stdin: installKey?.payload,
             timeout: Self.ensureRestoreCap + Self.replaceSilence,
             progressIdle: progress ? Self.replaceSilence : nil,
             clock: clock

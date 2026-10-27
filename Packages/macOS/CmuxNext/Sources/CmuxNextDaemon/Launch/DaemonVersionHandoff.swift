@@ -147,7 +147,7 @@ extension DaemonLauncher {
     /// starts it with the key on stdin. Only a launcher that holds a key (an unsigned build); the
     /// caller decides when a restart is safe. False when the daemon refused.
     public func handOffForInstallKey(identity: DaemonIdentity, using connection: DaemonConnection) async -> Bool {
-        guard configuration.installKey != nil,
+        guard await configuration.installKey.key() != nil,
               handoff.begin(bundled: "install-key", pid: identity.pid) else { return false }
         return await requestHandoff(identity: identity, using: connection)
     }

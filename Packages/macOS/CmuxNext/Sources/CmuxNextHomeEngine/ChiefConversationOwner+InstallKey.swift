@@ -20,7 +20,7 @@ extension ChiefConversationOwner {
     /// it idle. Nil when no restart is needed; a signed build holds no key and never restarts it.
     static func restartIfUnverified(home: ChiefHome, launcher: DaemonLauncher, connection: DaemonConnection,
                                     identity: DaemonIdentity, logger: Logger) async -> IdleOwnerRestart? {
-        guard launcher.configuration.installKey != nil, mayRestartForInstallKey(home: home),
+        guard await launcher.configuration.installKey.key() != nil, mayRestartForInstallKey(home: home),
               !(await connection.userOriginAllowed) else { return nil }
         let restart = IdleOwnerRestart(probe: OwnerIdleProbe(connection)) {
             // Only the owner this connection found keyless: after a reconnect to another owner process the

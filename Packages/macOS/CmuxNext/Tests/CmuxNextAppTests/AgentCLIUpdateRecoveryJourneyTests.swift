@@ -17,7 +17,7 @@ struct AgentCLIUpdateRecoveryJourneyTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let key = FrontendInstallKey.generate()
         var configuration = DaemonLauncher.Configuration(binary: try #require(SameTreeDaemonBinary.url),
-            session: root.lastPathComponent, stateDirectory: root.appendingPathComponent("state"), installKey: key)
+            session: root.lastPathComponent, stateDirectory: root.appendingPathComponent("state"), installKey: .fixed(key))
         configuration.runtimeBase = root.appendingPathComponent("run")
         let environment = ["HOME": root.path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh",
                            "ACPMUX_CATALOG_FETCH": "0", "ACPMUX_REGISTRY_FETCH": "0", "ACPMUX_HEALTH_FETCH": "0"]

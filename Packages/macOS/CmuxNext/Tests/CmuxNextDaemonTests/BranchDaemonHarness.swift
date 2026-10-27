@@ -28,7 +28,7 @@ struct BranchDaemonHarness {
         let base = ProcessInfo.processInfo.environment
         let environment = daemonEnvironment ?? LoginEnvironment.shared.daemonEnvironment(login: nil, base: base, overrides: [:])
         var configuration = DaemonLauncher.Configuration(binary: binary, session: session,
-                                                         stateDirectory: root.appendingPathComponent("state"), installKey: installKey)
+                                                         stateDirectory: root.appendingPathComponent("state"), installKey: .fixed(installKey))
         if let terminalReapGraceSeconds { configuration.terminalReapGraceSeconds = terminalReapGraceSeconds }
         let launcher = DaemonLauncher(work: BackgroundWork(label: "test.daemon-launcher"), configuration: configuration, environment: { environment })
         let ensured = try await launcher.ensure()

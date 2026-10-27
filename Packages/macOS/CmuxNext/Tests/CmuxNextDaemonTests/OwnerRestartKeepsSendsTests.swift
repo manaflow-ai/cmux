@@ -19,7 +19,7 @@ struct OwnerRestartKeepsSendsTests {
         let launcher = DaemonLauncher(
             work: BackgroundWork(label: "test.daemon-launcher"),
             configuration: .init(binary: binary, session: "cnd-send-\(id)", stateDirectory: root.appendingPathComponent("state"),
-                                 installKey: FrontendInstallKey.generate()),
+                                 installKey: .fixed(FrontendInstallKey.generate())),
             environment: { environment })
         let owner = DaemonConnection(endpointProvider: launcher.endpointProvider)
         do {
