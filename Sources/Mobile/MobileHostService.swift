@@ -1023,7 +1023,10 @@ final class MobileHostService {
         guard let port = NWEndpoint.Port(rawValue: UInt16(configuredPort)) else {
             tailscaleFailureDescription = listenerFailureDescription(
                 port: configuredPort,
-                error: "The configured port is outside 1–65535."
+                error: String(
+                    localized: "mobile.pairing.error.invalidPort",
+                    defaultValue: "The Tailscale pairing port is invalid. Choose a port from 1 to 65535."
+                )
             )
             NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
             return
@@ -1050,7 +1053,7 @@ final class MobileHostService {
             tailscaleListenerGeneration = UUID()
             tailscaleFailureDescription = listenerFailureDescription(
                 port: configuredPort,
-                error: String(describing: error)
+                error: safeListenerFailureDetail(error)
             )
             NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
         }
@@ -1081,7 +1084,7 @@ final class MobileHostService {
             tailscalePort = nil
             tailscaleFailureDescription = listenerFailureDescription(
                 port: Self.configuredPort(defaults: defaults),
-                error: String(describing: error)
+                error: safeListenerFailureDetail(error)
             )
             MobileHostPublicStatusCache.update(routes: [])
             tailscaleRoutes = []
@@ -1103,6 +1106,15 @@ final class MobileHostService {
             comment: "The placeholders are the configured TCP port and a safe OS diagnostic."
         )
         return String(format: format, locale: .current, String(port), error)
+    }
+
+    /// Network.framework errors can include raw POSIX, DNS, or TLS details.
+    /// Keep those in the log and expose only recovery guidance in Settings.
+    nonisolated private func safeListenerFailureDetail(_ error: any Error) -> String {
+        String(
+            localized: "mobile.pairing.error.listenerOffline",
+            defaultValue: "Could not start the pairing listener on this Mac."
+        )
     }
 
     private func stopTailscaleListener() {
