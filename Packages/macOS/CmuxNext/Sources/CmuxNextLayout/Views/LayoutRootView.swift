@@ -598,7 +598,13 @@ public final class LayoutRootView: NSView {
             self.eventMonitor = nil
         }
         driver.detach()
-        if !live { for view in screenViews.values { view.settleMotion() } }
+        if !live {
+            for view in screenViews.values {
+                view.settleMotion()
+                // No frames run while parked or away: a resize drag's pages lay out now (`ScreenContentView+ResizeGesture`).
+                view.finishResizeGesture()
+            }
+        }
         if !live, let planeHost {
             planeHost.releasePlane(overlayPlane)
             self.planeHost = nil

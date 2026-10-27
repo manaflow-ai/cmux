@@ -113,6 +113,28 @@ struct PaneResizeGestureTests {
         #expect(harness.provider.follower.heard == [true, false])
     }
 
+    @Test func aWorkspaceHiddenMidDragEndsItAndTheNextDragStartsAgain() throws {
+        let harness = Harness()
+        let handle = try harness.handle
+        let start = try harness.center()
+        handle.mouseDown(with: harness.event(.leftMouseDown, start))
+        for step in 1...5 {
+            handle.mouseDragged(with: harness.event(.leftMouseDragged, CGPoint(x: start.x - CGFloat(step) * 8, y: start.y)))
+            harness.root.syncWithModel()
+            harness.frame()
+        }
+        harness.root.isHidden = true
+        #expect(harness.provider.follower.heard == [true, false])
+        handle.mouseUp(with: harness.event(.leftMouseUp, CGPoint(x: start.x - 40, y: start.y)))
+        harness.root.syncWithModel()
+        harness.root.isHidden = false
+        harness.land()
+        let next = try harness.center()
+        handle.mouseDown(with: harness.event(.leftMouseDown, next))
+        handle.mouseDragged(with: harness.event(.leftMouseDragged, CGPoint(x: next.x + 8, y: next.y)))
+        #expect(harness.provider.follower.heard == [true, false, true])
+    }
+
     @Test func aClickOnTheDividerTellsNothing() throws {
         let harness = Harness()
         let handle = try harness.handle

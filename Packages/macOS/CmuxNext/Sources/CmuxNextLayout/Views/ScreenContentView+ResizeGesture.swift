@@ -28,11 +28,11 @@ struct PaneResizeGestureListener {
 /// No timer: the release requests display frames, the end comes from the model sync that applies the
 /// release (`LayoutRootView.sync`; a frame tick that finds the sync still pending runs it,
 /// `LayoutRootView.advanceFrame`) and the frame its spring lands in (`step`), or at once when motion is
-/// settled without frames (Reduce Motion, a hidden screen, a teardown).
+/// settled without frames (Reduce Motion, a hidden screen, a parked or removed workspace, a teardown).
 extension ScreenContentView {
     func resizeGestureMoved() {
-        // A hidden screen steps no frames, so a drag there could not land; its pages lay out as before.
-        guard !isHiddenOrHasHiddenAncestor else { return }
+        // A hidden or parked screen steps no frames, so a drag there could not land; its pages lay out as before.
+        guard window != nil, !isHiddenOrHasHiddenAncestor, !isParkedOrHasParkedAncestor else { return }
         if resizeGesture == .idle {
             resizeGestureListeners = displayedHosts.flatMap { $0.content.paneResizeGestureFollowers() }
                 .map { PaneResizeGestureListener(view: $0) }
@@ -77,8 +77,8 @@ extension ScreenContentView {
     /// screen's layout lands (with its own drag, when one is under way).
     func adoptResizeGestureListeners(_ listeners: [PaneResizeGestureListener]) {
         guard !listeners.isEmpty else { return }
-        // A hidden screen steps no frames and lands nothing: they lay out now.
-        guard !isHiddenOrHasHiddenAncestor else {
+        // A hidden or parked screen steps no frames and lands nothing: they lay out now.
+        guard window != nil, !isHiddenOrHasHiddenAncestor, !isParkedOrHasParkedAncestor else {
             for listener in listeners { listener.view?.paneResizeGestureDidChange(active: false) }
             return
         }
