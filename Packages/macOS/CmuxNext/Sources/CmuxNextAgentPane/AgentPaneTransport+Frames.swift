@@ -287,7 +287,7 @@ extension AgentPaneTransport {
                 // promptId) and a permission answer (its session, prompt and option) redeem a
                 // ticket, for their exact pick, into a session of this pane. A ticket is spent even
                 // when it does not match.
-                let redeemed = gestures.redeem(ticket, connection: id, pick: facts.pick)
+                let redeemed = gestures.redeem(ticket, connection: id, pick: facts.pick, sessionId: facts.sessionId)
                 granted = redeemed && AgentPaneGestureIntent.methods[facts.method ?? ""] != nil
                     && facts.sessionId.map(sessions.contains) == true
                 ticketPick = granted
