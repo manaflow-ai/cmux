@@ -170,6 +170,8 @@ test("an attach in the middle of a turn uses the summary start when its event is
     await until(() => snapshot?.connection === "connected", "the attach");
     expect(snapshot.isWorking).toBe(true);
     expect(snapshot.turnStartedAtMs).toBe(START + 30_000);
+    daemon.push(record([["mux", "turn_end", { turnId: "t2" }]], 2));
+    await until(() => snapshot.isWorking === false, "the turn's end");
   } finally {
     client.close();
   }

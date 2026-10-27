@@ -4145,7 +4145,8 @@ export class AcpmuxDirectClient {
           this.awaiting = this.interrupting;
         }
         if (event.kind === "turn_result") this.interrupting = undefined;
-        if (event.kind === "turn_result" && typeof msg.turnId === "string") this.endedTurns.add(msg.turnId);
+        if ((event.kind === "turn_end" || event.kind === "turn_result") && typeof msg.turnId === "string")
+          this.endedTurns.add(msg.turnId);
         if (event.kind === "turn_result")
           this.rows.set(`summary-${event.seq}`, {
             id: `summary-${event.seq}`,
