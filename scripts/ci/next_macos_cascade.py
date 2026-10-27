@@ -89,10 +89,25 @@ the hosted image meets: they pin no Xcode path (select-ci-xcode.sh takes
 xcode-pins.txt's 26.6, the image default, build 17F113 as on Blacksmith),
 their R2 cache keys carry the workspace path (a hosted /Users/runner/work
 build never restores a Blacksmith one), and they use no Blacksmith-only
-action. The scheme compile stays off hosted: a cold app compile, web bundles
+action. A PR's scheme compile stays off hosted: a cold app compile, web bundles
 and launch-time budget on about 3 vCPU are unmeasured against its 60 min
-budget. Without the snapshot's waits nothing is stalled and nothing goes to
+budget. A DEV daily's (HOSTED_FRESH_JOBS, when it is in FRESH_JOBS) takes
+hosted the same way, with a 90 min timeout: a feed's freshness outranks a
+cold build (2026-10-26: the DEV feed unpublished from 21:01Z, its compile
+queued 70 min on blacksmith-6vcpu-macos-26 behind about 75 jobs while hosted
+macos-26 was free). Without the snapshot's waits nothing is stalled and nothing goes to
 hosted, which is the previous route.
+
+The rescue's full re-run (attempt 2, triggered by RESCUE_ACTOR: bot_rerun()) is
+placed afresh, from what is free when it starts, instead of reading nothing:
+until 2026-10-26 the placement skipped every attempt after 1, so the re-run's
+outputs were empty and its cascade jobs went back to the end of the owned side
+queue they had just waited in (rerun-failed-jobs carries attempt 1's outputs,
+read while that queue was already full). Only the cascade's outputs are written
+then; side_lane_placement.py leaves the owned routes (runner, gui_runner,
+fast_runner, gateway_runner) empty, as a re-run had them. An idle mini still
+comes first: a re-run job the idle minis would take gets no Blacksmith slot and
+no overflow label, so it takes the owned side label, where that mini is.
 
 `retry_runner` is the Blacksmith label the bot's overflow attempt (2 or
 later: the rescue's re-runs) takes for these jobs: among moving (not stalled)
@@ -112,6 +127,8 @@ import dataclasses
 import datetime as dt
 import json
 import time
+import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any, Callable, Mapping, Sequence
@@ -129,6 +146,8 @@ POOL_VCPU = 60
 HOSTED = "macos-26"
 HOSTED_CAPACITY = 5
 HOSTED_JOBS = ("fast-tier", "swift-canary")
+# A feed's compile whose runs-on also reads hosted_jobs: it takes hosted only as one of FRESH_JOBS.
+HOSTED_FRESH_JOBS = ("cmux-scheme-compile",)
 STALL_MINUTES = 25
 IDLE_STALL_MINUTES = 5
 # simple_pool_picker.CAPACITY's figures for these labels. 12 vCPU: at most six
@@ -144,11 +163,32 @@ MAX_PER_RUN = 2
 # label: on 2026-10-26 the route token read 403 and the queue snapshot was stale, so every DEV compile from
 # 20:15Z on queued behind ~260 jobs on glaeda-side/std and the DEV feed fell 100 minutes behind (Leo,
 # 2026-10-24: a feed is never more than 30 minutes behind its branch).
+# The rescue's re-runs (owned_pool_rescue.py RESCUE_ACTOR) use GITHUB_TOKEN, so this actor triggers them.
+RESCUE_ACTOR = "github-actions[bot]"
 # The step has two minutes, and the placement's own reads come first.
 READ_BUDGET_SECONDS = 45
 QUEUE_SNAPSHOT_MINUTES = 15
 SCALE_SET_GROUP = "Blacksmith scale sets - {label}"
 API = "https://api.github.com"
+# A refused read is logged with its detail and raised, never retried here: the reads share
+# READ_BUDGET_SECONDS (45 s), which a wait would only spend before the answer is dropped.
+
+# What a refused GitHub read said: its status, the rate-limit headers and the start of its
+# body ("secondary rate limit", "Resource not accessible by integration", ...). urllib's own
+# message is only "HTTP Error 403: Forbidden", which cannot tell those apart.
+REFUSAL_HEADERS = ("Retry-After", "X-RateLimit-Remaining", "X-RateLimit-Resource")
+
+
+def refusal(error: "urllib.error.HTTPError") -> str:
+    headers = error.headers or {}
+    shown = " ".join(f"{name}={headers.get(name)}" for name in REFUSAL_HEADERS if headers.get(name) is not None)
+    try:
+        body = " ".join(error.read(2000).decode("utf-8", "replace").split())[:300]
+    except Exception:  # noqa: BLE001 - the detail is best effort
+        body = ""
+    return f"HTTP {error.code}" + (f" {shown}" if shown else "") + (f" body: {body}" if body else "")
+
+
 
 
 @dataclasses.dataclass(frozen=True)
@@ -224,6 +264,10 @@ class Seen:
     waits: Mapping[str, float]
     hosted: int
     age: float = 0.0  # the snapshot's age in minutes, already in `waits`
+    # Each label's queued freshness work: the janitor's `reserved_queued`, the jobs of nightly.yml and
+    # release.yml runs (queue_janitor.RESERVED_POOL_WORKFLOW) queued for it. No PR job takes a label's
+    # slot while it is above 0 (place()).
+    reserved: Mapping[str, int] = dataclasses.field(default_factory=dict)
 
 
 def _fresh(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> tuple[float, Mapping[str, Any]] | None:
@@ -274,7 +318,8 @@ def seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
     # macOS labels joined with commas, so a hosted pool is one whose labels are all macos-*.
     hosted = sum(_field(pools, pool, "queued") + _field(pools, pool, "running") for pool in pools
                  if all(part.startswith("macos-") for part in str(pool).split(",")))
-    return Seen(waits=waits, hosted=hosted, age=age)
+    reserved = {label: _field(pools, label, "reserved_queued") for label in LABELS}
+    return Seen(waits=waits, hosted=hosted, age=age, reserved={k: v for k, v in reserved.items() if v})
 
 
 def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[str, float],
@@ -288,10 +333,12 @@ def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[
 
 
 def cascade(jobs: Sequence[str], live: Mapping[str, int], waiting: Mapping[str, int], *,
-            stall: Sequence[str] = (), hosted_free: int = 0) -> dict[str, tuple[str, ...]]:
+            stall: Sequence[str] = (), hosted_free: int = 0, reserved: Sequence[str] = (),
+            fresh: Sequence[str] = ()) -> dict[str, tuple[str, ...]]:
     """Give `jobs`, in order, the free slots of LARGE, then SMALL (unless stalled), then HOSTED for HOSTED_JOBS.
 
     A Blacksmith slot is free while its label is under CAPACITY and the shared pool fits the job (fits()).
+    A `reserved` label (freshness work queued for it) gives its slots only to `fresh` jobs.
     """
     free = {label: 0 if label in stall else CAPACITY[label] - live.get(label, 0) - waiting.get(label, 0)
             for label in LABELS}
@@ -299,9 +346,10 @@ def cascade(jobs: Sequence[str], live: Mapping[str, int], waiting: Mapping[str, 
     room, queue = pool_room(live, waiting), pool_queued(waiting)
     placed: dict[str, list[str]] = {label: [] for label in (*LABELS, HOSTED)}
     for job in jobs:
-        targets = (*LABELS, HOSTED) if job in HOSTED_JOBS else LABELS
+        targets = (*LABELS, HOSTED) if job in HOSTED_JOBS or job in fresh and job in HOSTED_FRESH_JOBS else LABELS
         label = next((label for label in targets
-                      if free[label] > 0 and (label == HOSTED or fits(label, room, queue))), None)
+                      if free[label] > 0 and (label == HOSTED or fits(label, room, queue))
+                      and (label not in reserved or job in fresh)), None)
         if label is None:
             continue
         placed[label].append(job)
@@ -334,12 +382,16 @@ def retry_label(live: Mapping[str, int], waiting: Mapping[str, int], stall: Sequ
     return min(free, key=lambda label: (load[label] / CAPACITY[label], LABELS.index(label)))
 
 
+def bot_rerun(env: Mapping[str, str]) -> bool:
+    """The rescue's full re-run: attempt 2 that RESCUE_ACTOR triggered, placed afresh like attempt 1."""
+    return ((env.get("GITHUB_RUN_ATTEMPT") or "").strip() == "2"
+            and (env.get("GITHUB_TRIGGERING_ACTOR") or "").strip() == RESCUE_ACTOR)
+
+
 def skipped(env: Mapping[str, str]) -> str:
     """Why this run places nothing on Blacksmith before reading anything, or ""."""
     label = (env.get("SIDE_LABEL") or "").strip()
-    attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip()
-    actor = (env.get("GITHUB_TRIGGERING_ACTOR") or "").strip()
-    if attempt not in ("", "1") and actor != "github-actions[bot]":
+    if (env.get("GITHUB_RUN_ATTEMPT") or "").strip() not in ("", "1") and not bot_rerun(env):
         return "a person re-run keeps its own route"
     if not label.startswith("glaeda-side-"):
         return f"`{label or 'no label'}` is not an owned side label"
@@ -363,9 +415,15 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
         # every job but a feed's: those take the last resort rather than an owned queue nobody measured.
         fresh = unread_fresh_jobs(env, owned)
         if fresh:
-            return Placement({**empty, SMALL: fresh}, "", f"{why}; {', '.join(fresh)} gate a feed's freshness, "
-                                                          f"so they take `{SMALL}`, the last resort; the rest "
-                                                          "stay on the minis' queue")
+            # A feed's compile that can run on hosted takes it: its queue is the organization's concurrency,
+            # never the Blacksmith backlog nobody counted. The others take the last resort.
+            hosted = tuple(job for job in fresh if job in HOSTED_FRESH_JOBS)
+            small = tuple(job for job in fresh if job not in hosted)
+            moved = "; ".join(f"{', '.join(jobs)} take `{label}`" for label, jobs in ((HOSTED, hosted), (SMALL, small))
+                              if jobs)
+            return Placement({**empty, HOSTED: hosted, SMALL: small}, "",
+                             f"{why}; a feed's freshness waits on them, so {moved}; the rest stay on the minis' "
+                             "queue")
         return Placement(empty, "", f"{why}; no job leaves the minis' queue")
     stall = stalled(live, waiting, seen.waits, seen.age) if seen is not None else ()
     runs = set((env.get("CASCADE_RUNS") or "").split())
@@ -380,17 +438,32 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     # 40298786351: fast-tier and the scheme compile took 6 vCPU's two). Every side job takes the same
     # label and races for its idle minis, so the count of jobs those minis take is all that is known:
     # it is spent on the run's other jobs first, and a FIRST_JOBS job has a slot whenever one is free.
-    first = set((env.get("FIRST_JOBS") or "").split())
+    # FRESH_JOBS (the compiles a feed's freshness waits on: a DEV daily's Release compile) lead the same way.
+    # Across runs they need no reservation: a slot is free only while its label is under CAPACITY counting
+    # its queued jobs too (cascade()), so a freshness compile already queued for a Blacksmith label holds
+    # its place, and no PR compile placed later takes a slot ahead of it.
+    first = set((env.get("FIRST_JOBS") or "").split()) | set((env.get("FRESH_JOBS") or "").split())
     rest = [job for job in side if job not in first]
     leading = [job for job in side if job in first]
     candidates = ((promoted if promote_busy else []) + leading[max(0, len(owned) - len(rest)):]
                   + rest[len(owned):])
     hosted_free = HOSTED_CAPACITY - seen.hosted if seen is not None else 0
-    placed = cascade(candidates, live, waiting, stall=stall, hosted_free=hosted_free)
+    # Freshness first across runs too: while a nightly's build or signing job is queued for a Blacksmith
+    # label (2026-10-26: nightly-next's build-sign-notarize-nightly from 19:38Z behind 68 PR jobs on
+    # blacksmith-6vcpu-macos-26), no PR job of this run takes a slot there, and neither does its overflow.
+    reserved = tuple(label for label in LABELS if seen is not None and seen.reserved.get(label, 0) > 0)
+    fresh = tuple((env.get("FRESH_JOBS") or "").split())
+    placed = cascade(candidates, live, waiting, stall=stall, hosted_free=hosted_free, reserved=reserved,
+                     fresh=fresh)
     # The overflow label counts the slots this run's own jobs just took: they fit, so they start, and hold
     # the pool's vCPUs as jobs in flight do.
     retry = retry_label({**live, **{label: live.get(label, 0) + len(placed.get(label, ())) for label in LABELS}},
-                        waiting, stall)
+                        waiting, (*stall, *reserved))
+    # A re-run's jobs that no Blacksmith label listed take the overflow label before the owned side label
+    # (cmux-next.yml's runs-on), so while an idle mini would take one of them the overflow stays owned.
+    rerun_owned = bot_rerun(env) and len(owned) > 0
+    if rerun_owned:
+        retry = ""
     load = ", ".join(f"`{label}` {live.get(label, 0)} in flight + {waiting.get(label, 0)} queued of {CAPACITY[label]}"
                      + (f" (stalled: oldest queued {seen.waits[label]:.0f} min)" if label in stall and seen else "")
                      for label in LABELS)
@@ -405,9 +478,16 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     why = f"Blacksmith: {load}; {pool_text}. " + (moved or "No free Blacksmith slot")
     if seen is not None:
         why += f"; `{HOSTED}` had {seen.hosted} of {HOSTED_CAPACITY} jobs"
+    if reserved:
+        why += (f"; freshness work is queued for {', '.join(f'`{label}`' for label in reserved)}, "
+                "so only a feed's compile takes it")
     if left:
         why += f"; {', '.join(left)} stay queued on the owned label"
+    if bot_rerun(env):
+        why = f"the rescue's re-run (attempt 2) is placed afresh. {why}"
     return Placement(placed, retry, why + (f"; overflow goes to `{retry}`" if retry
+                                           else "; an idle mini takes the re-run, so overflow stays on the owned label"
+                                           if rerun_owned
                                            else "; no free Blacksmith slot, so overflow stays on the owned label"))
 
 
@@ -432,8 +512,12 @@ class Api:
         request = urllib.request.Request(f"{API}{path}", headers={
             "Accept": "application/vnd.github+json", "Authorization": f"Bearer {self.route_token}",
             "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-next-macos-cascade"})
-        with urllib.request.urlopen(request, timeout=15) as response:
-            return json.load(response)
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as error:
+            print(f"GitHub refused GET {path.split('?')[0]}: {refusal(error)}", file=sys.stderr)
+            raise
 
     def in_flight(self) -> dict[str, int] | None:
         owner, _, name = self.repository.partition("/")

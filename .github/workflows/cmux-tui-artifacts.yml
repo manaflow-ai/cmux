@@ -1152,6 +1152,105 @@ jobs:
           echo "build: $BUILD, macOS fallback: $FALLBACK, recovered by an earlier attempt: ${RECOVERED:-false}"
           [[ "$BUILD" == success || "$FALLBACK" == success || "$RECOVERED" == true ]]
 
+  # Where a feat-cmux-next push's daemon tests run: the promotion gate, so it
+  # never waits on one saturated label (2026-10-26: run 40397154574's tests sat
+  # queued on the owned side lane from 22:19Z and nightly-next stopped
+  # promoting). simple_pool_picker (through e2e_runner_pool.py --requested auto,
+  # as cmux-next-dev-daily.yml's runner job) names an owned Mac only when one is
+  # free now; anything else takes Blacksmith macOS 15, this job's Blacksmith
+  # route, never the nightly's macOS 26 labels
+  # (tests/test_ci_tui_routes_avoid_nightly_label.py). Same condition as the
+  # tests, so they are never skipped for want of it; a failed pick leaves the
+  # label empty and the tests take the declared pools' route below.
+  cmux-next-daemon-tests-runner:
+    if: >-
+      ${{ ((needs.tree-preflight.outputs.run_macos == 'true' &&
+          needs.tree-owner-wait.outputs.takeover == 'true' && needs.tree-preflight.outputs.daemon_tests == 'true' &&
+          needs.tree-preflight.outputs.daemon_marker != 'true') ||
+          (github.ref != 'refs/heads/main' && needs.tree-preflight.outputs.daemon_tests == 'true' &&
+          ((needs.tree-preflight.outputs.tree_ready == 'true' && needs.tree-preflight.outputs.daemon_tested == 'false') ||
+          needs.tree-owner-wait.outputs.unmarked == 'true'))) }}
+    needs: [tree-preflight, tree-owner-wait]
+    continue-on-error: true
+    environment: ci-routing-agent
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      label: ${{ steps.pool.outputs.label }}
+    steps:
+      - name: Checkout pool helper
+        if: github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          sparse-checkout: |
+            scripts/ci/e2e_runner_pool.py
+            scripts/ci/pr_runner_pool.py
+            scripts/ci/simple_pool_picker.py
+          sparse-checkout-cone-mode: false
+
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+          # The picker reads the janitor's queue snapshot (an Actions artifact) with it too.
+          permission-actions: read
+
+      - name: Mint the routing token without the org permission
+        id: route-token-repo
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-actions: read
+
+      - name: Pick a free owned Mac, else Blacksmith macOS 15
+        id: pool
+        if: github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          FALLBACK_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
+        run: |
+          set -uo pipefail
+          label=""
+          if [ "$POOL_OWNED" = 1 ]; then
+            label="$(timeout 120 python3 scripts/ci/e2e_runner_pool.py \
+              --requested auto \
+              --order "$POOL_ORDER" \
+              --max-queued "$POOL_MAX_QUEUED" \
+              --owned "$POOL_OWNED" \
+              --owned-slots "$OWNED_SLOTS" \
+              --pr-xcode-app "$PR_XCODE_APP")" || label=""
+          fi
+          case "$label" in
+            glaeda-*) echo "An owned Mac is free now: $label" ;;
+            *) echo "No owned Mac free now (picker said '${label:-nothing}'); Blacksmith macOS 15 takes the daemon tests."
+               label="$FALLBACK_LABEL" ;;
+          esac
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+
   # The daemon tests the cmux-next app relies on (Rust tests named
   # cmux_next_), on the exact commit. No publisher waits for them (cx-y0nf2);
   # publish-tree-tested writes the tree's daemon-tests marker when they pass.
@@ -1163,7 +1262,7 @@ jobs:
           (github.ref != 'refs/heads/main' && needs.tree-preflight.outputs.daemon_tests == 'true' &&
           ((needs.tree-preflight.outputs.tree_ready == 'true' && needs.tree-preflight.outputs.daemon_tested == 'false') ||
           needs.tree-owner-wait.outputs.unmarked == 'true'))) }}
-    needs: [tree-preflight, tree-owner-wait]
+    needs: [tree-preflight, tree-owner-wait, cmux-next-daemon-tests-runner]
     # The marker path (a published tree with no daemon-tests marker) holds one
     # group per key: one run tests, the newest push waits, older waiting ones
     # are replaced; the first pass writes the marker for all of them.
@@ -1182,7 +1281,11 @@ jobs:
     # 12 vCPU macOS 26 label the nightly app build needs. Blacksmith macOS 15
     # only when the owned pools are off or the event is not trusted
     # (tests/test_ci_tui_routes_avoid_nightly_label.py).
-    # Attempt 1 of a feat-cmux-next push takes vars.CI_NEXT_PROMOTE_POOL, the
+    # Attempt 1 of a feat-cmux-next push takes cmux-next-daemon-tests-runner's
+    # pick (a free owned Mac, else Blacksmith macOS 15), so the promotion gate
+    # never queues behind one label; the pools below are its fallback when the
+    # pick failed.
+    # Before that pick, attempt 1 took vars.CI_NEXT_PROMOTE_POOL, the
     # reserved promote runners that also run cmux-next.yml's Release compile:
     # these tests gate the nightly-next promotion, so they never wait for the
     # shared side pool. Clearing the variable rolls it back. The fork gate
@@ -1209,7 +1312,7 @@ jobs:
     # job holding one runs in an environment (tests/test_supplychain_security.py).
     # ci-routing-agent is the one the other glaeda-route readers use.
     environment: ci-routing-agent
-    runs-on: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_DAEMON_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && (vars.CI_PIN_DAEMON_POOL != vars.CI_SIDE_LANE_RUNNER && vars.CI_PIN_DAEMON_POOL != (vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL) && vars.CI_PIN_DAEMON_POOL || 'blacksmith-16vcpu-ubuntu-2404') || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && needs.cmux-next-daemon-tests-runner.outputs.label || vars.CI_NEXT_DAEMON_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && (vars.CI_PIN_DAEMON_POOL != vars.CI_SIDE_LANE_RUNNER && vars.CI_PIN_DAEMON_POOL != (vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL) && vars.CI_PIN_DAEMON_POOL || 'blacksmith-16vcpu-ubuntu-2404') || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 60
     env:
       # Cargo's default registry retry is too small for a transient index DNS
@@ -1479,6 +1582,10 @@ jobs:
       # publish-windows runs these same steps (the publish-steps anchor) once
       # build-windows is done; this run's Windows build usually ends later.
       CMUX_TUI_PUBLISH_PASS: unix
+      # Whether the release App credentials are in the artifacts environment
+      # (a step's if cannot read secrets). The attestation tries use the App's
+      # token when it mints, else github.token.
+      CMUX_RELEASE_APP_CONFIGURED: ${{ secrets.CMUX_RELEASE_APP_ID != '' && secrets.CMUX_RELEASE_APP_KEY != '' }}
     steps: &publish-steps
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1822,19 +1929,45 @@ jobs:
             --artifact-directory assets/chatmux-relay
 
       # The attestation is the only GitHub API write on the publish path, and it
-      # fails when other workflows have spent the installation's hourly budget
-      # ("API rate limit exceeded for installation": runs 40376958903 and
-      # 40380418761 on 2026-10-26 left their trees unpublished, and nightly-next
-      # promotion waited an hour). A failed first try waits once, bounded, for
-      # the budget (scripts/ci/gh_budget_wait.sh --reserve, as nightly.yml's
-      # daemon attestation does) and tries again; the retry must pass, so no
+      # fails when GitHub refuses it for the rate limit ("API rate limit exceeded
+      # for installation": runs 40376958903 and 40380418761 on 2026-10-26 left
+      # their trees unpublished, and nightly-next promotion waited an hour). One
+      # retry 4 s later was not enough: run 40422130372's core budget had calls
+      # left, so the refusal was GitHub's secondary limit, and the retry hit it
+      # again. So it is tried four times. Each failed try waits through
+      # scripts/ci/gh_budget_wait.sh --backoff: until the reset when /rate_limit
+      # reads a budget exhausted, else 60, 120 and 240 s for the secondary limit,
+      # at most 15 minutes in all. The last try is not continue-on-error, so no
       # binary is published without provenance.
+      # The attestation writes through the release App's installation token when
+      # it mints, so they spend the App's own rate budget, not the github.token
+      # installation budget the rest of the run shares (tree publishes failed
+      # with "API rate limit exceeded for installation"). The mint asks only for
+      # attestations:write. Only the first try uses it: when the mint fails (the
+      # App lacks that permission) or the credentials are absent, that try uses
+      # github.token too, and tries 2 to 4 always do, as before.
+      - name: Mint the release App token for the attestation
+        id: attest_app_token
+        if: env.CMUX_RELEASE_APP_CONFIGURED == 'true'
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-attestations: write
+
       - name: Attest raw binary subjects
         id: attest_subjects
         continue-on-error: true
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
-          subject-path: |
+          # The App's token when it minted. The tries after it use github.token,
+          # so a token GitHub refuses (403: the App lacks the permission) or an
+          # App budget that ran out still publishes, as before.
+          github-token: ${{ steps.attest_app_token.outputs.token || github.token }}
+          subject-path: &attest-subject-paths |
             assets/cmux-tui/cmux-tui-*
             assets/cmux-tui/manifest.json
             assets/cmux-tui-windows/cmux-tui-*
@@ -1848,29 +1981,44 @@ jobs:
           # storage records are created for this R2 publication.
           push-to-registry: false
 
-      - name: Wait for the API budget before retrying the attestation
+      - name: Back off before the second attestation try
         if: steps.attest_subjects.outcome == 'failure'
-        env:
+        env: &attest-backoff-env
           GH_TOKEN: ${{ github.token }}
-        run: bash scripts/ci/gh_budget_wait.sh --reserve 200
+          GH_BUDGET_WAIT_MAX_SECONDS: "900"
+        run: bash scripts/ci/gh_budget_wait.sh --backoff 1 "the attestation"
 
-      - name: Retry the attestation of raw binary subjects
+      - name: Attest raw binary subjects (try 2)
+        id: attest_subjects_2
         if: steps.attest_subjects.outcome == 'failure'
+        continue-on-error: true
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-        with:
-          subject-path: |
-            assets/cmux-tui/cmux-tui-*
-            assets/cmux-tui/manifest.json
-            assets/cmux-tui-windows/cmux-tui-*
-            assets/cmux-tui-windows/manifest.json
-            assets/cmux-relay/cmux-relay-*
-            assets/cmux-relay/manifest.json
-            assets/chatmux-relay/chatmux-relay-*
-            assets/chatmux-relay/cmux-tui-*
-            assets/chatmux-relay/manifest.json
-          # These are file subjects, not OCI images. No artifact-metadata
-          # storage records are created for this R2 publication.
+        with: &attest-subjects
+          github-token: ${{ github.token }}
+          subject-path: *attest-subject-paths
           push-to-registry: false
+
+      - name: Back off before the third attestation try
+        if: steps.attest_subjects_2.outcome == 'failure'
+        env: *attest-backoff-env
+        run: bash scripts/ci/gh_budget_wait.sh --backoff 2 "the attestation"
+
+      - name: Attest raw binary subjects (try 3)
+        id: attest_subjects_3
+        if: steps.attest_subjects_2.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with: *attest-subjects
+
+      - name: Back off before the last attestation try
+        if: steps.attest_subjects_3.outcome == 'failure'
+        env: *attest-backoff-env
+        run: bash scripts/ci/gh_budget_wait.sh --backoff 3 "the attestation"
+
+      - name: Attest raw binary subjects (last try)
+        if: steps.attest_subjects_3.outcome == 'failure'
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with: *attest-subjects
 
       - name: Upload to R2
         env:
@@ -2282,6 +2430,10 @@ jobs:
       attestations: write
     env:
       CMUX_TUI_PUBLISH_PASS: windows
+      # Whether the release App credentials are in the artifacts environment
+      # (a step's if cannot read secrets). The attestation tries use the App's
+      # token when it mints, else github.token.
+      CMUX_RELEASE_APP_CONFIGURED: ${{ secrets.CMUX_RELEASE_APP_ID != '' && secrets.CMUX_RELEASE_APP_KEY != '' }}
     steps: *publish-steps
 
   # The source-addressed copy cmux-next dev, tagged and nightly builds fetch
