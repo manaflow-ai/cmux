@@ -81,8 +81,9 @@ import Testing
         root.displayIfNeeded()
         CATransaction.flush()
         let scale: CGFloat = 2
+        let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
         let context = try #require(CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8, bytesPerRow: 0,
-                                              space: try #require(CGColorSpace(name: CGColorSpace.sRGB)), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+                                              space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         context.scaleBy(x: scale, y: scale)
         try #require(root.layer).render(in: context)
         return try #require(context.makeImage())
@@ -94,12 +95,13 @@ import Testing
         let out = root.appending(path: "pane-discoverability-gallery")
         try? FileManager.default.removeItem(at: out)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
-        let images = try Variant.allCases.map { (variant: $0, image: Self.render($0)) }
+        let images = try Variant.allCases.map { (variant: $0, image: try Self.render($0)) }
         for (variant, image) in images { try Self.write(image, to: out.appending(path: "\(variant.rawValue).png")) }
 
         let gap = 20, width = images[0].image.width, height = images[0].image.height
+        let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
         let context = try #require(CGContext(data: nil, width: width, height: images.count * height + (images.count + 1) * gap,
-                                              bitsPerComponent: 8, bytesPerRow: 0, space: try #require(CGColorSpace(name: CGColorSpace.sRGB)),
+                                              bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace,
                                               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         context.setFillColor(CGColor(gray: 0.05, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: width, height: context.height))
         for (index, entry) in images.enumerated() { context.draw(entry.image, in: CGRect(x: 0, y: gap + (images.count - index - 1) * (height + gap), width: width, height: height)) }

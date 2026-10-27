@@ -149,7 +149,13 @@ public final class PaneToolbarView: NSView {
         func slotX(_ fromTrailing: Int) -> CGFloat { bounds.width - y - side - CGFloat(fromTrailing) * (side + gap) }
         moreButton.frame = moreFrame()
         let trailingSlot = hasMore || reservedCount > buttons.count ? 1 : 0
+        // Creation actions remain in the + menu. Fold their buttons away together when the
+        // pane caps this toolbar's width, keeping the existing pins in their trailing slots.
+        let creationFits = items.indices.filter { items[$0].alwaysVisible }.allSatisfy {
+            slotX(buttons.count - $0 - 1 + trailingSlot) >= 0
+        }
         for (index, button) in buttons.enumerated() {
+            button.isHidden = items[index].alwaysVisible && !creationFits
             button.frame = NSRect(x: max(0, slotX(buttons.count - index - 1 + trailingSlot)), y: y, width: side, height: side)
         }
         applyTint()

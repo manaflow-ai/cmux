@@ -98,7 +98,39 @@ import Testing
         #expect(calls.allSatisfy { $0.target == pane && $0.origin == .user })
         registry.bind("splitRight", invoke: { _ in })
         toolbar.update(target: "sample-terminal", kind: .terminal, pinned: ["splitRight"])
-        #expect(toolbar.view.items.prefix(2).allSatisfy(\.alwaysVisible))
+        #expect(toolbar.view.items.prefix(2).allSatisfy { $0.alwaysVisible })
         #expect(toolbar.view.items.last?.id == "splitRight", "existing pinned controls remain available")
+    }
+
+    @Test func narrowPaneFoldsCreationButtonsWithoutCoveringPinnedControls() throws {
+        let density = DesignSettings.shared.density
+        DesignSettings.shared.density = .compact
+        defer { DesignSettings.shared.density = density }
+        let registry = ActionRegistry.standard()
+        let target = ActionTargetRef(kind: .pane, id: "sample-pane")
+        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { registry.makePaneCreationMenu(target: target) }, paneTarget: target)
+        let pins = ["splitRight", "splitDown", "openDiffViewer", "file.open"]
+        toolbar.update(target: "sample-terminal", kind: .terminal, pinned: pins)
+        let pane = PaneContentView(stripModel: TabStripModel(tabs: [], selectedID: nil), reveal: LaunchReveal(deadline: .zero))
+        pane.toolbar = toolbar
+        let height = PaneChromeMetrics.current.resolvedStripHeight(scale: 2)
+        // Include a second narrow pass to prove that resizing restores and folds the same buttons.
+        for width: CGFloat in [280, 600, 280] {
+            pane.frame = NSRect(x: 0, y: 0, width: width, height: 200)
+            toolbar.view.frame = NSRect(x: 0, y: 0, width: pane.toolbarWidth(shown: height), height: height)
+            toolbar.view.layoutSubtreeIfNeeded()
+            let creation = Array(toolbar.view.buttons.prefix(2))
+            #expect(creation.allSatisfy { $0.isHidden == (width == 280) })
+            let pinned = Array(toolbar.view.buttons.dropFirst(2))
+            #expect(pinned.count == pins.count)
+            #expect(pinned.allSatisfy { !$0.isHidden })
+            let visible: [NSView] = toolbar.view.buttons.filter { !$0.isHidden } + [toolbar.view.moreButton]
+            for (left, right) in zip(visible, visible.dropFirst()) {
+                #expect(left.frame.maxX <= right.frame.minX, "controls must never overlap at \(width) points")
+            }
+            for button in visible {
+                #expect(button.frame.minX >= 0 && button.frame.maxX <= toolbar.view.bounds.width)
+            }
+        }
     }
 }
