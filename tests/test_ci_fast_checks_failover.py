@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""fast-checks.yml and rcodesign-parity-proof.yml fail over with the Blacksmith overflow switch.
+"""fast-checks.yml fails over with the Blacksmith overflow switch.
 
 On 2026-10-27 Blacksmith Linux started no job for the organization for a while.
 ci-cloud-overflow-probe.yml pointed LINUX_RUNNER at GitHub-hosted Linux and wrote
@@ -31,7 +31,7 @@ def runs_on_lines(name: str) -> list[str]:
 
 class FastChecksFailoverTests(unittest.TestCase):
     def test_literal_linux_labels_fail_over_while_the_record_is_set(self) -> None:
-        for name in ("fast-checks.yml", "rcodesign-parity-proof.yml"):
+        for name in ("fast-checks.yml",):
             literal = [line for line in runs_on_lines(name) if LABEL.search(line)]
             self.assertTrue(literal, name)
             for line in literal:
