@@ -62,6 +62,6 @@ mod tests;
 pub use child::Child;
 pub use command::Command;
 #[cfg(unix)]
-pub use exit_watcher::ExitWatcher;
+pub use exit_watcher::{ChildExit, ExitWatcher};
 pub use std::process::{ExitStatus, Output};
 pub use stdio::Stdio;

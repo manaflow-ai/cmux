@@ -842,16 +842,23 @@ fn set_owner_stdio(command: &mut Command, spec: &OwnerSpec) {
 /// thread (`cmux_process::ExitWatcher`), unless `terminate` already did. The
 /// watcher does not reap, so a concurrent `terminate` can still signal the
 /// pid safely until the callback takes the child. No timer, no thread here.
+/// An owner whose exit cannot be watched ends at once, as when the
+/// registration fails: nothing else would reap it.
 #[cfg(unix)]
 fn watch_owner_exit(state: std::sync::Arc<OwnerProcessState>, pid: u32) -> io::Result<()> {
-    cmux_process::ExitWatcher::process()?.register(pid, move || reap_exited_owner(&state))
+    cmux_process::ExitWatcher::process()?.register(pid, move |exit| {
+        reap_exited_owner(&state, matches!(exit, cmux_process::ChildExit::Unwatched(_)));
+    })
 }
 
-/// The owner ended: reap it unless `terminate` already did (returns at once).
+/// Reap the owner unless `terminate` already did; `kill` ends it first.
 #[cfg(unix)]
-fn reap_exited_owner(state: &OwnerProcessState) {
+fn reap_exited_owner(state: &OwnerProcessState, kill: bool) {
     let process = state.child.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
     if let Some(mut process) = process {
+        if kill {
+            let _ = process.kill();
+        }
         let _ = process.wait();
     }
 }
@@ -920,7 +927,7 @@ mod tests {
             let (sender, reaped) = std::sync::mpsc::channel();
             cmux_process::ExitWatcher::process()
                 .unwrap()
-                .register(pid, move || sender.send(()).unwrap())
+                .register(pid, move |_| sender.send(()).unwrap())
                 .unwrap();
             reaped
         }
@@ -932,6 +939,16 @@ mod tests {
             after_the_reap(pid).recv_timeout(Duration::from_secs(5)).unwrap();
             assert!(state.child.lock().unwrap().is_none());
             // SAFETY: probing a pid this test spawned and the reaper reaped.
+            assert_eq!(unsafe { libc::kill(pid as libc::pid_t, 0) }, -1);
+        }
+
+        /// `ChildExit::Unwatched`: a running owner nothing would reap ends.
+        #[test]
+        fn an_owner_whose_exit_is_not_watched_is_ended_and_reaped() {
+            let (state, pid) = owner_state(Command::new("sleep").arg("60"));
+            reap_exited_owner(&state, true);
+            assert!(state.child.lock().unwrap().is_none());
+            // SAFETY: probing a pid this test spawned and the call reaped.
             assert_eq!(unsafe { libc::kill(pid as libc::pid_t, 0) }, -1);
         }
 

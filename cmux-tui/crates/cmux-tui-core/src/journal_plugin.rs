@@ -311,8 +311,9 @@ struct SupervisorState {
     generation: u64,
     child_generation: Option<u64>,
     exit_handler: Option<JournalPluginExitHandler>,
-    /// The running child has no exit-waiter thread (it could not start), so
-    /// the supervisor falls back to a timed `try_wait` for that child.
+    /// Nothing watches the running child's exit (the registration failed or
+    /// the watcher could not watch it), so the supervisor falls back to a
+    /// timed `try_wait` for that child.
     exit_waiter_missing: bool,
 }
 
@@ -472,12 +473,20 @@ impl Drop for JournalPluginRuntime {
 /// one `child-exit` thread (`cmux_process::ExitWatcher`), which does not reap
 /// it, so the supervisor's `try_wait` still gets the status. Replaces the
 /// supervisor's 500 ms `try_wait` poll. Returns false when the exit could
-/// not be registered.
+/// not be registered; a child the watcher cannot watch
+/// ([`cmux_process::ChildExit::Unwatched`]) sets `exit_waiter_missing` later.
+/// Either way the supervisor falls back to its timed `try_wait`.
 #[cfg(unix)]
 fn spawn_exit_waiter(shared: Arc<(Mutex<SupervisorState>, Condvar)>, pid: u32) -> bool {
-    let wake = move || {
+    let wake = move |exit: cmux_process::ChildExit| {
         let (lock, changed) = &*shared;
-        let _state = lock.lock().unwrap_or_else(|error| error.into_inner());
+        let mut state = lock.lock().unwrap_or_else(|error| error.into_inner());
+        if let cmux_process::ChildExit::Unwatched(error) = exit
+            && state.child.as_ref().is_some_and(|child| child.child.id() == pid)
+        {
+            eprintln!("cmux-tui: journal plugin exit is not watched: {error}");
+            state.exit_waiter_missing = true;
+        }
         changed.notify_all();
     };
     match cmux_process::ExitWatcher::process().and_then(|watcher| watcher.register(pid, wake)) {

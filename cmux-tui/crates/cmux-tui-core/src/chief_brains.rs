@@ -1060,22 +1060,22 @@ impl Supervisor {
         let reaped = Arc::new(Mutex::new(false));
         let (sender, chief, flag) = (self.sender.clone(), record.id.clone(), reaped.clone());
         // The process's one child-exit thread runs this once the leader
-        // ended; it never reaps, so the leader is a zombie here (its id is
-        // still taken).
-        let on_exit = move || {
+        // ended (a zombie: the watcher never reaps, its id is still taken),
+        // or when its exit cannot be watched: then it ends now, a failed run.
+        let on_exit = move |exit: cmux_process::ChildExit| {
+            let ended = matches!(exit, cmux_process::ChildExit::Exited);
             {
                 // End what is left of its own group (a crashed host's turn
                 // processes; its acpmux has a group of its own), then mark it
                 // reaped before the reap frees the id.
                 let mut reaped = flag.lock().unwrap_or_else(PoisonError::into_inner);
-                if let Ok(group) = i32::try_from(pid) {
-                    // SAFETY: as Process::signal; the leader is not reaped yet.
-                    unsafe { libc::kill(-group, libc::SIGTERM) };
-                }
+                let signal = if ended { libc::SIGTERM } else { libc::SIGKILL };
+                // SAFETY: as Process::signal; the leader is not reaped yet.
+                unsafe { libc::kill(-(pid as i32), signal) };
                 *reaped = true;
             }
-            // Ended: this wait returns at once.
-            let success = child.wait().is_ok_and(|status| status.success());
+            // Ended or killed: this wait is short.
+            let success = child.wait().is_ok_and(|status| ended && status.success());
             let _ = sender.send(Signal::Exited { chief, pid, success });
         };
         if let Err(error) =

@@ -205,19 +205,21 @@ pub fn start(spec: &RoleSpec, paths: &RolePaths, tx: &Sender<Msg>) -> Result<Chi
 
 /// Reports `pid`'s exit (without reaping it) from the process's one
 /// `child-exit` thread (`cmux_process::ExitWatcher`), not a thread per role.
+/// When the exit cannot be watched (no watcher, or
+/// [`cmux_process::ChildExit::Unwatched`]), it reports at once and the
+/// supervisor's `try_wait` decides.
 #[cfg(unix)]
 pub fn watch_exit(name: &str, pid: u32, tx: &Sender<Msg>) {
     let gone = {
         let tx = tx.clone();
         let name = name.to_owned();
-        move || {
+        move |_: cmux_process::ChildExit| {
             let _ = tx.send(Msg::Gone { name, pid });
         }
     };
     let registered =
         cmux_process::ExitWatcher::process().and_then(|watcher| watcher.register(pid, gone));
     if registered.is_err() {
-        // No watcher: report at once; the supervisor's `try_wait` decides.
         let _ = tx.send(Msg::Gone { name: name.to_owned(), pid });
     }
 }

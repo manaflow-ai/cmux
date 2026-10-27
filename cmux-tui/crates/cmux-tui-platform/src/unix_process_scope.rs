@@ -176,7 +176,7 @@ pub struct UnixProcessScope {
 /// watcher never reaps, so checking for exit does not release the child's
 /// PID or process group before its process scope is terminated.
 pub struct UnixChildExitSignal {
-    result: mpsc::Receiver<()>,
+    result: mpsc::Receiver<io::Result<()>>,
     /// The exit was received: later checks answer from here, after the
     /// callback (and its sender) is gone.
     seen: AtomicBool,
@@ -184,14 +184,18 @@ pub struct UnixChildExitSignal {
 
 impl UnixChildExitSignal {
     /// Register an owned child's exit with the `child-exit` thread, without
-    /// reaping it.
+    /// reaping it. A child the watcher cannot watch makes the next check an
+    /// error, never an exit.
     pub fn observe(pid: u32) -> io::Result<Self> {
         libc::pid_t::try_from(pid).map_err(|_| {
             io::Error::new(io::ErrorKind::InvalidInput, "child pid is out of range")
         })?;
         let (sender, result) = mpsc::sync_channel(1);
-        cmux_process::ExitWatcher::process()?.register(pid, move || {
-            let _ = sender.try_send(());
+        cmux_process::ExitWatcher::process()?.register(pid, move |exit| {
+            let _ = sender.try_send(match exit {
+                cmux_process::ChildExit::Exited => Ok(()),
+                cmux_process::ChildExit::Unwatched(error) => Err(error),
+            });
         })?;
         Ok(Self { result, seen: AtomicBool::new(false) })
     }
@@ -202,7 +206,7 @@ impl UnixChildExitSignal {
             return Ok(true);
         }
         match self.result.try_recv() {
-            Ok(()) => Ok(self.saw_exit()),
+            Ok(result) => result.map(|()| self.saw_exit()),
             Err(mpsc::TryRecvError::Empty) => Ok(false),
             Err(mpsc::TryRecvError::Disconnected) => self.stopped(),
         }
@@ -218,7 +222,7 @@ impl UnixChildExitSignal {
             return Ok(false);
         }
         match self.result.recv_timeout(remaining) {
-            Ok(()) => Ok(self.saw_exit()),
+            Ok(result) => result.map(|()| self.saw_exit()),
             Err(mpsc::RecvTimeoutError::Timeout) => Ok(false),
             Err(mpsc::RecvTimeoutError::Disconnected) => self.stopped(),
         }

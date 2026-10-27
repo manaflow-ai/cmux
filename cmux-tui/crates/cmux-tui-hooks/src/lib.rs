@@ -2903,7 +2903,7 @@ mod tests {
         let (sender, reaped) = std::sync::mpsc::channel();
         cmux_process::ExitWatcher::process()
             .unwrap()
-            .register(pid, move || sender.send(()).unwrap())
+            .register(pid, move |_| sender.send(()).unwrap())
             .unwrap();
         // SAFETY: the direct child started above, not yet reaped.
         assert_eq!(unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) }, 0);

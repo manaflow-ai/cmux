@@ -184,9 +184,15 @@ impl Child {
         {
             let pid = self.id();
             let mut child = self;
-            crate::ExitWatcher::process()?.register(pid, move || {
-                // Ended: this wait returns at once.
-                let _ = child.wait();
+            crate::ExitWatcher::process()?.register(pid, move |exit| {
+                let _ = match exit {
+                    // Ended: this wait returns at once.
+                    crate::ChildExit::Exited => child.wait().map(Some),
+                    // Not watched: reap it only if it already ended, never
+                    // block the child-exit thread on a running child.
+                    // wakeup-allow: bounded one nonblocking reap per unwatched child, never repeated
+                    crate::ChildExit::Unwatched(_) => child.try_wait(),
+                };
             })
         }
         #[cfg(not(unix))]
@@ -208,15 +214,18 @@ fn exit_signal(pid: u32) -> io::Result<std::sync::Arc<std::os::fd::OwnedFd>> {
     let (reader, mut writer) = io::pipe()?;
     let reader = std::sync::Arc::new(std::os::fd::OwnedFd::from(reader));
     let open = std::sync::Arc::clone(&reader);
-    crate::ExitWatcher::process()?.register(pid, move || {
-        let _ = writer.write_all(&[1]);
+    crate::ExitWatcher::process()?.register(pid, move |exit| {
+        // Unwatched: no byte, so the reader sees end of file, an error.
+        if matches!(exit, crate::ChildExit::Exited) {
+            let _ = writer.write_all(&[1]);
+        }
         drop(open);
     })?;
     Ok(reader)
 }
 
 /// Whether the child ended within `limit`: the exit byte arrived. End of
-/// file without it (the watcher dropped the callback) is an error, never an
+/// file without it (the watcher could not watch the child) is an error, never an
 /// exit, so the caller does not block in `waitpid` for a running child.
 #[cfg(unix)]
 fn exit_within(exit: &std::os::fd::OwnedFd, limit: Duration) -> io::Result<bool> {
@@ -230,7 +239,7 @@ fn exit_within(exit: &std::os::fd::OwnedFd, limit: Duration) -> io::Result<bool>
         let n = unsafe { libc::read(exit.as_raw_fd(), byte.as_mut_ptr().cast(), 1) };
         match n {
             1 => return Ok(true),
-            0 => return Err(io::Error::other("the child-exit watcher dropped this child's wait")),
+            0 => return Err(io::Error::other("the child-exit watcher could not watch this child")),
             _ => {
                 let error = io::Error::last_os_error();
                 if error.kind() != io::ErrorKind::Interrupted {

@@ -464,7 +464,7 @@ mod daemon_spawn {
         let (sender, reaped) = std::sync::mpsc::channel();
         crate::ExitWatcher::process()
             .unwrap()
-            .register(pid, move || sender.send(()).unwrap())
+            .register(pid, move |_| sender.send(()).unwrap())
             .unwrap();
         reaped.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
         let mut status = 0;

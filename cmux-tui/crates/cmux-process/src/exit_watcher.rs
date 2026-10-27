@@ -10,10 +10,19 @@
 //! into one kqueue, as `base/message_loop/message_pump_kqueue.cc` folds
 //! every descriptor watch of Chrome's IO thread into one.
 //!
-//! The watcher never reaps: a callback sees a child that waits as a zombie,
-//! so its pid is still its own (a signal to its group cannot reach a reused
-//! pid), and reaps it itself (`Child::wait`, which no longer blocks then)
-//! or leaves that to whoever owns the child.
+//! The watcher never reaps: a callback that gets [`ChildExit::Exited`] sees
+//! a child that waits as a zombie, so its pid is still its own (a signal to
+//! its group cannot reach a reused pid), and reaps it itself (`Child::wait`,
+//! which no longer blocks then) or leaves that to whoever owns the child.
+//! macOS posts `NOTE_EXIT` just before the child turns into a zombie (xnu
+//! `bsd/kern/kern_exit.c` `proc_exit`), so there the thread waits for the
+//! zombie (`waitid(WNOWAIT)`) before it runs the callbacks, as
+//! `WaitForChildToDie` waits after its `kevent`.
+//!
+//! "Could not watch" is never "ended": a registered callback runs exactly
+//! once, with [`ChildExit::Unwatched`] when neither a kernel event nor a
+//! `waitid` thread waits for the child (or the thread stopped), so the
+//! caller's own fallback still runs.
 
 use std::collections::HashMap;
 use std::io;
@@ -25,12 +34,57 @@ use cmux_threads::ThreadQos;
 /// The thread's label in the thread registry and threading-model.md.
 const THREAD_NAME: &str = "child-exit";
 
+/// What a registered callback learns about its child.
+#[derive(Debug)]
+pub enum ChildExit {
+    /// The child ended and waits as a zombie: a reap returns at once (or
+    /// fails with ECHILD when its owner already reaped it).
+    Exited,
+    /// Nothing waits for the child's exit (no kernel event and no `waitid`
+    /// thread, or the watcher stopped): it may still run. The caller's own
+    /// fallback decides.
+    Unwatched(io::Error),
+}
+
 /// Run on the `child-exit` thread once the child ended. It must not block:
 /// it sends, signals, or reaps the ended child (which returns at once).
-type Callback = Box<dyn FnOnce() + Send + 'static>;
+type Callback = Box<dyn FnOnce(ChildExit) + Send + 'static>;
+
+/// A registered callback. Dropped without a call (the thread stopped with
+/// it), it runs with [`ChildExit::Unwatched`], so it always runs once.
+struct Pending(Option<Callback>);
+
+impl Pending {
+    fn new(callback: Callback) -> Self {
+        Self(Some(callback))
+    }
+
+    /// A panicking callback must not end the thread every other child's exit
+    /// depends on.
+    fn call(mut self, exit: ChildExit) {
+        if let Some(callback) = self.0.take() {
+            let _ = catch_unwind(AssertUnwindSafe(move || callback(exit)));
+        }
+    }
+
+    /// For a registration that fails in [`ExitWatcher::register`]: its
+    /// caller hears the error there, so the callback never runs.
+    fn disarm(mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for Pending {
+    fn drop(&mut self) {
+        if let Some(callback) = self.0.take() {
+            let stopped = io::Error::other("the child-exit watcher stopped");
+            let _ = catch_unwind(AssertUnwindSafe(move || callback(ChildExit::Unwatched(stopped))));
+        }
+    }
+}
 
 enum Request {
-    Watch(u32, Callback),
+    Watch(u32, Pending),
     Stop,
 }
 
@@ -46,15 +100,31 @@ pub struct ExitWatcher {
 /// `cmux_threads::registry`: one watcher serves them all.
 static PROCESS: OnceLock<ExitWatcher> = OnceLock::new();
 
+/// Sets up the kernel event of one child.
+type WatchKernel = fn(&sys::Poller, u32) -> io::Result<sys::KernelWatch>;
+
+/// Starts the `waitid` thread of one child, which reports to the watcher.
+type SpawnWaitid = fn(u32, mpsc::Sender<u32>, Arc<sys::Waker>) -> io::Result<()>;
+
+/// The calls a test replaces to force the fallback or a failed watch.
+#[derive(Clone, Copy)]
+struct Seams {
+    kernel_watch: WatchKernel,
+    waitid_thread: SpawnWaitid,
+}
+
+impl Seams {
+    const SYSTEM: Self = Self { kernel_watch: sys::Poller::watch, waitid_thread: spawn_waitid };
+}
+
 impl ExitWatcher {
     /// Start a `child-exit` thread of its own (tests; the daemon uses
     /// [`ExitWatcher::process`]).
     pub fn start() -> io::Result<Self> {
-        Self::start_with(true)
+        Self::start_with(Seams::SYSTEM)
     }
 
-    /// `kernel_watch` false: every child takes the `waitid` thread fallback.
-    fn start_with(kernel_watch: bool) -> io::Result<Self> {
+    fn start_with(seams: Seams) -> io::Result<Self> {
         let poller = sys::Poller::new()?;
         let waker = poller.waker();
         let (requests, inbox) = mpsc::channel();
@@ -66,7 +136,7 @@ impl ExitWatcher {
             exits,
             watches: HashMap::new(),
             stopping: false,
-            kernel_watch,
+            seams,
         };
         cmux_threads::spawn(THREAD_NAME, ThreadQos::Utility, move || watches.run())?;
         Ok(Self { requests, waker })
@@ -88,19 +158,54 @@ impl ExitWatcher {
     /// at once when it already has. `pid` must be a child of this process
     /// that nobody has reaped (so it cannot have been reused). Callbacks for
     /// the same pid run in the order they were registered.
-    pub fn register(&self, pid: u32, on_exit: impl FnOnce() + Send + 'static) -> io::Result<()> {
-        self.requests
-            .send(Request::Watch(pid, Box::new(on_exit)))
-            .map_err(|_| io::Error::other("the child-exit watcher stopped"))?;
-        self.waker.wake()
+    ///
+    /// `Ok`: `on_exit` runs exactly once, with [`ChildExit::Exited`], or
+    /// with [`ChildExit::Unwatched`] when the exit cannot be watched. `Err`:
+    /// the watcher stopped, and `on_exit` never runs.
+    pub fn register(
+        &self,
+        pid: u32,
+        on_exit: impl FnOnce(ChildExit) + Send + 'static,
+    ) -> io::Result<()> {
+        if let Err(mpsc::SendError(request)) =
+            self.requests.send(Request::Watch(pid, Pending::new(Box::new(on_exit))))
+        {
+            if let Request::Watch(_, pending) = request {
+                pending.disarm();
+            }
+            return Err(io::Error::other("the child-exit watcher stopped"));
+        }
+        // The request is queued, so `on_exit` runs once either way: a failed
+        // wake leaves it to the thread's next wake (or its stop, Unwatched).
+        let _ = self.waker.wake();
+        Ok(())
     }
 
     /// A watcher that never uses the kernel's per-process event (kqueue or
     /// pidfd), so every child takes the `waitid` thread fallback.
     #[cfg(test)]
     pub(crate) fn start_without_kernel_watch() -> io::Result<Self> {
-        Self::start_with(false)
+        Self::start_with(Seams { kernel_watch: no_kernel_watch, ..Seams::SYSTEM })
     }
+
+    /// A watcher with neither a kernel event nor a `waitid` thread: no
+    /// child's exit can be watched.
+    #[cfg(test)]
+    pub(crate) fn start_unable_to_watch() -> io::Result<Self> {
+        Self::start_with(Seams { kernel_watch: no_kernel_watch, waitid_thread: no_waitid_thread })
+    }
+}
+
+/// No descriptor left for a pidfd or a refused `kevent`.
+#[cfg(test)]
+fn no_kernel_watch(_: &sys::Poller, _: u32) -> io::Result<sys::KernelWatch> {
+    Err(io::Error::from_raw_os_error(libc::EMFILE))
+}
+
+/// No thread left.
+#[cfg(test)]
+fn no_waitid_thread(_: u32, _: mpsc::Sender<u32>, _: Arc<sys::Waker>) -> io::Result<()> {
+    Err(io::Error::from_raw_os_error(libc::EAGAIN))
 }
 
 impl Drop for ExitWatcher {
@@ -120,7 +225,7 @@ impl std::fmt::Debug for ExitWatcher {
 /// for it instead) and the callbacks for its exit.
 struct Watch {
     _kernel: Option<sys::KernelWatch>,
-    callbacks: Vec<Callback>,
+    callbacks: Vec<Pending>,
 }
 
 /// The `child-exit` thread's state.
@@ -132,18 +237,18 @@ struct Watches {
     exits: mpsc::Receiver<u32>,
     watches: HashMap<u32, Watch>,
     stopping: bool,
-    /// False only in tests of the fallback.
-    kernel_watch: bool,
+    seams: Seams,
 }
 
 impl Watches {
     fn run(&mut self) {
         let mut events = Vec::new();
         while !(self.stopping && self.watches.is_empty()) {
-            if self.poller.wait(&mut events).is_err() {
+            if let Err(error) = self.poller.wait(&mut events) {
                 // The kqueue or epoll set itself failed: nothing can wake
-                // this thread again. Dropping the inbox fails later
-                // registrations instead of losing them.
+                // this thread again. Every callback hears it, and dropping
+                // the inbox fails later registrations instead of losing them.
+                self.unwatch_all(&error);
                 return;
             }
             // Exits before registrations: an exit in this batch happened
@@ -154,7 +259,10 @@ impl Watches {
             for event in events.drain(..) {
                 match event {
                     sys::Event::Wake => woken = true,
-                    sys::Event::Exit(pid) => self.fire(pid),
+                    sys::Event::Exit(pid) => {
+                        sys::wait_for_zombie(pid);
+                        self.fire(pid);
+                    }
                 }
             }
             if woken {
@@ -180,49 +288,60 @@ impl Watches {
         }
     }
 
-    fn watch(&mut self, pid: u32, callback: Callback) {
+    fn watch(&mut self, pid: u32, callback: Pending) {
         if let Some(watch) = self.watches.get_mut(&pid) {
             watch.callbacks.push(callback);
             return;
         }
-        let kernel = if self.kernel_watch {
-            self.poller.watch(pid)
-        } else {
-            Err(io::Error::from_raw_os_error(libc::ENOSYS))
-        };
-        match kernel {
+        match (self.seams.kernel_watch)(&self.poller, pid) {
             Ok(kernel) => {
                 self.watches
                     .insert(pid, Watch { _kernel: Some(kernel), callbacks: vec![callback] });
             }
-            // A zombie (macOS: `EV_ADD` of an exited process fails with
-            // ESRCH) or a pid that is gone: nothing left to wait for.
-            Err(error) if error.raw_os_error() == Some(libc::ESRCH) => run(callback),
+            // A zombie (macOS: `EV_ADD` of an exiting process fails with
+            // ESRCH) or a pid that is gone: only the zombie is left to wait for.
+            Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {
+                sys::wait_for_zombie(pid);
+                callback.call(ChildExit::Exited);
+            }
             // Linux before 5.3 or a seccomp profile without `pidfd_open`,
-            // or no descriptor left: a thread blocked in `waitid` for this
-            // child, which reports through `exits`.
-            Err(_) => match spawn_waitid(pid, self.exited.clone(), self.poller.waker()) {
-                Ok(()) => {
-                    self.watches.insert(pid, Watch { _kernel: None, callbacks: vec![callback] });
+            // no descriptor left, or a refused `kevent` / `epoll_ctl`: a
+            // thread blocked in `waitid` for this child, which reports
+            // through `exits`.
+            Err(_) => {
+                match (self.seams.waitid_thread)(pid, self.exited.clone(), self.poller.waker()) {
+                    Ok(()) => {
+                        let watch = Watch { _kernel: None, callbacks: vec![callback] };
+                        self.watches.insert(pid, watch);
+                    }
+                    Err(error) => callback.call(ChildExit::Unwatched(error)),
                 }
-                // No event and no thread: the callback cannot run.
-                Err(_) => drop(callback),
-            },
+            }
         }
     }
 
     fn fire(&mut self, pid: u32) {
         let Some(watch) = self.watches.remove(&pid) else { return };
         for callback in watch.callbacks {
-            run(callback);
+            callback.call(ChildExit::Exited);
         }
     }
-}
 
-/// A panicking callback must not end the thread every other child's exit
-/// depends on.
-fn run(callback: Callback) {
-    let _ = catch_unwind(AssertUnwindSafe(callback));
+    /// The thread cannot wait any more: every callback, watched or queued,
+    /// runs with [`ChildExit::Unwatched`].
+    fn unwatch_all(&mut self, error: &io::Error) {
+        let unwatched = || ChildExit::Unwatched(io::Error::new(error.kind(), error.to_string()));
+        for (_, watch) in self.watches.drain() {
+            for callback in watch.callbacks {
+                callback.call(unwatched());
+            }
+        }
+        while let Ok(request) = self.inbox.try_recv() {
+            if let Request::Watch(_, callback) = request {
+                callback.call(unwatched());
+            }
+        }
+    }
 }
 
 /// A thread blocked in `waitid(WEXITED | WNOWAIT)` until `pid` ends (without
@@ -230,28 +349,30 @@ fn run(callback: Callback) {
 /// the kernel gives no per-process event.
 fn spawn_waitid(pid: u32, exited: mpsc::Sender<u32>, waker: Arc<sys::Waker>) -> io::Result<()> {
     cmux_threads::spawn("child-exit-waitid", ThreadQos::Utility, move || {
-        loop {
-            // SAFETY: zeroed siginfo_t is valid output storage.
-            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-            // SAFETY: waitid writes one siginfo_t; WNOWAIT leaves the child
-            // to its owner's wait.
-            let result = unsafe {
-                libc::waitid(
-                    libc::P_PID,
-                    pid as libc::id_t,
-                    &mut info,
-                    libc::WEXITED | libc::WNOWAIT,
-                )
-            };
-            if result == 0 || io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
-                break;
-            }
-        }
+        wait_until_waitable(pid);
         if exited.send(pid).is_ok() {
             let _ = waker.wake();
         }
     })
     .map(drop)
+}
+
+/// Blocks until child `pid` waits as a zombie, without reaping it
+/// (`waitid(WEXITED | WNOWAIT)`); returns at once (ECHILD) for a pid that is
+/// not, or no longer, an unreaped child of this process.
+fn wait_until_waitable(pid: u32) {
+    loop {
+        // SAFETY: zeroed siginfo_t is valid output storage.
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        // SAFETY: waitid writes one siginfo_t; WNOWAIT leaves the child
+        // to its owner's wait.
+        let result = unsafe {
+            libc::waitid(libc::P_PID, pid as libc::id_t, &mut info, libc::WEXITED | libc::WNOWAIT)
+        };
+        if result == 0 || io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
+            return;
+        }
+    }
 }
 
 #[cfg(target_vendor = "apple")]
@@ -282,6 +403,13 @@ mod sys {
     /// An `EVFILT_PROC` event is `EV_ONESHOT`: the kernel drops it with the
     /// exit it reports, so there is nothing to undo.
     pub(super) struct KernelWatch;
+
+    /// `proc_exit` posts `NOTE_EXIT` (and fails a late `EV_ADD` with ESRCH)
+    /// before the child is a zombie: wait for that moment, so a callback's
+    /// `try_wait` sees the status (Chrome's `WaitForChildToDie` waits too).
+    pub(super) fn wait_for_zombie(pid: u32) {
+        super::wait_until_waitable(pid);
+    }
 
     fn event(ident: libc::uintptr_t, filter: i16, flags: u16, fflags: u32) -> libc::kevent {
         libc::kevent { ident, filter, flags, fflags, data: 0, udata: std::ptr::null_mut() }
@@ -402,6 +530,10 @@ mod sys {
     pub(super) struct Waker {
         eventfd: OwnedFd,
     }
+
+    /// A pidfd turns readable only once its child is a zombie, and
+    /// `pidfd_open` fails with ESRCH only for a reaped pid: nothing to wait.
+    pub(super) fn wait_for_zombie(_pid: u32) {}
 
     /// A child's pidfd, in the epoll set until dropped.
     pub(super) struct KernelWatch {
@@ -537,6 +669,8 @@ mod sys {
     pub(super) struct Waker;
     pub(super) struct KernelWatch;
 
+    pub(super) fn wait_for_zombie(_pid: u32) {}
+
     impl Poller {
         pub(super) fn new() -> io::Result<Self> {
             Err(io::Error::new(io::ErrorKind::Unsupported, "child-exit watcher"))
@@ -567,7 +701,7 @@ mod tests {
     use std::sync::mpsc;
     use std::time::Duration;
 
-    use super::ExitWatcher;
+    use super::{ChildExit, ExitWatcher};
     use crate::Command;
 
     const PROMPT: Duration = Duration::from_secs(5);
@@ -583,14 +717,25 @@ mod tests {
         assert_eq!(result, 0);
     }
 
+    /// A callback that sends `label` for an exit, and panics (a lost
+    /// message) for an unwatched child.
+    fn on_exit(
+        sender: &mpsc::Sender<&'static str>,
+        label: &'static str,
+    ) -> impl FnOnce(ChildExit) + Send + use<> {
+        let sender = sender.clone();
+        move |exit| {
+            assert!(matches!(exit, ChildExit::Exited), "{label}: {exit:?}");
+            sender.send(label).unwrap();
+        }
+    }
+
     fn exits_through(watcher: &ExitWatcher) {
         // A running child: its callback waits for its exit.
         let mut running = Command::new("/bin/sleep").arg("30").spawn().unwrap();
         let (sender, exits) = mpsc::channel();
-        let first = sender.clone();
-        watcher.register(running.id(), move || first.send("first").unwrap()).unwrap();
-        let second = sender.clone();
-        watcher.register(running.id(), move || second.send("second").unwrap()).unwrap();
+        watcher.register(running.id(), on_exit(&sender, "first")).unwrap();
+        watcher.register(running.id(), on_exit(&sender, "second")).unwrap();
         assert!(exits.recv_timeout(Duration::from_millis(200)).is_err(), "fired for a live child");
         assert!(running.try_wait().unwrap().is_none(), "the watcher reaped the child");
         running.kill().unwrap();
@@ -601,10 +746,36 @@ mod tests {
         // A child that ended before its registration: its callback runs at once.
         let mut ended = Command::new("/bin/sh").args(["-c", "exit 3"]).spawn().unwrap();
         wait_until_zombie(ended.id());
-        let late = sender.clone();
-        watcher.register(ended.id(), move || late.send("late").unwrap()).unwrap();
+        watcher.register(ended.id(), on_exit(&sender, "late")).unwrap();
         assert_eq!(exits.recv_timeout(PROMPT).unwrap(), "late");
         assert_eq!(ended.wait().unwrap().code(), Some(3));
+    }
+
+    /// Every `Exited` callback finds its child waitable: a `try_wait` in the
+    /// callback (the journal plugin's, cmux-host's) gets the status. macOS
+    /// posts `NOTE_EXIT` before the child is a zombie, so without the
+    /// watcher's wait for the zombie some of these see `None`.
+    fn every_callback_sees_a_waitable_child(watcher: &ExitWatcher) {
+        const CHILDREN: usize = 64;
+        let (sender, reaped) = mpsc::channel();
+        for _ in 0..CHILDREN {
+            let mut child = Command::new("/bin/sh").args(["-c", "exit 0"]).spawn().unwrap();
+            let sender = sender.clone();
+            watcher
+                .register(child.id(), move |exit| {
+                    let waitable = matches!(exit, ChildExit::Exited)
+                        && matches!(child.try_wait(), Ok(Some(_)));
+                    if !waitable {
+                        // Not lost: the test reaps it after the assertion.
+                        let _ = child.wait();
+                    }
+                    sender.send(waitable).unwrap();
+                })
+                .unwrap();
+        }
+        for _ in 0..CHILDREN {
+            assert!(reaped.recv_timeout(PROMPT).unwrap(), "a callback ran before the zombie");
+        }
     }
 
     #[test]
@@ -612,11 +783,36 @@ mod tests {
         exits_through(&ExitWatcher::start().unwrap());
     }
 
+    #[test]
+    fn a_kernel_exit_event_reaches_the_callback_only_once_the_child_is_waitable() {
+        every_callback_sees_a_waitable_child(&ExitWatcher::start().unwrap());
+    }
+
     /// The path without kqueue or pidfd (Linux before 5.3, a seccomp profile
     /// that denies `pidfd_open`, no descriptor left).
     #[test]
     fn the_waitid_fallback_reports_the_same_exits() {
-        exits_through(&ExitWatcher::start_without_kernel_watch().unwrap());
+        let watcher = ExitWatcher::start_without_kernel_watch().unwrap();
+        exits_through(&watcher);
+        every_callback_sees_a_waitable_child(&watcher);
+    }
+
+    /// No kernel event and no `waitid` thread: the callback hears that the
+    /// child is not watched (it is not dropped, and not told it ended), so
+    /// the caller's own fallback runs.
+    #[test]
+    fn a_child_nothing_can_watch_is_reported_unwatched_not_ended() {
+        let watcher = ExitWatcher::start_unable_to_watch().unwrap();
+        let mut child = Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        let (sender, outcome) = mpsc::channel();
+        watcher.register(child.id(), move |exit| sender.send(exit).unwrap()).unwrap();
+        match outcome.recv_timeout(PROMPT).unwrap() {
+            ChildExit::Unwatched(error) => assert_eq!(error.raw_os_error(), Some(libc::EAGAIN)),
+            ChildExit::Exited => panic!("a running child was reported ended"),
+        }
+        assert!(child.try_wait().unwrap().is_none(), "the child still runs");
+        child.kill().unwrap();
+        child.wait().unwrap();
     }
 
     /// A callback that panics leaves the thread watching the next child.
@@ -624,10 +820,10 @@ mod tests {
     fn a_panicking_callback_does_not_stop_the_watcher() {
         let watcher = ExitWatcher::start().unwrap();
         let mut first = Command::new("/usr/bin/env").arg("true").spawn().unwrap();
-        watcher.register(first.id(), || panic!("callback panic")).unwrap();
+        watcher.register(first.id(), |_| panic!("callback panic")).unwrap();
         let mut second = Command::new("/usr/bin/env").arg("true").spawn().unwrap();
         let (sender, exited) = mpsc::channel();
-        watcher.register(second.id(), move || sender.send(()).unwrap()).unwrap();
+        watcher.register(second.id(), on_exit(&sender, "second")).unwrap();
         exited.recv_timeout(PROMPT).unwrap();
         first.wait().unwrap();
         second.wait().unwrap();
@@ -639,7 +835,7 @@ mod tests {
         let watcher = ExitWatcher::start().unwrap();
         let mut child = Command::new("/bin/sleep").arg("30").spawn().unwrap();
         let (sender, exited) = mpsc::channel();
-        watcher.register(child.id(), move || sender.send(()).unwrap()).unwrap();
+        watcher.register(child.id(), on_exit(&sender, "child")).unwrap();
         drop(watcher);
         child.kill().unwrap();
         exited.recv_timeout(PROMPT).unwrap();
