@@ -82,13 +82,14 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          cache-bin: false
           workspaces: cmux-tui
           key: cmux-mobile-ffi-rust
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Generated wire types match the catalog
         working-directory: backend/packages/protocol
@@ -139,6 +140,7 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          cache-bin: false
           workspaces: cmux-tui
           key: cmux-mobile-ffi-apple
 
@@ -389,6 +391,7 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          cache-bin: false
           workspaces: cmux-tui
           key: cmux-mobile-ffi-android
 

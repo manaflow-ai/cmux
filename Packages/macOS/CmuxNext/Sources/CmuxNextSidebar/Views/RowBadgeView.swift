@@ -82,6 +82,7 @@ final class RowBadgeView: NSView {
             rings.append(ring)
             chips.append(chip)
             let glyph = StatusIndicatorView()
+            glyph.usesStatusColors = true // blue unread, orange attention, red error (Lawrence msg 11983)
             glyph.ignoresScaleSetting = true
             addSubview(glyph)
             glyphs.append(glyph)

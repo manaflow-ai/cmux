@@ -63,6 +63,8 @@ test-in-process-peer = []
 [dev-dependencies]
 optchat-chief = { path = ".", features = ["test-in-process-peer"] }
 tempfile = "3"
+# The Chief fast evals (examples/chief_eval.rs): check regexes.
+regex = "1"
 
 # The Chief ships in the app bundle (Resources/bin): fat LTO with one codegen
 # unit, like the cmux-tui client, keeps it small.

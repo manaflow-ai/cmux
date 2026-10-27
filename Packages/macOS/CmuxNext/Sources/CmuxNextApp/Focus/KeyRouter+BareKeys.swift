@@ -18,9 +18,6 @@ extension KeyRouter {
     /// keys, the first key of a sequence (`g g`, `] f`) arms the chord
     /// tracker and a single key runs its binding; any other key goes on to
     /// the page unchanged. Returns whether the key was consumed.
-    /// The page ids whose context bits are ``ActionContext/bareKeyOwners`` (`keyContext(for:facts:)`).
-    nonisolated static let bareKeyOwnerPages: Set<String> = [diffPageID, markdownPageID]
-
     func routesBareKey(_ event: NSEvent, in window: NSWindow?) -> Bool {
         guard Self.isBareKey(event.modifierFlags) else { return false }
         // Typing into a terminal, a text view or an omnibar is never a bare-key binding: it pays no
@@ -28,8 +25,8 @@ extension KeyRouter {
         guard let window, !(window.firstResponder is TerminalSurfaceView) else { return false }
         let (controller, kind) = focus(for: window)
         guard let controller, kind == .content else { return false }
-        // Only the pages of ``ActionContext/bareKeyOwners`` (the diff viewer, a markdown page) own bare keys.
-        guard let page = focusedPage(in: controller)?.descriptor.id, Self.bareKeyOwnerPages.contains(page) else { return false }
+        // Only a page whose context bits include ``ActionContext/bareKeyOwners`` owns bare keys.
+        guard let page = focusedPage(in: controller)?.descriptor.id, Self.pageMayOwnBareKeys(page) else { return false }
         let facts = facts(in: window, controller: controller)
         if Self.belongsToInputMethod(event, facts: facts) { return false }
         let context = keyContext(for: controller.focus.state, facts: facts)

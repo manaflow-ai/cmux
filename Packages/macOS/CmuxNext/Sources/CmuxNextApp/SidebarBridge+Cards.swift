@@ -16,8 +16,9 @@ extension SidebarBridge {
         let nowPlaying = model.followNowPlaying(requests.sidebarSources, dismissal: requests.nowPlayingCard, settings: { [weak services] in services?.settings }, registry: services.registry)
         // The Priority view (`sidebar.priorityView.*`) ends with the cards.
         let priority = SidebarPriorityFeed(services: services).start(container.sidebarView)
+        let updateButton = SidebarCardFeed.followAvailableUpdate(container.sidebarView, updater: services.updater)
         cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, registry: services.registry, settings: services.settings, asks: services.machineAsks)
-            .cancelling(nowPlaying).cancelling(priority)
+            .cancelling(nowPlaying).cancelling(priority).cancelling(updateButton)
     }
 }
 
@@ -56,6 +57,17 @@ enum SidebarCardFeed {
                 if model.updateCard != card { model.updateCard = card }
                 if model.updatedCard != updated { model.updatedCard = updated }
                 if model.noticeCard != notice { model.noticeCard = notice }
+            }
+        }
+    }
+
+    /// The titlebar's quiet Update Available button (``UpdaterService/availableButton``) on `view`
+    /// until the task is cancelled (the window's sidebar bridge owns it).
+    static func followAvailableUpdate(_ view: SidebarView, updater: UpdaterService) -> Task<Void, Never> {
+        // task-owner: the sidebar bridge (cancelled with the cards); event-driven (Observation).
+        Task { [weak view] in
+            for await button in ObservationStream({ updater.availableButton }) {
+                view?.showUpdateAvailable(button?.label)
             }
         }
     }

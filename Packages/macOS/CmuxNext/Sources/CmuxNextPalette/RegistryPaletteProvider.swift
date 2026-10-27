@@ -12,6 +12,8 @@ public final class RegistryPaletteProvider: PaletteProvider {
     public let id = "registry"
     public let registry: ActionRegistry
     public var includeUnbound: Bool
+    /// Only the root curates its empty query; the Commands scope retains the full list.
+    var curatesEmptyRoot = false
     public var effectOverrides: [ActionID: @MainActor () -> PaletteEffect?] = [:]
     /// Lists objects for target arguments (workspace, tab group, ...).
     public var targets: (any PaletteTargetSource)?
@@ -119,7 +121,8 @@ public final class RegistryPaletteProvider: PaletteProvider {
             tiers[item.id] = descriptor.paletteTier
             items.append(item)
         }
-        return Self.arranged(items, tiers: tiers)
+        let arranged = Self.arranged(items, tiers: tiers)
+        return curatesEmptyRoot ? curatedRootItems(arranged) : arranged
     }
 
     /// Decided when the row runs (`PaletteEffect.deferred`): an action

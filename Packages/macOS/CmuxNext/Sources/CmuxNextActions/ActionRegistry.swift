@@ -56,6 +56,10 @@ public final class ActionRegistry {
     public internal(set) var keyTierOverrides: [ActionID: ActionKeyTier] = [:]
     /// Features an administrator turned off (`DisabledFeatures`, ActionRegistry+Policy).
     public var disabledFeatures: Set<ActionFeature> = [] { didSet { shortcutIndex = nil } }
+    /// Why a cmux.json setting turns `id` off now (`browser.import.enabled`), or nil. Such an action
+    /// leaves the palette, menus and context menus, and a run is refused with this reason (the
+    /// person's own choice, not `DisabledFeatures`). The App installs it.
+    @ObservationIgnored public var settingOffReason: @MainActor (ActionID) -> String? = { _ in nil }
 
     /// Whether a menu item's key equivalent may run `id` now. The App
     /// installs its `KeyRouter` here so menus follow the same tier rules as
@@ -66,13 +70,13 @@ public final class ActionRegistry {
     /// conflicts are the shipped ones.
     @ObservationIgnored public var includesWorkspaceTabKeys: @MainActor () -> Bool = { false }
     /// True while AppKit dispatches a key-down (a menu key equivalent), not
-    /// a click in an open menu. The App installs it from `CmuxApplication.dispatchingEvent`, as
+    /// a click in an open menu. The App installs it from its input dispatch context (`InputDispatchContext`), as
     /// ``dispatchingInputEvent``: `NSApp.currentEvent` keeps the last key after its dispatch, so a
     /// socket or CLI run after a key press would pass for one. False (the default) outside the App;
     /// replaceable in tests.
     @ObservationIgnored public var isDispatchingKeyDown: @MainActor () -> Bool = { false }
     /// The OS input event AppKit is dispatching now (inside `NSApplication.sendEvent`), nil
-    /// between dispatches. The App installs it (`CmuxApplication.dispatchingEvent`); the action
+    /// between dispatches. The App installs it (`InputDispatchContext`: `sendEvent`'s event and the key router's own); the action
     /// signposts read it for a `user` run's `input_age_ms`. Nil (the default) records -1.
     @ObservationIgnored public var dispatchingInputEvent: @MainActor () -> NSEvent? = { nil }
     /// Times each run that does work (``ActionRunTiming``; `action.perform` / `action.commit`), and
@@ -114,6 +118,13 @@ public final class ActionRegistry {
 
     /// Sees every `refuse(_:quiet:)` reason and whether it is quiet (the App logs it; a loud one shows the HUD).
     @ObservationIgnored public var refusalObserver: (@MainActor (_ reason: String, _ quiet: Bool) -> Void)?
+    /// Sees the remote half of an ``ActionEffect`` fail after its local change was rolled back, with
+    /// the localized notice, for a run no caller waits on (a keyboard, menu or palette run): the App
+    /// shows it where it shows refusals. A capturing caller (the control socket) reports it itself.
+    @ObservationIgnored public var remoteFailureObserver: (@MainActor (_ action: ActionID, _ notice: String) -> Void)?
+    /// Runs of ``ActionEffect/waiting(_:_:)`` effects since launch, by action and reason: the
+    /// actions that still show nothing until a reply (`debug.action_budget`, the latency report).
+    @ObservationIgnored public internal(set) var waitingRuns: [ActionID: [ActionWait: Int]] = [:]
 
     /// Confirms destructive actions run from the keyboard, menu, or palette
     /// (`ActionRegistry+Confirmation`). Nil refuses them.
@@ -232,7 +243,9 @@ public final class ActionRegistry {
     /// are folded into their canonical ID.
     public func register(_ action: Action) {
         let id = canonicalID(for: action.id)
-        let stored = id == action.id ? action : action.withID(id)
+        var stored = id == action.id ? action : action.withID(id)
+        // Interned here, when bound, so a run's timing looks nothing up (ActionBudgetMonitor).
+        stored.timingIndex = runTiming.intern(id)
         if let index = indexByID[id] {
             actions[index] = stored
         } else {
@@ -310,7 +323,8 @@ public final class ActionRegistry {
     /// required context is present, and it is not debug-only without developer tools (`DevTools`).
     public func isAvailable(_ id: ActionID, in context: ActionContext? = nil) -> Bool {
         guard let descriptor = descriptor(for: id) else { return isBound(id) }
-        return ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil && Self.isAvailable(descriptor, in: context ?? self.context)
+        return ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil && settingOffReason(descriptor.id) == nil
+            && Self.isAvailable(descriptor, in: context ?? self.context)
     }
 
     /// `isAvailable(_:in:)` with the facts the invocation's explicit target

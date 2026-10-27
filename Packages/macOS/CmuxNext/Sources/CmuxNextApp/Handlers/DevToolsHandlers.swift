@@ -132,7 +132,7 @@ enum DevToolsHandlers {
     // MARK: Helpers
 
     private static func evaluate(_ script: String, in tab: any BrowserTab) {
-        Task { _ = try? await tab.evaluate(script, world: .page) }
+        Task { _ = try? await tab.evaluate(script, world: .page, gesture: .agent) }
     }
 
     /// The page's origin (`https://example.com:8443`) for Storage.clearDataForOrigin.

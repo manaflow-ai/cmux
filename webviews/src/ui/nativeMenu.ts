@@ -11,6 +11,8 @@ export interface NativeMenuRow {
   /** The row's icon: an SF Symbol, or an icon pack name the app pairs with one. */
   symbol?: string;
   disabled?: boolean;
+  /** A toggle's state, rendered as a native checkmark. */
+  checked?: boolean;
   separator?: boolean;
 }
 

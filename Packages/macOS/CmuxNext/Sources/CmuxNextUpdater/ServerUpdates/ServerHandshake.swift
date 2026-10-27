@@ -17,6 +17,9 @@ public nonisolated struct ServerHandshake: Sendable, Equatable {
     /// Whether a restart keeps the server's running work: cmux-tui keeps every terminal; acpmux
     /// keeps its agents only when it runs them under agent hosts.
     public var keepsWorkAcrossRestart: Bool
+    /// The server's release version for display ("0.67.0"), nil when it does not say. Display
+    /// only: behavior never compares versions.
+    public var version: String?
 
     /// - Parameters:
     ///   - kind: Which server answered.
@@ -25,13 +28,15 @@ public nonisolated struct ServerHandshake: Sendable, Equatable {
     ///   - protocolVersion: Its protocol version, if reported.
     ///   - capabilities: The advertised capabilities, or nil when it advertises none.
     ///   - keepsWorkAcrossRestart: Whether a restart keeps running work (default true).
+    ///   - version: Its release version for display, if reported.
     public init(kind: ServerKind, host: ServerHost, build: String?, protocolVersion: Int?,
-                capabilities: Set<String>?, keepsWorkAcrossRestart: Bool = true) {
+                capabilities: Set<String>?, keepsWorkAcrossRestart: Bool = true, version: String? = nil) {
         self.kind = kind
         self.host = host
         self.build = build
         self.protocolVersion = protocolVersion
         self.capabilities = capabilities
         self.keepsWorkAcrossRestart = keepsWorkAcrossRestart
+        self.version = version
     }
 }

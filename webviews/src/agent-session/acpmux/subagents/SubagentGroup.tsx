@@ -5,7 +5,7 @@
 // the transcript.
 import { createContext, useContext, useEffect, useState } from "react";
 import { Icon } from "../icons/Icon";
-import { AgentMark, agentBrand } from "../../shared/AgentMark";
+import { AgentMark } from "../../shared/AgentMark";
 import { usePaneLanguage, useT, type PaneLanguage, type Translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { formatDuration } from "../conversation/turns";
@@ -91,7 +91,9 @@ export function useNow(live: boolean): number {
 /// (ui/wave.ts) when `wave` is set. No status dot on its corner: the row says the state in words
 /// (Leo 2026-10-22: "the bottom right dots in most situations is kinda weird and unnecsesary").
 export function Avatar({ agent, wave }: { agent: Subagent; wave?: number }) {
-  const harness = useContext(SubagentHarnessContext);
+  // An agent a shell call started (`codex exec`) runs on its own harness, not the chat's.
+  const chat = useContext(SubagentHarnessContext);
+  const harness = agent.harness ?? chat;
   const { className, style } = waveProps(wave);
   return (
     <span
@@ -99,7 +101,7 @@ export function Avatar({ agent, wave }: { agent: Subagent; wave?: number }) {
       style={style}
       data-state={agent.state}
     >
-      {agentBrand(harness) ? <AgentMark agent={harness} size={14} /> : <Icon name="agent.session" size={14} />}
+      <AgentMark agent={harness} size={14} fallback={<Icon name="agent.session" size={14} />} />
     </span>
   );
 }
@@ -209,7 +211,8 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
       <Icon name="disclosure.collapsed" size={12} />
     </button>
   );
-  if (!stop || !running(agent)) return line;
+  // An agent a shell call started stops with that call, not through Claude.
+  if (!stop || !running(agent) || agent.command) return line;
   return (
     <div className="cv-subagent-stoppable">
       {line}

@@ -19,6 +19,7 @@ import tempfile
 import unittest
 
 import yaml
+from nightly_workflow_text import nightly_text
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -235,7 +236,7 @@ class CheckManifestTests(unittest.TestCase):
 
 
 def workflow() -> dict:
-    return yaml.safe_load(WORKFLOW.read_text())
+    return yaml.safe_load(nightly_text())
 
 
 def step(job: dict, name: str) -> dict:
@@ -747,7 +748,8 @@ class WriterGateTests(unittest.TestCase):
     """cx-f76kf: one explicit writer, NIGHTLY_NEXT_WRITER (mac, linux or none).
     The Mac pipeline publishes nightly-next only while it reads mac live right
     before the first write; anything else refuses (refused=true, exit 0, not a
-    failure). For the transition week NIGHTLY_NEXT_HOLD=1 also refuses."""
+    failure). Unset means mac. The transition-week NIGHTLY_NEXT_HOLD is retired
+    and no longer read."""
 
     def assert_refused(self, result, why: str, deliberate: bool = False):
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -761,30 +763,42 @@ class WriterGateTests(unittest.TestCase):
             self.assertIn(why, result.output.get("refusal_reason", ""), result.stdout)
 
     def test_mac_publishes(self):
-        for hold in ("0", "", "anything"):
+        for writer in ("mac", "mac\n"):
+            with self.subTest(writer=writer):
+                result = run_gate({"NIGHTLY_NEXT_WRITER": writer})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("refused", result.output)
+
+    def test_an_unset_writer_is_mac(self):
+        result = run_gate({})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("refused", result.output)
+        self.assertIn("NIGHTLY_NEXT_WRITER is unset, which means mac", result.stdout)
+
+    def test_a_value_that_looks_like_unset_refuses(self):
+        # Only a 404 means unset; no value read live can stand in for it.
+        for writer in ("<unset>", "unset"):
+            with self.subTest(writer=writer):
+                self.assert_refused(run_gate({"NIGHTLY_NEXT_WRITER": writer}), "not mac")
+        self.assert_refused(run_gate({"NIGHTLY_NEXT_WRITER": ""}), "'<empty>', not mac")
+
+    def test_the_retired_hold_is_not_read(self):
+        # Even an unreadable or set NIGHTLY_NEXT_HOLD no longer stops a publication.
+        for hold in ("1", None):
             with self.subTest(hold=hold):
                 result = run_gate({"NIGHTLY_NEXT_WRITER": "mac", "NIGHTLY_NEXT_HOLD": hold})
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertNotIn("refused", result.output)
-        result = run_gate({"NIGHTLY_NEXT_WRITER": "mac\n"})
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertNotIn("refused", result.output, "a deleted NIGHTLY_NEXT_HOLD does not hold")
 
     def test_any_other_writer_refuses(self):
         for writer in ("linux", "none", "", "Mac", "macos"):
             with self.subTest(writer=writer):
-                self.assert_refused(run_gate({"NIGHTLY_NEXT_WRITER": writer, "NIGHTLY_NEXT_HOLD": "0"}), "not mac",
+                self.assert_refused(run_gate({"NIGHTLY_NEXT_WRITER": writer}), "not mac",
                                     deliberate=writer in ("linux", "none"))
 
-    def test_an_unset_or_unreadable_writer_refuses(self):
-        self.assert_refused(run_gate({"NIGHTLY_NEXT_HOLD": "0"}), "'<unset>', not mac")
-        self.assert_refused(run_gate({"NIGHTLY_NEXT_WRITER": None, "NIGHTLY_NEXT_HOLD": "0"}), "NIGHTLY_NEXT_WRITER read live is unreadable")
+    def test_an_unreadable_writer_refuses(self):
+        self.assert_refused(run_gate({"NIGHTLY_NEXT_WRITER": None}), "NIGHTLY_NEXT_WRITER read live is unreadable")
         self.assert_refused(run_gate({"NIGHTLY_NEXT_WRITER": "mac"}, token=""), "could not be minted")
-
-    def test_the_transition_hold_still_refuses(self):
-        self.assert_refused(run_gate({"NIGHTLY_NEXT_WRITER": "mac", "NIGHTLY_NEXT_HOLD": "1"}), "NIGHTLY_NEXT_HOLD read live is 1",
-                            deliberate=True)
-        self.assert_refused(run_gate({"NIGHTLY_NEXT_WRITER": "mac", "NIGHTLY_NEXT_HOLD": None}), "NIGHTLY_NEXT_HOLD read live is unreadable")
 
     def test_a_recovered_build_is_refused_before_its_lineage_check(self):
         result = run_gate({"NIGHTLY_NEXT_WRITER": "linux"}, source="recovered")
@@ -799,9 +813,13 @@ class WriterGateTests(unittest.TestCase):
     def test_decide_builds_nightly_next_only_for_the_mac_writer(self):
         decide = workflow()["jobs"]["decide"]
         text = json.dumps(decide)
-        self.assertIn("${{ vars.NIGHTLY_NEXT_WRITER || '' }}", text)
+        self.assertIn("${{ vars.NIGHTLY_NEXT_WRITER || 'mac' }}", text)
         self.assertIn("track === 'nightly-next' && shouldPublish && !notaryDispatchInput && nextWriter !== 'mac'", text)
-        self.assertIn("!nextNotWriter && !nextHold", text)
+        self.assertIn("!nextNotWriter ? 'true'", text)
+        # The retired hold is read nowhere: not at decide, not by the final gate.
+        everything = json.dumps(workflow())
+        for reader in ("vars.NIGHTLY_NEXT_HOLD", "process.env.NIGHTLY_NEXT_HOLD", "var NIGHTLY_NEXT_HOLD"):
+            self.assertNotIn(reader, everything)
 
     def test_the_token_mint_cannot_fail_the_run(self):
         mint = step(workflow()["jobs"]["publish-nightly"], "Mint release App token")

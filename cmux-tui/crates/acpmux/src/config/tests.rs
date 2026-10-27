@@ -167,6 +167,40 @@ fn writable_legacy_state_is_refused_before_it_is_narrowed_or_trusted() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A state path another account may write is still refused, and left as it
+/// is: acpmux did not make it that way (a `mkdir` or a shell redirect under
+/// umask 002 did). The refusal names the exact `chmod` that fixes it
+/// (ergo-walk2, 2026-10-25).
+#[cfg(unix)]
+#[test]
+fn the_writable_state_refusal_names_the_chmod_that_fixes_it() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = std::env::temp_dir().join(format!(
+        "acpmux-writable-fix-{}-{}",
+        std::process::id(),
+        uuid::Uuid::now_v7()
+    ));
+    let home = root.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let mode = |p: &Path| std::fs::symlink_metadata(p).unwrap().permissions().mode() & 0o777;
+    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o775)).unwrap();
+    let error = private_state_dir(&home).expect_err("a group-writable home was trusted");
+    let fix = format!("`chmod 700 {}`", home.display());
+    assert!(error.to_string().contains(&fix), "{error:#}");
+    assert_eq!(mode(&home), 0o775, "a home acpmux did not make is not changed");
+
+    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let log = home.join("daemon.log");
+    std::fs::write(&log, "").unwrap();
+    std::fs::set_permissions(&log, std::fs::Permissions::from_mode(0o664)).unwrap();
+    let error = private_state_append(&log).expect_err("a group-writable log was trusted");
+    let fix = format!("`chmod 600 {}`", log.display());
+    assert!(error.to_string().contains(&fix), "{error:#}");
+    assert_eq!(mode(&log), 0o664, "a log acpmux did not make is not changed");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[cfg(unix)]
 #[test]
 fn a_state_home_below_a_non_sticky_writable_ancestor_is_refused() {

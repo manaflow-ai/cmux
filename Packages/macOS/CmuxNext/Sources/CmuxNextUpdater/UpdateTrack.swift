@@ -4,7 +4,8 @@
 /// and feeds; RC shares stable's identity with its own feed. Tagged DEV
 /// and staging builds are `development`: they never run Sparkle against a
 /// public feed (they are not on the release train), but they may probe it
-/// read-only.
+/// read-only. The one exception is the tip app (cmux NEXT DEV stamped with
+/// the tip feed, ``UpdateBuildIdentity/isTipBuild``), which is `nightly`.
 nonisolated public enum UpdateTrack: String, Sendable, CaseIterable, Codable {
     case stable
     case nightly
@@ -19,6 +20,17 @@ nonisolated public enum UpdateTrack: String, Sendable, CaseIterable, Codable {
             if bundleIdentifier == base || bundleIdentifier.hasPrefix(base + ".") { return true }
         }
         return false
+    }
+
+    /// `updates.downloadAutomatically` for an install that never set it (claude-sr2 2026-10-26,
+    /// relaying Leo: "i also feel like the forced auto download for updates is convienient for me,
+    /// maybe better as an opt in for normal users"): on in the dogfood apps (NIGHTLY, the tip app
+    /// and DEV builds), off in stable and RC, where a found update waits for a click.
+    public var downloadsAutomaticallyByDefault: Bool {
+        switch self {
+        case .nightly, .development: true
+        case .stable, .rc: false
+        }
     }
 }
 

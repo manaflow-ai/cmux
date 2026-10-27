@@ -118,7 +118,7 @@ jobs:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
       # Wrangler, Vitest and the Oxlint JS plugin (TypeScript sources) need a
       # current Node; the Blacksmith image ships an older one.
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -307,7 +307,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         if: steps.gate.outputs.enabled == 'true'
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         if: steps.gate.outputs.enabled == 'true'
         with:
@@ -361,7 +361,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         if: steps.gate.outputs.enabled == 'true'
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         if: steps.gate.outputs.enabled == 'true'
         with:
@@ -471,7 +471,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         if: steps.gate.outputs.enabled == 'true'
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
       # Pin the smoke host (scripts/cmux-next/release/pin-host.ts): DoH, IPv4 first, waits up to 300 s for a
       # new domain's record. Runners have no IPv6 route and a fresh domain is NXDOMAIN at first (2026-10-09).
       - name: Pin the smoke host's address
@@ -532,7 +532,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         if: steps.gate.outputs.enabled == 'true'
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         if: steps.gate.outputs.enabled == 'true'
         with:
@@ -642,7 +642,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         if: steps.gate.outputs.enabled == 'true'
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
       # Pin the smoke host (scripts/cmux-next/release/pin-host.ts): DoH, IPv4 first, waits up to 300 s for a
       # new domain's record. Runners have no IPv6 route and a fresh domain is NXDOMAIN at first (2026-10-09).
       - name: Pin the smoke host's address

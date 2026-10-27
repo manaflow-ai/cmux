@@ -108,14 +108,14 @@
           "key": "updates.downloadAutomatically",
           "title": {
             "key": "settings.updates.downloadAutomatically",
-            "text": "Download Updates Automatically"
+            "text": "Download and Install Updates Automatically"
           },
           "help": {
             "key": "settings.updates.downloadAutomatically.help",
-            "text": "Off: a found update waits, and one click downloads and installs it."
+            "text": "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "update",
             "download",
@@ -224,7 +224,7 @@
             "text": "A downloaded update installs as cmux quits. Terminals keep running."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "update",
             "install",
@@ -332,7 +332,7 @@
             "step": 60,
             "unit": "seconds"
           },
-          "default": 900,
+          "default": 600,
           "keywords": [
             "update",
             "install",

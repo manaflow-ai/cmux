@@ -2,7 +2,8 @@ package import CmuxNextDesign
 
 /// Debug Settings of browser tab hibernation (DEV and NIGHTLY; Release and RC never activate
 /// the store, so they keep the defaults). English developer text, as every Debug Settings section.
-package enum HibernationTunables {
+package struct HibernationTunables {
+    package init() {}
     package static let section = TunableSection(id: "hibernation", title: "Tab Hibernation", symbol: "moon.zzz", order: 49)
 
     /// On (the default): each hibernated page keeps its last frame JPEG-compressed in its own

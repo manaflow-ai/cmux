@@ -14,13 +14,29 @@
 //!   null for the session's own subagents and `state` one of `running`,
 //!   `completed`, `failed`, `cancelled` or `disconnected`. A running one's
 //!   progress adds `tokens`, `toolUses`, `elapsedMs`, `action` and, for a
-//!   Claude workflow (`kind: "workflow"`), `agents: {done, started}`.
+//!   Claude workflow (`kind: "workflow"`), `agents: {done, started, failed?,
+//!   queued?}`, its `runId` and `scriptPath` (what a resume names again)
+//!   and `argsDigest` (a digest of its args, never the args) and, from Claude's progress snapshots, its
+//!   `phases` (`{index, title}`, whole, when they change) and
+//!   `workflowAgents`: each agent that changed, as its `index` and only the
+//!   fields that changed (a removed one null), which a client merges by the
+//!   subagent's id and `index`; at the run's end, every agent whole with
+//!   `workflowAgentsFull: true`, which replaces them. An agent's fields are `label`, `state` (`queued`, `running`,
+//!   `completed`, `failed`, `skipped` or `blocked`), `phase`, `phaseIndex`,
+//!   `agentId`, `kind`, `model`, `fallbackModel`, `tokens`, `toolUses`,
+//!   `elapsedMs`, `queuedAt`, `startedAt`, `lastProgressAt`, `attempt`,
+//!   `retryReason`, `cached`, `isolation`, `remoteSessionId`, `action`,
+//!   `prompt`, `result` and `error` (`claude_stdio/workflows.rs`). A
+//!   subagent's end may say why (`reason`: `paused` for a Claude workflow a
+//!   resume can pick up by its `runId`). A failed one may say its `error`, and a Claude
+//!   agent its `agentId` (what SendMessage resumes it by; a resume reports it `running`
+//!   again).
 //!   `background: true` marks one that outlives its parent's turn (every
 //!   Codex child, which runs in its own thread).
 
 use crate::hub::merge_mux_meta;
 use serde_json::{Map, Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Whether a `session/update` params object is a subagent's (the hub tags it
 /// `_meta.acpmux.subagent`, ``SubagentTree::annotate``). A subagent's text and
@@ -39,6 +55,9 @@ pub struct SubagentTree {
     /// The session's own agent session id (its harness thread), once known:
     /// never one of its subagents.
     own: Option<String>,
+    /// The background subagents still running: they outlive the turn that
+    /// started them, so the session works on past it (`hub/work_below.rs`).
+    background: HashSet<String>,
 }
 
 impl SubagentTree {
@@ -62,6 +81,12 @@ impl SubagentTree {
     /// Writes the subagent model into one `session/update`'s params. Returns
     /// the subagent the update belongs to, or `None` for the session's own.
     pub fn annotate(&mut self, params: &mut Value) -> Option<String> {
+        self.annotate_live(params, true)
+    }
+
+    /// ``annotate``; a replayed update (`live` false: a `session/load` replays history) never
+    /// changes which background subagents run, since the replay may hold a start without its end.
+    pub fn annotate_live(&mut self, params: &mut Value, live: bool) -> Option<String> {
         let owner = params
             .get("sessionId")
             .and_then(Value::as_str)
@@ -73,6 +98,9 @@ impl SubagentTree {
         if let Some(owner) = &owner {
             fields.insert("subagent".into(), json!(owner));
         }
+        if live {
+            self.note_background(&events);
+        }
         if !events.is_empty() {
             fields.insert("subagents".into(), Value::Array(events));
         }
@@ -80,6 +108,30 @@ impl SubagentTree {
             merge_mux_meta(params, Value::Object(fields));
         }
         owner
+    }
+
+    /// How many background subagents still run.
+    pub fn background_running(&self) -> usize {
+        self.background.len()
+    }
+
+    /// The harness is gone, and its background subagents with it.
+    pub fn end_background(&mut self) {
+        self.background.clear();
+    }
+
+    /// Follows the background subagents through one update's events: one
+    /// marked `background` that runs is added (a later event of it need not
+    /// repeat the mark), and any that ends leaves.
+    fn note_background(&mut self, events: &[Value]) {
+        for event in events {
+            let Some(id) = event.get("id").and_then(Value::as_str) else { continue };
+            if event.get("state").and_then(Value::as_str) != Some("running") {
+                self.background.remove(id);
+            } else if event.get("background") == Some(&Value::Bool(true)) {
+                self.background.insert(id.to_owned());
+            }
+        }
     }
 
     fn events(&mut self, update: &Value, owner: Option<&str>) -> Vec<Value> {
@@ -116,6 +168,17 @@ impl SubagentTree {
                 let state = s(update, "state").unwrap_or_else(|| "completed".into());
                 let Some(mut event) = self.spawn(&id, owner) else { return vec![] };
                 event.insert("state".into(), json!(state));
+                // Why it ended, when the harness says (`paused`: a Claude workflow
+                // whose run a resume can pick up again by its `runId`).
+                if let Some(reason) = s(update, "reason") {
+                    event.insert("reason".into(), json!(reason));
+                }
+                // A failed Claude agent's error, and the agent id SendMessage resumes it by.
+                for key in ["agentId", "error"] {
+                    if let Some(v) = s(update, key) {
+                        event.insert(key.into(), json!(v));
+                    }
+                }
                 vec![Value::Object(event)]
             }
             // A running subagent's or workflow's live numbers (claude_stdio/workflows.rs).
@@ -131,6 +194,12 @@ impl SubagentTree {
                     "elapsedMs",
                     "action",
                     "agents",
+                    "runId",
+                    "scriptPath",
+                    "argsDigest",
+                    "phases",
+                    "workflowAgents",
+                    "workflowAgentsFull",
                     "background",
                 ] {
                     if let Some(v) = update.get(key).filter(|v| !v.is_null()) {
@@ -314,6 +383,27 @@ mod codex_tests {
         assert!(!tree.owns(chat));
     }
 
+    /// A failed Claude agent's entry says why and which agent a resume names.
+    #[test]
+    fn a_failed_subagent_carries_its_error_and_agent_id() {
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/t1", "name": "Push relay"}),
+        );
+        let end = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "s1/t1", "state": "failed",
+                   "agentId": "a8e1", "error": "API Error: 503"}),
+        );
+        assert_eq!(
+            end,
+            [
+                json!({"id": "s1/t1", "parent": null, "state": "failed", "agentId": "a8e1", "error": "API Error: 503"})
+            ]
+        );
+    }
+
     /// Codex runs a `spawnAgent` child in its own thread: it outlives the turn
     /// that spawned it (the model may end its turn without a `wait`), so it is
     /// background work, and a client never ends it at the turn's end.
@@ -335,5 +425,50 @@ mod codex_tests {
         );
         assert_eq!(activity[0]["state"], json!("running"));
         assert_eq!(activity[0]["background"], json!(true));
+    }
+}
+
+#[cfg(test)]
+mod background_tests {
+    use super::*;
+
+    fn annotate(tree: &mut SubagentTree, update: Value, live: bool) {
+        let mut params = json!({"sessionId": "s1", "update": update});
+        tree.annotate_live(&mut params, live);
+    }
+
+    /// manaflow-ai/cmux#25230: the background subagents a chat runs past its turn, from their
+    /// start to their end; a foreground one ends with its turn, and a replay changes nothing.
+    #[test]
+    fn background_subagents_run_from_their_start_to_their_end() {
+        let mut tree = SubagentTree::default();
+        tree.set_own(Some("s1"));
+        let spawn = |id: &str, background: bool| json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": id, "background": background});
+        let end = |id: &str| json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": id, "state": "completed"});
+        annotate(&mut tree, spawn("fg", false), true);
+        assert_eq!(tree.background_running(), 0);
+        annotate(&mut tree, spawn("replayed", true), false);
+        assert_eq!(tree.background_running(), 0, "a replay starts nothing");
+        annotate(&mut tree, spawn("bg", true), true);
+        // Moved to the background later (Claude's task_started is_backgrounded).
+        annotate(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "fg", "background": true}),
+            true,
+        );
+        assert_eq!(tree.background_running(), 2);
+        // Progress without the mark keeps it.
+        annotate(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "bg"}),
+            true,
+        );
+        assert_eq!(tree.background_running(), 2);
+        annotate(&mut tree, end("bg"), true);
+        annotate(&mut tree, end("fg"), true);
+        assert_eq!(tree.background_running(), 0);
+        annotate(&mut tree, spawn("bg2", true), true);
+        tree.end_background();
+        assert_eq!(tree.background_running(), 0, "its harness exited");
     }
 }

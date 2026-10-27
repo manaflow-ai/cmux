@@ -1,7 +1,4 @@
 import AppKit
-import CmuxNextBridge
-// Only the grid size: CmuxNextDaemon has its own PaneID and SplitID (the daemon's handles).
-import struct CmuxNextDaemon.CellSize
 import CmuxNextDesign
 @testable import CmuxNextApp
 @testable import CmuxNextLayout
@@ -52,7 +49,11 @@ struct PaneCloseMotionTests {
 
         /// The daemon's tree, as the store's mirror shows it.
         func show(_ tree: SplitNode) {
-            model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(tree))])
+            show(layout: .splits(tree))
+        }
+
+        func show(layout: ScreenLayout) {
+            model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: layout)])
             root.syncWithModel()
         }
 
@@ -74,6 +75,13 @@ struct PaneCloseMotionTests {
         func settle() -> Int {
             for frame in 1...240 where !step() { return frame }
             return 240
+        }
+
+        var widthIntents: [(ColumnID, Double)] {
+            intents.compactMap { intent in
+                guard case let .setColumnWidth(column, _, width, _, .ended) = intent else { return nil }
+                return (column, width)
+            }
         }
 
         var ratioIntents: [(SplitID, Double)] {
@@ -159,14 +167,127 @@ struct PaneCloseMotionTests {
         #expect(screen.model.focusedPane == "p3")
     }
 
-    /// The screen's last pane and a column's only pane leave with the daemon's tree.
-    @Test func aPaneWithNoSiblingLeavesWithTheDaemonsTree() {
+    /// The screen's last pane leaves with the daemon's tree.
+    @Test func theScreensLastPaneLeavesWithTheDaemonsTree() {
         let lone = Screen(.splits(.leaf("p1")))
         #expect(lone.close("p1") == nil)
         let strip = Screen(.columns([LayoutColumn(id: "c1", width: 0.5, root: .leaf("p1")),
                                      LayoutColumn(id: "c2", width: 0.5, root: .split("v", axis: .vertical, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3")))]))
-        #expect(strip.close("p1") == nil)
         #expect(strip.close("p2")?.successor == "p3", "a pane with a sibling in its column did not close in the key's turn")
+    }
+
+    // MARK: A column's only pane
+
+    /// The chat docked left, then the strip's two columns sharing the viewport.
+    static let strip: [LayoutColumn] = [
+        LayoutColumn(id: "c0", width: 0.3, root: .leaf("chat"), dock: DockColumn(edge: .left, role: .agentChat)),
+        LayoutColumn(id: "c1", width: 0.5, root: .leaf("p1")),
+        LayoutColumn(id: "c2", width: 0.5, root: .leaf("p2")),
+    ]
+
+    /// Leo 2026-10-25: "we should never block shit on the tab animation". The right column's only
+    /// pane stayed, empty, until the daemon's tree without it came back, while its strip played the
+    /// tab's close; it leaves with its column in the key's turn now: the focus goes left, the column
+    /// left takes its final width in that turn, and it moves from the key's first frame.
+    @Test func aColumnsOnlyPaneLeavesWithItsColumnInTheKeysTurn() throws {
+        let screen = Screen(.columns(Self.strip), focused: "p2")
+        screen.model.newColumnWidthModeOverride = .fitScreen
+        let start = try #require(screen.rect("p1"))
+        let close = try #require(screen.close("p2"), "the right column's only pane waited for the daemon's tree")
+        #expect(close.successor == "p1")
+        #expect(screen.model.focusedPane == "p1", "the focus stayed on the closed pane")
+        let shown = try #require(screen.model.screens.first?.layout)
+        #expect(!shown.contains("p2"), "the closed pane is still shown")
+        #expect(shown.columns.first { $0.id == "c1" }?.width == 1, "the column left did not take the viewport in the key's turn")
+        #expect(screen.rect("p2") == nil, "the closed pane's host stayed on screen")
+        let target = try #require(screen.target("p1"))
+        #expect(target.width > start.width + 1, "p1's target in the key's turn is not wider")
+        screen.step()
+        #expect(try #require(screen.rect("p1")).width > start.width + 1, "p1 did not grow in the key's first frame")
+        #expect(screen.target("p1") == target)
+        screen.settle()
+        #expect(screen.rect("p1") == target, "the key's turn did not set p1's final frame")
+        #expect(screen.intents.isEmpty, "an intent went before the daemon closed the pane")
+    }
+
+    /// The daemon's echoes (the emptied column, then the tree without it) change nothing on screen,
+    /// and the width the close leaves goes to the daemon once, after its tree lost the column.
+    @Test func theDaemonsEchoesOfAColumnCloseChangeNothingOnScreen() throws {
+        let screen = Screen(.columns(Self.strip), focused: "p2")
+        screen.model.newColumnWidthModeOverride = .fitScreen
+        _ = try #require(screen.close("p2"))
+        for _ in 1...6 { screen.step() }
+        let targets = try ["chat", "p1"].map { try #require(screen.target($0)) }
+        screen.show(layout: .columns(Self.strip))
+        #expect(screen.rect("p2") == nil, "the tab close's echo showed the closed pane again")
+        #expect(try ["chat", "p1"].map { try #require(screen.target($0)) } == targets)
+        screen.show(layout: .columns(Array(Self.strip.prefix(2))))
+        #expect(try ["chat", "p1"].map { try #require(screen.target($0)) } == targets, "the column close's echo retargeted the panes")
+        let sent = screen.widthIntents
+        #expect(sent.count == 1 && sent.first?.0 == "c1" && sent.first?.1 == 1, "sent \(sent)")
+        #expect(!screen.model.isClosing("p2"))
+    }
+
+    @Test func aRefusedColumnCloseBringsTheColumnAndItsWidthsBack() throws {
+        let screen = Screen(.columns(Self.strip), focused: "p2")
+        screen.model.newColumnWidthModeOverride = .fitScreen
+        let before = screen.model.screens.first?.layout
+        let close = try #require(screen.close("p2"))
+        for _ in 1...4 { screen.step() }
+        screen.model.cancelPaneClose(close)
+        screen.root.syncWithModel()
+        #expect(screen.model.screens.first?.layout == before)
+        screen.settle()
+        #expect(screen.rect("p2") != nil, "the refused column did not come back")
+        #expect(screen.intents.isEmpty)
+    }
+
+    /// Home's pinned dock with a column beside it (Cmd-D in Home): the dock stays alone, docked, at
+    /// its width, as cmux-tui keeps it (`pinned-dock-alone-v1`).
+    @Test func homesColumnBesideThePinnedDockLeavesInTheKeysTurn() throws {
+        let dock = LayoutColumn(id: "c0", width: 0.35, root: .leaf("home"), dock: DockColumn(edge: .left, isPinned: true))
+        let screen = Screen(.columns([dock, LayoutColumn(id: "c1", width: 0.65, root: .leaf("p1"))]), focused: "p1")
+        let close = try #require(screen.close("p1"))
+        #expect(close.successor == "home")
+        #expect(screen.model.focusedPane == "home")
+        #expect(screen.model.screens.first?.layout == .columns([dock]))
+        #expect(screen.rect("p1") == nil)
+    }
+
+    /// The last scrolling column left is the screen's tree again, as the daemon shows it; a dock
+    /// with no scrolling column beside it scrolls again.
+    @Test func theColumnsLeftTakeTheDaemonsShapeInTheKeysTurn() throws {
+        let tree: SplitNode = .split("v", axis: .vertical, ratio: 0.5, a: .leaf("p1"), b: .leaf("p3"))
+        let pair = Screen(.columns([LayoutColumn(id: "c1", width: 0.5, root: tree), LayoutColumn(id: "c2", width: 0.5, root: .leaf("p2"))]),
+                          focused: "p2")
+        #expect(pair.close("p2")?.successor == "p1")
+        #expect(pair.model.screens.first?.layout == .splits(tree))
+        let docked = Screen(.columns(Array(Self.strip.dropLast()) + [LayoutColumn(id: "c3", width: 0.3, root: .leaf("p3"), dock: DockColumn(edge: .right))]))
+        _ = try #require(docked.close("p1"))
+        let columns = docked.model.screens.first?.layout.columns ?? []
+        #expect(columns.map(\.id) == ["c0", "c3"] && columns.allSatisfy { $0.dock == nil }, "\(columns)")
+    }
+
+    /// Click to final layout, in frames of the same harness, with the daemon's tree 100 ms after the
+    /// key: the right column's close sets its final layout in the key's turn (frame 0), not at the echo.
+    @Test func aColumnCloseSetsItsFinalLayoutInTheKeysTurn() throws {
+        let screen = Screen(.columns(Self.strip), focused: "p2")
+        screen.model.newColumnWidthModeOverride = .fitScreen
+        _ = screen.close("p2")
+        let echo = Int((0.1 / Self.dt).rounded())
+        var targets: [CGRect?] = [screen.target("p1")], focus: [PaneID?] = [screen.model.focusedPane], rest = 0
+        for frame in 1...240 {
+            if frame == echo { screen.show(layout: .columns(Array(Self.strip.prefix(2)))) }
+            let moving = screen.step()
+            targets.append(screen.target("p1"))
+            focus.append(screen.model.focusedPane)
+            if !moving, frame > echo { rest = frame; break }
+        }
+        let final = targets.last ?? nil
+        let finalAt = targets.firstIndex { $0 == final } ?? -1, focusAt = focus.firstIndex { $0 == "p1" } ?? -1
+        print("column close: final target at frame \(finalAt), focus at frame \(focusAt), at rest at frame \(rest) (120 Hz, echo at \(echo))")
+        #expect(finalAt == 0, "the final layout waited \(finalAt) frames")
+        #expect(focusAt == 0, "the focus waited \(focusAt) frames")
     }
 
     // MARK: The spring
@@ -197,41 +318,16 @@ struct PaneCloseMotionTests {
 
     // MARK: Terminals
 
-    /// The neighbours' grids wait while they spring into the closed pane's space and go at rest.
-    @Test func aCloseHoldsTheTerminalGridsUntilItsPanesLand() throws {
+    /// The neighbours' terminals resize at the start of the close (Lawrence 2026-10-23): no grid is held while
+    /// they spring into the closed pane's space.
+    @Test func aCloseHoldsNoTerminalGrid() throws {
         let screen = Screen(.splits(Self.row))
         _ = try #require(screen.close("p2"))
-        #expect(screen.root.holdsTerminalGrids, "the close's first frame does not hold the grids")
-        var heldFrames = 0
         for _ in 1...240 {
-            let moving = screen.step()
-            if screen.root.holdsTerminalGrids { heldFrames += 1 }
-            if !moving { break }
+            #expect(!screen.root.holdsTerminalGrids, "the close holds the grids")
+            if !screen.step() { break }
         }
-        #expect(!screen.root.holdsTerminalGrids, "the grids are still held at rest")
-        #expect(heldFrames > 5, "the grids were held for \(heldFrames) frames only")
-        #expect(screen.holds == [true, false], "hold changes: \(screen.holds)")
-    }
-
-    /// While held, a terminal's PTY gets nothing; once let go, its newest grid goes once.
-    @Test func aHeldTerminalResizesItsPTYOnceWhenLetGo() {
-        final class Terminal: ResizeTarget {
-            var applied: [CellSize] = []
-            var awaitsEcho: Bool { false }
-            func applySettled(_ size: CellSize) { applied.append(size) }
-        }
-        final class Holder {}
-        let coordinator = ResizeCoordinator()
-        let terminal = Terminal(), holder = Holder()
-        coordinator.setHeld(true, by: holder)
-        for frame in 0..<45 {
-            coordinator.submit(terminal, size: CellSize(cols: 160 - frame, rows: 48))
-            _ = coordinator.tick()
-        }
-        #expect(terminal.applied.isEmpty, "\(terminal.applied.count) PTY resizes during the close")
-        coordinator.setHeld(false, by: holder)
-        for _ in 0..<5 { _ = coordinator.tick() }
-        #expect(terminal.applied == [CellSize(cols: 116, rows: 48)], "applied \(terminal.applied)")
+        #expect(screen.holds.isEmpty, "hold changes: \(screen.holds)")
     }
 
     @Test func reduceMotionClosesInOneFrameAndHoldsNoGrid() throws {

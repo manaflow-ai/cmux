@@ -42,7 +42,7 @@ extension CloudStrings {
     }
 
     static func progressFailed(_ reason: String) -> String {
-        String(format: text("cloud.progress.failed", "The Cloud machine did not start: %@"), reason)
+        String(format: text("cloud.progress.failed", "The Cloud machine did not start. Click Retry; Copy Error copies the details. Reason: %@"), reason)
     }
 
     static func elapsed(_ duration: Duration) -> String {

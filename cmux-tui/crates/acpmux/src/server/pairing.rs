@@ -7,9 +7,15 @@
 //! - `_acpmux/pair_revoke {id}` revokes a ticket or a machine (by id or
 //!   name); a machine's open connections close at once.
 //! - `_acpmux/pair_issue {name, role}` issues a credential with no ticket
-//!   (the joining side of the daemon role).
+//!   (the joining side of the daemon role). Role `phone` is the person's
+//!   only, for a phone the Mac app's mobile host serves; a live phone of
+//!   that name is replaced (`Pairing::issue_phone`).
+//! - `_acpmux/pair_set {id, fullAccess}` turns a `client` machine's or a phone's
+//!   Full-access setting on (the person only, `hub/person.rs`) or off
+//!   (`crate::pairing` module docs). Off, like a machine's revoke, puts
+//!   every chat out of its policy's mode back at once.
 //!
-//! All four are the unix socket's only. `_acpmux/pair_redeem` is served only
+//! All five are the unix socket's only. `_acpmux/pair_redeem` is served only
 //! on a connection that presented an open ticket, and nothing else is.
 
 use crate::no_panic::JsonExt;
@@ -77,10 +83,12 @@ pub(super) fn admit(
 }
 
 /// The origin and proof a paired machine's connection is served with:
-/// `client` as a peer daemon, `read-only` as Web with the read-only gate.
+/// `client` as a peer daemon, `read-only` as Web with the read-only gate,
+/// `phone` as Web with its own id (what its Full-access setting reads).
 pub(super) fn origin_of(device: &DeviceAuth) -> (Origin, ConnAuth) {
     match device.role {
         Role::ReadOnly => (Origin::Web, ConnAuth::ReadOnlyDevice),
+        Role::Phone => (Origin::Web, ConnAuth::Device),
         _ => (Origin::Peer, ConnAuth::Device),
     }
 }
@@ -211,6 +219,7 @@ pub(super) async fn dispatch(
             | method::MUX_PAIR_LIST
             | method::MUX_PAIR_REVOKE
             | method::MUX_PAIR_ISSUE
+            | method::MUX_PAIR_SET
             | method::MUX_PAIR_REDEEM
     ) {
         return None;
@@ -222,19 +231,53 @@ pub(super) async fn dispatch(
         method::MUX_PAIR_TICKET_NEW => mint(hub, params).await,
         method::MUX_PAIR_LIST => Ok(hub.pairing.list()),
         method::MUX_PAIR_REVOKE => revoke(hub, params).await,
-        _ => issue(hub, params),
+        method::MUX_PAIR_SET => set(hub, conn, params).await,
+        _ => issue(hub, conn, params),
     })
+}
+
+/// `_acpmux/pair_set {id, fullAccess}`: on only from the person, since it
+/// widens what runs without asking; off from any unix socket client.
+async fn set(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
+    let key = params
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("id is required"))?;
+    let on = params
+        .get("fullAccess")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| RpcError::invalid_params("fullAccess (true or false) is required"))?;
+    if on && !conn.is_person() {
+        return Err(crate::hub::person::person_required(
+            "letting a machine run chats in Full access",
+        ));
+    }
+    let device = hub.pairing.set_full_access(key, on)?;
+    let held_again = if on { 0 } else { hub.hold_policies_again().await };
+    tracing::info!(device = %device.id, name = %device.name, on, "a machine's Full-access setting changed");
+    Ok(json!({
+        "device": device.to_value(),
+        "allows": on.then(|| crate::pairing::full_access_allows(&device.name)),
+        "held_again": held_again,
+    }))
 }
 
 fn role_param(params: &Value) -> Result<Role, RpcError> {
     let name = params.get("role").and_then(Value::as_str).unwrap_or_default();
     Role::parse(name).ok_or_else(|| {
-        RpcError::invalid_params(format!("role must be daemon, client or read-only, not {name:?}"))
+        RpcError::invalid_params(format!(
+            "role must be daemon, client, read-only or phone, not {name:?}"
+        ))
     })
 }
 
 async fn mint(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
     let role = role_param(params)?;
+    if role == Role::Phone {
+        return Err(RpcError::invalid_params(
+            "a phone pairs with the Mac app, never with a ticket: mint a client or read-only ticket",
+        ));
+    }
     let ttl = params
         .get("ttlSeconds")
         .and_then(Value::as_u64)
@@ -289,6 +332,10 @@ async fn revoke(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("id is required"))?;
     let reply = hub.pairing.revoke(key)?;
+    // Its Full-access setting ends with it: no chat stays out of its policy's mode.
+    if reply.pointer("/revoked/kind").and_then(Value::as_str) == Some("device") {
+        hub.hold_policies_again().await;
+    }
     // A machine this daemon drove (role daemon) is also no longer its peer.
     if reply.pointer("/revoked/kind").and_then(Value::as_str) == Some("device")
         && reply.pointer("/revoked/role").and_then(Value::as_str) == Some("daemon")
@@ -299,15 +346,23 @@ async fn revoke(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
     Ok(reply)
 }
 
-fn issue(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
+fn issue(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     let role = role_param(params)?;
     if role == Role::Daemon {
-        return Err(RpcError::invalid_params("issue a client or read-only credential"));
+        return Err(RpcError::invalid_params("issue a client, read-only or phone credential"));
     }
     let name = params
         .get("name")
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("name is required"))?;
-    let (device, token) = hub.pairing.issue(name, role)?;
+    // A phone's credential names the device its Full-access setting covers, and a new one
+    // takes over that setting: an agent on this machine must never hold one.
+    if role == Role::Phone && !conn.is_person() {
+        return Err(crate::hub::person::person_required("issuing a phone's credential"));
+    }
+    let (device, token) = match role {
+        Role::Phone => hub.pairing.issue_phone(name)?,
+        _ => hub.pairing.issue(name, role)?,
+    };
     Ok(json!({"deviceId": device.id, "name": device.name, "role": role.as_str(), "token": token}))
 }

@@ -1452,7 +1452,7 @@ def nightly_run(*, queued_at=15, started_at=None, refused_at=None):
                       status="in_progress" if started else "queued", runner="cmux15-glaeda" if started else "")
             if started:
                 app["started_at"] = stamp(started_at)
-        return found + [app, job("build-nightly-ghostty-cli-helper", labels=["blacksmith-6vcpu-macos-15"],
+        return found + [app, job("build-nightly-ghostty-cli-helper", labels=["blacksmith-6vcpu-macos-26"],
                                  status="in_progress", runner="bs")]
     return jobs
 
@@ -2128,7 +2128,7 @@ class Workflow(unittest.TestCase):
             {"iOS App Store screenshots", "Nightly macOS build", "CI", "iOS simulator tests", "Iroh release gate",
              "Agent brand icons", "Auth and session lifecycle", "cmux-next base autofix", "cmux-next batch queue",
              "cmux-next frame pacing", "cmux-next media", "cmux-next PR autofix", "cmux-next CEF shim C++ tests",
-             "cmux-next", "cmux-tui artifacts",
+             "cmux-next", "cmux-tui artifacts", "cmux NEXT DEV daily",
              "cmux-next", "cmux-tui", "IROH v2", "Relay TLS system trust", "reload-build",
              "SSH remote daemon", "Terminal hang diagnostics", "Feed reply provider verification"},
         )

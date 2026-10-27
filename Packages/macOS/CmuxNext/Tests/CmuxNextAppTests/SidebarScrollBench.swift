@@ -46,7 +46,19 @@ final class SidebarScrollBench {
 
     /// - Parameter pointerOverList: the pointer rests over the list's middle while it scrolls, as
     ///   a trackpad scroll has it: every frame moves another row under it (hover follows the scroll).
-    init(count: Int, height: CGFloat = 900, pointerOverList: Bool = false) {
+    /// How the workspaces are grouped.
+    enum Shape {
+        /// A third in groups of eight, the rest loose (a long-running window).
+        case mixed
+        /// Every workspace in one open group (a humongous group).
+        case oneGroup
+        /// One open group per level, `depth` levels deep, the workspaces spread evenly (groups of groups).
+        case nested(depth: Int)
+        /// `count / perGroup` open groups, each of `perGroup`; all but the first collapsed.
+        case manyCollapsed(perGroup: Int)
+    }
+
+    init(count: Int, height: CGFloat = 900, pointerOverList: Bool = false, shape: Shape = .mixed) {
         _ = NSApplication.shared
         self.count = count
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
@@ -66,17 +78,41 @@ final class SidebarScrollBench {
             if index % 13 == 0 { w.muted = true }
             return w
         }
-        let grouped = count / 3, perGroup = 8
         var nodes: [SidebarNode] = []
-        var next = 0
-        var g = 0
-        while next < grouped {
-            let members = (next..<min(grouped, next + perGroup)).map(ws)
-            nodes.append(.group(SidebarGroup(id: GroupID("sb-g\(g)"), name: "Group \(g)", color: .green, workspaces: members)))
-            next += members.count
-            g += 1
+        switch shape {
+        case .mixed:
+            let grouped = count / 3, perGroup = 8
+            var next = 0
+            var g = 0
+            while next < grouped {
+                let members = (next..<min(grouped, next + perGroup)).map(ws)
+                nodes.append(.group(SidebarGroup(id: GroupID("sb-g\(g)"), name: "Group \(g)", color: .green, workspaces: members)))
+                next += members.count
+                g += 1
+            }
+            nodes += (next..<count).map { .workspace(ws($0)) }
+        case .oneGroup:
+            nodes = [.group(SidebarGroup(id: GroupID("sb-g0"), name: "Huge group", color: .green, workspaces: (0..<count).map(ws)))]
+        case let .nested(depth):
+            let per = max(1, count / max(depth, 1))
+            var next = 0
+            for level in 0..<depth {
+                let end = level == depth - 1 ? count : min(count, next + per)
+                var group = SidebarGroup(id: GroupID("sb-g\(level)"), name: "Level \(level)", color: .green, workspaces: (next..<end).map(ws))
+                if level > 0 { group.parent = GroupID("sb-g\(level - 1)") }
+                nodes.append(.group(group))
+                next = end
+            }
+        case let .manyCollapsed(perGroup):
+            var next = 0, g = 0
+            while next < count {
+                let members = (next..<min(count, next + perGroup)).map(ws)
+                nodes.append(.group(SidebarGroup(id: GroupID("sb-g\(g)"), name: "Group \(g)", color: .green,
+                                                 isCollapsed: g > 0, workspaces: members)))
+                next += members.count
+                g += 1
+            }
         }
-        nodes += (next..<count).map { .workspace(ws($0)) }
         rows = (0..<count).map(ws)
         model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: nodes)], activeWorkspaceID: ids.first)
         sidebar = SidebarView(model: model, design: DesignSettings())

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'cb12b489fcaad8bfa7cd1979fdcc27eaff578f0f3540c961896abdc0c61eeea0'
+IR_SHA256 = '6e6661334b6d20f300c49059740a6892b48e7c6c773fef091543291b5b518022'
 
 
 @dataclass(frozen=True)
@@ -573,6 +573,18 @@ COMMANDS = {
             'idempotency_key': CommandFieldMetadata(None, None),
             'op': CommandFieldMetadata(None, None),
             'origin': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-conversation-presence': CommandMetadata(
+        'cloud-conversation-presence',
+        'local-admin',
+        12,
+        'cloud-conversation-presence-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'viewing': CommandFieldMetadata(None, None),
         },
     ),
     'cloud-conversation-run': CommandMetadata(
@@ -2963,6 +2975,7 @@ COMMANDS = {
             'bytes': CommandFieldMetadata(None, None),
             'expect_agent': CommandFieldMetadata(None, 'send-expect-agent-v1'),
             'expect_foreground': CommandFieldMetadata(None, 'send-expect-foreground-v1'),
+            'flow': CommandFieldMetadata(None, None),
             'paste': CommandFieldMetadata(7, None),
             'submit': CommandFieldMetadata(None, 'send-expect-agent-v1'),
             'surface': CommandFieldMetadata(None, None),
@@ -3875,6 +3888,7 @@ EVENTS = {
     'client-list-invalidated': EventMetadata('client-list-invalidated', 9, None, ('subscribe',), 'serialized-never-emitted'),
     'cloud-conversation-changed': EventMetadata('cloud-conversation-changed', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-conversation-live': EventMetadata('cloud-conversation-live', 12, 'cloud-chief-live-v1', ('subscribe',), 'emitted'),
+    'cloud-conversation-presence': EventMetadata('cloud-conversation-presence', 12, 'cloud-conversation-presence-v1', ('subscribe',), 'emitted'),
     'cloud-conversation-resynced': EventMetadata('cloud-conversation-resynced', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-conversation-run-changed': EventMetadata('cloud-conversation-run-changed', 12, 'cloud-conversation-runs-v1', ('subscribe',), 'emitted'),
     'cloud-conversation-typing': EventMetadata('cloud-conversation-typing', 12, 'cloud-conversation-typing-v1', ('subscribe',), 'emitted'),

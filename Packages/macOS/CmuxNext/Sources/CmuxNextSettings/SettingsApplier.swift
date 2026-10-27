@@ -65,6 +65,7 @@ public final class SettingsApplier {
         if design.hoverCardsEnabled != snapshot.hoverCards.enabled { design.hoverCardsEnabled = snapshot.hoverCards.enabled }
         if design.colorTransition != snapshot.colorTransition.transition { design.colorTransition = snapshot.colorTransition.transition }
         if design.inactiveWindowDim != snapshot.inactiveWindowDim { design.inactiveWindowDim = snapshot.inactiveWindowDim }
+        if design.wallpaperTint != snapshot.wallpaperTint { design.wallpaperTint = snapshot.wallpaperTint }
         let hoverCardDelay = Duration.milliseconds(Int(snapshot.hoverCards.delayMilliseconds.rounded()))
         if design.hoverCardDelay != hoverCardDelay { design.hoverCardDelay = hoverCardDelay }
         let workspaceHoverCard = snapshot.hoverCards.workspaceCardOptions
@@ -79,6 +80,7 @@ public final class SettingsApplier {
         if design.layoutRows != snapshot.layoutRows { design.layoutRows = snapshot.layoutRows }
         if design.focusFollowsMouse != snapshot.focusFollowsMouse { design.focusFollowsMouse = snapshot.focusFollowsMouse }
         if design.layoutScrollAreas != snapshot.layoutScrollAreas { design.layoutScrollAreas = snapshot.layoutScrollAreas }
+        if design.layoutScrollModifier != snapshot.layoutScrollModifier { design.layoutScrollModifier = snapshot.layoutScrollModifier }
         if design.minimumPaneContentSize != snapshot.minimumPaneContentSize { design.minimumPaneContentSize = snapshot.minimumPaneContentSize }
         if design.closeFocus != snapshot.closeFocus { design.closeFocus = snapshot.closeFocus }
         if design.defaultColumnWidth != snapshot.defaultColumnWidth { design.defaultColumnWidth = snapshot.defaultColumnWidth }

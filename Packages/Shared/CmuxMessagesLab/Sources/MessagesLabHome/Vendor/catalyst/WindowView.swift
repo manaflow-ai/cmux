@@ -238,6 +238,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// two views can show at two backing scales at the same time (cmux Home: windows on a 2x and a 1x display).
     /// The scale the view was made at (`Fixture.renderScale` then) until its first `setRenderScale`.
     private(set) var renderScale: CGFloat = Fixture.renderScale
+    /// cmux: the zoom `renderScale` includes (HostView.contentZoom; 1 otherwise), from `setRenderScale`.
+    private(set) var contentZoom: CGFloat = 1
 
     /// This view's window has another backing scale (it moved to a display with another scale, it was put in a
     /// window on another display, or a test forced one): every bitmap of this view is drawn again at the new scale,
@@ -250,7 +252,13 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// cache for other views (it is keyed by scale and bounded). A host calls this when the view goes into a window
     /// and on every backing scale change (appkit-native: HostView viewDidMoveToWindow and
     /// viewDidChangeBackingProperties -> ChatController.followWindowScale).
-    func setRenderScale(_ s: CGFloat) {
+    /// cmux: `contentZoom` is the zoom `s` includes (a zoomed Chief chat): rows snap at `s / contentZoom`, the window's
+    /// device pixels (RowCell.pixelScale).
+    func setRenderScale(_ s: CGFloat, contentZoom zoom: CGFloat = 1) {
+        if zoom > 0, contentZoom != zoom {
+            contentZoom = zoom
+            for case let cell as RowCell in collection.visibleCells { cell.contentZoom = zoom; cell.refreshSnap() }
+        }
         guard s > 0, renderScale != s else { return }
         renderScale = s
         Fixture.renderScale = s
@@ -502,6 +510,11 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// cmux: the rows fade out over this many points at the window's top, as they scroll away
     /// (a Home pane with no header); 0, Messages: none, its header blurs them.
     var topFade: CGFloat = 0 { didSet { if topFade != oldValue { placeMask(animated: false, element: nil, begin: 0, oldTop: fieldTop) } } }
+    /// cmux: the rows' alpha at points under the window's top (y down, ascending), full strength
+    /// below the last; wins over `topFade` when not empty (Home's top fade styles, HostView+TopFade.swift).
+    var topMaskStops: [(y: CGFloat, alpha: CGFloat)] = [] {
+        didSet { if topMaskStops.map(\.y) != oldValue.map(\.y) || topMaskStops.map(\.alpha) != oldValue.map(\.alpha) { placeMask(animated: false, element: nil, begin: 0, oldTop: fieldTop) } }
+    }
 
     private var laidOutSize = CGSize.zero
     private func layoutFrames() {
@@ -861,11 +874,12 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         clipMask.position = CGPoint(x: bounds.width / 2, y: -200)
         // cmux: with a top fade, nothing above the window's top and a ramp to full strength over
         // `topFade` points under it (the mask starts 200 pt above the window; y runs down).
-        if topFade > 0 {
+        if topFade > 0 || !topMaskStops.isEmpty {
             let h = max(1, clipMask.bounds.height)
+            let stops = topMaskStops.isEmpty ? [(y: CGFloat(0), alpha: CGFloat(0)), (y: topFade, alpha: CGFloat(1))] : topMaskStops
             clipMask.backgroundColor = nil
-            clipMask.colors = [UIColor.clear.cgColor, UIColor.clear.cgColor, UIColor.black.cgColor, UIColor.black.cgColor]
-            clipMask.locations = [0, NSNumber(value: Double(200 / h)), NSNumber(value: Double(min(h, 200 + topFade) / h)), 1]
+            clipMask.colors = [UIColor.clear.cgColor] + stops.map { UIColor.black.withAlphaComponent($0.alpha).cgColor } + [UIColor.black.cgColor]
+            clipMask.locations = [0] + stops.map { NSNumber(value: Double(min(h, 200 + $0.y) / h)) } + [1]
         } else {
             clipMask.colors = nil
             clipMask.backgroundColor = UIColor.black.cgColor
@@ -1221,7 +1235,20 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
 
     private func dirtyFrom(_ action: Action, _ s: AppState, _ old: AppState) -> Int? {
         let msgs = s.conversation.messages
-        func index(_ id: ID) -> Int? { msgs.lastIndex { $0.id == id } }
+        // One id -> index map per call (the last index of an id, as `lastIndex` gave): each receipt row
+        // below asked `lastIndex` over every loaded message, O(400 x messages) on the main thread per
+        // commit, and the Chief's live line commits every second while it works (Sentry
+        // CMUXTERM-MACOS-46TC: 1-2 s stalls in dirtyFrom from HomeLiveLine.tick).
+        var positions: [ID: Int] = [:]
+        var mapped = false
+        func index(_ id: ID) -> Int? {
+            if !mapped {
+                mapped = true
+                positions.reserveCapacity(msgs.count)
+                for (i, m) in msgs.enumerated() { positions[m.id] = i }
+            }
+            return positions[id]
+        }
         var idx: [Int] = []
         for r in model.rows.suffix(400) where r.spec.key.hasPrefix("receipt:") {
             if let i = index(String(r.spec.key.dropFirst("receipt:".count))) { idx.append(i) }
@@ -1799,7 +1826,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             // The landed row's content is snapped to the window's device pixels (RowCell.snapRow, from the cell's top and
             // left edge; the margin is whole points): the bubble flies to the same place (0 when the view starts on a
             // whole device pixel).
-            let s = max(1, renderScale), place = windowPlace
+            let s = max(1, renderScale / contentZoom), place = windowPlace
             let top0 = windowY(contentY: layout.contentTop(i))
             let top = top0 + RowCell.snap(top0 - RowDraw.margin, place.origin.y, place.axis.y, scale: s)
             // The anchored side of the row (RowCell.anchorX: the right edge for my row) as snapRow snaps it.
@@ -1964,6 +1991,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         defer { step(2) }
         cell.fillSpan = fillSpan
         cell.renderScale = renderScale
+        cell.contentZoom = contentZoom
         cell.inactive = inactive
         cell.crispEdge = crispSends[r.spec.key] != nil
         cell.configure(r.spec)

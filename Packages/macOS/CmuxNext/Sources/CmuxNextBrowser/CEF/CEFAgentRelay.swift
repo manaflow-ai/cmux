@@ -117,9 +117,22 @@ public final class CEFAgentRelay {
         try await designMode.prepare()
     }
 
+    /// A page posted on one of cmux's channels (fork API 29): the same reports the DevTools
+    /// bindings carry before it, to the same bridges.
+    func pageMessage(_ message: CEFPageMessage) {
+        switch message.channel {
+        case .media: media?.report(message.payload)
+        case .protectedMedia: media?.refused(message.payload)
+        case .verification: verification?.report(message.payload)
+        case .firstPaint: firstPaint?.painted()
+        }
+    }
+
     func browserAttached() {
         resumeWaiters(true)
-        if let browser = tab?.browserID {
+        // From fork API 29 the runtime installs the document scripts for every browser in the
+        // renderer (`CEFDocumentScripts`): the tab opens no DevTools session for them.
+        if let tab, let browser = tab.browserID, !tab.runtime.forkFeatures.rendererPaths {
             media?.attach(browser)
             verification?.attach(browser)
             firstPaint?.attach(browser)

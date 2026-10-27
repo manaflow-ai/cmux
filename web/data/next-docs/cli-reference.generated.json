@@ -1,0 +1,4476 @@
+{
+  "version": 1,
+  "counts": {
+    "verbs": 707,
+    "mcp": 625
+  },
+  "nouns": [
+    {
+      "noun": "accounts",
+      "verbs": [
+        {
+          "command": "cmux accounts connect",
+          "title": "Connect Account to CodeRouter…",
+          "id": "accounts.connect",
+          "mcp": false
+        },
+        {
+          "command": "cmux accounts reauth",
+          "title": "Re-authenticate Provider…",
+          "id": "accounts.reauthenticate",
+          "mcp": false
+        },
+        {
+          "command": "cmux accounts refresh",
+          "title": "Refresh Accounts",
+          "id": "accounts.refresh",
+          "mcp": true
+        },
+        {
+          "command": "cmux accounts remove",
+          "title": "Remove Account from CodeRouter",
+          "id": "accounts.remove",
+          "mcp": false
+        },
+        {
+          "command": "cmux accounts show",
+          "title": "Accounts…",
+          "id": "accounts.show",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "agent",
+      "verbs": [
+        {
+          "command": "cmux agent activity",
+          "title": "Agent Activity",
+          "id": "agentActivity.open",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent actual-size",
+          "title": "Agent Chat: Actual Size",
+          "id": "agentPaneZoomReset",
+          "mcp": false
+        },
+        {
+          "command": "cmux agent add-harness",
+          "title": "Add ACP Agent…",
+          "id": "agent.harness.add",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent add-project-files",
+          "title": "Add Project Files…",
+          "id": "agentPane.addProjectFiles",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent archive-chat",
+          "title": "Archive Chat",
+          "id": "agentPane.archiveChat",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent check-harness",
+          "title": "Check Agent…",
+          "id": "agent.harness.doctor",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent edit-instructions",
+          "title": "Edit Project Instructions…",
+          "id": "agentPane.editInstructions",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent fork-conversation-above",
+          "title": "Fork Conversation Above",
+          "id": "palette.forkAgentConversationTop",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent fork-conversation-below",
+          "title": "Fork Conversation Below",
+          "id": "palette.forkAgentConversationBottom",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent fork-conversation-to-left",
+          "title": "Fork Conversation to the Left",
+          "id": "palette.forkAgentConversationLeft",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent fork-conversation-to-new-tab",
+          "title": "Fork Conversation to New Tab",
+          "id": "palette.forkAgentConversationNewTab",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent fork-conversation-to-new-window",
+          "title": "Fork Conversation to New Window",
+          "id": "palette.forkAgentConversationNewWindow",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent fork-conversation-to-new-workspace",
+          "title": "Fork Conversation to New Workspace",
+          "id": "palette.forkAgentConversationNewWorkspace",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent fork-conversation-to-right",
+          "title": "Fork Conversation to the Right",
+          "id": "palette.forkAgentConversationRight",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent launch-claude-teams",
+          "title": "Launch Claude Teams",
+          "id": "palette.launchClaudeTeams",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent launch-codex-teams",
+          "title": "Launch Codex Teams",
+          "id": "palette.launchCodexTeams",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent mark-unread",
+          "title": "Mark Chat Unread",
+          "id": "agentPane.markUnread",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent move-to-floating-chat",
+          "title": "Move Chat to Floating Chat",
+          "id": "agentPane.moveToFloatingChat",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent new-chat",
+          "title": "New Agent Chat",
+          "id": "palette.newAgentChat",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent open",
+          "title": "Open Agent Session in New Workspace",
+          "id": "agent.openSessionWorkspace",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent open-cwd-in-terminal",
+          "title": "Open Chat Folder in Terminal",
+          "id": "agentPane.openCwdInTerminal",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent open-tab",
+          "title": "Open Agent Session in Tab",
+          "id": "agent.openSessionTab",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent quick",
+          "title": "Start Agent…",
+          "id": "palette.quickAgentChat",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent remove-harness",
+          "title": "Remove Agent…",
+          "id": "agent.harness.remove",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent replay-conversation",
+          "title": "Replay Conversation",
+          "id": "agentPane.replayConversation",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent restore-harness",
+          "title": "Restore Removed Agent",
+          "id": "agent.harness.restore",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent reveal-cwd-in-finder",
+          "title": "Reveal Chat Folder in Finder",
+          "id": "agentPane.revealCwdInFinder",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent set-effort",
+          "title": "Set Agent Chat Effort…",
+          "id": "agentPane.setEffort",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent set-mode",
+          "title": "Set Agent Chat Mode…",
+          "id": "agentPane.setMode",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent set-model",
+          "title": "Set Agent Chat Model…",
+          "id": "agentPane.setModel",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent stop-computer-use",
+          "title": "Stop Computer Use",
+          "id": "computerUseStop",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent stop-turn",
+          "title": "Stop Agent Turn",
+          "id": "agentPane.stopTurn",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent toggle-acp-inspector",
+          "title": "Toggle Event Inspector",
+          "id": "agentPane.toggleInspector",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent toggle-display-settings",
+          "title": "Toggle Text & Width",
+          "id": "agentPane.toggleDisplaySettings",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent toggle-minimap",
+          "title": "Toggle Thread Minimap",
+          "id": "agentPane.toggleMinimap",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent toggle-session-info",
+          "title": "Toggle Session Info",
+          "id": "agentPane.toggleSessionInfo",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent toggle-ui-pointer",
+          "title": "Inspect UI Element",
+          "id": "agentPane.togglePointerInspector",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent view",
+          "title": "View Chat Only",
+          "id": "agentChat.view",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent zoom-in",
+          "title": "Agent Chat: Zoom In",
+          "id": "agentPaneZoomIn",
+          "mcp": false
+        },
+        {
+          "command": "cmux agent zoom-out",
+          "title": "Agent Chat: Zoom Out",
+          "id": "agentPaneZoomOut",
+          "mcp": false
+        }
+      ]
+    },
+    {
+      "noun": "app",
+      "verbs": [
+        {
+          "command": "cmux app close-all-windows",
+          "title": "Close All Windows",
+          "id": "closeAllWindows",
+          "mcp": true
+        },
+        {
+          "command": "cmux app close-other-windows",
+          "title": "Close Other Windows",
+          "id": "window.closeOthers",
+          "mcp": true
+        },
+        {
+          "command": "cmux app close-window",
+          "title": "Close Window",
+          "id": "closeWindow",
+          "mcp": true
+        },
+        {
+          "command": "cmux app keep-mac-awake",
+          "title": "Keep Mac Awake",
+          "id": "keepMacAwake",
+          "mcp": false
+        },
+        {
+          "command": "cmux app new-incognito-window",
+          "title": "New Incognito Window",
+          "id": "newIncognitoWindow",
+          "mcp": true
+        },
+        {
+          "command": "cmux app new-window",
+          "title": "New Window",
+          "id": "newWindow",
+          "mcp": true
+        },
+        {
+          "command": "cmux app open",
+          "title": "Open App…",
+          "id": "app.open",
+          "mcp": true
+        },
+        {
+          "command": "cmux app quit",
+          "title": "Quit cmux",
+          "id": "quit",
+          "mcp": false
+        },
+        {
+          "command": "cmux app quit-end-everything",
+          "title": "Quit and End Everything",
+          "id": "quitEndEverything",
+          "mcp": false
+        },
+        {
+          "command": "cmux app quit-end-sessions",
+          "title": "Quit and End Sessions, Keep Layout",
+          "id": "quitEndSessions",
+          "mcp": false
+        },
+        {
+          "command": "cmux app quit-keep-sessions",
+          "title": "Quit and Keep Sessions",
+          "id": "quitKeepSessions",
+          "mcp": false
+        },
+        {
+          "command": "cmux app run-command",
+          "title": "Run App Command…",
+          "id": "app.command.run",
+          "mcp": true
+        },
+        {
+          "command": "cmux app show-pane",
+          "title": "Show Pane",
+          "id": "pane.focus",
+          "mcp": true
+        },
+        {
+          "command": "cmux app show-screen",
+          "title": "Show Screen",
+          "id": "screen.focus",
+          "mcp": true
+        },
+        {
+          "command": "cmux app show-tab",
+          "title": "Show Tab",
+          "id": "tab.focus",
+          "mcp": true
+        },
+        {
+          "command": "cmux app store",
+          "title": "App Store",
+          "id": "appStore.show",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "appearance",
+      "verbs": [
+        {
+          "command": "cmux appearance reset",
+          "title": "Reset Appearance to Inherited",
+          "id": "appearance.reset",
+          "mcp": true
+        },
+        {
+          "command": "cmux appearance set",
+          "title": "Set Appearance…",
+          "id": "appearance.set",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "apps",
+      "verbs": [
+        {
+          "command": "cmux apps hide",
+          "title": "Hide App…",
+          "id": "app.hide",
+          "mcp": true
+        },
+        {
+          "command": "cmux apps unhide",
+          "title": "Show Hidden App…",
+          "id": "app.unhide",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "bookmark",
+      "verbs": [
+        {
+          "command": "cmux bookmark add",
+          "title": "Add Bookmark…",
+          "id": "bookmark.add",
+          "mcp": true
+        },
+        {
+          "command": "cmux bookmark add-all-tabs",
+          "title": "Bookmark All Tabs…",
+          "id": "bookmark.addAllTabs",
+          "mcp": true
+        },
+        {
+          "command": "cmux bookmark add-page",
+          "title": "Bookmark This Page",
+          "id": "bookmark.addPage",
+          "mcp": true
+        },
+        {
+          "command": "cmux bookmark clear-icon",
+          "title": "Remove Bookmark Folder Icon",
+          "id": "bookmark.clearIcon",
+          "mcp": true
+        },
+        {
+          "command": "cmux bookmark edit",
+          "title": "Edit Bookmark…",
+          "id": "bookmark.edit",
+          "mcp": true
+        },
+        {
+          "command": "cmux bookmark export",
+          "title": "Export Bookmarks…",
+          "id": "bookmark.export",
+          "mcp": true
+        },
+        {
+          "command": "cmux bookmark import",
+          "title": "Import Bookmarks…",
+          "id": "bookmark.import",
+          "mcp": true
+        },
+        {
+          "command": "cmux bookmark import-from-browser",
+          "title": "Import Bookmarks from Browser…",
+          "id": "bookmark.importFromBrowser",
+          "mcp": true
+        },
+        {
+          "command": "cmux bookmark move",
+          "title": "Move Bookmark…",
+          "id": "bookmark.move",
+          "mcp": true
+        },
+        {
+          "command": "cmux bookmark new-folder",
+          "title": "New Bookmark Folder…",
+          "id": "bookmark.newFolder",
+          "mcp": true
+        },
+        {
+          "command": "cmux bookmark open",
+          "title": "Open Bookmark…",
+          "id": "bookmark.open",
+          "mcp": true
+        },
+        {
+          "command": "cmux bookmark open-all",
+          "title": "Open All Bookmarks in Folder",
+          "id": "bookmark.openAll",
+          "mcp": true
+        },
+        {
+          "command": "cmux bookmark open-in-background-tab",
+          "title": "Open Bookmark in Background Tab",
+          "id": "bookmark.openInBackgroundTab",
+          "mcp": true
+        },
+        {
+          "command": "cmux bookmark open-in-new-tab",
+          "title": "Open Bookmark in New Tab",
+          "id": "bookmark.openInNewTab",
+          "mcp": true
+        },
+        {
+          "command": "cmux bookmark remove",
+          "title": "Delete Bookmark",
+          "id": "bookmark.remove",
+          "mcp": true
+        },
+        {
+          "command": "cmux bookmark set-icon",
+          "title": "Set Bookmark Folder Icon…",
+          "id": "bookmark.setIcon",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "browser",
+      "verbs": [
+        {
+          "command": "cmux browser back-to-pinned-page",
+          "title": "Back to Pinned Page",
+          "id": "browser.resetPinnedTab",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser clear-history",
+          "title": "Clear Browser History…",
+          "id": "palette.browserClearHistory",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser delete-site-data",
+          "title": "Delete Site Data",
+          "id": "browser.pageInfo.deleteSiteData",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser device",
+          "title": "Emulate Device…",
+          "id": "browserDevice",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser disable",
+          "title": "Disable cmux Browser",
+          "id": "palette.disableBrowser",
+          "mcp": false
+        },
+        {
+          "command": "cmux browser enable",
+          "title": "Enable cmux Browser",
+          "id": "palette.enableBrowser",
+          "mcp": false
+        },
+        {
+          "command": "cmux browser fit",
+          "title": "Fit as Desktop…",
+          "id": "browserFit",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser fit-desktop",
+          "title": "Fit as 16:9 Desktop",
+          "id": "browserFitDesktop",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser fit-desktop-1280",
+          "title": "Fit as Desktop (1280)",
+          "id": "browserFitDesktop1280",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser hard-reload-page",
+          "title": "Hard Reload Page",
+          "id": "browserHardReload",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser import-cookies",
+          "title": "Import Cookies from Browser…",
+          "id": "browser.importCookies",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser open-diff-viewer",
+          "title": "Open Diff Viewer",
+          "id": "openDiffViewer",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser open-directory-diff-viewer",
+          "title": "Open Diff Viewer in Folder…",
+          "id": "palette.openDirectoryDiffViewer",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser open-image-in-new-tab",
+          "title": "Open Image in New Tab",
+          "id": "browser.image.openInNewTab",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser open-in-chromium",
+          "title": "Open in Chromium",
+          "id": "browser.openInChromium",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser open-in-default",
+          "title": "Open in Default Browser",
+          "id": "palette.browserOpenDefault",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser open-in-webkit",
+          "title": "Open in WebKit",
+          "id": "browser.openInWebKit",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser open-link-in-incognito-window",
+          "title": "Open Link in Incognito Window",
+          "id": "browser.link.openInIncognitoWindow",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser open-link-in-new-space",
+          "title": "Open Link in New Space",
+          "id": "browser.link.openInNewSpace",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser open-link-in-new-tab",
+          "title": "Open Link in New Tab",
+          "id": "browser.link.openInNewTab",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser open-link-in-new-window",
+          "title": "Open Link in New Window",
+          "id": "browser.link.openInNewWindow",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser open-link-in-new-workspace",
+          "title": "Open Link in New Workspace",
+          "id": "browser.link.openInNewWorkspace",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser open-link-in-split",
+          "title": "Open Link in Split Right",
+          "id": "browser.link.openInSplit",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser open-markdown-file",
+          "title": "Open Markdown File…",
+          "id": "openMarkdownFile",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser reenable-certificate-warnings",
+          "title": "Turn On Certificate Warnings Again",
+          "id": "browser.pageInfo.reenableCertificateWarnings",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser reload-page",
+          "title": "Reload Page",
+          "id": "browserReload",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser reset-site-permissions",
+          "title": "Reset Site Permissions",
+          "id": "browser.pageInfo.resetPermissions",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser screenshot-page",
+          "title": "Screenshot Page",
+          "id": "browserScreenshotPage",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser search-web",
+          "title": "Search the Web for Selection",
+          "id": "browser.selection.search",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser set-site-permission",
+          "title": "Set Site Permission…",
+          "id": "browser.pageInfo.setPermission",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser split-down",
+          "title": "Split Browser Down",
+          "id": "splitBrowserDown",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser split-right",
+          "title": "Split Browser Right",
+          "id": "splitBrowserRight",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser stop-loading",
+          "title": "Stop Loading",
+          "id": "browserStop",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser theme",
+          "title": "Browser Theme…",
+          "id": "browserTheme",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "browser-profile",
+      "verbs": [
+        {
+          "command": "cmux browser-profile clear-browsing-data",
+          "title": "Clear Browsing Data…",
+          "id": "browserProfile.clearBrowsingData",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser-profile clear-color",
+          "title": "Remove Browser Profile Color",
+          "id": "browserProfile.clearColor",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser-profile clear-icon",
+          "title": "Remove Browser Profile Icon",
+          "id": "browserProfile.clearIcon",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser-profile clear-space-default",
+          "title": "Clear Space Browser Profile",
+          "id": "browserProfile.clearSpaceDefault",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser-profile clear-workspace-default",
+          "title": "Clear Workspace Browser Profile",
+          "id": "browserProfile.clearWorkspaceDefault",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser-profile create",
+          "title": "New Browser Profile…",
+          "id": "browserProfile.new",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser-profile duplicate-tab",
+          "title": "Duplicate Tab into Browser Profile…",
+          "id": "browserProfile.duplicateTab",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser-profile move-tab",
+          "title": "Move Tab to Browser Profile…",
+          "id": "browserProfile.moveTab",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser-profile new-tab",
+          "title": "New Tab with Browser Profile…",
+          "id": "browserProfile.newTab",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser-profile new-window",
+          "title": "New Window with Browser Profile…",
+          "id": "browserProfile.newWindow",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser-profile new-workspace",
+          "title": "New Workspace with Browser Profile…",
+          "id": "browserProfile.newWorkspace",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser-profile open-link",
+          "title": "Open Link in Browser Profile…",
+          "id": "browserProfile.openLink",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser-profile remove-imported-data",
+          "title": "Remove Imported Browser Data…",
+          "id": "browserProfile.removeImportedData",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser-profile rename",
+          "title": "Rename Browser Profile…",
+          "id": "browserProfile.rename",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser-profile set-color",
+          "title": "Set Browser Profile Color…",
+          "id": "browserProfile.setColor",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser-profile set-icon",
+          "title": "Set Browser Profile Icon…",
+          "id": "browserProfile.setIcon",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser-profile set-space-default",
+          "title": "Set Space Browser Profile…",
+          "id": "browserProfile.setSpaceDefault",
+          "mcp": true
+        },
+        {
+          "command": "cmux browser-profile set-workspace-default",
+          "title": "Set Workspace Browser Profile…",
+          "id": "browserProfile.setWorkspaceDefault",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "chat",
+      "verbs": [
+        {
+          "command": "cmux chat create",
+          "title": "New Group Chat…",
+          "id": "home.createGroup",
+          "mcp": true
+        },
+        {
+          "command": "cmux chat replies",
+          "title": "Set When Chiefs Reply…",
+          "id": "home.setChiefReplies",
+          "mcp": true
+        },
+        {
+          "command": "cmux chat send",
+          "title": "Send Message To…",
+          "id": "home.messageTo",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "chief",
+      "verbs": [
+        {
+          "command": "cmux chief memory",
+          "title": "Chief: Open Memory Inspector",
+          "id": "chief.openMemoryInspector",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "cloud",
+      "verbs": [
+        {
+          "command": "cmux cloud bring-back",
+          "title": "Bring Back Local",
+          "id": "cloudBringBack",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud delete-snapshot",
+          "title": "Delete Cloud Snapshot…",
+          "id": "palette.cloud.deleteSnapshot",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud diagnostics",
+          "title": "Cloud Diagnostics",
+          "id": "cloudDiagnostics",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud domain-list",
+          "title": "List Cloud Domains",
+          "id": "cloudDomainList",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud exec",
+          "title": "Run Command on Cloud Machine…",
+          "id": "cloudExec",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud file-mkdir",
+          "title": "Create Cloud Directory…",
+          "id": "cloudFileMkdir",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud file-read",
+          "title": "Read Cloud File…",
+          "id": "cloudFileRead",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud file-remove",
+          "title": "Remove Cloud File…",
+          "id": "cloudFileRemove",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud file-stat",
+          "title": "Cloud File Details…",
+          "id": "cloudFileStat",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud file-write",
+          "title": "Write Cloud File…",
+          "id": "cloudFileWrite",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud files-list",
+          "title": "List Cloud Files…",
+          "id": "cloudFilesList",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud firewall-create",
+          "title": "Create Cloud Firewall Rule",
+          "id": "cloudFirewallCreate",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud firewall-delete",
+          "title": "Delete Cloud Firewall Rule",
+          "id": "cloudFirewallDelete",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud firewall-get",
+          "title": "Get Cloud Firewall Rule",
+          "id": "cloudFirewallGet",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud firewall-list",
+          "title": "List Cloud Firewall Rules",
+          "id": "cloudFirewallList",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud fork-machine",
+          "title": "Fork Cloud Machine",
+          "id": "palette.cloud.fork",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud hand-off-machine",
+          "title": "Hand Off Cloud Machine",
+          "id": "palette.cloud.handoff",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud kill-machine",
+          "title": "Kill Machine",
+          "id": "cloudKillMachine",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud list-machines",
+          "title": "List Cloud Machines",
+          "id": "cloudListMachines",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud machine-link",
+          "title": "Get Machine Link…",
+          "id": "cloudMachineLink",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud machine-ports",
+          "title": "Cloud Machine Ports",
+          "id": "palette.cloud.ports",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud machine-status",
+          "title": "Cloud Machine Status",
+          "id": "palette.cloud.status",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud move",
+          "title": "Move to Cloud",
+          "id": "cloudMove",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud network-list",
+          "title": "List Cloud Networks",
+          "id": "cloudNetworkList",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud new-machine",
+          "title": "New Cloud Machine…",
+          "id": "newCloudMachine",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud new-terminal-on-machine",
+          "title": "New Terminal Workspace on Machine",
+          "id": "cloudNewTerminal",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud new-workspace",
+          "title": "New Cloud Workspace",
+          "id": "newCloudWorkspace",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud open-browser",
+          "title": "Open Machine Port in Browser…",
+          "id": "cloudOpenBrowser",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud open-mobile-pairing",
+          "title": "Open Mobile Pairing",
+          "id": "palette.mobileConnect",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud pause-machine",
+          "title": "Pause Machine",
+          "id": "cloudPauseMachine",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud port-close",
+          "title": "Close Forwarded Machine Port…",
+          "id": "cloudPortClose",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud port-forward",
+          "title": "Forward Machine Port…",
+          "id": "cloudPortForward",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud port-list",
+          "title": "List Forwarded Machine Ports",
+          "id": "cloudPortList",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud prepare-scp",
+          "title": "Prepare Cloud File Transfer…",
+          "id": "cloudPrepareSCP",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud promote-machine-to-template",
+          "title": "Promote Machine to Template",
+          "id": "palette.cloud.promoteTemplate",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud publication-list",
+          "title": "List Cloud Publications",
+          "id": "cloudPublicationList",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud rename-machine",
+          "title": "Rename Machine…",
+          "id": "cloudRenameMachine",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud resize-machine",
+          "title": "Resize Machine…",
+          "id": "cloudResizeMachine",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud restore-machine",
+          "title": "Restore Cloud Machine…",
+          "id": "palette.cloud.restore",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud resume-machine",
+          "title": "Resume Machine",
+          "id": "cloudResumeMachine",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud set-idle-pause",
+          "title": "Pause When Idle…",
+          "id": "cloudSetIdlePause",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud setup-github",
+          "title": "Set Up GitHub on This Machine",
+          "id": "cloudSetupGitHub",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud sign-in",
+          "title": "Sign In",
+          "id": "palette.auth.signIn",
+          "mcp": false
+        },
+        {
+          "command": "cmux cloud sign-out",
+          "title": "Sign Out",
+          "id": "palette.auth.signOut",
+          "mcp": false
+        },
+        {
+          "command": "cmux cloud snapshot-machine",
+          "title": "Snapshot Cloud Machine",
+          "id": "palette.cloud.snapshot",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud ssh",
+          "title": "Open Cloud SSH Terminal",
+          "id": "cloudSSH",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud start-session",
+          "title": "Start Agent Session on Cloud Machine…",
+          "id": "cloudStartSession",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud tunnel-attach",
+          "title": "Attach Cloud Tunnel Network",
+          "id": "cloudTunnelAttach",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud tunnel-detach",
+          "title": "Detach Cloud Tunnel Network",
+          "id": "cloudTunnelDetach",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud tunnel-rotate-key",
+          "title": "Rotate Cloud Tunnel Key",
+          "id": "cloudTunnelRotateKey",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "column",
+      "verbs": [
+        {
+          "command": "cmux column center",
+          "title": "Center Column",
+          "id": "column.center",
+          "mcp": true
+        },
+        {
+          "command": "cmux column dock",
+          "title": "Dock Column",
+          "id": "column.dock",
+          "mcp": true
+        },
+        {
+          "command": "cmux column dock-bottom",
+          "title": "Dock Column Bottom",
+          "id": "column.dockBottom",
+          "mcp": true
+        },
+        {
+          "command": "cmux column dock-left",
+          "title": "Dock Column Left",
+          "id": "column.dockLeft",
+          "mcp": true
+        },
+        {
+          "command": "cmux column dock-right",
+          "title": "Dock Column Right",
+          "id": "column.dockRight",
+          "mcp": true
+        },
+        {
+          "command": "cmux column dock-top",
+          "title": "Dock Column Top",
+          "id": "column.dockTop",
+          "mcp": true
+        },
+        {
+          "command": "cmux column float",
+          "title": "Float Column",
+          "id": "column.float",
+          "mcp": true
+        },
+        {
+          "command": "cmux column move-left",
+          "title": "Move Column Left",
+          "id": "column.moveLeft",
+          "mcp": true
+        },
+        {
+          "command": "cmux column move-right",
+          "title": "Move Column Right",
+          "id": "column.moveRight",
+          "mcp": true
+        },
+        {
+          "command": "cmux column undock",
+          "title": "Undock Column",
+          "id": "column.undock",
+          "mcp": true
+        },
+        {
+          "command": "cmux column width-full",
+          "title": "Column Width: Full",
+          "id": "column.widthFull",
+          "mcp": true
+        },
+        {
+          "command": "cmux column width-half",
+          "title": "Column Width: Half",
+          "id": "column.widthHalf",
+          "mcp": true
+        },
+        {
+          "command": "cmux column width-one-third",
+          "title": "Column Width: One Third",
+          "id": "column.widthOneThird",
+          "mcp": true
+        },
+        {
+          "command": "cmux column width-two-thirds",
+          "title": "Column Width: Two Thirds",
+          "id": "column.widthTwoThirds",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "density",
+      "verbs": [
+        {
+          "command": "cmux density create",
+          "title": "New Custom Density…",
+          "id": "appearance.density.create",
+          "mcp": false
+        },
+        {
+          "command": "cmux density set",
+          "title": "Set Density…",
+          "id": "appearance.density.set",
+          "mcp": false
+        },
+        {
+          "command": "cmux density use-cozy",
+          "title": "Density: Cozy",
+          "id": "appearance.density.cozy",
+          "mcp": false
+        },
+        {
+          "command": "cmux density use-spacious",
+          "title": "Density: Spacious",
+          "id": "appearance.density.spacious",
+          "mcp": false
+        },
+        {
+          "command": "cmux density use-ultra-compact",
+          "title": "Density: Ultra-compact",
+          "id": "appearance.density.ultraCompact",
+          "mcp": false
+        }
+      ]
+    },
+    {
+      "noun": "device",
+      "verbs": [
+        {
+          "command": "cmux device add",
+          "title": "Add Device…",
+          "id": "device.add",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "extension",
+      "verbs": [
+        {
+          "command": "cmux extension command",
+          "title": "Run Extension Shortcut",
+          "id": "browser.extension.command",
+          "mcp": true
+        },
+        {
+          "command": "cmux extension disable",
+          "title": "Disable Extension",
+          "id": "browser.extension.disable",
+          "mcp": true
+        },
+        {
+          "command": "cmux extension enable",
+          "title": "Enable Extension",
+          "id": "browser.extension.enable",
+          "mcp": true
+        },
+        {
+          "command": "cmux extension load-unpacked",
+          "title": "Load Unpacked Extension…",
+          "id": "browser.extensions.loadUnpacked",
+          "mcp": true
+        },
+        {
+          "command": "cmux extension move",
+          "title": "Move Pinned Extension",
+          "id": "browser.extension.move",
+          "mcp": true
+        },
+        {
+          "command": "cmux extension pin",
+          "title": "Pin Extension to Toolbar",
+          "id": "browser.extension.pin",
+          "mcp": true
+        },
+        {
+          "command": "cmux extension reload",
+          "title": "Reload Extension",
+          "id": "browser.extension.reload",
+          "mcp": true
+        },
+        {
+          "command": "cmux extension remove",
+          "title": "Remove Extension",
+          "id": "browser.extension.remove",
+          "mcp": true
+        },
+        {
+          "command": "cmux extension run",
+          "title": "Run Extension",
+          "id": "browser.extension.run",
+          "mcp": true
+        },
+        {
+          "command": "cmux extension unpin",
+          "title": "Unpin Extension from Toolbar",
+          "id": "browser.extension.unpin",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "file",
+      "verbs": [
+        {
+          "command": "cmux file open",
+          "title": "Open File…",
+          "id": "file.open",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "history",
+      "verbs": [
+        {
+          "command": "cmux history clear",
+          "title": "Clear History…",
+          "id": "history.clear",
+          "mcp": true
+        },
+        {
+          "command": "cmux history open",
+          "title": "Open History Entry…",
+          "id": "history.open",
+          "mcp": true
+        },
+        {
+          "command": "cmux history reopen",
+          "title": "Reopen Last Closed Item",
+          "id": "history.reopen",
+          "mcp": true
+        },
+        {
+          "command": "cmux history resume",
+          "title": "Resume Agent Session…",
+          "id": "history.resumeAgentSession",
+          "mcp": true
+        },
+        {
+          "command": "cmux history show",
+          "title": "Show History",
+          "id": "history.show",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "home",
+      "verbs": [
+        {
+          "command": "cmux home add-members",
+          "title": "Add People to Group…",
+          "id": "home.addMembers",
+          "mcp": true
+        },
+        {
+          "command": "cmux home archive-chief",
+          "title": "Archive Chief",
+          "id": "home.archiveChief",
+          "mcp": true
+        },
+        {
+          "command": "cmux home attach",
+          "title": "Attach Files…",
+          "id": "home.attachFiles",
+          "mcp": true
+        },
+        {
+          "command": "cmux home channels",
+          "title": "Open Channels",
+          "id": "home.channels",
+          "mcp": true
+        },
+        {
+          "command": "cmux home delete-chief",
+          "title": "Delete Chief…",
+          "id": "home.deleteChief",
+          "mcp": true
+        },
+        {
+          "command": "cmux home disable-channels",
+          "title": "Disable Channels",
+          "id": "home.disableChannels",
+          "mcp": true
+        },
+        {
+          "command": "cmux home enable-channels",
+          "title": "Enable Channels",
+          "id": "home.enableChannels",
+          "mcp": true
+        },
+        {
+          "command": "cmux home invite",
+          "title": "Invite to cmux-next…",
+          "id": "home.invite",
+          "mcp": false
+        },
+        {
+          "command": "cmux home leave",
+          "title": "Leave Group…",
+          "id": "home.leaveConversation",
+          "mcp": true
+        },
+        {
+          "command": "cmux home mute",
+          "title": "Hide Alerts",
+          "id": "home.muteConversation",
+          "mcp": true
+        },
+        {
+          "command": "cmux home new-chief",
+          "title": "New Chief…",
+          "id": "home.newChief",
+          "mcp": true
+        },
+        {
+          "command": "cmux home open-chief",
+          "title": "Open Chief",
+          "id": "home.openChief",
+          "mcp": true
+        },
+        {
+          "command": "cmux home pin-unpin",
+          "title": "Pin/Unpin Conversation",
+          "id": "home.togglePin",
+          "mcp": true
+        },
+        {
+          "command": "cmux home remove-member",
+          "title": "Remove from Group…",
+          "id": "home.removeMember",
+          "mcp": true
+        },
+        {
+          "command": "cmux home rename",
+          "title": "Rename Group Chat…",
+          "id": "home.renameConversation",
+          "mcp": true
+        },
+        {
+          "command": "cmux home send",
+          "title": "Send Message…",
+          "id": "home.sendMessage",
+          "mcp": true
+        },
+        {
+          "command": "cmux home switch-view",
+          "title": "Switch Home View",
+          "id": "home.switchView",
+          "mcp": true
+        },
+        {
+          "command": "cmux home tab",
+          "title": "Open Home in Tab",
+          "id": "home.tab",
+          "mcp": true
+        },
+        {
+          "command": "cmux home unmute",
+          "title": "Show Alerts",
+          "id": "home.unmuteConversation",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "import",
+      "verbs": [
+        {
+          "command": "cmux import card",
+          "title": "Press an Import Card's Button",
+          "id": "import.card",
+          "mcp": true
+        },
+        {
+          "command": "cmux import list",
+          "title": "List Import Suggestions",
+          "id": "import.list",
+          "mcp": true
+        },
+        {
+          "command": "cmux import open",
+          "title": "Import from Other Apps…",
+          "id": "import.open",
+          "mcp": true
+        },
+        {
+          "command": "cmux import suggest",
+          "title": "Suggest Importing a Site's Cookies",
+          "id": "import.suggest",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "layout",
+      "verbs": [
+        {
+          "command": "cmux layout undo",
+          "title": "Undo Layout Change",
+          "id": "layout.undo",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "link",
+      "verbs": [
+        {
+          "command": "cmux link open",
+          "title": "Open Link…",
+          "id": "link.open",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "machine",
+      "verbs": [
+        {
+          "command": "cmux machine add",
+          "title": "Add Machine…",
+          "id": "machine.add",
+          "mcp": true
+        },
+        {
+          "command": "cmux machine clear-icon",
+          "title": "Remove Machine Icon",
+          "id": "machine.clearIcon",
+          "mcp": true
+        },
+        {
+          "command": "cmux machine doctor",
+          "title": "Check Machine",
+          "id": "machine.doctor",
+          "mcp": true
+        },
+        {
+          "command": "cmux machine reconnect",
+          "title": "Reconnect",
+          "id": "machine.reconnect",
+          "mcp": true
+        },
+        {
+          "command": "cmux machine set-icon",
+          "title": "Set Machine Icon…",
+          "id": "machine.setIcon",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "media",
+      "verbs": [
+        {
+          "command": "cmux media disable-card",
+          "title": "Never Show Media Card",
+          "id": "nowPlaying.disableCard",
+          "mcp": true
+        },
+        {
+          "command": "cmux media hide-card",
+          "title": "Hide Media Card",
+          "id": "nowPlaying.hideCard",
+          "mcp": true
+        },
+        {
+          "command": "cmux media hide-card-until-relaunch",
+          "title": "Hide Media Card Until Relaunch",
+          "id": "nowPlaying.hideCardUntilRelaunch",
+          "mcp": true
+        },
+        {
+          "command": "cmux media picture-in-picture",
+          "title": "Picture in Picture",
+          "id": "tab.pictureInPicture",
+          "mcp": true
+        },
+        {
+          "command": "cmux media play-pause",
+          "title": "Play/Pause Media",
+          "id": "nowPlaying.playPause",
+          "mcp": true
+        },
+        {
+          "command": "cmux media show-card",
+          "title": "Show Media Card",
+          "id": "nowPlaying.showCard",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "notification",
+      "verbs": [
+        {
+          "command": "cmux notification clear-after-timeout",
+          "title": "Clear Notifications After a Timeout",
+          "id": "notifications.dismissal.timeout",
+          "mcp": false
+        },
+        {
+          "command": "cmux notification clear-all",
+          "title": "Clear All Notifications",
+          "id": "clearAllNotifications",
+          "mcp": true
+        },
+        {
+          "command": "cmux notification clear-on-click",
+          "title": "Clear Notifications on Click",
+          "id": "notifications.dismissal.click",
+          "mcp": false
+        },
+        {
+          "command": "cmux notification clear-on-focus",
+          "title": "Clear Notifications on Focus",
+          "id": "notifications.dismissal.focus",
+          "mcp": false
+        },
+        {
+          "command": "cmux notification clear-when-opened",
+          "title": "Clear Notifications Only When Opened",
+          "id": "notifications.dismissal.explicit",
+          "mcp": false
+        },
+        {
+          "command": "cmux notification clear-when-typing",
+          "title": "Clear Notifications When Typing",
+          "id": "notifications.dismissal.keystroke",
+          "mcp": false
+        },
+        {
+          "command": "cmux notification import-sound",
+          "title": "Import Notification Sound…",
+          "id": "notifications.importSound",
+          "mcp": true
+        },
+        {
+          "command": "cmux notification mark-all-as-read",
+          "title": "Mark All Notifications as Read",
+          "id": "markAllNotificationsRead",
+          "mcp": true
+        },
+        {
+          "command": "cmux notification never-clear-automatically",
+          "title": "Never Clear Notifications Automatically",
+          "id": "notifications.dismissal.never",
+          "mcp": false
+        },
+        {
+          "command": "cmux notification preview-sound",
+          "title": "Preview Notification Sound",
+          "id": "notifications.previewSound",
+          "mcp": true
+        },
+        {
+          "command": "cmux notification set-agent-sound",
+          "title": "Notification Sound for Agent…",
+          "id": "notifications.setAgentSound",
+          "mcp": true
+        },
+        {
+          "command": "cmux notification set-event-sound",
+          "title": "Notification Sound for Event…",
+          "id": "notifications.setEventSound",
+          "mcp": true
+        },
+        {
+          "command": "cmux notification set-group-sound",
+          "title": "Notification Sound for Group",
+          "id": "notifications.setGroupSound",
+          "mcp": true
+        },
+        {
+          "command": "cmux notification set-workspace-sound",
+          "title": "Notification Sound for Workspace",
+          "id": "notifications.setWorkspaceSound",
+          "mcp": true
+        },
+        {
+          "command": "cmux notification toggle-banners",
+          "title": "Toggle Notification Banners",
+          "id": "notifications.toggleBanners",
+          "mcp": false
+        },
+        {
+          "command": "cmux notification toggle-workspace-mute",
+          "title": "Mute/Unmute Workspace Notifications",
+          "id": "notifications.toggleWorkspaceMute",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "open-remote",
+      "verbs": [
+        {
+          "command": "cmux open-remote",
+          "title": "Open Remote Terminal",
+          "id": "remote.openRemote",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "palette",
+      "verbs": [
+        {
+          "command": "cmux palette open",
+          "title": "Open Palette Scope…",
+          "id": "palette.open",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "pane",
+      "verbs": [
+        {
+          "command": "cmux pane clear-background",
+          "title": "Reset Pane Background",
+          "id": "pane.clearBackground",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane close-others",
+          "title": "Close Other Panes",
+          "id": "pane.closeOthers",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane equalize-splits",
+          "title": "Equalize Splits",
+          "id": "equalizeSplits",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane flash-focused",
+          "title": "Flash Focused Pane",
+          "id": "triggerFlash",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane move-to-new-window",
+          "title": "Move Pane to New Window",
+          "id": "pane.moveToNewWindow",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane move-to-new-workspace",
+          "title": "Move Pane to New Workspace",
+          "id": "pane.moveToNewWorkspace",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane new-auto-layout",
+          "title": "New Pane (Auto Layout)",
+          "id": "newPaneAutoLayout",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane new-column",
+          "title": "New Column",
+          "id": "newColumn",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane new-row",
+          "title": "New Row",
+          "id": "newRow",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane new-simulator",
+          "title": "New Simulator Pane",
+          "id": "palette.newSimulatorPane",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane open-cloud-as",
+          "title": "Open Cloud as Pane",
+          "id": "palette.openCloudPane",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane open-files-as",
+          "title": "Open Files as Pane",
+          "id": "palette.openFilesPane",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane open-find-as",
+          "title": "Open Find as Pane",
+          "id": "palette.openFindPane",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane open-vault-as",
+          "title": "Open Vault as Pane",
+          "id": "palette.openVaultPane",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane rename",
+          "title": "Rename Pane…",
+          "id": "renamePane",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane screenshot",
+          "title": "Screenshot Pane",
+          "id": "pane.screenshot",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane set-background",
+          "title": "Set Pane Background…",
+          "id": "pane.setBackground",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane set-tint",
+          "title": "Set Pane Tint…",
+          "id": "pane.setTint",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane split-down",
+          "title": "Split Down",
+          "id": "splitDown",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane split-left",
+          "title": "Split Left",
+          "id": "splitLeft",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane split-right",
+          "title": "Split Right",
+          "id": "splitRight",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane split-up",
+          "title": "Split Up",
+          "id": "splitUp",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane swap-down",
+          "title": "Swap Pane Down",
+          "id": "swapPaneDown",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane swap-left",
+          "title": "Swap Pane Left",
+          "id": "swapPaneLeft",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane swap-right",
+          "title": "Swap Pane Right",
+          "id": "swapPaneRight",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane swap-up",
+          "title": "Swap Pane Up",
+          "id": "swapPaneUp",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane swap-with-session",
+          "title": "Swap with Session…",
+          "id": "palette.swapWithSession",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane tidy-canvas",
+          "title": "Tidy Canvas",
+          "id": "canvasTidy",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane toggle-canvas-layout",
+          "title": "Toggle Canvas Layout",
+          "id": "toggleCanvasLayout",
+          "mcp": true
+        },
+        {
+          "command": "cmux pane toggle-tab-bar",
+          "title": "Show Tab Bar",
+          "id": "pane.toggleTabBar",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "phone",
+      "verbs": [
+        {
+          "command": "cmux phone appearance",
+          "title": "Set Phone Appearance…",
+          "id": "phone.appearance",
+          "mcp": true
+        },
+        {
+          "command": "cmux phone boot",
+          "title": "Boot Phone",
+          "id": "phone.boot",
+          "mcp": true
+        },
+        {
+          "command": "cmux phone button",
+          "title": "Press Phone Button…",
+          "id": "phone.button",
+          "mcp": true
+        },
+        {
+          "command": "cmux phone feedback",
+          "title": "Send Phone Recording to Chief",
+          "id": "phone.sendFeedback",
+          "mcp": true
+        },
+        {
+          "command": "cmux phone install",
+          "title": "Install App on Phone…",
+          "id": "phone.install",
+          "mcp": true
+        },
+        {
+          "command": "cmux phone launch",
+          "title": "Launch App on Phone…",
+          "id": "phone.launch",
+          "mcp": true
+        },
+        {
+          "command": "cmux phone list",
+          "title": "List Phones",
+          "id": "phone.list",
+          "mcp": true
+        },
+        {
+          "command": "cmux phone locale",
+          "title": "Set Phone Language…",
+          "id": "phone.locale",
+          "mcp": true
+        },
+        {
+          "command": "cmux phone location",
+          "title": "Set Phone Location…",
+          "id": "phone.location",
+          "mcp": true
+        },
+        {
+          "command": "cmux phone logs",
+          "title": "Show Phone Logs",
+          "id": "phone.logs",
+          "mcp": true
+        },
+        {
+          "command": "cmux phone open",
+          "title": "Open Phone",
+          "id": "phone.show",
+          "mcp": true
+        },
+        {
+          "command": "cmux phone open-url",
+          "title": "Open URL on Phone…",
+          "id": "phone.openURL",
+          "mcp": true
+        },
+        {
+          "command": "cmux phone paste",
+          "title": "Copy Text to Phone…",
+          "id": "phone.paste",
+          "mcp": true
+        },
+        {
+          "command": "cmux phone record",
+          "title": "Record Phone",
+          "id": "phone.recordStart",
+          "mcp": true
+        },
+        {
+          "command": "cmux phone rotate",
+          "title": "Rotate Phone",
+          "id": "phone.rotate",
+          "mcp": true
+        },
+        {
+          "command": "cmux phone screenshot",
+          "title": "Take Phone Screenshot",
+          "id": "phone.screenshot",
+          "mcp": true
+        },
+        {
+          "command": "cmux phone shutdown",
+          "title": "Shut Down Phone",
+          "id": "phone.shutdown",
+          "mcp": true
+        },
+        {
+          "command": "cmux phone stop",
+          "title": "Stop Phone Recording",
+          "id": "phone.recordStop",
+          "mcp": true
+        },
+        {
+          "command": "cmux phone swipe",
+          "title": "Swipe on Phone…",
+          "id": "phone.swipe",
+          "mcp": true
+        },
+        {
+          "command": "cmux phone tap",
+          "title": "Tap Phone Screen…",
+          "id": "phone.tap",
+          "mcp": true
+        },
+        {
+          "command": "cmux phone type",
+          "title": "Type on Phone…",
+          "id": "phone.type",
+          "mcp": true
+        },
+        {
+          "command": "cmux phone ui",
+          "title": "Read Phone Screen Elements",
+          "id": "phone.ui",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "remote",
+      "verbs": [
+        {
+          "command": "cmux remote connect",
+          "title": "Connect to Machine…",
+          "id": "remote.connect",
+          "mcp": true
+        },
+        {
+          "command": "cmux remote disconnect",
+          "title": "Disconnect Machine",
+          "id": "remote.disconnect",
+          "mcp": true
+        },
+        {
+          "command": "cmux remote forget",
+          "title": "Forget Machine…",
+          "id": "remote.forget",
+          "mcp": true
+        },
+        {
+          "command": "cmux remote install",
+          "title": "Install cmux-tui on Machine…",
+          "id": "remote.install",
+          "mcp": true
+        },
+        {
+          "command": "cmux remote new-group",
+          "title": "New Remote Group…",
+          "id": "remote.newGroup",
+          "mcp": true
+        },
+        {
+          "command": "cmux remote new-workspace",
+          "title": "New Workspace on Machine",
+          "id": "remote.newWorkspace",
+          "mcp": true
+        },
+        {
+          "command": "cmux remote open-terminal-here",
+          "title": "Open Terminal on Machine Here…",
+          "id": "remote.openTerminalHere",
+          "mcp": true
+        },
+        {
+          "command": "cmux remote reconnect",
+          "title": "Reconnect Machine",
+          "id": "remote.reconnect",
+          "mcp": true
+        },
+        {
+          "command": "cmux remote remove-group",
+          "title": "Remove Remote Group",
+          "id": "remote.removeGroup",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "screen",
+      "verbs": [
+        {
+          "command": "cmux screen clear-color",
+          "title": "Remove Screen Color",
+          "id": "screen.clearColor",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen clear-icon",
+          "title": "Remove Screen Icon",
+          "id": "screen.clearIcon",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen clear-name",
+          "title": "Clear Screen Name",
+          "id": "screen.clearName",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen close-left",
+          "title": "Close Screens to the Left",
+          "id": "screen.closeToLeft",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen close-others",
+          "title": "Close Other Screens",
+          "id": "screen.closeOthers",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen close-right",
+          "title": "Close Screens to the Right",
+          "id": "screen.closeToRight",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen duplicate",
+          "title": "Duplicate Screen",
+          "id": "screen.duplicate",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen move-left",
+          "title": "Move Screen Left",
+          "id": "screen.moveLeft",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen move-right",
+          "title": "Move Screen Right",
+          "id": "screen.moveRight",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen move-to-new-window",
+          "title": "Move Screen to New Window",
+          "id": "screen.moveToNewWindow",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen move-to-new-workspace",
+          "title": "Move Screen to New Workspace",
+          "id": "screen.moveToNewWorkspace",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen move-to-workspace",
+          "title": "Move Screen to Workspace…",
+          "id": "screen.moveToWorkspace",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen new-with",
+          "title": "New Screen With…",
+          "id": "screen.newWith",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen rename",
+          "title": "Rename Screen…",
+          "id": "screen.rename",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen reopen-closed",
+          "title": "Reopen Closed Screen",
+          "id": "screen.reopenClosed",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen set-color",
+          "title": "Set Screen Color…",
+          "id": "screen.setColor",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen set-icon",
+          "title": "Set Screen Icon…",
+          "id": "screen.setIcon",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen toggle-pin",
+          "title": "Pin/Unpin Screen",
+          "id": "screen.togglePin",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "screen-group",
+      "verbs": [
+        {
+          "command": "cmux screen-group add-screen",
+          "title": "Add Screen to Group…",
+          "id": "screenGroup.addScreen",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen-group clear-icon",
+          "title": "Remove Screen Group Icon",
+          "id": "screenGroup.clearIcon",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen-group close",
+          "title": "Close Screen Group",
+          "id": "screenGroup.close",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen-group collapse",
+          "title": "Collapse Screen Group",
+          "id": "screenGroup.collapse",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen-group create",
+          "title": "Add Screen to New Group",
+          "id": "screenGroup.create",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen-group delete-saved",
+          "title": "Delete Saved Screen Group…",
+          "id": "screenGroup.deleteSaved",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen-group expand",
+          "title": "Expand Screen Group",
+          "id": "screenGroup.expand",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen-group move-left",
+          "title": "Move Screen Group Left",
+          "id": "screenGroup.moveLeft",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen-group move-right",
+          "title": "Move Screen Group Right",
+          "id": "screenGroup.moveRight",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen-group move-to-new-window",
+          "title": "Move Screen Group to New Window",
+          "id": "screenGroup.moveToNewWindow",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen-group move-to-new-workspace",
+          "title": "Move Screen Group to New Workspace",
+          "id": "screenGroup.moveToNewWorkspace",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen-group move-to-workspace",
+          "title": "Move Screen Group to Workspace…",
+          "id": "screenGroup.moveToWorkspace",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen-group new-screen",
+          "title": "New Screen in Group",
+          "id": "screenGroup.newScreen",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen-group remove-screen",
+          "title": "Remove Screen from Group",
+          "id": "screenGroup.removeScreen",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen-group rename",
+          "title": "Rename Screen Group…",
+          "id": "screenGroup.rename",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen-group reopen-saved",
+          "title": "Reopen Saved Screen Group…",
+          "id": "screenGroup.reopenSaved",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen-group save",
+          "title": "Save Screen Group",
+          "id": "screenGroup.save",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen-group set-color",
+          "title": "Set Screen Group Color…",
+          "id": "screenGroup.setColor",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen-group set-icon",
+          "title": "Set Screen Group Icon…",
+          "id": "screenGroup.setIcon",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen-group ungroup",
+          "title": "Ungroup Screens",
+          "id": "screenGroup.ungroup",
+          "mcp": true
+        },
+        {
+          "command": "cmux screen-group unsave",
+          "title": "Unsave Screen Group",
+          "id": "screenGroup.unsave",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "screenshots",
+      "verbs": [
+        {
+          "command": "cmux screenshots open",
+          "title": "Screenshots",
+          "id": "screenshots.open",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "servers",
+      "verbs": [
+        {
+          "command": "cmux servers add",
+          "title": "Add Server…",
+          "id": "server.addServer",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "settings",
+      "verbs": [
+        {
+          "command": "cmux settings always-center-focused-column",
+          "title": "Always Center Focused Column",
+          "id": "layout.centerFocusedColumn.always",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings base-keymap",
+          "title": "Base Keymap…",
+          "id": "palette.shortcutKeymap",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings center-focused-column-on-overflow",
+          "title": "Center Focused Column on Overflow",
+          "id": "layout.centerFocusedColumn.onOverflow",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings change-background",
+          "title": "Change Background…",
+          "id": "appearance.changeBackground",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings check-for-updates",
+          "title": "Check for Updates…",
+          "id": "palette.checkForUpdates",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings hide-announcements",
+          "title": "Hide Announcements",
+          "id": "announcements.hide",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings import-editor-settings",
+          "title": "Copy Settings from VS Code or Zed",
+          "id": "fileEditor.importEditorSettings",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings install-available-update",
+          "title": "Install Available Update",
+          "id": "palette.applyUpdateIfAvailable",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings install-cli-in-path",
+          "title": "Install cmux CLI in PATH",
+          "id": "palette.installCLI",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings keep-1-neighbor-tab-awake",
+          "title": "Keep 1 Neighbor Tab Awake on Each Side",
+          "id": "browser.keepNeighborTabsAwake.1",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings keep-2-neighbor-tabs-awake",
+          "title": "Keep 2 Neighbor Tabs Awake on Each Side",
+          "id": "browser.keepNeighborTabsAwake.2",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings keep-3-neighbor-tabs-awake",
+          "title": "Keep 3 Neighbor Tabs Awake on Each Side",
+          "id": "browser.keepNeighborTabsAwake.3",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings keep-no-neighbor-tabs-awake",
+          "title": "Don't Keep Neighbor Tabs Awake",
+          "id": "browser.keepNeighborTabsAwake.0",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings keyboard-shortcuts",
+          "title": "Open Keyboard Shortcuts",
+          "id": "keybindings.open",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings make-default-browser",
+          "title": "Make cmux the Default Browser",
+          "id": "palette.makeDefaultBrowser",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings make-default-terminal",
+          "title": "Make cmux the Default Terminal",
+          "id": "palette.makeDefaultTerminal",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings open-links-in-cmux-browser",
+          "title": "Links: Open in cmux Browser",
+          "id": "links.openInCmuxBrowser",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings open-links-in-default-browser",
+          "title": "Links: Open in Default Browser",
+          "id": "links.openInDefaultBrowser",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings reload-configuration",
+          "title": "Reload Configuration",
+          "id": "reloadConfiguration",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings restart-cli-listener",
+          "title": "Restart CLI Listener",
+          "id": "palette.restartSocketListener",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings restart-server",
+          "title": "Restart cmux-tui…",
+          "id": "palette.restartServer",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings rollback-update",
+          "title": "Roll Back to Previous Version…",
+          "id": "updates.rollback",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings scroll-columns-minimally",
+          "title": "Scroll Columns Minimally",
+          "id": "layout.centerFocusedColumn.never",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings show-announcements",
+          "title": "Show Announcements",
+          "id": "announcements.show",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings show-crash-logs",
+          "title": "Show Crash Logs",
+          "id": "help.showCrashLogs",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings switch-update-channel",
+          "title": "Switch Update Channel…",
+          "id": "palette.switchAppChannel",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings toggle-agent-cursor-animations",
+          "title": "Toggle Agent Cursor Animations",
+          "id": "appearance.animations.cursor.toggle",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings toggle-all-animations",
+          "title": "Toggle All Animations",
+          "id": "appearance.animations.toggle",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings toggle-column-scrollbar",
+          "title": "Toggle Column Scroll Bar",
+          "id": "layout.toggleStripScrollbar",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings toggle-focus-ring",
+          "title": "Toggle Focus Ring",
+          "id": "focusRing.toggle",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings toggle-highlight-and-color-animations",
+          "title": "Toggle Highlight and Color Animations",
+          "id": "appearance.animations.feedback.toggle",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings toggle-home-and-chat-animations",
+          "title": "Toggle Home and Chat Animations",
+          "id": "appearance.animations.home.toggle",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings toggle-hover-card-animations",
+          "title": "Toggle Hover Card Animations",
+          "id": "appearance.animations.hoverCards.toggle",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings toggle-menu-and-card-animations",
+          "title": "Toggle Menu and Card Animations",
+          "id": "appearance.animations.overlays.toggle",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings toggle-new-tab-animations",
+          "title": "Toggle New Tab Animations",
+          "id": "appearance.animations.newTab.toggle",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings toggle-new-workspace-animations",
+          "title": "Toggle New Workspace Animations",
+          "id": "appearance.animations.newWorkspace.toggle",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings toggle-pane-and-window-animations",
+          "title": "Toggle Pane and Window Animations",
+          "id": "appearance.animations.panes.toggle",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings toggle-pane-border",
+          "title": "Toggle Pane Borders",
+          "id": "appearance.paneBorder.toggle",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings toggle-pane-corners",
+          "title": "Toggle Rounded Pane Corners",
+          "id": "appearance.paneCorners.toggle",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings toggle-pane-padding",
+          "title": "Toggle Pane Padding",
+          "id": "appearance.panePadding.toggle",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings toggle-setting",
+          "title": "Toggle Setting…",
+          "id": "palette.toggleSetting",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings toggle-sidebar-animations",
+          "title": "Toggle Sidebar Animations",
+          "id": "appearance.animations.sidebar.toggle",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings toggle-single-pane-focus-ring",
+          "title": "Toggle Focus Ring for a Single Pane",
+          "id": "focusRing.singlePane.toggle",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings toggle-spinner-and-progress-animations",
+          "title": "Toggle Spinner and Progress Animations",
+          "id": "appearance.animations.indicators.toggle",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings toggle-tab-animations",
+          "title": "Toggle Tab Animations",
+          "id": "appearance.animations.tabs.toggle",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings toggle-thick-pane-borders",
+          "title": "Toggle Thick Pane Borders",
+          "id": "appearance.paneBorderWidth.toggle",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings toggle-web-page-animations",
+          "title": "Toggle Web Page Animations",
+          "id": "appearance.animations.web.toggle",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings turn-off-animations",
+          "title": "Turn Off Animations",
+          "id": "appearance.animationSpeed.off",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings turn-off-tab-hibernation",
+          "title": "Turn Off Tab Hibernation",
+          "id": "browser.hibernation.off",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings uninstall-cli-from-path",
+          "title": "Uninstall cmux CLI from PATH",
+          "id": "palette.uninstallCLI",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings use-aggressive-tab-hibernation",
+          "title": "Hibernate Hidden Tabs After 10 Minutes",
+          "id": "browser.hibernation.aggressive",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings use-animations-without-bounce",
+          "title": "Use Animations Without Bounce",
+          "id": "appearance.animations.bounce.none",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings use-bouncy-animations",
+          "title": "Use Bouncy Animations",
+          "id": "appearance.animations.bounce.subtle",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings use-chromium-by-default",
+          "title": "Use Chromium for New Browser Tabs",
+          "id": "browser.defaultEngine.chromium",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings use-comfortable-density",
+          "title": "Density: Comfortable",
+          "id": "appearance.density.comfortable",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings use-compact-density",
+          "title": "Density: Compact",
+          "id": "appearance.density.compact",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings use-fast-animations",
+          "title": "Use Fast Animations",
+          "id": "appearance.animationSpeed.fast",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings use-glow-focus-style",
+          "title": "Use Glow Focus Style",
+          "id": "focusRing.style.glow",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings use-minimal-titlebar",
+          "title": "Use Minimal Titlebar",
+          "id": "appearance.titlebar.minimal",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings use-moderate-tab-hibernation",
+          "title": "Hibernate Hidden Tabs After 30 Minutes",
+          "id": "browser.hibernation.moderate",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings use-normal-animations",
+          "title": "Use Normal Animations",
+          "id": "appearance.animationSpeed.normal",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings use-ring-focus-style",
+          "title": "Use Ring Focus Style",
+          "id": "focusRing.style.ring",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings use-scrolling-tabs",
+          "title": "Tabs: Use Scrolling Tabs",
+          "id": "tabs.overflow.scroll",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings use-shrinking-tabs",
+          "title": "Tabs: Use Shrinking Tabs",
+          "id": "tabs.overflow.shrink",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings use-standard-titlebar",
+          "title": "Use Standard Titlebar",
+          "id": "appearance.titlebar.standard",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings use-theme-pane-border-color",
+          "title": "Use Theme Color for Pane Borders",
+          "id": "appearance.paneBorderColor.reset",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings use-webkit-by-default",
+          "title": "Use WebKit for New Browser Tabs",
+          "id": "browser.defaultEngine.webkit",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings view-hang-report",
+          "title": "View Hang Report",
+          "id": "diagnostics.viewHangReport",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings whats-new",
+          "title": "What's New in cmux",
+          "id": "updates.whatsNew",
+          "mcp": true
+        },
+        {
+          "command": "cmux settings window-style-bare",
+          "title": "Window Style: Bare",
+          "id": "appearance.chromeStyle.bare",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings window-style-card",
+          "title": "Window Style: Card",
+          "id": "appearance.chromeStyle.card",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings window-style-card-outlined",
+          "title": "Window Style: Card with Outlines",
+          "id": "appearance.chromeStyle.cardOutlined",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings window-style-default",
+          "title": "Window Style: Default",
+          "id": "appearance.chromeStyle.default",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings window-style-flat",
+          "title": "Window Style: Flat",
+          "id": "appearance.chromeStyle.flat",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings window-style-flat-sidebar-line",
+          "title": "Window Style: Flat with Sidebar Line",
+          "id": "appearance.chromeStyle.flatSidebarLine",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings window-style-floating",
+          "title": "Window Style: Floating Panes",
+          "id": "appearance.chromeStyle.floating",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings window-style-panes",
+          "title": "Window Style: Panes",
+          "id": "appearance.chromeStyle.panes",
+          "mcp": false
+        },
+        {
+          "command": "cmux settings window-style-two-tone",
+          "title": "Window Style: Two-Tone",
+          "id": "appearance.chromeStyle.twoTone",
+          "mcp": false
+        }
+      ]
+    },
+    {
+      "noun": "sidebar",
+      "verbs": [
+        {
+          "command": "cmux sidebar add-home",
+          "title": "Add Home to Sidebar",
+          "id": "sidebar.home.add",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar add-item",
+          "title": "Add to Sidebar…",
+          "id": "sidebar.item.add",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar add-section",
+          "title": "New Section…",
+          "id": "sidebar.section.add",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar attach-images-to-checklist-item",
+          "title": "Attach Images to Checklist Item…",
+          "id": "checklistAttachImages",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar close-section-workspaces",
+          "title": "Close All Workspaces in Section",
+          "id": "sidebar.section.closeWorkspaces",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar complete-checklist-item",
+          "title": "Complete Checklist Item",
+          "id": "checklistCompleteItem",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar disable-minimal-mode",
+          "title": "Disable Minimal Mode",
+          "id": "palette.disableMinimalMode",
+          "mcp": false
+        },
+        {
+          "command": "cmux sidebar edit-checklist-item",
+          "title": "Edit Checklist Item…",
+          "id": "checklistEditItem",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar enable-minimal-mode",
+          "title": "Enable Minimal Mode",
+          "id": "palette.enableMinimalMode",
+          "mcp": false
+        },
+        {
+          "command": "cmux sidebar hide-app",
+          "title": "Hide App",
+          "id": "sidebar.item.hideApp",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar mark-checklist-item-in-progress",
+          "title": "Mark Checklist Item In Progress",
+          "id": "checklistMarkInProgress",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar move-section-scrolling",
+          "title": "Move Section to Scrolling Area",
+          "id": "sidebar.section.moveToScrolling",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar move-section-top",
+          "title": "Move Section to Top",
+          "id": "sidebar.section.moveToTop",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar new-section-workspace",
+          "title": "New Workspace in Section",
+          "id": "sidebar.section.newWorkspace",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar open-checklist-as-pane",
+          "title": "Open Checklist as Pane",
+          "id": "checklistOpenAsPane",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar remove-checklist-item",
+          "title": "Remove Checklist Item",
+          "id": "checklistRemoveItem",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar remove-from-sidebar",
+          "title": "Remove from Sidebar",
+          "id": "sidebar.item.removeEverywhere",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar remove-home",
+          "title": "Remove Home from Sidebar",
+          "id": "sidebar.home.remove",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar remove-item",
+          "title": "Remove from Section",
+          "id": "sidebar.item.remove",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar remove-section",
+          "title": "Remove Section",
+          "id": "sidebar.section.remove",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar rename-section",
+          "title": "Rename Section…",
+          "id": "sidebar.section.rename",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar reset",
+          "title": "Reset Sidebar Layout",
+          "id": "sidebar.layout.reset",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar section-layout-grid",
+          "title": "Show as Grid",
+          "id": "sidebar.section.layoutGrid",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar section-layout-inline",
+          "title": "Show on One Line",
+          "id": "sidebar.section.layoutInline",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar section-layout-list",
+          "title": "Show as List",
+          "id": "sidebar.section.layoutList",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar section-look-built-in",
+          "title": "Built-in Look",
+          "id": "sidebar.section.useBuiltInLook",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar section-look-list",
+          "title": "List Look",
+          "id": "sidebar.section.useListLook",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar set-section-alignment",
+          "title": "Set Section Alignment…",
+          "id": "sidebar.section.setAlignment",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar set-section-columns",
+          "title": "Set Grid Columns…",
+          "id": "sidebar.section.setColumns",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar set-section-gap",
+          "title": "Set Section Spacing…",
+          "id": "sidebar.section.setGap",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar set-section-height",
+          "title": "Set Section Height…",
+          "id": "sidebar.section.setMaxRows",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar toggle-item-archive",
+          "title": "Archive/Unarchive Item",
+          "id": "sidebar.item.toggleArchive",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar toggle-item-label",
+          "title": "Show/Hide Label",
+          "id": "sidebar.item.toggleLabel",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar toggle-match-terminal-background",
+          "title": "Toggle Match Terminal Background",
+          "id": "palette.toggleMatchTerminalBackground",
+          "mcp": false
+        },
+        {
+          "command": "cmux sidebar toggle-section-space",
+          "title": "Show Only in This Space",
+          "id": "sidebar.section.toggleSpaceScope",
+          "mcp": true
+        },
+        {
+          "command": "cmux sidebar toggle-section-title",
+          "title": "Show/Hide Section Title",
+          "id": "sidebar.section.toggleTitle",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "space",
+      "verbs": [
+        {
+          "command": "cmux space clear-color",
+          "title": "Remove Space Color",
+          "id": "space.clearColor",
+          "mcp": true
+        },
+        {
+          "command": "cmux space clear-defaults",
+          "title": "Clear Space Terminal Defaults…",
+          "id": "space.clearDefaults",
+          "mcp": true
+        },
+        {
+          "command": "cmux space clear-icon",
+          "title": "Remove Space Icon",
+          "id": "space.clearIcon",
+          "mcp": true
+        },
+        {
+          "command": "cmux space clear-theme",
+          "title": "Reset Space Theme",
+          "id": "space.clearTheme",
+          "mcp": true
+        },
+        {
+          "command": "cmux space delete",
+          "title": "Delete Space…",
+          "id": "space.delete",
+          "mcp": true
+        },
+        {
+          "command": "cmux space move",
+          "title": "Move Space to Position…",
+          "id": "space.move",
+          "mcp": true
+        },
+        {
+          "command": "cmux space move-left",
+          "title": "Move Space Left",
+          "id": "space.moveLeft",
+          "mcp": true
+        },
+        {
+          "command": "cmux space move-right",
+          "title": "Move Space Right",
+          "id": "space.moveRight",
+          "mcp": true
+        },
+        {
+          "command": "cmux space new-group",
+          "title": "New Group in Space",
+          "id": "space.newGroup",
+          "mcp": true
+        },
+        {
+          "command": "cmux space new-window",
+          "title": "New Window in Space…",
+          "id": "space.newWindow",
+          "mcp": true
+        },
+        {
+          "command": "cmux space new-workspace",
+          "title": "New Workspace in Space…",
+          "id": "space.newWorkspace",
+          "mcp": true
+        },
+        {
+          "command": "cmux space rename",
+          "title": "Rename Space…",
+          "id": "space.rename",
+          "mcp": true
+        },
+        {
+          "command": "cmux space set-color",
+          "title": "Set Space Color…",
+          "id": "space.setColor",
+          "mcp": true
+        },
+        {
+          "command": "cmux space set-defaults",
+          "title": "Set Space Terminal Defaults…",
+          "id": "space.setDefaults",
+          "mcp": true
+        },
+        {
+          "command": "cmux space set-icon",
+          "title": "Set Space Icon…",
+          "id": "space.setIcon",
+          "mcp": true
+        },
+        {
+          "command": "cmux space set-theme",
+          "title": "Set Space Theme…",
+          "id": "space.setTheme",
+          "mcp": true
+        },
+        {
+          "command": "cmux space switch",
+          "title": "Switch to Space…",
+          "id": "space.switch",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "stash",
+      "verbs": [
+        {
+          "command": "cmux stash show",
+          "title": "Show Stashed Tabs",
+          "id": "stash.show",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "tab",
+      "verbs": [
+        {
+          "command": "cmux tab clear-icon",
+          "title": "Remove Tab Icon",
+          "id": "tab.clearIcon",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab clear-name",
+          "title": "Clear Tab Name",
+          "id": "palette.clearTabName",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab close-other",
+          "title": "Close Other Tabs",
+          "id": "closeOtherTabsInPane",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab close-to-left",
+          "title": "Close Tabs to the Left",
+          "id": "closeTabsToLeft",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab close-to-right",
+          "title": "Close Tabs to the Right",
+          "id": "closeTabsToRight",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab disconnect-ssh",
+          "title": "Disconnect SSH Tab",
+          "id": "disconnectRemoteTab",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab duplicate",
+          "title": "Duplicate Tab",
+          "id": "duplicateTab",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab hibernate",
+          "title": "Hibernate Tab",
+          "id": "hibernateTab",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab mark-as-unread",
+          "title": "Mark Tab Unread",
+          "id": "palette.toggleTabUnread",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab move-left",
+          "title": "Move Tab Left",
+          "id": "moveSurfaceLeft",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab move-right",
+          "title": "Move Tab Right",
+          "id": "moveSurfaceRight",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab move-to-new-column",
+          "title": "Move Tab to New Column",
+          "id": "tab.moveToNewColumn",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab move-to-new-dock-column",
+          "title": "Move Tab to New Dock Column",
+          "id": "tab.moveToNewDockColumn",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab move-to-new-split",
+          "title": "Move Tab to New Split",
+          "id": "tab.moveToNewSplit",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab move-to-new-window",
+          "title": "Move Tab to New Window",
+          "id": "tab.moveToNewWindow",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab move-to-new-workspace",
+          "title": "Move Tab to New Workspace",
+          "id": "palette.moveTabToNewWorkspace",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab move-to-next-pane",
+          "title": "Move Tab to Next Pane",
+          "id": "moveSurfaceToNextPane",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab move-to-pane-above",
+          "title": "Move Tab to Pane Above",
+          "id": "moveSurfaceToPaneUp",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab move-to-pane-below",
+          "title": "Move Tab to Pane Below",
+          "id": "moveSurfaceToPaneDown",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab move-to-pane-left",
+          "title": "Move Tab to Pane Left",
+          "id": "moveSurfaceToPaneLeft",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab move-to-pane-right",
+          "title": "Move Tab to Pane Right",
+          "id": "moveSurfaceToPaneRight",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab move-to-previous-pane",
+          "title": "Move Tab to Previous Pane",
+          "id": "moveSurfaceToPreviousPane",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab move-to-workspace",
+          "title": "Move Tab to Workspace…",
+          "id": "tab.moveToWorkspace",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab mute",
+          "title": "Mute Tab",
+          "id": "tab.muteAudio",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab mute-others",
+          "title": "Mute Other Tabs",
+          "id": "tab.muteOtherAudio",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab mute-unmute",
+          "title": "Mute/Unmute Tab",
+          "id": "toggleTabAudioMute",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab never-hibernate-site",
+          "title": "Never Hibernate This Site",
+          "id": "neverHibernateSite",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab new",
+          "title": "New Tab",
+          "id": "newTab.default",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab new-after-current",
+          "title": "New Tab After Current Tab",
+          "id": "newTab.afterCurrent",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab new-at-end",
+          "title": "New Tab at End",
+          "id": "newTab.atEnd",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab new-at-start",
+          "title": "New Tab at Start",
+          "id": "newTab.atStart",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab new-browser",
+          "title": "New Browser Tab",
+          "id": "openBrowser",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab new-chromium",
+          "title": "New Browser Tab",
+          "id": "openBrowser.chromium",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab new-from-text",
+          "title": "New Tab from Text",
+          "id": "newTab.submit",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab new-mac-screen",
+          "title": "New Mac Screen Tab",
+          "id": "macScreen.open",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab new-page",
+          "title": "New Tab Page",
+          "id": "newTab.page",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab new-terminal",
+          "title": "New Terminal Tab",
+          "id": "newSurface",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab new-webkit",
+          "title": "New WebKit Tab",
+          "id": "openBrowser.webkit",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab pin-unpin",
+          "title": "Pin/Unpin Tab",
+          "id": "palette.toggleTabPin",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab reload",
+          "title": "Reload Tab",
+          "id": "reloadTab",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab rename",
+          "title": "Rename Tab…",
+          "id": "renameTab",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab reopen-last-closed",
+          "title": "Reopen Last Closed Tab",
+          "id": "reopenClosedBrowserPanel",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab restart",
+          "title": "Restart Shell Here",
+          "id": "tab.restart",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab screenshot",
+          "title": "Screenshot Tab",
+          "id": "tab.screenshot",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab search",
+          "title": "Search Tabs…",
+          "id": "tab.search",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab set-icon",
+          "title": "Set Tab Icon…",
+          "id": "tab.setIcon",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab set-tint",
+          "title": "Set Tab Tint…",
+          "id": "tab.setTint",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab stash",
+          "title": "Save and Close Tab",
+          "id": "tab.stash",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab stash-others",
+          "title": "Save and Close Other Tabs",
+          "id": "tab.stashOthers",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab stash-to-right",
+          "title": "Save and Close Tabs to the Right",
+          "id": "tab.stashToRight",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab toggle-chat-notifications",
+          "title": "Mute/Unmute Chat Notifications",
+          "id": "agentChat.toggleNotificationMute",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab unmute",
+          "title": "Unmute Tab",
+          "id": "tab.unmuteAudio",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab wake",
+          "title": "Wake Tab",
+          "id": "wakeTab",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "tab-group",
+      "verbs": [
+        {
+          "command": "cmux tab-group add-tab",
+          "title": "Add Tab to Group…",
+          "id": "tabGroup.addTab",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab-group clear-icon",
+          "title": "Remove Tab Group Icon",
+          "id": "tabGroup.clearIcon",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab-group close",
+          "title": "Close Tab Group",
+          "id": "tabGroup.close",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab-group collapse",
+          "title": "Collapse Tab Group",
+          "id": "tabGroup.collapse",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab-group create",
+          "title": "New Tab Group",
+          "id": "tabGroup.create",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab-group delete-saved",
+          "title": "Delete Saved Tab Group…",
+          "id": "tabGroup.deleteSaved",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab-group expand",
+          "title": "Expand Tab Group",
+          "id": "tabGroup.expand",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab-group move-left",
+          "title": "Move Tab Group Left",
+          "id": "tabGroup.moveLeft",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab-group move-right",
+          "title": "Move Tab Group Right",
+          "id": "tabGroup.moveRight",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab-group move-to-column",
+          "title": "Move Tab Group to New Column",
+          "id": "tabGroup.moveToNewColumn",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab-group move-to-new-window",
+          "title": "Move Tab Group to New Window",
+          "id": "tabGroup.moveToNewWindow",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab-group move-to-new-workspace",
+          "title": "Move Tab Group to New Workspace",
+          "id": "tabGroup.moveToNewWorkspace",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab-group move-to-split",
+          "title": "Move Tab Group to New Split",
+          "id": "tabGroup.moveToNewSplit",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab-group move-to-workspace",
+          "title": "Move Tab Group to Workspace…",
+          "id": "tabGroup.moveToWorkspace",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab-group new-tab",
+          "title": "New Tab in Group",
+          "id": "tabGroup.newTab",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab-group remove-tab",
+          "title": "Remove Tab from Group",
+          "id": "tabGroup.removeTab",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab-group rename",
+          "title": "Rename Tab Group…",
+          "id": "tabGroup.rename",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab-group reopen-saved",
+          "title": "Reopen Saved Tab Group…",
+          "id": "tabGroup.reopenSaved",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab-group save",
+          "title": "Pin Group",
+          "id": "tabGroup.save",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab-group set-color",
+          "title": "Set Tab Group Color…",
+          "id": "tabGroup.setColor",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab-group set-icon",
+          "title": "Set Tab Group Icon…",
+          "id": "tabGroup.setIcon",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab-group ungroup",
+          "title": "Ungroup Tabs",
+          "id": "tabGroup.ungroup",
+          "mcp": true
+        },
+        {
+          "command": "cmux tab-group unsave",
+          "title": "Unpin Group",
+          "id": "tabGroup.unsave",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "task",
+      "verbs": [
+        {
+          "command": "cmux task mine",
+          "title": "My Tasks",
+          "id": "tasks.showMine",
+          "mcp": true
+        },
+        {
+          "command": "cmux task open",
+          "title": "Open Tasks",
+          "id": "tasks.show",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "terminal",
+      "verbs": [
+        {
+          "command": "cmux terminal clear",
+          "title": "Clear Screen and Scrollback",
+          "id": "terminal.clear",
+          "mcp": true
+        },
+        {
+          "command": "cmux terminal clear-resume-command",
+          "title": "Clear Resume Command",
+          "id": "resumeCommandClear",
+          "mcp": true
+        },
+        {
+          "command": "cmux terminal clear-screen-keep-scrollback",
+          "title": "Clear Screen (Keep Scrollback)",
+          "id": "clearScreenKeepScrollback",
+          "mcp": true
+        },
+        {
+          "command": "cmux terminal clear-theme",
+          "title": "Reset Terminal Theme",
+          "id": "terminal.clearTheme",
+          "mcp": true
+        },
+        {
+          "command": "cmux terminal keep",
+          "title": "Keep Terminal Running After Close",
+          "id": "terminal.keep",
+          "mcp": true
+        },
+        {
+          "command": "cmux terminal open-current-directory-in",
+          "title": "Open Current Directory In…",
+          "id": "palette.terminalOpenDirectory",
+          "mcp": true
+        },
+        {
+          "command": "cmux terminal reconnect-pane",
+          "title": "Reconnect Pane",
+          "id": "reconnectPane",
+          "mcp": true
+        },
+        {
+          "command": "cmux terminal reset",
+          "title": "Reset Terminal",
+          "id": "resetTerminal",
+          "mcp": true
+        },
+        {
+          "command": "cmux terminal send-text",
+          "title": "Send Text…",
+          "id": "terminal.sendText",
+          "mcp": true
+        },
+        {
+          "command": "cmux terminal set-resume-command",
+          "title": "Set Resume Command…",
+          "id": "resumeCommandSet",
+          "mcp": true
+        },
+        {
+          "command": "cmux terminal set-theme",
+          "title": "Set Terminal Theme…",
+          "id": "terminal.setTheme",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "window",
+      "verbs": [
+        {
+          "command": "cmux window screenshot",
+          "title": "Screenshot Window",
+          "id": "window.screenshot",
+          "mcp": true
+        },
+        {
+          "command": "cmux window stash",
+          "title": "Save and Close All Workspaces",
+          "id": "window.stash",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "workspace",
+      "verbs": [
+        {
+          "command": "cmux workspace add-checklist-item",
+          "title": "Add Checklist Item…",
+          "id": "palette.addWorkspaceChecklistItem",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace archive-idle",
+          "title": "Archive Idle Workspaces",
+          "id": "workspace.archiveIdle",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace archive-unarchive",
+          "title": "Archive/Unarchive Workspace",
+          "id": "workspace.toggleArchive",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace clear-description",
+          "title": "Clear Workspace Description",
+          "id": "palette.clearWorkspaceDescription",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace clear-icon",
+          "title": "Remove Workspace Icon",
+          "id": "workspace.clearIcon",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace clear-name",
+          "title": "Clear Workspace Name",
+          "id": "palette.clearWorkspaceName",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace clear-notifications",
+          "title": "Clear Workspace Notifications",
+          "id": "clearWorkspaceNotifications",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace clear-theme",
+          "title": "Reset Workspace Theme",
+          "id": "workspace.clearTheme",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace close-above",
+          "title": "Close Workspaces Above",
+          "id": "palette.closeWorkspacesAbove",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace close-all",
+          "title": "Close All Workspaces",
+          "id": "workspace.closeAll",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace close-all-in-all-windows",
+          "title": "Close All Workspaces in All Windows",
+          "id": "workspace.closeAllInAllWindows",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace close-below",
+          "title": "Close Workspaces Below",
+          "id": "palette.closeWorkspacesBelow",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace close-other",
+          "title": "Close Other Workspaces",
+          "id": "palette.closeOtherWorkspaces",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace close-others-in-group",
+          "title": "Close Other Workspaces in Group",
+          "id": "workspace.closeOthersInGroup",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace disconnect",
+          "title": "Disconnect Workspace",
+          "id": "disconnectWorkspace",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace duplicate",
+          "title": "Duplicate Workspace",
+          "id": "workspace.duplicate",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace duplicate-terminals-only",
+          "title": "Duplicate Workspace Without Browser Tabs",
+          "id": "workspace.duplicateTerminalsOnly",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace duplicate-to-space",
+          "title": "Duplicate Workspace into Space…",
+          "id": "workspace.duplicateToSpace",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace edit-description",
+          "title": "Edit Workspace Description…",
+          "id": "editWorkspaceDescription",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace import-classic",
+          "title": "Import Workspaces from Classic cmux",
+          "id": "workspace.importClassic",
+          "mcp": false
+        },
+        {
+          "command": "cmux workspace mark-as-done",
+          "title": "Mark Workspace as Done",
+          "id": "markWorkspaceDone",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace mark-as-read",
+          "title": "Mark Workspace as Read",
+          "id": "palette.markWorkspaceRead",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace mark-as-unread",
+          "title": "Mark Workspace as Unread",
+          "id": "palette.markWorkspaceUnread",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace merge-into",
+          "title": "Merge Workspace Into…",
+          "id": "workspace.mergeInto",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace move-down",
+          "title": "Move Workspace Down",
+          "id": "moveWorkspaceDown",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace move-to-bottom",
+          "title": "Move Workspace to Bottom",
+          "id": "workspace.moveToBottom",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace move-to-new-group",
+          "title": "Move Workspace to New Group",
+          "id": "workspace.moveToNewGroup",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace move-to-new-window",
+          "title": "Move Workspace to New Window",
+          "id": "moveWorkspaceToNewWindow",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace move-to-space",
+          "title": "Move Workspace to Space…",
+          "id": "workspace.moveToSpace",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace move-to-top",
+          "title": "Move Workspace to Top",
+          "id": "palette.moveWorkspaceToTop",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace move-to-window",
+          "title": "Move Workspace to Window…",
+          "id": "moveWorkspaceToWindow",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace move-up",
+          "title": "Move Workspace Up",
+          "id": "moveWorkspaceUp",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace mute-unmute",
+          "title": "Mute/Unmute Workspace Tabs",
+          "id": "workspace.toggleAudioMute",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace name-from-activity",
+          "title": "Name from Activity",
+          "id": "workspace.nameFromActivity",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace new-above",
+          "title": "New Workspace Above",
+          "id": "workspace.newAbove",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace new-at-bottom",
+          "title": "New Workspace at Bottom",
+          "id": "workspace.newAtBottom",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace new-at-top",
+          "title": "New Workspace at Top",
+          "id": "workspace.newAtTop",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace new-below",
+          "title": "New Workspace Below",
+          "id": "workspace.newBelow",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace new-browser",
+          "title": "New Browser Workspace",
+          "id": "newBrowserWorkspace",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace new-from-template",
+          "title": "New Workspace from Template…",
+          "id": "palette.layout.open",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace new-in-new-group",
+          "title": "New Workspace in New Group",
+          "id": "workspace.newInNewGroup",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace new-like-this",
+          "title": "New Workspace Like This",
+          "id": "workspace.newLikeThis",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace new-on-machine",
+          "title": "New Workspace on Machine…",
+          "id": "workspace.newOnMachine",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace open-folder",
+          "title": "Open Folder…",
+          "id": "openFolder",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace open-folder-in-vs-code-inline",
+          "title": "Open Folder in VS Code (Inline)…",
+          "id": "palette.openFolderInVSCodeInline",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace open-todo-pane",
+          "title": "Open Todo Pane",
+          "id": "palette.openWorkspaceTodoPane",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace pin-unpin",
+          "title": "Pin/Unpin Workspace",
+          "id": "palette.toggleWorkspacePin",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace reconnect",
+          "title": "Reconnect Workspace",
+          "id": "reconnectWorkspace",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace remove-all-colors",
+          "title": "Remove All Workspace Colors",
+          "id": "workspace.removeAllColors",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace rename",
+          "title": "Rename Workspace…",
+          "id": "renameWorkspace",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace reopen-closed",
+          "title": "Reopen Closed Workspace",
+          "id": "reopenClosedWorkspace",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace reset-color",
+          "title": "Reset Workspace Color",
+          "id": "palette.resetWorkspaceColor",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace restore-archived",
+          "title": "Restore Archived Workspace…",
+          "id": "workspace.restoreArchived",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace restore-previous-app-launch",
+          "title": "Restore Previous App Launch",
+          "id": "reopenPreviousSession",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace save-layout-as-template",
+          "title": "Save Layout as Template…",
+          "id": "saveLayoutTemplate",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace set-color",
+          "title": "Set Workspace Color…",
+          "id": "palette.workspaceColor",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace set-icon",
+          "title": "Set Workspace Icon…",
+          "id": "workspace.setIcon",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace set-remote-localhost",
+          "title": "Set Workspace Localhost…",
+          "id": "workspace.setRemoteLocalhost",
+          "mcp": false
+        },
+        {
+          "command": "cmux workspace set-status",
+          "title": "Set Workspace Status…",
+          "id": "palette.workspaceStatus",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace set-theme",
+          "title": "Set Workspace Theme…",
+          "id": "workspace.setTheme",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace set-tint",
+          "title": "Set Workspace Tint…",
+          "id": "workspace.setTint",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace sort-by-directory",
+          "title": "Sort Workspaces by Directory",
+          "id": "workspace.sortByDirectory",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace sort-by-last-used",
+          "title": "Sort Workspaces by Last Used",
+          "id": "workspace.sortByLastUsed",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace sort-by-name",
+          "title": "Sort Workspaces by Name",
+          "id": "workspace.sortByName",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace stash",
+          "title": "Save and Close Workspace",
+          "id": "workspace.stash",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace toggle-checklist-item-complete",
+          "title": "Toggle Checklist Item Complete",
+          "id": "toggleChecklistItemComplete",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace toggle-top",
+          "title": "Add Workspace to Top/Remove from Top",
+          "id": "workspace.toggleTop",
+          "mcp": true
+        }
+      ]
+    },
+    {
+      "noun": "workspace-group",
+      "verbs": [
+        {
+          "command": "cmux workspace-group add-to-section",
+          "title": "Add Group to Section…",
+          "id": "workspaceGroup.addToSection",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group add-workspace",
+          "title": "Move Workspace to Group…",
+          "id": "moveWorkspaceToGroup",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group clear-color",
+          "title": "Remove Workspace Group Color",
+          "id": "workspaceGroup.clearColor",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group clear-icon",
+          "title": "Remove Workspace Group Icon",
+          "id": "workspaceGroup.clearIcon",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group clear-notifications",
+          "title": "Clear Group Notifications",
+          "id": "workspaceGroup.clearNotifications",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group close-others",
+          "title": "Close Other Groups",
+          "id": "workspaceGroup.closeOthers",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group close-workspaces",
+          "title": "Close Workspaces in Group",
+          "id": "workspaceGroup.closeWorkspaces",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group collapse",
+          "title": "Collapse Workspace Group",
+          "id": "workspaceGroup.collapse",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group collapse-all",
+          "title": "Collapse All Groups",
+          "id": "workspaceGroup.collapseAll",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group collapse-others",
+          "title": "Collapse Other Groups",
+          "id": "workspaceGroup.collapseOthers",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group create",
+          "title": "New Workspace Group",
+          "id": "newWorkspaceGroup",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group delete",
+          "title": "Delete Group",
+          "id": "workspaceGroup.delete",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group duplicate",
+          "title": "Duplicate Workspace Group",
+          "id": "workspaceGroup.duplicate",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group expand",
+          "title": "Expand Workspace Group",
+          "id": "workspaceGroup.expand",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group expand-all",
+          "title": "Expand All Groups",
+          "id": "workspaceGroup.expandAll",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group mark-read",
+          "title": "Mark Group as Read",
+          "id": "workspaceGroup.markRead",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group mark-unread",
+          "title": "Mark Group as Unread",
+          "id": "workspaceGroup.markUnread",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group move-down",
+          "title": "Move Workspace Group Down",
+          "id": "workspaceGroup.moveDown",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group move-to-bottom",
+          "title": "Move Workspace Group to Bottom",
+          "id": "workspaceGroup.moveToBottom",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group move-to-new-window",
+          "title": "Move Workspace Group to New Window",
+          "id": "workspaceGroup.moveToNewWindow",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group move-to-space",
+          "title": "Move Workspace Group to Space…",
+          "id": "workspaceGroup.moveToSpace",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group move-to-top",
+          "title": "Move Workspace Group to Top",
+          "id": "workspaceGroup.moveToTop",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group move-to-window",
+          "title": "Move Workspace Group to Window…",
+          "id": "workspaceGroup.moveToWindow",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group move-up",
+          "title": "Move Workspace Group Up",
+          "id": "workspaceGroup.moveUp",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group new-subgroup",
+          "title": "New Subgroup",
+          "id": "workspaceGroup.newSubgroup",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group new-workspace",
+          "title": "New Workspace in Group",
+          "id": "workspaceGroup.newWorkspace",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group remove-workspace",
+          "title": "Remove Workspace from Group",
+          "id": "removeWorkspaceFromGroup",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group rename",
+          "title": "Rename Group…",
+          "id": "workspaceGroup.rename",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group set-auto-archive",
+          "title": "Auto-Archive Group Workspaces",
+          "id": "workspaceGroup.setAutoArchive",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group set-color",
+          "title": "Set Workspace Group Color…",
+          "id": "workspaceGroup.setColor",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group set-icon",
+          "title": "Set Workspace Group Icon…",
+          "id": "workspaceGroup.setIcon",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group sort-by-directory",
+          "title": "Sort Group by Directory",
+          "id": "workspaceGroup.sortByDirectory",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group sort-by-last-used",
+          "title": "Sort Group by Last Used",
+          "id": "workspaceGroup.sortByLastUsed",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group sort-by-name",
+          "title": "Sort Group by Name",
+          "id": "workspaceGroup.sortByName",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group stash",
+          "title": "Save and Close Group",
+          "id": "workspaceGroup.stash",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group toggle-archive",
+          "title": "Archive/Unarchive Group",
+          "id": "workspaceGroup.toggleArchive",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group toggle-pin",
+          "title": "Pin/Unpin Group",
+          "id": "workspaceGroup.togglePin",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group ungroup",
+          "title": "Ungroup Workspaces",
+          "id": "workspaceGroup.ungroup",
+          "mcp": true
+        }
+      ]
+    }
+  ],
+  "mcpExempt": {
+    "credentials": 6,
+    "endsApp": 4,
+    "systemChange": 72
+  }
+}

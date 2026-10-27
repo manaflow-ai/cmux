@@ -14,8 +14,10 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 tag="hldfood"
 models="hosts holder"
+reload_config=()
 for arg in "$@"; do
   case "$arg" in
+    --config=*) reload_config=(--config "${arg#--config=}") ;;
     --models=*) models="${arg#--models=}"; models="${models//,/ }" ;;
     *) echo "holder-dogfood.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
@@ -42,7 +44,7 @@ done
 RUNNER_TEMP="$out" GITHUB_PATH="$out/bun-path" ./scripts/cmux-next/private-bun.sh
 PATH="$(tail -n 1 "$out/bun-path"):$PATH"
 export PATH
-CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" 2>&1 | tee "$out/reload.log" | tail -n 40
+CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log" | tail -n 40
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
 if [[ -z "$app" || ! -d "$app" ]]; then
   echo "holder-dogfood: the tagged reload printed no app path" >&2

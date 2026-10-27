@@ -154,16 +154,18 @@ await requireBrowserLane("agent-pane-short-pane-composer.test.ts", async () => {
       });
 
   for (const name of browsers.keys())
-    test(`${name}: in a tall pane the grown prompt keeps its eight lines`, async () => {
+    test(`${name}: in a tall pane the grown prompt takes 40% of the pane`, async () => {
       current = browsers.get(name)!;
       const page = await pane!.open({ width: 900, height: 760 });
       try {
-        await grow(page, 16);
+        await grow(page, 20);
         const drawn = await measure(page);
         expect({ past: clamp(drawn.past) }).toEqual({ past: inside });
         expect(drawn.overflow).toEqual(flat);
-        // Its whole eight-line cap (markdownField.css max-height): room enough gives nothing up.
-        expect(drawn.prompt.cap).toBeGreaterThan(100);
+        // Its whole cap (markdownField.css max-height), 40% of the 760 px pane (Leo, 2026-10-24: "we
+        // can afford to expand the composer text area a bit more"): room enough gives nothing up.
+        expect(drawn.prompt.cap).toBeCloseTo(760 * 0.4, 0);
+        expect(drawn.prompt.scrolls).toBe(true);
         expect(drawn.prompt.height).toBeGreaterThanOrEqual(drawn.prompt.cap - 0.5);
       } finally {
         await page.close();

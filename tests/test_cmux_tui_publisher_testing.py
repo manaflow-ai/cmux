@@ -26,6 +26,7 @@ spec.loader.exec_module(publisher)
 
 NOW = dt.datetime(2026, 10, 21, 6, 30, tzinfo=dt.timezone.utc)
 POOL = "glaeda-side-light-xcode-26.6"
+GATE_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}"
 
 
 def job(status, conclusion=None, minutes_ago=1.0, labels=(POOL,), name=publisher.JOB_NAME):
@@ -78,7 +79,7 @@ class WiringTests(unittest.TestCase):
     def test_both_deferrals_ask_the_script(self):
         self.assertIn('cmux_tui_publisher_testing.py --run-id "$source_run" --pool "${DAEMON_POOL:-}"', self.WORKFLOW)
         self.assertIn('cmux_tui_publisher_testing.py --run-id "$OWNER_RUN_ID" --pool "${DAEMON_POOL:-}"', self.WORKFLOW)
-        self.assertEqual(self.WORKFLOW.count("DAEMON_POOL: ${{ vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL }}"), 2)
+        self.assertEqual(self.WORKFLOW.count(f"DAEMON_POOL: {GATE_RUNS_ON}"), 2)
 
     def test_the_owner_wait_sparse_checkout_has_the_script(self):
         owner_wait = self.WORKFLOW[self.WORKFLOW.index("sparse-checkout: |\n            scripts/ci/cmux-tui-tree-claim.sh"):]
@@ -88,13 +89,23 @@ class WiringTests(unittest.TestCase):
         # A renamed job reads as "not created yet", which defers forever.
         job = self.WORKFLOW[self.WORKFLOW.index("\n  cmux-next-daemon-tests:\n"):]
         job = job[:job.index("\n    runs-on:")]
-        self.assertIn(f"\n    name: {publisher.JOB_NAME}\n", job)
+        name = job[job.index("\n    name: ") + len("\n    name: "):].split("\n", 1)[0]
+        self.assertEqual(name, publisher.JOB_NAME)
+        self.assertTrue(publisher.is_daemon_job(name))
+
+    def test_older_runs_suffixed_jobs_still_count_and_the_shadow_does_not(self):
+        # Runs from before the runner suffix was dropped are still read.
+        for suffix in ("macOS", "Linux"):
+            self.assertTrue(publisher.is_daemon_job(f"cmux_next_ daemon tests ({suffix})"))
+        self.assertTrue(testing([job("completed", "success", name="cmux_next_ daemon tests (macOS)")]))
+        self.assertFalse(publisher.is_daemon_job("cmux_next_ macOS-only daemon tests (shadow)"))
+        self.assertFalse(publisher.is_daemon_job(None))
 
     def test_the_pool_matches_the_daemon_test_job(self):
-        # The job's runs-on takes CI_NEXT_DAEMON_POOL first, then CI_NEXT_PROMOTE_POOL.
-        runs_on = next(line for line in self.WORKFLOW.splitlines() if "vars.CI_NEXT_DAEMON_POOL != ''" in line)
-        self.assertLess(runs_on.index("vars.CI_NEXT_DAEMON_POOL"), runs_on.index("vars.CI_NEXT_PROMOTE_POOL"))
-
+        # DAEMON_POOL names the gate job's own runs-on label.
+        job = self.WORKFLOW[self.WORKFLOW.index("\n  cmux-next-daemon-tests:\n"):]
+        runs_on = job[job.index("\n    runs-on: ") + len("\n    runs-on: "):].split("\n", 1)[0]
+        self.assertEqual(runs_on, GATE_RUNS_ON)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

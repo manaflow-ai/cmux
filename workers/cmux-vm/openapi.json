@@ -5540,6 +5540,116 @@
         }
       }
     },
+    "/v1/vms/{vmId}/client-sessions": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "operationId": "agents.listClientSessions",
+        "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ClientSessionList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientSessionList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "List the live (not revoked) client sessions of this VM, oldest first: id, Linux user and creation time. Tokens are never returned; they are shown once when the session is created. Requires the vm:exec scope. Another tenant's or another agent's VM is 404.",
+        "summary": "List a VM's live client sessions"
+      }
+    },
     "/v1/vms/{vmId}/client-sessions/{sessionId}": {
       "delete": {
         "tags": [
@@ -11879,6 +11989,47 @@
               }
             },
             "additionalProperties": false
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClientSessionList": {
+        "type": "object",
+        "required": [
+          "sessions"
+        ],
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClientSessionSummary"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClientSessionSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "vmId",
+          "linuxUser",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "vmId": {
+            "type": "string"
+          },
+          "linuxUser": {
+            "type": "string"
           },
           "createdAt": {
             "type": "string"

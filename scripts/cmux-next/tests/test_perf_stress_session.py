@@ -47,7 +47,9 @@ class FakeApp:
 
     Each workspace is columns side by side, each column rows stacked: {"width": f, "rows": [[pane, f]]}."""
 
-    def __init__(self, takes_focus=True, cef=None, window_frame=None, visible=None, screen=None, legacy=False, chat="opens"):
+    def __init__(self, takes_focus=True, cef=None, window_frame=None, visible=None, screen=None, legacy=False, chat="opens",
+                 other_window_active=False,
+                 clamps=False):
         """`visible`/`screen`: the main screen's frames (VISIBLE, SCREEN); `legacy`: an app before the screen
         fields (debug.window_frame and debug.layers give no visible or screen frame); `chat`: `opens`, `late`
         (the chat tab shows 9 s after the action's reply), `refused` (a typed refusal) or `transport` (the
@@ -64,6 +66,11 @@ class FakeApp:
         self.browsers = []  # (pane, shown)
         self.cef = {"state": "ready", "unavailable": None, "fallback": None} if cef is None else cef
         self.window_frame = window_frame or [80, 40, 1600, 1000]
+        self.clamps = clamps
+        # Another window is the active one (a window moveWorkspaceToNewWindow left, an open panel): the
+        # topology's top-level focus is that window's, while the measured window keeps its own focused pane.
+        self.other_window_active = other_window_active
+        self.window_focus = None  # AppKit keeps the window inside the visible frame (the fleet's virtual display)
 
     def ident(self, prefix):
         self.next += 1
@@ -141,6 +148,12 @@ class FakeApp:
         """debug.window_frame: `frame` as given (setFrame), or `screen` centers the size on the visible frame."""
         if params.get("frame"):
             self.window_frame = list(params["frame"])
+            if self.clamps:
+                x, y, w, h = self.window_frame
+                vx, vy, vw, vh = self.visible
+                h = min(h, vh)
+                y = min(max(y, vy), vy + vh - h)
+                self.window_frame = [x, y, w, h]
         elif "screen" in params:
             vx, vy, vw, vh = self.visible
             w, h = self.window_frame[2:]
@@ -156,8 +169,12 @@ class FakeApp:
             for due, pane, tab in [p for p in self.pending if p[0] <= self.clock.now]:
                 self.pending.remove((due, pane, tab))
                 self.add(pane, tab)
-            return {"topology": {"workspaces": self.workspaces, "focus": dict(self.focus),
-                                 "windows": [{"key": "win_1", "workspace": self.shown}]}}
+            windows = [{"key": "win_1", "workspace": self.shown, "focused_pane": self.window_focus}]
+            focus = dict(self.focus)
+            if self.other_window_active:
+                windows.append({"key": "win_2", "workspace": "ws_other", "focused_pane": "pane_other"})
+                focus = {"window": "win_2", "workspace": "ws_other", "pane": "pane_other"}
+            return {"topology": {"workspaces": self.workspaces, "focus": focus, "windows": windows}}
         if method == "debug.layers":
             return self.layers()
         if method == "debug.cef":
@@ -190,6 +207,7 @@ class FakeApp:
             return {"error": {"code": "not_found", "data": {"reason": f"{target} is not shown in any window."}}}
         if action == "pane.focus":
             self.focus = {"workspace": workspace["id"], "pane": pane["id"]}
+            self.window_focus = pane["id"]
         elif action in ("splitRight", "splitDown"):
             self.split(workspace, pane["id"], action)
         elif action == "equalizeSplits":
@@ -274,6 +292,48 @@ class MeasuredGridTests(Case):
         self.assertEqual((summary["layout_refusals"], summary["grid_problems"], summary["pane_problems"]), ([], [], []))
 
 
+class BookkeepingTests(Case):
+    """Every tab the builder owns is in `made` (each pane's first terminal included), and busy_terminals counts
+    only ids that are still terminal tabs (review "bench-small", session cmux-1c)."""
+
+    def build(self):
+        app = FakeApp(takes_focus=True)
+        session = builder(app)
+        session.build_measured()
+        return app, session
+
+    def test_each_panes_first_terminal_is_recorded(self):
+        app, session = self.build()
+        for pane in app.panes_of(app.workspaces[-1]):
+            first = pane["tabs"][0]["id"]
+            self.assertIn(("terminal", first), [(kind, tab) for kind, tab, _ in session.made.get(pane["id"], [])],
+                          f"pane {pane['id']}'s first terminal is not in made")
+
+    def test_a_replaced_first_terminal_is_a_pane_problem(self):
+        app, session = self.build()
+        pane = app.panes_of(app.workspaces[-1])[0]
+        pane["tabs"][0] = app.tab("terminal")  # the first terminal closed, another one in its place
+        summary = session.summary()
+        self.assertTrue(any(pane["id"] in problem for problem in summary["pane_problems"]), summary["pane_problems"])
+
+    def test_a_dead_busy_terminal_is_not_counted(self):
+        app, session = self.build()
+        self.assertEqual(len(session.busy), stress.BUSY_TERMINALS)
+        dead = session.busy[0]
+        for pane in app.panes_of(app.workspaces[-1]):
+            pane["tabs"] = [t for t in pane["tabs"] if t["id"] != dead]
+        summary = session.summary()
+        self.assertEqual(summary["busy_terminals"], stress.BUSY_TERMINALS - 1)
+        with self.assertRaisesRegex(stress.StressShapeError, "busy terminals"):
+            session.check(summary)
+
+    def test_make_busy_records_the_terminal(self):
+        app, session = self.build()
+        terminal = app.panes_of(app.workspaces[-1])[0]["tabs"][0]["id"]
+        session.make_busy(terminal)
+        self.assertIn(terminal, session.busy)
+
+
 class ShapeCheckTests(Case):
     def test_uneven_rows_are_a_wrong_shape(self):
         # A grid split while hidden: rows 1/2, 1/4, 1/4 (and 1/2, 1/4, 1/8, 1/8 in the nested columns).
@@ -337,6 +397,39 @@ class ShapeCheckTests(Case):
         self.assertIn("main display is 1", stress.vdisplay_problem("ready 7 8.33 main=1\n"))
         self.assertIsNotNone(stress.vdisplay_problem("error: CGVirtualDisplay unavailable\n"))
         self.assertIsNotNone(stress.vdisplay_problem(None))
+
+
+class FocusTests(Case):
+    """cmux12s, macOS 27 (779b9d44348): "focus never reached pane ...". The builder read the ACTIVE window's focus;
+    with another window active (an open panel, a window an earlier action left) the measured window's pane was
+    focused but the check never saw it."""
+
+    def test_focus_is_read_from_the_window_that_shows_the_pane(self):
+        app = FakeApp(other_window_active=True)
+        session = builder(app)
+        session.build_measured()  # raises StressShapeError on today's builder
+        self.assertEqual(session.summary()["pane_problems"], [])
+
+
+class VirtualDisplayTests(Case):
+    """The fleet's virtual display (cmux20-bench step ebb2b401, cmuxs-Mac-mini-3): AppKit keeps the window inside
+    the visible frame, so 1920 x 1080 under a bottom Dock gives a 1600 x 965 window."""
+
+    def test_a_1080_display_under_a_bottom_dock_refuses_with_the_size_it_saw_and_the_remedy(self):
+        app = FakeApp(screen=[0, 0, 1920, 1080], visible=[0, 90, 1920, 965], clamps=True)
+        _, problem = stress.place_window(app.rpc)
+        self.assertIsNotNone(problem)
+        for seen in ("1920 x 1080", "1920 x 965", "Dock at the bottom", "1920x1200"):
+            self.assertIn(seen, problem, f"the refusal does not say {seen!r}: {problem}")
+
+    def test_a_1200_display_under_a_bottom_dock_holds_the_window(self):
+        app = FakeApp(screen=[0, 0, 1920, 1200], visible=[0, 90, 1920, 1085], clamps=True)
+        reply, problem = stress.place_window(app.rpc)
+        self.assertIsNone(problem, problem)
+        self.assertEqual(reply["frame"][2:], [1600, 1000])
+
+    def test_the_builders_virtual_display_is_1920_by_1200(self):
+        self.assertEqual(stress.vdisplay_command("VDisplay", 120, 900), ["VDisplay", "120", "900", "main", "1920x1200"])
 
 
 class WindowPlacementTests(Case):

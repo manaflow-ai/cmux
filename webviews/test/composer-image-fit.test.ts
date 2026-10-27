@@ -29,7 +29,8 @@ function installEngine(width: number, height: number, encoded: (type: string, wi
       return { drawImage() {}, fillRect() {}, fillStyle: "" };
     }
     async convertToBlob({ type }: { type: string }) {
-      drawn.push({ width: this.width, height: this.height, type });
+      // The chip's thumbnail (160 px tall) is drawn from the same decode; only the preview counts.
+      if (this.height !== 160) drawn.push({ width: this.width, height: this.height, type });
       return new Blob([new Uint8Array(encoded(type, this.width))], { type });
     }
   };
@@ -87,18 +88,17 @@ describe("an image over the per-image limit", () => {
     expect(result).toMatchObject({ name: "Screen Shot.jpg", mimeType: "image/jpeg", size: 2048 });
   });
 
-  test("is refused as too large only when no encoding fits", async () => {
-    installEngine(4000, 4000, () => MAX_IMAGE_BYTES + 1);
-    expect(await readAttachment(big("huge.png"), true)).toEqual({
-      name: "huge.png",
-      reason: "tooLarge",
-    });
+  // Leo, 2026-10-24: "we shouldn't have this limit". Past every step the smallest try goes.
+  test("is never refused for its size: past every step its smallest try goes", async () => {
+    const drawn = installEngine(4000, 4000, () => MAX_IMAGE_BYTES + 1);
+    expect(await readAttachment(big("huge.png"), true)).toMatchObject({ name: "huge.jpg", mimeType: "image/jpeg" });
+    expect(drawn.at(-1)).toEqual({ width: 512, height: 512, type: "image/jpeg" });
   });
 
-  test("is refused as too large where the engine cannot scale images", async () => {
+  test("goes as a file where the engine cannot draw images", async () => {
     expect(await readAttachment(big("image.png"), true)).toEqual({
       name: "image.png",
-      reason: "tooLarge",
+      reason: "unsupported",
     });
   });
 });
@@ -149,7 +149,7 @@ describe("any image", () => {
   test("does not pass unsanitized bytes through when the image engine is unavailable", async () => {
     expect(await readAttachment(small("plain.png"), true)).toEqual({
       name: "plain.png",
-      reason: "tooLarge",
+      reason: "unsupported",
     });
   });
 });

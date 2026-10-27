@@ -35,7 +35,7 @@
   --warning: var(--cmux-app-warning, light-dark(rgba(166, 104, 0, 1), rgba(255, 196, 77, 1)));
   --motion-hover: var(--cmux-motion-quick, 80ms);
   --motion-focus: var(--cmux-motion-quick, 80ms);
-  font: 13px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font: 13px/1.4 var(--font-ui);
 }
 
 /* The native bootstrap's html rule (!important) wins; this matches it for the dev server. */
@@ -243,6 +243,51 @@ mark {
   color: var(--muted-text);
 }
 
+.harness-update-cards {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.harness-update-cards:empty {
+  display: none;
+}
+
+.harness-update-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--input-bg);
+}
+
+.harness-update-card-copy {
+  min-width: 0;
+}
+
+.harness-update-card-copy strong {
+  display: block;
+  font-weight: 600;
+}
+
+.harness-update-card-copy p {
+  margin: 3px 0 0;
+}
+
+.harness-update-card-copy code {
+  display: block;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+
+.harness-update-card > .button {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
 .rows {
   border-top: 1px solid var(--border);
 }
@@ -264,6 +309,11 @@ mark {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+}
+
+/* A device row's Full access switch, under the device's own line (Settings > Devices). */
+.row-main.device-full-access {
+  padding-top: 8px;
 }
 
 .row-label {
@@ -474,6 +524,7 @@ mark {
   line-height: 12px;
   white-space: nowrap;
   pointer-events: none;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .field.number[data-inherited] {
@@ -685,6 +736,7 @@ mark {
 .font-option-tag {
   color: var(--muted-text);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .font-option-check {
@@ -993,6 +1045,7 @@ mark {
   border-radius: 4px;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .devices-access,
@@ -1040,6 +1093,7 @@ mark {
   border-collapse: collapse;
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .devices-history th,
@@ -1126,6 +1180,7 @@ mark {
 .devices-copy {
   padding: 0 6px;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 /* The event pill never clips its word: a longer event wraps inside it. */
@@ -1203,6 +1258,7 @@ mark {
   color: var(--text);
   font-size: var(--text-caption);
   pointer-events: none;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .backdrop-tile[aria-pressed="true"] .backdrop-thumb {
@@ -1252,6 +1308,7 @@ mark {
   color: var(--muted-text);
   font-size: var(--text-title);
   border-style: dashed;
+  letter-spacing: var(--text-title--letter-spacing);
 }
 
 /* Your images (backgrounds plan phase 3): what they take, Show in Finder, and a remove
@@ -1339,6 +1396,7 @@ mark {
   font-size: var(--text-detail);
   white-space: nowrap;
   text-overflow: ellipsis;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 /* Folder lists (picker.pinned, files.roots). */
@@ -1420,6 +1478,7 @@ mark {
 .appearance-bar-question {
   font-size: var(--text-detail);
   white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 /* Agents > Chiefs (ChiefsCard.tsx): one row per Chief, a button that opens its editor. */
@@ -1491,6 +1550,7 @@ mark {
   margin: 0 0 10px;
   color: var(--muted-text);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .density-tiles {
@@ -1615,6 +1675,7 @@ mark {
 .density-notice {
   color: var(--muted-text);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .density-import {

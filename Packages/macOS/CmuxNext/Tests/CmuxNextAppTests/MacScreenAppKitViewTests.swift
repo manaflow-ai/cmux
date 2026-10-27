@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDevices
 @testable import CmuxNextMacScreen
+import CmuxNextWakeups
 import CmuxScreenKit
 import Foundation
 import Testing
@@ -52,7 +53,7 @@ struct MacScreenAppKitViewTests {
 
     private func makePages() -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file, removeLinkPairings: {}))
+        return MacScreenPages(store: MacScreenStore(file: file, removeLinkPairings: {}), work: BackgroundWork())
     }
 
     @Test func noSurfaceBuildsAHostingView() throws {

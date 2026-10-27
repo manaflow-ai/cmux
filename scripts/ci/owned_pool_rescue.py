@@ -236,15 +236,19 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pr_runner_pool import MAX_QUEUE_ROUNDS, QUEUE_ROUND_MINUTES, parse_queue_rounds, persistent  # noqa: E402
+from pr_runner_pool import MAX_QUEUE_ROUNDS, QUEUE_ROUND_MINUTES, nightly_dedicated, parse_queue_rounds, persistent  # noqa: E402
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 IOS_TEST_WORKFLOW_PATH = ".github/workflows/test-ios.yml"
 IOS_SCREENSHOTS_WORKFLOW_PATH = ".github/workflows/ios-screenshots.yml"
 IROH_RELEASE_GATE_WORKFLOW_PATH = ".github/workflows/iroh-release-gate.yml"
+# The DEV publisher's runner job offers its secret-free verify job to an owned
+# Mac while one is free, then leaves the workflow's Blacksmith fallback.
+CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH = ".github/workflows/cmux-next-dev-daily.yml"
 # workflow_dispatch runs watched as dispatch runs: each has a `runner` job that
 # picks the pool and uploads the marker.
-DISPATCH_WORKFLOW_PATHS = (IOS_TEST_WORKFLOW_PATH, IOS_SCREENSHOTS_WORKFLOW_PATH, IROH_RELEASE_GATE_WORKFLOW_PATH)
+DISPATCH_WORKFLOW_PATHS = (IOS_TEST_WORKFLOW_PATH, IOS_SCREENSHOTS_WORKFLOW_PATH, IROH_RELEASE_GATE_WORKFLOW_PATH,
+                           CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH)
 # Workflows whose picker may queue a run's jobs on an owned pool within
 # CI_PR_POOL_QUEUE_ROUNDS (ios_runner_pool.py reads it since run 36136190497).
 QUEUEING_WORKFLOW_PATHS = (CI_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH)
@@ -436,7 +440,7 @@ def parse_time(value: object) -> dt.datetime | None:
 def job_pool(job: Mapping[str, Any]) -> str | None:
     """The owned pool a job asked for, if any: a pull request pool or the trusted one."""
     for label in job.get("labels") or []:
-        if persistent(str(label)) or TRUSTED_LABEL.fullmatch(str(label)):
+        if persistent(str(label)) or TRUSTED_LABEL.fullmatch(str(label)) or nightly_dedicated(str(label)):
             return str(label)
     return None
 

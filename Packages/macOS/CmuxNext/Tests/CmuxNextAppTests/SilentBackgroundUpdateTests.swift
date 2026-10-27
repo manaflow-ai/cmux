@@ -90,11 +90,109 @@ import Testing
         #expect(updater.readyCard?.isInstalling == false, "the staged card's button is disabled")
     }
 
-    @Test func aFoundUpdateStillShowsWhenThePersonTurnedAutomaticDownloadsOff() {
+    /// Downloads off (the stable default, claude-sr2 2026-10-26: "show a quiet 'Update available'
+    /// button in the toolbar or title area, and install on click"): the scheduled check's found
+    /// update is the titlebar button, never the notice card; a click downloads and installs it.
+    @Test func aFoundUpdateIsTheQuietButtonWhenAutomaticDownloadsAreOff() {
         let updater = Self.updater()
         updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: false)
         updater.debugIndicatorPhase = .available(version: "2.0")
-        #expect(updater.card == .available(version: "2.0"), "with downloads off the person never learns of the update")
+        #expect(updater.availableButton == UpdateAvailableButton(version: "2.0"), "with downloads off the person never learns of the update")
+        #expect(updater.card == nil, "the found update showed the notice card, not the quiet button")
+        updater.debugIndicatorPhase = .downloading(UpdateTransfer(stage: .downloading, fraction: 0.5))
+        #expect(updater.availableButton == nil, "the button stayed while the update downloads")
+    }
+
+    /// Whenever found updates start downloading by themselves (the setting turned on, a metered
+    /// link that cleared), the update a check found meanwhile downloads ("On: today's behaviour").
+    @Test func downloadsComingOnDownloadTheFoundUpdate() {
+        let updater = Self.updater()
+        var accepted = 0
+        updater.acceptAvailable = { accepted += 1 }
+        updater.applyDownloadPolicy()
+        #expect(accepted == 0, "an update downloaded before the settings loaded")
+        updater.downloadSetting = (true, .deferLowData)
+        updater.applyDownloadPolicy()
+        #expect(accepted == 1, "turning automatic downloads on left the found update waiting for a click")
+        updater.applyDownloadPolicy()
+        #expect(accepted == 1, "an unchanged policy downloaded again")
+        updater.network = (constrained: true, expensive: false)
+        updater.applyDownloadPolicy()
+        updater.network = (constrained: false, expensive: false)
+        updater.applyDownloadPolicy()
+        #expect(accepted == 2, "the found update kept waiting after Low Data Mode ended")
+    }
+
+    @Test func theUsersCheckShowsTheCardNotTheButton() {
+        let updater = Self.updater()
+        updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: false)
+        updater.send(.checkRequested)
+        updater.debugIndicatorPhase = .checking
+        updater.debugIndicatorPhase = .available(version: "2.0")
+        #expect(updater.card == .available(version: "2.0"))
+        #expect(updater.availableButton == nil, "the person's check showed both the card and the titlebar button")
+    }
+
+    /// A version the person closed stays closed on the button too.
+    @Test func aClosedVersionHidesTheButton() {
+        let updater = Self.updater()
+        updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: false)
+        updater.debugIndicatorPhase = .available(version: "2.0")
+        updater.closeUpdateCard(.hideVersion)
+        #expect(updater.availableButton == nil)
+    }
+
+    /// Stable and RC are opt-in; the dogfood apps (NIGHTLY, the tip app, DEV) download by default.
+    @Test func automaticDownloadsAreOptInOnlyOnStable() {
+        #expect(!UpdateTrack.stable.downloadsAutomaticallyByDefault)
+        #expect(!UpdateTrack.rc.downloadsAutomaticallyByDefault)
+        #expect(UpdateTrack.nightly.downloadsAutomaticallyByDefault)
+        #expect(UpdateTrack.development.downloadsAutomaticallyByDefault)
+    }
+
+    /// `updates.status` (and `cmux version`) report whether this app downloads by itself, from its
+    /// own `updates.downloadAutomatically`, not Sparkle's `SUAutomaticallyUpdate`: cmux NEXT turns
+    /// that key off at every launch and the legacy NIGHTLY app shares it, so it read "false" on a
+    /// NIGHTLY that downloads every build by itself (claude-sr2 2026-10-26 took Leo's Mac for opted out).
+    @Test func statusReportsTheAppsOwnDownloadSetting() {
+        let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.nightly", shortVersion: "1.0.0-nightly.100",
+                                           build: "100", minimumSystemVersion: nil,
+                                           infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: true)
+        let defaults = UserDefaults(suiteName: "SilentBackgroundUpdateTests.\(UUID().uuidString)")!
+        let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
+                                     enableSparkle: false, recordsUpdates: false)
+        #expect(updater.disabledReason == nil)
+        defaults.set(false, forKey: "SUAutomaticallyUpdate")
+        updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: true, metered: .download)
+        updater.applyDownloadPolicy() // the driver's configure runs it; this updater has no driver
+        #expect(updater.status.automaticDownloads, "a NIGHTLY that downloads by itself reported automatic downloads off")
+        defaults.set(true, forKey: "SUAutomaticallyUpdate")
+        updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: false, metered: .download)
+        updater.applyDownloadPolicy()
+        #expect(!updater.status.automaticDownloads, "an app whose downloads wait for a click reported automatic downloads on")
+    }
+
+    /// A forced `DisableAutoUpdate` keeps a waiting update waiting, whatever turns downloads on.
+    @Test func aManagedDisableNeverDownloadsTheFoundUpdate() {
+        let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.silent-background-update", shortVersion: "1.0.0",
+                                           build: "100", minimumSystemVersion: nil,
+                                           infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
+        let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { true },
+                                     defaults: UserDefaults(suiteName: "SilentBackgroundUpdateTests.\(UUID().uuidString)")!,
+                                     enableSparkle: false, recordsUpdates: false)
+        var accepted = 0
+        updater.acceptAvailable = { accepted += 1 }
+        updater.downloadSetting = (true, .download)
+        updater.applyDownloadPolicy()
+        #expect(accepted == 0, "a managed disable downloaded the found update")
+    }
+
+    /// Before the setting loads nothing downloads by itself, on any channel: a launch check's
+    /// update waits until ``UpdaterService/configure`` applies the person's choice.
+    @Test func nothingDownloadsUntilTheSettingLoads() {
+        let updater = Self.updater()
+        #expect(!updater.downloadSetting.enabled)
+        #expect(!updater.downloadsFoundUpdates)
     }
 
     @Test func theUsersCheckStillShowsAFoundUpdate() {

@@ -9,7 +9,7 @@ import Testing
 /// a workspace row's badge is Working (the one spinner), Ready (the blue dot) or, Leo 2026-10-21
 /// ("why ISN'T THIS JUST A YELLOW DOT!?"), needs you: one yellow dot in the blue dot's place, never
 /// both. A question, a permission request and an auth wait are all needs you, so no chat bubble or
-/// shield draws; an error and a finished run are Ready.
+/// shield draws; a finished run is Ready. Lawrence msg 11983: an error is red, not Ready.
 @MainActor @Suite(.serialized) struct SidebarStatusSimpleTests {
     nonisolated struct Case: Sendable, CustomTestStringConvertible {
         var activity: StatusIndicatorState
@@ -29,7 +29,10 @@ import Testing
         Case(activity: .waiting(kind: .auth), simple: [.waiting]),
         // Needs you replaces the blue unread dot: one yellow dot, never both.
         Case(activity: .waiting(kind: .question), unread: .count(2), simple: [.waiting]),
-        Case(activity: .error, simple: [.success]),
+        // Lawrence msg 11983: an error is red, never the blue Ready dot.
+        Case(activity: .error, simple: [.error]),
+        Case(activity: .error, unread: .dot, simple: [.error]),
+        Case(activity: .waiting, unread: .dot, simple: [.waiting]),
         Case(activity: .success, simple: [.success]),
         Case(activity: .idle, unread: .count(3), simple: [.success]),
         // Something to look at outranks work still running in the same workspace.
@@ -103,7 +106,7 @@ import Testing
         #expect(asking.look == .plain && !asking.drawsBackdrop, "no disc behind the dot")
         // The tooltip still says what waits.
         #expect(asking.themedToolTip?.contains(Strings.unreadCount(2)) == true)
-        #expect(try Self.badge(sidebar, Self.failing).states == [.success], "an error is Ready")
+        #expect(try Self.badge(sidebar, Self.failing).states == [.error], "an error is red (Lawrence msg 11983)")
         #expect(try Self.badge(sidebar, Self.busy).states == [.working], "work is the one spinner")
     }
 

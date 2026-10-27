@@ -1310,8 +1310,8 @@ describe("VM REST auth", () => {
       error: string; message: string; action: string; upgradeUrl: string; ui: { title: string };
     };
     expect(payload.error).toBe("vm_requires_pro");
-    expect(payload.message).toBe("Cloud VM を利用するには cmux Pro プランが必要です。");
-    expect(payload.ui.title).toBe("cmux Pro が必要です");
+    expect(payload.message).toBe("Cloud VM を利用するには cmux Go プランが必要です。");
+    expect(payload.ui.title).toBe("cmux Go が必要です");
     expect(payload.action).toContain("https://cmux.com/pricing");
     expect(payload.upgradeUrl).toBe("https://cmux.com/pricing");
     expect(createVm).not.toHaveBeenCalled();
@@ -1601,9 +1601,12 @@ describe("VM REST auth", () => {
         expect(route.constructor).toHaveBeenCalledTimes(1);
         const provisionInput = (route.constructor.mock.calls as unknown[][])[0]?.[0] as {
           modelPlane?: { provision?: unknown; revoke?: unknown };
+          deferAfterResponse?: unknown;
         };
         expect(typeof provisionInput.modelPlane?.provision).toBe("function");
         expect(typeof provisionInput.modelPlane?.revoke).toBe("function");
+        // Guest work after the answer (the vm-kind record) is kept alive by the platform, never detached.
+        expect(typeof provisionInput.deferAfterResponse).toBe("function");
       }
     }
   });

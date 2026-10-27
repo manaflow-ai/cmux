@@ -109,7 +109,7 @@ check_macos_runner() {
     # gui label (pr_gui_runner) names the GUI runners of that owned pick.
     # It may first take the label late-placement chose in this attempt (an owned
     # root runner found idle once admission finished; late_placement.py).
-    in_job && /runs-on:[[:space:]]*\$\{\{ (needs\.late-placement\.outputs\.attempt == github\.run_attempt && fromJSON\(needs\.late-placement\.outputs\.runners \|\| .\{\}.\)\[format\(.shard-\{0\}., matrix\.shard\)\] \|\| )?(\(github\.run_attempt > 2 && \(github\.triggering_actor == .github-actions\[bot\]. \|\| github\.event_name != .pull_request.\) \|\| !contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\)\) && inputs\.pr_retry_runner \|\| )?(inputs\.pr_shard_runner \|\| )?(inputs\.pr_gui_runner \|\| )?needs\.macos-compile-admission\.outputs\.runner \}\}/ { saw=1 }
+    in_job && /runs-on:[[:space:]]*\$\{\{ (needs\.late-placement\.outputs\.attempt == github\.run_attempt && fromJSON\(needs\.late-placement\.outputs\.runners \|\| .\{\}.\)\[format\(.shard-\{0\}., matrix\.shard\)\] \|\| )?(\(github\.run_attempt > 2 && \(contains\(fromJSON\(.\[.github-actions\[bot\].,.cmux-bot\[bot\].\].\), github\.triggering_actor\) \|\| github\.event_name != .pull_request.\) \|\| !contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\)\) && inputs\.pr_retry_runner \|\| )?(inputs\.pr_shard_runner \|\| )?(inputs\.pr_gui_runner \|\| )?needs\.macos-compile-admission\.outputs\.runner \}\}/ { saw=1 }
     in_job && /os:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64|depot-macos-)/ { saw=1 }
     END { exit !(saw) }
   ' "$file"; then
@@ -131,7 +131,7 @@ check_release_build_runner_disk_capacity() {
   # paid-overflow gate appearing here, which does not belong: MACOS_RUNNER_26
   # is the free macOS 26 pool and is read ungated everywhere. See
   # docs/ci-runners.md for why the gate must not grow to cover it.
-  if ! awk -v release_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-26' || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}" '
+  if ! awk -v release_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-26' || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}" '
     /^  release-build:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
     in_job && index($0, release_runner) { saw_release_runner=1 }
@@ -213,7 +213,7 @@ check_release_helper_artifact_from_package_lane() {
   # label, only when the picker placed ' swift-package ' in pr_owned_jobs,
   # which it does only for a run that skips the SDK 15 helper steps (pr_runner_pool.package_lane_owned()).
   # The opt-in build-fleet gateway (hq#794) likewise takes only a run without the helper.
-  if ! awk -v dual_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && !(inputs.full_suite == 'true' && inputs.release_build == 'true') && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}" '
+  if ! awk -v dual_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && !(inputs.full_suite == 'true' && inputs.release_build == 'true') && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}" '
     /^  swift-package-tests:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
@@ -1032,12 +1032,9 @@ check_no_github_hosted_runners() {
   # windows-*). Jobs run on Blacksmith labels, the CI_TRUSTED_RUNNER selector
   # (Blacksmith by default), or owned pools reached through the pickers.
   # A `# github-hosted-required:` comment is no longer an exemption.
-  # The one live route to GitHub-hosted macOS is cmux-next.yml's
-  # needs.macos-placement.outputs.hosted_runner: next_macos_cascade.py names
-  # `macos-26` only for fast-tier and swift-canary overflow Blacksmith cannot
-  # take now (full or stalled). A hosted outage queues at most its
-  # HOSTED_CAPACITY; a failed hosted job falls back on the bot's attempt 3.
-  # tests/test_ci_next_macos_cascade.py keeps the output to those two jobs.
+  # No route reaches GitHub-hosted macOS, script-computed labels included
+  # (Leo, 2026-10-27: "THE GITHUB HOSTED MACS / ARE THE SLOWEST THINGS";
+  # tests/test_ci_no_github_hosted_macos.py reads scripts/ and runners.json too).
   # Allowed GitHub-hosted forms:
   #   - the fork branch `github.repository_owner != 'manaflow-ai' && '<label>'`
   #     (and `&& matrix.hosted_runner`), which never evaluates in manaflow-ai;
@@ -1080,14 +1077,6 @@ check_no_github_hosted_runners() {
     # Dispatch-only Intel compatibility leg; Blacksmith has no Intel macOS image.
     # GitHub retired macos-14, so it is no longer an exception (#17068).
     "ci-macos-compat.yml:          - os: macos-15-intel"
-    # Compare-only x86_64 run-time check of the Linux-built macOS binaries
-    # (continue-on-error, so a billing block cannot stop CI).
-    "cmux-tui-artifacts.yml:    runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image"
-    "macos-cross-parity.yml:    runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image"
-    # The cmux-next fast tier overflows to hosted macos-26 (scripts/ci/next_macos_cascade.py),
-    # and its cache key holds the checkout path, so that pool needs a seed built there. The
-    # seed runs only on feat-cmux-next pushes and gates nothing, so a billing block cannot stop CI.
-    'cmux-next-fast-tier-seed.yml:        [{"pool": "hosted", "runner": "macos-26", "workspace": "/Users/runner/work/cmux/cmux", "timeout": 50},'
   )
   local probe
   for probe in 'runs-on: ubuntu-24.04' 'runs-on: ubuntu-latest # github-hosted-required: x' \
@@ -1260,23 +1249,29 @@ check_no_self_hosted_fleet_runners() {
   # the bare capability, generic fleet labels and main selector stay guarded.
   local next_trusted_selector="fromJSON(format('[\"{0}\", \"{1}\", \"glaeda-trusted-next-nightly\"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))"
   local next_repository_guard="github.repository == 'manaflow-ai/cmux' && "
+  # Nightly native build selectors are pooled: main cache-writing builds use
+  # the trusted pool, and NEXT build/prepare jobs use the controller-managed
+  # side pool on attempt 1. Both are guarded by repository, event, ref, and
+  # owned-pool predicates; retries fall through to Blacksmith.
+  local nightly_main_trusted_selector="github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL"
+  local nightly_next_side_selector="github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/nightly-next' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER"
   # cmux-next's GUI suites and its autofix bots keep the std GUI minis (#18589,
   # #19587, #21658) behind CI_PR_POOL_OWNED, the owned-pool switch; with it off,
   # or on a fork pull request (its branch comes first), they take Blacksmith.
   # pr_runner_pool.py has no GUI pool, so only these exact selectors, in only
   # these workflows, may name glaeda-gui-std-xcode-26.6.
-  local gui_owned_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && 'glaeda-gui-std-xcode-26.6'"
+  local gui_owned_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && 'glaeda-gui-std-xcode-26.6'"
   local gui_autofix_selector="vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6'"
   # #22035: session jobs take glaeda-session-std-xcode-26.6 once runners carry
   # it (vars.CI_SESSION_LABEL), else the gui label, behind the same gates.
-  local session_owned_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6')"
+  local session_owned_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6')"
   local session_autofix_selector="vars.CI_PR_POOL_OWNED == '1' && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6')"
   # The same labels as the last fallback of swift-test / daemon-test / generated-files with no
   # placement result through the bot's attempt 3: it waits behind the fleet rather than in a
   # Blacksmith queue (2026-10-20: 5+ hour waits on blacksmith-12vcpu-macos-26). A refused attempt
   # 3 (owned_pool_rescue REFUSAL_RESCUE_ATTEMPT) still leaves the fleet on attempt 4.
-  local gui_owned_rerun_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && 'glaeda-gui-std-xcode-26.6'"
-  local session_owned_rerun_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6')"
+  local gui_owned_rerun_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 3 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && 'glaeda-gui-std-xcode-26.6'"
+  local session_owned_rerun_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 3 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6')"
   local gui_fork_pr_branch="github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
   local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
@@ -1294,6 +1289,8 @@ check_no_self_hosted_fleet_runners() {
       content="${content/"$next_trusted_selector"/}"
       # Repository identity is a trust predicate, never a runner label.
       content="${content/"$next_repository_guard"/}"
+      content="${content/"$nightly_main_trusted_selector"/}"
+      content="${content/"$nightly_next_side_selector"/}"
     fi
     # A pull request workflow keeps the exemption only while its fork pull
     # request branch comes first on the line; base autofix runs on push only.
@@ -1397,7 +1394,7 @@ GUARDED = (
     " || needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15')",
     # The bot's re-run past attempt 2 on an owned-pool run, or a job the picker did not
     # place on the owned pool: the Blacksmith pool the picker named for it.
-    "github.event_name == 'pull_request' && (github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(needs.changes.outputs.macos_pr_owned_jobs,"
+    "github.event_name == 'pull_request' && (github.run_attempt > 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || !contains(needs.changes.outputs.macos_pr_owned_jobs,"
     " ' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner",
     # A trusted manual dispatch (code already in the repository, which
     # pr_runner_pool.py places like a pull request): only the job it placed.
@@ -1917,13 +1914,9 @@ check_background_macos_lane() {
   # branch and the exact compatibility-leg exceptions below.
   local lane_expr="vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15'"
   local hosted_mac='(^|[^A-Za-z0-9_-])macos-(latest|[0-9]+)(-(intel|large|xlarge|arm64))?([^A-Za-z0-9_-]|$)'
-  # The Intel compatibility leg needs a hosted image that no paid provider
-  # offers. Exact lines only. macos-14 is retired (#17068).
-  local -a hosted_exceptions=(
-    # Compare-only x86_64 run-time check of the Linux-built Mac binaries.
-    "cmux-tui-artifacts.yml:    runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image"
-    "macos-cross-parity.yml:    runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image"
-  )
+  # No exceptions: the x86_64 run-time checks run under Rosetta on Blacksmith
+  # (tests/test_ci_no_github_hosted_macos.py). Exact lines only if one returns.
+  local -a hosted_exceptions=()
   local failed=0 probe
 
   # Self-test: bare or other-variable hosted labels are caught; the lane
@@ -1958,7 +1951,7 @@ check_background_macos_lane() {
     [[ "$rel" == *nightly*.yml || "$rel" == *notarization*.yml ]] && continue
     printf '%s\n' "$content" | strip_background_lane_expr | grep -Eq "$hosted_mac" || continue
     allowed=0
-    for exception in "${hosted_exceptions[@]}"; do
+    for exception in ${hosted_exceptions[@]+"${hosted_exceptions[@]}"}; do
       if [[ "$rel:$content" == "$exception" ]]; then allowed=1; break; fi
     done
     [[ "$allowed" -eq 1 ]] && continue

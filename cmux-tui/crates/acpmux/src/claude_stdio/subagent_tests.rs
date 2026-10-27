@@ -262,3 +262,78 @@ async fn a_subagents_whole_assistant_lines_carry_its_text_and_thinking() {
     let own = json!({"type": "assistant", "parent_tool_use_id": null, "message": {"content": [{"type": "text", "text": "Done."}]}});
     assert!(updates(&t.inbound(&own).await).is_empty());
 }
+
+/// Claude Code's end of a background agent the SR2 gateway refused (hb-acpmux's own chat,
+/// 2026-10-26): `task_id` is the agent id SendMessage resumes it by.
+fn failed_503(task: &str, tool: &str) -> Value {
+    json!({"type": "system", "subtype": "task_notification", "task_id": task, "tool_use_id": tool, "status": "failed",
+           "output_file": "", "summary": "Agent terminated early due to an API error: API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, usually temporary. (error type server_error, HTTP 503, model sent to the API: claude-opus-5-5)"})
+}
+
+/// Leo, 2026-10-26: "this needs to retry :(". A failed subagent's end says why and names the
+/// agent to resume, and SendMessage's resume makes that same subagent run again.
+#[tokio::test]
+async fn a_failed_agent_says_why_and_its_resume_runs_it_again() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(&background_spawn_line("toolu_1")).await;
+    t.inbound(&tool_result("toolu_1")).await;
+    let started = json!({"type": "system", "subtype": "task_started", "task_id": "a8e1b68b93aac9d16", "tool_use_id": "toolu_1", "is_backgrounded": true});
+    t.inbound(&started).await;
+    let out = updates(&t.inbound(&failed_503("a8e1b68b93aac9d16", "toolu_1")).await);
+    let end = &out.iter().find(|(_, u)| u["sessionUpdate"] == "subagent_state_update").unwrap().1;
+    assert_eq!(end["state"], "failed");
+    assert_eq!(end["agentId"], "a8e1b68b93aac9d16");
+    assert!(end["error"].as_str().unwrap().contains("503 no non-exhausted"), "{end}");
+    // SendMessage resumes it: its task starts again under the SendMessage call.
+    let resumed = json!({"type": "system", "subtype": "task_started", "task_id": "a8e1b68b93aac9d16", "tool_use_id": "toolu_send", "is_backgrounded": true});
+    let out = updates(&t.inbound(&resumed).await);
+    assert_eq!(
+        out.iter().map(|(_, u)| u.clone()).collect::<Vec<_>>(),
+        vec![
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "acp-1/toolu_1", "state": "running", "agentId": "a8e1b68b93aac9d16"})
+        ]
+    );
+    // Its lines still stream under its own session, and its next end, by the SendMessage
+    // call's id, ends that subagent.
+    let lines = late_lines("toolu_1");
+    assert_eq!(updates(&t.inbound(&lines[0]).await)[0].0, "acp-1/toolu_1");
+    let done = json!({"type": "system", "subtype": "task_notification", "task_id": "a8e1b68b93aac9d16", "tool_use_id": "toolu_send", "status": "completed", "output_file": "", "summary": "done"});
+    let out = updates(&t.inbound(&done).await);
+    assert_eq!(ended(&out), vec![("acp-1/toolu_1".to_owned(), "completed".to_owned())]);
+    // A completed end names no agent to resume.
+    assert!(out.iter().all(|(_, u)| u.get("agentId").is_none()), "{out:?}");
+}
+
+/// A foreground agent whose call fails says why too, and names the agent its task named.
+#[tokio::test]
+async fn a_failed_foreground_agent_says_why() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(&spawn_line("toolu_1", None)).await;
+    let started = json!({"type": "system", "subtype": "task_started", "task_id": "a1", "tool_use_id": "toolu_1", "is_backgrounded": false});
+    t.inbound(&started).await;
+    let failed = json!({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_1", "is_error": true,
+                        "content": "Agent terminated early due to an API error: API Error: 529 overloaded_error"}]}});
+    let out = updates(&t.inbound(&failed).await);
+    assert_eq!(out[1].1["state"], "failed");
+    assert_eq!(out[1].1["agentId"], "a1");
+    assert!(out[1].1["error"].as_str().unwrap().contains("529"), "{out:?}");
+}
+
+/// Past `MAX_FAILED_AGENTS` failures the oldest is forgotten, never the newer ones: a resume of
+/// a newer one still says it runs again, and one forgotten still streams as its own.
+#[tokio::test]
+async fn failed_agents_past_the_limit_forget_only_the_oldest() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    for n in 0..=MAX_FAILED_AGENTS {
+        let (tool, task) = (format!("toolu_{n}"), format!("a{n}"));
+        t.inbound(&background_spawn_line(&tool)).await;
+        t.inbound(&failed_503(&task, &tool)).await;
+    }
+    let resume = |task: &str| json!({"type": "system", "subtype": "task_started", "task_id": task, "tool_use_id": "toolu_send", "is_backgrounded": true});
+    assert!(updates(&t.inbound(&resume("a0")).await).is_empty(), "the oldest is forgotten");
+    let out = updates(&t.inbound(&resume("a1")).await);
+    assert_eq!(out[0].1["state"], "running", "{out:?}");
+    assert_eq!(out[0].1["subagentSessionId"], "acp-1/toolu_1");
+    let lines = late_lines("toolu_0");
+    assert_eq!(updates(&t.inbound(&lines[0]).await)[0].0, "acp-1/toolu_0");
+}

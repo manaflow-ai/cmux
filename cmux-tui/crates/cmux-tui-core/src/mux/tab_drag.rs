@@ -113,7 +113,16 @@ pub enum TabDragDestination {
     /// A new pane beside `pane` on `edge`, `ratio` of the split (default 1/2).
     /// With `keep_focus` the focused pane stays focused: the new pane is not
     /// made active (an app opening a pane for an agent, `tab-split-keep-focus-v1`).
-    Split { pane: PaneId, edge: TabDropEdge, ratio: Option<f32>, keep_focus: bool },
+    /// With `around` the new pane splits off that whole split, whose edge
+    /// leaf beside the new pane is `pane` (a closed pane reopened beside the
+    /// sibling it left); with that split gone or changed, off `pane` alone.
+    Split {
+        pane: PaneId,
+        edge: TabDropEdge,
+        ratio: Option<f32>,
+        keep_focus: bool,
+        around: Option<SplitId>,
+    },
     /// A new strip column on `pane`'s screen after `after_column` (default:
     /// last), `width` a viewport fraction, pinned to an edge with `dock` (a
     /// screen-edge drop: a docked column or a top or bottom dock). `keep_focus`
@@ -178,7 +187,7 @@ impl TabDragDestination {
 
     fn fingerprint(self) -> Value {
         match self {
-            Self::Split { pane, edge, ratio, keep_focus } => {
+            Self::Split { pane, edge, ratio, keep_focus, around } => {
                 let mut fingerprint = serde_json::json!({
                     "kind": "split",
                     "pane": pane,
@@ -188,6 +197,9 @@ impl TabDragDestination {
                 // Only when set, so keys recorded before the field stay equal.
                 if keep_focus {
                     fingerprint["keep_focus"] = Value::Bool(true);
+                }
+                if let Some(around) = around {
+                    fingerprint["around"] = serde_json::json!(around);
                 }
                 fingerprint
             }
@@ -256,8 +268,30 @@ impl Mux {
         self.commit_tab_drag(
             actor,
             surface,
-            TabDragDestination::Split { pane, edge, ratio, keep_focus },
+            TabDragDestination::Split { pane, edge, ratio, keep_focus, around: None },
             transaction,
+        )
+    }
+
+    /// [`Self::move_tab_to_split_as`] around the whole split `around` whose
+    /// edge leaf beside the new pane is `pane` (a closed pane reopened beside
+    /// the sibling split it left); off `pane` alone when `around` is None or
+    /// no longer such a split.
+    pub(crate) fn move_tab_to_split_around_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        surface: SurfaceId,
+        pane: PaneId,
+        edge: TabDropEdge,
+        ratio: Option<f32>,
+        around: Option<SplitId>,
+    ) -> anyhow::Result<TabDragOutcome> {
+        validate_split_ratio(ratio)?;
+        self.commit_tab_drag(
+            actor,
+            surface,
+            TabDragDestination::Split { pane, edge, ratio, keep_focus: false, around },
+            None,
         )
     }
 
@@ -303,7 +337,8 @@ impl Mux {
             }),
         };
         layout_invariants::model_result("tab.drag", &model, &kind)?;
-        let destination = TabDragDestination::Split { pane, edge, ratio, keep_focus: false };
+        let destination =
+            TabDragDestination::Split { pane, edge, ratio, keep_focus: false, around: None };
         self.commit_tab_drag_respawning(actor, surface, pane, destination, respawn, transaction)
     }
 
@@ -678,23 +713,29 @@ pub(crate) fn apply_tab_drag(
     {
         let screen = &mut state.workspaces[target_wi].screens[target_si];
         match destination {
-            TabDragDestination::Split { edge, ratio, .. } => {
+            TabDragDestination::Split { edge, ratio, around, .. } => {
                 let (dir, before_target) = edge.split();
                 let in_column = screen.layout_columns_active();
-                let root = if in_column {
+                let (root, around) = if in_column {
                     let column = screen
                         .layout_column_for_pane_mut(target_pane)
                         .context("target pane has no viewport column")?;
                     column.creation_order_auto_layout = None;
-                    &mut column.root
+                    // A row's chain split is no subtree to wrap (rows-v1).
+                    let around = around.filter(|split| !column.is_row_split(*split));
+                    (&mut column.root, around)
                 } else {
-                    &mut screen.root
+                    (&mut screen.root, around)
                 };
+                // Around a whole split, the new pane is already on its side.
+                let wrapped = around.is_some_and(|split| {
+                    root.split_around(split, target_pane, ids.split, dir, ids.pane, before_target)
+                });
                 anyhow::ensure!(
-                    root.split_leaf(target_pane, ids.split, dir, ids.pane),
+                    wrapped || root.split_leaf(target_pane, ids.split, dir, ids.pane),
                     "target pane disappeared from its layout"
                 );
-                if before_target {
+                if before_target && !wrapped {
                     anyhow::ensure!(
                         root.swap_leaves(target_pane, ids.pane),
                         "new split leaves could not be ordered"

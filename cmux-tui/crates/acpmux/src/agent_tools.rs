@@ -103,7 +103,8 @@ pub const OFF_ENV: &str = "ACPMUX_AGENT_TOOLS_OFF";
 pub const CHIEF_TURN_TOOLS: &str = "agents_snapshot,agents_workspace_create,\
     agents_workspace_select,agents_terminal_split,agents_terminal_focus,agents_tab_select,\
     agents_dialog_list,agents_dialog_answer,agents_events,agents_wait,render,\
-    agents_terminal_list,agents_terminal_send";
+    agents_terminal_list,agents_terminal_send,agents_chat_send,agents_chat_read,\
+    agents_chat_state";
 /// What every agent chat is told about asking the person, in the cmux MCP
 /// server's `instructions` (`cmux mcp serve`, both modes). Chats start in
 /// Full access (`hub/policy_mode.rs`), and an agent there asked Leo a
@@ -544,6 +545,14 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
             args: acpmux.args_lossy(&["forum-mcp"]),
             env: vec![],
         });
+        // send, ls, last and info (`acpmux_mcp.rs`): messages another session as this one,
+        // instead of `acpmux send` in a shell.
+        servers.push(McpServer {
+            name: crate::acpmux_mcp::SERVER_NAME.into(),
+            command: acpmux.exe.clone(),
+            args: acpmux.args_lossy(&["acpmux-mcp"]),
+            env: vec![],
+        });
     }
     if let Some(cmux) = executable("cmux")
         && !inputs.cmux_json.as_deref().is_some_and(mcp_disabled)
@@ -667,6 +676,7 @@ impl AgentTools {
             // Code config with it is a 0600 file (`claude_args`).
             if server.name == crate::subsession_mcp::SERVER_NAME
                 || server.name == crate::forum_mcp::SERVER_NAME
+                || server.name == crate::acpmux_mcp::SERVER_NAME
             {
                 let socket = crate::config::socket_path().to_string_lossy().into_owned();
                 server.env = vec![

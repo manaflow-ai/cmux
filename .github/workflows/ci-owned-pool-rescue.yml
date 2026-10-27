@@ -61,6 +61,7 @@ on:
       - CI
       - iOS simulator tests
       - Iroh release gate
+      - cmux NEXT DEV daily
       # Side lanes can create a gated Mac job after workflow_run(requested).
       # Wake the rescue directly so a runner-hook refusal is retried without
       # waiting for the periodic sweeper.
@@ -112,6 +113,7 @@ env:
     .github/workflows/ci.yml
     .github/workflows/test-ios.yml
     .github/workflows/iroh-release-gate.yml
+    .github/workflows/cmux-next-dev-daily.yml
     .github/workflows/agent-brands.yml
     .github/workflows/auth-refresh-tests.yml
     .github/workflows/cmux-next-base-autofix.yml

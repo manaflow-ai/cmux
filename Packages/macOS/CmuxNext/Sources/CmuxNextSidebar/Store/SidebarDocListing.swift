@@ -11,13 +11,15 @@ import Foundation
 /// - every other section (Pinned, custom, app sections) is a list section
 ///   (`SectionID.custom`) at its own place in the document order: its items
 ///   draw in its own arrangement (`SidebarRowKey.block`), and its groups
-///   leave their machine and list there as header and member rows. An empty
-///   kept group lists there too.
+///   leave their machine and list there as header and member rows. A kept
+///   group no other window lists an open workspace of lists there too; one
+///   whose open workspace another window lists belongs to it (#25776).
 extension SidebarDocProjection {
     /// `sections` arranged as this document places items; `drag` names each row's item and each list section's document section.
     @MainActor public func arrange(_ sections: [SidebarSection], drag: SidebarDocDrag) -> [SidebarSection] {
         let projection = self
         let bandIDs = Set(projection.bandGroups.map(\.id))
+        let elsewhere = projection.bandGroupsListedElsewhere(drag: drag)
         var pulled: [String: SidebarGroup] = [:]
         var arranged = sections.map { section in
             var section = section
@@ -54,7 +56,12 @@ extension SidebarDocProjection {
                 continue
             }
             let id = layoutSection.id.rawValue
-            let nodes = projection.bandGroups.filter { $0.section == id }.map { SidebarNode.group(pulled[$0.id] ?? Self.emptyGroup($0)) }
+            let nodes = projection.bandGroups.filter { $0.section == id }.compactMap { group -> SidebarNode? in
+                if let shown = pulled[group.id] { return .group(shown) }
+                // Not listed here: another window lists an open workspace of it, or none does (its header alone, also while
+                // its last one closes or a new one waits for its window's row).
+                return elsewhere.contains(group.id) ? nil : .group(Self.emptyGroup(group))
+            }
             guard !passedMachines || !nodes.isEmpty else { continue }
             let section = SidebarSection(kind: .custom(SidebarCustomSection(id: id, title: layoutSection.title, showsTitle: false)), nodes: nodes)
             if passedMachines { after.append(section) } else { before.append(section) }
@@ -62,7 +69,39 @@ extension SidebarDocProjection {
         let at = arranged.firstIndex { $0.machine != nil } ?? arranged.count
         arranged.insert(contentsOf: before, at: at)
         arranged += after
-        return Self.withMemberItems(arranged, projection, drag: drag)
+        return Self.markingArchived(Self.withMemberItems(arranged, projection, drag: drag), projection, drag: drag)
+    }
+
+    /// `sections` with each archived row marked (`isArchived`): it draws dimmed (archiving-DESIGN.md).
+    @MainActor private static func markingArchived(_ sections: [SidebarSection], _ projection: SidebarDocProjection,
+                                                   drag: SidebarDocDrag) -> [SidebarSection] {
+        // Every row, also with none archived: a list arranged before (a fold) may carry an old mark.
+        let archived = projection.archived
+        func mark(_ workspace: SidebarWorkspace) -> SidebarWorkspace {
+            var workspace = workspace
+            workspace.isArchived = drag.item(.workspace(workspace.id)).map { archived.contains($0) } ?? false
+            return workspace
+        }
+        func mark(_ item: SidebarListItem) -> SidebarListItem {
+            var item = item
+            item.isArchived = archived.contains(item.id)
+            return item
+        }
+        return sections.map { section in
+            var section = section
+            section.nodes = section.nodes.map { node in
+                switch node {
+                case .workspace(let workspace): return .workspace(mark(workspace))
+                case .item(let item): return .item(mark(item))
+                case .group(var group):
+                    group.isArchived = archived.contains(group.id.rawValue)
+                    group.workspaces = group.workspaces.map(mark)
+                    group.items = group.items.map { SidebarGroupItem(item: mark($0.item), after: $0.after) }
+                    return .group(group)
+                }
+            }
+            return section
+        }
     }
 
     /// `sections` with each group's url, tab and app members (`SidebarGroup.items`): a member follows the
@@ -156,6 +195,19 @@ extension SidebarDocProjection {
         }
         // Unplaced rows after the last placed one keep their mapped order at the end.
         return nodes + waiting
+    }
+
+    /// The band groups holding an open workspace another window lists (`SidebarDocDrag.listedElsewhere`), themselves
+    /// or in a group under them: they leave this window. It changes with window ownership alone, so the App redraws
+    /// when it does (`SidebarRows.show`'s `elsewhere`).
+    @MainActor public func bandGroupsListedElsewhere(drag: SidebarDocDrag) -> Set<String> {
+        let parents = Dictionary(bandGroups.map { ($0.id, $0.parent) }, uniquingKeysWith: { first, _ in first })
+        var open = Set<String>()
+        for group in bandGroups where group.openMembers.contains(where: drag.listedElsewhere) {
+            var id: String? = group.id
+            while let current = id, open.insert(current).inserted { id = parents[current] ?? nil }
+        }
+        return open
     }
 
     /// A kept group with no open member (Pinned keeps it): its header alone.

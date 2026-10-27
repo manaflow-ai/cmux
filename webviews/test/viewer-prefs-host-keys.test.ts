@@ -43,6 +43,7 @@ const EVERY_OPTION: Required<DiffViewerOptions> & { collapsedFiles: string[] } =
   layout: "split",
   lineNumbers: true,
   showBackgrounds: true,
+  showBulkActions: true,
   wordDiffs: true,
   wordWrap: true,
 };

@@ -12,7 +12,7 @@
 // follows `agentPane.images.remote` like a web image: a placeholder with its site and Load
 // (click, the default), its link only (never), or at once (always). The host fetches it under
 // its network rules and plays a checked copy.
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Dialog } from "../../../ui/Dialog";
 import { keyedIconProps } from "../../../ui/DialogButton";
 import { useT } from "../i18n";
@@ -21,6 +21,8 @@ import { callChipHost } from "./host";
 import { usePathInfo, useReplyPolicy } from "./linkStore";
 import { useNearViewport } from "../useNearViewport";
 import { isDeniedPath, linkPath, pathName } from "./paths";
+import { MEDIA_PREVIEW_DWELL, useHoverIntent } from "../../../ui/hoverIntent";
+import { mediaPreviewAllowed } from "../../../ui/mediaPreviewPolicy";
 
 const VIDEO = /\.(mp4|m4v|mov|webm)$/i;
 const AUDIO = /\.(mp3|m4a|aac|wav|flac)$/i;
@@ -166,6 +168,20 @@ export function MediaPlayer({
   const t = useT();
   const [expanded, setExpanded] = useState(false);
   const close = useRef<HTMLButtonElement>(null);
+  const media = useRef<HTMLSpanElement>(null);
+  const [short, setShort] = useState(false);
+  useLayoutEffect(() => {
+    if (kind !== "video") return;
+    const video = media.current?.querySelector("video");
+    if (!video) return;
+    // Two native 37 px bars, two 8 px clearances, our 28 px target and its 4 px margin.
+    // If they cannot fit, reserve an action row above the player, including before playback.
+    const update = () => setShort(video.getBoundingClientRect().height < 126);
+    update();
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update);
+    observer?.observe(video);
+    return () => observer?.disconnect();
+  }, [kind]);
   if (kind === "audio")
     return (
       <span className="cv-media is-audio" data-path={path}>
@@ -179,28 +195,32 @@ export function MediaPlayer({
     );
   const open = mediaOpenRequest(source);
   return (
-    <span className="cv-media is-video" data-path={path}>
+    <span ref={media} className={`cv-media is-video${short ? " has-short-video" : ""}`} data-path={path}>
       <VideoThumbnail src={src} name={name} onError={onError} />
       <span className="cv-media__actions">
         {open && (
           <button
             type="button"
-            className="ui-glass cv-media__action"
+            className="cv-media__action"
             aria-label={t("media.openInTab")}
             title={t("media.openInTab")}
             onClick={() => void callChipHost(open.method, open.params)}
           >
-            <OpenTab size={14} />
+            <span className="ui-glass cv-media__glass" aria-hidden="true">
+              <OpenTab size={14} />
+            </span>
           </button>
         )}
         <button
           type="button"
-          className="ui-glass cv-media__action cv-media__expand"
+          className="cv-media__action cv-media__expand"
           aria-label={t("media.expand")}
           title={t("media.expand")}
           onClick={() => setExpanded(true)}
         >
-          <Expand size={14} />
+          <span className="ui-glass cv-media__glass" aria-hidden="true">
+            <Expand size={14} />
+          </span>
         </button>
       </span>
       {expanded && (
@@ -238,17 +258,76 @@ export function MediaPlayer({
   );
 }
 
+function useMediaPreviewAllowed(): boolean {
+  const [allowed, setAllowed] = useState(() => mediaPreviewAllowed());
+  useEffect(() => {
+    const root = document.documentElement;
+    const query = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    const update = () => setAllowed(mediaPreviewAllowed(root));
+    update();
+    query?.addEventListener("change", update);
+    const observer = typeof MutationObserver === "undefined" ? undefined : new MutationObserver(update);
+    observer?.observe(root, {
+      attributes: true,
+      attributeFilter: ["data-agent-motion", "data-cmux-motion", "data-status-indicators"],
+    });
+    return () => {
+      query?.removeEventListener("change", update);
+      observer?.disconnect();
+    };
+  }, []);
+  return allowed;
+}
+
 /// A video before it plays: its poster frame (the frame just after the start, read with the
 /// metadata), a glass play button in its middle and its length in a corner. The pointer resting on
-/// it previews it muted, as before; a click plays it from the start with sound and the player's
-/// controls. Every part a click lands on shows the pointing hand.
+/// it previews it muted after the shared hover-intent dwell; a click plays it from the start with
+/// sound and the player's controls. Every part a click lands on shows the pointing hand.
 export function VideoThumbnail({ src, name, onError }: { src: string; name: string; onError(): void }) {
   const t = useT();
   const video = useRef<HTMLVideoElement>(null);
+  const startedRef = useRef(false);
   const [started, setStarted] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const [duration, setDuration] = useState<string | undefined>();
+  const previewAllowed = useMediaPreviewAllowed();
+  const { shown, hover: setHover, dismiss } = useHoverIntent<boolean>({ delay: MEDIA_PREVIEW_DWELL });
+  const previewing = previewAllowed && shown === true;
+
+  useEffect(() => {
+    if (!previewAllowed) dismiss();
+  }, [dismiss, previewAllowed]);
+
+  useEffect(() => {
+    if (started || !hovered || !previewAllowed) return;
+    const element = video.current;
+    const cancel = () => {
+      if (startedRef.current) return;
+      dismiss();
+      if (element?.muted) element.pause();
+    };
+    document.addEventListener("scroll", cancel, true);
+    document.addEventListener("visibilitychange", cancel);
+    window.addEventListener("pagehide", cancel);
+    return () => {
+      if (!startedRef.current) cancel();
+      document.removeEventListener("scroll", cancel, true);
+      document.removeEventListener("visibilitychange", cancel);
+      window.removeEventListener("pagehide", cancel);
+    };
+  }, [dismiss, hovered, previewAllowed, started]);
+
+  useEffect(() => {
+    const element = video.current;
+    if (!element || started) return;
+    if (previewing) void element.play()?.catch(() => {});
+    else if (element.muted) element.pause();
+  }, [previewing, started]);
+
   const play = () => {
     const element = video.current;
+    startedRef.current = true;
+    dismiss();
     setStarted(true);
     if (!element) return;
     element.muted = false;
@@ -256,7 +335,10 @@ export function VideoThumbnail({ src, name, onError }: { src: string; name: stri
     void element.play()?.catch(() => {});
   };
   return (
-    <span className={started ? "cv-media__frame is-playing" : "cv-media__frame"}>
+    <span
+      className={started ? "cv-media__frame is-playing" : "cv-media__frame"}
+      data-previewing={previewing ? "true" : undefined}
+    >
       {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- an agent's recording has no captions */}
       <video
         ref={video}
@@ -282,12 +364,12 @@ export function VideoThumbnail({ src, name, onError }: { src: string; name: stri
           aria-label={duration ? t("media.playLength", { length: duration }) : t("media.play")}
           onClick={play}
           onMouseEnter={() => {
-            const element = video.current;
-            if (element?.paused) void element.play()?.catch(() => {});
+            setHovered(true);
+            if (previewAllowed) setHover(true, MEDIA_PREVIEW_DWELL);
           }}
           onMouseLeave={() => {
-            const element = video.current;
-            if (element?.muted) element.pause();
+            setHovered(false);
+            setHover(null);
           }}
         >
           <span className="ui-glass cv-media__play" aria-hidden="true">

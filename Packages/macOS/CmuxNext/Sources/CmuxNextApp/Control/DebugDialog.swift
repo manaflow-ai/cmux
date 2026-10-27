@@ -2,14 +2,17 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextDesign
 import CmuxNextMobileHost
+import CmuxNextOnboarding
+import CmuxNextSessionTransfer
 import CmuxNextSettings
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// `debug.dialog`: every open cmux dialog for automation (R96), through the
 /// same center path a click takes.
 /// - `{}` lists the open dialogs (id, title, lines, origin, scope, visible,
 ///   buttons, field values, frame in window coordinates).
-/// - `{open: "confirm" | "text" | "credentials" | "save" | "choice", scope: "window" | "app", origin?}`
+/// - `{open: "confirm" | "text" | "credentials" | "save" | "choice" | "sessionMove" | "sessionMoveEnd",
+///   scope: "window" | "app", origin?}`
 ///   shows a fixture (screenshots, latency) and returns its id.
 /// - `{id?, set: {field: string | bool}}`, `{id?, key: "return" | "escape" | "tab" | "shift-tab" | "cmd-<c>"}`,
 ///   `{id?, press: "<button>"}`, `{id?, dismiss: true}` act on dialog `id`
@@ -18,9 +21,12 @@ import CmuxNextSettings
 enum DebugDialog {
     /// Dialogs only the user answers: a clipboard read (CLIPBOARD-READ-BROKER), the Enable
     /// harness sheet (a folder's program would run with the user's rights), the Cloud machine create confirmation (a spend
-    /// the person approves, cx-t2rz), a browser pairing (it admits a client to the whole daemon, cx-hnmbt.2) and an iPhone pairing.
+    /// the person approves, cx-t2rz), a browser pairing (it admits a client to the whole daemon, cx-hnmbt.2), an iPhone pairing,
+    /// an ssh:// link from another app (it connects to a host a web page chose), and a cmux://session
+    /// link's new tab (any page or app can open the link).
     static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier,
-                                        DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier]
+                                        DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier, ExternalLinkGate.sshDialogIdentifier,
+                                        SessionLinkGate.dialogIdentifier]
 
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
         let center = CmuxDialogCenter.shared
@@ -128,7 +134,26 @@ enum DebugDialog {
                 .check(id: "remember", title: "Don't ask again", on: false),
             ], buttons: [.cancel(), CmuxDialogButton(id: "select", title: "Select", role: .default)],
             identifier: "cmux.dialog.fixture.choice"),
+            // Move Sessions from Another cmux Build (session.moveFromBuild), with no other build running.
+            "sessionMove": SessionMoveSelection(peers: [moveFixturePeer]).dialog,
+            "sessionMoveEnd": SessionMoveSelection.endTerminalsDialog(for: ["~/code/app"]),
         ]
+    }
+
+    /// A build with a chat, an agent, an idle terminal, a busy one and one that did not say.
+    private static var moveFixturePeer: SessionTransferPeer {
+        func item(_ id: String, _ kind: SessionTransferItem.Kind, _ title: String,
+                  _ activity: SessionTransferItem.Activity = .unknown) -> SessionTransferItem {
+            var item = SessionTransferItem(sourceSurface: id, workspace: "w", kind: kind, title: title, cwd: nil, sshTarget: nil,
+                                           command: nil, agentHarness: nil, agentSessionID: nil)
+            item.activity = activity
+            return item
+        }
+        return SessionTransferPeer(path: "/tmp/cmux-fixture.sock", app: "cmux NIGHTLY", build: "1", tag: nil, pid: 1, items: [
+            item("1", .chat, "Fix the login redirect"), item("2", .agent, "Refactor the parser"),
+            item("3", .terminal, "~/code/app", .idle), item("4", .terminal, "server", .running("vim")),
+            item("5", .terminal, "logs"),
+        ])
     }
 }
 #endif

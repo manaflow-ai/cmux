@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
 # pin-cmux-tui.sh finds a cmux-tui artifact by its SOURCE tree key, not by
-# commit, and with CMUX_TUI_TREE_DISPATCH=1 starts at most one publisher for a
-# key that nothing publishes. cmux-tui-artifacts.yml publishes every
-# feat-cmux-next push (cx-73f2); a build of a commit with the same cmux-tui tree
-# uses that artifact, and a build of a commit with an unpublished tree
-# dispatches one workflow_dispatch run on a cmux-tui-pin-<sha12> ref
-# (concurrency group sha-<sha>, which no push run cancels).
+# commit. A missing tree never creates a helper ref or dispatches a
+# credentialed workflow; trusted feat-cmux-next publication or the fleet build
+# path owns publication.
 # No network: a stub curl serves the CDN and the GitHub API and logs calls.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -110,12 +107,12 @@ resolve "$old" CMUX_TUI_TREE_DISPATCH=1
 [[ "$status" == 0 && "$out" == "$tip" ]] || fail "(a) an older commit with the tip's tree must resolve to the tip's artifact (exit $status):" "$out" "$err"
 [[ "$dispatches" == 0 && "$refs" == 0 ]] || fail "(a) a published tree must start no publisher (dispatches $dispatches, refs $refs):" "$(cat "$TMP/curl.log")"
 
-# (b) A changed tree that no run publishes: exactly one pin ref and one dispatch.
+# (b) A changed tree that no run publishes: no ref or dispatch is attempted.
 echo three > "$src/cmux-tui/a"; changed=$(commit "tui three (never published)")
 resolve "$changed" CMUX_TUI_TREE_DISPATCH=1
 [[ "$status" != 0 ]] || fail "(b) the unpublished tree must still fail the bounded wait:" "$out"
-[[ "$refs" == 1 && "$dispatches" == 1 ]] || fail "(b) a missing tree needs exactly one ref create and one dispatch (refs $refs, dispatches $dispatches):" "$(cat "$TMP/curl.log")" "$err"
-grep -q "cmux-tui-pin-${changed:0:12}" <<<"$err" || fail "(b) the dispatch must name the cmux-tui-pin-${changed:0:12} ref:" "$err"
+[[ "$refs" == 0 && "$dispatches" == 0 ]] || fail "(b) a missing tree must not create a ref or dispatch (refs $refs, dispatches $dispatches):" "$(cat "$TMP/curl.log")" "$err"
+grep -q "no active trusted publisher" <<<"$err" || fail "(b) the miss must name the trusted publication path:" "$err"
 # Without CMUX_TUI_TREE_DISPATCH=1 nothing is dispatched (credential-free callers).
 resolve "$changed"
 [[ "$refs" == 0 && "$dispatches" == 0 ]] || fail "(b) dispatch must be opt-in (refs $refs, dispatches $dispatches)"
@@ -147,10 +144,10 @@ grep -q "next: no dispatch (CMUX_TUI_TREE_DISPATCH unset); waiting up to 1s for 
   || fail "(d) a miss without dispatch must say what happens next:" "$err"
 [[ "$(grep -c 'no published cmux-tui tree for' <<<"$err")" == 1 ]] || fail "(d) the miss block must print once:" "$err"
 resolve "$four" CMUX_TUI_TREE_DISPATCH=1
-grep -q "next: dispatching one cmux-tui-artifacts run for ${four:0:12} (CMUX_TUI_TREE_DISPATCH=1)" <<<"$err" \
-  || fail "(d) a dispatching miss must say so:" "$err"
+grep -q "no active trusted publisher" <<<"$err" \
+  || fail "(d) a dispatching miss must refuse an untrusted publisher:" "$err"
 resolve "$four" CMUX_TUI_TREE_NEAREST_COMMITS=2
 grep -q "no published cmux-tui tree for $(key "$four") (head ${four:0:12}); nearest published tree: none in the last 2 commits" <<<"$err" \
   || fail "(d) a history without a published tree must say none in the last 2 commits:" "$err"
 
-echo "PASS: cmux-tui artifacts resolve by source tree key and one publisher is dispatched for a missing tree"
+echo "PASS: cmux-tui artifacts resolve by source tree key without helper ref publication"

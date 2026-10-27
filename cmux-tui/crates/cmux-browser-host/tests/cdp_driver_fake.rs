@@ -1,7 +1,7 @@
 //! CdpDriver against a scripted in-process browser: the CDP each driver
 //! method sends, and the driver results and events it derives from replies.
 
-use cmux_browser_host::cdp::{AGENT_WORLD, CdpConnection, CdpDriver, CdpWire};
+use cmux_browser_host::cdp::{AGENT_WORLD, CdpConnection, CdpDriver, CdpWire, HOST_WORLD};
 use cmux_browser_host::driver::Driver;
 use cmux_browser_host::protocol::{DriverEvent, ErrorCode};
 use serde_json::{Value, json};
@@ -561,6 +561,39 @@ fn agent_world_evaluation_uses_the_agent_context() {
     assert_eq!(call["arguments"], json!([{"value": 1}, {"value": "x"}]));
     assert_eq!(call["returnByValue"], true);
     assert_eq!(call["awaitPromise"], true);
+}
+
+/// The host world exists only once the driver creates it: no document
+/// reports it by itself. The first host-world call on a new document (the
+/// gate's focus probe before every typed input) creates it at once instead
+/// of waiting the half-second context grace first, which made the first
+/// `fill` on each page about 500 ms slower than the rest (browser-use-perf.md).
+#[test]
+fn the_first_host_world_call_on_a_new_document_creates_the_world_at_once() {
+    let h = Harness::new();
+    let target = h.open(Some("https://a.test/start"));
+    let mark = h.mark();
+    let started = std::time::Instant::now();
+    let value = h.call(
+        "frame.evaluate",
+        json!({"targetId": target, "world": "host", "source": "() => document.activeElement"}),
+    );
+    let took = started.elapsed();
+    assert_eq!(value, "ok");
+    let sent = h.sent_since(mark);
+    let created = sent
+        .iter()
+        .find(|(m, p)| m == "Page.createIsolatedWorld" && p["worldName"] == HOST_WORLD)
+        .unwrap_or_else(|| panic!("the host world was not created: {sent:?}"));
+    assert_eq!(created.1["frameId"], format!("F-{target}"));
+    assert!(
+        took < std::time::Duration::from_millis(250),
+        "the first host-world call waited {took:?} before creating the world"
+    );
+    // The world is known from then on: no second creation.
+    let mark = h.mark();
+    h.call("frame.evaluate", json!({"targetId": target, "world": "host", "source": "() => 2"}));
+    assert!(!h.methods_since(mark).iter().any(|m| m == "Page.createIsolatedWorld"));
 }
 
 #[test]

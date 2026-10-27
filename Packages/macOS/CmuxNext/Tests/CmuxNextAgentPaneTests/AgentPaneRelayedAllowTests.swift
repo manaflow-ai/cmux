@@ -1,5 +1,6 @@
 import Foundation
 import CmuxNextCompat
+import CryptoKit
 import Testing
 @testable import CmuxNextAgentPane
 
@@ -77,6 +78,9 @@ struct AgentPaneRelayedAllowTests {
 
         func push(_ text: String) { state.withLock { $0.onFrame }?(text) }
 
+        /// How many frames the host sent that contain `needle`, now.
+        func sentCount(containing needle: String) -> Int { state.withLock { $0.sent.filter { $0.contains(needle) }.count } }
+
         /// The first frame the host sent that contains `needle`.
         func sent(containing needle: String) async -> String {
             await withCheckedContinuation { waiter in
@@ -99,9 +103,12 @@ struct AgentPaneRelayedAllowTests {
         return #"{"jsonrpc":"2.0","id":7,"method":"_acpmux/permission_respond","params":{"sessionId":"s","permissionId":"p1","optionId":"yes"\#(meta)}}"#
     }
 
-    static func intent(option: String, permission: String = "p1") -> AgentPaneGestureIntent? {
-        AgentPaneGestureIntent(gestureParams: ["intent": ["method": "_acpmux/permission_respond",
-                                                          "params": ["sessionId": "s", "permissionId": permission, "optionId": option]]])
+    static func intent(option: String, permission: String = "p1", answers: [String: Any]? = nil,
+                       annotations: [String: Any]? = nil) -> AgentPaneGestureIntent? {
+        var params: [String: Any] = ["sessionId": "s", "permissionId": permission, "optionId": option]
+        params["answers"] = answers
+        params["annotations"] = annotations
+        return AgentPaneGestureIntent(gestureParams: ["intent": ["method": "_acpmux/permission_respond", "params": params]])
     }
 
     @Test func aClickOnAllowCountsOnTheLocalDaemon() async throws {
@@ -188,5 +195,306 @@ struct AgentPaneRelayedAllowTests {
                 #expect(bannerShown == !keyBound)
             }
         }
+    }
+
+    static func pendingQuestion() -> String {
+        #"{"jsonrpc":"2.0","method":"_acpmux/permission_pending","params":{"sessionId":"s","permissionId":"p1","decisionNonce":"\#(nonce)","personInstance":"\#(instance)","request":{"options":[{"optionId":"yes","kind":"allow_once"},{"optionId":"no","kind":"reject_once"}],"toolCall":{"_meta":{"acpmux":{"question":{"items":[{"id":"q1","prompt":"Which one?"}]}}}}}}}"#
+    }
+
+    /// Leo 2026-10-21: an agent's question answered in the pane for a chat on another machine was
+    /// refused there as "accepted only from the cmux app". The answer's proof covers its answers
+    /// (acpmux `decision_answers_proof`), so that machine counts it as the person's.
+    @Test func anAnswerToAnotherMachinesQuestionCarriesTheProofOverItsAnswers() async throws {
+        let machine = "machine-\(UUID().uuidString)"
+        let key = try #require(AcpmuxSecretKey())
+        AcpmuxRemotePersonKeys.shared.bind(machine: machine, instance: Self.instance, key: key)
+        defer { AcpmuxRemotePersonKeys.shared.drop(machine: machine) }
+        let approvals = AgentPaneRemoteApprovals(machineID: machine, label: "host") { nil }
+        let wire = RemoteWire()
+        let route = AgentPaneRemoteRoute(machine: "host", approvals: approvals) { wire }
+        let inbox = PageInbox()
+        let transport = AgentPaneTransport()
+        transport.deliver = { event, done in inbox.deliver(event.frames); done() }
+        let id = try await transport.open(.remote(route))
+        _ = await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#])
+        _ = await inbox.frame(containing: "\"origin\":\"remote\"")
+        transport.sessions.add("s")
+        wire.push(Self.pendingQuestion())
+        _ = await inbox.frame(containing: "permission_pending")
+
+        transport.gestures.record(click: true)
+        let intentB = try #require(Self.intent(option: "yes", answers: ["Which one?": "B"]))
+        let ticket = try #require(transport.reserveGesture(intentB))
+        let answer = #"{"jsonrpc":"2.0","id":7,"method":"_acpmux/permission_respond","params":{"sessionId":"s","permissionId":"p1","optionId":"yes","answers":{"Which one?":"B"},"_meta":{"cmuxGesture":"\#(ticket)"}}}"#
+        let error = await transport.send(connection: id, frames: [answer])
+        #expect(error == nil, "\(String(describing: error))")
+        let sent = await wire.sent(containing: "permission_respond")
+        let object = try JSONSerialization.jsonObject(with: Data(sent.utf8)) as? [String: Any]
+        let params = try #require(object?["params"] as? [String: Any])
+        let acpmux = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+        #expect(acpmux?["decisionNonce"] as? String == Self.nonce)
+        let expected = key.decisionProof(instance: Self.instance, session: "s", permission: "p1", option: "yes", nonce: Self.nonce,
+                                         answers: ["Which one?": "B"])
+        #expect(expected != nil)
+        #expect(acpmux?["personDecision"] as? String == expected, "the answer went without the proof over its answers: \(sent)")
+        #expect(acpmux?["personDecision"] as? String
+            != key.decisionProof(instance: Self.instance, session: "s", permission: "p1", option: "yes", nonce: Self.nonce))
+    }
+
+    /// The same bytes acpmux checks (`the_answers_decision_proof_matches_the_apps_vector` in
+    /// cmux-tui/crates/acpmux/tests/person_allow.rs): key order by UTF-8 bytes, acpmux's escapes.
+    @Test func theAnswersProofMatchesAcpmuxsVector() throws {
+        let key = try #require(AcpmuxSecretKey(hex: "5e1f0c2a9b8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f"))
+        let answers = try JSONSerialization.jsonObject(
+            with: Data(#"{"Which one?":"B","Pick a color\n(one)":["red","blue"],"é":"\u0001"}"#.utf8))
+        #expect(AcpmuxSecretKey.canonicalJSON(answers) == "{\"Pick a color\\n(one)\":[\"red\",\"blue\"],\"Which one?\":\"B\",\"é\":\"\\u0001\"}")
+        #expect(key.decisionProof(instance: "0123456789abcdef", session: "sess-1", permission: "perm-1", option: "allow_once",
+                                  nonce: "nonce-1", answers: answers)
+            == "3b11c2af201d95772c106a4c8463a54b94e615f85e88eac0700f7d657c24f0e9")
+        // With annotations (a preview with a line break and a character past the BMP).
+        let annotations = try JSONSerialization.jsonObject(
+            with: Data(#"{"Which one?":{"preview":"[ B ]\n\ud83d\ude00","notes":"n"}}"#.utf8))
+        #expect(AcpmuxSecretKey.canonicalJSON(annotations) == "{\"Which one?\":{\"notes\":\"n\",\"preview\":\"[ B ]\\n\u{1F600}\"}}")
+        #expect(key.decisionProof(instance: "0123456789abcdef", session: "sess-1", permission: "perm-1", option: "allow_once",
+                                  nonce: "nonce-1", answers: answers, annotations: annotations)
+            == "03512f50a44821e899adf320ffd8babf9fc9a34c105e62b4861103c901da6992")
+    }
+
+    /// Codex review of #25424: the ticket binds the answers and annotations the person picked, by
+    /// their canonical JSON, so a ticket taken for one answer never redeems (nor gets signed for)
+    /// another, nested Codex answers and annotations included.
+    @Test func aTicketIsForExactlyItsAnswersAndAnnotations() throws {
+        let codexB: [String: Any] = ["q1": ["answers": ["B"]]]
+        let notes: [String: Any] = ["Which one?": ["preview": "[ B ]", "notes": "n"]]
+        let intent = try #require(Self.intent(option: "yes", answers: codexB, annotations: notes))
+        func frame(_ answers: Any?, _ annotations: Any? = nil) -> [String: Any] {
+            var params: [String: Any] = ["sessionId": "s", "permissionId": "p1", "optionId": "yes", "_meta": ["cmuxGesture": "t"]]
+            params["answers"] = answers
+            params["annotations"] = annotations
+            return params
+        }
+        let method = "_acpmux/permission_respond"
+        // Key order does not matter: the canonical JSON is the same.
+        #expect(intent.matches(method: method, params: frame(["q1": ["answers": ["B"]]], ["Which one?": ["notes": "n", "preview": "[ B ]"]])))
+        #expect(!intent.matches(method: method, params: frame(["q1": ["answers": ["A"]]], notes)))
+        #expect(!intent.matches(method: method, params: frame(codexB, ["Which one?": ["preview": "[ B ]", "notes": "m"]])))
+        #expect(!intent.matches(method: method, params: frame(codexB)))
+        #expect(!intent.matches(method: method, params: frame(nil)))
+        // Codex review, round 2: canonically equivalent Unicode is not the same answer (a
+        // composed and a decomposed é can name two files on that machine), in answers and notes.
+        let composed = try #require(Self.intent(option: "yes", answers: ["Path?": "/tmp/caf\u{E9}"],
+                                                annotations: ["Path?": ["notes": "caf\u{E9}"]]))
+        #expect(composed.matches(method: method, params: frame(["Path?": "/tmp/caf\u{E9}"], ["Path?": ["notes": "caf\u{E9}"]])))
+        #expect(!composed.matches(method: method, params: frame(["Path?": "/tmp/cafe\u{301}"], ["Path?": ["notes": "caf\u{E9}"]])))
+        #expect(!composed.matches(method: method, params: frame(["Path?": "/tmp/caf\u{E9}"], ["Path?": ["notes": "cafe\u{301}"]])))
+        // A ticket without answers never redeems an answer that has some.
+        let plain = try #require(Self.intent(option: "yes"))
+        #expect(plain.matches(method: method, params: frame(nil)))
+        #expect(!plain.matches(method: method, params: frame(codexB)))
+        // Answers in an intent are objects; anything else breaks the contract.
+        #expect(AgentPaneGestureIntent(gestureParams: ["intent": ["method": method, "params": [
+            "sessionId": "s", "permissionId": "p1", "optionId": "yes", "answers": "B"]]]) == nil)
+        #expect(AgentPaneGestureIntent(gestureParams: ["intent": ["method": "session/set_mode", "params": [
+            "modeId": "m", "answers": ["q": "B"]]]]) == nil)
+    }
+
+    /// The same review, through the transport: a ticket the page took for answer B does not let
+    /// it send answer A to another machine (the gesture is refused, so nothing is signed).
+    @Test func aTicketForOneAnswerIsRefusedForAnother() async throws {
+        let machine = "machine-\(UUID().uuidString)"
+        let key = try #require(AcpmuxSecretKey())
+        AcpmuxRemotePersonKeys.shared.bind(machine: machine, instance: Self.instance, key: key)
+        defer { AcpmuxRemotePersonKeys.shared.drop(machine: machine) }
+        let approvals = AgentPaneRemoteApprovals(machineID: machine, label: "host") { nil }
+        let wire = RemoteWire()
+        let route = AgentPaneRemoteRoute(machine: "host", approvals: approvals) { wire }
+        let inbox = PageInbox()
+        let transport = AgentPaneTransport()
+        transport.deliver = { event, done in inbox.deliver(event.frames); done() }
+        let id = try await transport.open(.remote(route))
+        _ = await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#])
+        _ = await inbox.frame(containing: "\"origin\":\"remote\"")
+        transport.sessions.add("s")
+        wire.push(Self.pendingQuestion())
+        _ = await inbox.frame(containing: "permission_pending")
+
+        transport.gestures.record(click: true)
+        let intentB = try #require(Self.intent(option: "yes", answers: ["Which one?": "B"]))
+        let ticket = try #require(transport.reserveGesture(intentB))
+        let swapped = #"{"jsonrpc":"2.0","id":7,"method":"_acpmux/permission_respond","params":{"sessionId":"s","permissionId":"p1","optionId":"yes","answers":{"Which one?":"A"},"_meta":{"cmuxGesture":"\#(ticket)"}}}"#
+        #expect(await transport.send(connection: id, frames: [swapped]) == .gestureRequired)
+
+        // A composed é in the ticket, a decomposed one in the frame: canonically equivalent, but
+        // other bytes, so refused too (Codex review, round 2).
+        transport.gestures.record(click: true)
+        let intentCafe = try #require(Self.intent(option: "yes", answers: ["Which one?": "caf\u{E9}"]))
+        let cafe = try #require(transport.reserveGesture(intentCafe))
+        let decomposed = #"{"jsonrpc":"2.0","id":8,"method":"_acpmux/permission_respond","params":{"sessionId":"s","permissionId":"p1","optionId":"yes","answers":{"Which one?":"cafe\u0301"},"_meta":{"cmuxGesture":"\#(cafe)"}}}"#
+        #expect(await transport.send(connection: id, frames: [decomposed]) == .gestureRequired)
+        #expect(wire.sentCount(containing: "permission_respond") == 0, "a swapped answer went out")
+    }
+
+    /// A prompt of a peer of this Mac's daemon (a chat opened with `--host`): another daemon run
+    /// than the one this connection talks to, on the local WebSocket.
+    static func peerPending() -> String {
+        #"{"jsonrpc":"2.0","method":"_acpmux/permission_pending","params":{"sessionId":"s","permissionId":"p1","decisionNonce":"\#(nonce)","personInstance":"\#(instance)","peer":"far","via":"peer","request":{"toolCall":{"toolCallId":"call-1","kind":"execute"},"options":[{"optionId":"yes","kind":"allow_once"},{"optionId":"always","kind":"allow_always"},{"optionId":"no","kind":"reject_once"}]}}}"#
+    }
+
+    /// The local daemon's own run (not the peer's) and a peer's prompt, seen by the page.
+    static func peerChat(_ server: AcpmuxStandInServer, _ inbox: PageInbox, _ transport: AgentPaneTransport) async throws -> Int {
+        // A DEV build's memory key (the app configures it at launch).
+        AcpmuxMacApprover.shared.configure(keychainService: nil)
+        let local = String(repeating: "d", count: 32)
+        server.answer("initialize", with: #"{"protocolVersion":1,"_meta":{"acpmux":{"origin":"local","personInstance":"\#(local)"}}}"#)
+        transport.deliver = { event, done in inbox.deliver(event.frames); done() }
+        let id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
+        _ = await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#])
+        _ = await inbox.frame(containing: "\"origin\":\"local\"")
+        transport.sessions.add("s")
+        server.push(Self.peerPending(), to: 0)
+        _ = await inbox.frame(containing: "permission_pending")
+        return id
+    }
+
+    /// Peer-route approvals: Allow on a peer's prompt goes out signed by this Mac's approver key,
+    /// over that prompt, its tool call and the option picked; the "Remote approvals are off"
+    /// notice no longer shows. An always-allow goes unsigned, and the notice shows.
+    @Test func anAllowForAPeersPromptCarriesThisMacsSignedOneTimeAllow() async throws {
+        let server = AcpmuxStandInServer()
+        try await server.start()
+        defer { server.stop() }
+        let inbox = PageInbox()
+        let transport = AgentPaneTransport()
+        var remoteOff = false
+        transport.onRemoteApprovalsOff = { _ in remoteOff = true }
+        let id = try await Self.peerChat(server, inbox, transport)
+
+        transport.gestures.record(click: true)
+        let ticketIntent = try #require(Self.intent(option: "yes"))
+        let ticket = try #require(transport.reserveGesture(ticketIntent))
+        let before = UInt64(Date().timeIntervalSince1970)
+        #expect(await transport.send(connection: id, frames: [Self.allow(ticket: ticket)]) == nil)
+        _ = await inbox.frame(containing: "\"id\":7")
+        let sent = try #require(server.peers.first?.frames.first { $0.contains("permission_respond") })
+        let params = try #require((try JSONSerialization.jsonObject(with: Data(sent.utf8)) as? [String: Any])?["params"] as? [String: Any])
+        let acpmux = try #require((params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any], "an unsigned allow: \(sent)")
+        #expect(acpmux["decisionNonce"] as? String == Self.nonce)
+        #expect(acpmux["personDecision"] == nil)
+        let decision = try #require(acpmux["approverDecision"] as? [String: Any])
+        let identity = try #require(AcpmuxMacApprover.shared.identity)
+        #expect(decision["approver"] as? String == identity.id)
+        let expires = try #require((decision["expiresAt"] as? NSNumber)?.uint64Value)
+        #expect(expires > before && expires <= before + 300)
+        let key = try P256.Signing.PublicKey(x963Representation: AcpmuxMacApproverTests.bytes(identity.publicKey))
+        let signature = try P256.Signing.ECDSASignature(
+            rawRepresentation: AcpmuxMacApproverTests.bytes(try #require(decision["signature"] as? String)))
+        let message = AcpmuxMacApprover.message(instance: Self.instance, mac: identity.id, session: "s", permission: "p1",
+                                                toolCall: "call-1", option: "yes", nonce: Self.nonce, expiresAt: expires, answers: "")
+        #expect(key.isValidSignature(signature, for: message))
+        #expect(!remoteOff)
+
+        // An always-allow: no signature, and the notice.
+        transport.gestures.record(click: true)
+        let alwaysIntent = try #require(Self.intent(option: "always"))
+        let always = try #require(transport.reserveGesture(alwaysIntent))
+        let alwaysFrame = Self.allow(ticket: always).replacingOccurrences(of: #""id":7"#, with: #""id":8"#)
+            .replacingOccurrences(of: #""optionId":"yes""#, with: #""optionId":"always""#)
+        #expect(await transport.send(connection: id, frames: [alwaysFrame]) == nil)
+        _ = await inbox.frame(containing: "\"id\":8")
+        let sentAlways = try #require(server.peers.first?.frames.last { $0.contains("permission_respond") })
+        #expect(!sentAlways.contains("approverDecision"), "an always-allow was signed: \(sentAlways)")
+        #expect(remoteOff)
+    }
+
+    /// A peer that has not enrolled this Mac refuses the allow, naming itself (acpmux
+    /// `permission.person_required` with `data.peer`): the pane says approvals are off there.
+    @Test func aPeersRefusalShowsTheNotice() async throws {
+        let server = AcpmuxStandInServer()
+        try await server.start()
+        defer { server.stop() }
+        let inbox = PageInbox()
+        let transport = AgentPaneTransport()
+        var remoteOff = false
+        transport.onRemoteApprovalsOff = { _ in remoteOff = true }
+        let id = try await Self.peerChat(server, inbox, transport)
+        server.setAnswers(false)
+
+        transport.gestures.record(click: true)
+        let ticketIntent = try #require(Self.intent(option: "yes"))
+        let ticket = try #require(transport.reserveGesture(ticketIntent))
+        #expect(await transport.send(connection: id, frames: [Self.allow(ticket: ticket)]) == nil)
+        #expect(await server.wait { $0.first?.frames.contains { $0.contains("permission_respond") } == true })
+        let sent = try #require(server.peers.first?.frames.first { $0.contains("permission_respond") })
+        let relayID = try #require((try JSONSerialization.jsonObject(with: Data(sent.utf8)) as? [String: Any])?["id"] as? Int)
+        #expect(!remoteOff, "the notice showed before the peer refused")
+        server.push(#"{"jsonrpc":"2.0","id":\#(relayID),"error":{"code":-32000,"message":"approve this on the Mac app","data":{"reason":"permission.person_required","peer":"far"}}}"#, to: 0)
+        _ = await inbox.frame(containing: "person_required")
+        #expect(remoteOff)
+    }
+
+    /// The card's Allow for a batch of a peer's tool prompts (`_acpmux/permission_group_respond`),
+    /// after the person's click: one signed one-time allow per pending member of the group the
+    /// page read (two here), over that member's prompt, tool call, nonce and the option the group's
+    /// Allow selects. Allow for this chat (a lasting grant) goes unsigned, and the notice shows.
+    @Test func aGroupAllowForAPeersPromptsSignsEachMember() async throws {
+        let server = AcpmuxStandInServer()
+        try await server.start()
+        defer { server.stop() }
+        let inbox = PageInbox()
+        let transport = AgentPaneTransport()
+        var remoteOff = false
+        transport.onRemoteApprovalsOff = { _ in remoteOff = true }
+        let id = try await Self.peerChat(server, inbox, transport)
+        // A second prompt of the peer's, with its own tool call, nonce and allow-once option.
+        let nonce2 = String(repeating: "cd", count: 32)
+        let request2 = #"{"toolCall":{"toolCallId":"call-2","kind":"edit"},"options":[{"optionId":"ok","kind":"allow_once"},{"optionId":"no","kind":"reject_once"}]}"#
+        server.push(#"{"jsonrpc":"2.0","method":"_acpmux/permission_pending","params":{"sessionId":"s","permissionId":"p2","decisionNonce":"\#(nonce2)","personInstance":"\#(Self.instance)","peer":"far","via":"peer","request":\#(request2)}}"#, to: 0)
+        _ = await inbox.frame(containing: "\"permissionId\":\"p2\"")
+        let request = #"{"toolCall":{"toolCallId":"call-1","kind":"execute"},"options":[{"optionId":"yes","kind":"allow_once"},{"optionId":"always","kind":"allow_always"},{"optionId":"no","kind":"reject_once"}]}"#
+        server.answer("_acpmux/permission_groups", with: #"{"groups":[{"groupId":"g1","sessionId":"s","revision":2,"state":"pending","items":[{"permissionId":"p1","state":"pending","request":\#(request)},{"permissionId":"p2","state":"pending","request":\#(request2)}],"decisions":["allow_once","deny"]}],"peer":"far"}"#)
+        #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":9,"method":"_acpmux/permission_groups","params":{"sessionId":"s"}}"#]) == nil)
+        _ = await inbox.frame(containing: "\"id\":9")
+
+        transport.gestures.record(click: true)
+        let respond = #"{"jsonrpc":"2.0","id":10,"method":"_acpmux/permission_group_respond","params":{"sessionId":"s","groupId":"g1","revision":2,"decisionKey":"k1","decision":"allow_once"}}"#
+        let before = UInt64(Date().timeIntervalSince1970)
+        #expect(await transport.send(connection: id, frames: [respond]) == nil)
+        _ = await inbox.frame(containing: "\"id\":10")
+        let sent = try #require(server.peers.first?.frames.first { $0.contains("permission_group_respond") })
+        let params = try #require((try JSONSerialization.jsonObject(with: Data(sent.utf8)) as? [String: Any])?["params"] as? [String: Any])
+        let acpmux = try #require((params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any], "an unsigned group allow: \(sent)")
+        let members = try #require(acpmux["approverDecisions"] as? [String: Any])
+        #expect(Set(members.keys) == ["p1", "p2"])
+        let identity = try #require(AcpmuxMacApprover.shared.identity)
+        let key = try P256.Signing.PublicKey(x963Representation: AcpmuxMacApproverTests.bytes(identity.publicKey))
+        for (permission, toolCall, option, nonce) in [("p1", "call-1", "yes", Self.nonce), ("p2", "call-2", "ok", nonce2)] {
+            let member = try #require(members[permission] as? [String: Any])
+            #expect(member["decisionNonce"] as? String == nonce)
+            let decision = try #require(member["approverDecision"] as? [String: Any])
+            #expect(decision["approver"] as? String == identity.id)
+            let expires = try #require((decision["expiresAt"] as? NSNumber)?.uint64Value)
+            #expect(expires > before && expires <= before + 300)
+            let signature = try P256.Signing.ECDSASignature(
+                rawRepresentation: AcpmuxMacApproverTests.bytes(try #require(decision["signature"] as? String)))
+            let message = AcpmuxMacApprover.message(instance: Self.instance, mac: identity.id, session: "s", permission: permission,
+                                                    toolCall: toolCall, option: option, nonce: nonce, expiresAt: expires, answers: "")
+            #expect(key.isValidSignature(signature, for: message), "member \(permission)")
+            // Each member's signature covers its own prompt only.
+            let other = AcpmuxMacApprover.message(instance: Self.instance, mac: identity.id, session: "s", permission: permission,
+                                                  toolCall: toolCall == "call-1" ? "call-2" : "call-1", option: option, nonce: nonce,
+                                                  expiresAt: expires, answers: "")
+            #expect(!key.isValidSignature(signature, for: other))
+        }
+        #expect(!remoteOff)
+
+        // Allow for this chat: no signature, and the notice.
+        transport.gestures.record(click: true)
+        let chat = respond.replacingOccurrences(of: #""id":10"#, with: #""id":11"#)
+            .replacingOccurrences(of: #""allow_once""#, with: #""allow_chat""#).replacingOccurrences(of: "k1", with: "k2")
+        #expect(await transport.send(connection: id, frames: [chat]) == nil)
+        _ = await inbox.frame(containing: "\"id\":11")
+        let sentChat = try #require(server.peers.first?.frames.last { $0.contains("permission_group_respond") })
+        #expect(!sentChat.contains("approverDecisions"), "a lasting grant was signed: \(sentChat)")
+        #expect(remoteOff)
     }
 }

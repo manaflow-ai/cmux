@@ -18,22 +18,32 @@ public final class ChiefBrainKeeper {
     public typealias ResolveHost = @MainActor (DaemonConnection) async -> HomeBrainHost?
     /// Mints the mux's agent token on an owner connection.
     public typealias MintToken = @Sendable (DaemonConnection) async throws -> String
+    /// The brain host this app watches started or died (its pid, nil: none).
+    public typealias HostChanged = @MainActor (pid_t?) -> Void
 
     private let home: ChiefHome
     private let connection: Connection
     private let resolveHost: ResolveHost
     private let mint: MintToken
+    private let hostChanged: HostChanged?
     /// A start is in flight.
     private var starting = false
-    private var watch: ChiefBrainWatch?
+    /// The watch of the host this app keeps. Readable inside the package so the replacement path
+    /// below is under test: reaching it through a real start would run `HomeBrainHost.start`,
+    /// which adopts this Mac's build homes and moves its acpmux.
+    private(set) var watch: ChiefBrainWatch?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
+    /// - Parameter watch: the watch to start from, in place of the one a start would make. Only a
+    ///   test passes one; the app always starts with none.
     public init(home: ChiefHome, connection: @escaping Connection, resolveHost: @escaping ResolveHost,
-                mint: @escaping MintToken) {
+                mint: @escaping MintToken, hostChanged: HostChanged? = nil, watch: ChiefBrainWatch? = nil) {
         self.home = home
         self.connection = connection
         self.resolveHost = resolveHost
         self.mint = mint
+        self.hostChanged = hostChanged
+        self.watch = watch
     }
 
     /// Starts the brain when none runs and none is starting; whether a host
@@ -55,7 +65,11 @@ public final class ChiefBrainKeeper {
             watch.watch(running)
             return true
         }
-        // A watch that gave up (a host that kept dying) is armed again by this ask.
+        // A watch that gave up (a host that kept dying) is armed again by this ask. It is stopped
+        // before it goes: a launch that printed no pid leaves its lock sources armed while
+        // ``ChiefBrainWatch/isWatching`` is false, and a watch that is only dropped runs no cancel
+        // handler, so those descriptors would live until the app quits, one pair per retry.
+        watch?.stop()
         watch = nil
         start()
         return starting
@@ -106,11 +120,11 @@ public final class ChiefBrainKeeper {
             watch.watch(pid)
             return
         }
-        let watch = ChiefBrainWatch(home: home) { [weak self] in
+        let watch = ChiefBrainWatch(home: home, restart: { [weak self] in
             // The owner may have reconnected since: mint on the current connection.
             guard let self, let connection = connection() else { return nil }
             return await launch(host, connection: connection)
-        }
+        }, watching: { [weak self] pid in self?.hostChanged?(pid) })
         self.watch = watch
         watch.watch(pid)
     }

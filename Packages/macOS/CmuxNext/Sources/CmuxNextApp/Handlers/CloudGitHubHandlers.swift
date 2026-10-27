@@ -12,7 +12,7 @@ enum CloudGitHubHandlers {
         CloudHandlers.bind("cloudSetupGitHub", registry, reason: reason) { invocation in
             // A CLI, MCP or script run names its machine (#23155); a person's may mean the one they see.
             let session = try CloudHandlers.machine(invocation, context)
-            guard session.machine.allows(.exec) else { throw ActionFailure(message: CloudStrings.execUnavailable) }
+            guard session.machine.allows(.exec) else { throw ActionFailure(message: CloudStrings.execUnavailable(session.machineID)) }
             // A nested perform inside a CLI run is built with the user origin: the enclosing
             // run's scope decides too, so only `--focus` (or a person) opens the browser.
             let opensBrowser = invocation.allowsViewChange && ActionRunScope.viewChangeAllowed()

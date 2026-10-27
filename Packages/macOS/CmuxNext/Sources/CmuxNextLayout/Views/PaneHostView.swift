@@ -29,9 +29,18 @@ final class PaneHostView: NSView, RestingPlacement {
     private var reporter: PaneContentChrome? { content as? PaneContentChrome }
     private var lastWindowFrame: CGRect?
 
-    init(pane: PaneID, content: NSView) {
+    /// Whether content keeps its size while the host is on a layout spring (`motion.pane.holdContent`, off by
+    /// default: live resize). Injected so tests pin it without the shared tunable store.
+    private let holdsContentInMotion: () -> Bool
+    /// True only for a content handoff: its first spring frame already has the narrower
+    /// destination size, so the held page must start at that target. Ordinary moves (including
+    /// an unzooming chat) keep their painted size even when their rest offset is nonzero.
+    var isContentHandoff = false
+
+    init(pane: PaneID, content: NSView, holdsContentInMotion: @escaping () -> Bool = { LayoutTunables.holdsContentInMotion.value }) {
         self.pane = pane
         self.content = content
+        self.holdsContentInMotion = holdsContentInMotion
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = true
@@ -72,12 +81,25 @@ final class PaneHostView: NSView, RestingPlacement {
         didSet {
             guard oldValue != isOnLayoutSpring else { return }
             if isOnLayoutSpring {
-                heldContentSize = LayoutTunables.holdsContentInMotion.value ? content.frame.size : nil
+                guard holdsContentInMotion() else {
+                    heldContentSize = nil
+                    return
+                }
+                // A handoff pane starts its spring by moving to a narrower final frame. Its
+                // content was still full-width when this flag was set; use the target content
+                // size for that first frame so the handoff never replays a resize at landing.
+                if isContentHandoff, let rest = restContentSize, content.frame.width > rest.width {
+                    heldContentSize = rest
+                } else {
+                    heldContentSize = content.frame.size
+                }
             } else {
                 heldContentSize = nil
+                heldAnchor = nil
                 // The one layout at the size the spring landed at, before the content hears it landed.
                 layoutClip()
                 content.notifyPaneMotionSettled()
+                isContentHandoff = false
             }
         }
     }
@@ -104,7 +126,7 @@ final class PaneHostView: NSView, RestingPlacement {
         let size = CGSize(width: max(clip.width, held.width, rest.width), height: max(clip.height, held.height, rest.height))
         // The far edge's distance from its rest against the near edge's (`restOffset`).
         let trailing = abs(restOffset.dx + restSize.width - frame.width) < abs(restOffset.dx) - 0.5
-        let bottom = abs(restOffset.dy + restSize.height - frame.height) < abs(restOffset.dy) - 0.5
+        let bottom = heldAnchor.map { $0 == .bottom } ?? (abs(restOffset.dy + restSize.height - frame.height) < abs(restOffset.dy) - 0.5)
         return CGRect(x: trailing ? clip.maxX - size.width : clip.minX,
                       y: bottom == isFlipped ? clip.maxY - size.height : clip.minY,
                       width: size.width, height: size.height)
@@ -204,9 +226,10 @@ final class PaneHostView: NSView, RestingPlacement {
     /// The content's rounded corners and the ring's shape from the current
     /// clip frame and the content's header and footer. Changes no frame.
     private func applyChromeShape() {
+        let framesContent = reporter?.paneFramesContent ?? true
         var style = LayoutStyle()
         style.panePadding = padding
-        style.paneCornerRadius = cornerRadius
+        style.paneCornerRadius = framesContent || wholeCard ? cornerRadius : 0
         let rect = clipView.frame
         let (header, footer) = roundedBands
         let rounded = PaneChromeGeometry.roundedRect(inPadded: rect, headerHeight: header, footerHeight: footer)
@@ -218,8 +241,51 @@ final class PaneHostView: NSView, RestingPlacement {
             reporter?.setPaneContentCornerRadius(0)
             clipView.setCornerRadius(radius)
         }
-        chrome.setShape(padding: padding, cornerRadius: cornerRadius, headerHeight: header, footerHeight: footer)
+        chrome.showsContentFrame = framesContent
+        chrome.setShape(padding: padding, cornerRadius: style.paneCornerRadius, headerHeight: header, footerHeight: footer)
     }
+
+    /// Tells the content (every ``PaneMotionTargeting`` view in it) how much larger its area will rest than
+    /// it is now (`restSize` against the current frame, both less the padding): called by the screen once
+    /// when a spring starts or retargets to a new size, never per frame.
+    func announceRest() {
+        guard let change = restSizeChange else { return }
+        heldAnchor = content.notifyPaneMotionWillRest(sizeChange: change)
+        if heldContentSize != nil {
+            // A close can retarget a running spring to a wider pane, then an early reopen can
+            // retarget it back before the first spring lands. Keep the largest painted content
+            // size seen by this motion so the second target does not reflow the page on every frame.
+            if let held = heldContentSize, let rest = restContentSize {
+                heldContentSize = CGSize(width: max(held.width, rest.width),
+                                         height: max(held.height, rest.height))
+            }
+            layoutClip()
+        }
+    }
+
+    /// The content area at rest (``restSize`` less the padding) minus the content's size now; nil without a
+    /// rest size or with no change.
+    private var restSizeChange: CGSize? {
+        guard let rest = restContentSize else { return nil }
+        let now = content.frame.size
+        let change = CGSize(width: rest.width - now.width, height: rest.height - now.height)
+        guard abs(change.width) >= 0.5 || abs(change.height) >= 0.5 else { return nil }
+        return change
+    }
+
+    private var restContentSize: CGSize? {
+        guard let restSize else { return nil }
+        var style = LayoutStyle()
+        style.panePadding = padding
+        style.paneCornerRadius = cornerRadius
+        return PaneChromeGeometry.contentRect(forCell: CGRect(origin: .zero, size: restSize), style: style).size
+    }
+
+    /// `RestingPlacement`: the size change a view joining the content mid-spring will rest at.
+    var restContentSizeChange: CGSize? { isOnLayoutSpring ? restSizeChange : nil }
+
+    /// The vertical edge held content rides, from the last ``announceRest()`` (nil: the near-edge rule).
+    private var heldAnchor: PaneMotionAnchor?
 
     /// Tells the content when the pane's frame in the window changed.
     func noteWindowFrame() {

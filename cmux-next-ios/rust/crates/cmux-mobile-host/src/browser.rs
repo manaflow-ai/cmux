@@ -108,7 +108,7 @@ struct Entry {
 pub(crate) struct Claim {
     addr: SocketAddr,
     secret: String,
-    viewer: u64,
+    pub(crate) viewer: u64,
     /// This claim started the host (at its launch address).
     pub(crate) launched: bool,
     pub(crate) stopped: oneshot::Receiver<Stop>,
@@ -229,7 +229,7 @@ impl BrowserConfig {
         })
     }
 
-    async fn release(&self, tab: &str, viewer: u64) {
+    pub(crate) async fn release(&self, tab: &str, viewer: u64) {
         let mut hosts = self.hosts.lock().await;
         if let Some(entry) = hosts.get_mut(tab) {
             entry.last_used = Instant::now();
@@ -393,7 +393,7 @@ const SETTLED: Duration = Duration::from_secs(1);
 
 /// What a viewer's tab may show, and which page it shows (the guard of
 /// the phone's `rb.navigate` and the host's `rb.page`).
-struct PageGuard<'a> {
+pub(crate) struct PageGuard<'a> {
     mac: &'a dyn crate::browser_policy::MacPages,
     /// Pages this tab may load because the Mac showed them (its open
     /// address first, kept). Files in shared folders are checked every time.
@@ -618,14 +618,19 @@ pub async fn serve(
     // The phone's tag for this tab's lane frames (cmux_mobile_link::media::tag).
     let video_tag = args.get("video_tag").and_then(Value::as_u64).and_then(|tag| u32::try_from(tag).ok());
     let track = track.map(|video| (video, video_tag));
-    let result = splice(claim, guard, first, peer, sender, receiver, track).await;
+    let result = splice(claim, Some(guard), filter_frame, first, peer, sender, receiver, track).await;
     config.release(tab, viewer).await;
     result
 }
 
-async fn splice(
+/// Splices a viewer channel to its tab's host (a browser host, or a
+/// simulator surface's host, `surface.rs`): `filter` checks each phone frame,
+/// and `guard` (browser tabs only) checks addresses both ways.
+#[allow(clippy::too_many_arguments)] // one viewer's whole splice: its claim, checks, peer, channel and lane
+pub(crate) async fn splice(
     claim_of_host: Claim,
-    mut guard: PageGuard<'_>,
+    mut guard: Option<PageGuard<'_>>,
+    filter: fn(u8, &[u8]) -> FrameVerdict,
     first: Option<String>,
     peer: &Peer,
     sender: &ChannelSender,
@@ -654,7 +659,7 @@ async fn splice(
     let (mut host_read, mut host_write) = stream.into_split();
     // The hello, the file policy, then (a new host of a `file:` page) the page.
     let mut start = hello_frame(secret, peer);
-    start.extend(guard.policy_update().unwrap_or_default());
+    start.extend(guard.as_mut().and_then(PageGuard::policy_update).unwrap_or_default());
     if let Some(url) = first {
         start.extend(rb_frame(serde_json::json!({"t": "rb.navigate", "url": url})));
     }
@@ -737,11 +742,11 @@ async fn splice(
                                 }
                             }
                             Ok(Some((STREAM_CONTROL, payload))) => {
-                                let verdict = match page_url(&payload) {
-                                    Some((url, can_go_back)) => guard.page(&url, can_go_back).await,
-                                    None => PageVerdict::Forward,
+                                let verdict = match (guard.as_mut(), page_url(&payload)) {
+                                    (Some(guard), Some((url, can_go_back))) => guard.page(&url, can_go_back).await,
+                                    _ => PageVerdict::Forward,
                                 };
-                                if let Some(policy) = guard.policy_update()
+                                if let Some(policy) = guard.as_mut().and_then(PageGuard::policy_update)
                                     && host_write.write_all(&policy).await.is_err()
                                 {
                                     return Ok(());
@@ -787,7 +792,7 @@ async fn splice(
                             // In track mode hostd answers for the main stream.
                             Ok(Some((STREAM_DATAGRAM, payload)))
                                 if claim.is_some() && crate::browser_track::phone_datagram_superseded(&payload) => {}
-                            Ok(Some((kind, payload))) => match filter_frame(kind, &payload) {
+                            Ok(Some((kind, payload))) => match filter(kind, &payload) {
                                 FrameVerdict::Forward => {
                                     let _ = encode_stream_frame(kind, &payload, &mut out);
                                     if kind == STREAM_CONTROL && let Some(shown) = visibility(&payload) {
@@ -809,7 +814,10 @@ async fn splice(
                                         }
                                     }
                                 }
-                                FrameVerdict::Navigate(url) => match guard.navigate(url.trim()).await {
+                                FrameVerdict::Navigate(url) => match guard.as_mut() {
+                                    // A viewer with no address checks (a surface) never navigates.
+                                    None => {}
+                                    Some(guard) => match guard.navigate(url.trim()).await {
                                     Ok(load) => {
                                         // The host's policy first, so the page it loads may load.
                                         out.extend(guard.policy_update().unwrap_or_default());
@@ -822,6 +830,7 @@ async fn splice(
                                             return Ok(());
                                         }
                                     }
+                                    },
                                 },
                                 FrameVerdict::Drop(reason) => {
                                     dropped += 1;
@@ -896,6 +905,12 @@ type BrowserAnswer = Result<(String, String), String>;
 
 pub struct BrowserBroker {
     emit: Arc<dyn Fn(&crate::control::Event) + Send + Sync>,
+    /// The line that asks the app for a host (`need_browser`, `need_surface`).
+    need: fn(u64, LaunchRequest) -> crate::control::Event,
+    /// The line that tells the app a host is no longer needed.
+    stop: fn(String) -> crate::control::Event,
+    /// What the app starts, for messages ("browser", "surface").
+    what: &'static str,
     next: std::sync::atomic::AtomicU64,
     pending: std::sync::Mutex<HashMap<u64, oneshot::Sender<BrowserAnswer>>>,
     alive: std::sync::Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>,
@@ -903,8 +918,40 @@ pub struct BrowserBroker {
 
 impl BrowserBroker {
     pub fn new(emit: Arc<dyn Fn(&crate::control::Event) + Send + Sync>) -> Self {
+        Self::with_lines(
+            emit,
+            |request, launch| crate::control::Event::NeedBrowser {
+                request,
+                tab: launch.tab,
+                url: launch.url,
+            },
+            |tab| crate::control::Event::BrowserStop { tab },
+            "browser",
+        )
+    }
+
+    /// A broker of the app's simulator surface sources (`need_surface`,
+    /// `surface_stop`; `surface.rs`).
+    pub fn for_surfaces(emit: Arc<dyn Fn(&crate::control::Event) + Send + Sync>) -> Self {
+        Self::with_lines(
+            emit,
+            |request, launch| crate::control::Event::NeedSurface { request, tab: launch.tab },
+            |tab| crate::control::Event::SurfaceStop { tab },
+            "surface",
+        )
+    }
+
+    fn with_lines(
+        emit: Arc<dyn Fn(&crate::control::Event) + Send + Sync>,
+        need: fn(u64, LaunchRequest) -> crate::control::Event,
+        stop: fn(String) -> crate::control::Event,
+        what: &'static str,
+    ) -> Self {
         Self {
             emit,
+            need,
+            stop,
+            what,
             next: std::sync::atomic::AtomicU64::new(1),
             pending: std::sync::Mutex::default(),
             alive: std::sync::Mutex::default(),
@@ -940,23 +987,19 @@ impl BrowserBroker {
         let id = self.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(id, tx);
-        (self.emit)(&crate::control::Event::NeedBrowser {
-            request: id,
-            tab: request.tab.clone(),
-            url: request.url,
-        });
+        (self.emit)(&(self.need)(id, request.clone()));
         let answer = tokio::time::timeout(LAUNCH_TIMEOUT + Duration::from_secs(15), rx).await;
         self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&id);
         let (addr, secret) = match answer {
             Ok(Ok(result)) => result?,
-            Ok(Err(_)) => return Err("the app dropped the browser request".into()),
-            Err(_) => return Err("the app did not start a browser host in time".into()),
+            Ok(Err(_)) => return Err(format!("the app dropped the {} request", self.what)),
+            Err(_) => return Err(format!("the app did not start a {} host in time", self.what)),
         };
         let addr = addr
             .parse::<SocketAddr>()
             .ok()
             .filter(|a| a.ip().is_loopback())
-            .ok_or_else(|| "the app's browser host is not on loopback".to_owned())?;
+            .ok_or_else(|| format!("the app's {} host is not on loopback", self.what))?;
         let alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
         self.alive
             .lock()
@@ -991,7 +1034,7 @@ impl Drop for SuppliedGuard {
                     alive.remove(&self.tab);
                 }
             }
-            (self.broker.emit)(&crate::control::Event::BrowserStop { tab: self.tab.clone() });
+            (self.broker.emit)(&(self.broker.stop)(self.tab.clone()));
         }
     }
 }

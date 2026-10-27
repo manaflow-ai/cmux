@@ -1,6 +1,26 @@
 public import CmuxNextDesign
 public import CoreGraphics
 
+/// How a machine's group shows its room (`sidebar.remoteMachines.resources`): free RAM, cores
+/// busy and free disk, from the reading acpmux's link keeps (Leo 2026-10-24: "how much RAM do you
+/// have before you start ... how much CPU utilization").
+public nonisolated enum RemoteMachineResourcesStyle: String, Sendable, CaseIterable, Hashable, TunableChoice {
+    /// An unfolded group's first row: "31 GB free · CPU 12/32" (free disk too when it is low).
+    case row
+    /// The header after the name: "huge-blue · 31 GB free", folded or not.
+    case header
+    /// Neither.
+    case off
+
+    public var tunableTitle: String {
+        switch self {
+        case .row: "Row under the machine (unfolded)"
+        case .header: "Free RAM after the machine's name"
+        case .off: "Off"
+        }
+    }
+}
+
 /// Prototype variants for the sidebar's width transition (Debug Settings
 /// `sidebar.collapseMotion`). The default keeps the existing slide-only
 /// behavior; the fade variant is opt-in so the two looks can be compared
@@ -142,6 +162,12 @@ public nonisolated enum SidebarTunables {
         help: "Gives every workspace row a sample agent chat (needs you, working, done, failed or idle), to see the row states without real sessions.",
         default: false, code: "SidebarTunables.laneFixture")
 
+    /// How a remote machine's group shows its free RAM, cores busy and free disk (`RemoteMachinesSidebar`).
+    public static let remoteMachineResources = Tunable<RemoteMachineResourcesStyle>.choice(
+        "sidebar.remoteMachines.resources", .sidebar, "Remote machines' room",
+        help: "How a machine's group shows its free RAM, cores busy and free disk, from the reading acpmux takes every minute.",
+        default: .row, code: "SidebarTunables.remoteMachineResources")
+
     /// Every row carries its pull requests' badge, with or without the session tree
     /// (`SidebarSessionTreeFeed`), while the row's Pull Request element is on
     /// (`sidebar.workspaceRow.pullRequest`, off by default). On by default; the tree's nesting and keycaps stay opt-in.
@@ -173,6 +199,26 @@ public nonisolated enum SidebarTunables {
         "sidebar.quietUnnamedRows", .sidebar, "Quiet unnamed workspaces",
         help: "An idle workspace nobody named (workspace-11, ~) shows its name dimmed until it has activity, something unread or the selection.",
         default: true, code: "SidebarTunables.quietUnnamedRows")
+
+    /// What a workspace row's name says: the workspace (the default), a breadcrumb to its focused
+    /// tab, the focused tab alone, or every tab (Leo 2026-10-26, `SidebarRowTitleMode`).
+    public static let rowTitle = Tunable<SidebarRowTitleMode>.choice(
+        "sidebar.rowTitle", .sidebar, "Workspace row name",
+        help: "What a workspace row's name says: the workspace alone, the workspace then its focused tab (Workspace › Tab), the focused tab alone (the hover card names the workspace), or the workspace then all its tabs, cut off at the row's end.",
+        default: .workspace, code: "SidebarTunables.rowTitle")
+
+    /// A workspace whose one tab is an agent chat shows the chat's name alone, whatever
+    /// `rowTitle` says (Leo 2026-10-26). Off by default.
+    public static let rowTitleSingleChat = Tunable<Bool>.toggle(
+        "sidebar.rowTitleSingleChat", .sidebar, "Single chat names its workspace",
+        help: "A workspace whose only tab is an agent chat shows the chat's name on its row instead of the workspace's.",
+        default: false, code: "SidebarTunables.rowTitleSingleChat")
+
+    /// Sample rows for each workspace row name (`SidebarSection.rowTitlePreview()`).
+    public static let rowTitlePreview = Tunable<Bool>.toggle(
+        "sidebar.rowTitlePreview", .sidebar, "Row name preview rows",
+        help: "Adds sample workspaces with several tabs to the sidebar, to compare the workspace row names without real sessions.",
+        default: false, code: "SidebarTunables.rowTitlePreview")
 
     /// Sample rows with 1 to 7 pending items (`SidebarSection.rowBadgePreview()`).
     public static let rowBadgePreview = Tunable<Bool>.toggle(
@@ -237,6 +283,7 @@ public nonisolated enum SidebarTunables {
             rowStatus.descriptor,
             pullRequestBadges.descriptor,
             laneFixture.descriptor,
+            remoteMachineResources.descriptor,
             sinceLooked.descriptor,
             slideHoldsContent.descriptor,
             nowLine.descriptor,
@@ -247,6 +294,9 @@ public nonisolated enum SidebarTunables {
             quietUnnamedRows.descriptor,
             pullRequestCard.descriptor,
             rowBadgePreview.descriptor,
+            rowTitle.descriptor,
+            rowTitlePreview.descriptor,
+            rowTitleSingleChat.descriptor,
             sectionTopFraction.descriptor,
             SidebarChatsDesign.tunable.descriptor,
             SidebarGroupHeaderStyle.tunable.descriptor,

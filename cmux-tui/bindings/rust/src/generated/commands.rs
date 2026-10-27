@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR cb12b489fcaad8bfa7cd1979fdcc27eaff578f0f3540c961896abdc0c61eeea0.
+// cmux-tui mux protocol 12, IR 6e6661334b6d20f300c49059740a6892b48e7c6c773fef091543291b5b518022.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -654,6 +654,16 @@ pub struct CloudConversationOpRequest {
 
 #[rustfmt::skip]
 pub type CloudConversationOpResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationPresenceRequest {
+    pub conversation: String,
+    pub viewing: bool,
+}
+
+#[rustfmt::skip]
+pub type CloudConversationPresenceResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3212,6 +3222,8 @@ pub struct SendRequest {
     pub expect_agent: Optional<T::SendExpectAgent>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub expect_foreground: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub flow: Optional<u64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub paste: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -4340,6 +4352,10 @@ impl CmuxClient {
 
     pub fn cloud_conversation_op(&mut self, request: CloudConversationOpRequest) -> Result<CloudConversationOpResult> {
         self.execute(&CLOUD_CONVERSATION_OP_METADATA, &request)
+    }
+
+    pub fn cloud_conversation_presence(&mut self, request: CloudConversationPresenceRequest) -> Result<CloudConversationPresenceResult> {
+        self.execute(&CLOUD_CONVERSATION_PRESENCE_METADATA, &request)
     }
 
     pub fn cloud_conversation_run(&mut self, request: CloudConversationRunRequest) -> Result<CloudConversationRunResult> {

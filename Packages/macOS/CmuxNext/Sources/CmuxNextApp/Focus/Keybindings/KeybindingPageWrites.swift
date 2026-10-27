@@ -35,11 +35,16 @@ struct KeybindingPageWrites {
             throw PageError(code: "cmux.keybindings.invalid", message: KeybindingStrings.invalidKeys(text))
         }
         let args = params["args"]?.objectValue ?? [:]
-        if registry.descriptor(for: id)?.shortcutFamily == .digits, let target, let digit = target.argument {
-            if keys.count == 1, keys[0].key == digit, target.source != .app, !isFromFile(target),
-               params["when"]?.stringValue == target.when?.text {
-                return try await moveFamily(id, to: keys[0].modifiers)
+        // An unset family (the page's Remove took its keys) gets all nine keys back on the
+        // recorded modifiers, checked as a family.
+        if registry.descriptor(for: id)?.shortcutFamily == .digits, keys.count == 1 {
+            if movesFamily(id, keys[0], params) { return try await moveFamily(id, to: keys[0].modifiers) }
+            // An unset family moves all nine keys to the recorded modifiers: it takes a digit.
+            if target == nil, movesUnsetFamily(id, params) {
+                throw PageError(code: "cmux.keybindings.refused", message: KeybindingStrings.familyNeedsDigit)
             }
+        }
+        if registry.descriptor(for: id)?.shortcutFamily == .digits, let target, target.argument != nil {
             try refuseSiblings(id, keys: [keys], except: target)
             return try await setInFile(id, keys: keys, when: params["when"]?.stringValue, args: args, replaces: target)
         }
@@ -48,6 +53,13 @@ struct KeybindingPageWrites {
         guard params["when"]?.stringValue == scope, args.isEmpty || target != nil, target?.source != .app,
               !isFromFile(target), keys.count <= 2 else {
             return try await setInFile(id, keys: keys, when: params["when"]?.stringValue, args: args, replaces: target)
+        }
+        // The action's own default keys: its override goes, and the shipped entry (with the keys
+        // it yields to others) is back, sharing its keys with the other defaults by design.
+        if restoresDefault(params) {
+            registry.removeShortcutOverride(for: id)
+            try await write { try await settings.resetShortcut(for: id) }
+            return
         }
         switch keys.count {
         case 1:
@@ -220,14 +232,111 @@ struct KeybindingPageWrites {
         }
     }
 
+    /// The refusal of `key` for `command` before any write (`cmux.keybindings.conflicts`): the
+    /// recorder's rules, as `set` checks them (a key a system action always runs, a key of
+    /// another action's numbered family, a key macOS keeps), with the action that holds the key
+    /// when there is one. Nil when they may be saved; another action's keys in the same place
+    /// are the page's question (Overwrite takes them first), not this.
+    func refusal(_ params: [String: JSONValue]) -> (message: String, owner: ActionID?)? {
+        guard let id = try? command(params), let keys = KeybindingReports.keys(from: params["key"]?.stringValue ?? ""),
+              let first = keys.first else { return nil }
+        // An unset numbered family moves to the recorded modifiers on its digits (`set`).
+        let target = (try? entry(id, params["replaces"]?.objectValue)) ?? nil
+        if registry.descriptor(for: id)?.shortcutFamily == .digits, keys.count == 1, target == nil,
+           !movesFamily(id, first, params), movesUnsetFamily(id, params) {
+            return (KeybindingStrings.familyNeedsDigit, nil)
+        }
+        guard case .refused(let refusal) = assessment(first, for: id) else { return nil }
+        let owner: ActionID? = switch refusal {
+        case .systemAction(let owner), .numberedFamily(let owner): owner
+        default: nil
+        }
+        return (ShortcutAssessmentText(registry).refusal(refusal, shortcut: first, id: id), owner)
+    }
+
+    /// The `when` the entry `set` writes would carry, for the conflict check before the write
+    /// (`cmux.keybindings.conflicts`): a cmux.json override keeps only the action's own context
+    /// (its `requires`, Home's chat scope), not a default's extra conditions (`!codeEditorFocused`,
+    /// not a terminal); a keybindings.json entry keeps the text sent. As `set` routes them.
+    func savedWhen(_ params: [String: JSONValue]) -> WhenClause? {
+        let sent = params["when"]?.stringValue
+        // The action's default keys again: the shipped entry's `when`, with what it yields.
+        if restoresDefault(params), let id = try? command(params),
+           let keys = KeybindingReports.keys(from: params["key"]?.stringValue ?? "") {
+            return RegistryKeyBindings(registry).shippedWhen(for: id, keys: keys)
+        }
+        guard let id = try? command(params), toConfig(id, params) else { return sent.flatMap { try? WhenClause.parse($0) } }
+        let requiring = WhenClause.requiring(registry.descriptor(for: id)?.requires ?? [])
+        if KeyBindingDefaults.homeScoped.contains(id) { return WhenClause.and([requiring, KeyBindingDefaults.onHome].compactMap { $0 }) }
+        guard KeyBindingDefaults.homeChatScoped.contains(id) else { return requiring }
+        return WhenClause.and([requiring, KeyBindingDefaults.onHomeChats].compactMap { $0 })
+    }
+
+    /// `set` would give the action its shipped default keys back: a cmux.json override equal to
+    /// the default is the default entry again (`RegistryKeyBindings.source`), so it shares keys
+    /// with the other shipped defaults by design (each surface's Cmd-0 Actual Size).
+    /// A numbered family back on its default modifiers drops its override (`moveFamily`).
+    func restoresDefault(_ params: [String: JSONValue]) -> Bool {
+        guard let id = try? command(params), let keys = KeybindingReports.keys(from: params["key"]?.stringValue ?? ""),
+              keys.count == 1, let shipped = registry.descriptor(for: id)?.defaultShortcut else { return false }
+        if registry.descriptor(for: id)?.shortcutFamily == .digits {
+            return movesFamily(id, keys[0], params) && Shortcut("1", modifiers: keys[0].modifiers) == shipped
+        }
+        return toConfig(id, params) && keys[0] == shipped
+    }
+
+    /// The actions `set` refuses to share the keys with (another action's keys in the same place):
+    /// Overwrite must take the keys from them everywhere, or the save fails after it took some.
+    func sameScopeOwners(_ params: [String: JSONValue]) -> Set<ActionID> {
+        guard let id = try? command(params), !restoresDefault(params),
+              let keys = KeybindingReports.keys(from: params["key"]?.stringValue ?? ""), let first = keys.first,
+              case .conflict(let owners, let canKeepBoth, _, _) = assessment(first, for: id), !canKeepBoth else { return [] }
+        // Only the owners with an entry on these keys in the same place: an owner in a narrower
+        // context keeps its keys outside the new shortcut's (Overwrite takes them only there).
+        let scope = WhenClause.requiring(registry.descriptor(for: id)?.requires ?? [])?.text
+        let entries = RegistryKeyBindings(registry).table.entries
+        let same = owners.filter { owner in entries.contains { $0.command == owner && $0.keys == keys && $0.when?.text == scope } }
+        // The recorder's rules found one this cannot name: all of them, so the save cannot fail.
+        return Set(same.isEmpty ? owners : same)
+    }
+
+    /// An unset numbered family recorded in its own place (no arguments, its own `when`): `set`
+    /// moves all nine keys to the recorded modifiers.
+    private func movesUnsetFamily(_ id: ActionID, _ params: [String: JSONValue]) -> Bool {
+        guard case .some(.none) = registry.shortcutOverrides[id], params["args"]?.objectValue?.isEmpty ?? true else { return false }
+        return params["when"]?.stringValue == WhenClause.requiring(registry.descriptor(for: id)?.requires ?? [])?.text
+    }
+
+    /// `set` moves the numbered family `id` to the key's modifiers (all nine keys): an unset
+    /// family, or one of its digits recorded on other modifiers in its own place.
+    private func movesFamily(_ id: ActionID, _ key: Shortcut, _ params: [String: JSONValue]) -> Bool {
+        guard let target = (try? entry(id, params["replaces"]?.objectValue)) ?? nil else {
+            return movesUnsetFamily(id, params) && key.key.count == 1 && "123456789".contains(key.key)
+        }
+        return key.key == target.argument && target.source != .app && !isFromFile(target)
+            && params["when"]?.stringValue == target.when?.text
+    }
+
+    /// `set` writes the keys to cmux.json (one key or a two-key chord in the action's own `when`).
+    private func toConfig(_ id: ActionID, _ params: [String: JSONValue]) -> Bool {
+        let target = (try? entry(id, params["replaces"]?.objectValue)) ?? nil
+        let requiring = WhenClause.requiring(registry.descriptor(for: id)?.requires ?? [])
+        let keys = KeybindingReports.keys(from: params["key"]?.stringValue ?? "") ?? []
+        return params["when"]?.stringValue == (target?.when?.text ?? requiring?.text) && target?.source != .app
+            && !isFromFile(target) && keys.count <= 2 && registry.descriptor(for: id)?.shortcutFamily != .digits
+    }
+
     /// The palette recorder's rules (`ActionRegistry.assessShortcut`; one
     /// key of a numbered family, `assessKey`).
     private func assess(_ shortcut: Shortcut, for id: ActionID) throws {
+        try verdict(assessment(shortcut, for: id), shortcut: shortcut, for: id)
+    }
+
+    private func assessment(_ shortcut: Shortcut, for id: ActionID) -> ShortcutAssessment {
         let environment = ShortcutEditEnvironment(chromeChords: BrowserChordTable.chromeReserved)
-        let assessment = registry.descriptor(for: id)?.shortcutFamily == nil
+        return registry.descriptor(for: id)?.shortcutFamily == nil
             ? registry.assessShortcut(shortcut, for: id, environment: environment)
             : registry.assessKey(shortcut, for: id, environment: environment)
-        try verdict(assessment, shortcut: shortcut, for: id)
     }
 
     /// A refusal, or a conflict in the same place, is the page's error.
