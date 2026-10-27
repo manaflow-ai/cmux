@@ -57,18 +57,27 @@ import Testing
         #expect(Self.rows.filter { $0.expected == .cmuxPages }.allSatisfy { !$0.script.allFrames }, "the relay is the main frame's")
     }
 
-    /// p01-process-232: the page host relay posts the page's event text on its channel and cancels the event, so the
-    /// page sends no binding call; it runs only in a cmux page.
+    /// p01-process-232: the page host relay posts the page's event text on its channel, stamped with the URL of the
+    /// document it runs in, and cancels the event, so the page sends no binding call; it runs only in a cmux page.
     @Test(arguments: documents) func thePageHostRelayPostsOnlyInACmuxPage(_ document: Document) throws {
         let context = try Self.context(document)
-        context.evaluateScript(Self.domStub)
+        context.evaluateScript(Self.domStub + "location.href = 'cmux-page://agent/index.html#/chat';")
         let relay = try #require(CEFDocumentScripts(post: .pageChannel).pageHost.first)
         context.evaluateScript(relay.source)
         #expect(context.exception == nil, "\(String(describing: context.exception))")
         let taken = context.evaluateScript("fire('[1,2]')").toBool()
         #expect(taken == (document.scheme == "cmux-page:"), "the relay took the post: \(taken)")
         let posted = context.evaluateScript("posts.join('|')").toString()
-        #expect(posted == (document.scheme == "cmux-page:" ? "cmuxPageHost [1,2]" : ""))
+        #expect(posted == (document.scheme == "cmux-page:" ? "cmuxPageHost cmux-page://agent/index.html#/chat\n[1,2]" : ""))
+    }
+
+    /// The host reads the relay's stamp back: the sender's URL and the page's text, newlines in the text kept; a
+    /// post with no stamp is not the relay's.
+    @Test func aPageHostPostSplitsIntoItsSenderAndText() throws {
+        let post = try #require(CEFDocumentScripts.pageHostPost("cmux-page://agent/index.html\n{\"a\":\"x\\ny\"}\nz"))
+        #expect(post.sender.absoluteString == "cmux-page://agent/index.html")
+        #expect(post.text == "{\"a\":\"x\\ny\"}\nz")
+        #expect(CEFDocumentScripts.pageHostPost(#"{"name":"cmuxPage"}"#) == nil)
     }
 
     /// A relay whose channel is missing (a refused channel) leaves the event uncancelled: the page falls back.

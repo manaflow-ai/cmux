@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// What a raw DevTools send did (`cmux_shim_devtools_send`).
 public nonisolated enum CEFDevToolsRawSend: Hashable, Sendable {
@@ -169,13 +169,16 @@ public final class CEFAgentRelay {
         case .protectedMedia: media?.refused(message.payload)
         case .verification: verification?.report(message.payload)
         case .firstPaint: firstPaint?.painted()
-        case .pageHost: onPageHostPost?(message.payload)
+        case .pageHost:
+            guard let post = CEFDocumentScripts.pageHostPost(message.payload) else { return }
+            onPageHostPost?(post.text, post.sender)
         }
     }
 
     /// Takes a cmux page's page host posts (``CEFPageMessage/Channel/pageHost``, its main frame
-    /// only), in the order the tab's events deliver them; nil drops them.
-    public var onPageHostPost: ((String) -> Void)?
+    /// only), in the order the tab's events deliver them: the page's text and the URL of the
+    /// document that sent it (the relay's stamp, ``CEFDocumentScripts/pageHostPost(_:)``); nil drops them.
+    public var onPageHostPost: ((_ text: String, _ sender: URL) -> Void)?
 
     /// The DOM event a cmux page fires to post to its page host on the page channel
     /// (``CEFDocumentScripts/pageHostEvent``); nil when the runtime installs no page channels

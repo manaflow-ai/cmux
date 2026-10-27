@@ -126,7 +126,7 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
             : []
         pageHost = post == .pageChannel
             ? [Script(world: Self.pageHostWorld,
-                      body: Self.pageHostRelay(post: post.send(Self.pageHostChannel, "text"), ready: post.ready(Self.pageHostChannel)),
+                      body: Self.pageHostRelay(post: post.send(Self.pageHostChannel, "stamped"), ready: post.ready(Self.pageHostChannel)),
                       allFrames: false, scope: .cmuxPages)]
             : []
     }
@@ -138,19 +138,31 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
     /// it sends fits ``CEFPageMessage/maxPageHostPayloadBytes`` and none is dropped on arrival.
     static let pageHostRelayMaxCharacters = CEFPageMessage.maxPageHostPayloadBytes / 3
 
-    /// The relay from ``pageHostEvent`` to ``pageHostChannel``: `post` sends `text`, `ready` says the
-    /// channel exists. An event it did not post stays uncancelled, and the page sends that post on
-    /// its DevTools binding instead (a channel the shim refused, a text over the channel's size).
+    /// The relay from ``pageHostEvent`` to ``pageHostChannel``: `post` sends `stamped`, the event's
+    /// text after its document's URL and a newline (``pageHostPost(_:)``); `ready` says the channel
+    /// exists. The relay reads the URL in its isolated world, which the page's own world cannot
+    /// change, so the host judges each post by the document that sent it, not by the last commit it
+    /// heard. An event it did not post stays uncancelled, and the page sends that post on its
+    /// DevTools binding instead (a channel the shim refused, a text over the channel's size).
     static func pageHostRelay(post: String, ready: String) -> String {
         """
         document.addEventListener('\(pageHostEvent)', (event) => {
           const text = event.detail;
-          if (typeof text !== 'string' || text.length > \(pageHostRelayMaxCharacters) || !(\(ready))) return;
+          if (typeof text !== 'string' || !(\(ready))) return;
+          const stamped = location.href + '\\n' + text;
+          if (stamped.length > \(pageHostRelayMaxCharacters)) return;
           try { \(post); } catch (_) { return; }
           event.preventDefault();
           event.stopImmediatePropagation();
         }, true);
         """
+    }
+
+    /// One post of the relay (``pageHostRelay(post:ready:)``): the sending document's URL and the
+    /// page's text. Nil when the stamp is missing or is no URL. A URL has no raw newline.
+    static func pageHostPost(_ payload: String) -> (sender: URL, text: String)? {
+        guard let newline = payload.firstIndex(of: "\n"), let sender = URL(string: String(payload[..<newline])) else { return nil }
+        return (sender, String(payload[payload.index(after: newline)...]))
     }
 
     /// Installs every script and channel for every browser (fork API 29). Returns the names the

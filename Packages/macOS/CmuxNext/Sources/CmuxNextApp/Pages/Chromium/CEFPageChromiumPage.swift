@@ -95,7 +95,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         }
         tab.agentRelay.set(onMessage: { [weak self] json in self?.onEvent?(.devTools(json)) },
                            onEnd: { [weak self] in self?.renderEnded() })
-        tab.agentRelay.onPageHostPost = { [weak self] text in self?.onEvent?(.pageHostPost(text)) }
+        tab.agentRelay.onPageHostPost = { [weak self] text, sender in self?.onEvent?(.pageHostPost(text, sender: sender)) }
         tab.pageFilesDragged = { [weak self] urls in self?.onEvent?(.filesDragged(urls)) }
         tab.pageUserInput = { [weak self] uptime in self?.onEvent?(.userInput(uptime)) }
         let tab = tab

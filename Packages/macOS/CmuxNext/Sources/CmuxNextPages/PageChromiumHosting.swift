@@ -84,7 +84,7 @@ public protocol PageChromiumPage: AnyObject {
     /// before the first ``load(_:)``.
     var resources: (@MainActor (URL) async -> PageChromiumResponse)? { get set }
     /// The DOM event the page's main frame fires to post to the host on the engine's page channel
-    /// (fork API 29); its posts then arrive as ``PageChromiumEvent/pageHostPost(_:)``. Nil when the
+    /// (fork API 29); its posts then arrive as ``PageChromiumEvent/pageHostPost(_:sender:)``. Nil when the
     /// engine has no page channel: the page calls its DevTools binding, whose calls arrive in
     /// ``PageChromiumEvent/devTools(_:)`` (``ChromiumPageHostBridge``).
     var pageHostEvent: String? { get }
@@ -231,8 +231,9 @@ public nonisolated enum PageChromiumEvent: Sendable, Equatable {
     /// A raw DevTools protocol message (an event of a domain the host turned on).
     case devTools(String)
     /// The page's main frame posted to the host on the page channel (``PageChromiumPage/pageHostEvent``):
-    /// the text the page script sent, untrusted.
-    case pageHostPost(String)
+    /// the text the page script sent, untrusted, and the URL of the document that sent it, which
+    /// the engine's relay read where the page cannot change it.
+    case pageHostPost(String, sender: URL)
     /// A new main-frame document committed at `url`.
     case committed(URL?)
     /// The document finished loading.

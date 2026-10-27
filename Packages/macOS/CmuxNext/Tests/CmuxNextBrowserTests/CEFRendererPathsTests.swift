@@ -147,19 +147,21 @@ import Testing
         #expect((tab.state.media != nil) == !cmuxPage, "media \(String(describing: tab.state.media))")
     }
 
-    /// p01-process-232: a cmux page's page host post reaches its tab's taker in the event's turn; a browser tab,
-    /// whose renderer runs no page host relay, drops one. Only a cmux page's tab names the page channel event.
+    /// p01-process-232: a cmux page's page host post reaches its tab's taker in the event's turn, split into the
+    /// relay's sender stamp and the page's text; a post with no stamp is dropped, and a browser tab, whose renderer
+    /// runs no page host relay, drops every one. Only a cmux page's tab names the page channel event.
     @Test(arguments: [false, true]) func aPageHostPostReachesOnlyACmuxPageTab(cmuxPage: Bool) async throws {
         let rig = try Rig(forkAPI: 29)
         defer { rig.close() }
         let tab = try rig.attachedTab(cmuxPage: cmuxPage)
         await rig.settle()
         var taken: [String] = []
-        tab.agentRelay.onPageHostPost = { taken.append($0) }
-        let post = try #require(CEFPageMessage(channel: CEFDocumentScripts.pageHostChannel, payload: #"{"name":"cmuxPage","seq":1,"body":{}}"#,
-                                               mainFrame: true))
-        tab.agentRelay.pageMessage(post)
-        #expect(taken == (cmuxPage ? [post.payload] : []))
+        tab.agentRelay.onPageHostPost = { text, sender in taken.append(sender.absoluteString + " " + text) }
+        let text = #"{"name":"cmuxPage","seq":1,"body":{}}"#
+        for payload in ["cmux-page://agent/index.html\n" + text, text] {
+            tab.agentRelay.pageMessage(try #require(CEFPageMessage(channel: CEFDocumentScripts.pageHostChannel, payload: payload, mainFrame: true)))
+        }
+        #expect(taken == (cmuxPage ? ["cmux-page://agent/index.html " + text] : []))
         #expect(tab.agentRelay.pageHostEvent == CEFDocumentScripts.pageHostEvent)
         #expect(Spy.devToolsCalls.isEmpty, "\(Spy.devToolsCalls)")
     }

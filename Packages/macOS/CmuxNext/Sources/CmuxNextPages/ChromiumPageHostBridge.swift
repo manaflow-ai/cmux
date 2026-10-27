@@ -5,10 +5,12 @@ import os
 ///
 /// - **Page channel** (fork API 29, ``PageChromiumPage/pageHostEvent``): the page script fires that
 ///   DOM event; the runtime's relay in an isolated world posts its text with `cmuxPost`, and it
-///   arrives as ``PageChromiumEvent/pageHostPost(_:)``, from the main frame only. One renderer to
-///   browser message per post and no sender probe, as `chrome.send` reaches `WebUIImpl::OnWebUISend`
-///   (content/browser/webui/web_ui_impl.cc), which judges the sender by its frame's last committed
-///   URL: here the document the page last committed (``documentCommitted(_:)``).
+///   arrives as ``PageChromiumEvent/pageHostPost(_:sender:)``, from the main frame only. One renderer
+///   to browser message per post and no sender probe, as `chrome.send` reaches `WebUIImpl::OnWebUISend`
+///   (content/browser/webui/web_ui_impl.cc). There the sender is the frame's last committed URL,
+///   which the message's own per-frame pipe orders; here the commit and the post come on different
+///   pipes, so the relay stamps each post with its document's URL, read in its isolated world, and
+///   a post is judged only while that document is the one committed (``documentCommitted(_:)``).
 /// - **DevTools binding** (any fork, and a post the relay did not take): `Runtime.addBinding` puts
 ///   `__cmuxPageHost(string)` in the page's main world; a call arrives as a `Runtime.bindingCalled`
 ///   event with the caller's execution context, and the bridge asks that context for
@@ -18,9 +20,10 @@ import os
 /// (`window.webkit.messageHandlers.cmuxPage.postMessage(envelope)` resolving to the reply), so the
 /// page does not know which engine shows it. The posts of one task leave together at its microtask
 /// checkpoint, as one call: a burst of calls is one message, and none waits for a frame.
-/// ``PageHostTrust`` checks each message as for WebKit. A reply goes back into the sender's context
-/// (binding), or into the main frame with the sending document's id, so a reply to a document that
-/// has gone resolves nothing in the next one (page channel).
+/// The handlers of the page's messages start in post order (``start(_:)``), and calls then run
+/// side by side. ``PageHostTrust`` checks each message as for WebKit. A reply goes back into the
+/// sender's context (binding), or into the main frame with the sending document's id, so a reply
+/// to a document that has gone resolves nothing in the next one (page channel).
 /// ``evaluate(_:)`` runs scripts in order; the ones queued together go in one `Runtime.evaluate`.
 @MainActor
 public final class ChromiumPageHostBridge: PageHostBridge {
@@ -33,6 +36,18 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     nonisolated public static let maximumPayloadBytes = 4 << 20
     /// The most UTF-16 units the page script joins into one post; a longer call goes alone.
     nonisolated static let maximumPostCharacters = 1 << 20
+
+    /// A page channel post held for its document's commit (``documentCommitted(_:)``).
+    public struct HeldPost {
+        let text: String
+        let sender: URL
+    }
+
+    /// One handler start, in post order: a fire-and-forget message or a call.
+    private enum Start {
+        case message(String, Any)
+        case call(Int)
+    }
 
     /// One page call waiting for its handler.
     private struct Call {
@@ -55,15 +70,16 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     private var reachedHost = false
     private var scripts: [String] = []
     private var draining = false
-    /// The main-frame document the page last committed: the sender of its page channel posts while
-    /// it is a cmux page (``posts(from:)``).
+    /// The main-frame document the page last committed: a page channel post is judged while its
+    /// stamped sender is this document (``isCommitted(_:)``).
     private var committedDocument: URL?
-    /// Page channel posts that came while the last commit heard was no cmux page (none yet, or the
-    /// initial `about:blank`): a newer document's, judged when its commit arrives, since the commit's
-    /// DevTools event and the post come on different pipes.
-    private var earlyPosts: [String] = []
+    /// Page channel posts whose sender is not the committed document: a newer document's, judged
+    /// when its commit arrives, since the commit's DevTools event and the post come on different pipes.
+    private var earlyPosts: [HeldPost] = []
     /// The most posts kept waiting for their commit; more are refused.
     nonisolated static let maximumEarlyPosts = 64
+    /// Handler starts waiting for the ones before them (``start(_:)``).
+    private var starts: [Start] = []
     /// Calls waiting for their handler, by the bridge's own id.
     private var calls: [Int: Call] = [:]
     private var nextCall = 0
@@ -113,17 +129,33 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     }
 
     /// A main-frame document committed at `url`, whichever it is (one the page host then sends
-    /// away too): the page channel posts after it are its own, judged by `url`.
-    public func documentCommitted(_ url: URL?) {
+    /// away too): its posts are judged from now on. Returns its posts that came before the commit;
+    /// pass them to ``replay(_:)`` once the view has taken the commit, so its reset for the new
+    /// document does not undo them. A cmux page's commit drops the held posts of every other
+    /// document (one that has gone); a commit of no cmux page (the initial `about:blank`) keeps them.
+    public func documentCommitted(_ url: URL?) -> [HeldPost] {
         committedDocument = url
-        guard Self.posts(from: url), !earlyPosts.isEmpty else { return }
-        let early = earlyPosts
+        guard Self.posts(from: url) else { return [] }
+        let held = earlyPosts.filter { isCommitted($0.sender) }
         earlyPosts.removeAll()
-        for text in early { receive(pageHostPost: text) }
+        return held
+    }
+
+    /// Delivers the posts ``documentCommitted(_:)`` returned, in the order they came.
+    public func replay(_ posts: [HeldPost]) {
+        for post in posts { receive(pageHostPost: post.text, sender: post.sender) }
     }
 
     /// Whether a document at `url` can post on the page channel: a cmux page (the relay runs nowhere else).
     nonisolated static func posts(from url: URL?) -> Bool { url?.scheme?.lowercased() == PageDescriptor.scheme }
+
+    /// Whether `sender` is the committed document: a cmux page of the same origin, the unit
+    /// ``PageHostTrust`` judges (``PageDescriptor/owns(_:)``); the page's own `pushState` and
+    /// fragment changes keep it.
+    private func isCommitted(_ sender: URL) -> Bool {
+        guard let committedDocument, Self.posts(from: committedDocument), Self.posts(from: sender) else { return false }
+        return sender.host?.lowercased() == committedDocument.host?.lowercased() && sender.port == committedDocument.port
+    }
 
     public func evaluate(_ script: String) {
         scripts.append(script)
@@ -175,6 +207,8 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         handler = nil
         scripts.removeAll()
         calls.removeAll()
+        starts.removeAll()
+        earlyPosts.removeAll()
     }
 
     // MARK: Messages
@@ -195,24 +229,21 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         return true
     }
 
-    /// Handles one page channel post of the page's main frame (``PageChromiumEvent/pageHostPost(_:)``):
-    /// its messages reach their handlers in this turn, sent by the document the page last committed.
-    /// A post while the last commit heard is no cmux page waits for the next commit (``documentCommitted(_:)``).
-    public func receive(pageHostPost text: String) {
+    /// Handles one page channel post of the page's main frame (``PageChromiumEvent/pageHostPost(_:sender:)``),
+    /// sent by the document at `sender` (the relay's stamp, which the page's own world cannot change).
+    /// While that document is the committed one, its messages start their handlers in post order;
+    /// else the post waits for that document's commit (``documentCommitted(_:)``).
+    public func receive(pageHostPost text: String, sender: URL) {
         guard text.utf8.count <= Self.maximumPayloadBytes else {
             logger.error("page host post refused")
             return
         }
-        guard let committedDocument, Self.posts(from: committedDocument) else {
+        guard isCommitted(sender) else {
             guard earlyPosts.count < Self.maximumEarlyPosts else { return logger.error("page host post before the commit refused") }
-            earlyPosts.append(text)
+            earlyPosts.append(HeldPost(text: text, sender: sender))
             return
         }
-        let calls = deliver(text, sender: ChromiumPageHostWire.Sender(url: committedDocument, isTop: true), context: nil)
-        guard !calls.isEmpty else { return }
-        // main-hop-allow: a page call's handler is main-actor async (PageHostHandler); this task only starts the post's calls and evaluates their replies
-        // task-owner: the calls of one post; each reply goes back to the document that sent it
-        Task { [weak self] in await self?.answer(calls) }
+        deliver(text, sender: ChromiumPageHostWire.Sender(url: sender, isTop: true), context: nil)
     }
 
     /// Asks the sender (a binding call's context) for its URL, then delivers and answers.
@@ -221,44 +252,51 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         let params: [String: any Sendable] = ["expression": "[location.href, window === window.top]", "contextId": context,
                                               "returnByValue": true, "silent": true]
         let senderJSON = try? await page.devTools("Runtime.evaluate", params: params)
-        await answer(deliver(payload, sender: senderJSON.flatMap(ChromiumPageHostWire.Sender.init(evaluation:)), context: context))
+        deliver(payload, sender: senderJSON.flatMap(ChromiumPageHostWire.Sender.init(evaluation:)), context: context)
     }
 
-    /// Hands each message of `payload` to its handler, in order: a fire-and-forget one in this turn.
-    /// Returns the ids of its calls (``answer(_:)`` runs them).
-    private func deliver(_ payload: String, sender: ChromiumPageHostWire.Sender?, context: Int?) -> [Int] {
+    /// Starts the handler of each message of `payload`, in order (``start(_:)``).
+    private func deliver(_ payload: String, sender: ChromiumPageHostWire.Sender?, context: Int?) {
         guard let messages = ChromiumPageHostWire.messages(payload: payload) else {
             logger.error("page host payload refused")
-            return []
+            return
         }
-        var started: [Int] = []
         for message in messages {
             let request = PageHostMessage(frameURL: sender?.url, isMainFrame: sender?.isTop ?? false, body: message.body)
             if message.name != PageHostTrust.handlerName {
                 guard fireAndForget.contains(message.name), request.isMainFrame else { continue }
                 noteReached()
-                onMessage?(message.name, message.body)
+                start(.message(message.name, message.body))
                 continue
             }
             guard handler != nil, let seq = message.seq else { continue }
             noteReached()
             nextCall += 1
             calls[nextCall] = Call(request: request, seq: seq, document: message.document, context: context)
-            started.append(nextCall)
+            start(.call(nextCall))
         }
-        return started
     }
 
-    /// Runs the calls `ids` side by side, so a slow one holds back no other, and sends each reply.
-    private func answer(_ ids: [Int]) async {
-        guard ids.count > 1 else {
-            if let id = ids.first { await run(id) }
+    /// Starts one handler after every handler before it. A fire-and-forget message runs in this
+    /// turn while no start waits; a call, and every message after one, waits in ``starts`` and
+    /// starts in a task of its own that takes the oldest waiting start, so handlers start in post
+    /// order whatever order the tasks run in, and a slow call holds back no other.
+    private func start(_ next: Start) {
+        if case .message(let name, let body) = next, starts.isEmpty {
+            onMessage?(name, body)
             return
         }
-        await withTaskGroup(of: Void.self) { group in
-            for id in ids {
-                group.addTask { [weak self] in await self?.run(id) }
-            }
+        starts.append(next)
+        // main-hop-allow: a page call's handler is main-actor async (PageHostHandler); this task only starts the oldest waiting handler and evaluates its reply
+        // task-owner: one handler start of a page post; it ends with that handler's reply, or at once once the bridge is uninstalled
+        Task { [weak self] in await self?.startOldest() }
+    }
+
+    private func startOldest() async {
+        guard !starts.isEmpty else { return }
+        switch starts.removeFirst() {
+        case .message(let name, let body): onMessage?(name, body)
+        case .call(let id): await run(id)
         }
     }
 
@@ -280,90 +318,5 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         guard !reachedHost else { return }
         reachedHost = true
         onFirstMessage?()
-    }
-
-    // MARK: Page script
-
-    /// Installs `window.webkit.messageHandlers.<name>` for ``PageHostTrust/handlerName`` (with
-    /// replies) and each of `handlers` (without). The posts of one task leave together at its
-    /// microtask checkpoint as one call (a JSON array of several, up to ``maximumPostCharacters``):
-    /// on the page channel when `channelEvent` is set and its relay takes the post, else on the
-    /// binding, which the document then keeps, so its posts stay in order. Posts made before either
-    /// exists wait in the page and go out once one does.
-    ///
-    /// - Parameters:
-    ///   - handlers: Extra handler names whose messages need no reply.
-    ///   - channelEvent: The page channel event (``PageChromiumPage/pageHostEvent``); nil: the binding only.
-    public static func pageScript(handlers: [String], channelEvent: String? = nil) -> String {
-        let names = ([PageHostTrust.handlerName] + handlers).map(ChromiumPageHostWire.jsonString).joined(separator: ", ")
-        let replying = ChromiumPageHostWire.jsonString(PageHostTrust.handlerName)
-        let event = channelEvent.map(ChromiumPageHostWire.jsonString) ?? "null"
-        return """
-        (() => {
-          if (globalThis.__cmuxPageHostInstalled) return;
-          Object.defineProperty(globalThis, "__cmuxPageHostInstalled", { value: true });
-          const channelEvent = \(event);
-          const doc = Math.random().toString(36).slice(2) + Date.now().toString(36);
-          const pending = new Map();
-          const queue = [];
-          let next = 1;
-          let retries = 0;
-          let waiting = false;
-          let bindingUsed = false;
-          const viaChannel = (text) => channelEvent !== null && !bindingUsed
-            && !document.dispatchEvent(new CustomEvent(channelEvent, { detail: text, cancelable: true }));
-          const viaBinding = (text) => {
-            const binding = globalThis.\(bindingName);
-            if (typeof binding !== "function") return false;
-            binding(text);
-            bindingUsed = true;
-            return true;
-          };
-          const flush = () => {
-            while (queue.length) {
-              let size = queue[0].length;
-              let count = 1;
-              while (count < queue.length && size + queue[count].length <= \(maximumPostCharacters)) size += queue[count++].length;
-              const text = count === 1 ? queue[0] : "[" + queue.slice(0, count).join(",") + "]";
-              if (!viaChannel(text) && !viaBinding(text)) return false;
-              queue.splice(0, count);
-            }
-            return true;
-          };
-          const drain = () => {
-            if (flush() || ++retries > 400) { waiting = false; return; }
-            setTimeout(drain, 5);
-          };
-          const send = (text) => {
-            queue.push(text);
-            if (waiting) return;
-            waiting = true;
-            retries = 0;
-            queueMicrotask(drain);
-          };
-          Object.defineProperty(globalThis, "\(resolveName)", {
-            value: (seq, reply, from) => {
-              if (from !== undefined && from !== doc) return;
-              const done = pending.get(seq);
-              if (done) { pending.delete(seq); done(reply); }
-            },
-          });
-          const handlers = {};
-          for (const name of [\(names)]) {
-            handlers[name] = {
-              postMessage(body) {
-                if (name !== \(replying)) { send(JSON.stringify({ name, body })); return undefined; }
-                return new Promise((resolve) => {
-                  const seq = next++;
-                  pending.set(seq, resolve);
-                  send(JSON.stringify({ name, seq, doc, body }));
-                });
-              },
-            };
-          }
-          const webkit = globalThis.webkit ?? {};
-          globalThis.webkit = { ...webkit, messageHandlers: { ...(webkit.messageHandlers ?? {}), ...handlers } };
-        })();
-        """
     }
 }

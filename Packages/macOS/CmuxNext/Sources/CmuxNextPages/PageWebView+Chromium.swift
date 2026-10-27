@@ -251,11 +251,12 @@ extension PageWebView {
             guard !chromiumSession.bridge.receive(devToolsMessage: json),
                   let event = ChromiumPageHostWire.documentEvent(json) else { return }
             chromiumEvent(event)
-        case .pageHostPost(let text):
-            chromiumSession.bridge.receive(pageHostPost: text)
+        case .pageHostPost(let text, let sender):
+            chromiumSession.bridge.receive(pageHostPost: text, sender: sender)
         case .committed(let url):
-            // Before the policy: the posts that follow are this document's, whichever it is.
-            chromiumSession.bridge.documentCommitted(url)
+            // Before the policy: the posts that follow are this document's, whichever it is. The
+            // ones it sent before this event are delivered once the view has reset for it.
+            let held = chromiumSession.bridge.documentCommitted(url)
             guard let url, url.scheme != "about" else { return }
             guard PageNavigation.policy(for: url, page: descriptor, userClicked: false, mainFrame: true, hook: onNavigate) == .allow else {
                 // A navigation the click script did not catch (a script set `location`): the page
@@ -266,6 +267,7 @@ extension PageWebView {
             }
             chromiumSession.bridge.rebind()
             documentCommitted()
+            chromiumSession.bridge.replay(held)
         case .finished:
             documentFinished()
         case .crashed:
