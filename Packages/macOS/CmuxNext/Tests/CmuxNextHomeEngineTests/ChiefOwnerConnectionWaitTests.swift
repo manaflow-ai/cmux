@@ -49,5 +49,20 @@ import Testing
         let wait = Task { @MainActor in await owner.connection(supporting: Self.capability) }
         wait.cancel()
         #expect(await wait.value == nil)
+        #expect(owner.connectionWaitCount == 0)
+    }
+
+    @Test func aWaitCancelledWhileItWaitsLeavesNoWaiter() async {
+        let owner = owner()
+        // Main-actor tasks run in the order they were made: the wait is filed before the check.
+        let wait = Task { @MainActor in await owner.connection(supporting: Self.capability) }
+        let filed = Task { @MainActor in owner.connectionWaitCount }
+        #expect(await filed.value == 1)
+        wait.cancel()
+        #expect(await wait.value == nil)
+        #expect(owner.connectionWaitCount == 0)
+        // A later owner with the capability finds no dead wait to answer.
+        owner.attach(connection(), identity: DaemonIdentity(capabilities: [Self.capability], generation: "late"))
+        #expect(owner.connectionWaitCount == 0)
     }
 }

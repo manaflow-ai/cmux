@@ -273,17 +273,16 @@ public final class HomeDock {
     }
 
     /// The first non-nil value of `read`; nil when cancelled first. A ``ServiceObservation`` in `visible` on
-    /// `work` (the connect's dock steps: no person waits on a click here), answered once.
+    /// `work` (the connect's dock steps: no person waits on a click here), answered once: the first value
+    /// stops the observation, so a later flush before the waiting task resumes applies nothing.
     private func shown<T: Sendable>(on work: MainWorkScheduler, _ read: @escaping @MainActor @Sendable () -> T?) async -> T? {
         if let value = read() { return value }
-        var observation: ServiceObservation<T?>?
+        let first = HomeDockFirstShown<T>()
         let value = try? await withOnceContinuation(cancellation: .cancellable, failingWith: { $0 }) {
             (answer: OnceContinuation<T, OnceContinuationError>) in
-            observation = ServiceObservation(.visible, owner: "HomeDock.shown", on: work, read: read) { value in
-                if let value { answer.resume(returning: value) }
-            }
+            first.start(answer, on: work, read: read)
         }
-        observation?.cancel()
+        first.stop()
         return value
     }
 
@@ -321,5 +320,39 @@ public final class HomeDock {
                 logger.error("home link: workspace.open_url: \(String(describing: error), privacy: .public)")
             }
         }
+    }
+}
+
+/// One answer of ``HomeDock``'s tree waits: the first non-nil value of the observation resumes the wait and
+/// stops the observation, so the wait's continuation is resumed once (as ``FirstValueWait`` stops on its first).
+@MainActor
+final class HomeDockFirstShown<T: Sendable> {
+    private var answer: OnceContinuation<T, OnceContinuationError>?
+    private var observation: ServiceObservation<T?>?
+
+    // Generic main-actor class: an isolated deinit crashes the Release optimizer (#23050).
+    nonisolated deinit {}
+
+    /// Observes `read` on `work` until its first non-nil value answers `answer`.
+    func start(_ answer: OnceContinuation<T, OnceContinuationError>, on work: MainWorkScheduler,
+               read: @escaping @MainActor @Sendable () -> T?) {
+        self.answer = answer
+        let observation = ServiceObservation(.visible, owner: "HomeDock.shown", on: work, read: read) { [weak self] value in
+            if let value { self?.finish(value) }
+        }
+        if self.answer == nil { observation.cancel() } else { self.observation = observation }
+    }
+
+    /// Ends the observation without an answer (the wait was cancelled, or it was answered). Idempotent.
+    func stop() {
+        answer = nil
+        observation?.cancel()
+        observation = nil
+    }
+
+    private func finish(_ value: T) {
+        guard let answer else { return }
+        stop()
+        answer.resume(returning: value)
     }
 }

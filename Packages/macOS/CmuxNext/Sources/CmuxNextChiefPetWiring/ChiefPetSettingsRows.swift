@@ -167,10 +167,12 @@ public final class ChiefPetSettingsRows: NSObject {
     }
 
     /// Opens this Home's popover and brings its window forward (`ChiefPetHomes.open`); false off screen.
-    /// On screen is the host's node: shown or in an occluded window (the raise brings it forward), never
-    /// hidden (a hidden app, a miniaturized window, a hidden ancestor).
+    /// On screen is an ordered-in window and the host's node: shown or in an occluded window (the raise
+    /// brings it forward), never hidden (a hidden app, a miniaturized window, a hidden ancestor). An
+    /// ordered-out window's node reads occluded, so its window's own `isVisible` rules it out.
     func openOnScreen(noActivate: Bool) -> Bool {
-        guard let host, let window = host.window, let node, node.effective > .hidden, let opener, opener() else { return false }
+        guard let host, let window = host.window, window.isVisible, let node, node.effective > .hidden,
+              let opener, opener() else { return false }
         WindowActivation.show(window, noActivate ? .raise : .focus)
         return true
     }

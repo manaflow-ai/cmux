@@ -50,8 +50,10 @@ public final class ChiefConversationOwner {
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
     /// Waits for a connection that serves a capability (``connection(supporting:)``), answered by the attach.
     @ObservationIgnored private var connectionWaiters: [ConnectionWaiter] = []
+    @ObservationIgnored private var lastConnectionWaiterID: UInt64 = 0
 
     private struct ConnectionWaiter {
+        let id: UInt64
         let capability: String
         let answer: OnceContinuation<DaemonConnection, OnceContinuationError>
     }
@@ -82,13 +84,18 @@ public final class ChiefConversationOwner {
 
     /// The live connection once the owner is attached and serves `capability`: now when it does,
     /// else at the attach that brings it (the attach answers the wait, no observation re-reads it);
-    /// nil when the waiting task is cancelled first.
+    /// nil when the waiting task is cancelled first. A wait that ends without an answer leaves no waiter behind.
     public func connection(supporting capability: String) async -> DaemonConnection? {
         if supports(capability), let connection { return connection }
-        return try? await withOnceContinuation(cancellation: .cancellable, failingWith: { $0 }) {
+        guard !Task.isCancelled else { return nil }
+        lastConnectionWaiterID &+= 1
+        let id = lastConnectionWaiterID
+        let answered = try? await withOnceContinuation(cancellation: .cancellable, failingWith: { $0 }) {
             (answer: OnceContinuation<DaemonConnection, OnceContinuationError>) in
-            connectionWaiters.append(ConnectionWaiter(capability: capability, answer: answer))
+            connectionWaiters.append(ConnectionWaiter(id: id, capability: capability, answer: answer))
         }
+        if answered == nil { connectionWaiters.removeAll { $0.id == id } }
+        return answered
     }
 
     /// Waits filed by ``connection(supporting:)`` that no attach answered yet (tests).

@@ -211,9 +211,18 @@ struct ChiefViewsPageTests {
         await events.next()
         #expect(events.all == [ChiefViewsPageProvider.reply(rows.agents)])
 
+        // A second subscription that stays open sees the next change: by its event, the scheduler ran every
+        // flush that change posted, so the cancelled one had its chance to send.
+        let witness = Events()
+        let open = try await provider.subscribe(ChiefViewsPageProvider.agentsChanged, filter: .null, context: Self.page) {
+            witness.received($0)
+        }
         subscription.cancel()
         rows.agents = []
+        await witness.next()
+        #expect(witness.all == [ChiefViewsPageProvider.reply([])])
         #expect(events.all.count == 1, "a cancelled stream sends nothing")
+        open.cancel()
     }
 
     private static let work = MainWorkScheduler(budget: MainFrameBudget())

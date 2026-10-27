@@ -126,4 +126,31 @@ import Testing
         await h.until { h.checked() == [fox] }
         #expect(h.checked() == [fox], "shown, it reads once and shows the new character")
     }
+
+    /// Chief Pet Settings… never opens a Home whose window is ordered out: its node reads occluded (no
+    /// notice marks an ordered-out window hidden), and the raise would bring that window back.
+    @Test func anOrderedOutWindowsHomeIsNotOpened() async throws {
+        _ = NSApplication.shared
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-chief-pet-ordered-out-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let home = directory.appending(path: "brain")
+        let popover = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), connection: { nil }))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView = popover
+        let homes = ChiefPetHomes()
+        let rows = ChiefPetSettingsRows(settings: { nil }, homes: homes,
+                                        picks: ChiefMascotPicks(defaults: nil, defaultChief: HomeChiefAvatars.defaultChief))
+        var opened = 0
+        rows.install(in: popover, node: shownNode(), mainWork: linklessMainWork(), addRow: { popover.addAppearanceRow($0, control: $1) },
+                     open: { opened += 1; return true })
+        #expect(!window.isVisible)
+        // The rows stay installed (ChiefPetHomes holds them weakly) through the open.
+        withExtendedLifetime(rows) {
+            #expect(!homes.open(noActivate: true))
+        }
+        #expect(opened == 0, "an ordered-out window's popover is never opened")
+        #expect(!window.isVisible, "the window stays ordered out")
+    }
 }
