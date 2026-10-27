@@ -44,7 +44,11 @@ struct AuthGate {
 #[cfg(unix)]
 impl AuthGate {
     fn new() -> Self {
-        let file = match codex_auth_file::read() {
+        Self::from_read(codex_auth_file::read())
+    }
+
+    fn from_read(result: anyhow::Result<Option<AccessFile>>) -> Self {
+        let file = match result {
             Ok(file) => file,
             Err(error) => {
                 return Self {
@@ -91,6 +95,26 @@ impl AuthGate {
         }
         Out::Server(serde_json::json!({
             "jsonrpc": "2.0", "id": id, "method": "account/login/start", "params": params
+        }))
+    }
+
+    fn refresh_response(id: &Value, file: &AccessFile) -> Out {
+        Out::Server(serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "accessToken": file.access_token,
+                "chatgptAccountId": file.account_id,
+                "chatgptPlanType": "chatgpt"
+            }
+        }))
+    }
+
+    fn refresh_error(id: &Value) -> Out {
+        Out::Server(serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": {"code": -32001, "message": "Codex broker unavailable"}
         }))
     }
 }
@@ -141,6 +165,36 @@ impl Translator {
         #[cfg(unix)]
         {
             let mut auth = self.auth.lock().unwrap_or_else(|e| e.into_inner());
+
+            // Codex may ask the app-server's host for a fresh token at any
+            // point, including while the initial login gate is settling.  It
+            // is a server request, so answer it directly and preserve the
+            // opaque JSON-RPC id.  Never pass credentials through the inner
+            // translator or hold unrelated output while answering it.
+            if auth.enabled()
+                && raw.get("method").and_then(Value::as_str)
+                    == Some("account/chatgptAuthTokens/refresh")
+                && let Some(id) = raw.get("id")
+            {
+                if let Some(failure) = auth.failed.as_ref() {
+                    tracing::debug!(error = %failure, "Codex broker refresh unavailable");
+                    return vec![AuthGate::refresh_error(id)];
+                }
+                match codex_auth_file::read() {
+                    Ok(Some(file)) => {
+                        auth.previous_account_id = Some(file.account_id.clone());
+                        auth.file = Some(file.clone());
+                        return vec![AuthGate::refresh_response(id, &file)];
+                    }
+                    Ok(None) | Err(_) => {
+                        auth.failed = Some("Codex broker unavailable".into());
+                        auth.login_id = None;
+                        auth.held.clear();
+                        return vec![AuthGate::refresh_error(id)];
+                    }
+                }
+            }
+
             if let Some(login_id) = auth.login_id.clone() {
                 if raw.get("id") == Some(&login_id) {
                     if raw.get("error").is_some() {
@@ -450,5 +504,38 @@ mod tests {
         assert_eq!(safe["params"]["accessToken"], "[REDACTED]");
         assert_eq!(safe["result"]["authorization"], "[REDACTED]");
         assert_eq!(safe["params"]["chatgptAccountId"], "acct");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refresh_reply_preserves_opaque_id_and_returns_access_only() {
+        let file = AccessFile {
+            access_token: "access-secret".into(),
+            account_id: "acct-123".into(),
+            expires_at: 4_102_444_800,
+            modified: std::time::SystemTime::UNIX_EPOCH,
+        };
+        let Out::Server(reply) = AuthGate::refresh_response(&json!({"opaque": [7, 2]}), &file)
+        else {
+            panic!("refresh reply must go to app-server");
+        };
+        assert_eq!(reply["id"], json!({"opaque": [7, 2]}));
+        assert_eq!(reply["result"]["accessToken"], "access-secret");
+        assert_eq!(reply["result"]["chatgptAccountId"], "acct-123");
+        assert_eq!(reply["result"]["chatgptPlanType"], "chatgpt");
+        assert!(reply["result"].get("refreshToken").is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn malformed_broker_fails_closed_with_correlated_error() {
+        let gate = AuthGate::from_read(Err(anyhow::anyhow!("malformed broker file")));
+        assert!(gate.failed.is_some());
+        let Out::Server(reply) = AuthGate::refresh_error(&json!(41)) else {
+            panic!("refresh error must go to app-server");
+        };
+        assert_eq!(reply["id"], 41);
+        assert_eq!(reply["error"]["code"], -32001);
+        assert!(reply.to_string().find("access-secret").is_none());
     }
 }
