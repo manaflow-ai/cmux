@@ -431,71 +431,76 @@ pub(super) fn start_terminal_resource_attach(
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
-    // Terminal frames out, as mux-render-attach-out: the echo path.
-    let spawn = crate::echo_thread::spawn("mux-resource-terminal-attach", move || {
-        if waits::recv(&worker_committed).is_err() {
-            return;
-        }
-        let mut sequence = 0u64;
-        if !send_resource_uncursored_stream_item(
-            &worker_writer,
-            &start.common.outbound,
-            &start.common.stream_id,
-            sequence,
-            terminal_resource_snapshot(
-                &worker_writer.render_service,
-                &start.terminal_id,
-                &start.attach.initial,
-            ),
-        ) {
-            finish_resource_surface_attach(
-                &worker_mux,
-                client,
-                &worker_writer,
-                &start.common,
-                "gap",
-            );
-            return;
-        }
-        sequence = sequence.saturating_add(1);
-        let mut render_state =
-            RenderClientState::new(worker_writer.render_service.clone(), &start.attach.initial);
-        let interrupt = resource_attach_interrupt(&worker_writer, &start.common);
-        start.attach.stream.wake_on(&interrupt);
-        while worker_writer.is_open()
-            && start.common.outbound.is_open()
-            && !start.common.canceled.load(Ordering::Acquire)
-            && !start.common.lifecycle.is_canceled()
-        {
-            let item = match start.attach.stream.recv_until_interrupted(&interrupt) {
-                Ok(RenderAttachFrame::Frame(frame)) => {
-                    terminal_resource_patch(&start.terminal_id, &mut render_state, &frame)
-                }
-                Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => {
-                    terminal_resource_scroll(&start.terminal_id, offset, at_bottom)
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-            };
+    // A control stream, not an echo-path thread: it waits for the attach to
+    // commit, and echo-path threads disallow blocking.
+    let spawn = cmux_threads::spawn(
+        "mux-resource-terminal-attach",
+        crate::thread_qos::ThreadType::Interactive.qos(),
+        move || {
+            if waits::recv(&worker_committed).is_err() {
+                return;
+            }
+            let mut sequence = 0u64;
             if !send_resource_uncursored_stream_item(
                 &worker_writer,
                 &start.common.outbound,
                 &start.common.stream_id,
                 sequence,
-                item,
+                terminal_resource_snapshot(
+                    &worker_writer.render_service,
+                    &start.terminal_id,
+                    &start.attach.initial,
+                ),
             ) {
-                break;
+                finish_resource_surface_attach(
+                    &worker_mux,
+                    client,
+                    &worker_writer,
+                    &start.common,
+                    "gap",
+                );
+                return;
             }
             sequence = sequence.saturating_add(1);
-        }
-        finish_resource_surface_attach(
-            &worker_mux,
-            client,
-            &worker_writer,
-            &start.common,
-            "closed",
-        );
-    });
+            let mut render_state =
+                RenderClientState::new(worker_writer.render_service.clone(), &start.attach.initial);
+            let interrupt = resource_attach_interrupt(&worker_writer, &start.common);
+            start.attach.stream.wake_on(&interrupt);
+            while worker_writer.is_open()
+                && start.common.outbound.is_open()
+                && !start.common.canceled.load(Ordering::Acquire)
+                && !start.common.lifecycle.is_canceled()
+            {
+                let item = match start.attach.stream.recv_until_interrupted(&interrupt) {
+                    Ok(RenderAttachFrame::Frame(frame)) => {
+                        terminal_resource_patch(&start.terminal_id, &mut render_state, &frame)
+                    }
+                    Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => {
+                        terminal_resource_scroll(&start.terminal_id, offset, at_bottom)
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                };
+                if !send_resource_uncursored_stream_item(
+                    &worker_writer,
+                    &start.common.outbound,
+                    &start.common.stream_id,
+                    sequence,
+                    item,
+                ) {
+                    break;
+                }
+                sequence = sequence.saturating_add(1);
+            }
+            finish_resource_surface_attach(
+                &worker_mux,
+                client,
+                &worker_writer,
+                &start.common,
+                "closed",
+            );
+        },
+    );
     if let Err(error) = spawn {
         let end = resource_stream_end(
             &stream_id,

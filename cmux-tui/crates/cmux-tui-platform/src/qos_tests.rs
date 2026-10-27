@@ -174,6 +174,44 @@ fn qos_lock_boost_raises_a_declared_low_thread_until_its_release() {
     assert_eq!(during, before);
 }
 
+/// `spawn_raisable` starts a utility or background thread at its class where
+/// the process can raise it for a lock and take that back, else at Default,
+/// else (a niced process that cannot reach Default) at the creator's own
+/// class: never at a class its start would be refused (p05-ipc-080). The
+/// body reads its class and its registry row's refusals.
+#[test]
+fn qos_spawn_raisable_starts_at_a_class_the_creator_can_reach() {
+    for asked in [ThreadQos::Background, ThreadQos::Utility] {
+        let class = raisable_class(asked);
+        if cmux_threads::reversible(asked) {
+            assert_eq!(class, asked);
+        } else if cmux_threads::reachable(ThreadQos::Default) {
+            assert_eq!(class, ThreadQos::Default, "{asked}");
+        } else {
+            assert!(class < ThreadQos::Default, "{asked}: below Default, got {class}");
+        }
+        let reachable = cmux_threads::reachable(class);
+        // A name no other thread has: the body finds its own row by it.
+        let name = format!("qos-raisable-probe-{asked}");
+        let (declared, read, refused) = spawn_raisable(name.clone(), asked, None, move || {
+            let slot = cmux_threads::current_slot().expect("registered");
+            let refused = cmux_threads::snapshot()
+                .into_iter()
+                .find(|row| row.name == name)
+                .map(|row| row.refused_changes);
+            (slot.declared(), live(), refused)
+        })
+        .expect("spawn")
+        .join()
+        .expect("probe");
+        assert_eq!(declared, class, "{asked}");
+        if reachable {
+            assert_eq!(read, at(class), "{asked}: runs at {class}");
+            assert_eq!(refused, Some(0), "{asked}: its start was not refused");
+        }
+    }
+}
+
 #[test]
 fn qos_request_entered_under_a_held_lock_changes_nothing() {
     on_own_thread(|| {
@@ -478,6 +516,16 @@ fn qos_a_thread_started_in_a_request_is_registered_at_the_creators_declared_clas
 #[test]
 fn qos_a_class_the_process_cannot_take_back_is_not_entered_or_counted() {
     let probe = cmux_threads::spawn("qos-refusal-probe", ThreadQos::Default, || {
+        // Under `nice` the probe's own start at Default is refused: count
+        // only what the requests add.
+        let refused = || {
+            cmux_threads::snapshot()
+                .into_iter()
+                .find(|row| row.name == "qos-refusal-probe")
+                .expect("the probe's row")
+                .refused_changes
+        };
+        let at_start = refused();
         let reversible = cmux_threads::reversible(ThreadQos::Utility);
         for _ in 0..100 {
             let request = WorkQos::enter(ThreadQos::Utility);
@@ -486,11 +534,7 @@ fn qos_a_class_the_process_cannot_take_back_is_not_entered_or_counted() {
             drop(boost);
             drop(request);
         }
-        let row = cmux_threads::snapshot()
-            .into_iter()
-            .find(|row| row.name == "qos-refusal-probe")
-            .expect("the probe's row");
-        row.refused_changes
+        refused() - at_start
     })
     .expect("probe thread");
     assert_eq!(probe.join().expect("probe"), 0, "no request counts as a refused change");

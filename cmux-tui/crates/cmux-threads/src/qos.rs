@@ -218,6 +218,22 @@ pub fn reversible(qos: ThreadQos) -> bool {
     sys::reversible(qos)
 }
 
+/// True when the calling thread can change to `qos` now without a refusal,
+/// so a thread it starts can too (a new thread starts at its creator's
+/// class or nice). macOS: any class in the table; Linux: a nice value at or
+/// above the thread's own, or one the process may lower nice to (root or
+/// RLIMIT_NICE, Chromium's `CanLowerNiceTo`). A daemon started under
+/// `nice -n 10` without that right reaches only Background.
+pub fn reachable(qos: ThreadQos) -> bool {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    return sys::reachable(qos);
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    {
+        let _ = qos;
+        true
+    }
+}
+
 /// Runs `f` at `qos` and restores the calling thread's QoS after, also when
 /// `f` panics. [`QosScope`] is the same rule as a guard.
 pub fn with_qos<R>(qos: ThreadQos, f: impl FnOnce() -> R) -> R {
@@ -556,6 +572,11 @@ mod sys {
         qos.linux_nice() <= 0 || may_lower_nice_to(0)
     }
 
+    pub(super) fn reachable(qos: ThreadQos) -> bool {
+        let target = qos.linux_nice();
+        nice_of(self_tid()).is_some_and(|nice| target >= nice) || may_lower_nice_to(target)
+    }
+
     pub(super) fn restore(saved: &Saved) -> Restored {
         if saved.nice.is_some_and(set_nice) { Ok(None) } else { Err(()) }
     }
@@ -608,6 +629,10 @@ mod sys {
         LiveQos::Unknown
     }
 }
+
+#[cfg(test)]
+#[path = "qos/reachable_tests.rs"]
+mod reachable_tests;
 
 #[cfg(test)]
 mod tests {

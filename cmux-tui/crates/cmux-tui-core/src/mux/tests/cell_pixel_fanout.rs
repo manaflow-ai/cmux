@@ -38,6 +38,31 @@ fn cell_pixel_fanout_runs_concurrently_with_one_shared_deadline() {
     assert!(max_active.load(Ordering::Acquire) > 1);
 }
 
+/// A deadline fanout worker is a control stream (p05-ipc-080): a request
+/// waits on its batch, so it runs at the dispatcher's class and may block.
+/// The job reads both inside the worker's body.
+#[test]
+fn deadline_fanout_workers_run_at_the_dispatcher_class() {
+    let class = crate::thread_qos::ThreadType::Interactive.qos();
+    let pool = DeadlineFanoutPool::new();
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    assert!(pool.submit(Box::new(move || {
+        let declared = cmux_threads::current_slot().map(|slot| slot.declared());
+        let may_block = !cmux_threads::blocking::is_blocking_disallowed();
+        tx.send((declared, cmux_threads::current(), may_block)).unwrap();
+    })));
+    let (declared, live, may_block) =
+        rx.recv_timeout(Duration::from_secs(5)).expect("the fanout job ran");
+    assert_eq!(declared, Some(class));
+    let expected = if cmux_threads::reachable(class) {
+        crate::request_qos::tests::live_at(class)
+    } else {
+        cmux_threads::current()
+    };
+    assert_eq!(live, expected);
+    assert!(may_block);
+}
+
 #[test]
 fn deadline_fanout_rejects_work_after_the_shared_deadline() {
     let pool = DeadlineFanoutPool::new();

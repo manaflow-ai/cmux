@@ -237,7 +237,9 @@ where
 /// it to [`LOCK_HOLDER_QOS`] ([`LockBoost`]). Where the process could not
 /// take that raise back ([`cmux_threads::reversible`]: Linux without root or
 /// an `RLIMIT_NICE` that allows nice 0) it starts at Default instead, so it
-/// never holds a lock below the threads that wait for it. `stack` is its
+/// never holds a lock below the threads that wait for it, or at the
+/// creator's own class where Default is out of reach too
+/// ([`raisable_class`]). `stack` is its
 /// stack size in bytes, `None` for the platform default.
 pub fn spawn_raisable<F, T>(
     name: impl Into<String>,
@@ -256,13 +258,20 @@ where
     }
 }
 
-/// The class [`spawn_raisable`] starts a thread at for `qos`.
+/// The class [`spawn_raisable`] starts a thread at for `qos`, asked on the
+/// creator. A class it could not raise for a lock falls back to Default, or,
+/// where the creator cannot reach Default either (a daemon started under
+/// `nice -n 10` without the right to lower nice), to the highest class
+/// below it that the creator can reach: its own, which the new thread
+/// starts at anyway, so its start is never a refused change.
 pub fn raisable_class(qos: ThreadQos) -> ThreadQos {
     if qos >= ThreadQos::Default || cmux_threads::reversible(qos) {
-        qos
-    } else {
-        ThreadQos::Default
+        return qos;
     }
+    [ThreadQos::Default, ThreadQos::Utility, ThreadQos::Background]
+        .into_iter()
+        .find(|&class| cmux_threads::reachable(class))
+        .unwrap_or(qos)
 }
 
 /// The class of a thread the calling thread starts now: the class the

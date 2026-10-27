@@ -854,17 +854,23 @@ fn attach(
         images_cap,
     };
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
-    let spawned = crate::echo_thread::spawn("mux-snapshot-attach-out", move || {
-        if waits::recv(&worker_committed).is_ok() {
-            worker.run();
-        } else {
-            worker.mux.control_clients.snapshot_viewers.unregister(
-                worker.client,
-                worker.surface_id,
-                worker.outbound_stream.id,
-            );
-        }
-    });
+    // A control stream, not an echo-path thread: it waits for the attach to
+    // commit, and echo-path threads disallow blocking.
+    let spawned = cmux_threads::spawn(
+        "mux-snapshot-attach-out",
+        crate::thread_qos::ThreadType::Interactive.qos(),
+        move || {
+            if waits::recv(&worker_committed).is_ok() {
+                worker.run();
+            } else {
+                worker.mux.control_clients.snapshot_viewers.unregister(
+                    worker.client,
+                    worker.surface_id,
+                    worker.outbound_stream.id,
+                );
+            }
+        },
+    );
     if let Err(error) = spawned {
         lifecycle.cancel();
         mux.control_clients.snapshot_viewers.unregister(client, surface_id, outbound_stream.id);

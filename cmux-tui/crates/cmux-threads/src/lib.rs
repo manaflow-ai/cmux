@@ -68,8 +68,8 @@ pub use lock_wait::{
 };
 pub use process::HELPER_CHILD;
 pub use qos::{
-    LiveQos, QosChange, QosScope, ThreadQos, current, current_effective, refused_changes,
-    reversible, set_current, with_qos,
+    LiveQos, QosChange, QosScope, ThreadQos, current, current_effective, reachable,
+    refused_changes, reversible, set_current, with_qos,
 };
 pub use registry::{
     QosSlot, ThreadInfo, current_slot, deregister_current, register_current, snapshot,
