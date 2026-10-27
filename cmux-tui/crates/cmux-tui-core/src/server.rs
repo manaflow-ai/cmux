@@ -161,6 +161,8 @@ mod command_args;
 mod frame_dispatch;
 #[cfg(unix)]
 mod fs_wire;
+#[cfg(unix)]
+mod io_reactor;
 mod line_connection;
 use command_args::{
     parse_direction, parse_split_dir, parse_zoom_mode, present_nullable, workspace_mutation,

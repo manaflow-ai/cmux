@@ -120,6 +120,9 @@ backtrace = "0.3"
 reqwest.workspace = true
 rustls.workspace = true
 tokio.workspace = true
+# One IO reactor thread reads every local connection (server/io_reactor.rs,
+# p05-ipc-155).
+mio.workspace = true
 
 # Low Power Mode and the thermal state for the daemon's own Energy Saver
 # reading (mux/power_source.rs); the version cmux-motion's AppKit links.

@@ -1,8 +1,9 @@
 //! Binding the local control socket: the private runtime socket directory,
 //! the cross-process start lock that serializes probe, unlink and bind, the
 //! paused server whose lifecycle endpoint is not ready yet, and `serve`.
-//! Accepted connections go to `handle_connection_with_permit`; this module
-//! owns no protocol handling.
+//! Accepted connections go to the session's IO reactor (io_reactor.rs), or
+//! to `handle_connection_with_permit` on a thread of their own where none
+//! runs; this module owns no protocol handling.
 
 use cmux_threads::checked::fs as files;
 use std::fs;
@@ -404,16 +405,49 @@ pub fn bind_session_socket(session: &str, path: Option<PathBuf>) -> anyhow::Resu
 pub(super) struct ServedSession {
     pub(super) mux: Arc<Mux>,
     pub(super) render_service: Arc<RenderService>,
+    /// Reads every local connection of the session (p05-ipc-155). `None`
+    /// when it could not start: each connection then reads on a `mux-conn`
+    /// thread of its own, as before.
+    #[cfg(unix)]
+    pub(super) reactor: Option<Arc<super::io_reactor::IoReactor>>,
 }
 
 impl ServedSession {
-    /// Serve one accepted connection on its own thread (bounded by the
-    /// session's connection permits).
+    /// The session's server, its IO reactor started.
+    pub(super) fn new(mux: Arc<Mux>, render_service: Arc<RenderService>) -> Self {
+        #[cfg(unix)]
+        let reactor = match super::io_reactor::IoReactor::start() {
+            Ok(reactor) => Some(Arc::new(reactor)),
+            Err(error) => {
+                eprintln!(
+                    "cmux-tui: no IO reactor ({error}); each connection reads on its own thread"
+                );
+                None
+            }
+        };
+        Self {
+            mux,
+            render_service,
+            #[cfg(unix)]
+            reactor,
+        }
+    }
+
+    /// Serve one accepted connection (bounded by the session's connection
+    /// permits): read by the IO reactor, or on its own thread where none
+    /// runs or the stream is not one socket.
     pub(super) fn serve(&self, stream: Box<dyn transport::Stream>) {
         let Some(permit) = claim_connection(self.mux.connection_stats()) else {
             refuse_busy(stream);
             return;
         };
+        #[cfg(unix)]
+        if let Some(reactor) = &self.reactor
+            && stream.socket_fd().is_some()
+        {
+            reactor.serve(self.mux.clone(), stream, self.render_service.clone(), permit);
+            return;
+        }
         let mux = self.mux.clone();
         let render_service = self.render_service.clone();
         let setup_mux = mux.clone();

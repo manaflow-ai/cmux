@@ -22,6 +22,15 @@
 //! REQUEST and CANCEL frames go to [`frame_dispatch`] (p05-ipc-071), and so
 //! do INPUT frames, which queue on the stream they name until its opener is
 //! answered ([`pending_streams`], p05-ipc-087).
+//!
+//! The reading and the serving are split, as Mojo's channel reads on the IO
+//! thread and dispatches each message on the sequence its endpoint is bound
+//! to (chromium mojo/core/channel_posix.cc, ipc/ipc_mojo_bootstrap.cc): a
+//! [`ConnectionInput`] cuts owned [`Inbound`] messages and a [`LineSession`]
+//! handles them in order. A local socket is read by the daemon's one IO
+//! reactor and served as tasks on the sequenced pool (io_reactor.rs,
+//! p05-ipc-155); the remote entry and a stream with no socket of its own are
+//! read on a thread of their own ([`serve_connection`]).
 
 use std::fmt;
 
@@ -29,7 +38,11 @@ use cmux_ipc::{BadMessage, Frame, FrameKind, FrameReader, Message, ReaderLimits}
 
 use crate::diagnostics::{IpcTransport, JsonParseScope};
 
-use super::connection_scheduler::connection_qos::ReaderClass;
+use cmux_tui_platform::qos::WorkQos;
+
+use super::connection_scheduler::connection_qos::{
+    ConnectionClassCell, ReaderClass, TaskReaderClass,
+};
 use super::*;
 
 /// The grant that lets a connection send frames. p05-ipc-060 decides who
@@ -205,6 +218,11 @@ pub(super) enum ConnectionEnd {
     BadMessage(ConnectionBadMessage),
 }
 
+/// Serves one connection on the calling thread until it ends: the thread
+/// driver of [`LineSession`] (the remote entry, a local connection when no
+/// IO reactor runs or its stream is not one socket, and tests). A local
+/// socket the IO reactor serves goes through the same session
+/// (server/io_reactor.rs).
 pub(super) fn serve_connection(
     mux: Arc<Mux>,
     stream: Box<dyn transport::Stream>,
@@ -215,203 +233,452 @@ pub(super) fn serve_connection(
     admission: &dyn admission::LineAdmission,
     frames: &mut dyn FrameLane,
 ) -> ConnectionEnd {
-    let Ok(mut write_half) = stream.try_clone_box() else { return ConnectionEnd::Dropped };
-    let Ok(control) = write_half.try_clone_box() else { return ConnectionEnd::Dropped };
-    let Ok(writer_socket) = write_half.try_clone_box() else { return ConnectionEnd::Dropped };
-    if write_half.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err() {
-        return ConnectionEnd::Dropped;
-    }
-    let outbound = Arc::new(BoundedOutbound::with_chunk_bytes(mux.bulk_frame_max()));
-    let writer = MessageWriter::new_with_render_service(
-        QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::Unix(control)) },
-        render_service,
+    let opened = LineSession::open(
+        SessionParts { mux, render_service, connection_permit, transport },
+        &*stream,
+        peer,
+        admission,
+        frames,
+        ReaderClass::new,
     );
-    let writer_outbound = outbound;
-    let writer_close = writer.clone();
-    let writer_ipc = mux.ipc_stats().clone();
-    let writer_hangs = mux.echo_watch();
-    // The writer holds the connection's slot until it has written its last
-    // item, so the reader never joins it: a join is a wait for another
-    // thread, which a reader that disallows blocking may not make.
-    let writer_permit = connection_permit.clone();
-    let Ok(writer_thread) = crate::echo_thread::spawn("mux-line-out", move || {
-        let _permit = writer_permit;
-        // Ends the connection however the writer ends, a panic included: a
-        // dead writer with an open socket left its client waiting forever.
-        let _end = WriterEnd { writer: writer_close, socket: writer_socket };
-        let _hang_watch =
-            cmux_hang_watch::register_thread(cmux_hang_watch::ThreadKind::Io, "mux-line-out");
-        // Every ready item up to 256 KiB leaves in one writev (p05-ipc-088).
-        let mut batch = Vec::new();
-        // mq14-allow: the writer's idle wait for its own queue (BoundedOutbound::recv_batch).
-        while writer_outbound.recv_batch(&mut batch) {
-            // Each batch's write is a 100 ms hang scope; the wait above is not.
-            let _batch = writer_hangs.item(WatchKind::LineOut);
-            // One scope per write, as long as the socket's write timeout:
-            // the queue wait above is outside it.
-            let write = cmux_hang_watch::watch(STREAM_WRITE_TIMEOUT);
-            let written = write_counted_batch(&mut *write_half, &writer_ipc, &batch);
-            drop(write);
-            // The written texts go now, not when the next item arrives.
-            batch.clear();
-            if written.is_err() {
-                writer_outbound.close();
-                break;
-            }
-        }
-    }) else {
-        writer.close();
-        return ConnectionEnd::Dropped;
+    let mut session = match opened {
+        Ok(session) => session,
+        Err(end) => return end,
     };
-    let client = mux.control_clients.register(transport, writer.clone());
-    // The connection's stream 0, open until the connection ends
-    // (`server-stats` `ipc`).
-    let ipc = mux.ipc_stats().clone();
-    let _stream = ipc.stream_opened();
-    origin_gate::set_peer_identity_at_accept(&mux, client, peer);
-    if !admission.registered(&mux, client) {
-        // Refused before its first frame (the remote entry's revocation
-        // limits): nothing is read or dispatched. The writer ends on its own
-        // once the disconnect closes its queue.
-        disconnect_client(&mux, client, false);
-        drop(writer_thread);
-        return ConnectionEnd::Dropped;
-    }
-    let mut hello = client_hello::HelloGate::new(transport);
-    let class = mux.control_clients.connection_class(client);
-    let mut reader_class = ReaderClass::new(class.clone(), mux.request_qos());
-    let surface_scheduler = Arc::new(
-        ConnectionSurfaceScheduler::new_inner(
-            mux.surface_operation_admission.clone(),
-            connection_permit.clone(),
-        )
-        .classed(class),
-    );
+    let carries_frames = session.carries_frames();
     let mut input = ConnectionInput::new(stream);
-    let carries_frames = matches!(transport, ClientTransport::Unix) && admission.admits_frames();
     // A panic while serving (a handler's, or a blocking call's in the
     // detector's panic mode) still ends the connection below, then goes on
     // as the thread's panic. Before, the teardown never ran: the client
     // stayed registered with its socket open and waited forever.
     let served = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         loop {
-            if input.messages.next_is_frame() {
-                if !(carries_frames && frames.granted(&mux, client)) {
-                    break ConnectionEnd::BadMessage(ConnectionBadMessage::Wire(
-                        BadMessage::FramesNotNegotiated,
-                    ));
-                }
-                input.messages.negotiate_frames();
-            }
-            let buffered = input.messages.buffered_len();
-            let mut line = match input.messages.next_message() {
-                Ok(Some(Message::Json(line))) => {
-                    // Dispatch sees the line with its `\n`, as `read_line` gave
-                    // it: serde's error positions in `bad request` replies name
-                    // it. Only a last line cut at end of stream has none.
-                    let mut text = String::with_capacity(line.len() + 1);
-                    text.push_str(line);
-                    if line.len() < buffered {
-                        text.push('\n');
-                    }
-                    ipc.line_received(text.len());
-                    text
-                }
-                Ok(Some(Message::Frame(frame))) => {
-                    ipc.frame_received(frame.header().kind(), frame.header().frame_len());
-                    let connection = FrameConnection {
-                        mux: &mux,
-                        client,
-                        transport,
-                        writer: &writer,
-                        scheduler: &surface_scheduler,
-                        arrived: Instant::now(),
-                    };
-                    match frames.route(frame, &connection) {
-                        Ok(true) => continue,
-                        Ok(false) => break ConnectionEnd::Dropped,
-                        Err(bad) => break ConnectionEnd::BadMessage(bad),
-                    }
-                }
-                Ok(None) if input.ended => break ConnectionEnd::PeerClosed,
-                Ok(None) => match input.fill() {
+            let item = match input.cut(carries_frames) {
+                Some(item) => item,
+                None => match input.fill() {
                     Ok(()) => continue,
                     Err(end) => break end,
                 },
-                Err(bad) => break ConnectionEnd::BadMessage(ConnectionBadMessage::Wire(bad)),
             };
-            // The line's arrival, for its request span (server/request_spans.rs).
-            let arrived = Instant::now();
-            if line.trim().is_empty() {
-                zeroize_string(&mut line);
-                continue;
-            }
-            // Every line from here is one request of `server-stats` `ipc`: the
-            // parses of its admission, hello gate and route all count toward it.
-            let parses = JsonParseScope::enter(&ipc, IpcTransport::Lines);
-            let keep_open = match admission.refusal(&line) {
-                Some(refusal) => {
-                    // A refused line still counts as a line: the window closes.
-                    hello.close();
-                    writer.send_control(&refusal).is_ok()
-                }
-                None => {
-                    let peer = || client_hello::Peer {
-                        key: input.stream.peer_process_key(),
-                        token: input.stream.peer_token(),
-                    };
-                    match hello.observe(&mux, client, &line, peer) {
-                        Some(reply) => writer.send_control(&reply).is_ok(),
-                        None => {
-                            reader_class.before_line(&mux, client, hello.is_closed());
-                            handle_connection_frame_at(
-                                &mux,
-                                client,
-                                transport,
-                                &line,
-                                &writer,
-                                &surface_scheduler,
-                                arrived,
-                            )
-                        }
-                    }
-                }
-            };
-            drop(parses);
-            zeroize_string(&mut line);
-            if !keep_open {
-                break ConnectionEnd::Dropped;
+            match session.handle(item) {
+                Handled::Continue => {}
+                Handled::FramesOpen => input.open_frames(),
+                Handled::End(end) => break end,
             }
         }
     }));
-    let (end, panic) = match served {
-        Ok(end) => (end, None),
-        Err(panic) => {
+    input.release();
+    match served {
+        Ok(end) => session.finish(end, None),
+        Err(panic) => session.finish(ConnectionEnd::Dropped, Some(panic)),
+    }
+}
+
+impl<T: admission::LineAdmission + ?Sized> admission::LineAdmission for &T {
+    fn registered(&self, mux: &Arc<Mux>, client: u64) -> bool {
+        (**self).registered(mux, client)
+    }
+
+    fn refusal(&self, line: &str) -> Option<Value> {
+        (**self).refusal(line)
+    }
+
+    fn admits_frames(&self) -> bool {
+        (**self).admits_frames()
+    }
+}
+
+impl<T: FrameLane + ?Sized> FrameLane for &mut T {
+    fn granted(&self, mux: &Mux, client: u64) -> bool {
+        (**self).granted(mux, client)
+    }
+
+    fn route(
+        &mut self,
+        frame: Frame,
+        connection: &FrameConnection<'_>,
+    ) -> Result<bool, ConnectionBadMessage> {
+        (**self).route(frame, connection)
+    }
+}
+
+/// How a connection's lines follow its client class (task 224).
+pub(super) trait ReaderFollow {
+    /// Before routing a line: classifies the connection once its hello
+    /// window closed, and returns the class scope the line runs in, if the
+    /// thread does not already rest at it.
+    fn before_line(&mut self, mux: &Mux, client: u64, hello_closed: bool) -> Option<WorkQos>;
+
+    /// The class scope a frame routes in.
+    fn before_frame(&mut self) -> Option<WorkQos> {
+        None
+    }
+}
+
+/// A reader thread of its own rests at its connection's class.
+impl ReaderFollow for ReaderClass {
+    fn before_line(&mut self, mux: &Mux, client: u64, hello_closed: bool) -> Option<WorkQos> {
+        ReaderClass::before_line(self, mux, client, hello_closed);
+        None
+    }
+}
+
+/// A connection the IO reactor reads runs its lines and frames as tasks on
+/// shared workers: each one enters the class for its own run.
+impl ReaderFollow for TaskReaderClass {
+    fn before_line(&mut self, mux: &Mux, client: u64, hello_closed: bool) -> Option<WorkQos> {
+        self.enter(mux, client, hello_closed)
+    }
+
+    fn before_frame(&mut self) -> Option<WorkQos> {
+        self.rest()
+    }
+}
+
+/// One message cut from a connection, owned, in arrival order: what the
+/// reader (a thread of its own or the IO reactor) hands its session.
+pub(super) enum Inbound {
+    /// A JSON line with its `\n` as `read_line` gave it (only a last line
+    /// cut at end of stream has none). Zeroed when it drops.
+    Line(InboundLine),
+    Frame {
+        frame: Frame,
+        arrived: Instant,
+    },
+    /// The next message is a frame and this connection never sent one: the
+    /// session decides, after every earlier message, whether it may. The
+    /// reader cuts nothing more until the session answers.
+    FrameGate,
+    /// The bytes broke the wire's rules; `frame` when the bad message
+    /// started with the frame byte.
+    Bad {
+        bad: BadMessage,
+        frame: bool,
+    },
+    End(ConnectionEnd),
+}
+
+impl Inbound {
+    /// The bytes it holds, against the reader's read-ahead bound.
+    #[cfg(unix)]
+    pub(super) fn weight(&self) -> usize {
+        match self {
+            Inbound::Line(line) => line.text.len(),
+            Inbound::Frame { frame, .. } => frame.header().frame_len(),
+            Inbound::FrameGate | Inbound::Bad { .. } | Inbound::End(_) => 0,
+        }
+    }
+
+    /// Whether the reader cuts nothing after it.
+    #[cfg(unix)]
+    pub(super) fn is_last(&self) -> bool {
+        matches!(self, Inbound::FrameGate | Inbound::Bad { .. } | Inbound::End(_))
+    }
+}
+
+/// A line's text (lines can carry credentials) and when it was cut.
+pub(super) struct InboundLine {
+    text: String,
+    arrived: Instant,
+}
+
+impl Drop for InboundLine {
+    fn drop(&mut self) {
+        zeroize_string(&mut self.text);
+    }
+}
+
+/// What the session did with one message.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Handled {
+    Continue,
+    /// A [`Inbound::FrameGate`] passed: the reader may cut frames.
+    FramesOpen,
+    End(ConnectionEnd),
+}
+
+/// What a session is opened with, beside its stream and peer.
+pub(super) struct SessionParts {
+    pub(super) mux: Arc<Mux>,
+    pub(super) render_service: Arc<RenderService>,
+    pub(super) connection_permit: Option<ConnectionPermit>,
+    pub(super) transport: ClientTransport,
+}
+
+/// One connection's served state: its client, writer, hello gate, class,
+/// admission and frame lane. It handles the messages its reader cuts, in
+/// order, one at a time, on whichever thread holds it. Dropped without
+/// [`LineSession::finish`] (a task the pool refused) it ends the connection
+/// without waiting for its requests.
+pub(super) struct LineSession<A, F, R> {
+    mux: Arc<Mux>,
+    client: u64,
+    transport: ClientTransport,
+    writer: MessageWriter,
+    scheduler: Arc<ConnectionSurfaceScheduler>,
+    hello: client_hello::HelloGate,
+    follow: R,
+    admission: A,
+    frames: F,
+    ipc: Arc<crate::diagnostics::IpcStats>,
+    /// The connection's stream 0, open until the connection ends
+    /// (`server-stats` `ipc`).
+    _stream: crate::diagnostics::OwnedOpenStream,
+    /// A clone of the socket: the peer's identity for the hello gate.
+    peer: Box<dyn transport::Stream>,
+    /// Dropped, not joined: the writer holds the connection's slot until it
+    /// has written its last item, and a join is a wait for another thread,
+    /// which a reader that disallows blocking may not make.
+    _writer_thread: JoinHandle<()>,
+    _permit: Option<ConnectionPermit>,
+    finished: bool,
+}
+
+impl<A, F, R> LineSession<A, F, R>
+where
+    A: admission::LineAdmission,
+    F: FrameLane,
+    R: ReaderFollow,
+{
+    /// Registers the connection's client and starts its writer. `follow`
+    /// makes the class follower (on the thread that will hold it).
+    pub(super) fn open(
+        parts: SessionParts,
+        stream: &dyn transport::Stream,
+        peer: origin_gate::AcceptedPeer,
+        admission: A,
+        frames: F,
+        follow: impl FnOnce(Arc<ConnectionClassCell>, crate::request_qos::RequestQos) -> R,
+    ) -> Result<Self, ConnectionEnd> {
+        let SessionParts { mux, render_service, connection_permit, transport } = parts;
+        let Ok(mut write_half) = stream.try_clone_box() else { return Err(ConnectionEnd::Dropped) };
+        let Ok(control) = write_half.try_clone_box() else { return Err(ConnectionEnd::Dropped) };
+        let Ok(writer_socket) = write_half.try_clone_box() else {
+            return Err(ConnectionEnd::Dropped);
+        };
+        let Ok(peer_stream) = write_half.try_clone_box() else {
+            return Err(ConnectionEnd::Dropped);
+        };
+        if write_half.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err() {
+            return Err(ConnectionEnd::Dropped);
+        }
+        let outbound = Arc::new(BoundedOutbound::with_chunk_bytes(mux.bulk_frame_max()));
+        let writer = MessageWriter::new_with_render_service(
+            QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::Unix(control)) },
+            render_service,
+        );
+        let writer_outbound = outbound;
+        let writer_close = writer.clone();
+        let writer_ipc = mux.ipc_stats().clone();
+        let writer_hangs = mux.echo_watch();
+        let writer_permit = connection_permit.clone();
+        let Ok(writer_thread) = crate::echo_thread::spawn("mux-line-out", move || {
+            let _permit = writer_permit;
+            // Ends the connection however the writer ends, a panic included: a
+            // dead writer with an open socket left its client waiting forever.
+            let _end = WriterEnd { writer: writer_close, socket: writer_socket };
+            let _hang_watch =
+                cmux_hang_watch::register_thread(cmux_hang_watch::ThreadKind::Io, "mux-line-out");
+            // Every ready item up to 256 KiB leaves in one writev (p05-ipc-088).
+            let mut batch = Vec::new();
+            // mq14-allow: the writer's idle wait for its own queue (BoundedOutbound::recv_batch).
+            while writer_outbound.recv_batch(&mut batch) {
+                // Each batch's write is a 100 ms hang scope; the wait above is not.
+                let _batch = writer_hangs.item(WatchKind::LineOut);
+                // One scope per write, as long as the socket's write timeout:
+                // the queue wait above is outside it.
+                let write = cmux_hang_watch::watch(STREAM_WRITE_TIMEOUT);
+                let written = write_counted_batch(&mut *write_half, &writer_ipc, &batch);
+                drop(write);
+                // The written texts go now, not when the next item arrives.
+                batch.clear();
+                if written.is_err() {
+                    writer_outbound.close();
+                    break;
+                }
+            }
+        }) else {
+            writer.close();
+            return Err(ConnectionEnd::Dropped);
+        };
+        let client = mux.control_clients.register(transport, writer.clone());
+        let ipc = mux.ipc_stats().clone();
+        let stream_open = ipc.stream_opened_owned();
+        origin_gate::set_peer_identity_at_accept(&mux, client, peer);
+        if !admission.registered(&mux, client) {
+            // Refused before its first frame (the remote entry's revocation
+            // limits): nothing is read or dispatched. The writer ends on its
+            // own once the disconnect closes its queue.
+            disconnect_client(&mux, client, false);
+            return Err(ConnectionEnd::Dropped);
+        }
+        let hello = client_hello::HelloGate::new(transport);
+        let class = mux.control_clients.connection_class(client);
+        let follow = follow(class.clone(), mux.request_qos());
+        let scheduler = Arc::new(
+            ConnectionSurfaceScheduler::new_inner(
+                mux.surface_operation_admission.clone(),
+                connection_permit.clone(),
+            )
+            .classed(class),
+        );
+        Ok(LineSession {
+            mux,
+            client,
+            transport,
+            writer,
+            scheduler,
+            hello,
+            follow,
+            admission,
+            frames,
+            ipc,
+            _stream: stream_open,
+            peer: peer_stream,
+            _writer_thread: writer_thread,
+            _permit: connection_permit,
+            finished: false,
+        })
+    }
+
+    /// Whether frames may ever arrive here: only on a local Unix connection
+    /// whose admission takes them.
+    pub(super) fn carries_frames(&self) -> bool {
+        matches!(self.transport, ClientTransport::Unix) && self.admission.admits_frames()
+    }
+
+    /// Handles one message. Every line is seen by the admission before
+    /// anything parses or dispatches it; a frame passes only while the
+    /// client holds the frames grant, asked again for every frame: a later
+    /// `set-client-info` or `client-hello` can end it (p05-ipc-060).
+    pub(super) fn handle(&mut self, item: Inbound) -> Handled {
+        match item {
+            Inbound::Line(line) => self.handle_line(line),
+            Inbound::FrameGate if self.frames_granted() => Handled::FramesOpen,
+            Inbound::FrameGate => not_negotiated(),
+            Inbound::Frame { .. } if !self.frames_granted() => not_negotiated(),
+            Inbound::Frame { frame, arrived } => {
+                self.ipc.frame_received(frame.header().kind(), frame.header().frame_len());
+                let _class = self.follow.before_frame();
+                let connection = FrameConnection {
+                    mux: &self.mux,
+                    client: self.client,
+                    transport: self.transport,
+                    writer: &self.writer,
+                    scheduler: &self.scheduler,
+                    arrived,
+                };
+                match self.frames.route(frame, &connection) {
+                    Ok(true) => Handled::Continue,
+                    Ok(false) => Handled::End(ConnectionEnd::Dropped),
+                    Err(bad) => Handled::End(ConnectionEnd::BadMessage(bad)),
+                }
+            }
+            Inbound::Bad { frame: true, .. } if !self.frames_granted() => not_negotiated(),
+            Inbound::Bad { bad, .. } => {
+                Handled::End(ConnectionEnd::BadMessage(ConnectionBadMessage::Wire(bad)))
+            }
+            Inbound::End(end) => Handled::End(end),
+        }
+    }
+
+    fn frames_granted(&self) -> bool {
+        self.carries_frames() && self.frames.granted(&self.mux, self.client)
+    }
+
+    fn handle_line(&mut self, line: InboundLine) -> Handled {
+        self.ipc.line_received(line.text.len());
+        if line.text.trim().is_empty() {
+            return Handled::Continue;
+        }
+        // Every line from here is one request of `server-stats` `ipc`: the
+        // parses of its admission, hello gate and route all count toward it.
+        let parses = JsonParseScope::enter(&self.ipc, IpcTransport::Lines);
+        let keep_open = match self.admission.refusal(&line.text) {
+            Some(refusal) => {
+                // A refused line still counts as a line: the window closes.
+                self.hello.close();
+                self.writer.send_control(&refusal).is_ok()
+            }
+            None => {
+                let stream = &self.peer;
+                let peer = || client_hello::Peer {
+                    key: stream.peer_process_key(),
+                    token: stream.peer_token(),
+                };
+                match self.hello.observe(&self.mux, self.client, &line.text, peer) {
+                    Some(reply) => self.writer.send_control(&reply).is_ok(),
+                    None => {
+                        let _class =
+                            self.follow.before_line(&self.mux, self.client, self.hello.is_closed());
+                        handle_connection_frame_at(
+                            &self.mux,
+                            self.client,
+                            self.transport,
+                            &line.text,
+                            &self.writer,
+                            &self.scheduler,
+                            line.arrived,
+                        )
+                    }
+                }
+            }
+        };
+        drop(parses);
+        if keep_open { Handled::Continue } else { Handled::End(ConnectionEnd::Dropped) }
+    }
+
+    /// Ends the connection: a peer that closed after whole messages gets its
+    /// accepted work drained, any other end closes it with a bounded wait.
+    /// Then the client is disconnected, which closes the writer's queue: the
+    /// writer writes what is left, shuts the socket down and releases its
+    /// hold on the slot. A `panic` goes on after the teardown.
+    pub(super) fn finish(
+        mut self,
+        end: ConnectionEnd,
+        panic: Option<Box<dyn std::any::Any + Send>>,
+    ) -> ConnectionEnd {
+        self.finished = true;
+        if panic.is_some() {
             // Close the queue first: the writer ends and shuts the socket
             // down even if the disconnect below finds a poisoned lock.
-            writer.close();
-            (ConnectionEnd::Dropped, Some(panic))
+            self.writer.close();
         }
-    };
-    input.release();
-    if let ConnectionEnd::BadMessage(bad) = &end {
-        ipc.bad_message();
-        eprintln!("cmux-tui: client {client} closed: bad_message {}: {bad}", bad.reason());
+        if let ConnectionEnd::BadMessage(bad) = &end {
+            self.ipc.bad_message();
+            let client = self.client;
+            eprintln!("cmux-tui: client {client} closed: bad_message {}: {bad}", bad.reason());
+        }
+        if end == ConnectionEnd::PeerClosed {
+            self.scheduler.finish_and_wait();
+        } else {
+            let _ = self.scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
+        }
+        disconnect_client(&self.mux, self.client, false);
+        drop(self);
+        if let Some(panic) = panic {
+            std::panic::resume_unwind(panic);
+        }
+        end
     }
-    if end == ConnectionEnd::PeerClosed {
-        surface_scheduler.finish_and_wait();
-    } else {
-        let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
+}
+
+/// A frame this connection may not send now.
+fn not_negotiated() -> Handled {
+    Handled::End(ConnectionEnd::BadMessage(ConnectionBadMessage::Wire(
+        BadMessage::FramesNotNegotiated,
+    )))
+}
+
+impl<A, F, R> Drop for LineSession<A, F, R> {
+    fn drop(&mut self) {
+        if self.finished {
+            return;
+        }
+        self.writer.close();
+        let _ = self.scheduler.close_and_wait(Duration::ZERO);
+        disconnect_client(&self.mux, self.client, false);
     }
-    disconnect_client(&mux, client, false);
-    // The disconnect closed the writer's queue: the writer writes what is
-    // left, shuts the socket down and releases its hold on the slot.
-    drop(writer_thread);
-    drop(connection_permit);
-    if let Some(panic) = panic {
-        std::panic::resume_unwind(panic);
-    }
-    end
 }
 
 /// The end of a connection's writer, however the writer ends: its queue
@@ -432,27 +699,75 @@ impl Drop for WriterEnd {
 
 /// The read side of one connection: the socket, the reader that cuts its
 /// bytes, and on a local socket the descriptor FIFO `recvmsg` fills.
-struct ConnectionInput {
+pub(super) struct ConnectionInput {
     stream: Box<dyn transport::Stream>,
     messages: FrameReader,
     #[cfg(unix)]
     fds: cmux_ipc::fds::FdReceiver,
+    /// The session passed a [`Inbound::FrameGate`]: frames are cut.
+    frames_open: bool,
     /// The peer closed its side.
     ended: bool,
 }
 
 impl ConnectionInput {
-    fn new(stream: Box<dyn transport::Stream>) -> Self {
+    pub(super) fn new(stream: Box<dyn transport::Stream>) -> Self {
         ConnectionInput {
             stream,
             messages: FrameReader::new(line_limits()),
             #[cfg(unix)]
             fds: cmux_ipc::fds::FdReceiver::default(),
+            frames_open: false,
             ended: false,
         }
     }
 
-    /// One read into the reader; at end of stream marks it ended.
+    /// The next message the bytes read so far hold, `None` when more bytes
+    /// are needed. Before the session opened frames, a frame byte is a
+    /// [`Inbound::FrameGate`] (or, where frames never pass, a bad message),
+    /// so nothing of a frame is cut before the session allowed it. After an
+    /// [`Inbound::FrameGate`], a bad message or an end it must not be called
+    /// again until the session answered.
+    pub(super) fn cut(&mut self, carries_frames: bool) -> Option<Inbound> {
+        let frame = self.messages.next_is_frame();
+        if frame && !self.frames_open {
+            if carries_frames {
+                return Some(Inbound::FrameGate);
+            }
+            return Some(Inbound::End(ConnectionEnd::BadMessage(ConnectionBadMessage::Wire(
+                BadMessage::FramesNotNegotiated,
+            ))));
+        }
+        let buffered = self.messages.buffered_len();
+        match self.messages.next_message() {
+            Ok(Some(Message::Json(line))) => {
+                // Dispatch sees the line with its `\n`, as `read_line` gave
+                // it: serde's error positions in `bad request` replies name
+                // it. Only a last line cut at end of stream has none.
+                let mut text = String::with_capacity(line.len() + 1);
+                text.push_str(line);
+                if line.len() < buffered {
+                    text.push('\n');
+                }
+                Some(Inbound::Line(InboundLine { text, arrived: Instant::now() }))
+            }
+            Ok(Some(Message::Frame(frame))) => {
+                Some(Inbound::Frame { frame, arrived: Instant::now() })
+            }
+            Ok(None) if self.ended => Some(Inbound::End(ConnectionEnd::PeerClosed)),
+            Ok(None) => None,
+            Err(bad) => Some(Inbound::Bad { bad, frame }),
+        }
+    }
+
+    /// The session passed the frame gate: frames are cut from now on.
+    pub(super) fn open_frames(&mut self) {
+        self.frames_open = true;
+        self.messages.negotiate_frames();
+    }
+
+    /// One read into the reader, waiting for bytes; at end of stream marks
+    /// it ended.
     fn fill(&mut self) -> Result<(), ConnectionEnd> {
         let read = loop {
             match self.read() {
@@ -460,6 +775,26 @@ impl ConnectionInput {
                 result => break result,
             }
         };
+        self.after_read(read)
+    }
+
+    /// One read into the reader that never waits (the IO reactor's):
+    /// `Ok(false)` when the socket has nothing to read now.
+    #[cfg(unix)]
+    pub(super) fn fill_ready(&mut self) -> Result<bool, ConnectionEnd> {
+        let read = loop {
+            match self.read_ready() {
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                result => break result,
+            }
+        };
+        match read {
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(false),
+            read => self.after_read(read).map(|()| true),
+        }
+    }
+
+    fn after_read(&mut self, read: std::io::Result<usize>) -> Result<(), ConnectionEnd> {
         match read {
             Ok(_) if self.descriptors_queued() => {
                 Err(ConnectionEnd::BadMessage(ConnectionBadMessage::UnexpectedFds))
@@ -491,6 +826,24 @@ impl ConnectionInput {
         self.messages.read_from(&mut self.stream)
     }
 
+    /// One `recvmsg` with `MSG_DONTWAIT` straight into the reader's buffer.
+    /// The socket stays blocking: its writer thread writes it with blocking
+    /// writes, and `O_NONBLOCK` belongs to the description they share.
+    #[cfg(unix)]
+    fn read_ready(&mut self) -> std::io::Result<usize> {
+        let ConnectionInput { stream, messages, fds, .. } = self;
+        let Some(fd) = stream.socket_fd() else {
+            return Err(std::io::ErrorKind::Unsupported.into());
+        };
+        messages.read_with(|room| fds.recv_into_nonblocking(fd, room, |_| {}))
+    }
+
+    /// The socket the IO reactor watches.
+    #[cfg(unix)]
+    pub(super) fn socket_fd(&self) -> Option<std::os::fd::RawFd> {
+        self.stream.socket_fd()
+    }
+
     #[cfg(unix)]
     fn descriptors_queued(&self) -> bool {
         self.fds.queued() > 0
@@ -502,7 +855,7 @@ impl ConnectionInput {
     }
 
     /// Zeroes the line the reader still lends (it does so on its next call).
-    fn release(&mut self) {
+    pub(super) fn release(&mut self) {
         self.messages.push(&[]);
     }
 }

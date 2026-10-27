@@ -777,9 +777,17 @@ impl Shared {
     fn start_worker(self: &Arc<Self>, priority: SequencePriority) -> io::Result<()> {
         let shared = self.clone();
         let body: Task = Box::new(move || {
-            if priority.is_request_class() {
+            // A request-class worker runs the lines and frames of the
+            // connections the IO reactor reads (io_reactor.rs): each one's
+            // hang scope (request_hang_watch.rs) needs the thread registered,
+            // as a connection's reader thread was.
+            let _hang_watch = priority.is_request_class().then(|| {
                 cmux_threads::disallow_blocking();
-            }
+                cmux_hang_watch::register_thread(
+                    cmux_hang_watch::ThreadKind::Control,
+                    priority.thread_name(),
+                )
+            });
             shared.run_worker(priority);
         });
         (self.spawner.0)(priority.thread_name(), priority.qos(), body)?;

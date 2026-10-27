@@ -65,21 +65,22 @@ fn connection_writers_and_surface_reader_are_echo_path_threads() {
     mux.shutdown();
 }
 
-/// RUN-4: a local connection's reader runs request handlers inline for
-/// automation clients too, so the accept path does not raise it to the echo
-/// class.
+/// RUN-4, p05-ipc-155: an accepted local connection has no reader thread;
+/// the session's one IO reactor reads it at the request class, and the
+/// accept path does not raise the reactor to the echo class (each message
+/// runs at its connection's class on the pool, connection_qos.rs).
 #[test]
-fn an_accepted_connection_reader_stays_at_the_connection_class() {
+fn an_accepted_connection_is_read_by_the_reactor_at_the_request_class() {
     let mux = Mux::new_for_test("echo-rows-conn", crate::SurfaceOptions::default());
     let directory = cmux_unix_socket::short_test_dir("echo-conn");
     let path = directory.path().join("s.sock");
     let listener = transport::listen(&path).unwrap();
     let client = transport::connect(&path).unwrap();
-    let session =
-        ServedSession { mux: mux.clone(), render_service: Arc::new(RenderService::new()) };
+    let session = ServedSession::new(mux.clone(), Arc::new(RenderService::new()));
     session.serve(listener.accept().unwrap());
 
-    assert_rows("mux-conn", super::CONNECTION_READER_QOS);
+    assert_rows(io_reactor::REACTOR_THREAD, io_reactor::REACTOR_QOS);
+    assert!(declared("mux-conn").is_empty(), "the connection has no reader thread");
     let _ = client.shutdown(Shutdown::Both);
     mux.shutdown();
 }

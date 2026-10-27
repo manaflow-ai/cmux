@@ -105,10 +105,22 @@ impl IpcStats {
     /// p05-ipc-074), so today this counts open connections.
     #[must_use = "the stream counts as open until the guard drops"]
     pub fn stream_opened(&self) -> OpenStream<'_> {
+        self.count_stream_opened();
+        OpenStream { stats: self }
+    }
+
+    /// [`Self::stream_opened`] for a connection whose served state moves
+    /// between threads (server/io_reactor.rs): the guard holds the stats.
+    #[must_use = "the stream counts as open until the guard drops"]
+    pub fn stream_opened_owned(self: &Arc<Self>) -> OwnedOpenStream {
+        self.count_stream_opened();
+        OwnedOpenStream { stats: self.clone() }
+    }
+
+    fn count_stream_opened(&self) {
         self.streams_opened.fetch_add(1, Ordering::Relaxed);
         let open = self.streams_open.fetch_add(1, Ordering::AcqRel) + 1;
         self.streams_peak.fetch_max(open, Ordering::Relaxed);
-        OpenStream { stats: self }
     }
 
     /// A request arrived at its connection's sequence, which then held
@@ -236,6 +248,17 @@ pub struct OpenStream<'a> {
 }
 
 impl Drop for OpenStream<'_> {
+    fn drop(&mut self) {
+        self.stats.streams_open.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// A stream counted as open by [`IpcStats::stream_opened_owned`].
+pub struct OwnedOpenStream {
+    stats: Arc<IpcStats>,
+}
+
+impl Drop for OwnedOpenStream {
     fn drop(&mut self) {
         self.stats.streams_open.fetch_sub(1, Ordering::AcqRel);
     }

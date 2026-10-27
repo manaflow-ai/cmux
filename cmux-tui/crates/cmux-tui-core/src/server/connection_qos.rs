@@ -245,6 +245,44 @@ impl ReaderClass {
     }
 }
 
+/// A reader's class when its connection has no reader thread: the IO
+/// reactor reads it and its lines and frames run as tasks on the shared
+/// workers of the sequenced pool (server/io_reactor.rs, p05-ipc-155). Each
+/// one runs in a scope at the class, which ends with it, as a control task
+/// does (connection_scheduler.rs): a shared worker never rests at one
+/// connection's class.
+pub(in crate::server) struct TaskReaderClass {
+    cell: Arc<ConnectionClassCell>,
+    gate: RequestQos,
+    classified_at_hello: bool,
+}
+
+impl TaskReaderClass {
+    pub(in crate::server) fn new(cell: Arc<ConnectionClassCell>, gate: RequestQos) -> Self {
+        Self { cell, gate, classified_at_hello: false }
+    }
+
+    /// Before routing a line: classifies `client` the first time this is
+    /// called with its hello window closed, then enters the class.
+    pub(in crate::server) fn enter(
+        &mut self,
+        mux: &crate::Mux,
+        client: u64,
+        hello_closed: bool,
+    ) -> Option<WorkQos> {
+        if hello_closed && !self.classified_at_hello {
+            self.classified_at_hello = true;
+            mux.control_clients.classify_connection(client);
+        }
+        self.rest()
+    }
+
+    /// The class scope a frame routes in.
+    pub(in crate::server) fn rest(&self) -> Option<WorkQos> {
+        self.gate.enter_class(self.cell.get().qos(ConnectionThread::Reader))
+    }
+}
+
 #[cfg(test)]
 #[path = "connection_qos_tests.rs"]
 mod tests;

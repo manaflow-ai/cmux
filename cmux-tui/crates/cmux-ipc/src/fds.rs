@@ -209,7 +209,7 @@ impl FdReceiver {
         let room = (buf.capacity() - len).min(max);
         let spare = &mut buf.spare_capacity_mut()[..room];
         // SAFETY: `spare` is `room` writable bytes of `buf`'s allocation.
-        let (n, delivery) = unsafe { self.recvmsg(fd, spare.as_mut_ptr().cast(), room)? };
+        let (n, delivery) = unsafe { self.recvmsg(fd, spare.as_mut_ptr().cast(), room, 0)? };
         // SAFETY: recvmsg initialized `n <= room` bytes past `len`.
         unsafe { buf.set_len(len + n) };
         self.deliver(delivery, between)?;
@@ -226,12 +226,32 @@ impl FdReceiver {
         between: impl FnOnce(&[OwnedFd]),
     ) -> io::Result<usize> {
         // SAFETY: `buf` is `buf.len()` writable bytes.
-        let (n, delivery) = unsafe { self.recvmsg(fd, buf.as_mut_ptr().cast(), buf.len())? };
+        let (n, delivery) = unsafe { self.recvmsg(fd, buf.as_mut_ptr().cast(), buf.len(), 0)? };
         self.deliver(delivery, between)?;
         Ok(n)
     }
 
-    /// One `recvmsg` of at most `room` bytes at `base`, retried on EINTR.
+    /// [`recv_into`](Self::recv_into) that never waits (`MSG_DONTWAIT`):
+    /// with nothing to read it fails with `WouldBlock`. For a reactor that
+    /// reads a socket other threads write with blocking writes, so the socket
+    /// itself stays blocking (`O_NONBLOCK` belongs to the shared file
+    /// description), as Mojo's `ChannelPosix` reads only when its watcher
+    /// says the descriptor is readable (chromium mojo/core/channel_posix.cc).
+    pub fn recv_into_nonblocking(
+        &mut self,
+        fd: RawFd,
+        buf: &mut [u8],
+        between: impl FnOnce(&[OwnedFd]),
+    ) -> io::Result<usize> {
+        // SAFETY: `buf` is `buf.len()` writable bytes.
+        let (n, delivery) =
+            unsafe { self.recvmsg(fd, buf.as_mut_ptr().cast(), buf.len(), libc::MSG_DONTWAIT)? };
+        self.deliver(delivery, between)?;
+        Ok(n)
+    }
+
+    /// One `recvmsg` of at most `room` bytes at `base` with `RECV_FLAGS`
+    /// plus `flags`, retried on EINTR.
     ///
     /// # Safety
     ///
@@ -241,6 +261,7 @@ impl FdReceiver {
         fd: RawFd,
         base: *mut libc::c_void,
         room: usize,
+        flags: libc::c_int,
     ) -> io::Result<(usize, Delivery)> {
         if self.control.is_empty() {
             // SAFETY: CMSG_SPACE computes a size from a length.
@@ -258,7 +279,7 @@ impl FdReceiver {
         let n = loop {
             // SAFETY: msg points at the caller's `room` bytes and at the
             // control buffer, both live for the call.
-            let n = unsafe { libc::recvmsg(fd, &mut msg, RECV_FLAGS) };
+            let n = unsafe { libc::recvmsg(fd, &mut msg, RECV_FLAGS | flags) };
             if n >= 0 {
                 break n as usize;
             }
@@ -387,5 +408,30 @@ mod tests {
         drop(fds);
         assert!(!is_open(given_raw), "the filled descriptor is owned and closes");
         assert!(is_open(sentinel.as_raw_fd()), "a stale number past msg_controllen was closed");
+    }
+
+    /// The reactor's read: nothing pending is `WouldBlock` on a socket left
+    /// blocking, pending bytes are read, and the peer's close is 0.
+    #[test]
+    fn a_nonblocking_receive_never_waits_on_a_blocking_socket() {
+        use std::io::Write as _;
+        use std::os::unix::net::UnixStream;
+
+        let (mut peer, ours) = UnixStream::pair().unwrap();
+        let mut receiver = FdReceiver::default();
+        let mut buf = [0u8; 16];
+        let fd = ours.as_raw_fd();
+        let idle = receiver.recv_into_nonblocking(fd, &mut buf, |_| {});
+        assert_eq!(idle.unwrap_err().kind(), io::ErrorKind::WouldBlock);
+
+        peer.write_all(b"ping\n").unwrap();
+        assert_eq!(receiver.recv_into_nonblocking(fd, &mut buf, |_| {}).unwrap(), 5);
+        assert_eq!(&buf[..5], b"ping\n");
+
+        drop(peer);
+        assert_eq!(receiver.recv_into_nonblocking(fd, &mut buf, |_| {}).unwrap(), 0);
+        // SAFETY: F_GETFL only reads the descriptor's status flags.
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        assert_eq!(flags & libc::O_NONBLOCK, 0, "the socket stays blocking for its writers");
     }
 }

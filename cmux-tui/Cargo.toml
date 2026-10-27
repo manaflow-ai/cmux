@@ -291,6 +291,9 @@ smoltcp = { version = "0.14", default-features = false, features = ["std", "medi
 png = "0.17"
 libc = "0.2"
 memchr = "2"
+# The daemon's IO reactor (cmux-tui-core server/io_reactor.rs): epoll on Linux,
+# kqueue on macOS. Already in the graph through tokio; no new code.
+mio = { version = "1", features = ["os-poll", "os-ext"] }
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 uds_windows = "1.2"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Threading"] }
