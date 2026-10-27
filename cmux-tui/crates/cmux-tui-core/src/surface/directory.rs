@@ -149,6 +149,19 @@ impl Surface {
         }
     }
 
+    /// Hands the notifications this terminal's output asked for to the
+    /// work lane, in the terminal's publication sequence
+    /// (`Mux::post_terminal_notifications_off_output`): the output thread
+    /// may not post them itself.
+    pub(crate) fn post_output_notifications(
+        &self,
+        notifications: Vec<crate::terminal_metadata::TerminalNotification>,
+    ) {
+        let Some(pty) = self.as_pty() else { return };
+        let Some(mux) = pty.mux.upgrade() else { return };
+        mux.post_terminal_notifications_off_output(self.id, &pty.publications, notifications);
+    }
+
     /// Whether a cwd, progress or program status change waits to be
     /// published. Memory only.
     fn has_pending_publication(&self) -> bool {

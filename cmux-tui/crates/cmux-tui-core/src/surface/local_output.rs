@@ -276,10 +276,8 @@ impl OutputPublisher {
             {
                 mux.emit_terminal_scroll(surface.id, offset, at_bottom);
             }
-            if !terminal_notifications.is_empty()
-                && let Some(mux) = mux.upgrade()
-            {
-                mux.post_terminal_notifications(surface.id, terminal_notifications);
+            if !terminal_notifications.is_empty() {
+                surface.post_output_notifications(terminal_notifications);
             }
             if !finished_commands.is_empty()
                 && let Some(mux) = mux.upgrade()

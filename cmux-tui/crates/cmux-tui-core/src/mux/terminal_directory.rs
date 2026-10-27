@@ -112,6 +112,30 @@ impl Mux {
         .is_ok()
     }
 
+    /// Posts the desktop notifications terminal runtime `surface`'s output
+    /// asked for (OSC 9, 777, 99) on the Files lane, in the terminal's
+    /// publication `sequence`, so they keep their order with its cwd and
+    /// progress publications. A post records the notification in the
+    /// registry and reads the terminal's foreground process, which its
+    /// output thread may not do. A refused item (shutdown) posts nothing.
+    pub(crate) fn post_terminal_notifications_off_output(
+        &self,
+        surface: SurfaceId,
+        sequence: &Arc<mux_work::Sequence>,
+        notifications: Vec<crate::terminal_metadata::TerminalNotification>,
+    ) {
+        let _ = self.post_mux_work_sequenced(
+            sequence,
+            Priority::UserVisible,
+            Lane::Files,
+            move |mux| {
+                if let Some(mux) = mux.upgrade() {
+                    mux.post_terminal_notifications(surface, notifications);
+                }
+            },
+        );
+    }
+
     /// Publishes local terminal `surface`'s exit, if it is ready, on the
     /// Files lane: its reader may not commit to the registry itself
     /// (`exit_state::post_local_exit_if_ready`).
