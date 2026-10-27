@@ -461,6 +461,19 @@
   font-size: var(--text-detail);
   white-space: nowrap;
 }
+/* Reorder instructions and status belong to the accessibility tree only. Keep this local to the
+   attachment strip so a missing or late global utility stylesheet can never expose them as UI. */
+.acpmux-attachment-voiceover-only {
+  position: absolute;
+  inline-size: var(--cmux-hairline);
+  block-size: var(--cmux-hairline);
+  margin: calc(-1 * var(--cmux-hairline));
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 /* The prompt's context menu host wraps the field without a box of its own. */
 .acpmux-composer-field-menu {
   display: contents;

@@ -100,7 +100,7 @@
 .compare-candidate-activity { min-height: 34px; margin: 9px 14px 0; color: var(--compare-muted); font-size: var(--text-caption); line-height: 1.45; }
 .compare-candidate-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; border-top: 1px solid var(--compare-line); padding: 9px 14px; color: var(--compare-muted); font-size: var(--text-caption); }
 .compare-attach-button { padding: 5px 7px; font-size: var(--text-caption); }
-.compare-attach-button:disabled, .compare-detail-attach:disabled, .compare-replay-banner button:disabled { cursor: not-allowed; opacity: .46; }
+.compare-attach-button:disabled, .compare-detail-attach:disabled, .compare-replay-banner button:disabled { cursor: not-allowed !important; opacity: .46; }
 
 .compare-review { margin-top: 26px; border: 1px solid var(--compare-line); border-radius: 10px; overflow: hidden; }
 .compare-review-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 18px 19px 15px; }
@@ -168,7 +168,7 @@
 .compare-approval-bar label { display: flex; align-items: center; gap: 7px; color: var(--compare-muted); font-size: var(--text-caption); white-space: nowrap; }
 .compare-approval-bar input { margin: 0; accent-color: var(--compare-ink); }
 .compare-approve { border: 0; border-radius: 6px; background: var(--compare-ink); padding: 9px 12px; color: var(--cmux-surface-solid, Canvas); font-size: var(--text-caption); font-weight: 550; white-space: nowrap; cursor: pointer; }
-.compare-approve:disabled { cursor: not-allowed; opacity: .4; }
+.compare-approve:disabled { cursor: not-allowed !important; opacity: .4; }
 .compare-run-footnote { display: flex; justify-content: space-between; gap: 20px; max-width: 1440px; margin: 17px auto 0; color: var(--compare-muted); font-size: var(--text-caption); }
 
 @media (max-width: 960px) {

@@ -188,6 +188,8 @@ pub struct Session {
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
     /// (`pull_requests.rs`).
     pub(super) pr_creates: StdMutex<std::collections::HashMap<String, Option<String>>>,
+    /// Its agent's `start_session` tool calls that run, with their input (`lineage.rs`).
+    pub(super) start_calls: StdMutex<std::collections::HashMap<String, Value>>,
     /// The places typing into it, and who sent its prompts (`composers.rs`).
     pub(super) composers: StdMutex<super::composers::Composers>,
 }

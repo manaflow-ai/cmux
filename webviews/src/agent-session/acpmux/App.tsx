@@ -104,7 +104,8 @@ import {
 import { usePickerCatalog } from "./modelCatalogHost";
 import { isDefaultChoice } from "./defaultChoice";
 import { topModelsFor } from "./topModels";
-import { applySwitch, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
+import { applySwitch, browserSwitchClock, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
+import { NewChatPrewarm, type PrewarmTarget } from "./newChatPrewarm";
 import { harnessProfiles } from "./harnessProfiles";
 import { setStartModeSource } from "./startMode";
 import { setPromptSurfaces } from "./surfaces/promptSurface";
@@ -136,6 +137,7 @@ import { ChatUnavailableState } from "./ChatUnavailableState";
 import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
 import { byRecentUse, parseProjectRepos, projectRows } from "./projectRepos";
+import { answerFromHome } from "./HomeInbox";
 import { HomeLists } from "./HomeLists";
 import { endsTurn, lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
@@ -154,6 +156,7 @@ import { DECISION_TEXT, PERMISSION_RECORD } from "./permissions/record";
 import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
+import { PeerCopyBanner } from "./PeerCopyBanner";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { heldPrompts } from "./heldPrompt";
 import { StartingSends, type StartingSend } from "./startingSends";
@@ -357,6 +360,8 @@ import { configureSentLook } from "./conversation/SentMessageLine";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
+import { avatarRows } from "./header/avatarRow";
+import { agentAvatarChanged, removeAgentAvatar, setAgentAvatar, useAgentAvatar } from "./agentAvatar";
 import { copyRow } from "./header/copyRow";
 import { recordedConversationMarkdown } from "./conversation/exportMarkdown";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
@@ -519,6 +524,8 @@ declare global {
       /// Claude Code desktop's in-session status (the live plan card, the recap card) on or off: the
       /// Debug Settings toggle `agent.sessionStatus`, off by default (sessionStatus.ts).
       applySessionStatus?(on: boolean): void;
+      /// Session `sessionId`'s avatar was set or removed in some pane: ask for it again (agentAvatar.ts).
+      agentAvatarChanged?(sessionId: string): void;
       /// Suggested tasks on or off (Settings > Suggest Follow-Up Tasks, on by default, or the Debug
       /// toggle `agent.suggestedTasks` forcing them on): an agent's offers draw as the suggested tasks
       /// card (offer/offersShown.ts).
@@ -690,9 +697,7 @@ const sendWhenTaken = (steer: boolean) => (text: string, attachments: ComposerAt
 const resumeAgentPair = (peer: string) => callNative("chat.agentPair.resume", { peer });
 
 /// Changes a waiting prompt (`_acpmux/queue_edit`); false when it already started.
-/// Where a steer's Send now and X are drawn (PendingSteer.tsx): while it waits, and once read under
-/// a prompt with text (its action row stays), so they fold away there. A prompt of images alone
-/// never gains a row once read.
+/// Keeps one footer mounted through waiting, accepted delivery and the authoritative read event.
 const steerControls = (row: AcpmuxRow) =>
   row.steer === "waiting" || (row.steer === "landed" && Boolean(row.text?.trim()));
 
@@ -953,19 +958,33 @@ const MessageRow = memo(
               <PromptActions
                 row={row}
                 text={envelope ? envelope.task : (row.text ?? "")}
-                pending={steerControls(row) ? <PendingSteer row={row} send={editQueued} /> : undefined}
+                pending={
+                  steerControls(row)
+                    ? (actions) => (
+                        <PendingSteer row={row} send={editQueued}>
+                          {actions}
+                        </PendingSteer>
+                      )
+                    : undefined
+                }
               />
             </>
           ) : (
-            // A waiting steer's Send now leads the action row under the queued prompt (Leo,
-            // 2026-10-24). A prompt of images alone gets the same row under the images.
-            // `steerControls` keeps it mounted once the agent read it, so it folds away.
+            // An unread steer shows only queue controls; accepted or read prompts show normal hover actions.
             <>
               {row.author && <AuthorChip author={row.author} />}
               <UserBubble
                 row={row}
                 text={row.text ?? ""}
-                pending={steerControls(row) ? <PendingSteer row={row} send={editQueued} /> : undefined}
+                pending={
+                  steerControls(row)
+                    ? (actions) => (
+                        <PendingSteer row={row} send={editQueued}>
+                          {actions}
+                        </PendingSteer>
+                      )
+                    : undefined
+                }
               />
             </>
           )}
@@ -4027,7 +4046,7 @@ export function VirtualTranscript({
       )}
       {jumpButton && (
         <JumpToLatest
-          // The pill also shows at the latest message while asks wait in other chats: it cycles to them.
+          // The pill also shows at the latest message while the chats this chat started wait: it cycles to them.
           shown={behind || (needsYou?.elsewhere ?? 0) > 0}
           working={working}
           onJump={(focused) => {
@@ -4356,6 +4375,28 @@ function AcpmuxPane() {
   const [clientSnapshot, setSnapshot] = useState<AcpmuxSnapshot>(cachedSnapshot);
   const [harnessSwitch] = useState(() => new HarnessSwitch());
   const switchView = useSyncExternalStore(harnessSwitch.subscribe, harnessSwitch.view, harnessSwitch.view);
+  // Typing in a new chat (this pane's fresh composer or its New Tab page) warms the agent its Enter
+  // starts (newChatPrewarm.ts, acpmux hub/pool). Silent: a folder without a Trust answer asks at Enter.
+  const [newChatPrewarm] = useState(
+    () =>
+      new NewChatPrewarm(
+        {
+          supported: () => directClient.current?.prewarmSupported === true,
+          prewarm: (target) => directClient.current?.typingPrewarm(target.harness, target.cwd),
+          release: (target) => directClient.current?.releasePrewarm(target.harness, target.cwd),
+        },
+        browserSwitchClock,
+      ),
+  );
+  // The page going away (its tab closed) with an unsent prompt gives the warm agent back now.
+  useEffect(() => {
+    const gone = () => newChatPrewarm.abandon();
+    window.addEventListener("pagehide", gone);
+    return () => {
+      window.removeEventListener("pagehide", gone);
+      gone();
+    };
+  }, [newChatPrewarm]);
   const queryClient = useQueryClient();
   // The pane keeps the last client's catalog until the next client's arrives;
   // ids only grow, so a new client never reads an older client's cache entry.
@@ -5429,11 +5470,10 @@ function AcpmuxPane() {
       }),
       ...(connected && {
         retry: (rowId: string, prompt: string) =>
-          void (async () =>
-            callNative("chat.send", {
-              text: prompt,
-              attachments: (await directClient.current?.promptAttachments(rowId)) ?? [],
-            }))().catch(() => undefined),
+          void (async () => {
+            const draft = await directClient.current?.resendPrompt(rowId, prompt);
+            return callNative("chat.send", { text: draft?.input ?? prompt, attachments: draft?.attachments ?? [] });
+          })().catch(() => undefined),
       }),
       // Continue after a stop (Codex's) sends its prompt as the composer would: it shows as the
       // reader's prompt and starts the next turn, or queues behind one already sent. Like Restart
@@ -5475,6 +5515,8 @@ function AcpmuxPane() {
           takeBackSteer(row, {
             withdraw: (promptId) => editQueued(promptId, { op: "withdraw" }),
             attachments: (rowId) => directClient.current?.promptAttachments(rowId) ?? Promise.resolve([]),
+            draft: (rowId, text) =>
+              directClient.current?.resendPrompt(rowId, text) ?? Promise.reject(new Error(translate("error.notOpen"))),
             restore: (text, attachments) => composerHandle.current?.restore(text, attachments),
           }),
       }),
@@ -6675,6 +6717,9 @@ function AcpmuxPane() {
       applySessionStatus(on) {
         setSessionStatus(on === true);
       },
+      agentAvatarChanged(sessionId) {
+        if (typeof sessionId === "string") agentAvatarChanged(sessionId);
+      },
       applySuggestedTasks(on) {
         if (setSuggestedTasks(on === true)) directClient.current?.suggestedTasksChanged();
       },
@@ -7312,7 +7357,8 @@ function AcpmuxPane() {
               const live = summary?.sessionId ? { sessionId: summary.sessionId, model: summary.model } : undefined;
               if (!(await harnessSwitch.pickModel(next, live))) return;
             }
-            await send(String(prompt ?? ""), await client.promptAttachments(String(rowId ?? "")));
+            const draft = await client.resendPrompt(String(rowId ?? ""), String(prompt ?? ""));
+            await send(draft.input, draft.attachments);
           },
           // Edit and Resend (the message menu): the prompt goes back into the composer, before
           // anything typed since, with the caret in it.
@@ -7388,7 +7434,7 @@ function AcpmuxPane() {
           // edited text with the prompt's attachments; the original chat stays as it was.
           "chat.editResend": async ({ rowId, throughSeq, text }) => {
             harnessSwitch.cancel();
-            const attachments = await client.promptAttachments(String(rowId ?? ""));
+            const draft = await client.resendPrompt(String(rowId ?? ""), String(text ?? ""));
             // A fork's own edited prompt edits again from the chat it was forked from, at the same
             // turn, so every version of the prompt is a sibling (conversation/branches.ts).
             const current = snapshotRef.current;
@@ -7403,7 +7449,7 @@ function AcpmuxPane() {
             await persistSession(forked);
             // The reader may open another chat while the fork is saved: the edit belongs to the fork.
             if (client.selectedSession !== forked) return false;
-            await send(String(text ?? ""), attachments);
+            await send(draft.input, draft.attachments);
             return true;
           },
           // `/btw <question>`: acpmux starts the side session; the composer then opens it.
@@ -7570,8 +7616,16 @@ function AcpmuxPane() {
         // a web update's reload waits for the start too.
         const startChat = window.cmuxAcpmuxActions["chat.new"]!;
         window.cmuxAcpmuxActions["chat.new"] = (params) => {
+          // The chat it starts takes the agent its typing warmed (newChatPrewarm.ts).
+          newChatPrewarm.sent();
           untakenSends.current += 1;
           return startChat(params).finally(() => (untakenSends.current -= 1));
+        };
+        // A new chat's first send starts its chat, which takes the warm agent: nothing is released.
+        const sendPrompt = window.cmuxAcpmuxActions["chat.send"]!;
+        window.cmuxAcpmuxActions["chat.send"] = (params) => {
+          newChatPrewarm.sent();
+          return sendPrompt(params);
         };
         notifyDraftActionsChanged();
         harnessSwitch.setHandlers({
@@ -7685,7 +7739,7 @@ function AcpmuxPane() {
     };
     // These are stable for the pane's life (state, provider client, a memoized bridge callback, and
     // the early New Tab flag, one object from a useState initializer).
-  }, [harnessSwitch, queryClient, toggleInspector, earlyNewTab, restartGate]);
+  }, [harnessSwitch, newChatPrewarm, queryClient, toggleInspector, earlyNewTab, restartGate]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
     | React.ComponentType<{ snapshot: AcpmuxSnapshot; permissionAccess?: ComposerPermissionAccess }>
     | undefined;
@@ -7792,6 +7846,16 @@ function AcpmuxPane() {
       unread: snapshot.sessions.some((session) => session.sessionId === snapshot.sessionId && session.unread === true),
     },
     () => ignoreFailure(openClient().then((client) => client.markUnread())),
+    t,
+  );
+  // The session's own avatar (its cards and sender chip draw it): the menu offers Remove Avatar with one.
+  const avatarSrc = useAgentAvatar(snapshot.sessionId);
+  const avatar = avatarRows(
+    { sessionId: snapshot.sessionId, hasAvatar: avatarSrc !== undefined },
+    {
+      set: () => snapshot.sessionId && ignoreFailure(setAgentAvatar(snapshot.sessionId)),
+      remove: () => snapshot.sessionId && ignoreFailure(removeAgentAvatar(snapshot.sessionId)),
+    },
     t,
   );
   useEffect(() => {
@@ -8090,6 +8154,7 @@ function AcpmuxPane() {
       ],
       tools,
       [
+        ...avatar,
         ...(markUnread ? [markUnread] : []),
         ...(archive ? [archive] : []),
         {
@@ -8246,6 +8311,33 @@ function AcpmuxPane() {
   const newTabSessions = useSharedSessions(
     carriedSessions ?? composerSnapshot.sessions,
     sharesChatList(newTab, composerSnapshot),
+  );
+  // What this pane's new chat's Enter would start (newChatPrewarm.ts): the held pick or switch's
+  // harness (none: acpmux's default) in the picked project, the switch's folder or the pane's own.
+  // The pane's own folder (`newChatCwd`) is read at the keystroke: the client is a ref.
+  const freshPick = useRef<{ harness?: string; cwd?: string }>({});
+  freshPick.current = {
+    harness: heldPick(snapshot).harness ?? switchView.intent?.harness,
+    cwd: projectDraft ?? switchView.intent?.cwd,
+  };
+  // Stable, so the composer's unsent-draft throttle is not rebuilt on every render.
+  const onNewChatDraft = useCallback(
+    (text: string) => {
+      postUnsentDraft(text);
+      const { harness } = freshPick.current;
+      const cwd = freshPick.current.cwd ?? directClient.current?.newChatCwd();
+      const target: PrewarmTarget | undefined = cwd ? { ...(harness ? { harness } : {}), cwd } : undefined;
+      newChatPrewarm.typed(text, target);
+    },
+    [newChatPrewarm],
+  );
+  const onNewTabPromptTyped = useCallback(
+    (text: string, target?: { harness?: string; cwd?: string }) =>
+      newChatPrewarm.typed(
+        text,
+        target?.cwd ? { ...(target.harness ? { harness: target.harness } : {}), cwd: target.cwd } : undefined,
+      ),
+    [newChatPrewarm],
   );
   const newTabSnapshot = useMemo(
     () =>
@@ -8684,6 +8776,30 @@ function AcpmuxPane() {
         : {})}
     />
   );
+  // A new chat in a workspace without a folder starts in its private folder (FolderChoice.tsx): the
+  // folder chip's menu says so, and its Choose folder… is the workspace's folder sheet, which also
+  // makes the pick the folder of the pane's next chats.
+  const folderChoiceOffered =
+    !pendingFolder &&
+    !showNewTab &&
+    showsFolderChoice({
+      offered: chooseFolder,
+      freshChat,
+      quick,
+      projectDraft,
+      sessionId: snapshot.sessionId,
+      missingFolder: Boolean(folderNeeded && !snapshot.sessionId),
+    });
+  const chooseWorkspaceFolder = () => {
+    setFolderError(undefined);
+    void callNative<{ cwd?: string }>("workspace.chooseFolder")
+      .then((result) => {
+        if (!result?.cwd) return;
+        setChooseFolder(false);
+        chooseProject(result.cwd);
+      })
+      .catch((error: unknown) => setFolderError(errorMessage(error) || undefined));
+  };
   // A subagent's own pane is a tab on the chat's session: the chat's composer, queue and pull
   // request bars there were the chat's, and a prompt typed in it went to the chat.
   const composer = readOnlySubagent ? (
@@ -8779,34 +8895,11 @@ function AcpmuxPane() {
           />
         </Notice>
         {!showNewTab && folderAskView}
-        {!pendingFolder && !showNewTab && (
-          <Notice
-            id="folder-choice"
-            tier="hint"
-            when={showsFolderChoice({
-              offered: chooseFolder,
-              freshChat,
-              quick,
-              projectDraft,
-              sessionId: snapshot.sessionId,
-              missingFolder: Boolean(folderNeeded && !snapshot.sessionId),
-            })}
-          >
-            <FolderChoice
-              error={folderError}
-              onChoose={() => {
-                setFolderError(undefined);
-                void callNative<{ cwd?: string }>("workspace.chooseFolder")
-                  .then((result) => {
-                    if (!result?.cwd) return;
-                    setChooseFolder(false);
-                    chooseProject(result.cwd);
-                  })
-                  .catch((error: unknown) => setFolderError(errorMessage(error) || undefined));
-              }}
-            />
-          </Notice>
-        )}
+        {/* The private folder's line is the folder chip's menu's (Composer `folderNote`); only the
+            host's refusal of its Choose folder… stands over the composer, with the line to retry. */}
+        <Notice id="folder-choice" tier="error" when={folderChoiceOffered && folderError}>
+          <FolderChoice error={folderError} onChoose={chooseWorkspaceFolder} />
+        </Notice>
         <Notice id="background" tier="status" when={background.notice}>
           <output className="acpmux-switch-notice acpmux-background-notice">
             {background.notice && t(BACKGROUND_NOTICE_TEXT[background.notice])}
@@ -8866,7 +8959,7 @@ function AcpmuxPane() {
             permissionAccess={permissionAccess}
             onOpenContext={inspector.reveal ? () => inspector.reveal?.("context") : undefined}
             draft={draft}
-            onUnsentDraft={quick ? undefined : postUnsentDraft}
+            onUnsentDraft={quick ? undefined : onNewChatDraft}
             onTyping={quick ? undefined : postTyping}
             keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={(command, args) => {
@@ -9073,16 +9166,19 @@ function AcpmuxPane() {
             // A started local chat lists the same folders to move to (dogfood 09); Start Agent's
             // panel lists them before its first prompt (cx-hkat).
             projectChoices={freshChat || (!quick && canMove) ? newTabProjects : undefined}
+            {...(folderChoiceOffered ? { folderNote: t("agentHome.notice") } : {})}
             onBrowseProject={
-              freshChat && !quick
-                ? () => {
-                    void callNative<{ cwd?: string }>("project.browse")
-                      .then((result) => {
-                        if (result?.cwd) chooseProject(result.cwd);
-                      })
-                      .catch(() => undefined);
-                  }
-                : undefined
+              folderChoiceOffered
+                ? chooseWorkspaceFolder
+                : freshChat && !quick
+                  ? () => {
+                      void callNative<{ cwd?: string }>("project.browse")
+                        .then((result) => {
+                          if (result?.cwd) chooseProject(result.cwd);
+                        })
+                        .catch(() => undefined);
+                    }
+                  : undefined
             }
             // The host runs commands on this Mac: a Cloud chat has no shell mode.
             onShell={
@@ -9421,6 +9517,7 @@ function AcpmuxPane() {
               inputToken={newTab.inputToken}
               {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
               {...(startFolder ? { startCwd: startFolder } : {})}
+              onPromptTyped={onNewTabPromptTyped}
               {...(!handshaken ? { startPending: true } : {})}
               {...(newTabChatsPending ? { chatsPending: true } : {})}
               {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}
@@ -9626,6 +9723,7 @@ function AcpmuxPane() {
                     onChoose={(choice) => void callNative("chat.adoptLive", { choice }).catch(() => undefined)}
                   />
                 )}
+                {snapshot.peerCopy?.offline && <PeerCopyBanner copy={snapshot.peerCopy} />}
                 {snapshot.summary?.watching && !snapshot.liveTakeOver && (
                   <WatchBanner
                     family={snapshot.summary.watching}
@@ -9730,7 +9828,14 @@ function AcpmuxPane() {
                 {/* Between the hero and the docked composer. */}
                 {freshView && (
                   <div className="acpmux-home-area">
-                    <HomeLists sessions={snapshot.sessions} currentId={snapshot.sessionId} onSelect={selectSession} />
+                    <HomeLists
+                      sessions={snapshot.sessions}
+                      currentId={snapshot.sessionId}
+                      asks={snapshot.asks}
+                      onSelect={selectSession}
+                      onAnswer={(item, choice) => answerFromHome(callNative, item, choice, selectSession)}
+                      shortcuts={!hasBottomAsk}
+                    />
                   </div>
                 )}
                 {hostErrorCard}

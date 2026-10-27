@@ -30,6 +30,7 @@ impl Hub {
             starter,
             route,
             subsession,
+            lineage,
             disallowed_tools,
             checked_cwd,
         } = req;
@@ -151,6 +152,7 @@ impl Hub {
             (session_env, chat_store, adopted_cwd, git.branch, git.head);
         meta.workspace_id = workspace_id;
         meta.subsession = subsession;
+        meta.lineage = lineage;
         meta.tools
             .off
             .extend(disallowed_tools.iter().map(|t| format!("{}{t}", super::tools::BUILT_IN)));
@@ -226,6 +228,7 @@ impl Hub {
         let (session, created_stops) = session;
         if let Err(e) = self.store.save(&session.meta()) {
             self.sessions.lock().unwrap().remove(&id);
+            self.child_tags.forget(&id);
             return Err(RpcError::internal(e.to_string()));
         }
         // The chat's route is bound once the session exists and before its
@@ -236,6 +239,7 @@ impl Hub {
                 crate::routes::set_binding(&state, &format!("chat:{id}"), Some(route_id))
             {
                 self.sessions.lock().unwrap().remove(&id);
+                self.child_tags.forget(&id);
                 return Err(RpcError::invalid_params(e.message().to_owned()));
             }
         }
@@ -559,6 +563,11 @@ impl Hub {
             }
         }
 
+        // Every start below (pooled, cold, resumed, a fork or sub-session) runs this profile.
+        if let Err(e) = self.refuse_pinned_full_access(profile) {
+            self.append(session, "mux", "full_access_refused", json!({}));
+            return Err(e);
+        }
         let current = self.opencode_ask_now(session, profile).await;
         let profile = current.as_ref().unwrap_or(profile);
         self.record_spawn_inputs(session, profile).await;
@@ -688,6 +697,8 @@ impl Hub {
         }
         // The --permission-mode acpmux started a Claude process in.
         let mut started_mode = None;
+        // What a Claude process was started in: its profile's argv and the mode it was given.
+        let mut spawned = super::full_access_bound::FullAccessView::default();
         let child = if is_claude {
             // Claude carries its own session in the process: resume by id, or
             // fork from a parent id into a fresh session.
@@ -720,7 +731,7 @@ impl Hub {
             let mode = if super::start_mode::profile_sets_mode(profile) {
                 mode
             } else {
-                super::start_mode::resumable_mode(mode, "default")
+                super::start_mode::resumable_mode(mode, "default", self.full_access_allowed())
             };
             if mode != saved_mode {
                 tracing::info!(session = %session.id, "resume: full access is off; {saved_mode} runs as {mode}");
@@ -739,6 +750,11 @@ impl Hub {
             if !super::start_mode::profile_sets_mode(profile) {
                 started_mode = Some(mode.clone());
             }
+            spawned = super::full_access_bound::FullAccessView {
+                argv: profile.argv.clone(),
+                mode: Some(mode.clone()),
+                ..Default::default()
+            };
             let model = current_model(&meta).unwrap_or_else(|| "default".into());
             let plan = crate::claude_stdio::spawn_plan(
                 profile,
@@ -874,6 +890,9 @@ impl Hub {
         }
 
         if is_claude {
+            // MDM may have forced full access off since `ensure_child` checked the profile: the
+            // process runs nothing, not even a fork's priming turn, in full access (review 31).
+            self.refuse_started_in_full_access(session, &spawned).await?;
             // A forked process only learns its new id from system/init on the
             // first turn. Prime it then; fresh and resumed ids are known already.
             let known = child.claude_state().await.and_then(|state| state.session_id);
@@ -921,6 +940,12 @@ impl Hub {
                     self.append(session, "mux", "resumed", json!({"level": level}));
                 }
             }
+            // Nor is it handed out in full access by any form it now reports (`cap_full_access`).
+            self.refuse_started_in_full_access(
+                session,
+                &super::full_access_bound::FullAccessView::of_session(session),
+            )
+            .await?;
             // A profile that pins its mode in argv (`--permission-mode`, a skip flag) started in it.
             self.hold_policy_mode(session, &child, super::start_mode::profile_sets_mode(profile))
                 .await;
@@ -1029,9 +1054,7 @@ impl Hub {
             .as_ref()
             .and_then(|m| m.get("currentModeId"))
             .and_then(Value::as_str)
-            .filter(|mode| {
-                !super::start_mode::is_full_access(mode) || super::start_mode::full_access_allowed()
-            })
+            .filter(|mode| !super::start_mode::is_full_access(mode) || self.full_access_allowed())
         {
             if let Err(e) = child
                 .request(method::SESSION_SET_MODE, json!({"sessionId": sid, "modeId": mode}))
@@ -1067,7 +1090,7 @@ impl Hub {
                 continue;
             }
             if value.as_str().is_some_and(super::start_mode::is_full_access)
-                && !super::start_mode::full_access_allowed()
+                && !self.full_access_allowed()
             {
                 tracing::info!(session = %session.id, "replay {id}: full access is off; kept the harness's own mode");
                 continue;

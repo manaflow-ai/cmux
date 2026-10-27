@@ -57,6 +57,8 @@ pub enum PeerNotice {
     Notification {
         method: String,
         params: Value,
+        /// The link it came on (`Peer::link_epoch` when it was read).
+        link: u64,
     },
 }
 
@@ -101,6 +103,8 @@ pub struct Peer {
     subagent_transcript: AtomicBool,
     /// Whether the peer saves a message's attachments (`attach.rs`).
     send_attach: AtomicBool,
+    /// The peer lists `promptUploads` (`prompt_uploads.rs`).
+    prompt_uploads: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
@@ -123,6 +127,8 @@ pub struct Peer {
     timings: LinkTimings,
     /// When the hub last saved this peer's sessions (`hub/peer_cache.rs`).
     pub(crate) cache_saved_at: AtomicU64,
+    /// The sessions this instance's link purged before its list (`hub/purge_tombstones.rs`).
+    pub(crate) purge_tombstones: crate::hub::purge_tombstones::PurgeTombstones,
     /// The peer's last `_acpmux/host_health` and when it came (`peer_health.rs`).
     health: StdMutex<Option<(u64, Value)>>,
     /// An ask for it is out.
@@ -164,6 +170,7 @@ impl Peer {
             link_epoch: AtomicU64::new(0),
             subagent_transcript: AtomicBool::new(false),
             send_attach: AtomicBool::new(false),
+            prompt_uploads: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             presented: StdMutex::new(None),
             admitting: AtomicBool::new(false),
@@ -175,6 +182,7 @@ impl Peer {
             link: StdMutex::new(Link::default()),
             timings: LinkTimings::from_env(),
             cache_saved_at: AtomicU64::new(0),
+            purge_tombstones: Default::default(),
             health: StdMutex::new(None),
             health_asking: AtomicBool::new(false),
             watch_key: StdMutex::new(None),
@@ -433,6 +441,11 @@ impl Peer {
         self.send_attach.load(Ordering::SeqCst)
     }
 
+    /// Whether the peer said at its last handshake that it reads uploaded files a message names.
+    pub fn supports_prompt_uploads(&self) -> bool {
+        self.prompt_uploads.load(Ordering::SeqCst)
+    }
+
     pub fn summary(&self) -> Value {
         let link = self.link();
         let (health, health_at) = self.health_summary();
@@ -469,9 +482,20 @@ impl Peer {
     }
 
     pub async fn request(&self, m: &str, params: Value) -> Result<Value, RpcError> {
+        self.request_on(m, params, None).await
+    }
+
+    /// `request` on the link of epoch `epoch` only, when the caller read it before (it labels
+    /// what the answer holds with it, `hub/peer_snapshot.rs`): unreachable once that link ended.
+    pub async fn request_on(
+        &self,
+        m: &str,
+        params: Value,
+        epoch: Option<u64>,
+    ) -> Result<Value, RpcError> {
         // Read before the check: `run` moves the epoch on before it fails what
         // waits, so a request that is registered after that sees the change.
-        let epoch = self.link_epoch();
+        let epoch = epoch.unwrap_or_else(|| self.link_epoch());
         if !self.connected.load(Ordering::SeqCst) || self.admitting.load(Ordering::SeqCst) {
             return Err(self.unreachable_error());
         }
@@ -522,10 +546,20 @@ impl Peer {
         };
         match answer {
             // A full disk the peer reports is the peer's, not this machine's (`recovery.rs`).
-            Ok(Ok(r)) => r.map_err(|mut e| {
-                crate::recovery::annotate_peer(&mut e, &self.name);
-                e
-            }),
+            // No display line of the peer's own reaches this daemon's clients, on any route that
+            // returns a peer's reply or its error's data (`hub::drop_display_lines`).
+            Ok(Ok(r)) => r
+                .map(|mut result| {
+                    crate::hub::drop_display_lines(&mut result);
+                    result
+                })
+                .map_err(|mut e| {
+                    crate::recovery::annotate_peer(&mut e, &self.name);
+                    if let Some(data) = e.data.as_mut() {
+                        crate::hub::drop_display_lines(data);
+                    }
+                    e
+                }),
             Ok(Err(_)) => {
                 Err(RpcError::internal(format!("peer {} dropped the request", self.name)))
             }
@@ -725,6 +759,7 @@ impl Peer {
             me.subagent_transcript
                 .store(lists(crate::hub::SUBAGENT_TRANSCRIPT_FEATURE), Ordering::SeqCst);
             me.send_attach.store(lists(crate::attach::FEATURE), Ordering::SeqCst);
+            me.prompt_uploads.store(lists(crate::prompt_uploads::FEATURE), Ordering::SeqCst);
             // The reader published the reply's list (`watch_key`), so Connected follows it.
             me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
             me.with_link(|l| l.ready(crate::store::now_ms()));
@@ -832,7 +867,7 @@ impl Peer {
                                     seq: p.get("seq").and_then(Value::as_u64).unwrap_or(0),
                                 }
                             } else {
-                                PeerNotice::Notification { method: m, params: p }
+                                PeerNotice::Notification { method: m, params: p, link: self.link_epoch() }
                             };
                             if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
                                 break Ok(());
