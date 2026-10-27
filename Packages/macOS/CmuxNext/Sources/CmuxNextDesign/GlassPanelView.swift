@@ -199,8 +199,22 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
     override func layout() { ActiveLookScope.during(window) { super.layout() } }
     override func updateConstraints() { ActiveLookScope.during(window) { super.updateConstraints() } }
     override func viewWillDraw() { ActiveLookScope.during(window) { super.viewWillDraw() } }
+    /// The window this view counts in (``ActiveLookScope/attach(to:)``), while it is in one.
+    private weak var countedWindow: NSWindow?
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if let countedWindow, countedWindow !== newWindow {
+            ActiveLookScope.detach(from: countedWindow)
+            self.countedWindow = nil
+        }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
     override func viewDidMoveToWindow() {
-        if let window { ActiveLookScope.keepActiveLook(in: window) }
+        if let window, countedWindow !== window {
+            ActiveLookScope.attach(to: window)
+            countedWindow = window
+        }
         ActiveLookScope.during(window) { super.viewDidMoveToWindow() }
     }
     override func viewDidChangeEffectiveAppearance() { ActiveLookScope.during(window) { super.viewDidChangeEffectiveAppearance() } }
@@ -254,7 +268,7 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
 ///    resets the count. The glass's first layout, as its window comes on screen, is such an
 ///    update, so a new window is calibrated before it can lose focus.
 /// 2. After that, a read is forced only when its site is exactly that instruction and its window
-///    has held an ``ActiveLookGlassEffectView`` (``keepActiveLook(in:)``), wherever the read comes
+///    holds an ``ActiveLookGlassEffectView`` now (``attach(to:)``), wherever the read comes
 ///    from. Every other read, and every read off the main thread, keeps AppKit's answer. Until
 ///    calibration ends the glass follows the key state.
 @MainActor
@@ -379,15 +393,29 @@ enum ActiveLookScope {
 
     nonisolated(unsafe) private static var keepsActiveLookKey: UInt8 = 0
 
-    /// Marks `window` as holding an ``ActiveLookGlassEffectView``: the material read of every glass
-    /// graph in it answers active from then on.
-    static func keepActiveLook(in window: NSWindow) {
-        objc_setAssociatedObject(window, &keepsActiveLookKey, true, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    /// Counts an ``ActiveLookGlassEffectView`` into `window`: while any is in it, the material read
+    /// of every glass graph in it answers active. Liquid Glass renders a window's glass together: a
+    /// fleet run that left the window's plain glass (composer, header) to AppKit's answer drew the
+    /// frost over the backdrop again in 3 of 4 runs.
+    static func attach(to window: NSWindow) {
+        setCount(count(window) + 1, window)
     }
 
-    /// Whether `window` has held an ``ActiveLookGlassEffectView``.
-    static func keepsActiveLook(_ window: NSWindow) -> Bool {
-        objc_getAssociatedObject(window, &keepsActiveLookKey) as? Bool ?? false
+    /// Counts one out of `window`; at zero its glass follows the key state again (a backdrop that
+    /// switched to an opaque or frosted material, or moved to another window).
+    static func detach(from window: NSWindow) {
+        setCount(max(count(window) - 1, 0), window)
+    }
+
+    /// Whether an ``ActiveLookGlassEffectView`` is in `window` now.
+    static func keepsActiveLook(_ window: NSWindow) -> Bool { count(window) > 0 }
+
+    private static func count(_ window: NSWindow) -> Int {
+        objc_getAssociatedObject(window, &keepsActiveLookKey) as? Int ?? 0
+    }
+
+    private static func setCount(_ count: Int, _ window: NSWindow) {
+        objc_setAssociatedObject(window, &keepsActiveLookKey, count == 0 ? nil : count, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     }
 
     /// What a frame's image is: AppKit, SwiftUI (or SwiftUICore), or anything else.

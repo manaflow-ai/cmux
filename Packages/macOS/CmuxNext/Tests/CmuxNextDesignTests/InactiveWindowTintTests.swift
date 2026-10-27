@@ -81,6 +81,30 @@ import CmuxNextDesignTokens
         #expect(!ActiveLookScope.keepsActiveLook(popup))
     }
 
+    /// The key look lasts only while an `ActiveLookGlassEffectView` is in the window: a backdrop
+    /// that leaves (an opaque or frosted material replaced it) or moves away hands the window's
+    /// glass back to the key state; two backdrops count separately.
+    @Test func theActiveLookEndsWhenTheBackdropGlassLeaves() {
+        guard #available(macOS 26.0, *) else { return }
+        func window() -> NSWindow {
+            let window = NSWindow(contentRect: .init(x: 0, y: 0, width: 10, height: 10), styleMask: [], backing: .buffered, defer: true)
+            window.isReleasedWhenClosed = false
+            window.contentView = NSView()
+            return window
+        }
+        let first = window(), second = window()
+        let glass = ActiveLookGlassEffectView(frame: .zero), other = ActiveLookGlassEffectView(frame: .zero)
+        first.contentView?.addSubview(glass)
+        first.contentView?.addSubview(other)
+        other.removeFromSuperview()
+        #expect(ActiveLookScope.keepsActiveLook(first), "one backdrop is still in it")
+        second.contentView?.addSubview(glass)
+        #expect(!ActiveLookScope.keepsActiveLook(first), "moved away")
+        #expect(ActiveLookScope.keepsActiveLook(second))
+        glass.removeFromSuperview()
+        #expect(!ActiveLookScope.keepsActiveLook(second), "removed")
+    }
+
     /// Only the window whose backdrop glass is updating is in scope, the innermost when updates
     /// nest; an unrelated window never is, and nothing is after the update.
     @Test func theScopeNamesOnlyTheUpdatingWindow() {
