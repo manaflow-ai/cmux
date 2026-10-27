@@ -331,11 +331,12 @@ public final class TerminalSurfaceView: NSView {
         occlusionWatch = nil
         guard observe, let window else { return }
         occlusionWatch = watchOcclusionFamily(of: window)
+        windowWatch.followKey(window.firstResponder === self)
         windowWatch.watch(WindowEvents.of(window))
     }
 
-    /// Window notices handled (`debug.layout_counters`): only shown terminals count, key and screen changes only
-    /// while their tab is visible.
+    /// Window notices handled (`debug.layout_counters`): only shown terminals count, key changes only for the
+    /// first responder, screen changes only while their tab is visible.
     public static var windowStateUpdates: UInt64 = 0
     /// Grid reports views made to their session (`debug.window_transition`).
     public static var gridReports: UInt64 = 0
@@ -521,13 +522,19 @@ public final class TerminalSurfaceView: NSView {
 
     public override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
-        if accepted { updateFocus(firstResponder: true) }
+        if accepted {
+            windowWatch.followKey(true)
+            updateFocus(firstResponder: true)
+        }
         return accepted
     }
 
     public override func resignFirstResponder() -> Bool {
         let accepted = super.resignFirstResponder()
-        if accepted { updateFocus(firstResponder: false) }
+        if accepted {
+            windowWatch.followKey(false)
+            updateFocus(firstResponder: false)
+        }
         return accepted
     }
 

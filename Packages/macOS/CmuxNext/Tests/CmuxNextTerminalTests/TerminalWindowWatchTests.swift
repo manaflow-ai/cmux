@@ -3,11 +3,11 @@ import AppKit
 import CmuxNextWakeups
 import Testing
 
-/// The terminals' window notices go through the window's one ``WindowEvents`` by their tab nodes
-/// (p06-scheduler-334, recipe R-notif): a Cmd-Tab with many terminals handles the key change only in the
-/// visible ones, a hidden tab reads it once when it shows, and an occlusion change still reaches every shown
-/// terminal, so a covered window stops drawing whatever its tabs show. The host's appearance repaint waits
-/// for its tab the same way (recipe R-appear).
+/// The terminals' window notices go through the window's one ``WindowEvents`` (p06-scheduler-334, recipe
+/// R-notif): a Cmd-Tab with many terminals handles the key change only in the first responder, in its own turn
+/// even when its window is covered, a hidden tab reads a screen change once when it shows, and an occlusion
+/// change still reaches every shown terminal, so a covered window stops drawing whatever its tabs show. The
+/// host's appearance repaint waits for its tab the same way (recipe R-appear).
 @MainActor @Suite struct TerminalWindowWatchTests {
     private static func window() -> NSWindow {
         _ = NSApplication.shared
@@ -28,9 +28,9 @@ import Testing
         }
     }
 
-    /// Cmd-Tab back to a window with 40 shown terminals, 4 of them in visible tabs: one NotificationCenter
-    /// observer per notice for all 40, and the key change is handled 4 times, not 40.
-    @Test func cmdTabWithFortyTerminalsHandlesOnlyTheVisibleOnes() {
+    /// Cmd-Tab back to a window with 40 shown terminals, 4 of them in visible tabs and one first responder:
+    /// one NotificationCenter observer for the key notice, and the key change is handled once, not 40 times.
+    @Test func cmdTabWithFortyTerminalsHandlesOnlyTheFirstResponder() {
         let center = NotificationCenter(), window = Self.window()
         let events = WindowEvents(window: window, center: center)
         let windowNode = VisibilityNode(root: "window", own: .visible)
@@ -38,17 +38,60 @@ import Testing
             Terminal(node: VisibilityNode("tab:\(index)", own: index < 4 ? .visible : .hidden, parent: windowNode))
         }
         for terminal in terminals { terminal.watch.watch(events) }
-        #expect(events.subscriberCount(NSWindow.didBecomeKeyNotification) == 40)
+        terminals[0].watch.followKey(true)
+        #expect(events.subscriberCount(NSWindow.didBecomeKeyNotification) == 1)
         center.post(name: NSWindow.didBecomeKeyNotification, object: window)
         #expect(events.deliveries(NSWindow.didBecomeKeyNotification) == 1, "one observer for every terminal")
         let handled = terminals.reduce(0) { $0 + $1.changes.count }
         #expect(handled <= 4, "a Cmd-Tab handled \(handled) key changes for 4 visible terminals")
-        #expect(terminals.prefix(4).allSatisfy { $0.changes == [.focus] })
-        #expect(terminals.dropFirst(4).allSatisfy { $0.changes.isEmpty }, "a hidden tab handled the key change")
+        #expect(terminals[0].changes == [.focus])
+        #expect(terminals.dropFirst().allSatisfy { $0.changes.isEmpty },
+                "a terminal that is not first responder handled the key change")
     }
 
-    /// A hidden tab's terminal gets no call per post and reads the window's state once when its tab shows.
-    @Test func aHiddenTabReadsTheKeyChangeOnceWhenItShows() {
+    /// The first-responder terminal of a window an opaque window covers hears a resign and a become key in
+    /// their own turns: its focus report and `isFocused` do not wait for the window to be uncovered.
+    @Test func theFirstResponderHearsKeyChangesWhileItsWindowIsOccluded() {
+        let center = NotificationCenter(), window = Self.window()
+        let events = WindowEvents(window: window, center: center)
+        let windowNode = VisibilityNode(root: "window", own: .occluded)
+        let pane = VisibilityNode("pane", own: .visible, parent: windowNode)
+        let tab = VisibilityNode("tab", own: .visible, parent: pane)
+        #expect(!tab.isVisible)
+        let terminal = Terminal(node: tab)
+        terminal.watch.watch(events)
+        terminal.watch.followKey(true)
+        center.post(name: NSWindow.didResignKeyNotification, object: window)
+        #expect(terminal.changes == [.focus], "the resign key waited for the window to show")
+        center.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        #expect(terminal.changes == [.focus, .focus], "the become key waited for the window to show")
+        windowNode.set(.visible)
+        #expect(terminal.changes == [.focus, .focus], "showing the window replayed a key change")
+    }
+
+    /// Key changes follow first responder: following before the watch applies on watch, resigning ends them,
+    /// and a stop keeps the state for the next watch.
+    @Test func keyChangesFollowFirstResponder() {
+        let center = NotificationCenter(), window = Self.window()
+        let events = WindowEvents(window: window, center: center)
+        let terminal = Terminal(node: VisibilityNode(root: "tab", own: .visible))
+        terminal.watch.followKey(true)
+        terminal.watch.watch(events)
+        center.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        #expect(terminal.changes == [.focus])
+        terminal.watch.followKey(false)
+        #expect(!events.isObserving(NSWindow.didBecomeKeyNotification))
+        center.post(name: NSWindow.didResignKeyNotification, object: window)
+        #expect(terminal.changes == [.focus], "a resigned terminal handled a key change")
+        terminal.watch.followKey(true)
+        terminal.watch.stop()
+        terminal.watch.watch(events)
+        center.post(name: NSWindow.didResignKeyNotification, object: window)
+        #expect(terminal.changes == [.focus, .focus])
+    }
+
+    /// A hidden tab's terminal gets no call per screen post and reads the window's screen once when its tab shows.
+    @Test func aHiddenTabReadsTheScreenChangeOnceWhenItShows() {
         let center = NotificationCenter(), window = Self.window()
         let events = WindowEvents(window: window, center: center)
         let tab = VisibilityNode(root: "tab", own: .hidden)
@@ -61,11 +104,8 @@ import Testing
         }
         #expect(terminal.changes.isEmpty, "a hidden terminal handled a key or screen change")
         tab.set(.visible)
-        let focusReads = terminal.changes.filter { $0 == .focus }.count
-        let screenReads = terminal.changes.filter { $0 == .screen }.count
-        #expect(focusReads >= 1)
-        #expect(screenReads == 1, "the screen change was read more than once on show")
-        #expect(terminal.changes.count <= 3, "showing the tab replayed every post")
+        #expect(terminal.changes == [.screen],
+                "showing the tab replayed every post, or a key change reached a terminal that is not first responder")
     }
 
     /// An occlusion change reaches a shown terminal whose tab is not visible: its surface still pauses
@@ -79,12 +119,13 @@ import Testing
         #expect(terminal.changes == [.occlusion])
     }
 
-    /// A terminal with no tab (tests, fixtures) follows its window's notices whenever it is shown.
+    /// A first-responder terminal with no tab (tests, fixtures) follows its window's notices whenever it is shown.
     @Test func aTerminalWithNoTabFollowsEveryNotice() {
         let center = NotificationCenter(), window = Self.window()
         let events = WindowEvents(window: window, center: center)
         let terminal = Terminal(node: nil)
         terminal.watch.watch(events)
+        terminal.watch.followKey(true)
         center.post(name: NSWindow.didBecomeKeyNotification, object: window)
         center.post(name: NSWindow.didChangeScreenNotification, object: window)
         #expect(terminal.changes == [.focus, .screen])
@@ -98,10 +139,12 @@ import Testing
         let tab = VisibilityNode(root: "tab", own: .hidden)
         let terminal = Terminal(node: tab)
         terminal.watch.watch(events)
-        center.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        terminal.watch.followKey(true)
+        center.post(name: NSWindow.didChangeScreenNotification, object: window)
         terminal.watch.stop()
         #expect(!terminal.watch.isWatching)
         #expect(!events.isObserving(NSWindow.didBecomeKeyNotification))
+        #expect(!events.isObserving(NSWindow.didChangeScreenNotification))
         tab.set(.visible)
         center.post(name: NSWindow.didBecomeKeyNotification, object: window)
         #expect(terminal.changes.isEmpty)
