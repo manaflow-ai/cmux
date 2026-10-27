@@ -45,7 +45,8 @@
 #   4. The embedded Chromium engine (CEF framework, its libraries, the shim,
 #      the remote shim, the five helper apps with their own entitlements and
 #      the Chromium host Contents/MacOS/<product> Chromium Host: hardened
-#      runtime, no entitlements, the app's identifier) through
+#      runtime, the app's identifier, the browser-process subset of the
+#      effective app entitlements with no allow-jit) through
 #      scripts/cmux-next/sign-cef.sh, the remote browser host under
 #      Contents/Helpers (rbh_sign), then every other nested framework under
 #      Contents/Frameworks/* with --deep (covers Sparkle's XPCServices and
@@ -166,7 +167,7 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
     "$SCRIPT_DIR/remove-sparkle-sandbox-xpc-services.sh" "$APP_PATH"
     if [[ -d "$APP_PATH/Contents/Frameworks/$CEF_FRAMEWORK_NAME" ]]; then
       echo "==> signing the Chromium engine (CEF framework, shim, helpers)"
-      "$SCRIPT_DIR/cmux-next/sign-cef.sh" "$APP_PATH" "$IDENTITY"
+      "$SCRIPT_DIR/cmux-next/sign-cef.sh" "$APP_PATH" "$IDENTITY" "$EFFECTIVE_APP_ENTITLEMENTS"
       # Chromium on demand (plans/cmux-next/bundle-size-DESIGN.md 6.6): the
       # signed engine leaves the app for a runtime pack, and the app gets its
       # pin (Contents/Resources/cef-runtime.json) before step 5 seals it.
@@ -231,7 +232,9 @@ fi
 # daemon runs its sibling) and is signed like it: Developer ID, hardened runtime.
 "$SCRIPT_DIR/cmux-next/check-bundled-browser-host.sh" "$APP_PATH" --hardened
 # The Chromium host is nested code the notary service checks with the app: it
-# must verify, run hardened, carry no entitlements and share the app's identity.
+# must verify, run hardened, share the app's identity and carry exactly the
+# browser-process subset of the app's signed entitlements (keychain group and
+# passkey entitlement included, no code-signing relaxation).
 "$SCRIPT_DIR/cmux-next/sign-cef.sh" --verify-host "$APP_PATH"
 
 APP_ID="$(/usr/libexec/PlistBuddy -c "Print :com.apple.application-identifier" \

@@ -54,11 +54,17 @@ cmux (app)                          <App>.app/Contents/MacOS/<App> Chromium Host
   host per profile would contain a crash to that profile for about 60-90 MB more per profile (decision below).
 - Signing: hardened runtime, no JIT entitlement (the browser process does not JIT; Renderer and GPU keep `allow-jit`,
   `scripts/cmux-next/sign-cef.sh`). Sandbox: none for the browser process, as Chrome and today. Release signing
-  (`scripts/sign-cmux-bundle.sh`) signs the host with `sign-cef.sh` as nested code before the app, with no entitlements
-  and with the app's bundle id as its code identifier (Chrome's browser process is the app's own executable,
+  (`scripts/sign-cmux-bundle.sh`) signs the host with `sign-cef.sh` as nested code before the app, with the app's
+  bundle id as its code identifier (Chrome's browser process is the app's own executable,
   `chrome/installer/mac/signing/parts.py`), so its designated requirement is the app's; the app's notarization covers
-  it, and `sign-cef.sh --verify-host` refuses a host without the hardened runtime, with entitlements, or with another
-  identifier or team (p01-process-088).
+  it. Its entitlements are the browser-process subset of the effective app entitlements, as Chrome's browser process
+  gets `chrome/app/app-entitlements.plist`: application and team identifiers, `keychain-access-groups` (the Touch ID
+  passkeys of `shim_passkeys.mm` run in the host and use that group), `web-browser.public-key-credential` when the
+  channel requests it (the platform passkey API checks the calling process), and the `device.*` and
+  `personal-information.*` keys; no `com.apple.security.cs.*` key. The app's provisioning profile covers the
+  restricted keys because the host has the app's identifier. `sign-cef.sh --verify-host` refuses a host without the
+  hardened runtime, with another identifier or team, or whose entitlements are not exactly that subset of the app's
+  signed ones (so any `allow-jit`, or a missing keychain group, fails release signing) (p01-process-088).
 - Keychain: Chromium's "Chromium Safe Storage" item encrypts cookies and passwords. Its ACL names the cmux app's
   designated requirement, which the host's signature now satisfies (same identifier, same team), so a release host is
   expected to read the item without a prompt; task 089 checks that on 14, 15, 26 and 27. Dev builds use the mock keychain
