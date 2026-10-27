@@ -140,6 +140,31 @@ struct RemoteMachinesSidebarTests {
         #expect(first == .topItem(LayoutItemID("itm_home")), "Cmd-1 is \(first); order \(model.itemOrder.items)")
     }
 
+    /// The user 2026-10-26: "CMUX performance lead, CMUX community lead, and CMUX and chief 2-week/fast iteration
+    /// are the ones I actually manually drag up there. Everything that is [a subagent] I did not put there." The top
+    /// band holds Home and what the person put there; the agent chats of another machine (here a Cloud VM's eleven
+    /// idle Chief subagents, titled with their prompt) never draw in it.
+    @Test func remoteChatsNeverDrawInTheTopBand() {
+        // The app's own remote model holds the chats, as the running app's does.
+        let remote = RemoteMachinesSidebar.shared
+        let prompt = "You are a subagent of Chief, an AI agent that works for one user"
+        remote.machines = RemoteMachinesSidebar.machines(
+            lanes: (0..<11).map { Self.lane("optchat-sub-2e448bc2-a6\($0)", peer: "chief-subagents-2", since: TimeInterval($0), title: prompt) }
+                + [Self.lane("busy", peer: "cmux-lawrence", .working, since: 99, title: "Fix the rail")],
+            peers: nil)
+        defer { remote.machines = [] }
+        let model = SidebarModel()
+        model.transientTopItems = SidebarModel.topItems(chief: ChiefSidebar(lanes: AgentLaneStore()))
+            .filter { $0.item.id != SidebarTransientItem.channelsID }
+        let pinned = ["itm_perf", "itm_chromium", "itm_tui"]
+        let section = LayoutSection(id: SidebarLayoutDocument.topSectionID, showsTitle: false, region: .top, look: .builtIn,
+                                    items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .app("cmux/home"))]
+                                        + pinned.map { LayoutItem(id: LayoutItemID($0), ref: .app("example/\($0)")) })
+        let ids = model.placingTransientItems(in: [section]).flatMap(\.items).map(\.id.rawValue)
+        #expect(ids == ["itm_home"] + pinned, "the top band drew \(ids)")
+        #expect(model.transientTopItems.isEmpty, "no client-only remote row at all: \(model.transientTopItems.map(\.info.title))")
+    }
+
     @Test func peerListReadsNamesAndLinks() {
         let peers = AcpmuxPeerList.peers(["peers": [["name": "cmux16", "connected": true, "sessions": 484],
                                                     ["name": "big-red", "connected": false], ["connected": true]]])
