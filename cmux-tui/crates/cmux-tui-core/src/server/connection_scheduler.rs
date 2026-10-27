@@ -10,8 +10,8 @@
 //! A request that blocks tells the pool at the blocking site itself (a
 //! request-path note, or `request_path::will_block` around a PTY or host
 //! input write and the wait of `wait-for`), so it starts a temporary worker
-//! instead of holding one of the fixed ones. The streams a connection opens are sequences of their own
-//! (stream_lanes.rs); a control command on a surface with an open stream
+//! instead of holding one of the fixed ones. The streams a connection opens
+//! are sequences of their own (stream_lanes.rs); a control command on a surface with an open stream
 //! waits for the items that stream held when the command arrived.
 //!
 //! Request threads (the WebSocket connection thread) start through

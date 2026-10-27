@@ -115,34 +115,33 @@ fn the_control_sequence_runs_on_request_threads_that_record_their_blocking() {
     );
 }
 
-/// The line of a pool worker's wait for its next task in sequenced_pool.rs.
+/// The line of an idle pool worker's wait for its next task in
+/// sequenced_pool.rs.
 fn idle_worker_wait_line() -> u32 {
     let source = include_str!("sequenced_pool.rs");
     let start = source.find("fn run_worker(").expect("run_worker");
-    let wait = start + source[start..].find(".wait(").expect("run_worker waits");
+    let wait = start + source[start..].find(".idle().wait(").expect("an idle worker waits");
     u32::try_from(source[..wait].lines().count()).expect("line")
 }
 
-/// A control worker waits for its next task while idle (Chromium's
-/// `WaitableEvent::declare_only_used_while_idle`; the connection holds no
-/// thread of its own since p05-ipc-073): on a request thread, a wait far
-/// over the 2 ms lock-wait budget records no site.
+/// A connection's control sequence holds no thread; an idle control worker
+/// waits for the next task of any connection while idle (Chromium's
+/// `WaitableEvent::declare_only_used_while_idle`): on a request thread, a
+/// wait far over the 2 ms lock-wait budget records no site.
 #[test]
 fn an_idle_control_worker_waiting_for_its_next_task_records_no_site() {
+    use super::super::sequenced_pool::{PoolConfig, SequencePriority, SequencedPool};
     const IDLE: Duration = Duration::from_millis(20);
-    let mux = crate::Mux::new_for_test("request-threads-idle", crate::SurfaceOptions::default());
-    let outbound = Arc::new(BoundedOutbound::default());
-    let writer = MessageWriter::new(QueuedSink { outbound, control: None });
-    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-    let scheduler =
-        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
-    let mut list = Some(Request { id: Some(json!(1)), cmd: Command::ListWorkspaces });
-    assert_eq!(scheduler.dispatch(mux.clone(), client, &mut list, 0, writer), Some(true));
-    scheduler.finish_and_wait();
-    assert_declared("mux-seq-control", ThreadQos::UserInitiated);
-    let waiting_since = Instant::now();
+    let pool = SequencedPool::new(PoolConfig::for_cores(4));
+    let sequence = pool.sequence(SequencePriority::Control);
+    let (ran_tx, ran_rx) = std::sync::mpsc::channel();
+    sequence.post(move || ran_tx.send(Instant::now()).expect("ran")).expect("posted");
+    let ran = ran_rx.recv_timeout(Duration::from_secs(5)).expect("the worker runs the task");
     std::thread::sleep(IDLE);
-    assert!(waiting_since.elapsed() >= IDLE);
+    let (again_tx, again_rx) = std::sync::mpsc::channel();
+    sequence.post(move || again_tx.send(()).expect("ran")).expect("posted");
+    again_rx.recv_timeout(Duration::from_secs(5)).expect("the idle worker wakes");
+    assert!(ran.elapsed() >= IDLE);
     let file = file!().replace("request_threads_tests.rs", "sequenced_pool.rs");
     let line = idle_worker_wait_line();
     assert_eq!(
@@ -150,7 +149,6 @@ fn an_idle_control_worker_waiting_for_its_next_task_records_no_site() {
         None,
         "{file}:{line}"
     );
-    mux.shutdown();
 }
 
 /// A clear-history request runs as a `Mux::work` item on the system lane, not
