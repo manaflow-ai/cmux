@@ -96,6 +96,10 @@ for line in sys.stdin:
 "#).unwrap();
     std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o700)).unwrap();
     let mut owner = Owner::start(&home.0, &codex, &holder).await.unwrap();
+    // An abrupt parent exit closes its lock descriptor before the child exits.
+    // The child must keep the lock, or a replacement could rotate concurrently.
+    drop(holder);
+    assert!(prepare(&home.0).is_err());
     let request = json!({"method": "access", "force": true});
     let reply = owner.request(&home.0, &request).await.unwrap();
     assert!(!reply.to_string().contains("rotated-private"));
@@ -106,4 +110,5 @@ for line in sys.stdin:
     assert!(owner.request(&home.0, &json!({"method": "login"})).await.is_err());
     owner.child.kill().await.unwrap();
     owner.child.wait().await.unwrap();
+    assert!(prepare(&home.0).is_ok());
 }

@@ -88,7 +88,7 @@ fn prepare(home: &Path) -> Result<File> {
             !home.join("auth.json").exists() && !home.join("config.toml").exists(),
             "broker needs a new dedicated Codex home; importing a shared sign-in is not allowed"
         );
-        crate::config::private_state_file(&marker)?;
+        crate::config::private_state_rw(&marker)?;
     }
     ensure!(
         !home.join("config.toml").exists(),
