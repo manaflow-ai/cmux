@@ -100,7 +100,7 @@ impl Hub {
         }
         accept(accepted);
         let fallback = (!opts.steer_only).then(|| blocks.clone());
-        let wire_blocks = super::turns::acp_prompt_blocks(session, &blocks)?;
+        let wire_blocks = super::turns::agent_blocks(session, &blocks).await?;
         let mut params = json!({"sessionId": agent_sid, "prompt": wire_blocks});
         // Its promptId names it to a withdraw (`queue_edit.rs` `withdraw`).
         params["_meta"] = json!({"steer": true, "promptId": prompt_id});

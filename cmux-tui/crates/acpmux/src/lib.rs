@@ -80,6 +80,7 @@ pub mod probe_cleanup;
 pub mod probe_prompt;
 pub mod prompt_context;
 pub mod prompt_provenance;
+pub mod model_copies;
 pub mod prompt_uploads;
 pub mod protected_folders;
 pub mod protocol;

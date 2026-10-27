@@ -4,6 +4,17 @@ use super::exit_reason::explains_exit;
 use super::*;
 use std::sync::atomic::Ordering;
 
+/// What the agent of `session` is sent for `blocks`: model-sized copies of its large images
+/// (`model_copies.rs`), then [`acp_prompt_blocks`].
+pub(super) async fn agent_blocks(
+    session: &Session,
+    blocks: &[Value],
+) -> Result<Vec<Value>, RpcError> {
+    let family = session.meta().family;
+    let blocks = crate::model_copies::add(&session.id, family.as_deref(), blocks).await;
+    acp_prompt_blocks(session, &blocks)
+}
+
 /// ACP v1 does not define a `document` content block. Claude's translator can
 /// turn our internal document block into Anthropic's native document. Strict
 /// ACP adapters (including Codex) instead get a stable workspace file and a
@@ -507,7 +518,7 @@ impl Hub {
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
-            json!({"sessionId": agent_sid, "prompt": acp_prompt_blocks(session, &blocks)?}),
+            json!({"sessionId": agent_sid, "prompt": agent_blocks(session, &blocks).await?}),
             &turn_id,
             false,
             || {
@@ -613,7 +624,7 @@ impl Hub {
                             result = super::steer_end::agent_prompt_hook(
                                 session,
                                 &child2,
-                                json!({"sessionId": sid2, "prompt": acp_prompt_blocks(session, &blocks)?}),
+                                json!({"sessionId": sid2, "prompt": agent_blocks(session, &blocks).await?}),
                                 &turn_id,
                                 false,
                                 || {
