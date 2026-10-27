@@ -633,6 +633,23 @@ mod tests {
         assert_eq!(hub.effective_policy(&parent.meta()).await, PermissionPolicy::Ask);
     }
 
+    /// A new chat held to its caller while MDM forces full access off is held to the policy its
+    /// caller is set to run, not to approve-all capped as ask: once the off is unset it is still
+    /// no laxer than its caller (`hold_subsession`, `hold_to_starter`).
+    #[tokio::test]
+    async fn a_chat_held_to_its_caller_under_an_mdm_off_is_no_laxer_once_it_is_unset() {
+        let (hub, parent, child) = two_chats_on(&[], false).await;
+        hub.set_policy(&parent, PermissionPolicy::ApproveEdits).await;
+        hub.set_policy(&child, PermissionPolicy::ApproveAll).await;
+        hub.apply_full_access_push(Some(false)).await;
+        let _ = hub.hold_subsession(&parent.meta(), &child).await;
+        hub.apply_full_access_push(None).await;
+        assert!(
+            !hub.policy_laxer(&child.meta(), &parent.meta()).await,
+            "a chat held under the off runs approve-all under an approve-edits caller after the unset"
+        );
+    }
+
     /// Review 33 of #23322: a family message checked under the old bound (an approve-all
     /// parent to an approve-edits child) and not yet written to its agent holds an off push
     /// until it is written: no message the old bound let through reaches an agent after the
