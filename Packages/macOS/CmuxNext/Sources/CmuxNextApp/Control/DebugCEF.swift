@@ -68,11 +68,13 @@ enum DebugCEF {
                      "waiting": .number(Double(report.waiting))])
         } ?? .null
         // Host mode with feature chromiumHostPrint (p01-process-065): the pages printed through cmux's print panel,
-        // from File > Print and from the page's own window.print() (page_asked, page_ended: its window.print() returned).
+        // from File > Print and from the page's own window.print() (page_asked, page_ended: its window.print() returned;
+        // page_hook: the attached host's fork sends those prints, task p01-process-242).
         object["host_print"] = services.cache.cef.hostPagePrints.map { report in
             .object(["asked": .number(Double(report.asked)), "printed": .number(Double(report.printed)),
                      "shown": .number(Double(report.shown)), "failed": .number(Double(report.failed)), "showing": .bool(report.showing),
-                     "page_asked": .number(Double(report.pageAsked)), "page_ended": .number(Double(report.pageEnded))])
+                     "page_asked": .number(Double(report.pageAsked)), "page_ended": .number(Double(report.pageEnded)),
+                     "page_hook": .bool(report.pageHook)])
         } ?? .null
         object["host_resize"] = services.cache.cef.hostResizeCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
         // Swipes over Chromium pages (p01-process-234): a hosted page on a host that acks wheels probes nothing.

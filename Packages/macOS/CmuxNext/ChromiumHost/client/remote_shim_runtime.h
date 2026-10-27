@@ -154,8 +154,9 @@ CMUX_REMOTE_EXPORT int cmux_remote_shim_take_reply_region(void);
 // waits for it), with no host attached, or on a host without the fork's hook.
 CMUX_REMOTE_EXPORT int cmux_remote_shim_set_page_prints(int enabled);
 // Main thread. Ends page print `request` (CMUX_SHIM_PAGE_PRINT's a): its page's window.print()
-// returns. Send it once cmux's print panel for it ended, or at once when none can show. 1 when
-// sent; 0 when the host it came from is gone (the request went with it).
+// returns. Send it once cmux's print panel for it ended, or at once when none can show, and only
+// while the host it came from is attached: a request went with its host, and a later host hands
+// out the same ids. 1 when sent; 0 for request 0 or with no host attached.
 CMUX_REMOTE_EXPORT int cmux_remote_shim_page_print_end(int64_t request);
 
 }  // extern "C"

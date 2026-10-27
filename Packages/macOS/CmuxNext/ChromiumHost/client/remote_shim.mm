@@ -443,8 +443,9 @@ class Runtime {
     return hello_ && HostHasExport(cmux_host::kPagePrintsHelloName) ? 1 : 0;
   }
 
-  // kOpPagePrintEnd (host_print.h): 1 when sent. 0 for request 0, with no host attached or to a
-  // host without the hook: the request went with that host.
+  // kOpPagePrintEnd (host_print.h) to the attached host, whose request it must be (the caller
+  // keeps which host a request came from). 1 when sent; 0 for request 0, with no host attached or
+  // to a host without the hook.
   int PagePrintEnd(int64_t request) {
     CMUX_REMOTE_ASSERT_MAIN();
     if (request == 0 || link_ != Link::kAttached) return 0;
@@ -730,17 +731,24 @@ class Runtime {
     fence_channel_ = 0;
   }
 
+  // The batch's descriptors are this side's: Apply owns those of each message it is given, and
+  // those of the messages a stop leaves are closed here.
   void Deliver(uint64_t generation, std::vector<Message> batch) {
     CMUX_REMOTE_ASSERT_MAIN();
-    for (const Message& message : batch) {
+    for (size_t i = 0; i < batch.size(); ++i) {
       // A callback below may have detached, or detached and attached again.
-      if (generation != generation_) return;
-      if (!Apply(message)) {
+      if (generation != generation_) return CloseFrom(batch, i);
+      if (!Apply(batch[i])) {
         Disconnect();
+        CloseFrom(batch, i + 1);
         if (callbacks_.ended) callbacks_.ended(callbacks_.ctx, CMUX_REMOTE_END_MALFORMED);
         return;
       }
     }
+  }
+
+  static void CloseFrom(const std::vector<Message>& batch, size_t first) {
+    for (size_t i = first; i < batch.size(); ++i) CloseEach(batch[i].fds);
   }
 
   void Ended(uint64_t generation, End end) {
@@ -752,8 +760,13 @@ class Runtime {
     closing_.erase(generation);
   }
 
-  // False for a malformed frame.
+  // False for a malformed frame. The frame's descriptors are closed here, or taken by its callback.
   bool Apply(const Message& message) {
+    // Only a REPLY may carry one (a print's PDF, checked below).
+    if (!message.fds.empty() && message.op != kOpReply) {
+      CloseEach(message.fds);
+      return false;
+    }
     TlvReader r(message.fields);
     switch (message.op) {
       case kOpEvent: {

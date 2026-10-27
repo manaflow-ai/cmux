@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """chromium_host_native_ui_dialogs.py, the page dialog rows of chromium-host-bench.py --native-ui (p01-process-064,
 065), against a fake app: the file picker's choice and cancel, the beforeunload question's Cancel and Leave, the hang
-card's Wait and Exit page, File > Print and the page's own window.print() through cmux's print panel, and the host
-check (never frontmost, no visible window). A correct app passes those rows; an app with no cmux picker, one whose
-picker loses the chosen path, a host that shows a window or comes to the front, a close that does not ask, a page
-whose window.print() never reaches cmux (Chromium's preview in the host) and one whose window.print() returns before
-its panel ended each fail the row they break. Runs anywhere (no app, no openssl needed: the
+card's Wait and Exit page, File > Print (the print row) and the page's own window.print() (the print_page row)
+through cmux's print panel, and the host check (never frontmost, no visible window). A correct app passes those rows;
+an app with no cmux picker, one whose picker loses the chosen path, a host that shows a window or comes to the front, a
+close that does not ask, a page whose window.print() never reaches cmux (Chromium's preview in the host) and one whose
+window.print() returns before its panel ended each fail the row they break; a host without the fork's page-print hook
+leaves the print_page row not run, owned by p01-process-242, and the print row passes. Runs anywhere (no app, no openssl needed: the
 certificate row is covered by the live bench only).
 Run: python3 -I scripts/cmux-next/tests/test_chromium_host_native_ui_dialogs.py"""
 import os, sys, tempfile, unittest
@@ -22,14 +23,15 @@ class FakeApp:
     reaches the page with no file; `host_window`: the host shows a window; `host_front`: the host is frontmost;
     `closes_at_once`: a person's close closes the tab with no question; `panel` False: no cmux print panel
     (host_print null); `page_preview`: the page's window.print() opens Chromium's preview in the host, never cmux's
-    panel; `page_returns_early`: it reaches cmux's panel but returns at once, before the panel ends."""
+    panel; `page_returns_early`: it reaches cmux's panel but returns at once, before the panel ends; `page_hook` False:
+    the host's fork has no page-print hook (host_print's page_hook)."""
 
     def __init__(self, picker=True, drops_path=False, host_window=False, host_front=False, closes_at_once=False,
-                 panel=True, page_preview=False, page_returns_early=False):
+                 panel=True, page_preview=False, page_returns_early=False, page_hook=True):
         self.picker, self.drops_path, self.closes_at_once = picker, drops_path, closes_at_once
         self.panel, self.page_preview, self.page_returns_early = panel, page_preview, page_returns_early
         self.prints = {"asked": 0, "printed": 0, "shown": 0, "failed": 0, "showing": False, "page_asked": 0,
-                       "page_ended": 0}
+                       "page_ended": 0, "page_hook": page_hook}
         self.page_waiting = False
         self.host_window, self.host_front = host_window, host_front
         self.title, self.page = "", None
@@ -200,27 +202,35 @@ class DialogRowsTests(unittest.TestCase):
         self.assertTrue(dialogs.host_ui_clear(lambda: HOST_PID, lambda: APP_PID, lambda pid: hidden)["clear"])
 
     def test_both_prints_go_through_cmuxs_panel(self):
-        rows, ok = run(FakeApp(), rows=("print",))
+        rows, ok = run(FakeApp(), rows=("print", "print_page"))
         self.assertTrue(ok, rows)
-        self.assertTrue(rows["print"]["menu"]["ok"] and rows["print"]["page"]["returned"], rows)
+        self.assertTrue(rows["print"]["ok"] and rows["print_page"]["returned"], rows)
 
-    def test_no_print_panel_fails_the_print_row_as_not_run(self):
-        rows, ok = run(FakeApp(panel=False), rows=("print",))
+    def test_no_print_panel_fails_both_print_rows_as_not_run(self):
+        rows, ok = run(FakeApp(panel=False), rows=("print", "print_page"))
         self.assertFalse(ok)
         self.assertIn("not_run", rows["print"])
+        self.assertIn("not_run", rows["print_page"])
 
-    def test_a_window_print_that_opens_chromiums_preview_fails_the_print_row(self):
-        rows, ok = run(FakeApp(page_preview=True), rows=("print",))
+    def test_a_host_without_the_page_print_hook_leaves_the_page_row_to_its_fork_task(self):
+        rows, ok = run(FakeApp(page_hook=False, page_preview=True), rows=("print", "print_page"))
         self.assertFalse(ok)
-        self.assertTrue(rows["print"]["menu"]["ok"], rows)
-        self.assertIsNone(rows["print"]["page"]["show_ms"])
-        self.assertFalse(rows["print"]["host"]["clear"])
+        self.assertTrue(rows["print"]["ok"], rows)
+        self.assertIn("not_run", rows["print_page"])
+        self.assertEqual(rows["print_page"]["owner"], "p01-process-242")
 
-    def test_a_window_print_that_returns_before_its_panel_ends_fails_the_print_row(self):
-        rows, ok = run(FakeApp(page_returns_early=True), rows=("print",))
+    def test_a_window_print_that_opens_chromiums_preview_fails_the_page_row(self):
+        rows, ok = run(FakeApp(page_preview=True), rows=("print", "print_page"))
         self.assertFalse(ok)
-        self.assertEqual(rows["print"]["page"]["ended_while_showing"], 1)
-        self.assertFalse(rows["print"]["page"]["returned"])
+        self.assertTrue(rows["print"]["ok"], rows)
+        self.assertIsNone(rows["print_page"]["show_ms"])
+        self.assertFalse(rows["print_page"]["host"]["clear"])
+
+    def test_a_window_print_that_returns_before_its_panel_ends_fails_the_page_row(self):
+        rows, ok = run(FakeApp(page_returns_early=True), rows=("print_page",))
+        self.assertFalse(ok)
+        self.assertEqual(rows["print_page"]["ended_while_showing"], 1)
+        self.assertFalse(rows["print_page"]["returned"])
 
     def test_a_row_that_raises_is_that_rows_failure(self):
         app = FakeApp()

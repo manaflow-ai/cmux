@@ -13,12 +13,15 @@ the frontmost app and owns no visible window (CGWindowList: a window of the host
                      (`browser.dialog.beforeunload`) asks in the tab, which stays; Cancel keeps it; Leave closes it.
   unresponsive       a page whose click never returns: the pane shows "Page unresponsive" within Chromium's hang
                      delay; Wait hides it; Exit page ends the renderer and the sad tab shows.
-  print              File > Print (`browserPrint`) of a page, then the page's own window.print() (a click runs it):
-                     each time the host prints the page to PDF and cmux's print panel shows that PDF as a sheet on the
-                     page's window (feature `chromiumHostPrint`; `debug.cef` `host_print`), never Chromium's print
-                     preview; `print_cancel` ends the panel. The page's window.print() comes to cmux as a page print
-                     (`page_asked`) and returns only once its panel ended (`page_ended`, then the page's title). Without
+  print              File > Print (`browserPrint`) of a page (p01-process-065): the host prints the page to PDF and
+                     cmux's print panel shows that PDF as a sheet on the page's window (feature `chromiumHostPrint`;
+                     `debug.cef` `host_print`), never Chromium's print preview; `print_cancel` ends the panel. Without
                      cmux's panel (`host_print` null: host mode not live, or the feature off) the row says so and fails.
+  print_page         the page's own window.print() (a click runs it), printed the same way: it comes to cmux as a page
+                     print (`page_asked`) and returns only once its panel ended (`page_ended`, then the page's title).
+                     It needs the fork's page-print hook (`cmux_set_print_request_handler`, task p01-process-242); on a
+                     host without it (`page_hook` false) window.print() opens Chromium's preview in the host, so the row
+                     is not run and fails, naming that task.
 """
 import http.server
 import json
@@ -29,7 +32,7 @@ import subprocess
 import threading
 import time
 
-ROWS = ("file_picker", "certificate_error", "beforeunload", "unresponsive", "print")
+ROWS = ("file_picker", "certificate_error", "beforeunload", "unresponsive", "print", "print_page")
 # What the app needs for these rows.
 FEATURES = "chromiumHostFileDialogs,chromiumHostPrint"
 # How long a picker, warning or question may take to show after the input that opens it.
@@ -281,23 +284,43 @@ def print_case(rpc, wait, clear, start, asked):
     return case
 
 
-def print_row(rpc, wait, page_eval, out, clear):
+# The task that owns the fork's page-print hook, which the print_page row needs.
+PAGE_HOOK_TASK = "p01-process-242"
+
+
+def open_print_probe(rpc, wait, page_eval, out):
+    """None once the print probe shows with cmux's print panel available, else the row's failure."""
     if host_print(rpc) is None:
         return {"ok": False, "not_run": "no cmux print panel: host mode is not live in this build or chromiumHostPrint is off"}
     if not open_page(rpc, wait, page_eval, write_page(out, "native-ui-print.html", PRINT_PAGE), "print probe"):
         return {"ok": False, "error": "the print probe never loaded"}
-    menu = print_case(rpc, wait, clear, lambda: rpc("action.run", {"action": "browserPrint", "origin": "script"}), "asked")
-    # The page's own window.print(): a click runs it, and it returns (the title changes) only once its panel ended.
+    return None
+
+
+def print_row(rpc, wait, page_eval, out, clear):
+    """File > Print (p01-process-065)."""
+    return open_print_probe(rpc, wait, page_eval, out) or \
+        print_case(rpc, wait, clear, lambda: rpc("action.run", {"action": "browserPrint", "origin": "script"}), "asked")
+
+
+def print_page_row(rpc, wait, page_eval, out, clear):
+    """The page's own window.print(): a click runs it, and it returns (the title changes) only once its panel ended."""
+    failed = open_print_probe(rpc, wait, page_eval, out)
+    if failed:
+        return failed
+    # Read once a page made the host attach: the attached host's HELLO says whether it has the hook.
+    if not (host_print(rpc) or {}).get("page_hook"):
+        return {"ok": False, "owner": PAGE_HOOK_TASK, "not_run": "the host's fork has no page-print hook "
+                f"(cmux_set_print_request_handler, {PAGE_HOOK_TASK}): window.print() opens Chromium's preview"}
     page = print_case(rpc, wait, clear, lambda: rpc("debug.mouse", {"target": "page"}), "page_asked")
     page["returned"] = page["cancelled"] and page["ended_while_showing"] == 0 and page["page_ended"] == 1 and \
         bool(wait(lambda: page_eval("document.title") == "print returned", 5))
     page["ok"] = page["ok"] and page["returned"]
-    host = menu["host"] if not menu["host"]["clear"] else page["host"]
-    return {"menu": menu, "page": page, "host": host, "ok": menu["ok"] and page["ok"]}
+    return page
 
 
 RUNNERS = {"file_picker": file_picker_row, "certificate_error": certificate_row, "beforeunload": beforeunload_row,
-           "unresponsive": unresponsive_row, "print": print_row}
+           "unresponsive": unresponsive_row, "print": print_row, "print_page": print_page_row}
 
 
 def run(rpc, wait, page_eval, out, host_pid, front, windows, rows_to_run=ROWS):

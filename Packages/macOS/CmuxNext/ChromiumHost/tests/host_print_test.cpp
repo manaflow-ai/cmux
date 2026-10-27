@@ -673,6 +673,7 @@ struct World {
   FakePrinter printer;
   std::unique_ptr<control::Channel> channel;
   std::unique_ptr<HostContext> host;
+  std::shared_ptr<bool> alive = std::make_shared<bool>(true);
 
   explicit World(bool prints, bool hook = false) {
     host = std::make_unique<HostContext>([this](const Message& m) { return channel && channel->Send(m); }, delegate,
@@ -685,7 +686,8 @@ struct World {
     if (hook) host->SetPagePrintHook(&FakeSetPrintRequestHandler, &FakeEndPrintRequest);
     ready = false;
     replies = Replies();
-    delegate.resume = [this] { PostTask([this] { host->Resume(); }); };
+    // A resume still queued when this world goes runs on nothing: the next world reuses the queue.
+    delegate.resume = [this, alive = alive] { PostTask([this, alive] { if (*alive) host->Resume(); }); };
     int pair[2];
     Check(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0, "socketpair");
     channel = std::make_unique<control::Channel>(
@@ -705,6 +707,7 @@ struct World {
     PumpUntil([this] { return delegate.calls.size() == 1; });
   }
   ~World() {
+    *alive = false;
     client.detach();
     channel->Close();
     channel.reset();
@@ -785,6 +788,119 @@ void AHostThatDoesNotPrintIsNeverAsked() {
         "a host whose HELLO lists no print gets no op");
 }
 
+// Whether a descriptor of this process is open on the file `info` names.
+bool AnyOpenOn(const struct stat& info) {
+  for (int fd = 0; fd < 4096; ++fd) {
+    struct stat open;
+    if (fstat(fd, &open) == 0 && open.st_dev == info.st_dev && open.st_ino == info.st_ino) return true;
+  }
+  return false;
+}
+
+// A host that is only its end of the channel: the test writes its frames, so several reach the
+// remote shim together, before cmux's main thread delivers them.
+struct RawHost {
+  std::unique_ptr<control::Channel> channel;
+
+  RawHost() {
+    ready = false;
+    replies = Replies();
+    int pair[2];
+    Check(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0, "socketpair");
+    channel = std::make_unique<control::Channel>(
+        pair[1], &PostTask, [](std::vector<Message>) {}, [](control::End) {});
+    Check(client.attach(pair[0], nullptr, nullptr) == 1, "the remote shim attaches");
+    Writer hello;
+    hello.Str(kWireID);
+    const char* exports[] = {kPrintToPdfHelloName};
+    hello.StrList(exports, 1);
+    Send(Op(control::kOpHello, 0, hello.Take()));
+    Check(PumpUntil([] { return ready; }), "the raw host's hello goes through");
+  }
+  ~RawHost() {
+    client.detach();
+    channel->Close();
+    channel.reset();
+  }
+
+  void Send(const Message& message) { Check(channel->Send(message), "the raw host sends"); }
+
+  // A kOpPrintToPdf REPLY under `token`: printed with `pdf`'s size, its region `fds`.
+  void Reply(uint32_t token, const std::string& pdf, std::vector<int> fds) {
+    Writer w;
+    w.I32(pdf.empty() ? 0 : 1);
+    w.I64(static_cast<int64_t>(pdf.size()));
+    Message reply = Op(kOpReply, token, w.Take());
+    reply.reply = true;
+    reply.fds = std::move(fds);
+    Send(reply);
+  }
+};
+
+uint32_t detach_on = 0;
+void OnReplyDetaching(void*, uint32_t token, const void*, size_t) {
+  replies.tokens.push_back(token);
+  if (token == detach_on) client.detach();
+}
+
+const std::string kBatchPdf = "%PDF-1.7 batch";
+
+// Sends `frames` (each may carry `region`, a region of kBatchPdf) together, then waits until the
+// remote shim delivered them and no descriptor of the process is open on the region: none leaked.
+void ExpectRegionClosed(const std::function<void(int region)>& frames, const std::string& what) {
+  const int region = control::CreateSharedRegion(kBatchPdf);
+  Check(region >= 0, "a region for the PDF");
+  struct stat info;
+  Check(fstat(region, &info) == 0, "the region's file");
+  frames(region);
+  close(region);  // the channel sent its duplicate
+  // Both frames reach the remote shim's reader before cmux's main thread delivers either.
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  Check(PumpUntil([&] { return !AnyOpenOn(info); }), what);
+}
+
+// A REPLY's descriptor never outlives its batch: the messages left when a callback detaches, or
+// after a malformed frame, have theirs closed, and a frame other than a REPLY may carry none.
+void ABatchThatStopsClosesItsRegions() {
+  {
+    RawHost host;
+    Check(client.print_to_pdf(kChromium, 0, 0) == 1, "a first print");
+    const uint32_t first = client.last_reply_token();
+    Check(client.print_to_pdf(kChromium, 0, 0) == 1, "a second print");
+    const uint32_t second = client.last_reply_token();
+    detach_on = first;
+    client.set_reply(nullptr, &OnReplyDetaching);
+    ExpectRegionClosed([&](int region) {
+      host.Reply(first, "", {});
+      host.Reply(second, kBatchPdf, {region});
+    }, "a print REPLY after one whose callback detached has its region closed");
+    Check(replies.tokens == std::vector<uint32_t>({first}), "the detach dropped the second REPLY");
+    client.set_reply(nullptr, &OnReply);
+  }
+  {
+    RawHost host;
+    Check(client.print_to_pdf(kChromium, 0, 0) == 1, "a print");
+    const uint32_t token = client.last_reply_token();
+    ExpectRegionClosed([&](int region) {
+      Message malformed = Op(kOpAck, 0, {control::Field::I32(1, 1)});
+      host.Send(malformed);
+      host.Reply(token, kBatchPdf, {region});
+    }, "a print REPLY after a malformed frame has its region closed");
+    Check(replies.tokens.empty(), "the malformed frame ended the host before the REPLY");
+  }
+  {
+    RawHost host;
+    Check(client.print_to_pdf(kChromium, 0, 0) == 1, "a print");
+    const uint32_t token = client.last_reply_token();
+    ExpectRegionClosed([&](int region) {
+      Message ack = Op(kOpAck, token, {});
+      ack.fds = {region};
+      host.Send(ack);
+    }, "an ACK that carries a descriptor is malformed, and the descriptor is closed");
+    Check(client.print_to_pdf(kChromium, 0, 0) == 0, "the frame ended the host");
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -813,6 +929,7 @@ int main() {
   AHostThatDoesNotPrintIsNeverAsked();
   EndToEnd();
   PagePrintsEndToEnd();
+  ABatchThatStopsClosesItsRegions();
   if (failures != 0) {
     std::fprintf(stderr, "%d failure(s)\n", failures);
     return 1;

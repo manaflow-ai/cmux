@@ -64,6 +64,9 @@ final class ChromiumHostPagePrints {
     /// Prints pages started (PAGE_PRINT), and those ended (their `window.print()` returned).
     private(set) var pageAsked = 0
     private(set) var pageEnded = 0
+    /// The attached host sends the prints pages start (its fork has the page-print hook, task p01-process-242);
+    /// without it a page's own window.print() opens Chromium's preview in the host.
+    private(set) var pageHook = false
     /// The window whose print panel shows now, until the panel ends.
     private(set) weak var panelWindow: NSWindow?
     /// The remote dylib's calls, bound at the first print (one dylib for every host).
@@ -76,10 +79,11 @@ final class ChromiumHostPagePrints {
     }
 
     /// The attached host sends the prints pages start to cmux (PAGE_PRINT) from now on, and every later
-    /// host of the session too (`CEFHostStart.attached()`, once per attach).
+    /// host of the session too (`CEFHostStart.attached()`, once per attach, after the host's HELLO, which
+    /// says whether it has the hook).
     func hostAttached(_ remote: CEFRemoteShim) {
         if calls == nil { calls = Calls(remote) }
-        _ = calls?.setPagePrints(1)
+        pageHook = calls?.setPagePrints(1) == 1
     }
 
     /// Asks the attached host for `browser`'s page as a PDF on the print panel's paper; the panel shows
@@ -110,10 +114,14 @@ final class ChromiumHostPagePrints {
     /// when none can show (no window, a window that shows a sheet, a host that cannot print).
     func pageAsked(_ request: Int64, browser: Int32, on window: NSWindow?, runtime: CEFRuntime) {
         pageAsked += 1
-        // Not sent when the host it came from is gone: the request went with it.
-        let calls = runtime.hostStart.flatMap { boundCalls($0) }
-        let end: @MainActor () -> Void = { [weak self] in
+        let hostStart = runtime.hostStart
+        let calls = hostStart.flatMap { boundCalls($0) }
+        // The host the request came from: one attached later hands out the same ids again.
+        let from = hostStart?.hostEnds
+        let end: @MainActor () -> Void = { [weak self, weak hostStart] in
             self?.pageEnded += 1
+            // Not sent when the host it came from is gone: the request went with it.
+            guard let hostStart, hostStart.hostEnds == from else { return }
             _ = calls?.endPagePrint(request)
         }
         guard let window, self.print(browser, on: window, runtime: runtime, ended: end) else { return end() }
@@ -128,7 +136,7 @@ final class ChromiumHostPagePrints {
 
     var report: CEFHostPagePrintReport {
         CEFHostPagePrintReport(asked: asked, printed: printed, shown: shown, failed: failed, showing: panelWindow?.attachedSheet != nil,
-                               pageAsked: pageAsked, pageEnded: pageEnded)
+                               pageAsked: pageAsked, pageEnded: pageEnded, pageHook: pageHook)
     }
 
     private func boundCalls(_ hostStart: CEFHostStart) -> Calls? {
@@ -221,8 +229,11 @@ public struct CEFHostPagePrintReport: Equatable, Sendable {
     /// Prints pages started with `window.print()` (PAGE_PRINT), and those ended: their `window.print()` returned.
     public let pageAsked: Int
     public let pageEnded: Int
+    /// The attached host sends the prints pages start: its fork has the page-print hook (task p01-process-242).
+    public let pageHook: Bool
 
-    init(asked: Int, printed: Int, shown: Int, failed: Int, showing: Bool, pageAsked: Int = 0, pageEnded: Int = 0) {
+    init(asked: Int, printed: Int, shown: Int, failed: Int, showing: Bool, pageAsked: Int = 0, pageEnded: Int = 0,
+         pageHook: Bool = false) {
         self.asked = asked
         self.printed = printed
         self.shown = shown
@@ -230,6 +241,7 @@ public struct CEFHostPagePrintReport: Equatable, Sendable {
         self.showing = showing
         self.pageAsked = pageAsked
         self.pageEnded = pageEnded
+        self.pageHook = pageHook
     }
 }
 

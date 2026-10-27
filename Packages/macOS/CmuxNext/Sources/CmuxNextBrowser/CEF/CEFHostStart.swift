@@ -56,6 +56,9 @@ final class CEFHostStart {
     private(set) var acksWheels = false
     /// The attached host ended (``hostEnded()``) and no new one is attached yet.
     private(set) var hostGone = false
+    /// Hosts that ended this session: what a host sent belongs to the host of the count it was sent under,
+    /// as a page print's request (``ChromiumHostPagePrints``), whose ids a later host hands out again.
+    private(set) var hostEnds = 0
 
     /// `helloDeadline`: how long, on `clock`, the host may take from the attach to its hello
     /// before the start fails (a host that hangs while it starts Chromium). Reply deadlines run on
@@ -105,6 +108,7 @@ final class CEFHostStart {
     func hostEnded() {
         remote?.detach()
         files?.hostEnded()
+        hostEnds += 1
         (task, remote, mapsClientIDs, acksWheels, hostGone, pageResizes) = (nil, nil, false, false, true, nil)
     }
 
