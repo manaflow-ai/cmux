@@ -41,6 +41,25 @@ import Testing
         #expect(HostWire.state.withLock { $0.detaches } == 1, "the remote shim kept the dead wire")
     }
 
+    /// p01-process-085: each attach tells the supervisor its host's fork API, which that host's crash record names.
+    @Test func theAttachTellsTheSupervisorItsHostsForkAPI() async throws {
+        let (runtime, supervisor, wire) = try await Self.startedRuntime(forkAPI: 2)
+        defer { wire.close() }
+        #expect(supervisor.forkAPIs == [2])
+        supervisor.onHostEnded?(Self.killed)
+        HostWire.state.withLock { $0.forkAPI = 3 }
+        try await runtime.start(layout: nil, environment: [:], trigger: "tab")
+        #expect(supervisor.forkAPIs == [2, 3])
+    }
+
+    /// p01-process-085: in host mode Chromium's log is the one the host's spawn names (`--log-file`, whose end the
+    /// supervisor keeps in a crash record), so INITIALIZE names none: the runtime's `cef.log` would take its place.
+    @Test func hostModeInitializesChromiumWithNoLogFileOfItsOwn() async throws {
+        let (_, _, wire) = try await Self.startedRuntime()
+        defer { wire.close() }
+        #expect(HostWire.state.withLock { $0.initializeLogFiles } == [""])
+    }
+
     @Test func theNextStartAttachesTheNextHost() async throws {
         let (runtime, supervisor, wire) = try await Self.startedRuntime()
         defer { wire.close() }
@@ -553,6 +572,13 @@ import Testing
 
     func hostSaidHello() {}
 
+    /// The fork API each attach read from its host (p01-process-085).
+    private(set) var forkAPIs: [Int32] = []
+
+    func hostRuns(forkAPI: Int32) {
+        forkAPIs.append(forkAPI)
+    }
+
     #if DEBUG
     /// Launches a stand-in host, SIGKILLs it, waits for its end off main and reports it as the supervisor
     /// does: mapped with `pageExit`, on main, nothing for a clean exit.
@@ -617,6 +643,8 @@ private nonisolated enum HostWire {
         var forkAPI: Int32 = 0
         /// Each `cmux_shim_set_energy_saver` call's `enabled`.
         var energySaver: [Int32] = []
+        /// Each `cmux_shim_initialize` call's log file, nil for NULL.
+        var initializeLogFiles: [String?] = []
         /// Each `cmux_shim_tab_restore_navigation` call's browser and state.
         var restoredBrowsers: [Int32] = []
         var restoredStates: [String] = []
@@ -658,7 +686,11 @@ private nonisolated enum HostWire {
             UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
             UnsafePointer<UnsafePointer<CChar>?>?,
             UnsafeMutableRawPointer?, CEFShimLibrary.ScheduleFn?, CEFShimLibrary.EventFn?, CEFShimLibrary.KeyFn?
-        ) -> Int32 = { _, _, _, _, _, _, _, _, _, _, _, _, _ in 1 }
+        ) -> Int32 = { _, _, _, _, logFile, _, _, _, _, _, _, _, _ in
+            let path = logFile.map { String(cString: $0) }
+            HostWire.state.withLock { $0.initializeLogFiles.append(path) }
+            return 1
+        }
         let browserOp: @convention(c) (Int32) -> Void = { _ in HostWire.op() }
         let loadURL: @convention(c) (Int32, UnsafePointer<CChar>?) -> Void = { _, _ in HostWire.op() }
         let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, _, _, _, url, _ in

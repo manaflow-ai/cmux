@@ -58,7 +58,9 @@ extension CEFEngine {
     }
 
     /// Calls `copy` once with the password bytes, valid only during the call (the shim zeroes its
-    /// buffer after it). False when the fork found no such sign-in.
+    /// buffer after it). False when the fork found no such sign-in, or when the Chromium Host
+    /// exited first. The same call in both backends: in host mode the remote shim keeps the
+    /// callback and runs it on main with the host's REPLY (remote_shim_local.mm, task p01-process-025).
     public func revealPassword(_ passwordID: String, in profile: BrowserProfileID,
                                copy: @escaping (UnsafeRawBufferPointer) -> Void) async throws -> Bool {
         let shim = try await coreShim()
@@ -108,8 +110,9 @@ let cefPasswordRevealCallback: CEFShimLibrary.PasswordRevealCallback = { context
     // SAFETY: only the context's address is read here; PasswordRevealBox.take turns it back into the box.
     let address = unsafe UInt(bitPattern: context)
     guard address != 0 else { return }
-    // The shim calls back on the CEF UI thread, which is the main thread. Off it, the password is
-    // dropped (never copied to another thread) and the reveal ends as not found.
+    // The shim calls back on the main thread: CEF's UI thread in process, the event batch in host
+    // mode. Off it, the password is dropped (never copied to another thread) and the reveal ends
+    // as not found.
     guard Thread.isMainThread else {
         return MainRunLoopBlock.perform { PasswordRevealBox.take(address)?.finish(nil) }
     }

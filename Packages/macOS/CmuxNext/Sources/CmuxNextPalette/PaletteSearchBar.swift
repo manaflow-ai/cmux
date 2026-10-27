@@ -100,6 +100,7 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
         needsLayout = true // invalidate: a new scope, hint or font moves the chips, the hint and the field
     }
 
+    // visibility-walk-allow: the magnifier's tint and the placeholder's color, no layout
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

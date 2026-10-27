@@ -38,8 +38,9 @@ struct Mirror {
 fn mirror() -> &'static Mirror {
     static MIRROR: OnceLock<Mirror> = OnceLock::new();
     MIRROR.get_or_init(|| {
-        let spawned =
-            std::thread::Builder::new().name("terminal-host-record-mirror".into()).spawn(run);
+        // A recovery mirror no request waits on: utility (p04-input-084).
+        let qos = crate::thread_qos::ThreadType::Utility.qos();
+        let spawned = cmux_threads::spawn("terminal-host-record-mirror", qos, run);
         if let Err(error) = spawned {
             eprintln!("cmux-tui: host record mirror writer did not start: {error}");
         }
@@ -84,4 +85,34 @@ fn still_this_incarnation(path: &Path, record: &TerminalHostRecord) -> bool {
     let Ok(bytes) = files::read(path) else { return false };
     let Ok(current) = serde_json::from_slice::<TerminalHostRecord>(&bytes) else { return false };
     current.terminal_id == record.terminal_id && current.incarnation == record.incarnation
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// p04-input-084: the mirror writer is a registered utility thread. The
+    /// queued record names a missing file, so nothing is written.
+    #[test]
+    fn the_writer_is_a_utility_thread() {
+        let missing = std::env::temp_dir()
+            .join(format!("cmux-record-mirror-qos-{}", std::process::id()))
+            .join("missing.json");
+        queue(&missing, TerminalHostRecord::default());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let rows = loop {
+            let rows: Vec<_> = cmux_threads::snapshot()
+                .into_iter()
+                .filter(|row| row.name == "terminal-host-record-mirror")
+                .map(|row| row.declared)
+                .collect();
+            if !rows.is_empty() || std::time::Instant::now() >= deadline {
+                break rows;
+            }
+            std::thread::yield_now();
+        };
+        let utility = crate::thread_qos::ThreadType::Utility.qos();
+        assert_eq!(rows, [utility], "one writer per process, at utility");
+        assert!(!missing.exists());
+    }
 }

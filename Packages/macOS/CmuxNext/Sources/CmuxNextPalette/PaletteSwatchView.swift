@@ -47,6 +47,7 @@ final class PaletteSwatchView: NSView {
         CATransaction.commit()
     }
 
+    // visibility-walk-allow: its own layer's border color and width, no layout
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyBorder()
