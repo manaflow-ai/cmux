@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "chromiumHostPasskeys",
+  "owner": "PL-cef-layer",
+  "description": "In host mode, iCloud Keychain passkey requests of Chromium pages run in cmux over the page's pane window, after cmux checks the page's origin and visibility; needs fork API 31 and a signed build with the browser passkey entitlement.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

@@ -31,6 +31,9 @@ public final class CEFRuntimeSource {
     /// page's frame at the new size joins it, one display frame at most (feature `chromiumHostResizeFence`,
     /// set by the App; ``ChromiumHostResizeFence``). Read when the runtime adopts the source.
     public var fencesHostResizes = false
+    /// Host mode: the host's iCloud Keychain requests run in cmux, over the pane's window (feature
+    /// `chromiumHostPasskeys`, set by the App; ``CEFPlatformPasskeys``). Read when the runtime adopts the source.
+    public var runsHostPasskeys = false
 
     /// Creates a source.
     ///

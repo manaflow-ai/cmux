@@ -39,6 +39,21 @@ extension CEFEngine {
         return reply.value == 1
     }
 
+    /// Host mode's iCloud Keychain relay (task p01-process-067, feature `chromiumHostPasskeys`), for `debug.cef`
+    /// `host_passkeys` (chromium-host-bench.py `--native-ui` passkey row): whether the host took the handler, the
+    /// listing permission and what the relay did. Counts and states only, never a request. Nil without the relay.
+    public var hostPasskeyCounters: [String: Double]? {
+        guard let relay = CEFRuntime.shared.hostStart?.platformPasskeys else { return nil }
+        let stats = relay.stats
+        var counters: [String: Double] = [
+            "handler_set": stats.handlerSet ? 1 : 0, "permission": Double(stats.permission.rawValue),
+            "requests": Double(stats.requests), "cancels": Double(stats.cancels), "sheets": Double(stats.sheets),
+            "answered": Double(stats.answered),
+        ]
+        for (refusal, count) in stats.refused { counters["refused_" + refusal] = Double(count) }
+        return counters
+    }
+
     /// The loaded shim when the running fork has both passkey calls (API 18), else nil.
     private static func passkeyShim() -> CEFShimLibrary? {
         let runtime = CEFRuntime.shared

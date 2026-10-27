@@ -9,6 +9,7 @@
 #pragma once
 
 #include <climits>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -139,6 +140,58 @@ class RestoreEntries {
 
   std::vector<std::string> strings_;
   std::vector<ForkRestoreEntry> fork_;
+};
+
+// cef_cmux.h's cmux_webauthn_platform_request_t (API 31, cmux task
+// p01-process-175 on manaflow-ai/cef cp/p01-process-175; fields are only
+// appended, `size` is the fork's).
+struct ForkWebAuthnPlatformRequest {
+  int size;
+  int64_t token;
+  int operation;
+  int browser_id;
+  const char* json;
+};
+using ForkWebAuthnRequestFn = void (*)(void* context, const ForkWebAuthnPlatformRequest* request);
+using ForkWebAuthnCancelFn = void (*)(void* context, int64_t token);
+
+// cef_cmux.h's largest CMUX_WEBAUTHN_PLATFORM_* (LIST) and
+// CMUX_WEBAUTHN_PERMISSION_* (AUTHORIZED).
+inline constexpr int kWebAuthnPlatformList = 2;
+inline constexpr int kWebAuthnPermissionAuthorized = 2;
+
+// The request's token, when the fork's struct reaches it.
+inline bool WebAuthnPlatformToken(const ForkWebAuthnPlatformRequest* request, int64_t* token) {
+  constexpr size_t kNeeded = offsetof(ForkWebAuthnPlatformRequest, token) + sizeof(int64_t);
+  if (!request || request->size < 0 || static_cast<size_t>(request->size) < kNeeded) return false;
+  *token = request->token;
+  return true;
+}
+
+// A request cmux can run: every field up to the JSON, a browser (the fork
+// never sends 0), a known operation and a JSON.
+inline bool WebAuthnPlatformRequestUsable(const ForkWebAuthnPlatformRequest* request) {
+  constexpr size_t kNeeded = offsetof(ForkWebAuthnPlatformRequest, json) + sizeof(const char*);
+  return request && request->size >= 0 && static_cast<size_t>(request->size) >= kNeeded && request->browser_id != 0 &&
+         request->operation >= 0 && request->operation <= kWebAuthnPlatformList && request->json;
+}
+
+// cmux_shim_set_webauthn_platform: the first call sets the fork's handler
+// with the permission (before CefInitialize, as the fork requires); every
+// later call passes the new permission. 0 for an unknown permission or a
+// fork without both calls.
+struct WebAuthnPlatformSetter {
+  int (*set_handler)(ForkWebAuthnRequestFn, ForkWebAuthnCancelFn, int, void*) = nullptr;
+  int (*set_permission)(int) = nullptr;
+  bool handler_set = false;
+
+  int Apply(int permission, ForkWebAuthnRequestFn request, ForkWebAuthnCancelFn cancel) {
+    if (permission < 0 || permission > kWebAuthnPermissionAuthorized) return 0;
+    if (handler_set) return set_permission(permission);
+    if (!set_handler || !set_permission || set_handler(request, cancel, permission, nullptr) != 1) return 0;
+    handler_set = true;
+    return 1;
+  }
 };
 
 }  // namespace cmux_shim

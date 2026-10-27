@@ -230,6 +230,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let passkeysAvailable: @convention(c) () -> Int32
     let passkeysList: (String?, Int32) -> Int32
     let passkeyDelete: (String?, String?, Int32) -> Int32
+    /// iCloud Keychain through cmux in host mode (fork API 31; ``CEFPlatformPasskeys``): the handler with
+    /// the listing permission, then the answer to each WEBAUTHN_PLATFORM_REQUEST by token.
+    let setWebauthnPlatform: @convention(c) (Int32) -> Int32
+    let webauthnPlatformReply: (Int64, String?) -> Int32
     /// Password manager core (fork API 18; see CEFEngine+Passwords). The reveal callback gets
     /// the bytes in a shim buffer that is zeroed after it returns.
     typealias PasswordRevealCallback = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?, Int) -> Void

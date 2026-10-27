@@ -60,6 +60,8 @@ enum DebugCEF {
         // Host mode with feature chromiumHostWidgets (p01-process-066): null without a widget host.
         object["host_widgets"] = services.cache.cef.hostWidgets.map { .array($0.map(hostWidget)) } ?? .null
         object["host_resize"] = services.cache.cef.hostResizeCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
+        // Host mode with feature chromiumHostPasskeys (p01-process-067): counts and states only, null without the relay.
+        object["host_passkeys"] = services.cache.cef.hostPasskeyCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
         // Swipes over Chromium pages (p01-process-234): a hosted page on a host that acks wheels probes nothing.
         let swipe = services.cache.cef.swipeStats
         object["swipe"] = .object([

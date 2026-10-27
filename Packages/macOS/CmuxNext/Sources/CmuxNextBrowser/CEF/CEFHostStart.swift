@@ -29,6 +29,8 @@ final class CEFHostStart {
     let fencesResizes: Bool
     /// The attached host's page resizes (`CEFRuntime.hostPageResizes()`), made on first use; a new host starts with none.
     var pageResizes: ChromiumHostResizeFence?
+    /// iCloud Keychain for the host's pages (feature `chromiumHostPasskeys`, task p01-process-067); nil with the feature off.
+    let platformPasskeys: CEFPlatformPasskeys?
     private let supervisor: any ChromiumHostSupervising
     private let open: Open
     private let helloDeadline: Duration
@@ -47,9 +49,10 @@ final class CEFHostStart {
     /// before the start fails (a host that hangs while it starts Chromium). Reply deadlines run on
     /// `clock` too.
     init(supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false, takesDrags: Bool = false,
-         fencesResizes: Bool = false, open: @escaping Open = { CEFRemoteShim.open($0) },
+         fencesResizes: Bool = false, platformPasskeys: CEFPlatformPasskeys? = nil, open: @escaping Open = { CEFRemoteShim.open($0) },
          helloDeadline: Duration = .seconds(30), clock: any Clock<Duration> = ContinuousClock()) {
         self.supervisor = supervisor
+        self.platformPasskeys = platformPasskeys
         self.showsWidgets = showsWidgets
         self.takesDrags = takesDrags
         self.fencesResizes = fencesResizes
@@ -57,8 +60,11 @@ final class CEFHostStart {
         self.helloDeadline = helloDeadline
         self.clock = clock
         replies = CEFHostReplies(clock: clock)
-        // A dead host sends no WIDGET_GONE: its panels, panes and windows go when it ends.
-        supervisor.observeHostEnds { [weak self] in self?.widgetHost?.hostEnded() }
+        // A dead host sends no WIDGET_GONE: its panels, panes and windows go when it ends, and so do its passkey sheets.
+        supervisor.observeHostEnds { [weak self] in
+            self?.widgetHost?.hostEnded()
+            self?.platformPasskeys?.hostEnded()
+        }
     }
 
     /// The attached host; the first caller starts the attach, later ones await it.

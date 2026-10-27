@@ -265,6 +265,25 @@ Pending tokens resolve `.hostGone` on host exit (091). Rules K8-K12 apply to tha
 at least one flow that goes through the request dialog (a USB security key sign-in, or a modal get on a site with no
 iCloud passkey, which opens the 1001 no-credentials sheet), with 0 visible host windows.
 
+Status of 067 (2026-10-27, written, not built or run): feature `chromiumHostPasskeys` (default off). The shim binds
+the fork's three calls (`cmux_shim_set_webauthn_platform`, a preinit op that sets the handler and later passes the
+permission; `cmux_shim_webauthn_platform_reply`, a post), and the host relays WEBAUTHN_PLATFORM_REQUEST (62) and
+_CANCEL (63). In cmux, `CEFPlatformPasskeys` applies 3.9.3 (`ChromiumPasskeyPolicy`, related origins fetched by cmux
+with Chromium's 5-label rule) and runs `ASAuthorizationController` over the pane's window (`ChromiumSystemPasskeys`).
+Open points:
+
+- No private selector (K9), so cmux cannot set Chromium's client data hash as Chrome does
+  (`_requestContextWithRequests:`). It gives the system Chromium's client data members through the public
+  `ASPublicKeyCredentialClientData` and returns a result only when the system's `rawClientDataJSON` equals Chromium's
+  bytes; else NotAllowedError. Chromium adds `other_keys_can_be_added_here` to one request in five
+  (components/webauthn/core/browser/client_data_json.cc), which the system cannot build, so cmux refuses those. A fork
+  follow-up must remove this loss: the reply carries the system's `client_data_json`, and the fork returns it to the
+  page when its SHA-256 is the signed hash, or the fork omits the extra key for embedder-relayed requests.
+- PRF and large blob inputs are not applied (the request still runs, the reply reports none); a required large blob
+  or a create without ES256 is refused.
+- 3.9.4 (the request dialog) is still uncovered.
+- Bench: `chromium-host-bench.py --native-ui` row `passkey` on a signed build (K18), fork API 31.
+
 ### 3.9.6 Tests in the fork
 
 `scripts/test-cmux-embedder.sh <cef-path> passkey-platform passkey-platform-detached` in the fork, after

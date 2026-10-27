@@ -10,6 +10,12 @@ by the Chromium host and shown by cmux from their layer contexts (ChromiumHostWi
                     cmux's DevTools window)
   extension_popup   a click on a test extension's action: its popup in a cmux panel (`extension_popup`)
   side_panel        a click on a side panel extension's action: the panel's page over its tab (`side_panel`)
+  passkey           p01-process-067 (feature `chromiumHostPasskeys`): on PASSKEY_SITE (https: WebAuthn needs a secure
+                    origin), a modal navigator.credentials.get with an allow list of one iCloud Keychain id reaches cmux
+                    as a WEBAUTHN request (`debug.cef` `host_passkeys` `requests`); the page's abort then cancels it
+                    (`cancels`), or cmux answered or refused it, and the page sees the outcome. Needs a signed build with
+                    the browser passkey entitlement (`handler_set` 1; a tagged DEV build has none, K18) and fork API 31;
+                    the system sheet may show and the abort closes it.
 
 Each row passes when `debug.cef` `host_widgets` lists a shown widget of its kind with a non-empty screen frame
 within the row's deadline; it records the widget and how long it took to show. Without a widget host (`host_widgets`
@@ -36,6 +42,21 @@ EXTENSIONS = (
 # How long a widget may take to show after the input that opens it.
 SHOW_DEADLINE_S = 10.0
 
+# The passkey row's page: an https origin whose host is the rp id.
+PASSKEY_SITE = "https://webauthn.io/"
+
+# Starts a modal get for a credential id no authenticator has, so nothing signs; the page keeps the outcome.
+PASSKEY_GET = """(() => {
+  const abort = new AbortController();
+  window.__cmuxPasskey = {abort, outcome: null};
+  const id = new Uint8Array(32); crypto.getRandomValues(id);
+  const challenge = new Uint8Array(32); crypto.getRandomValues(challenge);
+  navigator.credentials.get({signal: abort.signal, publicKey: {challenge, rpId: location.hostname, userVerification: 'preferred',
+    allowCredentials: [{type: 'public-key', id, transports: ['internal', 'hybrid']}], timeout: 60000}})
+    .then(() => { window.__cmuxPasskey.outcome = 'resolved'; }, (e) => { window.__cmuxPasskey.outcome = e.name; });
+  return true;
+})()"""
+
 
 def write_extensions(root):
     """Unpacked MV3 test extensions (CMUX_NEXT_CEF_LOAD_EXTENSIONS): an action popup and a side panel."""
@@ -58,7 +79,7 @@ def write_extensions(root):
 
 def launch_env(extension_paths):
     """What the app needs for these rows: the feature, and the test extensions."""
-    return {"CMUX_ENABLE_FEATURES": "chromiumHostWidgets", "CMUX_NEXT_CEF_LOAD_EXTENSIONS": ":".join(extension_paths)}
+    return {"CMUX_ENABLE_FEATURES": "chromiumHostWidgets,chromiumHostPasskeys", "CMUX_NEXT_CEF_LOAD_EXTENSIONS": ":".join(extension_paths)}
 
 
 def host_widgets(rpc):
@@ -82,6 +103,39 @@ def wait_shown(rpc, wait, kinds):
             "host_widgets": None if widget else host_widgets(rpc)}
 
 
+def host_passkeys(rpc):
+    """`debug.cef` `host_passkeys`: None without the relay, else its counters (never a request's content)."""
+    return (rpc("debug.cef") or {}).get("host_passkeys")
+
+
+def refusals(counters):
+    return sum(value for key, value in counters.items() if key.startswith("refused_"))
+
+
+def passkey_row(rpc, wait, page_eval):
+    """The passkey row (p01-process-067)."""
+    before = host_passkeys(rpc)
+    if before is None:
+        return {"ok": False, "not_run": "no passkey relay: host mode is not live in this build or chromiumHostPasskeys is off"}
+    if not before.get("handler_set"):
+        return {"ok": False, "not_run": "the host has no iCloud Keychain handler: an unsigned build (K18) or fork API < 31",
+                "host_passkeys": before}
+    rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": PASSKEY_SITE}, "focus": True, "origin": "script"}, timeout=120)
+    if not wait(lambda: page_eval("document.readyState === 'complete' && location.protocol === 'https:'"), 60, 0.5):
+        return {"ok": False, "error": f"{PASSKEY_SITE} did not load"}
+    started = time.time()
+    page_eval(PASSKEY_GET)
+    asked = wait(lambda: (host_passkeys(rpc) or {}).get("requests", 0) > before.get("requests", 0), SHOW_DEADLINE_S)
+    request_ms = round((time.time() - started) * 1000, 1) if asked else None
+    page_eval("window.__cmuxPasskey && window.__cmuxPasskey.abort.abort()")
+    outcome = wait(lambda: page_eval("window.__cmuxPasskey && window.__cmuxPasskey.outcome"), SHOW_DEADLINE_S)
+    after = host_passkeys(rpc) or {}
+    settled = (after.get("cancels", 0) > before.get("cancels", 0) or after.get("answered", 0) > before.get("answered", 0)
+               or refusals(after) > refusals(before))
+    return {"ok": bool(asked) and settled and outcome is not None, "request_ms": request_ms, "page_outcome": outcome,
+            "host_passkeys": after}
+
+
 def run(rpc, wait, page_eval, url):
     """Every row; returns (rows, ok)."""
     rows = {}
@@ -91,7 +145,8 @@ def run(rpc, wait, page_eval, url):
     if host_widgets(rpc) is None:
         reason = "no widget host: host mode is not live in this build (task 080) or chromiumHostWidgets is off"
         return {name: {"ok": False, "not_run": reason} for name in
-                ("date", "datalist", "popup_window", "devtools_docked", "devtools_window", "extension_popup", "side_panel")}, False
+                ("date", "datalist", "popup_window", "devtools_docked", "devtools_window", "extension_popup", "side_panel",
+                 "passkey")}, False
 
     def center(element):
         rect = page_eval(f"(() => {{ const r = document.getElementById('{element}').getBoundingClientRect(); "
@@ -136,4 +191,5 @@ def run(rpc, wait, page_eval, url):
         rows[row] = wait_shown(rpc, wait, (kind,))
         if kind == "extension_popup":
             rpc("debug.extensions.popup", {"hide": True})
+    rows["passkey"] = passkey_row(rpc, wait, page_eval)
     return rows, all(row.get("ok") for row in rows.values())

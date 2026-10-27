@@ -150,6 +150,11 @@ struct ForkApi {
   char* (*tab_entry_page_state)(int, int) = nullptr;
   int (*tab_page_state_watch)(int, void (*)(void*, int, int), void*) = nullptr;
   int (*tab_restore_entries)(int, const ForkRestoreEntry*, int, int) = nullptr;
+  // API version 31 (task 175): a helper-app browser's iCloud Keychain
+  // requests go to the embedder (shim_passkeys.mm).
+  int (*set_webauthn_platform_handler)(ForkWebAuthnRequestFn, ForkWebAuthnCancelFn, int, void*) = nullptr;
+  int (*webauthn_platform_set_permission)(int) = nullptr;
+  int (*webauthn_platform_reply)(int64_t, const char*) = nullptr;
   // API version 31 (task 172): the renderer's answer to each DragTarget*
   // enter and over of a detached page (shim_helper_host.mm).
   int (*browser_drag_target_watch)(int, void (*)(void*, int, int, int), void*) = nullptr;

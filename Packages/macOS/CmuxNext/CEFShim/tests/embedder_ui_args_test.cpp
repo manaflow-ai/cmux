@@ -2,8 +2,10 @@
 // scripts/cmux-next/test-shim-embedder-ui-args-cpp.sh): device chooser rows,
 // the screen-share answer's id and NUL-terminated restore entries.
 #include <climits>
+#include <cstddef>
 #include <cstring>
 #include <iostream>
+#include <type_traits>
 #include <string>
 #include <vector>
 
@@ -48,6 +50,17 @@ FIELD(cmux_shim::ForkRestoreEntry, cmux_restore_entry_t, url);
 FIELD(cmux_shim::ForkRestoreEntry, cmux_restore_entry_t, title);
 FIELD(cmux_shim::ForkRestoreEntry, cmux_restore_entry_t, page_state);
 static_assert(cmux_shim::kDesktopMediaTab == CMUX_DESKTOP_MEDIA_TAB, "CMUX_DESKTOP_MEDIA_TAB");
+SAME(cmux_shim::ForkWebAuthnPlatformRequest, cmux_webauthn_platform_request_t);
+FIELD(cmux_shim::ForkWebAuthnPlatformRequest, cmux_webauthn_platform_request_t, token);
+FIELD(cmux_shim::ForkWebAuthnPlatformRequest, cmux_webauthn_platform_request_t, operation);
+FIELD(cmux_shim::ForkWebAuthnPlatformRequest, cmux_webauthn_platform_request_t, browser_id);
+FIELD(cmux_shim::ForkWebAuthnPlatformRequest, cmux_webauthn_platform_request_t, json);
+static_assert(cmux_shim::kWebAuthnPlatformList == CMUX_WEBAUTHN_PLATFORM_LIST, "CMUX_WEBAUTHN_PLATFORM_LIST");
+static_assert(cmux_shim::kWebAuthnPermissionAuthorized == CMUX_WEBAUTHN_PERMISSION_AUTHORIZED,
+              "CMUX_WEBAUTHN_PERMISSION_AUTHORIZED");
+static_assert(std::is_same_v<decltype(&cmux_set_webauthn_platform_handler),
+                             int (*)(cmux_webauthn_platform_request_fn, cmux_webauthn_platform_cancel_fn, int, void*)>,
+              "cmux_set_webauthn_platform_handler");
 #endif
 
 using cmux_shim::DesktopMediaAnswerId;
@@ -182,8 +195,80 @@ static void Handlers() {
          "the removed handler's open request ends at its fn before it is forgotten");
 }
 
+// A fake fork for cmux_shim_set_webauthn_platform: the handler it took and
+// the permissions it was given.
+using cmux_shim::ForkWebAuthnPlatformRequest;
+using cmux_shim::WebAuthnPlatformSetter;
+
+static int g_handler_sets = 0;
+static int g_last_permission = -1;
+static bool g_refuse_handler = false;
+static void* g_handler_context = reinterpret_cast<void*>(1);
+
+static int FakeSetHandler(cmux_shim::ForkWebAuthnRequestFn request, cmux_shim::ForkWebAuthnCancelFn cancel,
+                          int permission, void* context) {
+  ++g_handler_sets;
+  if (g_refuse_handler || !request || !cancel) return 0;
+  g_last_permission = permission;
+  g_handler_context = context;
+  return 1;
+}
+static int FakeSetPermission(int permission) {
+  g_last_permission = permission;
+  return 1;
+}
+static void FakeRequest(void*, const ForkWebAuthnPlatformRequest*) {}
+static void FakeCancel(void*, int64_t) {}
+
+static void WebAuthnPlatform() {
+  WebAuthnPlatformSetter none;
+  Expect(none.Apply(2, &FakeRequest, &FakeCancel) == 0 && !none.handler_set, "a fork without the calls returns 0");
+
+  WebAuthnPlatformSetter setter{&FakeSetHandler, &FakeSetPermission};
+  Expect(setter.Apply(3, &FakeRequest, &FakeCancel) == 0 && g_handler_sets == 0, "an unknown permission is refused");
+  Expect(setter.Apply(-1, &FakeRequest, &FakeCancel) == 0 && g_handler_sets == 0, "a negative permission is refused");
+  g_refuse_handler = true;
+  Expect(setter.Apply(0, &FakeRequest, &FakeCancel) == 0 && !setter.handler_set, "a handler the fork refuses is not set");
+  g_refuse_handler = false;
+  Expect(setter.Apply(0, &FakeRequest, &FakeCancel) == 1 && setter.handler_set && g_last_permission == 0 &&
+             g_handler_context == nullptr,
+         "the first call sets the handler with the launch permission");
+  const int sets = g_handler_sets;
+  Expect(setter.Apply(2, &FakeRequest, &FakeCancel) == 1 && g_handler_sets == sets && g_last_permission == 2,
+         "a later call passes the new permission and sets no second handler");
+  Expect(setter.Apply(7, &FakeRequest, &FakeCancel) == 0 && g_last_permission == 2,
+         "an unknown permission later changes nothing");
+
+  const char json[] = "{}";
+  ForkWebAuthnPlatformRequest request = {static_cast<int>(sizeof(ForkWebAuthnPlatformRequest)), 41, 1, 7, json};
+  int64_t token = 0;
+  Expect(cmux_shim::WebAuthnPlatformRequestUsable(&request), "a whole get request is usable");
+  Expect(cmux_shim::WebAuthnPlatformToken(&request, &token) && token == 41, "its token is read");
+  ForkWebAuthnPlatformRequest no_browser = request;
+  no_browser.browser_id = 0;
+  Expect(!cmux_shim::WebAuthnPlatformRequestUsable(&no_browser), "browser 0 is never run");
+  ForkWebAuthnPlatformRequest bad_operation = request;
+  bad_operation.operation = 3;
+  Expect(!cmux_shim::WebAuthnPlatformRequestUsable(&bad_operation), "an unknown operation is never run");
+  ForkWebAuthnPlatformRequest no_json = request;
+  no_json.json = nullptr;
+  Expect(!cmux_shim::WebAuthnPlatformRequestUsable(&no_json), "a request without JSON is never run");
+  ForkWebAuthnPlatformRequest short_struct = request;
+  short_struct.size = static_cast<int>(offsetof(ForkWebAuthnPlatformRequest, json));
+  token = 0;
+  Expect(!cmux_shim::WebAuthnPlatformRequestUsable(&short_struct) &&
+             cmux_shim::WebAuthnPlatformToken(&short_struct, &token) && token == 41,
+         "a struct that ends before the JSON is not run, but its token is answered");
+  ForkWebAuthnPlatformRequest tiny = request;
+  tiny.size = static_cast<int>(sizeof(int));
+  Expect(!cmux_shim::WebAuthnPlatformToken(&tiny, &token), "a struct without its token has none");
+  Expect(!cmux_shim::WebAuthnPlatformRequestUsable(nullptr) && !cmux_shim::WebAuthnPlatformToken(nullptr, &token),
+         "NULL is no request");
+}
+
 int main() {
   Handlers();
+  WebAuthnPlatform();
   DeviceChoices();
   DesktopMediaIds();
   Restore();

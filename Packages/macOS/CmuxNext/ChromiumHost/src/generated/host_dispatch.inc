@@ -154,64 +154,66 @@ enum Op : uint16_t {
   kOpPasskeysAvailable = 144,
   kOpPasskeysList = 145,
   kOpPasskeyDelete = 146,
-  kOpPasswordCoreAvailable = 147,
-  kOpPasswordList = 148,
-  kOpPasswordRemove = 149,
-  kOpPasswordExceptionRemove = 150,
-  kOpPasswordSetUsername = 151,
-  kOpPasswordReveal = 152,
-  kOpPasswordExport = 153,
-  kOpSslStatus = 154,
-  kOpClearCertificateExceptions = 155,
-  kOpCertificateProceed = 156,
-  kOpFreeOwned = 157,
-  kOpRendererClientIds = 158,
-  kOpRendererFrames = 159,
-  kOpRendererPid = 160,
-  kOpSetContextProxy = 161,
-  kOpSetContextProxyServer = 162,
-  kOpContextProxyState = 163,
-  kOpReleaseContext = 164,
-  kOpSetNavigationGuard = 165,
-  kOpSetAuthCallback = 166,
-  kOpPrefGet = 167,
-  kOpPrefSetBool = 168,
-  kOpPrefWatch = 169,
-  kOpBookmarksSync = 170,
-  kOpPageSchemeAdd = 171,
-  kOpPageSchemeAddFirstParty = 172,
-  kOpPageSchemeAddFirstPartyDynamic = 173,
-  kOpPageResourceRespond = 174,
-  kOpMemoryPressureVote = 175,
-  kOpSetCursorEvents = 176,
-  kOpTabSetVisibility = 177,
-  kOpExtLoadLaterSupported = 178,
-  kOpExtLoadCommandLine = 179,
-  kOpAddDocumentScript = 180,  // optional
-  kOpAddPageChannel = 181,  // optional
-  kOpTabEvaluate = 182,  // optional
-  kOpTabSetFrozen = 183,  // optional
-  kOpTabSendClick = 184,  // optional
-  kOpTabSetColorScheme = 185,  // optional
-  kOpPageSchemeSetGroup = 186,  // optional
-  kOpTabDiscard = 187,  // optional
-  kOpWidgetSetGeometry = 188,  // optional
-  kOpWidgetDismiss = 189,  // optional
-  kOpWidgetSendInput = 190,  // optional
-  kOpBrowserImeSetComposition = 191,  // optional
-  kOpBrowserImeCommitText = 192,  // optional
-  kOpBrowserImeFinishComposing = 193,  // optional
-  kOpBrowserImeCancelComposition = 194,  // optional
+  kOpSetWebauthnPlatform = 147,
+  kOpWebauthnPlatformReply = 148,
+  kOpPasswordCoreAvailable = 149,
+  kOpPasswordList = 150,
+  kOpPasswordRemove = 151,
+  kOpPasswordExceptionRemove = 152,
+  kOpPasswordSetUsername = 153,
+  kOpPasswordReveal = 154,
+  kOpPasswordExport = 155,
+  kOpSslStatus = 156,
+  kOpClearCertificateExceptions = 157,
+  kOpCertificateProceed = 158,
+  kOpFreeOwned = 159,
+  kOpRendererClientIds = 160,
+  kOpRendererFrames = 161,
+  kOpRendererPid = 162,
+  kOpSetContextProxy = 163,
+  kOpSetContextProxyServer = 164,
+  kOpContextProxyState = 165,
+  kOpReleaseContext = 166,
+  kOpSetNavigationGuard = 167,
+  kOpSetAuthCallback = 168,
+  kOpPrefGet = 169,
+  kOpPrefSetBool = 170,
+  kOpPrefWatch = 171,
+  kOpBookmarksSync = 172,
+  kOpPageSchemeAdd = 173,
+  kOpPageSchemeAddFirstParty = 174,
+  kOpPageSchemeAddFirstPartyDynamic = 175,
+  kOpPageResourceRespond = 176,
+  kOpMemoryPressureVote = 177,
+  kOpSetCursorEvents = 178,
+  kOpTabSetVisibility = 179,
+  kOpExtLoadLaterSupported = 180,
+  kOpExtLoadCommandLine = 181,
+  kOpAddDocumentScript = 182,  // optional
+  kOpAddPageChannel = 183,  // optional
+  kOpTabEvaluate = 184,  // optional
+  kOpTabSetFrozen = 185,  // optional
+  kOpTabSendClick = 186,  // optional
+  kOpTabSetColorScheme = 187,  // optional
+  kOpPageSchemeSetGroup = 188,  // optional
+  kOpTabDiscard = 189,  // optional
+  kOpWidgetSetGeometry = 190,  // optional
+  kOpWidgetDismiss = 191,  // optional
+  kOpWidgetSendInput = 192,  // optional
+  kOpBrowserImeSetComposition = 193,  // optional
+  kOpBrowserImeCommitText = 194,  // optional
+  kOpBrowserImeFinishComposing = 195,  // optional
+  kOpBrowserImeCancelComposition = 196,  // optional
 };
-inline constexpr uint16_t kOpCount = 194;
+inline constexpr uint16_t kOpCount = 196;
 inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
-inline constexpr int kEventKindCount = 57;
-inline constexpr char kShimAbiID[] = "5a6ccb9d8232fc689eeca3d51504bec9befa6927903297b164c0decf64e9a6c3";
+inline constexpr int kEventKindCount = 59;
+inline constexpr char kShimAbiID[] = "9432eb6fd43f0f77ae130e6a595b4ebed62bf6b509218f63222f71621999a728";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "7acc679f09b6f5619d31a04593ab272c281a9132db6214aa3f527ab1303f9001";
+inline constexpr char kWireID[] = "016775208e446f83e00b64020cd43a51fd4d7369926106f5187c4a58d68c82f6";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 
@@ -1428,6 +1430,24 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       TlvWriter reply_w;
       reply_w.I32(call_result);
       ctx.Reply(wire_token, reply_w);
+      return true;
+    }
+    case kOpSetWebauthnPlatform: {
+      const auto arg_permission = r.I32();
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto call_result = cmux_shim_set_webauthn_platform(arg_permission);
+      TlvWriter reply_w;
+      reply_w.I32(call_result);
+      ctx.Reply(wire_token, reply_w);
+      return true;
+    }
+    case kOpWebauthnPlatformReply: {
+      const auto arg_token = r.I64();
+      const std::optional<std::string> arg_json = r.Str();
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto call_result = cmux_shim_webauthn_platform_reply(arg_token, arg_json ? arg_json->c_str() : nullptr);
+      (void)call_result;
+      ctx.Ack(wire_token);
       return true;
     }
     case kOpPasswordList: {

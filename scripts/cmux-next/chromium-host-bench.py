@@ -126,9 +126,10 @@ Per mode:
            apart from one that never arrived. In host mode a pinch that never reaches the page (the page view's
            magnify route is p01-process-042's input route with p01-process-054's PinchEvent) says not_measurable.
 
---native-ui runs instead the hosted widget rows (chromium_host_native_ui.py, p01-process-066): date, datalist,
+--native-ui runs instead the hosted widget rows (chromium_host_native_ui.py, p01-process-066 and 067): date, datalist,
 popup window, DevTools docked and in a window, an extension popup and a side panel, each shown by cmux from the
-host's layer context (`debug.cef` `host_widgets`), with feature chromiumHostWidgets on and two test extensions.
+host's layer context (`debug.cef` `host_widgets`), with feature chromiumHostWidgets on and two test extensions, and the
+passkey row (an iCloud Keychain request relayed to cmux and cancelled, `debug.cef` `host_passkeys`, chromiumHostPasskeys).
 
 --find runs instead the find rows (chromium_host_find.py, p01-process-048): Cmd-F, a typed query, Cmd-G, Cmd-Shift-G
 and Escape through cmux's find pill on a Chromium page in the host (`debug.cef` backend `host`), the pill's match

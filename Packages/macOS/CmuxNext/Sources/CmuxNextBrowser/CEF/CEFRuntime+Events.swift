@@ -102,6 +102,7 @@ extension CEFRuntime {
             widgetHost?.show(context)
         case .widgetGone(_, let widget):
             widgetHost?.remove(widget)
+        case .webAuthnPlatform(let request): hostStart?.platformPasskeys?.handle(request, runtime: self)
         case .pageView(let browser, let change):
             tabsByBrowser[browser]?.host.pageViewChanged(change, browser: browser)
         case .pageDragEnter(let browser, let pathsJSON):
@@ -462,7 +463,7 @@ extension CEFShimEvent {
             b
         case .widgetContext(let context):
             context.owner
-        case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .evaluateResult, .unknown:
+        case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .evaluateResult, .webAuthnPlatform, .unknown:
             nil
         }
     }

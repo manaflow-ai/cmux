@@ -124,6 +124,8 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case widgetGone(browser: Int32, widget: ChromiumHostWidgetID)
     /// The page's cursor or tooltip changed, or it answered a drag (CURSOR, TOOLTIP, DRAG_OPERATION; host mode).
     case pageView(browser: Int32, CEFPageViewEvent)
+    /// An iCloud Keychain request of the Chromium Host, or its cancel (host mode, fork API 31; ``CEFPlatformPasskeys``).
+    case webAuthnPlatform(ChromiumPlatformPasskeyEvent)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -198,6 +200,8 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 55: self = .pageView(browser: browser, .dragOperation(a))
         case 56: self = .pageView(browser: browser, .wheelAck(BrowserWheelAck(request: request, a: a, b: b)))
         case 57: self = .pageView(browser: browser, .tooltip(s1))
+        case 62: self = .webAuthnPlatform(.request(browser: browser, token: a, operation: request, json: s1))
+        case 63: self = .webAuthnPlatform(.cancel(token: a))
         default: self = .unknown(kind: kind)
         }
     }

@@ -3586,6 +3586,44 @@
       "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; the host's wire:REPLY under the op's token carries the shim's start result, and a start other than 1 fails the reply id's waiter at once (CEFHostReplies, task 018) instead of at its deadline; task 021 does this at each start site (siteCall and profileWrite run only `start`)."
     },
     {
+      "name": "cmux_shim_set_webauthn_platform",
+      "class": "preinit",
+      "args": [
+        {
+          "name": "permission",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": "wire:REPLY",
+      "reason": "Host mode only (task 067, plans/cmux-next/passkeys.md 3.9.2): WEBAUTHN_PLATFORM_CONFIG. The first call is applied before CefInitialize and sets the fork's iCloud Keychain handler; a later one (WEBAUTHN_PERMISSION: the person answered the system prompt, or a new state at app activation) is sent as a post and passes the permission. One replay entry per op (remote_shim.mm ReplayKey), so a restarted host gets the current permission. The client returns 1 when queued; the host's refusal is the reply. CEFRuntime discards the result."
+    },
+    {
+      "name": "cmux_shim_webauthn_platform_reply",
+      "class": "post",
+      "args": [
+        {
+          "name": "token",
+          "type": "int64_t"
+        },
+        {
+          "name": "json",
+          "type": "const char*"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "cmux's answer to a WEBAUTHN_PLATFORM_REQUEST (task 067): the ceremony's result JSON, or NULL when cmux refused or could not run it. The token is the host's, from the request event; a late answer (the request was cancelled) returns 0 in the host. Holds ceremony secrets: no client or host code logs or traces it."
+    },
+    {
       "name": "cmux_shim_password_core_available",
       "class": "mirror",
       "args": [],
@@ -4700,6 +4738,18 @@
       "value": 57,
       "refreshes": [],
       "reason": "The page's tooltip (OnTooltip, task 054): the host's page windows never show, so cmux's page view shows it, as Chrome's app shim view shows RenderWidgetHostNSView::SetTooltipText."
+    },
+    {
+      "kind": "CMUX_SHIM_WEBAUTHN_PLATFORM_REQUEST",
+      "value": 62,
+      "refreshes": [],
+      "reason": "Task 067: the fork's iCloud Keychain request for a helper-app browser (cmux_set_webauthn_platform_handler, fork API 31, task 175). browser = the page, request = operation, a = token, s1 = request JSON. cmux runs ASAuthorizationController over the pane's window, as Chrome runs it over the page's NSWindow (device/fido/mac/icloud_keychain_sys.mm), and answers with webauthn_platform_reply. s1 holds ceremony secrets: no client or host code logs or traces it."
+    },
+    {
+      "kind": "CMUX_SHIM_WEBAUTHN_PLATFORM_CANCEL",
+      "value": 63,
+      "refreshes": [],
+      "reason": "Task 067: Chromium dropped request a (abort, dialog closed, another authenticator answered): cmux cancels its ceremony and sends no answer."
     }
   ],
   "optional_exports": [
@@ -5426,6 +5476,15 @@
       "needs": "reply",
       "change": "Host mode only: the token form (sendAsync, whenAnswered with a deadline). The REPLY's context id of the DevTools page window shows in the DevTools ChromiumHostPageView; a reply after that DevTools closed shows nothing (task 024).",
       "task": "p01-process-024"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFRuntime.swift: CEFRuntime.initialize(_:environment:), the iCloud Keychain handler (CEFPlatformPasskeys.hostAttached)",
+      "exports": [
+        "cmux_shim_set_webauthn_platform"
+      ],
+      "needs": "reply",
+      "change": "The immediate return is the client's check (a known permission, queued before CefInitialize); the host's verdict is the reply. A host that refuses keeps Chromium's own iCloud Keychain code, which finds no entitlement in the helper app and offers the other authenticators.",
+      "task": "p01-process-067"
     }
   ]
 }

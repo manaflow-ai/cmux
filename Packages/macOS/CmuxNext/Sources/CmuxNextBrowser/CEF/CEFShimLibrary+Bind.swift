@@ -199,6 +199,9 @@ nonisolated extension CEFShimLibrary {
         passkeysList = { a0, a1 in unsafe Self.withCString(a0) { s0 in unsafe cPasskeysList(s0, a1) } }
         let cPasskeyDelete: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32) -> Int32 = try unsafe r("cmux_shim_passkey_delete")
         passkeyDelete = { a0, a1, a2 in unsafe Self.withCString(a0) { s0 in unsafe Self.withCString(a1) { s1 in unsafe cPasskeyDelete(s0, s1, a2) } } }
+        setWebauthnPlatform = try r("cmux_shim_set_webauthn_platform")
+        let cWebauthnPlatformReply: @convention(c) (Int64, UnsafePointer<CChar>?) -> Int32 = try unsafe r("cmux_shim_webauthn_platform_reply")
+        webauthnPlatformReply = { a0, a1 in unsafe Self.withCString(a1) { s1 in unsafe cWebauthnPlatformReply(a0, s1) } }
         passwordCoreAvailable = try r("cmux_shim_password_core_available")
         let cPasswordList: @convention(c) (UnsafePointer<CChar>?, Int32) -> Int32 = try unsafe r("cmux_shim_password_list")
         passwordList = { a0, a1 in unsafe Self.withCString(a0) { s0 in unsafe cPasswordList(s0, a1) } }

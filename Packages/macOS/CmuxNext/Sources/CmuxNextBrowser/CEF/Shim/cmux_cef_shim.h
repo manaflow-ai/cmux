@@ -209,6 +209,17 @@ typedef enum {
   // cmux_shim_set_cursor_events(1): s1 = the text, UTF-8; "" hides it.
   // Chromium shows no tooltip of its own then.
   CMUX_SHIM_TOOLTIP = 57,
+  // 58 to 61 are kept for the select popup and suggestions (p01-process-060, 061).
+  // An iCloud Keychain request of a page, only after
+  // cmux_shim_set_webauthn_platform (fork API 31): browser_id = the page;
+  // request = the operation (0 create, 1 get, 2 list; the fork's
+  // CMUX_WEBAUTHN_PLATFORM_*); a = the token; s1 = the request JSON of
+  // include/cef_cmux.h. Answer once with cmux_shim_webauthn_platform_reply.
+  // s1 holds ceremony secrets: never log or trace it.
+  CMUX_SHIM_WEBAUTHN_PLATFORM_REQUEST = 62,
+  // Chromium no longer wants the answer to token a (the page aborted, the
+  // request dialog closed, another authenticator answered): end the ceremony.
+  CMUX_SHIM_WEBAUTHN_PLATFORM_CANCEL = 63,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -979,6 +990,22 @@ CMUX_SHIM_EXPORT int cmux_shim_passkeys_list(const char* profile_cache_path, int
 // REPLY with `reply` and browser 0 follows: a = 1 deleted, 0 not. Returns 0
 // when nothing was started (as above, or an empty id).
 CMUX_SHIM_EXPORT int cmux_shim_passkey_delete(const char* profile_cache_path, const char* credential_id, int reply);
+// iCloud Keychain passkeys of a helper-app browser process (fork API 31,
+// cmux_set_webauthn_platform_handler; plans/cmux-next/passkeys.md 3.9). The
+// Chromium Host has neither a visible window nor the browser passkey
+// entitlement, so its iCloud Keychain requests go to cmux as
+// WEBAUTHN_PLATFORM_REQUEST and _CANCEL events. permission is the passkey
+// listing permission (0 not determined, 1 denied, 2 authorized). The first
+// call, before cmux_shim_initialize, sets the handler; a later call passes
+// the new permission (cmux_webauthn_platform_set_permission). Call it only
+// when cmux can run iCloud Keychain itself: in process Chromium runs it.
+// Returns 0 when the fork lacks the calls or refused.
+CMUX_SHIM_EXPORT int cmux_shim_set_webauthn_platform(int permission);
+// Answers WEBAUTHN_PLATFORM_REQUEST `token` once with the reply JSON of
+// include/cef_cmux.h, or NULL when cmux did not run it (a create or get then
+// rejects with NotAllowedError, a list lists nothing). Returns 0 for an
+// unknown or cancelled token. The JSON holds ceremony secrets.
+CMUX_SHIM_EXPORT int cmux_shim_webauthn_platform_reply(int64_t token, const char* json);
 // Password manager core (fork API 18: cmux_password_list, _remove,
 // _exception_remove, _set_username, _reveal, _export; the Passwords page,
 // plans/cmux-next/passwords.md 1.4). profile_cache_path is a persistent
