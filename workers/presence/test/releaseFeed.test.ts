@@ -33,11 +33,14 @@ class FakeHost implements ReleaseFeedHost {
   stored: ReleaseState | null = null;
   frames: string[] = [];
   alarmAt: number | null = null;
+  readAt = 0;
 
   now() { return this.clock; }
   async fetchAppcast(url: string) { this.fetched.push(url); return this.feed; }
   async load() { return this.stored; }
   async save(state: ReleaseState) { this.stored = state; }
+  async loadReadAt() { return this.readAt; }
+  async saveReadAt(at: number) { this.readAt = at; }
   broadcast(frame: string) { this.frames.push(frame); }
   async getAlarm() { return this.alarmAt; }
   async setAlarm(at: number) { this.alarmAt = at; }
@@ -70,6 +73,14 @@ describe("appcast parse", () => {
     expect(parseNewestRelease("not xml")).toBeNull();
   });
 
+  it("never reads an item or a version from comments or CDATA", () => {
+    const xml = appcast(
+      item("300", `<description><![CDATA[<item><sparkle:version>999</sparkle:version></item>]]></description>`),
+      "<!-- <item><sparkle:version>998</sparkle:version></item> -->",
+    );
+    expect(parseNewestRelease(xml)).toEqual({ build: 300, version: "1.0.0-nightly.300" });
+  });
+
   it("drops a short version that is not a plain version string", () => {
     const xml = appcast(`<item><sparkle:version>7</sparkle:version><sparkle:shortVersionString>"><script></sparkle:shortVersionString></item>`);
     expect(parseNewestRelease(xml)).toEqual({ build: 7, version: "" });
@@ -83,6 +94,9 @@ describe("appcast fetch", () => {
     expect(await fetchAppcast("https://x", answer(new Response(null, { status: 302, headers: { location: "https://evil.test" } })))).toBeNull();
     expect(await fetchAppcast("https://x", answer(new Response("gone", { status: 404 })))).toBeNull();
     expect(await fetchAppcast("https://x", answer(new Response("x".repeat(MAX_APPCAST_BYTES + 1))))).toBeNull();
+    // The cap counts bytes, not UTF-16 code units: 2-byte characters past the cap are refused.
+    expect(await fetchAppcast("https://x", answer(new Response("é".repeat(MAX_APPCAST_BYTES / 2 + 1))))).toBeNull();
+    expect(await fetchAppcast("https://x", answer(new Response("é".repeat(10))))).toBe("é".repeat(10));
     expect(await fetchAppcast("https://x", (async () => { throw new Error("offline"); }) as unknown as typeof fetch)).toBeNull();
   });
 });
@@ -153,6 +167,28 @@ describe("release feed pokes", () => {
     expect(host.fetched).toHaveLength(2);
     expect(host.alarmAt).toBeNull();
     expect(JSON.parse(host.frames.at(-1)!).build).toBe(101);
+  });
+
+  it("keeps the window across an eviction (a fresh core on the same storage)", async () => {
+    const host = new FakeHost();
+    await new ReleaseFeedCore("tip", host).poke();
+    host.clock += 1_000;
+    await new ReleaseFeedCore("tip", host).poke();
+    expect(host.fetched).toHaveLength(1);
+    expect(host.alarmAt).not.toBeNull();
+  });
+
+  it("skips the alarm read when a poke already read at its due time", async () => {
+    const host = new FakeHost();
+    const core = new ReleaseFeedCore("tip", host);
+    await core.poke();
+    host.clock += 1_000;
+    await core.poke();
+    host.clock = host.alarmAt!;
+    await core.poke(); // due-time poke reads at once
+    host.alarmAt = null;
+    await core.alarm();
+    expect(host.fetched).toHaveLength(2);
   });
 });
 

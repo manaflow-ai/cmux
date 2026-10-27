@@ -9,6 +9,7 @@ import {
 } from "./releaseFeed";
 
 const STATE_KEY = "release";
+const READ_AT_KEY = "readAt";
 
 /** One allowlisted update feed (named by its feed id): the newest build it
  * serves, pushed to every hibernating socket the moment a read sees it rise. */
@@ -40,9 +41,12 @@ export class ReleaseFeed extends DurableObject<unknown> {
     if (this.ctx.getWebSockets().length >= MAX_RELEASE_SOCKETS) {
       return new Response(null, { status: 429, headers: { "Retry-After": "60" } });
     }
+    // The frame is settled BEFORE the socket joins: a first read inside
+    // current() broadcasts to the sockets already here, never to this one, so
+    // the new socket gets exactly one initial frame.
+    const frame = await core.current();
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1]);
-    const frame = await core.current();
     if (frame) {
       try { pair[1].send(frame); } catch { /* closed already; nothing to deliver */ }
     }
@@ -72,6 +76,8 @@ export class ReleaseFeed extends DurableObject<unknown> {
       fetchAppcast: (url) => fetchAppcast(url),
       load: async () => (await this.ctx.storage.get<ReleaseState>(STATE_KEY)) ?? null,
       save: (state) => this.ctx.storage.put(STATE_KEY, state),
+      loadReadAt: async () => (await this.ctx.storage.get<number>(READ_AT_KEY)) ?? 0,
+      saveReadAt: (at) => this.ctx.storage.put(READ_AT_KEY, at),
       broadcast: (frame) => {
         for (const ws of this.ctx.getWebSockets()) {
           try { ws.send(frame); } catch { /* a dead socket closes on its own */ }

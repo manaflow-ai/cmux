@@ -47,6 +47,9 @@ export function releaseFrame(feed: ReleaseFeedId, state: ReleaseState): string {
   return JSON.stringify({ type: "release", feed, build: state.build, version: state.version, at: state.at });
 }
 
+// Comments and CDATA are dropped before any scan, so an <item> or a version
+// quoted inside release notes is never read as a release.
+const OPAQUE = /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>/g;
 const ITEM = /<item(?:\s[^>]*)?>([\s\S]*?)<\/item>/g;
 const DELTAS = /<sparkle:deltas>[\s\S]*?<\/sparkle:deltas>/g;
 const VERSION_ELEMENT = /<sparkle:version>\s*([^<]*?)\s*<\/sparkle:version>/g;
@@ -72,7 +75,7 @@ function itemBuild(body: string): number | null {
  * are skipped; an appcast with no usable item is null. */
 export function parseNewestRelease(xml: string): { build: number; version: string } | null {
   let newest: { build: number; version: string } | null = null;
-  for (const item of xml.matchAll(ITEM)) {
+  for (const item of xml.replace(OPAQUE, "").matchAll(ITEM)) {
     // A delta's enclosure carries the build it updates FROM; never read it as the item's own.
     const body = (item[1] ?? "").replace(DELTAS, "");
     const build = itemBuild(body);
@@ -91,6 +94,10 @@ export interface ReleaseFeedHost {
   fetchAppcast(url: string): Promise<string | null>;
   load(): Promise<ReleaseState | null>;
   save(state: ReleaseState): Promise<void>;
+  /** Start of the last appcast read (epoch ms), kept in storage so the
+   * coalescing window survives eviction; 0 when the feed was never read. */
+  loadReadAt(): Promise<number>;
+  saveReadAt(at: number): Promise<void>;
   broadcast(frame: string): void;
   getAlarm(): Promise<number | null>;
   setAlarm(at: number): Promise<void>;
@@ -99,10 +106,6 @@ export interface ReleaseFeedHost {
 /** One feed's state machine: coalesced appcast reads, a monotonic build, and
  * the frame every socket receives. */
 export class ReleaseFeedCore {
-  /** Start of the last appcast read. In memory only: after an eviction the next
-   * poke reads at once, which costs at most one extra read. */
-  private lastReadAt = Number.NEGATIVE_INFINITY;
-
   constructor(private readonly feed: ReleaseFeedId, private readonly host: ReleaseFeedHost) {}
 
   /** A publisher or the cron says the feed may have changed. Reads now, or, if
@@ -110,26 +113,29 @@ export class ReleaseFeedCore {
    * end so the poke is never lost. Returns the stored build after that. */
   async poke(): Promise<{ build: number | null }> {
     const now = this.host.now();
-    if (now - this.lastReadAt >= POKE_COALESCE_MS) {
+    const lastReadAt = await this.host.loadReadAt();
+    if (now - lastReadAt >= POKE_COALESCE_MS) {
       await this.read();
     } else {
-      const due = this.lastReadAt + POKE_COALESCE_MS;
+      const due = lastReadAt + POKE_COALESCE_MS;
       const armed = await this.host.getAlarm();
       if (armed === null || armed > due) await this.host.setAlarm(due);
     }
     return { build: (await this.host.load())?.build ?? null };
   }
 
-  /** The coalesced read the alarm deferred. One-shot: it re-arms nothing. */
+  /** The coalesced read the alarm deferred. One-shot: it re-arms nothing. A
+   * read that already started at or after the alarm's due time covered every
+   * poke that armed it, so the alarm then does nothing. */
   async alarm(): Promise<void> {
-    await this.read();
+    if (this.host.now() - (await this.host.loadReadAt()) >= POKE_COALESCE_MS) await this.read();
   }
 
   /** The current frame for a new socket or `/latest`, reading the feed first
    * when this object has never stored a build. Null while the feed is unreadable. */
   async current(): Promise<string | null> {
     let state = await this.host.load();
-    if (!state && this.host.now() - this.lastReadAt >= POKE_COALESCE_MS) {
+    if (!state && this.host.now() - (await this.host.loadReadAt()) >= POKE_COALESCE_MS) {
       await this.read();
       state = await this.host.load();
     }
@@ -138,7 +144,9 @@ export class ReleaseFeedCore {
 
   private async read(): Promise<void> {
     const startedAt = this.host.now();
-    this.lastReadAt = startedAt;
+    // Recorded before the fetch: storage calls keep the input gate shut, so a
+    // second poke arriving during the fetch already sees this read and coalesces.
+    await this.host.saveReadAt(startedAt);
     const text = await this.host.fetchAppcast(`${RELEASE_FEEDS[this.feed]}?t=${startedAt}`);
     const newest = text === null ? null : parseNewestRelease(text);
     if (!newest) return;
@@ -162,12 +170,29 @@ export async function fetchAppcast(url: string, fetcher: typeof fetch = fetch): 
       signal: AbortSignal.timeout(APPCAST_FETCH_TIMEOUT_MS),
     });
     const declared = Number(response.headers.get("content-length") ?? "0");
-    if (!response.ok || declared > MAX_APPCAST_BYTES) {
+    if (!response.ok || !response.body || declared > MAX_APPCAST_BYTES) {
       await response.body?.cancel();
       return null;
     }
-    const text = await response.text();
-    return text.length > MAX_APPCAST_BYTES ? null : text;
+    // Counted in bytes as they stream, and cut off at the cap: an oversized
+    // body is never buffered whole.
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let bytes = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MAX_APPCAST_BYTES) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
+    }
+    const body = new Uint8Array(bytes);
+    let offset = 0;
+    for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
+    return new TextDecoder().decode(body);
   } catch {
     return null;
   }
