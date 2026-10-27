@@ -36,6 +36,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 
 SCHEMA = "cmux-next-dev-release-product/v1"
@@ -56,6 +57,43 @@ MAX_JSON_BYTES = 8 * 1024**2
 # The jobs that produce the app (cmux-next-dev-daily.yml SOURCE_APP_PRODUCER_JOBS): the one that
 # recorded a product must have finished successfully, or its record is not taken.
 PRODUCER_JOBS = ("cmux NEXT DEV Release compile", "cmux app scheme compile (Debug)")
+
+
+@dataclass(frozen=True)
+class Lane:
+    """Where one product's records come from and what they are called. Each lane has its own record
+    and product artifact names, workflow and branch, so a record one lane wrote is never read by
+    another (their keys differ too: the fingerprint job's name is part of the key)."""
+
+    name: str
+    schema: str
+    recipe: str
+    record_prefix: str
+    product_prefix: str
+    archive_suffix: str
+    workflow_path: str
+    branch: str
+    events: tuple[str, ...]
+    producer_jobs: tuple[str, ...]
+
+
+DEV = Lane("DEV", SCHEMA, RECIPE, RECORD_PREFIX, PRODUCT_PREFIX, ".app.zip", WORKFLOW_PATH, BRANCH,
+           TRUSTED_EVENTS, PRODUCER_JOBS)
+# cmux NEXT Nightly's unsigned app before stamping (keyed by job_input_fingerprint.py nightly-release-product): nightly.yml's
+# build-nightly-app on nightly-next push runs only. Nothing here is a DEV name.
+NIGHTLY_NEXT_RECIPE = "nightly-release-product-v1"
+NIGHTLY_NEXT = Lane(
+    name="nightly-next",
+    schema="cmux-nightly-next-release-product/v1",
+    recipe=NIGHTLY_NEXT_RECIPE,
+    record_prefix="cmux-nightly-next-release-product-",
+    product_prefix="cmux-nightly-next-release-archive-",
+    archive_suffix=".tar.gz",
+    workflow_path=".github/workflows/nightly.yml",
+    branch="nightly-next",
+    events=("push",),
+    producer_jobs=("build-nightly-app",),
+)
 
 
 class Miss(Exception):
@@ -105,65 +143,67 @@ class Api:
             raise Miss(f"download failed (curl {result.returncode}): {result.stderr.strip()[:200]}")
 
 
-def record_name(key: str) -> str:
-    return RECORD_PREFIX + key
+def record_name(key: str, lane: Lane = DEV) -> str:
+    return lane.record_prefix + key
 
 
-def lane_guard(env: dict[str, str]) -> None:
-    """Only cmux-next.yml on feat-cmux-next may take a reused product: never nightly or stable."""
+def lane_guard(env: dict[str, str], lane: Lane = DEV) -> None:
+    """Only the lane's own workflow on its own branch may take a reused product. The DEV lane is
+    cmux-next.yml on feat-cmux-next: never nightly or stable."""
     repo = env.get("GITHUB_REPOSITORY", "")
-    expected = f"{repo}/{WORKFLOW_PATH}@refs/heads/{BRANCH}"
+    expected = f"{repo}/{lane.workflow_path}@refs/heads/{lane.branch}"
     if not repo or env.get("GITHUB_WORKFLOW_REF", "") != expected:
-        raise Miss(f"not the DEV lane ({env.get('GITHUB_WORKFLOW_REF') or 'no GITHUB_WORKFLOW_REF'}); "
-                   f"only {WORKFLOW_PATH} on {BRANCH} reuses a product")
+        raise Miss(f"not the {lane.name} lane ({env.get('GITHUB_WORKFLOW_REF') or 'no GITHUB_WORKFLOW_REF'}); "
+                   f"only {lane.workflow_path} on {lane.branch} reuses a product")
 
 
-def trusted_records(artifacts: list[dict], key: str, repository_id: str) -> list[dict]:
-    """Unexpired records of `key` from this repository's feat-cmux-next runs, newest first."""
+def trusted_records(artifacts: list[dict], key: str, repository_id: str, lane: Lane = DEV) -> list[dict]:
+    """Unexpired records of `key` from this repository's runs on the lane's branch, newest first."""
     trusted = []
     for item in artifacts:
         run = item.get("workflow_run") or {}
-        if item.get("name") != record_name(key) or item.get("expired"):
+        if item.get("name") != record_name(key, lane) or item.get("expired"):
             continue
         if str(run.get("repository_id")) != repository_id or str(run.get("head_repository_id")) != repository_id:
             continue
-        if run.get("head_branch") != BRANCH or not run.get("id"):
+        if run.get("head_branch") != lane.branch or not run.get("id"):
             continue
         trusted.append(item)
     return sorted(trusted, key=lambda item: item.get("created_at") or "", reverse=True)
 
 
-def check_run(run: dict, repo: str) -> None:
-    if run.get("event") not in TRUSTED_EVENTS:
-        raise Miss(f"run {run.get('id')} is a {run.get('event')} run, not a push or dispatch")
-    if run.get("path") != WORKFLOW_PATH or run.get("head_branch") != BRANCH:
-        raise Miss(f"run {run.get('id')} is {run.get('path')} on {run.get('head_branch')}, not {WORKFLOW_PATH} on {BRANCH}")
+def check_run(run: dict, repo: str, lane: Lane = DEV) -> None:
+    if run.get("event") not in lane.events:
+        raise Miss(f"run {run.get('id')} is a {run.get('event')} run, not {' or '.join(lane.events)}")
+    if run.get("path") != lane.workflow_path or run.get("head_branch") != lane.branch:
+        raise Miss(f"run {run.get('id')} is {run.get('path')} on {run.get('head_branch')}, "
+                   f"not {lane.workflow_path} on {lane.branch}")
     if (run.get("repository") or {}).get("full_name") != repo or (run.get("head_repository") or {}).get("full_name") != repo:
         raise Miss(f"run {run.get('id')} is not this repository's own")
 
 
-def check_producer(jobs: list[dict], run_id: int) -> None:
-    producers = [job for job in jobs if job.get("name") in PRODUCER_JOBS]
+def check_producer(jobs: list[dict], run_id: int, lane: Lane = DEV) -> None:
+    producers = [job for job in jobs if job.get("name") in lane.producer_jobs]
     if not any(job.get("status") == "completed" and job.get("conclusion") == "success" for job in producers):
         states = ", ".join(f"{job.get('name')}: {job.get('conclusion') or job.get('status')}" for job in producers)
         raise Miss(f"run {run_id}'s app job did not finish successfully ({states or 'no app job'})")
 
 
-def check_manifest(manifest: dict, key: str, run_id: int) -> None:
-    if manifest.get("schema") != SCHEMA:
-        raise Miss(f"record schema {manifest.get('schema')!r} is not {SCHEMA}")
+def check_manifest(manifest: dict, key: str, run_id: int, lane: Lane = DEV) -> None:
+    if manifest.get("schema") != lane.schema:
+        raise Miss(f"record schema {manifest.get('schema')!r} is not {lane.schema}")
     if manifest.get("key") != key:
         raise Miss("the record names another key")
     if manifest.get("run_id") != run_id:
         raise Miss("the record names another run than the one that uploaded it")
     sha = manifest.get("source_sha", "")
-    if not SHA.match(str(sha)) or manifest.get("product_artifact") != PRODUCT_PREFIX + sha:
+    if not SHA.match(str(sha)) or manifest.get("product_artifact") != lane.product_prefix + sha:
         raise Miss("the record names no product artifact of its commit")
     if not DIGEST.match(str(manifest.get("archive_sha256", ""))):
         raise Miss("the record has no archive digest")
     name = str(manifest.get("archive_name", ""))
-    if not name or "/" in name or name.startswith(".") or not name.endswith(".app.zip"):
-        raise Miss(f"the record's archive name {name!r} is not a plain .app.zip name")
+    if not name or "/" in name or name.startswith(".") or not name.endswith(lane.archive_suffix):
+        raise Miss(f"the record's archive name {name!r} is not a plain {lane.archive_suffix} name")
     size = manifest.get("archive_bytes")
     if not isinstance(size, int) or not 0 < size <= MAX_ARCHIVE_BYTES:
         raise Miss(f"the record's archive size {size!r} is out of range")
@@ -204,12 +244,13 @@ def read_record(api: Api, item: dict, scratch: Path) -> dict:
         raise Miss(f"record {item.get('id')} has no readable manifest.json: {error}") from error
 
 
-def try_record(api: Api, item: dict, key: str, repo: str, out_dir: Path, scratch: Path) -> dict[str, str]:
+def try_record(api: Api, item: dict, key: str, repo: str, out_dir: Path, scratch: Path,
+               lane: Lane = DEV) -> dict[str, str]:
     run_id = int(item["workflow_run"]["id"])
-    check_run(api.json(f"actions/runs/{run_id}"), repo)
-    check_producer(api.json(f"actions/runs/{run_id}/jobs?filter=latest&per_page=100").get("jobs", []), run_id)
+    check_run(api.json(f"actions/runs/{run_id}"), repo, lane)
+    check_producer(api.json(f"actions/runs/{run_id}/jobs?filter=latest&per_page=100").get("jobs", []), run_id, lane)
     manifest = read_record(api, item, scratch)
-    check_manifest(manifest, key, run_id)
+    check_manifest(manifest, key, run_id, lane)
     query = urllib.parse.urlencode({"name": manifest["product_artifact"], "per_page": 10})
     products = [a for a in api.json(f"actions/runs/{run_id}/artifacts?{query}").get("artifacts", [])
                 if a.get("name") == manifest["product_artifact"] and not a.get("expired")]
@@ -226,39 +267,39 @@ def try_record(api: Api, item: dict, key: str, repo: str, out_dir: Path, scratch
             "compiled_run_id": str(manifest.get("compiled_run_id") or run_id)}
 
 
-def lookup(api: Api, key: str, env: dict[str, str], out_dir: Path) -> dict[str, str]:
-    lane_guard(env)
+def lookup(api: Api, key: str, env: dict[str, str], out_dir: Path, lane: Lane = DEV) -> dict[str, str]:
+    lane_guard(env, lane)
     if not KEY.match(key):
         raise Miss(f"{key!r} is not a product key (the fingerprint gave none)")
     repository_id = env.get("GITHUB_REPOSITORY_ID", "").strip()
     if not repository_id:
         raise Miss("GITHUB_REPOSITORY_ID is not set, so no record can be trusted")
-    query = urllib.parse.urlencode({"name": record_name(key), "per_page": 30})
-    records = trusted_records(api.json(f"actions/artifacts?{query}").get("artifacts", []), key, repository_id)
+    query = urllib.parse.urlencode({"name": record_name(key, lane), "per_page": 30})
+    records = trusted_records(api.json(f"actions/artifacts?{query}").get("artifacts", []), key, repository_id, lane)
     if not records:
         raise Miss("no product was recorded for these inputs (a product input changed)")
     reasons = []
     with tempfile.TemporaryDirectory(prefix="cmux-dev-product-") as scratch:
         for item in records[:CANDIDATES]:
             try:
-                return try_record(api, item, key, env["GITHUB_REPOSITORY"], out_dir, Path(scratch))
+                return try_record(api, item, key, env["GITHUB_REPOSITORY"], out_dir, Path(scratch), lane)
             except (Miss, KeyError, TypeError, ValueError) as why:
                 reasons.append(f"run {(item.get('workflow_run') or {}).get('id')}: {why}")
     raise Miss("; ".join(reasons))
 
 
-def summarize(outputs: dict[str, str], key: str, summary: str | None) -> None:
+def summarize(outputs: dict[str, str], key: str, summary: str | None, lane: Lane = DEV) -> None:
     server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     if outputs.get("hit") == "true":
         url = f"{server}/{repo}/actions/runs/{outputs['source_run_id']}"
-        line = (f"DEV Release product: **hit**. Reused the app {url} compiled at `{outputs['source_sha'][:12]}` "
+        line = (f"{lane.name} Release product: **hit**. Reused the app {url} compiled at `{outputs['source_sha'][:12]}` "
                 f"(key `{key[:16]}`, sha256 `{outputs['archive_sha256'][:16]}`); xcodebuild skipped.")
-        print(f"::notice title=DEV Release product reused::{url} at {outputs['source_sha'][:12]}, key {key[:16]}",
+        print(f"::notice title={lane.name} Release product reused::{url} at {outputs['source_sha'][:12]}, key {key[:16]}",
               file=sys.stderr)
     else:
-        line = f"DEV Release product: **miss** ({outputs.get('reason', 'unknown')}); compiling."
-        print(f"::notice title=DEV Release product miss::{outputs.get('reason', 'unknown')}", file=sys.stderr)
+        line = f"{lane.name} Release product: **miss** ({outputs.get('reason', 'unknown')}); compiling."
+        print(f"::notice title={lane.name} Release product miss::{outputs.get('reason', 'unknown')}", file=sys.stderr)
     if summary:
         try:
             with open(summary, "a", encoding="utf-8") as stream:
@@ -275,14 +316,14 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def record(args: argparse.Namespace, env: dict[str, str]) -> dict:
+def record(args: argparse.Namespace, env: dict[str, str], lane: Lane = DEV) -> dict:
     if not KEY.match(args.key) or not SHA.match(args.sha):
         raise SystemExit("record: --key must be 64 hex and --sha 40 hex")
     archive = Path(args.archive)
     manifest = {
-        "schema": SCHEMA, "key": args.key, "recipe": RECIPE, "source_sha": args.sha,
+        "schema": lane.schema, "key": args.key, "recipe": lane.recipe, "source_sha": args.sha,
         "run_id": int(env["GITHUB_RUN_ID"]), "run_attempt": int(env.get("GITHUB_RUN_ATTEMPT", "1")),
-        "product_artifact": PRODUCT_PREFIX + args.sha, "archive_name": archive.name,
+        "product_artifact": lane.product_prefix + args.sha, "archive_name": archive.name,
         "archive_bytes": archive.stat().st_size, "archive_sha256": sha256_file(archive),
         "recorded_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         # Provenance: where these bytes were compiled. A reuse records the run it took them from.
@@ -296,11 +337,11 @@ def record(args: argparse.Namespace, env: dict[str, str]) -> dict:
     return manifest
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, lane: Lane = DEV) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
     find = sub.add_parser("lookup", help="print hit=true|false, reason= and archive= for $GITHUB_OUTPUT")
-    find.add_argument("--key", required=True, help="job_input_fingerprint.py dev-release-product's fingerprint")
+    find.add_argument("--key", required=True, help="the lane's job_input_fingerprint.py product fingerprint")
     find.add_argument("--out", required=True, help="directory for the verified archive")
     find.add_argument("--timeout", type=float, default=180, help="seconds for the whole lookup")
     find.add_argument("--skip", default="", help="a reason to skip the lookup (no_reuse, switched off)")
@@ -316,8 +357,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     env = dict(os.environ)
     if args.command == "record":
-        manifest = record(args, env)
-        print(f"record={record_name(args.key)}")
+        manifest = record(args, env, lane)
+        print(f"record={record_name(args.key, lane)}")
         print(f"archive_sha256={manifest['archive_sha256']}")
         return 0
     outputs: dict[str, str]
@@ -328,12 +369,12 @@ def main(argv: list[str] | None = None) -> int:
                   env.get("GITHUB_API_URL", "https://api.github.com"), time.monotonic() + args.timeout)
         if not api.token:
             raise Miss("no token to read artifacts with")
-        outputs = lookup(api, args.key, env, Path(args.out))
+        outputs = lookup(api, args.key, env, Path(args.out), lane)
     except Miss as why:
         outputs = {"hit": "false", "reason": " ".join(str(why).split())[:500]}
     except Exception as error:  # noqa: BLE001 - a lookup bug must never fail the compile job
         outputs = {"hit": "false", "reason": f"lookup error: {type(error).__name__}: {error}"[:500]}
-    summarize(outputs, args.key, args.summary)
+    summarize(outputs, args.key, args.summary, lane)
     for name, value in outputs.items():
         print(f"{name}={value}")
     return 0

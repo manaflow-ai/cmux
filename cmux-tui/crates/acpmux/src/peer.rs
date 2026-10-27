@@ -57,6 +57,8 @@ pub enum PeerNotice {
     Notification {
         method: String,
         params: Value,
+        /// The link it came on (`Peer::link_epoch` when it was read).
+        link: u64,
     },
 }
 
@@ -472,9 +474,20 @@ impl Peer {
     }
 
     pub async fn request(&self, m: &str, params: Value) -> Result<Value, RpcError> {
+        self.request_on(m, params, None).await
+    }
+
+    /// `request` on the link of epoch `epoch` only, when the caller read it before (it labels
+    /// what the answer holds with it, `hub/peer_snapshot.rs`): unreachable once that link ended.
+    pub async fn request_on(
+        &self,
+        m: &str,
+        params: Value,
+        epoch: Option<u64>,
+    ) -> Result<Value, RpcError> {
         // Read before the check: `run` moves the epoch on before it fails what
         // waits, so a request that is registered after that sees the change.
-        let epoch = self.link_epoch();
+        let epoch = epoch.unwrap_or_else(|| self.link_epoch());
         if !self.connected.load(Ordering::SeqCst) || self.admitting.load(Ordering::SeqCst) {
             return Err(self.unreachable_error());
         }
@@ -525,10 +538,20 @@ impl Peer {
         };
         match answer {
             // A full disk the peer reports is the peer's, not this machine's (`recovery.rs`).
-            Ok(Ok(r)) => r.map_err(|mut e| {
-                crate::recovery::annotate_peer(&mut e, &self.name);
-                e
-            }),
+            // No display line of the peer's own reaches this daemon's clients, on any route that
+            // returns a peer's reply or its error's data (`hub::drop_display_lines`).
+            Ok(Ok(r)) => r
+                .map(|mut result| {
+                    crate::hub::drop_display_lines(&mut result);
+                    result
+                })
+                .map_err(|mut e| {
+                    crate::recovery::annotate_peer(&mut e, &self.name);
+                    if let Some(data) = e.data.as_mut() {
+                        crate::hub::drop_display_lines(data);
+                    }
+                    e
+                }),
             Ok(Err(_)) => {
                 Err(RpcError::internal(format!("peer {} dropped the request", self.name)))
             }
@@ -835,7 +858,7 @@ impl Peer {
                                     seq: p.get("seq").and_then(Value::as_u64).unwrap_or(0),
                                 }
                             } else {
-                                PeerNotice::Notification { method: m, params: p }
+                                PeerNotice::Notification { method: m, params: p, link: self.link_epoch() }
                             };
                             if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
                                 break Ok(());

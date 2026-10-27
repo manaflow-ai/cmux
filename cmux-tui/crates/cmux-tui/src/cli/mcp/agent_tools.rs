@@ -344,9 +344,12 @@ impl AgentTool {
             Verb::ChatNew => {
                 properties.insert(
                     "workspace".into(),
-                    id_schema("The workspace whose focused pane (else its first) gets the chat (ws_ id)."),
+                    id_schema(
+                        "The workspace whose focused pane (else its first) gets the chat (ws_ id).",
+                    ),
                 );
-                properties.insert("pane".into(), id_schema("The pane that gets the chat (pane_ id)."));
+                properties
+                    .insert("pane".into(), id_schema("The pane that gets the chat (pane_ id)."));
                 for (name, description) in [
                     ("harness", "The harness: claude, codex or another acpmux profile."),
                     ("model", "The model, as the harness names it."),
@@ -522,7 +525,17 @@ impl AgentTool {
             }
             Verb::ChatNew => {
                 words.extend(["chat".into(), "new".into()]);
-                for name in ["workspace", "pane", "harness", "model", "effort", "mode", "policy", "cwd", "name"] {
+                for name in [
+                    "workspace",
+                    "pane",
+                    "harness",
+                    "model",
+                    "effort",
+                    "mode",
+                    "policy",
+                    "cwd",
+                    "name",
+                ] {
                     if let Some(value) = args.text(name)? {
                         // Inline, so a value that starts with `--` stays a value.
                         words.push(format!("--{name}={value}"));

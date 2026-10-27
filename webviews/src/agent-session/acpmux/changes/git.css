@@ -19,7 +19,7 @@
 .acpmux-git-scope-option[data-checked=true]{background:var(--agent-page-bg);color:var(--agent-text)}
 .acpmux-git-scope-option:has(input:focus-visible){outline:1.5px solid var(--agent-muted);outline-offset:1px}
 .acpmux-git-scope-hint{flex:1;min-width:120px;color:var(--agent-muted);font-size:var(--text-detail)}
-.acpmux-git-primary,.acpmux-git-secondary{height:28px;padding:0 12px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-git-primary,.acpmux-git-secondary{height:28px;padding:0 12px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;font-size:var(--text-detail);transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-git-primary{background:color-mix(in srgb,var(--agent-text) 85%,var(--agent-page-bg));color:var(--agent-page-bg)}
 .acpmux-git-secondary:hover:not(:disabled){background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
 .acpmux-git-primary:hover:not(:disabled){background:var(--agent-text)}
@@ -31,7 +31,7 @@
 .acpmux-git-status-text{flex:1;min-width:0}
 .acpmux-git-status .acpmux-git-secondary,.acpmux-diff-notice .acpmux-git-secondary{height:24px;padding:0 10px}
 .acpmux-git-output{flex-basis:100%}
-.acpmux-git-output summary{color:var(--agent-muted);cursor:default}
+.acpmux-git-output summary{color:var(--agent-muted)}
 .acpmux-git-output pre{max-height:200px;overflow:auto;margin:6px 0 0;padding:8px;border-radius:8px;background:var(--agent-input-bg);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--text-caption);white-space:pre-wrap}
 @media (prefers-reduced-motion: reduce){.acpmux-git-tool,.acpmux-git-primary,.acpmux-git-secondary{transition:none}}
 .acpmux-git-status[data-phase=idle]{padding:0;border-bottom:0}
