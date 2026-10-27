@@ -37,7 +37,7 @@ import Foundation
 /// input do not hold it (Chromium acks the page's input inside the pump), pending pointer input does.
 ///
 /// With a frame deadline (``CEFPumpFrameDeadline``, task p03-rendering-116) a due pass then runs only
-/// to the frame's commit, or waits for the next frame or a person's input turn.
+/// to the frame's commit, or waits for the next frame, a person's input turn or a plan apply's commit.
 ///
 /// Each timer fire is one main wake in the wakeup ledger (owner ``ledgerOwner``) with the reason it
 /// fired (``LedgerReason``), as Chrome's `MessagePumpCFRunLoopBase` tells its wakes apart by what woke
@@ -107,10 +107,9 @@ final class CEFMessagePump {
     private var boardDispatches: InputSubscription?
     /// The last input AppKit delivered to a Chromium page, while its ack may be due.
     private var pageInput = CEFPumpSchedule.RecentPageInput()
-    /// Slices each pass to the frame deadline (nil: the fork's static slice, no frame waits).
+    /// Slices each pass to the frame deadline and holds the pass it holds (nil: the fork's static slice,
+    /// no frame waits).
     private var frameDeadline: CEFPumpFrameDeadline?
-    /// While the frame deadline holds a pass: when it runs (exact).
-    private var sliceHoldDeadline: TimeInterval?
 
     var stats: CEFPumpStats {
         var stats = counters
@@ -197,6 +196,9 @@ final class CEFMessagePump {
     func setFrameDeadline(_ deadline: CEFPumpFrameDeadline) {
         frameDeadline?.stop()
         frameDeadline = deadline
+        // A page input ended its input hold: the held pass runs on the next run loop pass (rearm() checks
+        // isRunning; during a pass the outer pass re-arms when it returns).
+        deadline.onInputHoldReleased { [weak self] in if self?.schedule.isWorking == false { self?.rearm() } }
     }
 
     /// Main thread: the person's input holds passes from now on (``CEFPumpInputPolicy``).
@@ -276,12 +278,13 @@ final class CEFMessagePump {
     /// Runs the pass that is due, unless pending input, a late frame or the frame deadline (last) holds
     /// it. The input policy goes first: a pass it holds takes no late frame's slice. A fire inside a running
     /// pass (a nested run loop) goes straight to the slice check and `fire()`, which defers it. On the
-    /// board, a pass in the input class takes no late frame's slice either.
+    /// board, a pass in the input class takes no late frame's slice either. A pass waits for input once:
+    /// one the frame deadline held for input is not held by the policy, and the other way round.
     private func runDuePass(for reason: LedgerReason) {
         let now = clock()
         let workClass = boardClass(at: now)
         var admission = CEFPumpInputPolicy.Admission.run
-        if let input, !schedule.isWorking {
+        if let input, !schedule.isWorking, frameDeadline?.heldForInput != true {
             admission = admit(input, now: now)
             if case .hold(let deadline, let began) = admission {
                 if began { counters.deferredForInput += 1 }
@@ -296,9 +299,10 @@ final class CEFMessagePump {
         }
         var slice: Int64?
         if let frameDeadline, !schedule.isWorking {
-            switch frameDeadline.admit(now: now, servesPage: chromiumInputPass || pageInputRecent(at: now)) {
+            switch frameDeadline.admit(now: now, servesPage: chromiumInputPass || pageInputRecent(at: now),
+                                       inputWaited: input?.isHolding == true) {
             case .run(let microseconds): slice = microseconds
-            case .hold(let until): return holdForFrame(until: until)
+            case .hold: return rearm() // at the hold's end, exactly (``CEFPumpFrameDeadline/holdEnd``)
             }
         }
         switch admission {
@@ -308,12 +312,6 @@ final class CEFMessagePump {
         case .run, .hold: break
         }
         fire(for: reason, workClass: workClass, slice: slice)
-    }
-
-    /// The frame deadline holds the due pass until `until`, exactly; it is decided again then.
-    private func holdForFrame(until: TimeInterval) {
-        sliceHoldDeadline = until
-        rearm()
     }
 
     /// The policy's answer for the pass due at `now`. Right after an input to a page, and on the board
@@ -396,7 +394,7 @@ final class CEFMessagePump {
         }
         // This pass is the one any hold or Chromium input waited for.
         inputHoldDeadline = nil
-        sliceHoldDeadline = nil
+        frameDeadline?.passStarted()
         chromiumInputPass = false
         input?.holdEnded()
         let passClass = workClass ?? boardClass(at: started)
@@ -446,18 +444,19 @@ final class CEFMessagePump {
         mergeKeptRequests()
         guard let wake = schedule.nextWake else {
             endInputHold()
-            sliceHoldDeadline = nil
+            frameDeadline?.noPassDue()
             timer.disarm()
             return
         }
         let now = clock()
         // No pass is due before the hold's end (CEF moved its request later): none waits for input.
         if wake.deadline > max(now + 0.001, inputHoldDeadline ?? -.infinity) { endInputHold() }
-        // No pass is due before the frame deadline's hold ends: it is decided again when due.
-        if let sliceHold = sliceHoldDeadline, wake.deadline >= sliceHold { sliceHoldDeadline = nil }
+        // No pass is due before the frame deadline's hold ends: it is decided afresh when due.
+        if let sliceHold = frameDeadline?.holdEnd, wake.deadline >= sliceHold { frameDeadline?.noPassDue() }
         // A held pass fires at the hold's end (an input hold's ends early when the input's dispatch does).
-        let deadline = max(wake.deadline, inputHoldDeadline ?? -.infinity, sliceHoldDeadline ?? -.infinity)
-        let exact = inputHoldDeadline != nil || chromiumInputPass || sliceHoldDeadline != nil
+        let sliceHold = frameDeadline?.holdEnd
+        let deadline = max(wake.deadline, inputHoldDeadline ?? -.infinity, sliceHold ?? -.infinity)
+        let exact = inputHoldDeadline != nil || chromiumInputPass || sliceHold != nil
         timer.arm(after: max(0, deadline - now), tolerance: exact ? 0 : wake.tolerance)
         // An immediate pass is no deadline.
         guard wake.deadline.isFinite, wake.deadline > 0 else { return }

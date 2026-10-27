@@ -180,12 +180,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// Each in-process Chromium message pump pass runs only for the time left before the frame's commit (at most the 2 ms static slice), waits for the next frame when less than 1 ms is left, and starts none inside a person's input turn. A fork without the per-call slice keeps the static slice.
+    /// Each in-process Chromium message pump pass runs only until the frame's commit (at most the 2 ms static slice), waits for the next frame when less than 1 ms is left, and starts none in a person's input turn or before a layout change commits. Older forks keep the static slice.
     public static let cefPumpFrameDeadline = Feature(
         index: 10,
         name: "cefPumpFrameDeadline",
         owner: "PL-cef-layer",
-        description: "Each in-process Chromium message pump pass runs only for the time left before the frame's commit (at most the 2 ms static slice), waits for the next frame when less than 1 ms is left, and starts none inside a person's input turn. A fork without the per-call slice keeps the static slice.",
+        description: "Each in-process Chromium message pump pass runs only until the frame's commit (at most the 2 ms static slice), waits for the next frame when less than 1 ms is left, and starts none in a person's input turn or before a layout change commits. Older forks keep the static slice.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,

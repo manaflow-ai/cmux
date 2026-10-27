@@ -170,8 +170,7 @@ final class CEFRuntime {
     /// What the pump's input policy reads, from the engine made last (feature `cefPumpInputPolicy`,
     /// ``CEFPumpInputPolicy``); read at start with ``input``. Nil: the pump never holds for input.
     var pumpInput: CEFPumpInputSeams?
-    /// What the pump's frame-deadline slices read (``CEFPumpFrameDeadline``), read at start; nil: the static slice.
-    var pumpFrames: CEFPumpFrameSeams?
+    var pumpFrames: CEFPumpFrameSeams?  // the pump's frame-deadline seams (CEFPumpFrameDeadline), read at start; nil: static slice
     /// The feature `chromiumSpareAfterFirstTab`, asked at start (the App supplies it).
     var spareAfterFirstTabFeature: @MainActor () -> Bool = { false }
     private(set) var builtInAdBlockerLoaded = false  // this Chromium has the built-in uBlock Origin (at start or first tabs)
@@ -614,10 +613,9 @@ final class CEFRuntime {
     /// Makes and starts the in-process backend's pump (``CEFInProcessPump``); host mode never calls this.
     private func startInProcessPump(_ shim: CEFShimLibrary) {
         guard inProcessPump == nil else { return }
-        var policy: CEFPumpInputPolicy?
-        if let pumpInput, let input {
-            policy = CEFPumpInputPolicy(pending: pumpInput.pending, dispatches: CEFPumpTapDispatches(tap: input),
-                                        refreshInterval: pumpInput.refreshInterval, frameTarget: pumpInput.frameTarget)
+        let policy = pumpInput.flatMap { seams in
+            input.map { CEFPumpInputPolicy(pending: seams.pending, dispatches: CEFPumpTapDispatches(tap: $0),
+                                           refreshInterval: seams.refreshInterval, frameTarget: seams.frameTarget) }
         }
         let owner = CEFInProcessPump(
             shim: shim, wakeUps: wakeUps, gate: pumpGate, makeTimer: makePumpTimer, inputPolicy: policy, crashKeys: crashKeys,

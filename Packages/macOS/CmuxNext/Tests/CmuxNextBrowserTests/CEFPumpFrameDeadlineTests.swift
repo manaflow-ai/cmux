@@ -1,3 +1,4 @@
+import CmuxNextInputCore
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -213,45 +214,177 @@ import Testing
         #expect(rig.pump.stats.frameDeadlineWaits == 0)
     }
 
+    // MARK: One wait for input
+
+    /// Both features on: the input policy held a pass that follows a long one while input was pending,
+    /// and that hold reached its bound. The frame deadline does not hold it for input again: the pass
+    /// runs within one refresh of its first hold, not about two.
+    @Test func theInputPolicysHoldIsThePasssOnlyInputWait() throws {
+        let rig = Rig(now: 100.0035, passLength: 0.0016, inputPolicy: true)
+        #expect(rig.pump.stats.longWorkRuns == 1)
+        rig.state.passLength = 0
+        rig.pending.isPending = true
+        let firstHold = 100.0055
+        rig.state.now = firstHold
+        rig.pump.scheduleNow()
+        rig.timer.fire()
+        #expect(rig.state.events.count == 2, "the policy holds the pass while input is pending")
+        let armed = try #require(rig.timer.armed)
+        #expect(abs(armed - 0.0025) < 1e-9, "until the frame at 100.008")
+        rig.state.now = firstHold + armed
+        rig.timer.fire()
+        #expect(rig.state.events == ["slice", "work", "slice", "work"], "the bound ran out: it runs, not held again")
+        #expect(rig.state.now <= firstHold + Self.refresh)
+        #expect(rig.pump.stats.frameInputHolds == 0)
+        #expect(rig.pump.stats.passesWhileInputPending.boundExpired == 1)
+    }
+
+    /// The other way round: the frame deadline held a pass for an input turn; when it is decided again
+    /// with input pending, the input policy does not start a second wait.
+    @Test func theFrameDeadlinesInputHoldIsThePasssOnlyInputWait() throws {
+        let rig = Rig(now: 100.001, inputTurn: true, inputPolicy: true)
+        #expect(rig.state.events.isEmpty)
+        #expect(rig.pump.stats.frameInputHolds == 1)
+        rig.pending.isPending = true
+        rig.state.now = 100.001 + (try #require(rig.timer.armed))
+        rig.timer.fire()
+        #expect(rig.state.events == ["slice", "work"])
+        #expect(rig.pump.stats.deferredForInput == 0)
+    }
+
+    // MARK: Page input ends an input hold
+
+    /// A pass held for an input turn: a scroll or a click AppKit delivers to a Chromium page ends the
+    /// hold, with the input policy on or off, and the next fire runs the pass that serves it.
+    @Test(arguments: [false, true])
+    func aPageInputEndsAnInputHold(inputPolicy: Bool) throws {
+        let rig = Rig(now: 100.001, inputTurn: true, inputPolicy: inputPolicy)
+        #expect(rig.state.events.isEmpty)
+        #expect(rig.timer.armed.map { abs($0 - 0.007) < 1e-9 } == true, "held until the frame")
+        rig.state.now = 100.002
+        rig.dispatches.end(.chromiumPage)
+        #expect(rig.timer.armed == 0, "armed for the next run loop pass")
+        rig.timer.fire()
+        #expect(rig.state.events == ["slice", "work"])
+    }
+
+    /// A wait for the frame stays: less than 1 ms is left before the commit.
+    @Test func aPageInputKeepsAFrameWait() throws {
+        let rig = Rig(now: 100.0045)
+        #expect(rig.pump.stats.frameDeadlineWaits == 1)
+        rig.dispatches.end(.chromiumPage)
+        let armed = try #require(rig.timer.armed)
+        #expect(abs(armed - (0.0005 + CEFPumpSchedule.FrameSlicer.slop)) < 1e-9)
+    }
+
+    // MARK: Keyboard focus
+
+    /// A browser pane is key, and cmux consumed a shortcut (Cmd-D, Cmd-T): the input turn is open and
+    /// the dispatch went to cmux. Keyboard focus does not exempt the turn.
+    @Test func aPageWithTheKeyboardDoesNotExemptAnInputTurnForCmux() {
+        let probe = Probe(pageHasKeyboard: true)
+        probe.state.inputTurn = true
+        probe.dispatches.end(.other)
+        #expect(probe.deadline.decide(now: 100.001, servesPage: false) == .holdForInput(until: 100.008))
+    }
+
+    /// With a page key, pending keys go to the page and hold nothing; pending pointer input after a long
+    /// pass still holds, as in the input policy.
+    @Test func aPageWithTheKeyboardExemptsOnlyPendingKeys() {
+        let probe = Probe(pageHasKeyboard: true)
+        probe.deadline.passEnded(usedWholeSlice: true)
+        probe.pending.isPending = true
+        #expect(probe.deadline.decide(now: 100.001, servesPage: false) == .run(microseconds: 2_000))
+        probe.pending.pointerPending = true
+        #expect(probe.deadline.decide(now: 100.001, servesPage: false) == .holdForInput(until: 100.008))
+    }
+
+    // MARK: Plan apply
+
+    /// A plan applied with no input turn (a CLI, socket or agent split): no slice starts before its commit.
+    @Test func aPlanApplyHoldsTheSliceWithNoInputTurn() throws {
+        var slicer = Self.slicer()
+        #expect(slicer.decide(now: 100.001, frame: Self.frame, refresh: Self.refresh, inputTurn: false, planApply: true,
+                              pageInput: false, inputPending: { false }) == .holdForInput(until: 100.008))
+        let rig = Rig(now: 100.001, planApply: true)
+        #expect(rig.state.events.isEmpty)
+        #expect(rig.pump.stats.frameInputHolds == 1)
+        rig.state.planApply = false
+        rig.state.now = 100.001 + (try #require(rig.timer.armed))
+        rig.timer.fire()
+        #expect(rig.state.events == ["slice", "work"])
+    }
+
     // MARK: Rig
 
     /// What the pump's closures read and record.
     final class State {
         var now: TimeInterval
         var inputTurn: Bool
+        var planApply: Bool
+        var pageHasKeyboard: Bool
         var passLength: TimeInterval
         var events: [String] = []
         var slices: [Int64] = []
 
-        init(now: TimeInterval, inputTurn: Bool, passLength: TimeInterval) {
+        init(now: TimeInterval, inputTurn: Bool, planApply: Bool = false, pageHasKeyboard: Bool = false, passLength: TimeInterval) {
             self.now = now
             self.inputTurn = inputTurn
+            self.planApply = planApply
+            self.pageHasKeyboard = pageHasKeyboard
             self.passLength = passLength
         }
     }
 
-    /// A started pump with a frame deadline on ``CEFPumpFrameDeadlineTests/frame``; its start's pass is
-    /// decided at `now`.
+    /// A frame deadline on ``CEFPumpFrameDeadlineTests/frame`` reading `state` and `pending`.
+    static func frameDeadline(state: State, pending: Pending, dispatches: Dispatches, perCall: Bool = true) -> CEFPumpFrameDeadline {
+        let frame = Self.frame
+        let seams = CEFPumpFrameSeams(frameTarget: { frame.target }, refreshInterval: { frame.refresh },
+                                      commitEstimate: { frame.commit }, inputTurnOpen: { state.inputTurn },
+                                      planApplyOpen: { state.planApply }, pending: pending)
+        let setSlice: ((Int64) -> Void)? = perCall ? { state.events.append("slice"); state.slices.append($0) } : nil
+        return CEFPumpFrameDeadline(seams: seams, cap: Self.cap, setSlice: setSlice, pageHasKeyboard: { state.pageHasKeyboard },
+                                    dispatches: dispatches, clock: { state.now })
+    }
+
+    /// A frame deadline alone, asked by hand.
+    final class Probe {
+        let state: State
+        let pending = Pending()
+        let dispatches = Dispatches()
+        let deadline: CEFPumpFrameDeadline
+
+        init(pageHasKeyboard: Bool = false) {
+            let state = State(now: 100.001, inputTurn: false, pageHasKeyboard: pageHasKeyboard, passLength: 0)
+            self.state = state
+            deadline = CEFPumpFrameDeadlineTests.frameDeadline(state: state, pending: pending, dispatches: dispatches)
+        }
+    }
+
+    /// A started pump with a frame deadline on ``CEFPumpFrameDeadlineTests/frame`` (and, with
+    /// `inputPolicy`, the input policy on the same input); its start's pass is decided at `now`.
     final class Rig {
         let state: State
         let timer = Timer()
         let pending = Pending()
+        let dispatches = Dispatches()
         let pump: CEFMessagePump
 
-        init(now: TimeInterval, perCall: Bool = true, inputTurn: Bool = false, passLength: TimeInterval = 0) {
-            let state = State(now: now, inputTurn: inputTurn, passLength: passLength)
+        init(now: TimeInterval, perCall: Bool = true, inputTurn: Bool = false, planApply: Bool = false,
+             passLength: TimeInterval = 0, inputPolicy: Bool = false) {
+            let state = State(now: now, inputTurn: inputTurn, planApply: planApply, passLength: passLength)
             self.state = state
             pump = CEFMessagePump(work: {
                 state.events.append("work")
                 state.now += state.passLength
             }, timer: timer, timeSlice: CEFPumpFrameDeadlineTests.cap, clock: { state.now }, ledger: WakeupLedger())
-            let frame = CEFPumpFrameDeadlineTests.frame
-            let seams = CEFPumpFrameSeams(frameTarget: { frame.target }, refreshInterval: { frame.refresh },
-                                          commitEstimate: { frame.commit }, inputTurnOpen: { state.inputTurn },
-                                          pending: pending)
-            let setSlice: ((Int64) -> Void)? = perCall ? { state.events.append("slice"); state.slices.append($0) } : nil
-            pump.setFrameDeadline(CEFPumpFrameDeadline(seams: seams, cap: CEFPumpFrameDeadlineTests.cap, setSlice: setSlice,
-                                                       clock: { state.now }))
+            if inputPolicy {
+                let frame = CEFPumpFrameDeadlineTests.frame
+                pump.setInputPolicy(CEFPumpInputPolicy(pending: pending, dispatches: dispatches, refreshInterval: { frame.refresh },
+                                                       frameTarget: { frame.target }))
+            }
+            pump.setFrameDeadline(CEFPumpFrameDeadlineTests.frameDeadline(state: state, pending: pending, dispatches: dispatches,
+                                                                         perCall: perCall))
             pump.start()
             timer.fire()
         }
@@ -259,7 +392,25 @@ import Testing
 
     final class Pending: InputPendingSource {
         var isPending = false
-        func hasPendingInput(uptime: TimeInterval) -> Bool { isPending }
+        /// Pending input includes a mouse button, a scroll begin or a drag.
+        var pointerPending = false
+        func hasPendingInput(uptime: TimeInterval) -> Bool { isPending || pointerPending }
+        func hasPendingPointerInput(uptime: TimeInterval) -> Bool { pointerPending }
+    }
+
+    /// The end of each input's dispatch, for every follower (the input policy and the frame deadline).
+    final class Dispatches: CEFPumpInputDispatches {
+        private var handlers: [(flag: InputSubscriptionFlag, handler: (InputTarget) -> Void)] = []
+
+        func observeDispatchEnd(_ handler: @escaping (InputTarget) -> Void) -> InputSubscription {
+            let flag = InputSubscriptionFlag()
+            handlers.append((flag, handler))
+            return InputSubscription(flag: flag)
+        }
+
+        func end(_ target: InputTarget) {
+            for entry in handlers where !entry.flag.isCancelled { entry.handler(target) }
+        }
     }
 
     /// The pump's timer, fired by hand.
