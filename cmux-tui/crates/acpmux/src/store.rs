@@ -313,6 +313,29 @@ pub struct SessionMeta {
     /// or by an ancestor within its budget; unset fields inherit.
     #[serde(default, skip_serializing_if = "SubsessionLimits::is_empty")]
     pub subsession_limits: SubsessionLimits,
+    /// The session whose agent started this one, recorded once at creation from
+    /// the proven caller (`hub/lineage.rs`): `acpmux new` run in an agent's
+    /// shell, or its `start_session` tool. `None` for a session a person or
+    /// the app started (a root), and for one saved before lineage existed.
+    /// Never copied to a fork or a moved-in session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lineage: Option<Lineage>,
+}
+
+/// Where a session sits in the tree of sessions that started each other
+/// (`hub/lineage.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Lineage {
+    /// The session whose agent started it.
+    pub parent: String,
+    /// The root of its tree: the first ancestor no agent started.
+    pub root: String,
+    /// 1 for a child of a root, 2 for a grandchild, and so on.
+    pub depth: u32,
+    /// The parent's tool call that started it, when acpmux could tell.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
 }
 
 /// A sub-session's place in its family (`hub/subsessions.rs`).
