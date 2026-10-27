@@ -1,278 +1,222 @@
-//! The inline write fast path of one connection's outbound queue
+//! The inline write fast path of a connection's outbound queue
 //! (plans/cmux-next/chrome-parity/p05-ipc.md, task 140).
 //!
-//! A producer whose item would be the next one written anyway, on a writer
-//! that is idle, writes it itself without waiting: one nonblocking `sendmsg`
-//! under the queue's lock, no hand-off to `mux-line-out` and no wakeup of it.
-//! The socket takes all of it (an idle connection), or a prefix: the rest
-//! stays for the writer thread, which writes it before anything else. This is
-//! Mojo's `ChannelPosix::Write` (chromium mojo/core/channel_posix.cc): it
-//! calls `WriteNoLock` on the caller's thread when `outgoing_messages_` is
-//! empty and queues the unwritten rest for the IO thread on EAGAIN.
-//!
-//! A nonblocking write needs a nonblocking socket: macOS ignores
-//! `MSG_DONTWAIT` on Unix stream sockets, and a descriptor's file status
-//! flags are shared by every clone of it. The connection's socket is put in
-//! nonblocking mode, as Mojo's channel sets it (`base::SetNonBlocking`), and
-//! its reader and writer thread wait for readiness with `poll` where a
-//! blocking call waited inside the kernel ([`wait_readable`],
-//! [`WaitingWrite`]).
+//! Chromium's mojo/core/channel_posix.cc `ChannelPosix::Write` writes a
+//! message on the calling thread when `outgoing_messages_` is empty and
+//! leaves only what the socket did not take (EAGAIN, a partial write) to the
+//! IO thread. Here a producer writes its item itself, under the outbound
+//! state lock, when nothing is queued and the `mux-line-out` writer is not
+//! writing: no queue, no condvar, no writer wake-up. The send never waits
+//! for room. When the socket takes none or part of it, the rest is the next
+//! thing the writer thread writes, ahead of every queued item.
 
+use super::BoundedOutbound;
 use super::BoundedOutboundState;
 use super::OutboundItem;
 use crate::diagnostics::IpcStats;
+use crate::panic_free::RecoverPoison;
 use crate::platform::transport;
-use std::io::{self, IoSlice, Write};
+use cmux_threads::sync::Mutex;
+use cmux_threads::sync::MutexGuard;
+use std::io;
+use std::io::Write;
 use std::sync::Arc;
 
-/// Writes an item's bytes on the caller's thread without waiting.
-pub(in crate::server) trait InlineWrite: Send + Sync {
-    /// Writes a prefix of `item`'s wire bytes without waiting: the bytes
-    /// written, 0 when the socket has no room. An item it wrote any of is
-    /// counted as sent.
-    fn write_now(&self, item: &OutboundItem) -> io::Result<usize>;
-}
+#[cfg(all(test, unix))]
+#[path = "inline_write_tests.rs"]
+mod tests;
 
-/// An item that left the queue for the writer thread, and how many of its
-/// wire bytes an inline write already sent.
-pub(in crate::server) struct Pending {
-    pub(in crate::server) item: OutboundItem,
-    pub(in crate::server) written: usize,
-}
-
-/// The inline path's part of the queue state.
-#[derive(Default)]
-pub(in crate::server) struct InlinePath {
-    /// The connection's socket, while the connection is open.
-    pub(in crate::server) writer: Option<Box<dyn InlineWrite>>,
-    /// The writer thread is writing an item it took: no inline write may
-    /// start until it asks for the next one.
-    pub(in crate::server) writer_busy: bool,
-    /// What an inline write left unsent; the writer thread writes it first.
-    pub(in crate::server) rest: Option<Pending>,
-}
-
-impl BoundedOutboundState {
-    /// Whether an item queued now would be the only one, with nobody
-    /// writing: its producer may write it (task 140). Every queue empty is
-    /// stricter than every equal-or-higher one; a lower item queued means the
-    /// writer thread is awake for it, so there is no wakeup to save.
-    pub(in crate::server) fn inline_idle(&self) -> bool {
-        self.inline.writer.is_some()
-            && !self.inline.writer_busy
-            && self.inline.rest.is_none()
-            && !self.closed
-            && !self.has_queued()
-    }
-
-    /// Whether anything waits for the writer thread: a queued item or the
-    /// rest of one (tests).
-    #[cfg(test)]
-    pub(in crate::server) fn left_for_writer(&self) -> bool {
-        self.inline.rest.is_some() || self.has_queued()
-    }
-
-    fn has_queued(&self) -> bool {
-        let ready = self.lanes.ready(!self.control.is_empty());
-        !self.initial.is_empty() || ready.input || ready.control || ready.bulk || ready.background
-    }
-
-    /// After an item was queued: when the queue was idle before it
-    /// (`was_idle`), writes it now. True when the writer thread has work:
-    /// the queue was busy, the socket took only part of the item, or a
-    /// frame's later chunks wait. A failed write closes the queue.
-    pub(in crate::server) fn send_now(&mut self, was_idle: bool) -> io::Result<bool> {
-        if !was_idle {
-            return Ok(true);
-        }
-        let Some(item) = self.pop() else { return Ok(self.has_queued()) };
-        let Some(writer) = self.inline.writer.as_ref() else {
-            self.inline.rest = Some(Pending { item, written: 0 });
-            return Ok(true);
-        };
-        let total = item.wire_parts()?.map_or(0, |parts| parts.len());
-        let written = match writer.write_now(&item) {
-            Ok(written) => written,
-            Err(error) => {
-                self.closed = true;
-                self.inline.writer = None;
-                return Err(error);
-            }
-        };
-        if total == 0 || written < total {
-            self.inline.rest = Some(Pending { item, written });
-            return Ok(true);
-        }
-        Ok(self.has_queued())
-    }
-}
-
-/// The wire bytes of one item: a frame's header, the payload (a line's
-/// text), and a line's delimiter.
-pub(in crate::server) struct WireParts<'a> {
-    header: Option<[u8; cmux_ipc::HEADER_LEN]>,
-    payload: &'a [u8],
-    delimiter: &'static [u8],
-}
-
-impl WireParts<'_> {
-    pub(in crate::server) fn len(&self) -> usize {
-        self.header.map_or(0, |header| header.len()) + self.payload.len() + self.delimiter.len()
-    }
-
-    /// The parts in wire order, the empty ones too.
-    pub(in crate::server) fn slices(&self) -> [&[u8]; 3] {
-        [self.header.as_ref().map_or(&[][..], |header| &header[..]), self.payload, self.delimiter]
-    }
-}
-
-impl OutboundItem {
-    /// The item's bytes on the wire; `None` for a flush, which writes none.
-    pub(in crate::server) fn wire_parts(&self) -> io::Result<Option<WireParts<'_>>> {
-        Ok(Some(match self {
-            OutboundItem::Text(text) => {
-                WireParts { header: None, payload: text.as_bytes(), delimiter: b"\n" }
-            }
-            OutboundItem::Frame(header, text) => WireParts {
-                header: Some(header.encode()),
-                payload: text.as_bytes(),
-                delimiter: b"",
-            },
-            OutboundItem::Chunk { header, text, range } => WireParts {
-                header: Some(header.encode()),
-                payload: text.as_bytes().get(range.clone()).ok_or(io::ErrorKind::InvalidData)?,
-                delimiter: b"",
-            },
-            OutboundItem::Flush(_) => return Ok(None),
-        }))
-    }
-
-    /// Counts the item as sent in `ipc` (`server-stats` `ipc`), once,
-    /// whichever thread writes its first byte.
-    pub(in crate::server) fn count_sent(&self, ipc: &IpcStats) {
-        match self {
-            OutboundItem::Text(text) => ipc.line_sent(text.len() + 1),
-            OutboundItem::Frame(header, _) | OutboundItem::Chunk { header, .. } => {
-                ipc.frame_sent(header.kind(), header.frame_len());
-            }
-            OutboundItem::Flush(_) => {}
-        }
-    }
-}
-
-/// Writes what `pending` has not sent yet to `writer`, waiting as `writer`
-/// does; a flush flushes `writer` and reports it done.
-pub(in crate::server) fn write_pending<W: Write + ?Sized>(
-    writer: &mut W,
-    pending: Pending,
-) -> io::Result<()> {
-    let Pending { item, written } = pending;
-    let Some(parts) = item.wire_parts()? else {
-        writer.flush()?;
-        if let OutboundItem::Flush(flushed) = item {
-            let _ = flushed.send(());
-        }
-        return Ok(());
-    };
-    let mut skip = written;
-    for part in parts.slices() {
-        let start = skip.min(part.len());
-        skip -= start;
-        let rest = part.get(start..).unwrap_or_default();
-        if !rest.is_empty() {
-            writer.write_all(rest)?;
-        }
-    }
-    Ok(())
-}
-
-/// The inline writer of a connected local socket: a clone of the
-/// connection's socket in nonblocking mode, counted in `ipc` as the writer
-/// thread's writes are. `None` for a stream that is not one socket (a test
-/// double, a stream that replays a prefix) or on a platform without one.
+/// The socket descriptor an inline write goes to.
 #[cfg(unix)]
-pub(in crate::server) fn socket_inline_writer(
-    stream: &dyn transport::Stream,
-    ipc: &Arc<IpcStats>,
-) -> Option<Box<dyn InlineWrite>> {
-    let socket = stream.try_clone_box().ok()?;
-    let fd = socket.socket_fd()?;
-    set_nonblocking(fd).ok()?;
-    Some(Box::new(SocketInlineWriter { fd, _socket: socket, ipc: ipc.clone() }))
-}
-
+type SocketFd = std::os::fd::RawFd;
 #[cfg(not(unix))]
-pub(in crate::server) fn socket_inline_writer(
-    _stream: &dyn transport::Stream,
-    _ipc: &Arc<IpcStats>,
-) -> Option<Box<dyn InlineWrite>> {
-    None
-}
+type SocketFd = ();
 
-#[cfg(unix)]
-struct SocketInlineWriter {
-    fd: std::os::fd::RawFd,
-    /// Owns `fd`: the descriptor stays this socket for as long as the
-    /// writer lives, even after the connection dropped its own clones.
-    _socket: Box<dyn transport::Stream>,
+/// The connection's socket for inline writes: its own handle of the socket
+/// the writer thread writes, and the largest message it may take.
+pub(in crate::server) struct InlineSocket {
+    /// Keeps `fd` open; the connection shuts the socket down when it ends.
+    _stream: Box<dyn transport::Stream>,
+    fd: SocketFd,
+    max_bytes: usize,
     ipc: Arc<IpcStats>,
 }
 
-#[cfg(unix)]
-impl InlineWrite for SocketInlineWriter {
-    fn write_now(&self, item: &OutboundItem) -> io::Result<usize> {
-        let Some(parts) = item.wire_parts()? else { return Ok(0) };
-        let slices = parts.slices().map(IoSlice::new);
-        let written = match self.ipc.counted(&mut NonblockingSend(self.fd)).write_vectored(&slices)
-        {
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => 0,
-            result => result?,
-        };
-        if written > 0 {
-            item.count_sent(&self.ipc);
+impl InlineSocket {
+    /// `stream` as an inline socket for messages of at most `chunk_bytes`
+    /// (the connection's preemption boundary, so a rest left by a partial
+    /// write is never more than one chunk). `None` when `stream` is not a
+    /// socket or the platform cannot send to it without waiting.
+    pub(in crate::server) fn new(
+        stream: Box<dyn transport::Stream>,
+        chunk_bytes: usize,
+        ipc: Arc<IpcStats>,
+    ) -> Option<Self> {
+        let fd = platform::socket_fd(stream.as_ref())?;
+        let max_bytes = chunk_bytes.min(platform::nonblocking_bound(fd)?);
+        Some(Self { _stream: stream, fd, max_bytes, ipc })
+    }
+
+    /// One send of `bytes` that never waits for room: the bytes the socket
+    /// took, 0 when it had none. The syscall counts in `server-stats`.
+    fn send(&self, bytes: &[u8]) -> io::Result<usize> {
+        match self.ipc.counted(&mut NonblockingSend(self.fd)).write(bytes) {
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => Ok(0),
+            result => result,
         }
-        Ok(written)
     }
 }
 
-/// One `sendmsg` of the given slices on a nonblocking socket.
-#[cfg(unix)]
-struct NonblockingSend(std::os::fd::RawFd);
+/// The writer side of the queue state: whether the writer thread is writing
+/// an item, and the bytes an inline write left for it.
+#[derive(Default)]
+pub(super) struct WriterState {
+    busy: bool,
+    rest: Option<Vec<u8>>,
+}
 
-#[cfg(unix)]
-impl Write for NonblockingSend {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.write_vectored(&[IoSlice::new(buf)])
+/// What the writer thread writes next.
+pub(in crate::server) enum WriterItem {
+    Item(OutboundItem),
+    /// The tail of a message an inline write began: written as is.
+    Rest(Vec<u8>),
+}
+
+/// The writer thread's turn: while it lives no producer writes inline.
+pub(in crate::server) struct WriterTurn<'a> {
+    state: &'a Mutex<BoundedOutboundState>,
+}
+
+impl Drop for WriterTurn<'_> {
+    fn drop(&mut self) {
+        self.state.lock().recover_poison().writer.busy = false;
+    }
+}
+
+impl BoundedOutbound {
+    /// A queue whose producers write inline to `inline` when it is idle.
+    pub(in crate::server) fn with_inline(chunk_bytes: usize, inline: Option<InlineSocket>) -> Self {
+        Self { inline, ..Self::with_chunk_bytes(chunk_bytes) }
     }
 
-    fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
-        let mut iov: Vec<libc::iovec> = bufs
-            .iter()
-            .filter(|buf| !buf.is_empty())
-            .map(|buf| libc::iovec {
-                iov_base: buf.as_ptr() as *mut libc::c_void,
-                iov_len: buf.len(),
-            })
-            .collect();
-        if iov.is_empty() {
-            return Ok(0);
+    /// Whether a message of `wire_bytes` may be written inline once queued:
+    /// an inline socket takes it, nothing is queued or left, and the writer
+    /// thread is not writing. Read under the lock, before the push.
+    pub(super) fn inline_ready(&self, state: &BoundedOutboundState, wire_bytes: usize) -> bool {
+        self.inline.as_ref().is_some_and(|inline| wire_bytes <= inline.max_bytes) && state.is_idle()
+    }
+
+    /// Ends a push: when `inline` (`inline_ready` before a push that
+    /// queued one item), writes that item on this thread and wakes nobody
+    /// unless it left a rest; else wakes the writer. A failed send closes
+    /// the queue, so the writer thread ends the connection.
+    pub(super) fn finish_push(
+        &self,
+        mut state: MutexGuard<'_, BoundedOutboundState>,
+        inline: bool,
+    ) -> io::Result<()> {
+        let written = match (&self.inline, inline) {
+            (Some(socket), true) => state.write_inline(socket),
+            _ => Ok(false),
+        };
+        if written.as_ref().is_ok_and(|&done| done) {
+            return Ok(());
         }
-        // SAFETY: a zeroed msghdr is a valid empty header.
-        let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
-        msg.msg_iov = iov.as_mut_ptr();
-        msg.msg_iovlen = iov.len() as _;
+        if written.is_err() {
+            state.closed = true;
+        }
+        drop(state);
+        self.changed.notify_all();
+        written.map(|_| ())
+    }
+
+    /// The writer thread's next item, a rest first; `None` once the queue
+    /// closed with nothing left. No producer writes inline until the turn
+    /// drops.
+    pub(in crate::server) fn recv_turn(&self) -> Option<(WriterItem, WriterTurn<'_>)> {
+        let mut state = self.state.lock().recover_poison();
         loop {
-            // SAFETY: `msg` points at `iov`, whose slices `bufs` lends for
-            // the call; the socket is nonblocking, so the call never waits.
-            let sent = unsafe { libc::sendmsg(self.0, &msg, SEND_FLAGS) };
-            if sent >= 0 {
-                return Ok(sent as usize);
+            let next = match state.writer.rest.take() {
+                Some(rest) => Some(WriterItem::Rest(rest)),
+                None => state.pop().map(WriterItem::Item),
+            };
+            if let Some(item) = next {
+                state.writer.busy = true;
+                drop(state);
+                self.changed.notify_all();
+                return Some((item, WriterTurn { state: &self.state }));
             }
-            let error = io::Error::last_os_error();
-            if error.kind() != io::ErrorKind::Interrupted {
-                return Err(error);
+            if state.closed {
+                return None;
+            }
+            // The writer thread waits for its own next item: an idle wait,
+            // allowed on a thread that may not block.
+            state = self.changed.idle().wait(state).recover_poison();
+        }
+    }
+}
+
+impl BoundedOutboundState {
+    /// Nothing queued anywhere, no rest, and the writer is not writing.
+    fn is_idle(&self) -> bool {
+        let lanes = self.lanes.ready(!self.control.is_empty());
+        !self.closed
+            && !self.writer.busy
+            && self.writer.rest.is_none()
+            && self.initial.is_empty()
+            && !(lanes.input || lanes.control || lanes.bulk || lanes.background)
+    }
+
+    /// Pops the one queued item and sends it: true when the socket took all
+    /// of it; else what it did not take is the writer's next write.
+    fn write_inline(&mut self, socket: &InlineSocket) -> io::Result<bool> {
+        let Some(item) = self.pop() else { return Ok(true) };
+        let mut bytes = Vec::new();
+        match item {
+            OutboundItem::Text(text) => {
+                socket.ipc.line_sent(text.len() + 1);
+                bytes.reserve_exact(text.len() + 1);
+                bytes.extend_from_slice(text.as_bytes());
+                bytes.push(b'\n');
+            }
+            OutboundItem::Frame(header, text) => {
+                socket.ipc.frame_sent(header.kind(), header.frame_len());
+                bytes.reserve_exact(header.frame_len());
+                bytes.extend_from_slice(&header.encode());
+                bytes.extend_from_slice(text.as_bytes());
+            }
+            OutboundItem::Chunk { header, text, range } => {
+                socket.ipc.frame_sent(header.kind(), header.frame_len());
+                let payload = text.as_bytes().get(range).ok_or(io::ErrorKind::InvalidData)?;
+                bytes.reserve_exact(header.frame_len());
+                bytes.extend_from_slice(&header.encode());
+                bytes.extend_from_slice(payload);
+            }
+            OutboundItem::Flush(flushed) => {
+                let _ = flushed.send(());
+                return Ok(true);
             }
         }
+        let sent = socket.send(&bytes)?;
+        if sent < bytes.len() {
+            self.writer.rest = Some(bytes.split_off(sent));
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
+    /// Drops a rest (the connection is being aborted).
+    pub(super) fn drop_rest(&mut self) {
+        self.writer.rest = None;
+    }
+}
+
+/// A `Write` whose one call is one nonblocking send on the socket.
+struct NonblockingSend(SocketFd);
+
+impl Write for NonblockingSend {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        platform::send(self.0, bytes)
     }
 
     fn flush(&mut self) -> io::Result<()> {
@@ -280,135 +224,117 @@ impl Write for NonblockingSend {
     }
 }
 
-/// `sendmsg` flags: a write to a gone peer is EPIPE, not SIGPIPE (cmux-ipc
-/// fds.rs; macOS has no `MSG_NOSIGNAL`, and the daemon ignores SIGPIPE).
 #[cfg(target_os = "linux")]
-const SEND_FLAGS: libc::c_int = libc::MSG_NOSIGNAL | libc::MSG_DONTWAIT;
-#[cfg(all(unix, not(target_os = "linux")))]
-const SEND_FLAGS: libc::c_int = 0;
+mod platform {
+    use crate::platform::transport;
+    use std::io;
+    use std::os::fd::RawFd;
 
-#[cfg(unix)]
-fn set_nonblocking(fd: std::os::fd::RawFd) -> io::Result<()> {
-    // SAFETY: F_GETFL and F_SETFL read and set the flags of an open descriptor.
-    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-    // SAFETY: as above.
-    if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
-        return Err(io::Error::last_os_error());
+    pub(super) fn socket_fd(stream: &dyn transport::Stream) -> Option<RawFd> {
+        stream.socket_fd()
     }
-    Ok(())
+
+    /// Linux honors `MSG_DONTWAIT` on a Unix stream socket: any size.
+    pub(super) fn nonblocking_bound(_fd: RawFd) -> Option<usize> {
+        Some(usize::MAX)
+    }
+
+    pub(super) fn send(fd: RawFd, bytes: &[u8]) -> io::Result<usize> {
+        super::send_retrying(fd, bytes, libc::MSG_DONTWAIT | libc::MSG_NOSIGNAL)
+    }
 }
 
-/// Waits until `fd` has bytes to read or reached its end: the wait a
-/// blocking read did in the kernel, for a socket an inline writer made
-/// nonblocking.
-#[cfg(unix)]
-pub(in crate::server) fn wait_readable(fd: std::os::fd::RawFd) -> io::Result<()> {
-    poll_until(fd, libc::POLLIN, None)
-}
+#[cfg(target_vendor = "apple")]
+mod platform {
+    use crate::platform::transport;
+    use std::io;
+    use std::os::fd::RawFd;
 
-/// Waits until `fd` takes more bytes, at most `timeout` (None: no limit).
-#[cfg(unix)]
-fn wait_writable(fd: std::os::fd::RawFd, timeout: Option<std::time::Duration>) -> io::Result<()> {
-    poll_until(fd, libc::POLLOUT, timeout)
-}
+    /// The send low-water mark this path asks for: room for a key's echo,
+    /// a reply or one bulk chunk.
+    const LOW_WATER: libc::c_int = 64 * 1024;
 
-#[cfg(unix)]
-fn poll_until(
-    fd: std::os::fd::RawFd,
-    events: libc::c_short,
-    timeout: Option<std::time::Duration>,
-) -> io::Result<()> {
-    let deadline = timeout.map(|timeout| std::time::Instant::now() + timeout);
-    loop {
-        let wait_ms = match deadline {
-            None => -1,
-            Some(deadline) => {
-                let left = deadline.saturating_duration_since(std::time::Instant::now());
-                if left.is_zero() {
-                    return Err(io::Error::new(
-                        io::ErrorKind::TimedOut,
-                        "the peer stopped reading",
-                    ));
-                }
-                libc::c_int::try_from(left.as_millis().saturating_add(1))
-                    .unwrap_or(libc::c_int::MAX)
-            }
+    pub(super) fn socket_fd(stream: &dyn transport::Stream) -> Option<RawFd> {
+        stream.socket_fd()
+    }
+
+    /// XNU ignores `MSG_DONTWAIT` on a send, but `sosend` does not wait
+    /// when the room `poll` reports (at least the send low-water mark,
+    /// `sowriteable`) holds the whole message. The bound is that mark,
+    /// raised to `LOW_WATER` where the socket allows.
+    pub(super) fn nonblocking_bound(fd: RawFd) -> Option<usize> {
+        let size = size_of::<libc::c_int>() as libc::socklen_t;
+        let wanted = LOW_WATER;
+        // SAFETY: setsockopt reads `size` bytes from `wanted`, live for the call.
+        unsafe {
+            libc::setsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_SNDLOWAT,
+                (&raw const wanted).cast(),
+                size,
+            )
         };
-        let mut pollfd = libc::pollfd { fd, events, revents: 0 };
-        // wakeup-allow: deadline the socket's own write timeout, or none: the wait of the blocking call it replaces
-        // SAFETY: poll reads and writes the one pollfd it is given, a local live for the call.
-        let ready = unsafe { libc::poll(&mut pollfd, 1, wait_ms) };
-        if ready > 0 {
-            // Readiness, a hang-up or an error: the next read or write reports which.
-            return Ok(());
+        let mut mark: libc::c_int = 0;
+        let mut length = size;
+        // SAFETY: getsockopt writes at most `length` bytes into `mark`, live for the call.
+        let read = unsafe {
+            libc::getsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_SNDLOWAT,
+                (&raw mut mark).cast(),
+                &raw mut length,
+            )
+        };
+        (read == 0 && mark > 0).then_some(mark as usize)
+    }
+
+    pub(super) fn send(fd: RawFd, bytes: &[u8]) -> io::Result<usize> {
+        let mut ready = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
+        // SAFETY: poll reads and writes the one pollfd it is given; timeout 0 never waits.
+        let polled = unsafe { libc::poll(&raw mut ready, 1, 0) };
+        if polled < 0 {
+            return Err(io::Error::last_os_error());
         }
-        if ready < 0 {
-            let error = io::Error::last_os_error();
-            if error.kind() != io::ErrorKind::Interrupted {
-                return Err(error);
-            }
-        }
-    }
-}
-
-/// The socket's send timeout (`SO_SNDTIMEO`, which `set_write_timeout`
-/// sets); `None` when it has none.
-#[cfg(unix)]
-fn send_timeout(fd: std::os::fd::RawFd) -> io::Result<Option<std::time::Duration>> {
-    let mut value = libc::timeval { tv_sec: 0, tv_usec: 0 };
-    let mut len = size_of::<libc::timeval>() as libc::socklen_t;
-    // SAFETY: getsockopt writes at most `len` bytes into `value`, a local
-    // live for the call.
-    let status = unsafe {
-        libc::getsockopt(fd, libc::SOL_SOCKET, libc::SO_SNDTIMEO, (&raw mut value).cast(), &mut len)
-    };
-    if status < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    let timeout = std::time::Duration::new(
-        u64::try_from(value.tv_sec).unwrap_or_default(),
-        u32::try_from(value.tv_usec).unwrap_or_default().saturating_mul(1_000),
-    );
-    Ok((!timeout.is_zero()).then_some(timeout))
-}
-
-/// The writer thread's writes to its socket: a write the socket has no room
-/// for waits until it has, up to the socket's send timeout, as a blocking
-/// write did; a socket in blocking mode is written as it is.
-pub(in crate::server) struct WaitingWrite<'a> {
-    stream: &'a mut dyn transport::Stream,
-}
-
-impl<'a> WaitingWrite<'a> {
-    pub(in crate::server) fn new(stream: &'a mut dyn transport::Stream) -> Self {
-        Self { stream }
-    }
-
-    #[cfg(unix)]
-    fn wait_for_room(&self) -> io::Result<()> {
-        let Some(fd) = self.stream.socket_fd() else {
+        if polled == 0 || ready.revents & libc::POLLOUT == 0 {
             return Err(io::ErrorKind::WouldBlock.into());
-        };
-        wait_writable(fd, send_timeout(fd)?)
-    }
-
-    #[cfg(not(unix))]
-    fn wait_for_room(&self) -> io::Result<()> {
-        Err(io::ErrorKind::WouldBlock.into())
+        }
+        super::send_retrying(fd, bytes, libc::MSG_NOSIGNAL | libc::MSG_DONTWAIT)
     }
 }
 
-impl Write for WaitingWrite<'_> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        loop {
-            match self.stream.write(buf) {
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => self.wait_for_room()?,
-                result => return result,
-            }
-        }
+#[cfg(not(any(target_os = "linux", target_vendor = "apple")))]
+mod platform {
+    use crate::platform::transport;
+    use std::io;
+
+    /// No inline path here: every item goes through the writer thread.
+    pub(super) fn socket_fd(_stream: &dyn transport::Stream) -> Option<super::SocketFd> {
+        None
     }
 
-    fn flush(&mut self) -> io::Result<()> {
-        self.stream.flush()
+    pub(super) fn nonblocking_bound(_fd: super::SocketFd) -> Option<usize> {
+        None
+    }
+
+    pub(super) fn send(_fd: super::SocketFd, _bytes: &[u8]) -> io::Result<usize> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
+}
+
+/// One `send(2)` with `flags`, repeated only when a signal interrupted it.
+#[cfg(any(target_os = "linux", target_vendor = "apple"))]
+fn send_retrying(fd: SocketFd, bytes: &[u8], flags: libc::c_int) -> io::Result<usize> {
+    loop {
+        // SAFETY: `bytes` is `bytes.len()` readable bytes for the call.
+        let sent = unsafe { libc::send(fd, bytes.as_ptr().cast(), bytes.len(), flags) };
+        if sent >= 0 {
+            return Ok(sent as usize);
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            return Err(error);
+        }
     }
 }

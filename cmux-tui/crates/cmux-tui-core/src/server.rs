@@ -2371,11 +2371,11 @@ use connection_scheduler::{
 mod bounded_outbound;
 pub(crate) use bounded_outbound::bulk_frame_max_from_env;
 use bounded_outbound::{
-    BoundedOutbound, ConnectionPermit, OutboundItem, QueuedSink, SinkControl,
-    SynchronizedTcpStream, claim_connection,
+    BoundedOutbound, ConnectionPermit, InlineSocket, OutboundItem, QueuedSink, SinkControl,
+    SynchronizedTcpStream, WriterItem, claim_connection, write_line_outbound_item,
 };
 #[cfg(test)]
-use bounded_outbound::{ControlOutbound, websocket_server_frame_header, write_line_outbound_item};
+use bounded_outbound::{ControlOutbound, websocket_server_frame_header};
 
 mod client_registry;
 pub(crate) use client_registry::ClientRegistry;

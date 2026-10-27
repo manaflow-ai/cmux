@@ -16,10 +16,8 @@
 //! longer than the connection's chunk size (BULK_FRAME_MAX) leaves in chunks,
 //! so a reply waits for at most one chunk of it.
 //!
-//! A local connection's producers write inline (server/inline_write.rs, task
-//! 140): the item queued on an idle queue is sent on the producer's thread
-//! with one nonblocking `sendmsg`, and only what the socket did not take is
-//! left for the writer thread.
+//! On an idle connection a producer writes its item inline, without waking
+//! the writer thread (task 140, server/inline_write.rs).
 
 use super::BACKPRESSURE_RECHECK;
 use super::BudgetedText;
@@ -52,18 +50,15 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-#[path = "inline_write.rs"]
-mod inline;
-#[cfg(unix)]
-pub(in crate::server) use inline::wait_readable;
-pub(in crate::server) use inline::{
-    InlinePath, InlineWrite, Pending, WaitingWrite, socket_inline_writer, write_pending,
-};
-
 #[path = "outbound_lanes.rs"]
 mod lanes;
 pub(crate) use lanes::bulk_frame_max_from_env;
 use lanes::{LaneTurns, RegularOutbound, StreamLanes};
+
+#[path = "inline_write.rs"]
+mod inline_write;
+use inline_write::WriterState;
+pub(super) use inline_write::{InlineSocket, WriterItem};
 
 #[cfg(test)]
 #[path = "bounded_outbound_tests.rs"]
@@ -72,6 +67,8 @@ mod tests;
 pub(super) struct BoundedOutbound {
     pub(super) state: Mutex<BoundedOutboundState>,
     pub(super) changed: Condvar,
+    /// Where producers write inline when nothing waits; `None` for none.
+    inline: Option<InlineSocket>,
 }
 
 impl Default for BoundedOutbound {
@@ -95,8 +92,7 @@ pub(super) struct BoundedOutboundState {
     stream_items: usize,
     pub(super) regular_bytes: usize,
     pub(super) closed: bool,
-    /// The inline write fast path (task 140); idle without a writer.
-    inline: InlinePath,
+    writer: WriterState,
 }
 
 pub(super) struct StreamOutboundUsage {
@@ -151,31 +147,10 @@ pub(super) fn claim_connection(
 impl BoundedOutbound {
     /// A queue whose stream frames longer than `chunk_bytes` leave in chunks.
     pub(super) fn with_chunk_bytes(chunk_bytes: usize) -> Self {
-        Self { state: Mutex::new(BoundedOutboundState::new(chunk_bytes)), changed: Condvar::new() }
-    }
-
-    /// A queue whose producers write inline through `writer` while the
-    /// queue is idle (task 140); `None` queues every item.
-    pub(super) fn with_inline_writer(
-        chunk_bytes: usize,
-        writer: Option<Box<dyn InlineWrite>>,
-    ) -> Self {
-        let outbound = Self::with_chunk_bytes(chunk_bytes);
-        outbound.state.lock().recover_poison().inline.writer = writer;
-        outbound
-    }
-
-    /// Wakes the writer thread and the producers waiting for room unless an
-    /// inline write sent the whole item (`Ok(false)`): nothing changed for
-    /// them then.
-    fn notify_after(&self, sent: &std::io::Result<bool>, all: bool) {
-        if matches!(sent, Ok(false)) {
-            return;
-        }
-        if all {
-            self.changed.notify_all();
-        } else {
-            self.changed.notify_one();
+        Self {
+            state: Mutex::new(BoundedOutboundState::new(chunk_bytes)),
+            changed: Condvar::new(),
+            inline: None,
         }
     }
 
@@ -214,12 +189,11 @@ impl BoundedOutbound {
 
     fn push_stream_item(&self, message: RegularOutbound, initial: bool) -> std::io::Result<()> {
         let mut state = self.state.lock().recover_poison();
-        let was_idle = state.inline_idle();
-        let sent = Self::push_regular_locked(&mut state, message, initial)
-            .and_then(|()| state.send_now(was_idle));
-        drop(state);
-        self.notify_after(&sent, true);
-        sent.map(drop)
+        let wire_bytes = message.frame.map_or(message.text.len() + 1, |header| header.frame_len());
+        let inline = self.inline_ready(&state, wire_bytes);
+        let result = Self::push_regular_locked(&mut state, message, initial);
+        let finished = self.finish_push(state, inline && result.is_ok());
+        result.and(finished)
     }
 
     pub(super) fn push_regular_backpressured(
@@ -241,13 +215,11 @@ impl BoundedOutbound {
             let pending =
                 state.stream_usage.get(&stream.id).map(|usage| usage.messages).unwrap_or_default();
             if pending < OUTBOUND_BACKPRESSURED_STREAM_CAPACITY {
+                let inline = self.inline_ready(&state, text.len() + 1);
                 let message = RegularOutbound::line(text, stream);
-                let was_idle = state.inline_idle();
-                let sent = Self::push_regular_locked(&mut state, message, false)
-                    .and_then(|()| state.send_now(was_idle));
-                drop(state);
-                self.notify_after(&sent, true);
-                return sent.map(drop);
+                let result = Self::push_regular_locked(&mut state, message, false);
+                let finished = self.finish_push(state, inline && result.is_ok());
+                return result.and(finished);
             }
             let (next, _) = self.changed.wait_timeout(state, BACKPRESSURE_RECHECK).recover_poison();
             state = next;
@@ -334,12 +306,9 @@ impl BoundedOutbound {
 
     pub(super) fn push_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
         let mut state = self.state.lock().recover_poison();
-        let was_idle = state.inline_idle();
+        let inline = self.inline_ready(&state, text.len() + 1);
         Self::push_control_locked(&mut state, text)?;
-        let sent = state.send_now(was_idle);
-        drop(state);
-        self.notify_after(&sent, false);
-        sent.map(drop)
+        self.finish_push(state, inline)
     }
 
     pub(super) fn flush_control(&self, timeout: Duration) -> std::io::Result<()> {
@@ -489,13 +458,10 @@ impl BoundedOutbound {
         text: Arc<BudgetedText>,
     ) -> std::io::Result<()> {
         let mut state = self.state.lock().recover_poison();
-        let was_idle = state.inline_idle();
+        let inline = self.inline_ready(&state, header.frame_len());
         Self::admit_control_locked(&mut state, text.len())?;
         state.enqueue_control(ControlOutbound::Frame(header, text));
-        let sent = state.send_now(was_idle);
-        drop(state);
-        self.notify_after(&sent, false);
-        sent.map(drop)
+        self.finish_push(state, inline)
     }
 
     pub(super) fn push_control_locked(
@@ -554,33 +520,15 @@ impl BoundedOutbound {
         }
     }
 
-    /// The next item for a writer thread of a queue without an inline
-    /// writer (nothing of its items is ever sent before it takes them).
     pub(super) fn recv(&self) -> Option<OutboundItem> {
-        self.recv_pending().map(|pending| pending.item)
-    }
-
-    /// The next item for the writer thread, with what an inline write sent
-    /// of it already: the rest of a partly written item comes first. Asking
-    /// says the item taken before was written, so producers may write
-    /// inline again while the queue stays empty.
-    pub(super) fn recv_pending(&self) -> Option<Pending> {
         let mut state = self.state.lock().recover_poison();
-        state.inline.writer_busy = false;
         loop {
-            let next = state
-                .inline
-                .rest
-                .take()
-                .or_else(|| state.pop().map(|item| Pending { item, written: 0 }));
-            if let Some(next) = next {
-                state.inline.writer_busy = true;
+            if let Some(item) = state.pop() {
                 drop(state);
                 self.changed.notify_all();
-                return Some(next);
+                return Some(item);
             }
             if state.closed {
-                state.inline.writer = None;
                 return None;
             }
             state = waits::wait(&self.changed, state).recover_poison();
@@ -594,7 +542,6 @@ impl BoundedOutbound {
     pub(super) fn close(&self) {
         let mut state = self.state.lock().recover_poison();
         state.closed = true;
-        state.inline.writer = None;
         state.control.retain(|item| !matches!(item, ControlOutbound::Flush(_)));
         drop(state);
         self.changed.notify_all();
@@ -603,8 +550,7 @@ impl BoundedOutbound {
     pub(super) fn abort(&self) {
         let mut state = self.state.lock().recover_poison();
         state.closed = true;
-        state.inline.writer = None;
-        state.inline.rest = None;
+        state.drop_rest();
         state.clear_streams();
         state.control.clear();
         state.control_messages = 0;
@@ -617,19 +563,35 @@ impl BoundedOutbound {
         let mut state = self.state.lock().recover_poison();
         state.clear_streams();
         state.closed = true;
-        state.inline.writer = None;
         drop(state);
         self.changed.notify_all();
     }
 }
 
-/// Writes `item` whole (tests; the writer thread writes with `write_pending`).
-#[cfg(test)]
 pub(super) fn write_line_outbound_item<W: Write + ?Sized>(
     writer: &mut W,
     item: OutboundItem,
 ) -> std::io::Result<()> {
-    write_pending(writer, Pending { item, written: 0 })
+    match item {
+        OutboundItem::Text(text) => {
+            writer.write_all(text.as_bytes())?;
+            writer.write_all(b"\n")
+        }
+        OutboundItem::Frame(header, text) => {
+            writer.write_all(&header.encode())?;
+            writer.write_all(text.as_bytes())
+        }
+        OutboundItem::Chunk { header, text, range } => {
+            let payload = text.as_bytes().get(range).ok_or(std::io::ErrorKind::InvalidData)?;
+            writer.write_all(&header.encode())?;
+            writer.write_all(payload)
+        }
+        OutboundItem::Flush(flushed) => {
+            writer.flush()?;
+            let _ = flushed.send(());
+            Ok(())
+        }
+    }
 }
 
 pub(super) struct QueuedSink {

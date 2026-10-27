@@ -9,6 +9,11 @@
 //! request's reply is a frame in that same FIFO (`send_reply`). Every other
 //! stream rides a lane (`StreamLane`): input streams before the control FIFO,
 //! bulk and background streams after it (server/outbound_lanes.rs).
+//!
+//! On an idle local connection a send writes its message on the calling
+//! thread with a send that never waits, and the connection's writer thread
+//! sees only what the socket did not take (p05-ipc-140,
+//! server/inline_write.rs).
 
 use super::AttachWireShape;
 use super::BudgetedText;
@@ -557,7 +562,3 @@ impl MessageWriter {
         self.close_with(false);
     }
 }
-
-#[cfg(all(test, unix))]
-#[path = "message_writer_inline_tests.rs"]
-mod inline_tests;

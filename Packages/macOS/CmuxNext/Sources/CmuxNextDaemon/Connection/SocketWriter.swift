@@ -12,9 +12,7 @@ import Foundation
 /// The owner of CmuxNextIPC's ``FrameWriter`` over the socket (p05-ipc-055):
 /// writes append to the writer's priority FIFOs and return at once; its private
 /// serial queue drains them, input before control before bulk, call order within
-/// a priority. A write off the main thread that finds the writer idle goes to the
-/// nonblocking socket on its caller's thread (p05-ipc-140), and only what the socket
-/// does not take waits. Only that queue's thread ever waits on the socket. Past `limit`
+/// a priority. Only that queue's thread ever waits on the socket. Past `limit`
 /// queued bytes a write fails with ``FrameWriter/Failure/backlog(queued:)``.
 ///
 /// Each drain step (one send) is one `daemon.write` hang scope of ``writeHangDeadline``; a write waiting in

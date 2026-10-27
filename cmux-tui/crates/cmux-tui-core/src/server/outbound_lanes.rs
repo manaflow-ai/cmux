@@ -414,7 +414,7 @@ impl BoundedOutboundState {
             stream_items: 0,
             regular_bytes: 0,
             closed: false,
-            inline: Default::default(),
+            writer: Default::default(),
         }
     }
 

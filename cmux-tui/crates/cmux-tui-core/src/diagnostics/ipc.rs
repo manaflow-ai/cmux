@@ -236,28 +236,14 @@ pub struct CountedWrite<'a, W: Write + ?Sized> {
     inner: &'a mut W,
 }
 
-impl<W: Write + ?Sized> CountedWrite<'_, W> {
-    fn count(&self, started: Instant) {
-        self.stats.write_syscalls.fetch_add(1, Ordering::Relaxed);
-        if started.elapsed() >= WRITE_STALL_THRESHOLD {
-            self.stats.write_stalls.fetch_add(1, Ordering::Relaxed);
-        }
-    }
-}
-
 impl<W: Write + ?Sized> Write for CountedWrite<'_, W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let started = Instant::now();
         let written = self.inner.write(buf);
-        self.count(started);
-        written
-    }
-
-    /// One gathered write (one `sendmsg` on a socket) counts as one call.
-    fn write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
-        let started = Instant::now();
-        let written = self.inner.write_vectored(bufs);
-        self.count(started);
+        self.stats.write_syscalls.fetch_add(1, Ordering::Relaxed);
+        if started.elapsed() >= WRITE_STALL_THRESHOLD {
+            self.stats.write_stalls.fetch_add(1, Ordering::Relaxed);
+        }
         written
     }
 
