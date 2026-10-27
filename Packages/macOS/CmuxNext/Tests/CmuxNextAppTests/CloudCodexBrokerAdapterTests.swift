@@ -178,4 +178,35 @@ done
         #expect(await files.read("vm", CloudCodexBroker.accessPath) == nil)
         await adapter.shutdown()
     }
+
+    @Test func policyFenceStopsPendingDeliveryAndReenableReusesHolder() async throws {
+        let (root, launch) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let gate = CloudCodexBrokerTests.Gate()
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        var prompts = 0
+        let pending = Task {
+            try await adapter.run(machineID: "vm", scope: scope, confirmed: true) { _ in
+                prompts += 1
+                await gate.pause()
+                return true
+            }
+        }
+        await gate.entered()
+        adapter.setAvailable(false)
+        await gate.open()
+        await #expect(throws: (any Error).self) { try await pending.value }
+        #expect(await files.read("vm", CloudCodexBroker.accessPath) == nil)
+
+        adapter.setAvailable(true)
+        try await adapter.run(machineID: "vm", scope: scope, confirmed: true) { _ in
+            prompts += 1
+            return true
+        }
+        #expect(prompts == 1)
+        #expect(await files.read("vm", CloudCodexBroker.accessPath) != nil)
+        await adapter.shutdown()
+    }
 }
