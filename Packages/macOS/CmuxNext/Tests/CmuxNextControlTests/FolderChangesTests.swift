@@ -1,4 +1,5 @@
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -41,24 +42,31 @@ import Testing
         #expect((ledger.snapshot().first { $0.owner == "FolderChanges" && $0.reason == "change" }?.count ?? 0) >= 2)
     }
 
-    /// p14-energy-127: with a coalescing wait, a burst another app writes (50 files) is one element, after a
-    /// flexible timer; Energy Saver stretches the wait 4 times.
+    /// p14-energy-127: with a coalescing wait, a burst another app writes (50 files) is one element, after one
+    /// flexible deadline (a tenth of the wait as leeway); Energy Saver stretches the wait 4 times.
     @Test func aBurstIsOneElementAfterTheCoalescingWait() async throws {
         let folder = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
             .appendingPathComponent("folder-burst-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let ledger = WakeupLedger()
-        let watch = FolderChanges(folders: [folder], coalesce: .milliseconds(500), ledger: ledger)
+        let clock = ManualClock()
+        let watch = FolderChanges(folders: [folder], coalesce: .milliseconds(500), clock: clock, ledger: ledger)
         var changes = watch.events().makeAsyncIterator()
+        // Let the watch arm before the first write (the loop task opens it when it starts), as the test above does.
         try await Task.sleep(for: .milliseconds(100))
 
         for index in 0..<50 {
             try Data([UInt8(index)]).write(to: folder.appendingPathComponent("synced-\(index).png"))
         }
+        // However many of the 50 changes the watch has seen, the burst asked for one deadline and yielded nothing yet.
+        try await clock.waitForSleeper()
+        #expect(clock.sleepRequests.map(\.deadline.offset) == [.milliseconds(500)])
+        #expect(clock.sleepRequests.map(\.tolerance) == [.milliseconds(50)])
+        #expect((ledger.snapshot().first { $0.owner == "FolderChanges" && $0.reason == "change" }?.count ?? 0) == 0)
+        clock.advance(by: .milliseconds(500))
         #expect(await changes.next() != nil)
-        // Longer than the wait again: the burst made no second element.
-        try await Task.sleep(for: .milliseconds(800))
+        // A change the watch sees after the fire waits on a new deadline the clock never reaches: one element only.
         #expect((ledger.snapshot().first { $0.owner == "FolderChanges" && $0.reason == "change" }?.count ?? 0) == 1)
         #expect((ledger.snapshot().first { $0.owner == "FolderChanges.coalesce" && $0.reason == "deadline" }?.count ?? 0) == 1)
     }

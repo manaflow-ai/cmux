@@ -31,6 +31,8 @@ public struct FolderChanges: Sendable {
     public let coalesce: Duration
     /// The app's Energy Saver policy (`MainWorkScheduler.energy`); nil keeps ``coalesce``.
     private let energy: EnergyPolicySource?
+    /// The clock the coalescing wait sleeps on (a `ManualClock` in tests).
+    private let clock: any Clock<Duration>
     private let ledger: WakeupLedger
     #if DEBUG || CMUX_BENCH_HOOKS
     /// The line that made the watch, for the arm census.
@@ -41,15 +43,18 @@ public struct FolderChanges: Sendable {
     ///   - folders: The folders whose contents matter; missing ones are watched through a parent.
     ///   - coalesce: The wait from a burst's first change to its element (zero: each change yields at once).
     ///   - energy: The app's Energy Saver policy, which stretches `coalesce`; nil keeps it.
+    ///   - clock: The clock the coalescing wait sleeps on.
     ///   - ledger: Where the watch counts its wakes. In Debug and bench builds its ``ArmCensus`` also gets the watch's
     ///     launch arm and first change (startup-queue.py arms, p08-startup-085).
     ///   - file: The line that made the watch, named by the arm census (leave the default).
     ///   - line: See `file`.
-    public init(folders: [URL], coalesce: Duration = .zero, energy: EnergyPolicySource? = nil, ledger: WakeupLedger = .shared,
+    public init(folders: [URL], coalesce: Duration = .zero, energy: EnergyPolicySource? = nil,
+                clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
                 file: StaticString = #fileID, line: UInt = #line) {
         self.folders = folders
         self.coalesce = coalesce
         self.energy = energy
+        self.clock = clock
         self.ledger = ledger
         #if DEBUG || CMUX_BENCH_HOOKS
         site = ArmCensus.Site(file: file, line: line)
@@ -72,7 +77,7 @@ public struct FolderChanges: Sendable {
         // task-owner: the stream's watch loop; cancelled when the consumer stops iterating
         let loop = Task.detached(priority: .utility) {
             let burst = coalescing.coalesce > .zero
-                ? DemandTimer(owner: "FolderChanges.coalesce", ledger: ledger, energy: coalescing.energy) : nil
+                ? DemandTimer(owner: "FolderChanges.coalesce", clock: coalescing.clock, ledger: ledger, energy: coalescing.energy) : nil
             var armed = Self.arm(targets)
             #if DEBUG || CMUX_BENCH_HOOKS
             var census = ArmCensusEntry()

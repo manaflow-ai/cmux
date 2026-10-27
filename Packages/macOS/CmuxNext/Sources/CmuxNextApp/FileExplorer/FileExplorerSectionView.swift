@@ -118,10 +118,8 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     /// Roots the tree at `folder`; the same folder lists again only when `relist`.
     private func show(_ folder: URL, relist: Bool = false) {
         guard relist || folder.standardizedFileURL != model.root else { return }
-        let model = model
-        // task-owner: one listing; a newer one supersedes it (the model's generation).
-        // main-hop-allow: setRoot is the model's main-actor async listing (DirectoryLister and git run @concurrent, off main); this task only starts it
-        Task { await model.setRoot(folder) }
+        // Through the model's open: with the catch-up of the same show, it is the show's one listing.
+        model.open(folder)
     }
 
     private func build() {

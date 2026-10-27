@@ -39,18 +39,27 @@ final class FileExplorerModel {
     /// The folders the running watch covers, and its task.
     @ObservationIgnored private var watched: [URL] = []
     @ObservationIgnored private var watching: Task<Void, Never>?
+    /// ``setShown(_:)`` stops the watch of a hidden tree (the `hiddenWatcherPause` feature); off, it does nothing.
+    @ObservationIgnored private let pausesWhenHidden: Bool
     /// A surface shows the tree (``setShown(_:)``); while none does, nothing watches it.
     @ObservationIgnored private var isShown = true
-    /// The tree went unwatched while hidden: changes may have been missed, so the next show lists it again.
+    /// The tree went unwatched since its last listing started: changes may have been missed, so the next show
+    /// lists it again. A listing that starts clears it (it reads the folder after any such change).
     @ObservationIgnored private var missedChanges = false
+    /// A show's catch-up listing waits to start; a listing that starts first covers it, and it lists nothing.
+    @ObservationIgnored private var catchUpPending = false
     /// The listing a show runs to catch up with the changes made while the tree was hidden.
     @ObservationIgnored private(set) var catchUp: Task<Void, Never>?
+    /// The folder of the ``open(_:)`` listing that has not started yet.
+    @ObservationIgnored private var queuedOpen: URL?
 
+    /// - Parameter pausesWhenHidden: A hidden tree stops its watch and lists once on show (``setShown(_:)``).
     init(lister: any DirectoryListing = DirectoryLister(), git: any MarkdownGitRunning = ProcessMarkdownGitRunner(),
-         watcher: any FileTreeWatching = FileTreeWatcher()) {
+         watcher: any FileTreeWatching = FileTreeWatcher(), pausesWhenHidden: Bool = false) {
         self.lister = lister
         self.git = git
         self.watcher = watcher
+        self.pausesWhenHidden = pausesWhenHidden
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -63,23 +72,51 @@ final class FileExplorerModel {
     /// Whether a surface shows the tree. A hidden tree stops its watch, so writes by other apps (an agent,
     /// a build) wake nothing; the next show lists it once and watches again. Chrome stops the work of a
     /// hidden page the same way and refreshes it when it shows (`WebContentsImpl::WasHidden` / `WasShown`).
+    /// A listing that starts before the catch-up does (the section's ``open(_:)`` on show) is the show's one listing.
     func setShown(_ shown: Bool) {
-        guard shown != isShown else { return }
+        guard pausesWhenHidden, shown != isShown else { return }
         isShown = shown
         guard shown else { return stopWatching() }
         guard missedChanges, root != nil else { return }
         missedChanges = false
-        // task-owner: the one catch-up listing of a show; a newer listing supersedes it (the model's generation)
+        catchUpPending = true
+        // task-owner: the one catch-up listing of a show; a listing that starts first supersedes it (catchUpPending)
         // main-hop-allow: reload is the model's main-actor async listing (DirectoryLister and git run off main); this task only starts it
-        catchUp = Task { [weak self] in await self?.reload() }
+        catchUp = Task { [weak self] in
+            guard let self, self.catchUpPending else { return }
+            await self.reload()
+        }
     }
 
-    /// Ends the running watch; the tree may now miss changes until it lists again.
+    /// Roots the tree at `folder` and lists it in a task that starts now. It covers a show's catch-up: one
+    /// waiting to start lists nothing, and a show while this listing runs adds none. An open of the folder
+    /// whose listing has not started yet joins it (a section made by a show refreshes twice in one turn).
+    func open(_ folder: URL) {
+        listingStarts()
+        let folder = folder.standardizedFileURL
+        guard folder != queuedOpen else { return }
+        queuedOpen = folder
+        // task-owner: one listing; a newer one supersedes it (the model's generation).
+        // main-hop-allow: setRoot is the model's main-actor async listing (DirectoryLister and git run @concurrent, off main); this task only starts it
+        Task { [weak self] in
+            guard let self else { return }
+            if self.queuedOpen == folder { self.queuedOpen = nil }
+            await self.setRoot(folder)
+        }
+    }
+
+    /// A listing starts: it reads the folder after any change the tree may have missed.
+    private func listingStarts() {
+        missedChanges = false
+        catchUpPending = false
+    }
+
+    /// Ends the running watch; a rooted tree may now miss changes until it lists again.
     private func stopWatching() {
         watching?.cancel()
         watching = nil
-        if !watched.isEmpty { missedChanges = true }
         watched = []
+        if root != nil { missedChanges = true }
     }
 
     /// Watches `folders` (the root, and the repository's `.git` folder): each burst of changes
@@ -118,6 +155,7 @@ final class FileExplorerModel {
     /// Lists the root and every expanded folder again (the folder may have changed since).
     func reload() async {
         guard let root else { return }
+        listingStarts()
         generation += 1
         let mine = generation
         var listed: [URL: [FileEntry]] = [:]
@@ -128,6 +166,9 @@ final class FileExplorerModel {
             failure = error.localizedDescription
             children = [:]
             rows = []
+            // The folder may be gone for a moment (a checkout): a watch on its path lists it when it is back,
+            // and a hidden tree marks the next show's catch-up.
+            if pausesWhenHidden, watched.isEmpty { watch([root]) }
             return
         }
         for folder in expanded { listed[folder] = (try? await lister.list(folder)) ?? [] }

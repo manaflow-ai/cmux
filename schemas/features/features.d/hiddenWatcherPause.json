@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "hiddenWatcherPause",
+  "owner": "Performance Lead",
+  "description": "A hidden Files tree stops its folder watch and lists once on show; a burst of writes in acpmux's socket folder is one look 250 ms later, in the wallpaper folders one rebuild 1 s later. Off, each write wakes them at once; the Energy Saver stretch applies either way.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["home-idle"],
+  "sticky": false,
+  "runtimeMutable": false
+}

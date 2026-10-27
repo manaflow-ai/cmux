@@ -28,6 +28,11 @@ final class ChatsFeed {
     /// Coalesces the socket folder's notices off main: other processes write that folder, and a burst of
     /// their writes is one look for the socket (``socketFolderWait``).
     private let socketFolderNotices: DemandTimer
+    /// The wait from a write in the socket's folder to the look for the socket, outside Energy Saver; zero
+    /// looks at each notice (the `hiddenWatcherPause` feature off).
+    private let socketFolderWait: Duration
+    /// Called on main at each look for the socket that the socket folder's writes cause (tests count them).
+    var lookedForSocket: (@MainActor () -> Void)?
     private var requestID = 2
     /// The seq of the last index change in the mirror (acpmux numbers every change; the page
     /// names the last one it holds). Nil from a daemon that does not number them.
@@ -46,22 +51,27 @@ final class ChatsFeed {
     ///   - socketPath: acpmux's socket.
     ///   - deadlines: The app's one deadline scheduler: the reconnect backoff and the socket folder's
     ///     notices run on its main-thread scheduler.
-    init(socketPath: String, deadlines: MainDeadlineScheduler) {
+    ///   - socketFolderWait: The wait from a burst of writes in the socket's folder to its one look for the
+    ///     socket (``coalescedSocketFolderWait`` with `hiddenWatcherPause`); zero looks at each notice.
+    ///   - clock: The clock that wait sleeps on (a `ManualClock` in tests).
+    init(socketPath: String, deadlines: MainDeadlineScheduler, socketFolderWait: Duration = .zero,
+         clock: any Clock<Duration> = ContinuousClock()) {
         socket = socketPath
         mainWork = deadlines.work
         reconnect = MainDeadline(owner: "ChatsFeed.reconnect", workClass: .background, scheduler: deadlines)
+        self.socketFolderWait = socketFolderWait
         // timer-class-allow: armed and fired off main by the folder's kqueue handler; its fire posts one .background main task
-        socketFolderNotices = DemandTimer(owner: "ChatsFeed.socketFolder", energy: deadlines.work.energy)
+        socketFolderNotices = DemandTimer(owner: "ChatsFeed.socketFolder", clock: clock, energy: deadlines.work.energy)
     }
 
     /// The wait from a burst of writes in the socket's folder to the one look for the socket, outside
-    /// Energy Saver; the saver stretches it by ``EnergyPolicy/pollStretch``. The chats themselves stay a
-    /// live push from acpmux, as `AgentTurnStateFeed` does.
-    nonisolated static let socketFolderWait: Duration = .milliseconds(250)
+    /// Energy Saver, with the `hiddenWatcherPause` feature; the saver stretches it by
+    /// ``EnergyPolicy/pollStretch``. The chats themselves stay a live push from acpmux, as `AgentTurnStateFeed` does.
+    nonisolated static let coalescedSocketFolderWait: Duration = .milliseconds(250)
 
-    /// ``socketFolderWait`` stretched by `energy`'s saver.
-    nonisolated static func socketFolderWait(in energy: EnergyPolicy) -> Duration {
-        socketFolderWait * energy.pollStretch
+    /// `wait` stretched by `energy`'s saver.
+    nonisolated static func socketFolderWait(_ wait: Duration, in energy: EnergyPolicy) -> Duration {
+        wait * energy.pollStretch
     }
 
     /// One chat by key, O(1).
@@ -246,6 +256,12 @@ final class ChatsFeed {
         connect()
     }
 
+    /// The socket's folder changed: the socket may be there now.
+    private func lookForSocket() {
+        lookedForSocket?()
+        connectIfIdle()
+    }
+
     /// Waits for the socket path to appear by watching its nearest existing directory.
     private func watchForSocket() {
         var directory = (socket as NSString).deletingLastPathComponent
@@ -259,16 +275,19 @@ final class ChatsFeed {
         let fd = unsafe open(directory, O_EVTONLY)
         guard fd >= 0 else { return }
         // The notices arrive off main; a burst of them posts one background task (the socket appearing is
-        // no one's input) after a flexible wait with a tenth of it as leeway.
+        // no one's input) after a flexible wait with a tenth of it as leeway; with no wait, each notice posts one.
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete],
                                                                queue: .global(qos: .utility))
         let work = mainWork
         let notices = socketFolderNotices
+        let base = socketFolderWait
         source.setEventHandler { [weak self] in
-            let wait = ChatsFeed.socketFolderWait(in: work.energy.policy)
-            notices.scheduleIfIdle(after: wait, tolerance: wait / 10) { [weak self] in
-                work.postFromAnyThread(.background, owner: "ChatsFeed.socketFolder") { [weak self] in self?.connectIfIdle() }
+            let look: @Sendable () -> Void = { [weak self] in
+                work.postFromAnyThread(.background, owner: "ChatsFeed.socketFolder") { [weak self] in self?.lookForSocket() }
             }
+            let wait = ChatsFeed.socketFolderWait(base, in: work.energy.policy)
+            guard wait > .zero else { return look() }
+            notices.scheduleIfIdle(after: wait, tolerance: wait / 10) { look() }
         }
         source.setCancelHandler { close(fd) }
         directoryWatch = source

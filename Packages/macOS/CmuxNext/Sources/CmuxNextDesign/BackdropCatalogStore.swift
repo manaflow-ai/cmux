@@ -33,6 +33,8 @@ public final class BackdropCatalogStore {
     @ObservationIgnored private let build: @Sendable () -> BackdropCatalog
     @ObservationIgnored private let folders: [URL]
     @ObservationIgnored private let mainWork: MainWorkScheduler
+    /// The wait from a burst's first folder change to its one rebuild, outside Energy Saver (``FolderChanges/coalesce``).
+    @ObservationIgnored private let coalesce: Duration
     @ObservationIgnored private var task: Task<Void, Never>?
 
     /// - Parameters:
@@ -41,10 +43,14 @@ public final class BackdropCatalogStore {
     ///   - aerials: Where idleassetsd keeps downloaded aerials.
     ///   - assetFolders: Where macOS keeps downloaded full pictures.
     ///   - mainWork: The app's main-thread scheduler: each build lands as one `visible` task on it.
+    ///   - coalesce: The wait from a burst of folder changes (an unzip, a sync client) to its one rebuild, which
+    ///     Energy Saver stretches; zero rebuilds after each change.
     public init(systemDirectory: URL, userImages: BackdropUserImages?, aerials: URL = AppleWallpapers.system.aerials,
-                assetFolders: [URL] = AppleWallpaperAssets.systemFolders, mainWork: MainWorkScheduler) {
+                assetFolders: [URL] = AppleWallpaperAssets.systemFolders, mainWork: MainWorkScheduler,
+                coalesce: Duration = .zero) {
         catalog = BackdropCatalog(bundledOnly: ())
         self.mainWork = mainWork
+        self.coalesce = coalesce
         build = {
             BackdropCatalog(systemDirectory: systemDirectory, fileManager: FileManager(),
                             assets: AppleWallpaperAssets(folders: assetFolders, fileManager: FileManager()),
@@ -60,12 +66,12 @@ public final class BackdropCatalogStore {
     /// Builds the catalog off main now and after every change to a folder it lists, until ``stop()``.
     public func start() {
         guard task == nil else { return }
-        let build = build, folders = folders, mainWork = mainWork
+        let build = build, folders = folders, mainWork = mainWork, coalesce = coalesce
         let owner = mainWork.board.owner("BackdropCatalogStore.build")
         // task-owner: the store's refresh loop, off main; stop() cancels it
         task = Task { @concurrent [weak self] in
-            // A burst of writes (an unzip, a sync client) is one rebuild, 1 s after its first change (4 s in Energy Saver).
-            let changes = FolderChanges(folders: folders, coalesce: .seconds(1), energy: mainWork.energy).events()
+            // With a wait, a burst of writes is one rebuild after its first change (4 times later in Energy Saver).
+            let changes = FolderChanges(folders: folders, coalesce: coalesce, energy: mainWork.energy).events()
             let first = build()
             mainWork.postFromAnyThread(.visible, owner: owner) { [weak self] in self?.land(first) }
             // wakeup-allow: each pass is one folder change event, never a poll

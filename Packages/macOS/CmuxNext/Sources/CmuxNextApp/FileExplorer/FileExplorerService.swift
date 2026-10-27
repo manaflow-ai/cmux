@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextFeatures
 import CmuxNextFilesUI
 import CmuxNextWakeups
 
@@ -32,7 +33,8 @@ final class FileExplorerService {
         let id = UUID().uuidString
         let apps = services.map { WorkspaceFileApps(queries: $0.workspaceQueries) }
         let view = FileExplorerSectionView(
-            model: FileExplorerModel(watcher: FileTreeWatcher(energy: mainWork.energy)),
+            model: FileExplorerModel(watcher: FileTreeWatcher(energy: mainWork.energy),
+                                     pausesWhenHidden: services?.features.isEnabled(.hiddenWatcherPause) ?? false),
             mainWork: mainWork,
             rootFolder: { [weak self, weak controller] in controller.flatMap { self?.folder(focusedIn: $0) } },
             perform: { [weak self] id in self?.perform(ActionID(rawValue: id)) },

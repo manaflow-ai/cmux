@@ -9,23 +9,22 @@ import CmuxNextWakeups
 /// the index, HEAD and refs count (a `git add`, a commit, a checkout), never
 /// objects or logs, so `git status` reading the repository never wakes it.
 ///
-/// Under Energy Saver a stream coalesces ``EnergyPolicy/pollStretch`` times longer (read when the
-/// stream starts), so an agent or a build writing the tree wakes the app 4 times less often. The
-/// model stops the stream while no surface shows the tree (``FileExplorerModel/setShown(_:)``), and
-/// its next start reads the policy again.
+/// Under Energy Saver a stream coalesces ``EnergyPolicy/pollStretch`` times longer, so an agent or a
+/// build writing the tree wakes the app 4 times less often. A running stream follows the policy: when
+/// the stretch changes, its FSEvents stream is made again with the new latency.
 nonisolated struct FileTreeWatcher: FileTreeWatching {
     /// The coalescing latency in seconds, outside Energy Saver.
     var latency: CFTimeInterval
     /// The app's Energy Saver policy (`MainWorkScheduler.energy`); nil keeps ``latency``.
     var energy: EnergyPolicySource?
-    /// Called once the FSEvents stream runs (tests wait for it before changing a file).
-    var started: (@Sendable () -> Void)?
+    /// Called with its latency each time an FSEvents stream runs (tests wait for it before changing a file).
+    var started: (@Sendable (_ latency: CFTimeInterval) -> Void)?
     /// The line that made the watcher: each of its watches is in the arm census under it (Debug and bench builds,
     /// startup-queue.py arms, p08-startup-085).
     private let file: StaticString
     private let line: UInt
 
-    init(latency: CFTimeInterval = 0.2, energy: EnergyPolicySource? = nil, started: (@Sendable () -> Void)? = nil,
+    init(latency: CFTimeInterval = 0.2, energy: EnergyPolicySource? = nil, started: (@Sendable (_ latency: CFTimeInterval) -> Void)? = nil,
          file: StaticString = #fileID, line: UInt = #line) {
         self.latency = latency
         self.energy = energy
@@ -34,18 +33,29 @@ nonisolated struct FileTreeWatcher: FileTreeWatching {
         self.line = line
     }
 
-    /// The latency a stream started now coalesces with: ``latency`` times the saver's poll stretch.
-    var currentLatency: CFTimeInterval { latency * CFTimeInterval(energy?.policy.pollStretch ?? 1) }
+    /// The latency a stream coalesces with now: ``latency`` times the saver's poll stretch.
+    var currentLatency: CFTimeInterval { Self.stretched(latency, in: energy?.policy ?? .normal) }
+
+    /// `base` times `policy`'s poll stretch.
+    static func stretched(_ base: CFTimeInterval, in policy: EnergyPolicy) -> CFTimeInterval {
+        base * CFTimeInterval(policy.pollStretch)
+    }
 
     func changes(under folders: [URL]) -> AsyncStream<Void> {
-        let latency = currentLatency
+        let base = latency, energy = energy, started = started
+        let census = ArmCensusWatch(.watcher, owner: "FileTreeWatcher", file: file, line: line)
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let paths = folders.map { FolderWatcherPath.real($0) }
-            let box = FileTreeWatchStream(paths: paths, latency: latency, started: started,
-                                          census: ArmCensusWatch(.watcher, owner: "FileTreeWatcher", file: file, line: line),
-                                          continuation: continuation)
-            continuation.onTermination = { _ in box.stop() }
+            let box = FileTreeWatchStream(paths: paths, latency: Self.stretched(base, in: energy?.policy ?? .normal),
+                                          started: started, census: census, continuation: continuation)
+            let policy = energy?.observe { [weak box] policy in box?.setLatency(Self.stretched(base, in: policy)) }
+            continuation.onTermination = { _ in
+                policy?.cancel()
+                box.stop()
+            }
             box.start()
+            // A policy change before the observer was in place still reaches the stream (an equal latency does nothing).
+            if let energy { box.setLatency(Self.stretched(base, in: energy.policy)) }
         }
     }
 
