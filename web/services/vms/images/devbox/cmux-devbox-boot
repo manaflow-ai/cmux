@@ -404,7 +404,7 @@ sync_vm_kind_if_due() {
 
 mark_vm_kind_shared() {
   [ -x /usr/local/bin/cmux-vm-kind-sync ] || return 0
-  CMUX_VM_MODEL_ENV_FILE=/run/cmux/no-model-plane /usr/local/bin/cmux-vm-kind-sync >/dev/null 2>&1
+  CMUX_VM_KIND_RESET=team /usr/local/bin/cmux-vm-kind-sync >/dev/null 2>&1
   vm_kind_sync_at=0
 }
 
