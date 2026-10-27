@@ -87,7 +87,8 @@ ${script.slice(gateStart, gateEnd)}
 // A pid the kernel reuses after a terminal host or the daemon exits must never pass for it: the
 // host check compares start times, and stop_child signals only a process that is still the daemon.
 // Real processes under /proc and pidfd: Linux only.
-describe.skipIf(process.platform !== "linux")("Cloud daemon upgrade and reused pids", () => {
+const describeOnLinux = process.platform === "linux" ? describe : describe.skip;
+describeOnLinux("Cloud daemon upgrade and reused pids", () => {
   const sleeper = (args: string) => `python3 -c 'import time; time.sleep(30)' ${args} & `;
   async function runFixture(body: string): Promise<string> {
     const root = mkdtempSync(path.join(tmpdir(), "cmux-upgrade-pids-"));
