@@ -176,8 +176,8 @@ EXIT_REFUSED = 3
 
 DELEGATES: Dict[str, Tuple[str, Tuple[str, ...], str]] = {
     "confirm": ("confirm.py", (), "p15-oracle-184"),
-    "select": ("select.py", (), "p15-oracle-009"),
-    "bisect": ("bisect.py", (), "p15-oracle-009"),
+    "select": ("select_suites.py", (), "p15-oracle-009"),
+    "bisect": ("bisect_case.py", (), "p15-oracle-009"),
     "report": ("report.py", (), "p15-oracle-116"),
     "minimize": ("minimize.py", (), "p15-oracle-098"),
     "switches": ("switches.py", (), "p15-oracle-018"),

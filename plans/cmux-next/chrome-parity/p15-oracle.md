@@ -1319,7 +1319,7 @@ counts; failures to the perf owner queue. **236 I16** panic log and lock rank (o
 
 **111 diff --switch**, **112 diff --base/--head**, **202 overlay** (`overlay.py`: additive oracle file set applied with `git apply --3way`;
 else v0 facets; missing facets `not-comparable`), **183 launch-config + bisect-switches**, **184 confirm** (`confirm.py`), **009 select + bisect**
-(`select.py`, `bisect.py`, `tests/oracle/suite-map.json`), **113 engine parity**, **114 platform parity**, **235 Windows parity (stretch)**.
+(`select_suites.py`, `bisect_case.py`: not `select.py`/`bisect.py`, which shadow stdlib modules; `tests/oracle/suite-map.json`), **113 engine parity**, **114 platform parity**, **235 Windows parity (stretch)**.
 
 **115 selftest --mutants** over the 026 patches; fails below 19/20. **191 cargo-mutants** (`mutants.sh`, `cmux-tui/.cargo/mutants.toml`):
 test command `oracle.py run --product daemon --suite daemon-ops,walks --jobs 200`; JSON survivors queue. **190 coverage** (`coverage.py`):
