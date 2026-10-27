@@ -253,9 +253,12 @@ test("producer PR revisions invalidate on activity edits, deletion and transcrip
 
 const toolsRows = (...items: ReturnType<typeof shell>[]) => [activity(items, 1)];
 
-test("brokered PR mutations are Changes", () => {
-  const rows = toolsRows(shell("glaeda-gh gh pr edit 41 -R acme/uploader --title 'Changed'"));
-  expect(transcriptPullRequests(rows).map((pr) => [pr.number, pr.changed])).toEqual([[41, true]]);
+test("prefixed and brokered PR mutations are Changes", () => {
+  for (const prefix of ["", "GH_PROMPT_DISABLED=1 ", "env ", "command ", "nohup ", "time ", "env FOO='a b' command "])
+    for (const executable of ["gh", "glaeda-gh gh"]) {
+      const rows = toolsRows(shell(`${prefix}${executable} pr edit 41 -R acme/uploader --title 'Changed'`));
+      expect(transcriptPullRequests(rows).map((pr) => [pr.number, pr.changed])).toEqual([[41, true]]);
+    }
 });
 
 test("git activity, help, comments and quoted commands do not infer PR mutations", () => {
@@ -281,7 +284,7 @@ test("git activity, help, comments and quoted commands do not infer PR mutations
 
 test("brokered comment writes produce one mutation and no Source", () => {
   for (const kind of ["pr", "issue"]) {
-    const rows = [activity([shell(`glaeda-gh post ${kind}-comment acme/uploader#41 --body-file -`)], 1)];
+    const rows = [assistant("I will update acme/uploader#41.", 0), activity([shell(`glaeda-gh post ${kind}-comment acme/uploader#41 --body-file -`)], 1)];
     rows.push(assistant("Updated acme/uploader#41.", 2));
     const findings = transcriptPullRequests(rows, { folder: "acme/uploader", replies: true });
     expect(findings).toHaveLength(1);
@@ -295,7 +298,8 @@ test("mutating issue calls do not become read-only Sources", () => {
     const command =
       action === "create" ? "gh issue create -R acme/uploader --title x" : `gh issue ${action} 7 -R acme/uploader`;
     const output = action === "create" ? "https://github.com/acme/uploader/issues/8" : "";
-    const rows = [activity([shell(command, output)], 1)];
+    const rows = [assistant("I will update acme/uploader#7.", 0), activity([shell(command, output)], 1)];
+    if (action === "create") rows.shift();
     expect(sessionSummary(rows, "acme/uploader").sources).toEqual([]);
   }
 });
