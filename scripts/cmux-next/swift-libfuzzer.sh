@@ -34,7 +34,9 @@
 #                  also run each target once over N random inputs (up to 256 bytes each, the
 #                  size CmuxFuzzSupport's random inputs have) and record the edges they reach as
 #                  "random_edges" and "random_features", next to the fuzzing run's "edges" and
-#                  "features" (the acceptance comparison).
+#                  "features" (the acceptance comparison). The pass runs under the same limits;
+#                  what it finds is "random_verdict" and "random_artifact" and counts like a
+#                  finding of the fuzzing run. Its edges are null when it did not run every input.
 #   --build-only   build the targets and stop.
 #   --list         print the target names and stop.
 #   --self-test    check the finding classifier: run SelfTestFuzzer on a trap, a failed property,
@@ -43,7 +45,8 @@
 #                  verdict and exit status. Exit 0 when all six match, 1 otherwise.
 # Results: <out>/summary.jsonl (one row per target: target, corpus, verdict, artifact, seconds,
 # exit_status, log, sanitizer, malloc_limit_mb, leak_detection, edges, features, corpus_inputs,
-# random_edges, random_features), <out>/logs/<target>.log, <out>/artifacts/<target>/<run>/{crash,oom,timeout,leak}-<sha1>.
+# random_edges, random_features, random_verdict, random_artifact), <out>/logs/<target>.log,
+# <out>/artifacts/<target>/<run>/{crash,oom,timeout,leak}-<sha1> (random-<run>/ for the random pass).
 # Verdicts: clean, crash, oom, timeout, leak, error (libFuzzer stopped with no artifact).
 # Exit 0 when every target is clean, 1 on any finding, 2 on a usage error, 75 when the build
 # failed, the toolchain has no libFuzzer runtime or a run gave no verdict.
@@ -51,7 +54,8 @@
 # Toolchain: swift.org's Linux toolchain ships the runtime (scripts/cmux-next/linux/setup-swift.sh
 # installs it on the Linux VM); Xcode's does not. On macOS the script runs only as a fleet step
 # (cmux-ci run), never on a person's Mac (CLAUDE.md, "Agents never compile or test on the person's
-# Mac"), and only with a toolchain that has libclang_rt.fuzzer_osx.a.
+# Mac"), and only with a toolchain that has libclang_rt.fuzzer_osx.a. It keeps to bash 3.2 and BSD
+# tools (macOS /bin/bash): no mapfile, no wait -n, no find -printf.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -222,7 +226,10 @@ if [[ "$ALL" == 1 && -n "$TARGETS" ]]; then
   echo "swift-libfuzzer.sh: give --all or --target, not both" >&2; exit 2
 fi
 if [[ "$ALL" == 1 ]]; then
-  mapfile -t SELECTED <<<"$KNOWN"
+  SELECTED=()
+  while IFS= read -r target; do
+    [[ -n "$target" ]] && SELECTED+=("$target")
+  done <<<"$KNOWN"
 elif [[ -n "$TARGETS" ]]; then
   IFS=, read -r -a SELECTED <<<"$TARGETS"
   for target in "${SELECTED[@]}"; do
@@ -230,6 +237,9 @@ elif [[ -n "$TARGETS" ]]; then
   done
 else
   echo "swift-libfuzzer.sh: give --all or --target NAME" >&2; usage
+fi
+if [[ ${#SELECTED[@]} -eq 0 ]]; then
+  echo "swift-libfuzzer.sh: no fuzz targets selected" >&2; exit 2
 fi
 
 if [[ "$SANITIZER" == none ]]; then
@@ -271,9 +281,51 @@ for line in open(sys.argv[1], errors="replace"):
 print(*(found or ("null",) * 3))' "$1"
 }
 
-# "<edges> <features>" N random inputs reach: one pass (-runs=0) over them, nothing mutated or kept.
+# libFuzzer's limits for every run of a target; the fuzzing run adds -max_total_time.
+LIMITS=(-rss_limit_mb="$RSS_LIMIT_MB" -timeout="$TIMEOUT")
+[[ "$SANITIZER" == address ]] && LIMITS+=(-malloc_limit_mb="$MALLOC_LIMIT_MB")
+# The flags after --; bash 3.2 (macOS) cannot expand an empty array under set -u.
+FUZZ_FLAGS=(-print_final_stats=1 ${EXTRA[@]+"${EXTRA[@]}"})
+
+# A fresh artifact directory per run (with the trailing slash -artifact_prefix wants), so the
+# artifacts of earlier runs under the same --out never decide this run's verdict.
+artifact_dir() {
+  local dir
+  dir="$(mktemp -d "$OUT/artifacts/$1/$2$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX")"
+  echo "$dir/"
+}
+
+# The first artifact a run wrote into its artifact directory, or nothing (and the empty directory
+# goes). libFuzzer names an artifact by what it found; the first one decides the verdict.
+first_artifact() {
+  python3 -I -c 'import os, sys
+kinds = ("crash-", "oom-", "timeout-", "leak-")
+found = [(entry.stat().st_mtime_ns, entry.name, entry.path) for entry in os.scandir(sys.argv[1])
+         if entry.is_file() and entry.name.startswith(kinds)]
+if found:
+    print(min(found)[2])
+elif not os.listdir(sys.argv[1]):
+    os.rmdir(sys.argv[1])' "$1"
+}
+
+# A run's verdict from its first artifact and its exit status.
+verdict_of() {
+  local name
+  if [[ -n "$1" ]]; then
+    name="$(basename "$1")"
+    echo "${name%%-*}"
+  elif [[ "$2" == 0 ]]; then
+    echo clean
+  else
+    echo error
+  fi
+}
+
+# One pass (-runs=0) over N random inputs under the fuzzing run's limits, nothing mutated or kept.
+# Sets the caller's random_verdict and random_artifact, and its random_edges and random_features
+# only when the pass ran every input (a clean verdict): a partial pass undercounts.
 random_coverage() {
-  local target="$1" bin="$BIN_DIR/$1" dir log
+  local target="$1" bin="$BIN_DIR/$1" dir log artifacts status=0
   dir="$(mktemp -d "$OUT/random-$target-XXXXXX")"
   log="$OUT/logs/$target.random.log"
   python3 -I -c 'import os, random, sys
@@ -281,11 +333,14 @@ directory, count = sys.argv[1], int(sys.argv[2])
 for index in range(count):
     with open(os.path.join(directory, f"r{index}"), "wb") as handle:
         handle.write(os.urandom(random.randint(0, 256)))' "$dir" "$RANDOM_BASELINE"
-  sanitized "$bin" "$dir" -runs=0 -timeout="$TIMEOUT" -rss_limit_mb="$RSS_LIMIT_MB" >"$log" 2>&1 || true
+  artifacts="$(artifact_dir "$target" random-)"
+  sanitized "$bin" "$dir" -runs=0 "${LIMITS[@]}" -artifact_prefix="$artifacts" >"$log" 2>&1 || status=$?
   rm -rf "$dir"
-  local edges features
-  read -r edges features _ <<<"$(coverage_of "$log")"
-  echo "$edges $features"
+  random_artifact="$(first_artifact "$artifacts")"
+  random_verdict="$(verdict_of "$random_artifact" "$status")"
+  if [[ "$random_verdict" == clean ]]; then
+    read -r random_edges random_features _ <<<"$(coverage_of "$log")"
+  fi
 }
 
 # One libFuzzer run of one target. Writes <out>/verdict-<target>.json.
@@ -300,59 +355,51 @@ run_target() {
     echo "swift-libfuzzer.sh: $target did not write its seeds (log: $log)" >&2
     return
   fi
-  # A fresh directory per run: artifacts of earlier runs under the same --out never decide
-  # this run's verdict.
-  artifacts="$(mktemp -d "$OUT/artifacts/$target/$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX")/"
-  local -a limits=(-max_total_time="$SECONDS_PER_TARGET" -rss_limit_mb="$RSS_LIMIT_MB" -timeout="$TIMEOUT")
-  [[ "$SANITIZER" == address ]] && limits+=(-malloc_limit_mb="$MALLOC_LIMIT_MB")
+  artifacts="$(artifact_dir "$target" "")"
   started="$(date +%s)"
-  sanitized "$bin" "$CORPUS/$name" "${limits[@]}" -artifact_prefix="$artifacts" -print_final_stats=1 \
-    "${EXTRA[@]}" >"$log" 2>&1 || status=$?
+  sanitized "$bin" "$CORPUS/$name" -max_total_time="$SECONDS_PER_TARGET" "${LIMITS[@]}" \
+    -artifact_prefix="$artifacts" "${FUZZ_FLAGS[@]}" >"$log" 2>&1 || status=$?
 
-  # libFuzzer names an artifact by what it found; the first one written decides the verdict.
-  local artifact verdict edges features inputs random_edges=null random_features=null
-  artifact="$(find "$artifacts" -maxdepth 1 -type f \
-    \( -name 'crash-*' -o -name 'oom-*' -o -name 'timeout-*' -o -name 'leak-*' \) \
-    -printf '%T@ %p\n' | sort -n | head -n 1 | cut -d' ' -f2-)"
-  rmdir "$artifacts" 2>/dev/null || true
-  if [[ -n "$artifact" ]]; then
-    verdict="$(basename "$artifact")"; verdict="${verdict%%-*}"
-  elif [[ "$status" == 0 ]]; then
-    verdict=clean
-  else
-    verdict=error
-  fi
+  local artifact verdict seconds edges features inputs
+  local random_edges=null random_features=null random_verdict="" random_artifact=""
+  artifact="$(first_artifact "$artifacts")"
+  verdict="$(verdict_of "$artifact" "$status")"
+  seconds=$(( $(date +%s) - started ))
   read -r edges features inputs <<<"$(coverage_of "$log")"
   if (( RANDOM_BASELINE > 0 )); then
-    read -r random_edges random_features <<<"$(random_coverage "$target")"
+    random_coverage "$target"
   fi
   python3 -I -c 'import json, sys
-(target, corpus, verdict, artifact, seconds, status, log, sanitizer, malloc_limit, leaks,
- edges, features, inputs, random_edges, random_features, out) = sys.argv[1:]
+(target, corpus, verdict, artifact, seconds, status, log, sanitizer, malloc_limit, leaks, edges,
+ features, inputs, random_edges, random_features, random_verdict, random_artifact, out) = sys.argv[1:]
 row = {"target": target, "corpus": corpus, "verdict": verdict, "artifact": artifact or None,
        "seconds": int(seconds), "exit_status": int(status), "log": log, "sanitizer": sanitizer,
        "malloc_limit_mb": json.loads(malloc_limit), "leak_detection": json.loads(leaks),
        "edges": json.loads(edges), "features": json.loads(features),
        "corpus_inputs": json.loads(inputs), "random_edges": json.loads(random_edges),
-       "random_features": json.loads(random_features)}
+       "random_features": json.loads(random_features), "random_verdict": random_verdict or None,
+       "random_artifact": random_artifact or None}
 with open(out, "w") as handle:
     json.dump(row, handle)' \
-    "$target" "$CORPUS/$name" "$verdict" "$artifact" "$(( $(date +%s) - started ))" "$status" "$log" \
-    "$SANITIZER" "$MALLOC_LIMIT_RECORDED" "$LEAK_DETECTION" "$edges" "$features" "$inputs" "$random_edges" "$random_features" \
-    "$OUT/verdict-$target.json"
+    "$target" "$CORPUS/$name" "$verdict" "$artifact" "$seconds" "$status" "$log" \
+    "$SANITIZER" "$MALLOC_LIMIT_RECORDED" "$LEAK_DETECTION" "$edges" "$features" "$inputs" \
+    "$random_edges" "$random_features" "$random_verdict" "$random_artifact" "$OUT/verdict-$target.json"
   local random_note=""
-  (( RANDOM_BASELINE > 0 )) && random_note="; random: edges $random_edges, features $random_features"
+  (( RANDOM_BASELINE > 0 )) && random_note="; random: $random_verdict, edges $random_edges, features $random_features${random_artifact:+ ($random_artifact)}"
   echo "swift-libfuzzer.sh: $target $verdict (edges $edges, features $features$random_note)${artifact:+ ($artifact)}"
 }
 
-running=0
+# At most --parallel runs at once. The next slot is the oldest run's: every run has the same
+# --seconds, so it ends first (bash 3.2 has no wait -n).
+PIDS=() launched=0 reaped=0
 for target in "${SELECTED[@]}"; do
-  if (( running >= PARALLEL )); then
-    wait -n || true
-    running=$(( running - 1 ))
+  if (( launched - reaped >= PARALLEL )); then
+    wait "${PIDS[$reaped]}" || true
+    reaped=$(( reaped + 1 ))
   fi
   run_target "$target" &
-  running=$(( running + 1 ))
+  PIDS[launched]=$!
+  launched=$(( launched + 1 ))
 done
 wait || true
 
@@ -372,8 +419,9 @@ done
 
 findings="$(python3 -I -c 'import json, sys
 rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
-print(sum(row["verdict"] in ("crash", "oom", "timeout", "leak") for row in rows),
-      sum(row["verdict"] == "error" for row in rows))' "$OUT/summary.jsonl")"
+verdicts = [verdict for row in rows for verdict in (row["verdict"], row["random_verdict"])]
+print(sum(verdict in ("crash", "oom", "timeout", "leak") for verdict in verdicts),
+      sum(verdict == "error" for verdict in verdicts))' "$OUT/summary.jsonl")"
 read -r finding_count error_count <<<"$findings"
 echo "swift-libfuzzer.sh: $finding_count findings, $error_count runs without a verdict; summary $OUT/summary.jsonl"
 if (( finding_count > 0 )); then
