@@ -34,6 +34,13 @@ final class CEFHostStart {
     /// The host's autofill, password and `<datalist>` suggestions show in cmux's list (feature
     /// `chromiumHostSuggestions`, ``CEFRuntimeSource/drawsHostSuggestions``; task 061). Read at the attach.
     var drawsSuggestions = false
+    /// The color chooser, device choosers and screen-share picker show in cmux (feature
+    /// `chromiumHostChoosers`, ``CEFRuntimeSource/drawsHostChoosers``; task 228). Read at the start.
+    var drawsChoosers = false
+    /// Those choosers, from the start on when ``drawsChoosers`` and the host's fork has their handlers
+    /// (`CEFRuntime.showHostChoosers(_:context:)`); nil otherwise. Kept for the runtime's life: the remote
+    /// shim keeps cmux's handlers across hosts.
+    var choosers: ChromiumHostChoosers?
     /// Pages' pointer and keyboard locks in cmux (feature `chromiumHostLocks`, ``CEFHostLocks``; task 229); nil leaves them to Chromium.
     var locks: CEFHostLocks?
     /// Page file choosers answered by cmux's pickers (feature `chromiumHostFileDialogs`,
@@ -124,12 +131,13 @@ final class CEFHostStart {
     /// The host's wire ended, whatever ended it (`CEFRuntime.hostWireEnded`, task 091), and ``hostEnded()``
     /// detached it: every REPLY token not answered yet fails with ``CEFHostReplyError/hostGone`` and
     /// what cmux showed for the host closes in this turn. A dead host sends no WIDGET_GONE,
-    /// POPUP_MENU_HIDE or chooser end, so its panels, panes, windows, `<select>` menu and file pickers go here, as a mojo disconnect runs each pending reply
+    /// POPUP_MENU_HIDE or chooser end, so its panels, panes, windows, `<select>` menu, color, device and screen-share choosers and file pickers go here, as a mojo disconnect runs each pending reply
     /// callback's default and then the disconnect handler
     /// (mojo/public/cpp/bindings/lib/interface_endpoint_client.cc, `NotifyError`). A second call finds nothing.
     func hostDisconnected() {
         widgetHost?.hostEnded()
         popupMenus?.hostEnded()
+        choosers?.hostEnded()
         files?.hostEnded()
         replies.failAll(.hostGone)
     }

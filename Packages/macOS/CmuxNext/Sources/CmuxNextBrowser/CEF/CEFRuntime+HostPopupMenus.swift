@@ -8,11 +8,12 @@ extension CEFRuntime {
     static let popupMenuForkAPI: Int32 = 31
 
     /// Host mode, at the start (after the attach, before `cmux_shim_initialize`): the host's widgets,
-    /// `<select>` popups and page locks in cmux, as the source asks. `forkAPIVersion` is the host's
-    /// fork's; `context` is the runtime's callback token.
-    func showHostNativeUI(_ shim: CEFShimLibrary, forkAPIVersion: Int32, context: UnsafeMutableRawPointer?) {
+    /// `<select>` popups, choosers and page locks in cmux, as the source asks. `forkAPIVersion` is the host's
+    /// fork's; `context` the runtime's callback token, the choosers' handler context and the lock fn's.
+    func showHostNativeUI(_ shim: CEFShimLibrary, forkAPIVersion: Int32, context: UnsafeMutableRawPointer? = nil) {
         showHostWidgets(shim)
         showHostPopupMenus(shim, forkAPIVersion: forkAPIVersion)
+        if let context = unsafe context { unsafe showHostChoosers(shim, context: context) }
         // SAFETY: `context` is the runtime's token, which the shim only hands back to the lock fn.
         unsafe hostStart?.locks?.install(shim, forkAPIVersion: forkAPIVersion, context: context)
     }

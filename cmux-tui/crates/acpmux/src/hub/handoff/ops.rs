@@ -250,7 +250,7 @@ impl Hub {
         // The capsule reads the whole source log: off the async workers.
         let built = {
             let (hub, meta) = (self.clone(), sm.clone());
-            tokio::task::spawn_blocking(move || hub.build_capsule(&meta, to_seq))
+            crate::daemon::spawn_blocking(move || hub.build_capsule(&meta, to_seq))
                 .await
                 .map_err(|e| RpcError::internal(format!("build the capsule: {e}")))??
         };
@@ -631,7 +631,7 @@ impl Hub {
         prompt_id: &str,
     ) -> Option<String> {
         let (hub, session, prompt_id) = (self.clone(), session.clone(), prompt_id.to_owned());
-        tokio::task::spawn_blocking(move || hub.handoff_turn_for(&session, &prompt_id))
+        crate::daemon::spawn_blocking(move || hub.handoff_turn_for(&session, &prompt_id))
             .await
             .ok()
             .flatten()

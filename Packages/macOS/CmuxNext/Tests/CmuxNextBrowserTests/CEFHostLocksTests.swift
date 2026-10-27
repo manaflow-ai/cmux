@@ -106,10 +106,10 @@ import Testing
         #expect(intents.fullscreen.isEmpty)
     }
 
-    /// CMUX_SHIM_LOCK (61) is the remote shim's for cmux's lock fn: as an event it is nothing cmux handles.
+    /// CMUX_SHIM_LOCK (64) is the remote shim's for cmux's lock fn: as an event it is nothing cmux handles.
     @Test func aLockPushIsNoEvent() {
-        #expect(CEFShimEvent(kind: 61, browser: 7, request: 0, a: 1, b: 0, s1: "", s2: "") == .unknown(kind: 61))
-        #expect(ChromiumHostEventKind(rawValue: 61) == .lock)
+        #expect(CEFShimEvent(kind: 64, browser: 7, request: 0, a: 1, b: 0, s1: "", s2: "") == .unknown(kind: 64))
+        #expect(ChromiumHostEventKind(rawValue: 64) == .lock)
     }
 }
 
