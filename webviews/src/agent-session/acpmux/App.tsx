@@ -155,6 +155,7 @@ import { DECISION_TEXT, PERMISSION_RECORD } from "./permissions/record";
 import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
+import { PeerCopyBanner } from "./PeerCopyBanner";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { heldPrompts } from "./heldPrompt";
 import { StartingSends, type StartingSend } from "./startingSends";
@@ -695,9 +696,7 @@ const sendWhenTaken = (steer: boolean) => (text: string, attachments: ComposerAt
 const resumeAgentPair = (peer: string) => callNative("chat.agentPair.resume", { peer });
 
 /// Changes a waiting prompt (`_acpmux/queue_edit`); false when it already started.
-/// Where a steer's Send now and X are drawn (PendingSteer.tsx): while it waits, and once read under
-/// a prompt with text (its action row stays), so they fold away there. A prompt of images alone
-/// never gains a row once read.
+/// Keeps one footer mounted through waiting, accepted delivery and the authoritative read event.
 const steerControls = (row: AcpmuxRow) =>
   row.steer === "waiting" || (row.steer === "landed" && Boolean(row.text?.trim()));
 
@@ -958,19 +957,33 @@ const MessageRow = memo(
               <PromptActions
                 row={row}
                 text={envelope ? envelope.task : (row.text ?? "")}
-                pending={steerControls(row) ? <PendingSteer row={row} send={editQueued} /> : undefined}
+                pending={
+                  steerControls(row)
+                    ? (actions) => (
+                        <PendingSteer row={row} send={editQueued}>
+                          {actions}
+                        </PendingSteer>
+                      )
+                    : undefined
+                }
               />
             </>
           ) : (
-            // A waiting steer's Send now leads the action row under the queued prompt (Leo,
-            // 2026-10-24). A prompt of images alone gets the same row under the images.
-            // `steerControls` keeps it mounted once the agent read it, so it folds away.
+            // An unread steer shows only queue controls; accepted or read prompts show normal hover actions.
             <>
               {row.author && <AuthorChip author={row.author} />}
               <UserBubble
                 row={row}
                 text={row.text ?? ""}
-                pending={steerControls(row) ? <PendingSteer row={row} send={editQueued} /> : undefined}
+                pending={
+                  steerControls(row)
+                    ? (actions) => (
+                        <PendingSteer row={row} send={editQueued}>
+                          {actions}
+                        </PendingSteer>
+                      )
+                    : undefined
+                }
               />
             </>
           )}
@@ -8705,6 +8718,30 @@ function AcpmuxPane() {
         : {})}
     />
   );
+  // A new chat in a workspace without a folder starts in its private folder (FolderChoice.tsx): the
+  // folder chip's menu says so, and its Choose folder… is the workspace's folder sheet, which also
+  // makes the pick the folder of the pane's next chats.
+  const folderChoiceOffered =
+    !pendingFolder &&
+    !showNewTab &&
+    showsFolderChoice({
+      offered: chooseFolder,
+      freshChat,
+      quick,
+      projectDraft,
+      sessionId: snapshot.sessionId,
+      missingFolder: Boolean(folderNeeded && !snapshot.sessionId),
+    });
+  const chooseWorkspaceFolder = () => {
+    setFolderError(undefined);
+    void callNative<{ cwd?: string }>("workspace.chooseFolder")
+      .then((result) => {
+        if (!result?.cwd) return;
+        setChooseFolder(false);
+        chooseProject(result.cwd);
+      })
+      .catch((error: unknown) => setFolderError(errorMessage(error) || undefined));
+  };
   // A subagent's own pane is a tab on the chat's session: the chat's composer, queue and pull
   // request bars there were the chat's, and a prompt typed in it went to the chat.
   const composer = readOnlySubagent ? (
@@ -8800,34 +8837,11 @@ function AcpmuxPane() {
           />
         </Notice>
         {!showNewTab && folderAskView}
-        {!pendingFolder && !showNewTab && (
-          <Notice
-            id="folder-choice"
-            tier="hint"
-            when={showsFolderChoice({
-              offered: chooseFolder,
-              freshChat,
-              quick,
-              projectDraft,
-              sessionId: snapshot.sessionId,
-              missingFolder: Boolean(folderNeeded && !snapshot.sessionId),
-            })}
-          >
-            <FolderChoice
-              error={folderError}
-              onChoose={() => {
-                setFolderError(undefined);
-                void callNative<{ cwd?: string }>("workspace.chooseFolder")
-                  .then((result) => {
-                    if (!result?.cwd) return;
-                    setChooseFolder(false);
-                    chooseProject(result.cwd);
-                  })
-                  .catch((error: unknown) => setFolderError(errorMessage(error) || undefined));
-              }}
-            />
-          </Notice>
-        )}
+        {/* The private folder's line is the folder chip's menu's (Composer `folderNote`); only the
+            host's refusal of its Choose folder… stands over the composer, with the line to retry. */}
+        <Notice id="folder-choice" tier="error" when={folderChoiceOffered && folderError}>
+          <FolderChoice error={folderError} onChoose={chooseWorkspaceFolder} />
+        </Notice>
         <Notice id="background" tier="status" when={background.notice}>
           <output className="acpmux-switch-notice acpmux-background-notice">
             {background.notice && t(BACKGROUND_NOTICE_TEXT[background.notice])}
@@ -9094,16 +9108,19 @@ function AcpmuxPane() {
             // A started local chat lists the same folders to move to (dogfood 09); Start Agent's
             // panel lists them before its first prompt (cx-hkat).
             projectChoices={freshChat || (!quick && canMove) ? newTabProjects : undefined}
+            {...(folderChoiceOffered ? { folderNote: t("agentHome.notice") } : {})}
             onBrowseProject={
-              freshChat && !quick
-                ? () => {
-                    void callNative<{ cwd?: string }>("project.browse")
-                      .then((result) => {
-                        if (result?.cwd) chooseProject(result.cwd);
-                      })
-                      .catch(() => undefined);
-                  }
-                : undefined
+              folderChoiceOffered
+                ? chooseWorkspaceFolder
+                : freshChat && !quick
+                  ? () => {
+                      void callNative<{ cwd?: string }>("project.browse")
+                        .then((result) => {
+                          if (result?.cwd) chooseProject(result.cwd);
+                        })
+                        .catch(() => undefined);
+                    }
+                  : undefined
             }
             // The host runs commands on this Mac: a Cloud chat has no shell mode.
             onShell={
@@ -9647,6 +9664,7 @@ function AcpmuxPane() {
                     onChoose={(choice) => void callNative("chat.adoptLive", { choice }).catch(() => undefined)}
                   />
                 )}
+                {snapshot.peerCopy?.offline && <PeerCopyBanner copy={snapshot.peerCopy} />}
                 {snapshot.summary?.watching && !snapshot.liveTakeOver && (
                   <WatchBanner
                     family={snapshot.summary.watching}

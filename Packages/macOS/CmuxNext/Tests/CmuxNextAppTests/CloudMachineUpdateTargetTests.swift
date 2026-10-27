@@ -295,18 +295,30 @@ nonisolated final class FakeCloudMachine: @unchecked Sendable {
     private var answers: [CloudMoveCLI.Answer]
     /// The first this many updates run past the CLI's deadline.
     private var timeouts: Int
-    private var counts = (updates: 0, reconnects: 0)
+    /// What each update through the Cloud API's exec answers (``CloudLegacyMachineUpdate``); nil:
+    /// the machine has no exec, so it has none.
+    private var legacyAnswers: [CloudMoveCLI.Answer]?
+    private var counts = (updates: 0, reconnects: 0, legacy: 0)
+    private var restarts: [Bool] = []
 
-    init(build: String?, level: DaemonCompatibility.Level, timeouts: Int = 0, answers: [CloudMoveCLI.Answer] = []) {
+    init(build: String?, level: DaemonCompatibility.Level, timeouts: Int = 0, answers: [CloudMoveCLI.Answer] = [],
+         legacy: [CloudMoveCLI.Answer]? = nil) {
         daemon = CloudMachineUpdateTarget.Daemon(build: build, level: level)
         self.timeouts = timeouts
         self.answers = answers
+        legacyAnswers = legacy
     }
 
     var updates: Int { lock.withLock { counts.updates } }
     var reconnects: Int { lock.withLock { counts.reconnects } }
+    var legacyUpdates: Int { lock.withLock { counts.legacy } }
+    /// Each reconnect's `restarted`.
+    var reconnectRestarts: [Bool] { lock.withLock { restarts } }
 
     func disconnect() { lock.withLock { daemon = nil } }
+
+    /// The machine gets the Cloud API's exec (or this app a pinned build): updates through it answer `answers`.
+    func allowLegacy(_ answers: [CloudMoveCLI.Answer]) { lock.withLock { legacyAnswers = answers } }
 
     /// The machine was reinstalled by hand: it now serves everything this app uses.
     func repair(build: String) { lock.withLock { daemon = CloudMachineUpdateTarget.Daemon(build: build, level: .current) } }
@@ -329,7 +341,23 @@ nonisolated final class FakeCloudMachine: @unchecked Sendable {
                     return answer
                 }
             },
-            reconnect: { _ in self.lock.withLock { self.counts.reconnects += 1 } })
+            reconnect: { restarted in
+                self.lock.withLock {
+                    self.counts.reconnects += 1
+                    self.restarts.append(restarted)
+                }
+            },
+            legacy: { _ in
+                self.lock.withLock {
+                    guard var answers = self.legacyAnswers else { return nil }
+                    self.counts.legacy += 1
+                    guard !answers.isEmpty else { return CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_unresolved") }
+                    let answer = answers.removeFirst()
+                    self.legacyAnswers = answers
+                    if answer.ok, let build = answer.build { self.daemon = CloudMachineUpdateTarget.Daemon(build: build, level: .current) }
+                    return answer
+                }
+            })
     }
 }
 
