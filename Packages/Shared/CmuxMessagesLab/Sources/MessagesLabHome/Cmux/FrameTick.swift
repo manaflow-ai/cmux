@@ -12,7 +12,9 @@ import AppKit
 public protocol FrameTickSource: AnyObject {
     /// Frames of `view`'s screen: after ``FrameTickStream/start()``, `onFrame` runs at the start of
     /// each display frame until it returns false, which stops the stream until the next `start()`.
-    func frames(for view: NSView, onFrame: @escaping @MainActor () -> Bool) -> any FrameTickStream
+    /// `onFrame` is `@Sendable`: CmuxNext (Swift 6) infers that for every main-actor function type, and a
+    /// witness must match it in both language modes.
+    func frames(for view: NSView, onFrame: @escaping @MainActor @Sendable () -> Bool) -> any FrameTickStream
 }
 
 /// One ``FrameTickSource`` stream (one per ``FrameTick``).

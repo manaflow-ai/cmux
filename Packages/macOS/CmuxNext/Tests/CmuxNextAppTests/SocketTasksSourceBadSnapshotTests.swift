@@ -30,7 +30,9 @@ struct SocketTasksSourceBadSnapshotTests {
         defer { owner.close() }
 
         let clock = ManualClock()
+        // A scheduler with no display link: each read's lines run on the next main run loop pass.
         let source = SocketTasksSource(path: owner.path,
+                                       mainWork: MainWorkScheduler.testing(budget: MainFrameBudget()) { _ in nil },
                                        retryTimer: DemandTimer(owner: "test.tasks.reconnect", clock: clock, ledger: WakeupLedger()),
                                        backoff: Backoff(initial: .milliseconds(200), maximum: .seconds(10), jitter: 0))
         let disconnects = Disconnects()

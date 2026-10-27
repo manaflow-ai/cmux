@@ -16,6 +16,12 @@ import os
 /// intents it sent before the disconnect, with their keys. The backoff resets
 /// only when a valid snapshot arrives, so an owner that accepts and then
 /// sends a refused snapshot is retried later and later, not at once.
+///
+/// What the owner sends reaches the main actor as ``MainWorkClass/automation``
+/// work on the app's ``MainWorkScheduler``: another process's lines, so a
+/// person's pending input and the frame it shows go first (Chrome posts IPC
+/// replies to the UI thread as task-runner tasks, never ahead of input:
+/// content/browser/scheduler/browser_task_queues.h).
 @MainActor
 public final class SocketTasksSource: TasksSource {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "tasks.socket")
@@ -24,6 +30,12 @@ public final class SocketTasksSource: TasksSource {
     /// Whether a connection is open (its descriptor belongs to `connection`).
     private var connected = false
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
+    /// The directory watch's events arrive here, off main, and post to ``mainWork``.
+    private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.next.tasks.directory", qos: .utility)
+    private let mainWork: MainWorkScheduler
+    /// Interned once: the connection's queue posts each read's lines under it.
+    private let linesOwner: MainTaskOwner
+    private let directoryOwner: MainTaskOwner
     private let retryTimer: DemandTimer
     private var backoff: Backoff
     /// Owns the descriptor: reads, framing, JSON decoding and writes run on
@@ -34,16 +46,22 @@ public final class SocketTasksSource: TasksSource {
     private var nextID: UInt64 = 1
     private var keysByID: [UInt64: String] = [:]
 
-    /// `path` defaults to the local team's socket
-    /// (`~/Library/Application Support/cmux/tasks/local/tasks.sock`).
-    /// `retryTimer` and `backoff` space reconnect attempts; tests pass a
-    /// timer on a `ManualClock` and a backoff with no jitter.
+    /// - Parameters:
+    ///   - path: The owner's socket; defaults to the local team's
+    ///     (`~/Library/Application Support/cmux/tasks/local/tasks.sock`).
+    ///   - mainWork: Where the owner's lines and the socket directory's changes run on main, as automation work.
+    ///   - retryTimer: Spaces reconnect attempts; tests pass a timer on a `ManualClock`.
+    ///   - backoff: The reconnect delays; tests pass one with no jitter.
     public init(path: String? = nil,
+                mainWork: MainWorkScheduler,
                 retryTimer: DemandTimer = DemandTimer(owner: "tasks.reconnect"),
                 backoff: Backoff = Backoff(initial: .milliseconds(200), maximum: .seconds(10))) {
         self.path = path ?? Self.defaultPath(team: "local")
+        self.mainWork = mainWork
         self.retryTimer = retryTimer
         self.backoff = backoff
+        linesOwner = mainWork.board.owner("tasks.socket.lines")
+        directoryOwner = mainWork.board.owner("tasks.socket.directory")
     }
 
     public static func defaultPath(team: String) -> String {
@@ -85,12 +103,11 @@ public final class SocketTasksSource: TasksSource {
         connected = true
         generation += 1
         let generation = generation
-        // The main actor gets each read's decoded lines in one hop.
+        // The main actor gets each read's decoded lines as one automation task.
         let connection = TasksSocketConnection(fd: socket)
+        let mainWork = mainWork, owner = linesOwner
         connection.start { [weak self] batch in
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated { self?.deliver(batch, generation: generation) } // main-proof: DispatchQueue.main.async
-            }
+            mainWork.postFromAnyThread(.automation, owner: owner) { [weak self] in self?.deliver(batch, generation: generation) }
         }
         self.connection = connection
         directoryWatch?.cancel()
@@ -160,17 +177,25 @@ public final class SocketTasksSource: TasksSource {
     /// owner that restarts without recreating the directory entry.
     private func waitForOwner() {
         if directoryWatch == nil {
-            let directory = (path as NSString).deletingLastPathComponent
-            let dirFD = Darwin.open(directory, O_EVTONLY)
-            if dirFD >= 0 {
-                let watch = DispatchSource.makeFileSystemObjectSource(fileDescriptor: dirFD, eventMask: [.write, .rename, .delete], queue: .main)
-                watch.setEventHandler { [weak self] in MainActor.assumeIsolated { self?.scheduleAttempt() } } // main-proof: dispatch source on queue: .main
-                watch.setCancelHandler { close(dirFD) }
-                watch.resume()
-                directoryWatch = watch
+            let mainWork = mainWork, owner = directoryOwner
+            directoryWatch = Self.watch(directory: (path as NSString).deletingLastPathComponent, on: watchQueue) { [weak self] in
+                mainWork.postFromAnyThread(.automation, owner: owner) { [weak self] in self?.scheduleAttempt() }
             }
         }
         scheduleAttempt()
+    }
+
+    /// A running watch of `directory`'s entries whose events call `changed` on `queue`; nil when it
+    /// cannot be opened. Nonisolated, so the handler is not inferred to the main actor it never runs on.
+    private nonisolated static func watch(directory: String, on queue: DispatchQueue,
+                                          changed: @escaping @Sendable () -> Void) -> (any DispatchSourceFileSystemObject)? {
+        let dirFD = Darwin.open(directory, O_EVTONLY)
+        guard dirFD >= 0 else { return nil }
+        let watch = DispatchSource.makeFileSystemObjectSource(fileDescriptor: dirFD, eventMask: [.write, .rename, .delete], queue: queue)
+        watch.setEventHandler { changed() }
+        watch.setCancelHandler { close(dirFD) }
+        watch.resume()
+        return watch
     }
 
     /// One attempt after the next `Backoff` delay (a one-shot timer, never a poll).
