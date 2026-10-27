@@ -207,12 +207,17 @@ class SignAppTest(unittest.TestCase):
         self.assertEqual({tuple(c["config_env"]) for c in calls}, {()})
 
     def test_no_workflow_hands_the_signer_a_config_variable(self) -> None:
-        """No env key named RCODESIGN_* in any workflow, and each release signer
-        script scrubs RCODESIGN_* before its first signer call."""
+        """No RCODESIGN_* variable in any workflow; each release signer script and
+        each workflow step that calls "$CMUX_SIGNER" itself scrubs RCODESIGN_* first."""
         import re
         scrub = re.compile(r"""compgen -e \| grep ['"]\^RCODESIGN_['"]""")
         for path in sorted((ROOT / ".github/workflows").glob("*.y*ml")):
-            self.assertIsNone(re.search(r"^\s+RCODESIGN_[A-Za-z0-9_]*\s*:", path.read_text(), re.M), path.name)
+            text = path.read_text()
+            self.assertIsNone(re.search(r"^\s+RCODESIGN_[A-Za-z0-9_]*\s*:", text, re.M), path.name)
+            self.assertNotIn("RCODESIGN_", scrub.sub("", re.sub(r"#.*", "", text)), path.name)
+            for step in re.split(r"\n\s+- (?=name:|uses:|run:)", text):
+                if re.search(r'"\$\{?CMUX_SIGNER\}?"\s+\w', step):
+                    self.assertRegex(step, scrub, f"{path.name}: a step calls the signer without the scrub")
         for script in sorted((ROOT / "scripts/ci/release-signer").glob("*.sh")):
             text = script.read_text()
             first_call = re.search(r'"\$R" [a-z]', text)
