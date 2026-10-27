@@ -70,6 +70,10 @@ struct DecodedAttachLine: Sendable, Equatable {
 ///   offset); pages of a replaced READY would land above the wrong screen.
 /// - Everything else passes unchanged, so a byte-replay attach (no
 ///   snapshot, untagged output) is unaffected.
+///
+/// On a stream with attach frames, ``TerminalAttachFrameDecoder`` owns it
+/// for frames and lines alike; frame output carries no generation, and the
+/// decoder drops what a READY replaced by its PTY offset instead.
 struct TerminalSnapshotSequencer: Sendable {
     private(set) var generation: UInt64?
     private var cut: (generation: UInt64, offset: UInt64)?

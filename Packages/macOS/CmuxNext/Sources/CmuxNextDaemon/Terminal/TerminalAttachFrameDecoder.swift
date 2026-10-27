@@ -1,0 +1,258 @@
+import Foundation
+
+/// Turns one attach stream's frames into channel events, in stream order, on the reader thread
+/// (attach-frames-v1, p05-ipc-097; cmux-tui `server/attach_frames.rs` and `server/snapshot_frames.rs`).
+///
+/// Every attach frame's aux is an absolute PTY offset, and consecutive OUTPUT frames are contiguous, so the
+/// decoder knows the offset of the next output byte and sees a gap the moment bytes are lost, as Chrome's
+/// `viz::BeginFrameArgs` carry a sequence number for the same reason
+/// (components/viz/common/frame_sinks/begin_frame_args.h):
+///
+/// - A REPLAY or a READY is the screen at its offset; output continues from there.
+/// - OUTPUT at that offset passes as a slice of the read buffer (never copied). Bytes before it are already
+///   on the screen (the READY's cut came after them): they are cut off by a narrower slice, or dropped.
+/// - OUTPUT, a GRID or an event past that offset means bytes were lost. A snapshot stream asks for a
+///   fresh READY (``TerminalFrameAdmission/resync(_:)``, once) and drops screen bytes until it comes; a
+///   byte-replay stream cannot, so its view reattaches from a fresh replay, as on the daemon's `overflow`.
+/// - SNAPSHOT/SNAPSHOT_MORE and REPLAY chunks are put back together by the lengths in their meta; an event
+///   whose raw bytes all came in one frame is a slice too.
+///
+/// JSON lines of the same stream go through ``admit(line:)``, so one ``TerminalSnapshotSequencer`` orders both.
+struct TerminalAttachFrameDecoder: Sendable {
+    /// Largest snapshot or replay event put together from chunks (a JSON line replay is at most 32 MiB).
+    static let maxBulkBytes = 64 << 20
+    /// Bytes of the little-endian `meta_len` that opens GRID, SNAPSHOT and REPLAY payloads.
+    static let metaLengthBytes = 4
+
+    /// The stream's surface; ``TerminalAttachment/unresolvedSurface`` until a REPLAY or READY names it.
+    private(set) var surface: SurfaceID
+    /// Offset of the next output byte; nil until the stream names one.
+    private(set) var nextOffset: UInt64?
+    /// Set by a gap on a snapshot stream: screen bytes are dropped until a READY restores the screen.
+    private(set) var resyncing = false
+    /// The stream restores from READY snapshots (a snapshot attach), so a gap is repaired in place.
+    private var snapshots = false
+    /// The aux of the OUTPUT just delivered: the only offset its sidecar EVENT (colors, flow) may carry.
+    private var deliveredOutput: UInt64?
+    private var sequencer = TerminalSnapshotSequencer()
+    private var bulk: PendingBulk?
+
+    init(surface: SurfaceID) {
+        self.surface = surface
+    }
+
+    /// What `frame` gives the view. `decoder` is the connection's (it counts each meta decode).
+    mutating func admit(_ frame: TerminalAttachFrame, decoder: WireDecoder) -> TerminalFrameAdmission {
+        // A sidecar follows its OUTPUT at once; any other frame in between ends that chance.
+        let sidecarOffset = deliveredOutput
+        deliveredOutput = nil
+        if let pending = bulk {
+            // A stream's frames never interleave (one FIFO per stream), so another frame here is a broken stream.
+            guard pending.continues(with: frame) else { return lost() }
+            return appendBulk(frame.payload, decoder: decoder)
+        }
+        switch frame.kind {
+        case .output:
+            return output(TerminalOutputSpan(offset: frame.offset, bytes: frame.payload))
+        case .grid:
+            return grid(frame, decoder: decoder)
+        case .event:
+            return event(frame, sidecarOffset: sidecarOffset, decoder: decoder)
+        case .snapshot, .replay:
+            bulk = PendingBulk(kind: frame.kind, offset: frame.offset)
+            return appendBulk(frame.payload, decoder: decoder)
+        case .snapshotMore:
+            return lost()  // a continuation of no SNAPSHOT
+        }
+    }
+
+    /// A JSON line of the same stream (an event the daemon sent as a line). A READY sets the offset output
+    /// continues from, as its frame does.
+    mutating func admit(line: DecodedAttachLine) -> TerminalChannelEvent? {
+        guard let event = sequencer.admit(line) else { return nil }
+        if case .snapshot(let frame) = event, frame.phase == .ready { restored(at: frame.offset, snapshot: true) }
+        return event
+    }
+
+    private mutating func output(_ span: TerminalOutputSpan) -> TerminalFrameAdmission {
+        guard !resyncing else { return .nothing }
+        guard let next = nextOffset else {
+            nextOffset = span.end
+            deliveredOutput = span.offset
+            return .output(span)
+        }
+        guard span.offset <= next else { return lost() }
+        // Bytes before `next` are on the screen already; only the rest is new.
+        guard span.end > next, let rest = span.dropping(before: next) else { return .nothing }
+        nextOffset = rest.end
+        deliveredOutput = span.offset
+        return .output(rest)
+    }
+
+    /// `meta_len | meta | replay | pending`: the `resized` event without `replay` and `pending`.
+    private mutating func grid(_ frame: TerminalAttachFrame, decoder: WireDecoder) -> TerminalFrameAdmission {
+        guard !resyncing else { return .nothing }
+        if let next = nextOffset, frame.offset > next { return lost() }
+        let payload = frame.payload
+        guard let metaLength = payload.littleEndianUInt32(at: 0).map({ Int(clamping: $0) }),
+              let meta = payload.slice(from: Self.metaLengthBytes, length: metaLength),
+              let state = try? decoder.decode(TerminalVTStateWire.self, from: meta.data)
+        else {
+            TerminalAttachment.noteUndecodable("grid frame")
+            return lost()
+        }
+        let rawStart = Self.metaLengthBytes + metaLength
+        let pendingLength = state.pendingLen ?? 0
+        let replayLength = payload.count - rawStart - pendingLength
+        guard let replay = payload.slice(from: rawStart, length: replayLength),
+              let pending = payload.slice(from: rawStart + replayLength, length: pendingLength)
+        else {
+            TerminalAttachment.noteUndecodable("grid frame")
+            return lost()
+        }
+        guard scoped(state.surface) else { return .nothing }
+        if nextOffset == nil { nextOffset = frame.offset }
+        return .event(.resized(state.terminalReplay(data: replay.data, pending: pending.data)), flow: nil)
+    }
+
+    private struct EventName: Decodable {
+        var event: String
+    }
+
+    /// The `output` event without `data`, after its OUTPUT.
+    private struct OutputSidecar: Decodable {
+        var surface: SurfaceID?
+        var colors: TerminalColors?
+        var flow: UInt64?
+    }
+
+    /// An attach event's JSON line, or the sidecar of the OUTPUT before it.
+    private mutating func event(_ frame: TerminalAttachFrame, sidecarOffset: UInt64?,
+                                decoder: WireDecoder) -> TerminalFrameAdmission {
+        let line = frame.payload.data
+        guard let name = try? decoder.decode(EventName.self, from: line).event else {
+            TerminalAttachment.noteUndecodable("event frame")
+            return .nothing
+        }
+        if name == "output" {
+            // The sidecar of output that was dropped (already on the screen, or lost) is dropped with it.
+            guard sidecarOffset == frame.offset else { return .nothing }
+            guard let sidecar = try? decoder.decode(OutputSidecar.self, from: line) else {
+                TerminalAttachment.noteUndecodable("output sidecar")
+                return .nothing
+            }
+            guard scoped(sidecar.surface) else { return .nothing }
+            if let colors = sidecar.colors { return .event(.colorsChanged(colors), flow: sidecar.flow) }
+            if let flow = sidecar.flow { return .event(.inputEcho(flow: flow), flow: nil) }
+            return .nothing
+        }
+        if !resyncing, let next = nextOffset, frame.offset > next { return lost() }
+        guard let decoded = TerminalAttachment.decodeAttachLine(name: name, line: line, surface: surface,
+                                                                decoder: decoder),
+              let event = sequencer.admit(decoded)
+        else { return .nothing }
+        return .event(event, flow: decoded.flow)
+    }
+
+    private mutating func appendBulk(_ chunk: TerminalFrameBytes, decoder: WireDecoder) -> TerminalFrameAdmission {
+        guard var pending = bulk.take() else { return .nothing }
+        switch pending.append(chunk, decoder: decoder) {
+        case .waiting:
+            bulk = pending
+            return .nothing
+        case .malformed:
+            TerminalAttachment.noteUndecodable(pending.kind == .replay ? "replay frame" : "snapshot frame")
+            return lost()
+        case .complete(let meta, let raw):
+            bulk = nil
+            return completeBulk(meta, raw: raw, offset: pending.offset)
+        }
+    }
+
+    private mutating func completeBulk(_ meta: PendingBulk.Meta, raw: Data, offset: UInt64) -> TerminalFrameAdmission {
+        switch meta {
+        case .replay(let state):
+            guard adopt(state.surface) else { return .nothing }
+            let replayLength = state.dataLen ?? 0
+            let replay = raw.prefix(replayLength)
+            let pending = raw.dropFirst(replayLength)
+            restored(at: offset, snapshot: false)
+            return .event(.replay(state.terminalReplay(data: replay, pending: pending)), flow: nil)
+        case .snapshot(let snapshot):
+            guard let frame = snapshot.frame(data: raw) else { return .nothing }
+            if frame.phase == .ready {
+                guard adopt(snapshot.surface) else { return .nothing }
+                restored(at: offset, snapshot: true)
+            } else if !scoped(snapshot.surface) {
+                return .nothing
+            }
+            guard let event = sequencer.admit(DecodedAttachLine(event: .snapshot(frame))) else { return .nothing }
+            return .event(event, flow: nil)
+        }
+    }
+
+    /// The screen is the one at `offset`: output continues from there, and a resync is over.
+    private mutating func restored(at offset: UInt64, snapshot: Bool) {
+        nextOffset = offset
+        resyncing = false
+        snapshots = snapshot
+    }
+
+    /// Bytes were lost: a snapshot stream asks for a fresh READY once; a byte-replay stream reattaches.
+    private mutating func lost() -> TerminalFrameAdmission {
+        bulk = nil
+        guard snapshots else { return .event(.closed(.overflow), flow: nil) }
+        guard !resyncing else { return .nothing }
+        resyncing = true
+        return .resync(.gap)
+    }
+
+    private func scoped(_ id: SurfaceID?) -> Bool {
+        id == nil || id == surface
+    }
+
+    /// Like ``scoped(_:)``, and an unresolved stream takes the surface its first REPLAY or READY names.
+    private mutating func adopt(_ id: SurfaceID?) -> Bool {
+        if surface == TerminalAttachment.unresolvedSurface, let id { surface = id }
+        return scoped(id)
+    }
+}
+
+extension TerminalAttachFrameDecoder {
+    /// What the view's attachment does with the admissions the queue does not take itself.
+    struct Delivery: Sendable {
+        /// A `size-state` and this view's participant in it (the attachment orders them by generation).
+        var sizeState: @Sendable (TerminalSizeState, String?) -> Void
+        /// Sends `snapshot-request` for this stream.
+        var requestSnapshot: @Sendable (SnapshotRequestReason) -> Void
+        /// The typing probe's decode mark for output, and for the key press it echoes when known.
+        var outputDecoded: @Sendable (UInt64?) -> Void
+    }
+
+    /// Reader thread. Hands one admission to the view's queue in stream order, as a decoded attach line is:
+    /// output stays a slice of its read buffer, a key press's echo rides behind its chunk, `closed` ends the
+    /// stream, and a gap asks the host for a fresh READY.
+    static func deliver(_ admission: TerminalFrameAdmission, to queue: TerminalEventQueue, delivery: Delivery) {
+        switch admission {
+        case .nothing:
+            return
+        case .output(let span):
+            delivery.outputDecoded(nil)
+            queue.push(span)
+        case .event(.sizeState(let state, let participant), _):
+            delivery.sizeState(state, participant)
+        case .event(.closed(let reason), _):
+            queue.finish(.closed(reason))
+        case .event(.inputEcho(let flow), _):
+            delivery.outputDecoded(flow)
+            queue.pushWithoutWaiting(.inputEcho(flow: flow))
+        case .event(let event, let flow):
+            queue.push(event)
+            guard let flow else { return }
+            delivery.outputDecoded(flow)
+            queue.pushWithoutWaiting(.inputEcho(flow: flow))
+        case .resync(let reason):
+            delivery.requestSnapshot(reason)
+        }
+    }
+}
