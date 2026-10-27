@@ -29,7 +29,7 @@ struct PageCrashReloadsPerPageTests {
         var views: [PageWebView] = []
         for _ in 0..<3 {
             let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: nil, chromium: hosting))
-            view.chromiumClock = PageTestClock.never
+            view.chromiumDeadlines = LifecycleDeadlineRig.never
             view.now = { now }
             await view.chromiumStart?.value
             try #require(view.chromiumSession != nil)

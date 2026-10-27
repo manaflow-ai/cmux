@@ -10,7 +10,7 @@ use cmux_pty::ChildKiller;
 
 use super::sink::{AdoptionCuts, Pending, SinkEnd, SnapshottingReader};
 use super::{HolderService, HolderSink};
-use crate::surface::spawn::LocalLaunch;
+use crate::surface::spawn::{LocalEnd, LocalLaunch};
 use crate::terminal_end::TerminalEnd;
 use crate::terminal_host_protocol::{TerminalExit, TerminalExitOutcome};
 
@@ -311,13 +311,13 @@ pub(crate) fn holder_local_launch(
         reader: Box::new(reader),
         writer,
         killer: Box::new(HolderKiller(terminal.clone())),
-        wait: Box::new(move || {
+        end: LocalEnd::Wait(Box::new(move || {
             let end = waited.sink.wait_end();
             if end != SinkEnd::Detached {
                 waited.end();
             }
             terminal_end(end)
-        }),
+        })),
         pid: u32::try_from(terminal.pid).ok(),
         command,
         cwd,
@@ -515,7 +515,9 @@ pub(crate) mod tests {
         });
         let launch = holder_local_launch(&terminal, Vec::new(), None).unwrap();
         sink.exit(ExitStatus::Exited(0), 0);
-        let wait = launch.wait;
+        let LocalEnd::Wait(wait) = launch.end else {
+            panic!("a holder terminal ends through its sink, not a child reaper")
+        };
         let _ = wait();
         assert!(terminal.ring.lock().unwrap().is_none(), "the ended terminal kept its segment");
         terminal.keep_ring(Some(segment()));

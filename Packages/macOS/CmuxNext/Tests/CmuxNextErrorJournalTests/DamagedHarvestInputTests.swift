@@ -60,6 +60,29 @@ import Testing
         #expect(harvest.cursor == "\(inode):12")
     }
 
+    /// p10-stability-095: the log parser cuts its captures by UTF-16 counts from the front (no subscript);
+    /// characters outside the Basic Multilingual Plane before and inside a capture come out whole.
+    @Test func aLogLineWithWideCharactersParsesWhole() {
+        let parser = LogLineParser(source: "acpmux", file: "daemon.log")
+        let events = parser.events(in: "🙂 é ERROR: boom 🙂\nthread 'main' panicked at src/🙂.rs:10:5:\nit broke\n")
+        #expect(events.map(\.message) == ["boom 🙂", "panic: it broke"])
+        #expect(events.map(\.topFrame) == [nil, "src/🙂.rs:10"])
+    }
+
+    /// The first harvest of a log starts mid-line: the part line before its first break is dropped, and only
+    /// complete lines are read (a partial last line waits for its newline).
+    @Test func aFirstHarvestDropsThePartLineAndWaitsForTheLastOne() async throws {
+        let log = directory.appendingPathComponent("tail.log")
+        // 47 bytes; the last 36 start inside "x ERROR cut".
+        try Data("ERROR old\nx ERROR cut\nERROR whole\nERROR partial".utf8).write(to: log)
+        let source = LogFileErrorSource(url: log, source: "acpmux", firstReadBytes: 36)
+        let harvest = try await source.collect(after: nil)
+        #expect(harvest.events.map(\.message) == ["whole"])
+        let attributes = try FileManager().attributesOfItem(atPath: log.path)
+        let inode = try #require((attributes[.systemFileNumber] as? NSNumber)?.uint64Value)
+        #expect(harvest.cursor == "\(inode):34")
+    }
+
     /// Opening a FIFO waited in open(2) for a writer that never came. The test supplies one
     /// that opens and closes as soon as a reader appears, so a harvest that opens the FIFO
     /// reads end of file and reports it (a failure, not a hang); then the test is that reader.

@@ -7,6 +7,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFeatures
+import CmuxNextHomeEngine
 import CmuxNextInput
 import CmuxNextIPC
 import CmuxNextLaunch
@@ -18,6 +19,7 @@ import CmuxNextTerminal
 import CmuxNextCompat
 import CmuxNextTrace
 import CmuxNextWakeups
+import CmuxNextWebUpdates
 
 /// Entry point called from the Xcode target's `App/main.swift`.
 public struct CmuxNextApp {
@@ -36,6 +38,9 @@ public struct CmuxNextApp {
         // with "No zone found" (browser-isolation.md, allocator zone race).
         _ = cmux_early_malloc_zone_registration()
         #if DEBUG || CMUX_BENCH_HOOKS
+        // CMUX_NEXT_MAIN_JOB_CENSUS=1 (startup-queue.py mainjobs): every main job and turn until startup completes
+        // (p08-startup-080). Its hook goes in while the process still has one thread, before any main-actor job.
+        let mainJobs = MainJobCensus.armed(environment: ProcessInfo.processInfo.environment, processStartNanos: DebugTimings.processStartUptimeNanos)
         // CMUX_NEXT_GLOBAL_JOB_CENSUS=1 (startup-queue.py globaljobs): every task that starts on the cooperative pool
         // until startup completes (p08-startup-082), its hook in before the launch starts tasks.
         let globalJobs = GlobalJobCensus.armed(environment: ProcessInfo.processInfo.environment, processStartNanos: DebugTimings.processStartUptimeNanos)
@@ -72,14 +77,17 @@ public struct CmuxNextApp {
         var environment = AppEnvironment.current(openFiles: openFiles)
         environment.marksRun = true
         #if DEBUG || CMUX_BENCH_HOOKS
+        environment.mainJobCensus = mainJobs
         environment.globalJobCensus = globalJobs
         #endif
         // Key flows start and stop at run time; CMUX_NEXT_TRACE_FLOWS only starts them at launch.
         TypingLatencyProbe.shared.startFlows(launchEnvironment: ProcessInfo.processInfo.environment)
         environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
         environment.layoutTemplatesFile = environment.sidebarSnapshotFile?.url.deletingLastPathComponent().appending(path: "layout-templates.json")
-        environment.homeCachesDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
+        let homeCaches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+        environment.homeCachesDirectory = homeCaches
+        // The Home list's caches of this build's Chief owner, read on the files lane while AppKit starts (p08-startup-076).
+        environment.homeListRead = HomeListLaunchRead.start(owner: ChiefHome.resolve(tag: environment.tag).session, caches: homeCaches, on: work)
         DebugTimings.markLaunch("main.app_environment")
         // The last quit's agent pages, terminal frames and chat composers are read and decoded off the main thread
         // from here, while AppKit starts, so each pane's first frame can use them without waiting. Where each chat
@@ -114,6 +122,11 @@ public struct CmuxNextApp {
                                                              in: ledgerThenSettings)
         // The saved sidebars, before the settings read: the launch window's first frame draws them (p08-startup-075).
         environment.sidebarSnapshot = environment.sidebarSnapshotFile?.startLaunchRead(in: ledgerThenSettings)
+        // This Mac's install id, after the feature choices (the launch's features do not wait for it) and after the run marker
+        // and saved sidebars, before the settings read: the windows built when that lands find it read (p08-startup-076).
+        let cloudPaths = CloudPaths.standard(bundleID: Bundle.main.bundleIdentifier)
+        let deviceID = LaunchRead(in: ledgerThenSettings, dropped: .failure(.notReadYet)) { cloudPaths.deviceIDResult() }
+        environment.cloudDeviceID = CloudDeviceIDSource(paths: cloudPaths) { deviceID.value }
         // cmux-next.json (made on first launch) read and merged with the managed layers on the files lane, next:
         // the launch steps that need it run when it lands, never waiting for it on main (p08-startup 025).
         let settingsRead = SettingsController.startLaunchRead(on: work, in: ledgerThenSettings)
@@ -125,6 +138,8 @@ public struct CmuxNextApp {
         environment.browserLaunchPictures?.prefetch { DebugTimings.markLaunch($0) }
         environment.windowPictures = WindowPictureStore(state: state, work: work)  // the windows' (p08-startup-057)
         relaunchWake.begin(on: work)
+        // The kept web update's state and digest (NIGHTLY): pages wait for it, never main (p08-startup-077).
+        environment.webUpdates = WebUpdates.startLaunchRead(on: work)
         // The browser source registry (browser-sources.json) the import pickers and the Passwords page read:
         // in memory before them, never read on the thread that asks first (p02-threads-122).
         BrowserSourceRegistryInstall.shared.load(on: work)
@@ -138,6 +153,9 @@ public struct CmuxNextApp {
         BackdropVideoPlayers.shared.lanes = work
         // The launch's feature values, once, before the first feature read (the daemon connect's).
         let features = AppServices.launchFeatures(environment)
+        // What every hello tells the local daemon, which outlives this app (p12-perf-process-150).
+        environment.daemonFeatureHello = DaemonFeatureHello(hash: features.daemonValuesHash, values: Dictionary(
+            features.daemonValues.map { ($0.name, $0.isEnabled) }, uniquingKeysWith: { _, last in last }))
         // `debug.daemon.wire`'s counters, each schema method timed; nil in a release build unless the
         // person opted in to field data.
         let wireStats = DaemonWireStats.forBuild(fieldData: features.isEnabled(.ipcMethodLatencyFieldData),
@@ -148,7 +166,7 @@ public struct CmuxNextApp {
                                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                                               resolvesShellIntegration: environment.resolvesShellIntegration,
                                               echoesPlacementShift: SidebarMirror.isLinked, wireStats: wireStats,
-                                              hangWatch: hangWatch)
+                                              hangWatch: hangWatch, featureHello: environment.daemonFeatureHello)
         DebugTimings.markLaunch("main.prestart")
         // The daemon's launch snapshot, read and decoded on the files lane; the daemon's start applies it (p08-startup-074).
         // A read quit drops before it started ends as `.missing`, so nothing waits for it.
@@ -193,6 +211,7 @@ public struct CmuxNextApp {
         }
         DaemonLauncher.captureLoginEnvironment(after: order.startup) // at once only with nothing remembered (p08-startup-034)
         #if DEBUG || CMUX_BENCH_HOOKS
+        mainJobs?.freeze(after: order.startup)
         globalJobs?.freeze(after: order.startup)
         #endif
         LaunchThreadCensus.post(on: order.startup) { LaunchMarkSink.shared.writeValue(name: $0, value: $1) } // Debug/bench: threads at the first frame (p08-startup-068)

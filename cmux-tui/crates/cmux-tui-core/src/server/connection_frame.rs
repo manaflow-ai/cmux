@@ -49,6 +49,9 @@ pub(super) fn handle_connection_frame_at(
     // Every handler this frame reaches runs on the reader's request path
     // (`crate::request_path`): its blocking work is counted at its caller.
     let _request_path = crate::request_path::RequestPathScope::enter(mux.request_path_stats());
+    // The release hang watch: one scope per frame, at the deadline of the
+    // request it reaches from then (server/request_hang_watch.rs).
+    let _hang = request_hang_watch::RequestHang::frame();
     // The lock acquisitions this frame's handlers make count under its
     // connection's caller class (`debug-daemon-locks`).
     let _lock_caller = match transport {
@@ -156,7 +159,7 @@ pub(super) fn dispatch_line(line: &LineFrame<'_>) -> bool {
     if let Some(route) = head.cmd().and_then(routes::find) {
         line.stage(route.stage);
         let route_line = routes::RouteLine { mux, client, message, writer, head: &head };
-        if let Some(keep_open) = (route.entry)(&route_line) {
+        if let Some(keep_open) = request_hang_watch::route(&head, || (route.entry)(&route_line)) {
             return match routed.as_mut() {
                 Some(span) => span.answered(keep_open),
                 None => keep_open,
@@ -213,16 +216,23 @@ fn resource_line(line: &LineFrame<'_>, head: &RequestHead<'_>) -> Option<bool> {
         line.stage(route.stage);
         let mut span = head.open(stats, RequestArrival::parsed_now(arrived));
         let route_line = routes::RouteLine { mux, client, message, writer, head };
-        if let Some(keep_open) = (route.entry)(&route_line) {
+        if let Some(keep_open) = request_hang_watch::route(head, || (route.entry)(&route_line)) {
             return Some(span.answered(keep_open));
         }
         page_span = Some(span);
     }
     let request = crate::resource_router::parse_resource_line(message)?;
-    match &request {
-        Ok(envelope) => line.watch(WatchedMethod::resource(envelope.operation)),
-        Err(_) => line.stage(FrameStage::PageRouter),
-    }
+    let _hang = match &request {
+        Ok(envelope) => {
+            line.watch(WatchedMethod::resource(envelope.operation));
+            let class = RequestMethod::of_resource(envelope.operation).class;
+            request_hang_watch::RequestHang::enter(class)
+        }
+        Err(_) => {
+            line.stage(FrameStage::PageRouter);
+            None
+        }
+    };
     // An envelope's `origin` claim may only narrow the cause, as it
     // only narrows the origin; the origin gate still checks the claim.
     // Its `priority` narrows the cause the same way and is never checked:
@@ -292,6 +302,9 @@ pub(super) fn handle_request_with_cancellation(
     cancellation: Option<&ConnectionCancellation>,
 ) -> bool {
     let Request { id, cmd } = request;
+    // Watched at its class deadline wherever it runs (a frame's scope, or
+    // its own on a dispatcher or worker).
+    let _hang = request_hang_watch::RequestHang::enter_command(&cmd);
     // A panic in the handler names its command (cmux-panic-log crash keys, this thread's own).
     let _crash_key = cmux_panic_log::crash_keys::scoped_thread(
         cmux_panic_log::crash_keys::Key::ActionId,

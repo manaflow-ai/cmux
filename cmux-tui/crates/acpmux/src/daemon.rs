@@ -106,6 +106,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // daemon must not die when its launcher or a client goes away mid-write:
     // a closed pipe is an ordinary write error here.
     #[cfg(unix)]
+    // SAFETY: SIG_IGN is a valid disposition for SIGPIPE; no handler runs.
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_IGN);
     }
@@ -113,6 +114,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // must not hold the readiness pipe open.
     #[cfg(unix)]
     if let Some(fd) = opts.ready_fd.filter(|fd| *fd > 2) {
+        // SAFETY: fcntl takes no pointers; `fd` is the launcher's readiness
+        // descriptor (above stdio), and only its close-on-exec flag changes.
         unsafe {
             libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
         }
@@ -1073,6 +1076,9 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
+        // SAFETY: the hook runs in the forked child before exec and calls only setsid
+        // and fcntl, both async-signal-safe, on the copied descriptor numbers; it
+        // allocates nothing and takes no lock.
         unsafe {
             cmd.pre_exec(move || {
                 // New session so the daemon outlives the terminal; keep the
