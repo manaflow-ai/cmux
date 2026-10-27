@@ -65,7 +65,8 @@ public final class GlassBackdropImages {
             if entry.dataURL == nil { entry.waiters.append(ready) }
             return (entry.key, entry.dataURL)
         }
-        guard let bitmap = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        // SAFETY: the proposed-rect pointer is nil, so AppKit reads and writes no caller memory and uses the image's size.
+        guard let bitmap = unsafe image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
         serial += 1
         let entry = Entry(image: image, key: "still-\(serial)")
         entry.waiters = [ready]
@@ -112,8 +113,8 @@ public final class GlassBackdropImages {
         let width = max(Int((Double(image.width) * scale).rounded()), 1)
         let height = max(Int((Double(image.height) * scale).rounded()), 1)
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
-              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
-                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+              let context = CGContext.pixelOwningBitmap(width: width, height: height, space: space,
+                                                        bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
         context.interpolationQuality = .high
         context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
         guard let scaled = context.makeImage() else { return nil }
