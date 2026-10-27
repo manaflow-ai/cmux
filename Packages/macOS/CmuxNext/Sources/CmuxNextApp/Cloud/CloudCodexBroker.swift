@@ -309,6 +309,7 @@ public actor CloudCodexBroker {
                 cached = nil
                 refreshTask?.cancel()
                 refreshTask = nil
+                if signOut { _ = try? await request(method: "logout") }
             }
             return
         }
@@ -441,8 +442,16 @@ public actor CloudCodexBroker {
                     catch CloudCodexBrokerError.targetOffline { continue }
                     catch CloudCodexBrokerError.remoteDeliveryFailed { continue }
                 }
+                await self.rescheduleRefresh(after: refreshed)
             } catch { /* cancellation, logout, or a stopped VM ends renewal */ }
         }
+    }
+
+    private func rescheduleRefresh(after grant: CloudCodexAccessGrant) {
+        // This method runs on the renewal task itself; clear its handle before
+        // installing the next one so scheduleRefresh cannot cancel this task.
+        refreshTask = nil
+        scheduleRefresh(grant: grant)
     }
 
 }
