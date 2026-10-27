@@ -4488,7 +4488,8 @@ jobs:
       # tests/test_cmux_next_hybrid_ref_capture.py keeps HYBRID_REF_SETTINGS equal to the compile's.
       - name: Decide the Linux build's REF capture
         id: hybrid-ref
-        if: vars.CMUX_NEXT_HYBRID_REF_CAPTURE == '1' && steps.dev-product.outcome == 'success' && steps.dev-product.outputs.hit != 'true'
+        # A reused product compiles nothing, so its capture step finds no build mode and skips.
+        if: vars.CMUX_NEXT_HYBRID_REF_CAPTURE == '1' && steps.dev-product.outcome == 'success'
         continue-on-error: true
         timeout-minutes: 1
         env:

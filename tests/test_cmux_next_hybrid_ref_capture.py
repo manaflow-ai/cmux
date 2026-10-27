@@ -40,7 +40,7 @@ WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 COMPILE_SCRIPT = ROOT / "scripts/cmux-next/check-cmux-scheme-compile.sh"
 TOOLCHAIN = "Xcode 26.6\nBuild version 17F113\n25F61\n"
 LOG = """\
-xcodebuild command: xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release
+xcodebuild command: xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release OTHER_SWIFT_FLAGS=\\$\\(inherited\\)\\ -DCMUX_NO_PASSWORD_IMPORT\\ -DCMUX_NO_BROWSER_DATA_IMPORT build
 SwiftDriver CmuxNextApp normal arm64 com.apple.xcode.tools.swift.compiler (in target 'CmuxNextApp')
     cd /ws
     builtin-SwiftDriver -- /X/swiftc -module-name CmuxNextApp -O -whole-module-optimization @/dd/a.resp
@@ -177,6 +177,8 @@ class Capture(unittest.TestCase):
         self.assertEqual((manifest["workspace"], manifest["derived_data"]),
                          ("/Users/cmux/host/src", "/Users/cmux/host/Release/xcode-1"), "the build's paths, not the snapshot's")
         self.assertIn("complete=true", output)
+        self.assertEqual(manifest["xcodebuild_args"][-2:],
+                         ["OTHER_SWIFT_FLAGS=$(inherited) -DCMUX_NO_PASSWORD_IMPORT -DCMUX_NO_BROWSER_DATA_IMPORT", "build"])
         self.assertEqual(set(manifest["blobs"]), {"xcodebuild.log.gz", "xcbuilddata.tgz", "build-noobj.tgz",
                                                   "ws-src.tgz", "Package.resolved"})
         packs = out / "packs"

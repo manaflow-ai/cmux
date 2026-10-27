@@ -198,7 +198,13 @@ def capture(a: argparse.Namespace, environ=os.environ) -> int:
         "workspace": str(ws), "derived_data": str(dd),
         "tmpdir": environ.get("TMPDIR", ""), "runner": environ.get("RUNNER_NAME", ""),
         "os_build": run(["sw_vers", "-buildVersion"]).strip() if platform.system() == "Darwin" else "",
-        "xcodebuild_command": command, "settings": settings(environ),
+        "toolchain": {"xcode": " / ".join(run(["xcodebuild", "-version"]).split()[1::2][:2]),
+                      "developer_dir": run(["xcode-select", "-p"]).strip(),
+                      "sdk_build": run(["xcrun", "--sdk", "macosx", "--show-sdk-build-version"]).strip()}
+        if platform.system() == "Darwin" else {},
+        # The diagnostics wrapper prints the line shell-quoted: OTHER_SWIFT_FLAGS=... stays one argument.
+        "xcodebuild_command": command, "xcodebuild_args": shlex.split(command) if command else [],
+        "settings": settings(environ),
         "blobs": {},
     }
     if manifest["complete"]:
