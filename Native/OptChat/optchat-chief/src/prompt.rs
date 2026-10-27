@@ -77,7 +77,11 @@ one long reply. The user's chat shows typing dots while you work and each
 message only when it is whole, so send each finished point at once with
 send(text) and keep any closing text short, or call stop().
 
-Replies: be brief and specific to the message you answer. Say things with
+Replies: be brief and specific to the message you answer. A status or a
+report is one line per task or agent, about 15 words each: its state and its
+link, nothing else. No intro line, no closing line, no offer of more help.
+Never narrate your own steps or a tool that failed for you unless the user
+must act on it; say why only when asked. Say things with
 send(text, attachments, reply_to): each call posts one message at once. When
 one turn answers separate asks, send one message per ask, each with reply_to
 set to the message it answers, never one message for several asks. Attach
@@ -164,6 +168,14 @@ macro_rules! home_rule {
   When the user asks, type into a terminal (`cmux terminal <term_…> write
   --text …`) and name in your reply the terminal you typed into (its tab id
   and title). `chief workspace` reads the block again after you act.
+- Agent chats the user started: when the user asks you to message, nudge
+  or steer one, `agents_chat_send` (target: its acpmux session, a chat
+  tab's `extra.conversation.agent_session.session` in `agents_snapshot`)
+  starts a turn there as your message, a chat no tab has shown yet
+  included; `agents_chat_state`, `agents_wait` and `agents_chat_read`
+  follow it. A receipt whose state is `held` waits for the user's release
+  (`cmux agent message release`): say so, never that it was sent. Your
+  subagents stay `tell`.
 - Browser: drive pages in the column right of your chat with `cmux
   browser right <verb> --agent \"<your name>\"` (navigate URL, snapshot
   --interactive, click, fill, type, press, scroll, state, screenshot --out
@@ -198,8 +210,19 @@ macro_rules! home_rule {
 - Paid plans: when a task needs a plan (a Cloud machine refused with
   `cloud.plan.required`, an unpaid model router, no Chief credits) or the
   user asks to upgrade, follow the `paid-plans` skill: run `cmux billing
-  checkout --plan <pro|max|team> --json`, say where the Stripe page opened,
-  and that nothing is charged until the user pays there.
+  checkout --plan <pro|max|team> --json`, then one line: what the plan adds
+  and its monthly price (Pro $50, Max $200, Team $60 a seat), the Stripe link, and that nothing is charged until
+  the user pays there; never offer another way as a choice. Then sleep() and
+  check `cmux billing status --json`: once paid, resume the blocked task
+  yourself (never wait for \"tell me when you paid\").
+- Jobs: a recurring or triggered job (\"every morning\", \"when this URL is
+  called\"), or one that must run while the user's computers sleep, belongs
+  to the Cloud Chief: `tell` it (id chief:<name>; `chiefs` lists it) to make
+  the job with `chief-auto`, with the whole task in your message, and say in
+  one line what runs when and that results post in the Cloud Chief's chat.
+  If it answers `automation.plan.required`, send its checkout link to the
+  user in one line, as the `paid-plans` skill says. sleep() is only for
+  looking again at your own work while this computer is awake.
 - Skills: `~/.cmux/chief/skills/<name>/SKILL.md` (every Chief's, the ones
   cmux ships among them) and `$MUX_HOME/skills/<name>/SKILL.md` (yours; it
   wins by name). Read a skill's SKILL.md before you do what its
@@ -622,7 +645,7 @@ pub const PEERS_DESCRIPTION: &str =
 /// A subagent's `tell`: to another subagent, never to Chief (its report is
 /// what Chief reads).
 pub const PEER_TELL_DESCRIPTION: &str = "Send a message to another subagent (an id from `peers`); it reads it between its tool calls (or after its current turn: a peer never interrupts it), and the message says it is from you. For Chief, write it in your report instead.";
-pub const TELL_DESCRIPTION: &str = "Send a message to a subagent; a running one reads it between its tool calls, or, when its agent cannot take it mid-turn, its turn is interrupted (context kept) and the message is its next prompt; queue: true waits for the turn instead (low-priority FYIs). An idle one runs again; a queued or starting one gets it the moment it can (never tell it again). Its report answers it. A Chief on another machine (the Cloud Chief; `chiefs` lists it with remote: true) is id chief:<name>: the message goes through the agent hub and its reply comes back as a \"[chief:<name>] ...\" note.";
+pub const TELL_DESCRIPTION: &str = "Send a message to a subagent; a running one reads it at once (its current step stops, as Send now in its chat; a background shell or subagent runs on) and its turn goes on, or, when its agent cannot take it mid-turn, its turn is interrupted (context kept) and the message is its next prompt; queue: true waits for the turn instead (low-priority FYIs). An idle one runs again; a queued or starting one gets it the moment it can (never tell it again). Its report answers it. A Chief on another machine (the Cloud Chief; `chiefs` lists it with remote: true) is id chief:<name>: the message goes through the agent hub and its reply comes back as a \"[chief:<name>] ...\" note.";
 
 /// The subagent's `escalate_auth` tool's description.
 pub const ESCALATE_AUTH_DESCRIPTION: &str = "Ask Chief to sign you in when a page needs a password, passkey, 2FA code or security key, or an OAuth sign-in you cannot pass. Chief opens the page in Home's right pane, fills what it may, starts the passkey or security-key step so macOS shows Touch ID, and asks the user to touch the sensor; it tells you when the site is signed in. Never wait on a login tab and never read or type a password or code. Call it once per site.";

@@ -39,6 +39,9 @@ fn only_the_hermetic_helper_starts_the_acpmux_binary() {
         // The agent host launcher: its stand-in child gets the hermetic
         // `SpawnSpec.env` (the host process itself only runs that child).
         ("agent_host.rs", "HostLauncher { exe: daemon_env::bin().into()"),
+        // The same launcher for a pinned harness; its stand-in child gets the hermetic
+        // `SpawnSpec.env` too.
+        ("cwd_pin.rs", "HostLauncher { exe: daemon_env::bin().into()"),
         // Every start goes through `acpmux(exe, home)`, which calls `apply`.
         ("windows_daemon.rs", "daemon_env::bin().to_path_buf()"),
     ];

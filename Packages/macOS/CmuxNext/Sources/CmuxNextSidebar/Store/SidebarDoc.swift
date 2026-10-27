@@ -112,10 +112,15 @@ public nonisolated struct SidebarDocItem: Hashable, Sendable, Identifiable {
     /// Archived (`extra.archived`): the reducer lists it after its unarchived
     /// siblings and its row draws dimmed (plans/cmux-next/archiving-DESIGN.md).
     public var archived: Bool
+    /// A group's own auto-archive rule (`extra.auto_archive`; plans/cmux-next/auto-archive-DESIGN.md);
+    /// nil when it follows the setting.
+    public var autoArchive: SidebarDocAutoArchiveRule?
 
     public init(id: String, section: String, parent: String? = nil, body: SidebarDocBody, showsLabel: Bool = true, span: Int? = nil,
-                label: String? = nil, iconURL: String? = nil, pinnedInGroup: Bool = false, archived: Bool = false) {
+                label: String? = nil, iconURL: String? = nil, pinnedInGroup: Bool = false, archived: Bool = false,
+                autoArchive: SidebarDocAutoArchiveRule? = nil) {
         self.iconURL = iconURL
+        self.autoArchive = autoArchive
         self.pinnedInGroup = pinnedInGroup && parent != nil
         self.archived = archived
         self.id = id

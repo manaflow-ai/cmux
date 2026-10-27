@@ -56,6 +56,18 @@ pub fn chief_tags(home_id: &str, role: &str) -> BTreeMap<String, String> {
     ])
 }
 
+/// A turn session's tags: [`chief_tags`] plus the names acpmux puts on its
+/// approval cards (Leo 2026-10-21, #89(4): "Chief wants to message a12 ·
+/// Nightly train"): the asker is the Chief, and its children are the
+/// sessions whose `mux.parent` is `parent`.
+pub fn turn_tags(home_id: &str, parent: &str) -> BTreeMap<String, String> {
+    use cmux_chief::rules::{CHIEF_DISPLAY_NAME, CHILDREN_TAG, LABEL_TAG};
+    let mut tags = chief_tags(home_id, "turn");
+    tags.insert(LABEL_TAG.to_owned(), CHIEF_DISPLAY_NAME.to_owned());
+    tags.insert(CHILDREN_TAG.to_owned(), parent.to_owned());
+    tags
+}
+
 /// A harness's family, as acpmux reports it: it decides the layout and the
 /// isolation each Chief session gets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -261,6 +273,22 @@ pub trait AgentPort: Send + Sync {
     /// `start_steer`, then its wait.
     fn steer(&self, session: &str, blocks: Vec<Value>, prompt_id: &str) -> Result<(), String> {
         self.start_steer(session, blocks, prompt_id)?()
+    }
+    /// `start_steer` read now (`_meta.acpmux.steerNow`): acpmux stops the agent's current step
+    /// so it reads the message at once, as the pane's Send now does; the turn runs on. A running
+    /// subagent or background shell is never stopped for it. The Chief's tell (Lawrence,
+    /// 2026-10-26: "interrupt by default"). An acpmux without it takes a plain steer.
+    fn start_steer_now(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+    ) -> Result<SteerWait, String> {
+        self.start_steer(session, blocks, prompt_id)
+    }
+    /// `start_steer_now`, then its wait.
+    fn steer_now(&self, session: &str, blocks: Vec<Value>, prompt_id: &str) -> Result<(), String> {
+        self.start_steer_now(session, blocks, prompt_id)?()
     }
     /// Records `cwd` as trusted (`acp.trust.set`, level trusted), so the
     /// app's pane never asks about a folder the host made itself.
@@ -511,6 +539,34 @@ impl Acpmux {
             .clone()
             .filter(|c| !c.is_closed())
             .ok_or_else(|| "acpmux is not connected".to_owned())
+    }
+
+    /// A steer into `session`'s running turn (`steerOnly`: refused, never queued, when it
+    /// cannot steer now); `now` asks acpmux to stop the agent's step for it (`steerNow`).
+    fn send_steer(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+        now: bool,
+    ) -> Result<SteerWait, String> {
+        let mut mux = json!({"promptId": prompt_id, "steer": true, "steerOnly": true});
+        if now {
+            mux["steerNow"] = json!(true);
+        }
+        // Written now, on the caller's thread: steers keep their order.
+        let answer = self.client()?.start(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": mux}}),
+        );
+        // No timeout: acpmux answers when the harness took the message,
+        // however long the running tool (or the codex turn) takes.
+        Ok(Box::new(move || match answer.recv() {
+            // Claude Code: `steered` at its echo; codex-acp: its own answer.
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(format!("steer: {e}")),
+            Err(_) => Err("steer: the acpmux connection closed".into()),
+        }))
     }
 
     /// Runs the connection loop on its own thread: start the daemon if needed,
@@ -1064,8 +1120,10 @@ impl AgentPort for Acpmux {
     }
 
     fn probe_models(&self, harness: &str) -> Result<(), String> {
+        let mut params = models_params(harness);
+        params["probe"] = json!([harness]);
         self.client()?
-            .request("_acpmux/models", json!({"probe": [harness]}))
+            .request("_acpmux/models", params)
             .map(|_| ())
             .map_err(|e| format!("models probe: {e}"))
     }
@@ -1073,7 +1131,7 @@ impl AgentPort for Acpmux {
     fn offered_models(&self, harness: &str) -> Result<Vec<Value>, String> {
         let catalog = self
             .client()?
-            .request("_acpmux/models", json!({}))
+            .request("_acpmux/models", models_params(harness))
             .map_err(|e| format!("models: {e}"))?;
         Ok(catalog["harnesses"]
             .as_array()
@@ -1138,19 +1196,16 @@ impl AgentPort for Acpmux {
         blocks: Vec<Value>,
         prompt_id: &str,
     ) -> Result<SteerWait, String> {
-        // Written now, on the caller's thread: steers keep their order.
-        let answer = self.client()?.start(
-            "session/prompt",
-            json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"promptId": prompt_id, "steer": true, "steerOnly": true}}}),
-        );
-        // No timeout: acpmux answers when the harness took the message,
-        // however long the running tool (or the codex turn) takes.
-        Ok(Box::new(move || match answer.recv() {
-            // Claude Code: `steered` at its echo; codex-acp: its own answer.
-            Ok(Ok(_)) => Ok(()),
-            Ok(Err(e)) => Err(format!("steer: {e}")),
-            Err(_) => Err("steer: the acpmux connection closed".into()),
-        }))
+        self.send_steer(session, blocks, prompt_id, false)
+    }
+
+    fn start_steer_now(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+    ) -> Result<SteerWait, String> {
+        self.send_steer(session, blocks, prompt_id, true)
     }
 
     fn prewarm(
@@ -1256,6 +1311,20 @@ impl AgentPort for Acpmux {
             )
             .map(|_| ())
             .map_err(|e| format!("setting the system prompt of preset {preset}: {e}"))
+    }
+}
+
+/// The `_acpmux/models` params for `harness`: this acpmux's own harnesses
+/// (`localOnly`) unless `harness` is a peer's (`peer/harness`). Without
+/// `localOnly` acpmux also asks every peer and waits up to 10 s for a slow
+/// one, with the brain's input loop held (cosmic-gray 2026-10-21: `cmux
+/// chief engine` gave up after the daemon's 10 s with "Resource temporarily
+/// unavailable"). An older acpmux ignores the field and asks its peers.
+fn models_params(harness: &str) -> Value {
+    if harness.contains('/') {
+        json!({})
+    } else {
+        json!({"localOnly": true})
     }
 }
 

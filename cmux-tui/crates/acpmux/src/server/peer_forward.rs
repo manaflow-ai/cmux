@@ -134,6 +134,11 @@ async fn forward_inner(
                 return Err(crate::hub::file_uploads::peer_unsupported(&peer));
             }
         }
+        // A person's prompt is checked here, before `mark_forwarded` drops its provenance
+        // (`author.rs`).
+        if m == method::SESSION_PROMPT {
+            crate::author::of_prompt(params)?;
+        }
         // So do a message's attachments, under their caps (`attach.rs`).
         if m == method::SESSION_PROMPT
             && let Some(blocks) = params.get("prompt").and_then(Value::as_array)
@@ -159,6 +164,12 @@ async fn forward_inner(
         if m == method::MUX_SUBAGENT_TRANSCRIPT && !peer.supports_subagent_transcript() {
             return Err(crate::hub::media_read::peer_unsupported(&peer, m)
                 .with_data(json!({"reason": "transcriptRead.unsupported"})));
+        }
+        // Typing and an authored view are this daemon's own chats only (`hub/presence.rs`):
+        // forwarded, whatever the peer serves this link as, one entry there would stand for
+        // every client here.
+        if m == method::MUX_TYPING || (m == method::MUX_VIEW && crate::author::present(params)) {
+            return Err(crate::hub::presence::peer_unsupported());
         }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
         if let Some(obj) = p.as_object_mut() {
@@ -193,9 +204,10 @@ async fn forward_inner(
                 let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
                 let event_stream =
                     params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
-                conn.subscribe_with(&id, SubOpts { event_stream, filter, ..SubOpts::default() });
+                let opts = SubOpts { event_stream, filter, ..SubOpts::default() };
+                super::view::subscribe_remote(hub, conn, &id, Some(opts));
             } else {
-                super::requests::attach(hub, conn, &id);
+                super::view::subscribe_remote(hub, conn, &id, None);
             }
             if peer.mark_attached(&id) && m != method::MUX_ATTACH {
                 // The link is not a person: only a client's own attach or view shows the chat.
@@ -250,22 +262,35 @@ async fn forward_inner(
         if let (Some(prompt_id), Some(token)) = (&accept, token) {
             hub.peer_accepts.forget(&peer.name, prompt_id, token);
         }
+        // `Peer::request` already took the peer's display lines out of the result and the error.
         let mut result = result.map_err(|e| {
             if matches!(m, method::MUX_FILE_PUT_BEGIN | method::MUX_FILE_PUT_CHUNK | method::MUX_FILE_PUT_FINISH | method::MUX_FILE_PUT_CANCEL)
                 && e.message.contains("Method not found")
             {
                 crate::hub::file_uploads::peer_unsupported(&peer)
             } else if e.message.contains("Method not found") {
-                            RpcError::internal(format!("{}; peer {} runs acpmux build {} (this daemon: {}); run `acpmux host update {}`", e.message, peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::BUILD, peer.name))
+                            RpcError::internal(format!("peer {} does not support {m}; it runs acpmux build {} (this daemon: {}); run `acpmux host update {}`", peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::BUILD, peer.name))
+                                .with_data(json!({
+                                    "reason": "peer_version_skew",
+                                    "try": format!("acpmux host update {}", peer.name),
+                                    "peer": peer.name,
+                                    "method": m,
+                                }))
                         } else {
                             e
                         }
                     })?;
         strip_asks(hub, &peer.name, &id, m, &mut result);
+        // This daemon does not carry a peer chat's presence (`hub/presence.rs`).
+        if m == method::MUX_ATTACH
+            && let Some(obj) = result.as_object_mut()
+        {
+            obj.insert("presence".into(), crate::hub::presence::none(&id));
+        }
         if m == method::SESSION_FORK
             && let Some(new_id) = result.get("sessionId").and_then(Value::as_str)
         {
-            super::requests::attach(hub, conn, new_id);
+            super::view::subscribe_remote(hub, conn, new_id, None);
             peer.mark_attached(new_id);
         }
         if m == method::MUX_KILL && params.get("purge").and_then(Value::as_bool).unwrap_or(false) {

@@ -8,6 +8,7 @@
 // is kind of enough sometimes for the ... preview of the message"): the minimal-* variants. A, the
 // chip, the first line and a chevron, ships; B (a fade and "+N lines") and C (the name inline, no
 // chip) are drawn here only, over the shipped line.
+import { avatarsChanged, UPLOADED_AVATAR } from "../../../gallery/fixtures/agentAvatar";
 import { agentPaneEntry, type ChipHostFixture } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { SESSION_ID, assistant, chat, session, summary, user } from "../../../gallery/fixtures/acpmux";
@@ -223,6 +224,30 @@ export default agentPaneEntry({
         ],
         { title: "tests" },
       ),
+    },
+    avatar: {
+      note: "A message from a chat whose person uploaded an avatar (its chat menu's Set Avatar…): the sender line draws it in place of the harness mark (a synthetic picture).",
+      snapshot: chat([
+        user("Run the net tests and report which fail.", 9, {
+          incoming: {
+            kind: "message",
+            message: {
+              name: "claude-sr2/coordinator",
+              sessionId: "parent-1",
+              relation: "parent",
+              text: "Run the net tests and report which fail.",
+              raw: "Run the net tests and report which fail.",
+            },
+          },
+          untyped: true,
+        }),
+        assistant("Running them now.", 8.5),
+      ]),
+      native: { "agent.avatar": { src: UPLOADED_AVATAR } },
+      play: async (ctx) => {
+        avatarsChanged(ctx.document, ["parent-1"]);
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-received__icon img.cv-agent-avatar"));
+      },
     },
     links: {
       note: "A message's card shows its PR, HQ and commit references as links.",
