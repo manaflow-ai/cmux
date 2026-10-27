@@ -399,7 +399,15 @@ extension PaneController {
         case .newTabButton:
             // The engine menu predicts a Chromium tab (ChromiumWarmup).
             services.chromiumWarmup.chromiumLikely(.newTabMenu)
-            return registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: paneKey)).themeRows(in: view.themeScope.fullStrength)
+            let paneTarget = ActionTargetRef(kind: .pane, id: paneKey)
+            let menu = registry.makeContextMenu(for: .newTab, target: paneTarget)
+            // A new user can browse every cmux capability from the same affordance that creates panes.
+            // Keep this on the action registry path so the row retains its icon, shortcut and target.
+            if let commands = registry.makeContextMenuItem(for: "commandPalette", in: .newTab, target: paneTarget) {
+                menu.addItem(.separator())
+                menu.addItem(commands)
+            }
+            return menu.themeRows(in: view.themeScope.fullStrength)
         }
     }
 }

@@ -61,8 +61,13 @@ import Testing
         pane.stripView.opensNewTabMenuOnPress = variant.opensMenu
         pane.stripView.buttonReveal.pointerInStrip = variant.opensMenu
         let registry = ActionRegistry.standard()
-        pane.stripView.contextMenuProvider = { target in
-            registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: "gallery-pane"))
+        pane.stripView.contextMenuProvider = { _ in
+            let target = ActionTargetRef(kind: .pane, id: "gallery-pane")
+            let menu = registry.makeContextMenu(for: .newTab, target: target)
+            if let commands = registry.makeContextMenuItem(for: "commandPalette", in: .newTab, target: target) {
+                menu.addItem(.separator()); menu.addItem(commands)
+            }
+            return menu
         }
         if variant != .baseline {
             let target = variant.showsActions ? ActionTargetRef(kind: .pane, id: "gallery-pane") : nil

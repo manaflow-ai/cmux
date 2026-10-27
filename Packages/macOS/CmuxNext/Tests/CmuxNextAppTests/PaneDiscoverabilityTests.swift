@@ -59,6 +59,21 @@ import Testing
         #expect(intents == [.newTab(after: nil, sameKind: true)], "Option-click keeps the existing same-kind action")
     }
 
+    @Test func thePaneMenuEndsWithACommandPaletteEntry() throws {
+        let registry = ActionRegistry.standard()
+        let target = ActionTargetRef(kind: .pane, id: "sample-pane")
+        let menu = registry.makeContextMenu(for: .newTab, target: target)
+        let commands = try #require(registry.makeContextMenuItem(for: "commandPalette", in: .newTab, target: target))
+        menu.addItem(.separator()); menu.addItem(commands)
+        #expect(ActionRegistry.menuRun(of: commands)?.id == "commandPalette")
+        #expect(ActionRegistry.menuRun(of: commands)?.target == target)
+        #expect(commands.title == registry.title(for: "commandPalette"))
+        #expect(commands.keyEquivalent == "p")
+        #expect(commands.keyEquivalentModifierMask == [.command, .shift])
+        #expect(commands.image != nil)
+        #expect(menu.items.last === commands)
+    }
+
     @Test func creationButtonsStayVisibleForChatAndTargetTheirOwnPane() throws {
         let registry = ActionRegistry.standard()
         let pane = ActionTargetRef(kind: .pane, id: "sample-pane")
