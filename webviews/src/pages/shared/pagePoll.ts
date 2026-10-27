@@ -126,3 +126,62 @@ export function startPagePoll(run: PollRun, ms: number, options: PagePollOptions
   }
   return stop;
 }
+
+export interface PageTimeoutOptions extends PagePollSeams {
+  /** "check" (the default) runs at once on a show after a hide; "wait" counts the whole `ms` again. */
+  onResume?: PollResume;
+}
+
+/**
+ * Runs `run` once, after `ms` of the page being active: a retry backoff, or a bounded poll's next
+ * round. While the page is hidden, frozen or parked no timer is armed; a show then runs it at once
+ * ("check": a reconnect the person comes back to) or counts `ms` again ("wait": the agent page,
+ * where a show reads nothing). A timeout started hidden counts as one that rested. Returns the
+ * cancel function.
+ *
+ * ```ts
+ * const cancel = startPageTimeout(() => void connect(), backoff);
+ * ```
+ */
+export function startPageTimeout(run: () => void, ms: number, options: PageTimeoutOptions = {}): () => void {
+  const lifecycle = options.lifecycle ?? pageLifecycleFor();
+  const timers = options.timers ?? browserPollTimers;
+  const onResume = options.onResume ?? "check";
+  let handle: unknown;
+  let armed = false;
+  let done = false;
+
+  const disarm = () => {
+    if (armed) timers.cancel(handle);
+    armed = false;
+    handle = undefined;
+  };
+  const arm = () => {
+    armed = true;
+    handle = timers.after(ms, () => {
+      armed = false;
+      handle = undefined;
+      fire();
+    });
+  };
+  const unobserve = lifecycle.observe((state) => {
+    if (state !== "active") return disarm();
+    if (armed) return;
+    if (onResume === "check") fire();
+    else arm();
+  });
+  function cancel(): void {
+    if (done) return;
+    done = true;
+    unobserve();
+    disarm();
+  }
+  function fire(): void {
+    if (done) return;
+    cancel();
+    run();
+  }
+
+  if (lifecycle.state() === "active") arm();
+  return cancel;
+}
