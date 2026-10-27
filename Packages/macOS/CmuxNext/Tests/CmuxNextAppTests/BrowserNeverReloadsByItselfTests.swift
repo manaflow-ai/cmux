@@ -114,4 +114,97 @@ import Testing
         #expect(!rig.isHibernated(key), "a crashed page was discarded")
         #expect(rig.services.cache.browsers[key]?.tab === page)
     }
+
+    /// An agent takes the page's lease while the discard probe takes its picture (the replan the
+    /// lease starts skips a probing page): the page stays, even for Hibernate Tab.
+    @Test func aLeaseTakenDuringTheProbeKeepsThePage() async throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        rig.hibernation.pressureDidChange(.normal)
+        let page = try await rig.page("leased", body: "<p>driven</p>")
+        let key = page.id.rawValue
+        let hibernation = rig.hibernation
+        let captured = Flag()
+        hibernation.capture = { [hibernation] _ in
+            await MainActor.run {
+                captured.isSet = true
+                hibernation.noteLease(key, held: true)
+            }
+            return nil
+        }
+        _ = try await rig.hide(page)
+        #expect(hibernation.hibernateNow(key) == nil)
+        try await rig.until("the probe ended") { captured.isSet && !hibernation.probing.contains(key) }
+        #expect(!rig.isHibernated(key), "a page an agent holds was discarded")
+        #expect(rig.exemption(key) == .agentLease)
+        #expect(rig.services.cache.browsers[key]?.tab === page)
+        // Asked again while the lease is held: refused at once.
+        #expect(hibernation.hibernateNow(key) == .agentLease)
+        hibernation.noteLease(key, held: false)
+    }
+
+    /// Shown and hidden again while its discard probe ran: the probe is dropped, and the page it
+    /// thawed freezes again (before, the hide's replan skipped the probing page and the dropped
+    /// probe planned nothing, so it stayed thawed until some later event).
+    @Test func aPageShownAndHiddenDuringItsProbeFreezesAgain() async throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: 0.2))
+        rig.hibernation.pressureDidChange(.normal)
+        let recorder = NeighborTabsWakeTests.Recorder()
+        let page = try await rig.page("flipped", body: "<p>flip</p>")
+        let key = page.id.rawValue
+        rig.hibernation.freezer = { tab in tab.id.rawValue == key ? recorder : nil }
+        let hibernation = rig.hibernation
+        let cache = rig.services.cache
+        let pane = rig.pane
+        let flipped = Flag()
+        hibernation.capture = { [cache, pane] _ in
+            await MainActor.run {
+                guard !flipped.isSet else { return }
+                flipped.isSet = true
+                cache.present(key, by: pane, presence: .visible)
+                cache.withdraw(key, by: pane)
+            }
+            return nil
+        }
+        _ = try await rig.hide(page)
+        try await rig.until("the page froze") { hibernation.frozen.contains(key) }
+        #expect(hibernation.hibernateNow(key) == nil)
+        try await rig.until("the probe was dropped") { flipped.isSet && !hibernation.probing.contains(key) }
+        #expect(!rig.isHibernated(key))
+        #expect(cache.phase(of: key) == .mountedHidden)
+        try await rig.until("the thawed page froze again") { hibernation.frozen.contains(key) }
+        #expect(recorder.calls.suffix(2) == [false, true])
+    }
+
+    /// The same for the freeze probe: shown and hidden again while it asks the page, the page
+    /// freezes after its new hidden delay instead of staying awake.
+    @Test func aPageShownAndHiddenDuringItsFreezeProbeFreezesAgain() async throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: 0.2, discardsAutomatically: false))
+        rig.hibernation.pressureDidChange(.normal)
+        let recorder = NeighborTabsWakeTests.Recorder()
+        var freezes = false
+        let page = try await rig.page("freeze-flipped", body: "<p>flip</p>")
+        let key = page.id.rawValue
+        // No freezer yet: the hide plans no freeze.
+        rig.hibernation.freezer = { tab in freezes && tab.id.rawValue == key ? recorder : nil }
+        _ = try await rig.hide(page)
+        try await Task.sleep(for: .milliseconds(300))
+        freezes = true
+        // The plan starts the freeze probe; the show and hide land before it answers.
+        rig.hibernation.replan()
+        rig.services.cache.present(key, by: rig.pane, presence: .visible)
+        rig.services.cache.withdraw(key, by: rig.pane)
+        #expect(!rig.hibernation.frozen.contains(key))
+        try await rig.until("the page froze after the stale probe") { rig.hibernation.frozen.contains(key) }
+        #expect(recorder.calls.last == true)
+    }
+
+    /// A flag a test's capture seam sets on the main actor.
+    @MainActor final class Flag: Sendable {
+        var isSet = false
+    }
 }

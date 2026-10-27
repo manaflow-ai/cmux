@@ -1361,6 +1361,9 @@
   font-size: var(--text-caption);
 }
 .acpmux-env-row .acpmux-env-state + .acpmux-location-check { margin-left: 6px; }
+/* An account Cloud machine acpmux does not list (cloudMachines.ts) is a pick: its name stays, its stage
+   and what a pick does read quiet. */
+.acpmux-env-row:not([data-ready]) .acpmux-env-state { color: var(--agent-muted); }
 /* New Cloud Machine, Move to Cloud and Bring Back Local: the name, then one quiet line of what it does. */
 .acpmux-env-new:is([data-kind="cloud"], [data-kind="local"]) .acpmux-menu-text {
   display: flex;
