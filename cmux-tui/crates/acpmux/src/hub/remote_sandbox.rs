@@ -913,7 +913,7 @@ fn canary_persistence_probe(cwd: &Path, linux: bool) -> Result<Option<Persistenc
     #[cfg(not(target_os = "linux"))]
     {
         let _ = probe;
-        return Ok(None);
+        Ok(None)
     }
     #[cfg(target_os = "linux")]
     let text = std::ffi::CString::new(probe.as_os_str().as_encoded_bytes())

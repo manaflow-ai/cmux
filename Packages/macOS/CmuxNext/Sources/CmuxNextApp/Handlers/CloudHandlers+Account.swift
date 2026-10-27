@@ -235,13 +235,7 @@ extension CloudHandlers {
             // has not started.
             bootstrap: { creation, session in
                 let machine = CloudMachineBootstrap.Machine(api: cloud.api.pinningTeam(creation.request.team), machineID: session.machineID)
-                if let script = creation.request.script, CloudCreationFlow.needsScript(creation) {
-                    creation.noteBootstrap(await script.start(name: creation.request.name, on: machine))
-                }
-                // After the bootstrap's start: the applier waits for its lock, so a --repo clone is there first.
-                if let config = creation.request.machineConfig, CloudCreationFlow.needsMachineConfig(creation) {
-                    creation.noteMachineConfig(await config.apply(on: machine))
-                }
+                await CloudCreationFlow.startBootstrap(creation, on: machine)
             }
         )
     }
