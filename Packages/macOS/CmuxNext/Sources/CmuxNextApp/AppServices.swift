@@ -705,6 +705,8 @@ final class AppServices {
         // First: the black-box ring is attached to TraceRuntime.shared, so every trace point records from here
         // on; the ring file opens on `.files`, never on main.
         traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
+        // Its crash-key page names the main thread's running task from here on (p09-observability-078).
+        if let page = traceBlackBox?.blackBox.crashKeys { mainWork.budget.board.attachCrashKeys(page) }
         (self.wireStats, self.inputTap) = (wireStats, inputTap)
         hoverCards = HoverCardCoordinator(input: inputTap, changes: overlayChanges)
         _ = CmuxDialogCenter.shared.observe { [overlayChanges] _ in overlayChanges.signal() } // an app dialog's host has no window
@@ -715,11 +717,12 @@ final class AppServices {
         updater = UpdaterService(work: work)
         chromiumRuntime = ChromiumRuntimeService.make(work: work)
         mobile = MobileHostService(displayName: { await MacName().displayName() }, work: work)
+        let runTiming = SignpostActionRunTiming(monitor: actionBudget, crashKeys: crashKeys, crashKeyPage: traceBlackBox?.blackBox.crashKeys)
         #if DEBUG || CMUX_BENCH_HOOKS
-        registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget, crashKeys: crashKeys),
+        registry = ActionRegistry.standard(runTiming: runTiming,
                                            turnObserver: oracleTurns, mainWork: mainWork)
         #else
-        registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget, crashKeys: crashKeys),
+        registry = ActionRegistry.standard(runTiming: runTiming,
                                            mainWork: mainWork)
         #endif
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts

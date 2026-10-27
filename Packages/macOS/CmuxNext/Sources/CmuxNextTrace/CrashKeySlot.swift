@@ -1,5 +1,5 @@
 /// One fixed slot of the app's crash-key page: a 4 KiB page of 64-bit words, written with relaxed
-/// stores while the app runs and read from the file after a crash or a fatal hang (task 078 maps it;
+/// stores while the app runs and read from the file after a crash or a fatal hang (``CrashKeyPage``, task 078;
 /// task 079 reads it at the next launch).
 ///
 /// Chrome's crash keys (components/crash/core/common/crash_key.h) are static-storage name and value
@@ -11,11 +11,14 @@
 /// build decodes. Words 0-7 are the page header (magic, version, pid, build, process start). Owner:
 /// PL-telemetry.
 public nonisolated enum CrashKeySlot: UInt16, Sendable, CaseIterable {
-    /// The running action's index in the action catalog, or 0 (set around `ActionRegistry` runs).
+    /// The running action's id as a stable key (FNV-1a 64 of its raw value, `CrashKeySlots.stableKey`: the same
+    /// number in every build and launch, so a report maps it back to the catalog), or 0 (set around
+    /// `ActionRegistry` runs by `SignpostActionRunTiming`).
     case actionIndex = 8
-    /// The running action's entrypoint (`ActionEntrypoint`'s position), or 0.
+    /// The running action's entrypoint (`ActionEntrypoint`'s trace position + 1), or 0.
     case actionEntrypoint = 9
-    /// The interned owner id of the main-thread task that runs now (`MainTaskBoard`), or 0.
+    /// The owner of the main-thread task that runs now (`MainTaskBoard`) as a stable key (FNV-1a 64 of the owner
+    /// name), or 0 between tasks.
     case mainTaskOwner = 10
     /// 1 while the Chromium message pump runs on this process's main thread (task 077).
     case inCEFPump = 11
