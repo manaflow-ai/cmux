@@ -53,7 +53,8 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(target_os = "linux")]
-/// Enables an incomplete Linux sandbox without persistence enforcement; tests only, until G1b.
+/// Enables the Linux sandbox for tests only; persistence write-opens, renames
+/// and creators are enforced. Production stays refused until G2.
 static LINUX_REMOTE_SANDBOX: AtomicBool = AtomicBool::new(false);
 
 /// The checked-in Seatbelt profile.
@@ -71,19 +72,32 @@ fn platform_profile_id(linux: bool) -> String {
     #[cfg(target_os = "linux")]
     let identity = if linux {
         // Hash the implemented policy and protocol, including the bwrap argv shape.
-        format!(
-            "{identity}\nlinux-keeper-v1; loader-env-v2\n{}\n{}\n{}\n{}\n{}",
-            include_str!("../linux_sandbox/bwrap.rs"),
-            include_str!("../linux_sandbox/keeper.rs"),
-            include_str!("../linux_sandbox/init.rs"),
-            include_str!("../linux_sandbox/seccomp.rs"),
-            include_str!("../linux_sandbox/proxy.rs")
-        )
+        let sources = linux_identity_sources();
+        let source_text = sources.iter().map(|(_, source)| *source).collect::<Vec<_>>().join("\n");
+        format!("{identity}\nlinux-keeper-v1; loader-env-v2\n{source_text}")
     } else {
         identity
     };
     let _ = linux;
     crate::sha256::sha256_hex(identity.as_bytes())
+}
+
+#[cfg(target_os = "linux")]
+fn linux_identity_sources() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("bwrap.rs", include_str!("../linux_sandbox/bwrap.rs")),
+        ("bwrap/aliases.rs", include_str!("../linux_sandbox/bwrap/aliases.rs")),
+        ("bwrap/home.rs", include_str!("../linux_sandbox/bwrap/home.rs")),
+        ("keeper.rs", include_str!("../linux_sandbox/keeper.rs")),
+        ("init.rs", include_str!("../linux_sandbox/init.rs")),
+        ("seccomp.rs", include_str!("../linux_sandbox/seccomp.rs")),
+        ("proxy.rs", include_str!("../linux_sandbox/proxy.rs")),
+        ("supervisor.rs", include_str!("../linux_sandbox/supervisor.rs")),
+        ("supervisor/mutations.rs", include_str!("../linux_sandbox/supervisor/mutations.rs")),
+        ("supervisor/locking.rs", include_str!("../linux_sandbox/supervisor/locking.rs")),
+        ("lookup.rs", include_str!("../linux_sandbox/lookup.rs")),
+        ("rules.rs", include_str!("../linux_sandbox/rules.rs")),
+    ]
 }
 
 /// glibc sysdeps/generic/unsecvars.h (including legacy MALLOC_CHECK_) plus
@@ -798,18 +812,71 @@ const CANARY: &str = r#": > "$1" 2>/dev/null; o=$?
 (exec 3<>"/dev/tcp/127.0.0.1/$2") 2>/dev/null; l=$?
 [ "$l" -ne 0 ] && { (exec 3<>"/dev/tcp/::1/$4") 2>/dev/null; [ $? -eq 0 ] && l=0; }
 t=$(mktemp "$3/acpmux-canary.XXXXXX" 2>/dev/null) && rm -f "$t"; i=$?
+g=unknown; c=unknown
 if [ -n "$5" ]; then
-  socket=$5; helper=$6; shift 6
-  u=unknown
-  if probe=$("$helper" "$@" __remote-sandbox-canary-unix "$socket" 2>/dev/null); then
+  printf x > "$5/.git/hooks/pre-commit" 2>/dev/null; g=$?
+  printf x > "$5/CLAUDE.md" 2>/dev/null; c=$?
+fi
+persistence="$5"
+u=unknown
+if [ -n "$6" ]; then
+  socket=$6; helper=$7; shift 7
+  if probe=$("$helper" "$@" __remote-sandbox-canary-unix "$socket"); then
     case "$probe" in unix=0) u=0;; unix=1) u=1;; esac
   fi
-  echo "acpmux-canary outside=$o loopback=$l tmp=$i unix=$u"
-else echo "acpmux-canary outside=$o loopback=$l tmp=$i"; fi"#;
+fi
+if [ -n "$persistence" ]; then
+  echo "acpmux-canary outside=$o loopback=$l tmp=$i git=$g claude=$c unix=$u"
+else
+  echo "acpmux-canary outside=$o loopback=$l tmp=$i"
+fi"#;
+
+fn canary_persistence_probe(cwd: &Path, linux: bool) -> Result<Option<PathBuf>, String> {
+    if !linux {
+        return Ok(None);
+    }
+    let probe = cwd.join(format!(".acpmux-canary-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(probe.join(".git/hooks"))
+        .map_err(|e| format!("canary setup persistence probe: {e}"))?;
+    Ok(Some(probe))
+}
+
+type CanaryFields = (Option<i32>, Option<i32>, Option<i32>, Option<i32>, Option<i32>, Option<i32>);
+
+fn parse_canary_report(text: &str) -> Result<CanaryFields, String> {
+    let mut reports = text.lines().filter_map(|line| line.strip_prefix("acpmux-canary "));
+    let line = reports.next().ok_or("canary did not report a result")?;
+    if reports.next().is_some() {
+        return Err("canary reported more than one result".into());
+    }
+    let field = |key: &str| {
+        line.split_whitespace()
+            .find_map(|word| word.strip_prefix(&format!("{key}=")))
+            .and_then(|value| value.parse::<i32>().ok())
+    };
+    Ok((
+        field("outside"),
+        field("loopback"),
+        field("tmp"),
+        field("unix"),
+        field("git"),
+        field("claude"),
+    ))
+}
+
+fn canary_verdict(
+    success: bool,
+    fields: CanaryFields,
+    linux: bool,
+    probe_paths_absent: bool,
+) -> bool {
+    let (o, l, t, u, _, _) = fields;
+    canary_report_held(success, (o, l, t, u), linux) && probe_paths_absent
+}
 
 /// Run the canary under `exec` with the profile and `bound`; Ok only when
-/// the sandbox held: the outside write failed and left no file, the loopback
-/// connection failed and never arrived, and the temporary write worked.
+/// the sandbox held: outside and persistence write-opens failed, loopback
+/// connections never arrived, and the temporary write worked.
 pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<(), String> {
     let listener =
         std::net::TcpListener::bind("127.0.0.1:0").map_err(|e| format!("listen: {e}"))?;
@@ -821,6 +888,9 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
         l.set_nonblocking(true).map_err(|e| format!("listen: {e}"))?;
     }
     let port6 = listener6.as_ref().and_then(|l| l.local_addr().ok()).map_or(0, |a| a.port());
+    let persistence_probe = canary_persistence_probe(&bound.cwd, linux)?;
+    let git_canary = persistence_probe.as_ref().map(|path| path.join(".git/hooks/pre-commit"));
+    let claude_canary = persistence_probe.as_ref().map(|path| path.join("CLAUDE.md"));
     let outside = bound.home.join(format!(".acpmux-sandbox-canary-{}", uuid::Uuid::now_v7()));
     #[cfg(unix)]
     let socket_path = bound
@@ -845,6 +915,10 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
     let socket_arg = if linux { socket_path.to_string_lossy().into_owned() } else { String::new() };
     #[cfg(not(unix))]
     let socket_arg = String::new();
+    let persistence_arg = persistence_probe
+        .as_ref()
+        .filter(|_| linux)
+        .map_or_else(String::new, |path| path.to_string_lossy().into_owned());
     let canary_args = ["/bin/bash", "-c", CANARY, "acpmux-canary"]
         .into_iter()
         .map(str::to_owned)
@@ -853,6 +927,7 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
             port.to_string(),
             bound.tmp.to_string_lossy().into_owned(),
             port6.to_string(),
+            persistence_arg,
         ])
         .chain([socket_arg, exec.to_string_lossy().into_owned()])
         .chain(crate::daemon::daemon_prefix().iter().map(|s| s.to_string_lossy().into_owned()))
@@ -887,6 +962,17 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
     if landed {
         let _ = std::fs::remove_file(&outside);
     }
+    let absent = |path: &Path| {
+        matches!(
+            std::fs::symlink_metadata(path),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound
+        )
+    };
+    let probe_paths_absent = git_canary.as_ref().is_none_or(|path| absent(path))
+        && claude_canary.as_ref().is_none_or(|path| absent(path));
+    if let Some(path) = &persistence_probe {
+        let _ = std::fs::remove_dir_all(path);
+    }
     #[cfg(unix)]
     let _ = std::fs::remove_file(&socket_path);
     let arrived =
@@ -903,14 +989,11 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
         Err(_) => return Err("the sandbox canary did not finish in 20 s".into()),
     };
     let text = String::from_utf8_lossy(&out.stdout);
-    let field = |k: &str| {
-        text.lines()
-            .find_map(|l| l.strip_prefix("acpmux-canary "))
-            .and_then(|l| l.split_whitespace().find_map(|w| w.strip_prefix(&format!("{k}="))))
-            .and_then(|v| v.parse::<i32>().ok())
-    };
-    let (o, l, t, u) = (field("outside"), field("loopback"), field("tmp"), field("unix"));
-    let held = canary_report_held(out.status.success(), (o, l, t, u), linux)
+    let fields = parse_canary_report(&text).ok();
+    let (o, l, t, u, g, c) = fields.unwrap_or((None, None, None, None, None, None));
+    let held = canary_verdict(out.status.success(), (o, l, t, u, g, c), linux, probe_paths_absent)
+        && (!linux
+            || (matches!(g, Some(code) if code != 0) && matches!(c, Some(code) if code != 0)))
         && !landed
         && !arrived
         && (!linux || !arrived_unix);
@@ -924,7 +1007,7 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
         t.map_or("unknown".into(), |c| if c == 0 { "allowed".to_owned() } else { "denied".into() }),
         u.map_or("unknown".into(), |c| if c == 0 { "allowed".to_owned() } else { "denied".into() }),
         out.status,
-        String::from_utf8_lossy(&out.stderr).chars().take(300).collect::<String>(),
+        String::from_utf8_lossy(&out.stderr).chars().take(1200).collect::<String>(),
     ))
 }
 
@@ -941,6 +1024,13 @@ fn canary_report_held(
 }
 
 impl Hub {
+    /// Integration-test probe only; does not enable the Linux spawn path.
+    #[doc(hidden)]
+    #[cfg(target_os = "linux")]
+    pub fn linux_sandbox_probe_for_tests() -> Result<(), String> {
+        crate::linux_sandbox::bwrap::probe(Path::new("/usr/bin/bwrap")).map_err(|e| e.to_string())
+    }
+
     /// Whether `session` is a remote chain's Claude Code session (remote
     /// origin, a claude-stdio profile): one that runs in the sandbox. A
     /// profile that cannot be read now counts as one (fail closed).
@@ -961,9 +1051,8 @@ impl Hub {
         *self.remote_sandbox_exec.lock().unwrap_or_else(|e| e.into_inner()) = path;
     }
 
-    /// Enables an incomplete Linux sandbox without persistence enforcement;
-    /// tests only, until G1b wires the supervisor and persistence canary checks.
-    /// Production remains refused until G2.
+    /// Enables the Linux sandbox for tests only; production remains refused
+    /// until G2. Persistence write-opens, renames and creators are enforced.
     #[doc(hidden)]
     pub fn set_linux_remote_sandbox_for_tests(&self, enabled: bool) {
         #[cfg(target_os = "linux")]
@@ -1275,6 +1364,14 @@ mod endpoint_tests {
 
     #[cfg(target_os = "linux")]
     #[test]
+    fn linux_canary_checks_write_open_persistence_paths() {
+        assert!(CANARY.contains(".git/hooks/pre-commit"));
+        assert!(CANARY.contains("CLAUDE.md"));
+        assert!(CANARY.contains("printf"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
     fn canary_missing_unix_helper_is_unknown() {
         let out = std::process::Command::new("/bin/bash")
             .args([
@@ -1291,6 +1388,47 @@ mod endpoint_tests {
             .output()
             .unwrap();
         assert!(String::from_utf8_lossy(&out.stdout).contains("unix=unknown"));
+    }
+
+    #[test]
+    fn mac_canary_setup_does_not_touch_a_worktree_git_file() {
+        let root =
+            std::env::temp_dir().join(format!("acpmux-canary-setup-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join(".git"), b"gitdir: elsewhere").unwrap();
+        let result = canary_persistence_probe(&root, false).unwrap();
+        assert!(result.is_none());
+        assert!(root.join(".git").is_file());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn canary_rejects_a_denied_report_when_probe_file_landed() {
+        let fields = (Some(1), Some(1), Some(0), Some(1), Some(1), Some(1));
+        assert!(!canary_verdict(true, fields, true, false));
+    }
+
+    #[test]
+    fn canary_rejects_duplicate_report_lines() {
+        let report = "acpmux-canary outside=1 loopback=1 tmp=0 unix=1\nacpmux-canary outside=1 loopback=1 tmp=0 unix=1\n";
+        assert!(parse_canary_report(report).is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_identity_covers_every_enforcement_source() {
+        let names: Vec<_> = linux_identity_sources().into_iter().map(|(name, _)| name).collect();
+        for name in [
+            "supervisor.rs",
+            "supervisor/locking.rs",
+            "lookup.rs",
+            "rules.rs",
+            "bwrap/home.rs",
+            "bwrap/aliases.rs",
+            "supervisor/mutations.rs",
+        ] {
+            assert!(names.contains(&name), "missing {name} from Linux profile identity");
+        }
     }
 
     fn profile(argv: &[&str], env: &[(&str, &str)]) -> HarnessProfile {

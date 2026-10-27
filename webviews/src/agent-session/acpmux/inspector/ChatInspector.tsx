@@ -51,7 +51,7 @@ import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { paneHeader, transcriptColumn, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
+import { transcriptColumn, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { registerPicker } from "../pickerOpeners";
 import { opensProcessTerminal } from "../processTerminal";
 import { tooltipProps } from "../shortcuts";
@@ -172,11 +172,9 @@ export const inspectorShown = ({
 /// The side panel beside the chat (conversation/ArtifactPanel.tsx), a child of the pane's shell.
 const SIDE_PANEL = ":scope > .acpmux-artifact";
 
-/// The Inspector starts below the visible header and the Left placement row. Right uses the
-/// original header slot, so it keeps the original inset.
-export function inspectorTopOffset(tabRowHeight: number, environmentRowVisible: boolean): string {
-  const headerTop = tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 44px)";
-  return environmentRowVisible ? `calc(${headerTop} + var(--ui-row-height))` : headerTop;
+/// The Inspector starts right below the header: the pane's tab row when the header is in it.
+export function inspectorTopOffset(tabRowHeight: number): string {
+  return tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 44px)";
 }
 
 /// The composer's stack height (`.acpmux-dock` in `shell`) while `on`: from the top of its highest
@@ -568,14 +566,7 @@ function InspectorPresence({
   // the chat (one ResizeObserver on the dock, disconnected when it no longer does or the panel goes).
   const dockHeight = useDockHeight(shell, drawn && overChat);
   const tabRowHeight = useTabRow().height;
-  // Left's machine · folder chip occupies its own row below the header/tab row. Keep the Inspector
-  // below it while open so the card never covers the chip; Right preserves the original header slot,
-  // and connection warnings, Off, or covered views remove that row.
-  const environmentRowVisible =
-    display.environmentPlacement === "left" &&
-    Boolean(snapshot.summary?.cwd || snapshot.summary?.branch) &&
-    !paneHeader(snapshot).status;
-  const inspectorTop = inspectorTopOffset(tabRowHeight, environmentRowVisible);
+  const inspectorTop = inspectorTopOffset(tabRowHeight);
   // The overlay handoff is a layout assist, not panel motion. Set the placement marker before the
   // shift so the overlay transition is disabled for the one frame where flex layout takes the panel's
   // room; otherwise the old overlay shift would animate back and briefly move the chat right again.

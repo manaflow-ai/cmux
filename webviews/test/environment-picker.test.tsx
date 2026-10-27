@@ -422,33 +422,6 @@ test("Return on a search never moves a chat by itself", async () => {
   expect(calls).toEqual([]);
 });
 
-test("a started chat with a folder action keeps the chip actionable", async () => {
-  const folders: string[] = [];
-  await mount(true, {
-    ...startedOn("local"),
-    onBrowseFolder: async () => "/Users/you/src/other",
-    onNewChat: (cwd: string) => folders.push(cwd),
-  });
-  await openPicker();
-  // Only where the chat runs: a started chat cannot be picked onto another machine.
-  expect(machineRows().map(rowText)).toEqual([expect.stringContaining("cosmic-gray")]);
-  expect(newRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toContain(
-    t("composer.chooseFolderMenu"),
-  );
-  const folder = newRows().find(
-    (row) => row.querySelector(".acpmux-menu-label")?.textContent === t("composer.chooseFolderMenu"),
-  )!;
-  await act(async () => folder.click());
-  expect(folders).toEqual(["/Users/you/src/other"]);
-});
-
-test("a started chat with a folder panel but no new chat to start keeps the fixed label", async () => {
-  // The floating chat: the host reads folders but opens no new chat from it.
-  await mount(true, { ...startedOn("ssh"), onBrowseFolder: async () => "/Users/you/src/other" });
-  expect(computerButton()).toBeUndefined();
-  expect(host.querySelector(".acpmux-location-readonly")).not.toBeNull();
-});
-
 test("a started chat with no move to offer keeps the fixed computer label", async () => {
   const fixed = () =>
     [...host.querySelectorAll(".acpmux-location-readonly")].some((label) =>

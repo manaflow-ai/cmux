@@ -168,7 +168,6 @@ export function ComposerContext({
   /// A new chat's Run as in the environment picker (Persistent or Sandboxed, hq#3367).
   runMode?: RunModeRows;
 }) {
-  const pickerEnabled = environments || started;
   const newChat = !started && onProject !== undefined;
   const accountMachines = useCloudMachines();
   const shownMachines = cloudMachines ?? accountMachines;
@@ -270,15 +269,13 @@ export function ComposerContext({
       : projectLabel(currentLocation.id)
     : undefined;
   // A started chat's Choose folder…: the host's folder panel, then a new chat there.
-  // Only with somewhere to start the chat: a folder panel with no new chat would drop its pick.
-  const browseNewChat =
-    onBrowseFolder && onNewChat
-      ? () => {
-          void onBrowseFolder().then((cwd) => {
-            if (cwd) onNewChat(cwd);
-          });
-        }
-      : undefined;
+  const browseNewChat = onBrowseFolder
+    ? () => {
+        void onBrowseFolder().then((cwd) => {
+          if (cwd) onNewChat?.(cwd);
+        });
+      }
+    : undefined;
   // An account Cloud machine acpmux does not list runs its machine action: no chat starts on it here.
   const pickCloudMachine = (id: string) => {
     const machine = computers.find((computer) => computer.id === id)?.cloudMachine;
@@ -295,10 +292,10 @@ export function ComposerContext({
     }
   };
   // A started chat's picker lists only where it runs and its move (EnvironmentPicker `offload`).
-  const offload: OffloadKind | undefined = started && onOffload ? offloads[0] : undefined;
-  const computerDisabled = readOnly && !offload && !browseNewChat;
-  // New Tab and started chats use the same environment picker; preview controls it for fresh chats.
-  const environmentsShown = pickerEnabled && !computerDisabled;
+  const offload: OffloadKind | undefined = started && environments && onOffload ? offloads[0] : undefined;
+  const computerDisabled = readOnly && !offload && (started || !onConnect);
+  // Preview (`labs.previewFeatures`): the computer control is the environment picker.
+  const environmentsShown = environments && !computerDisabled;
   const savedRows = environmentsShown && !readOnly ? saved : undefined;
   const savedPick = savedRows?.environments.find((environment) => environment.id === savedRows.current);
   const pickEnvironment = (id: string) => {
@@ -418,12 +415,11 @@ export function ComposerContext({
                   />
                 )
               }
-              environments={started && currentComputer ? [currentComputer] : computers}
+              environments={offload && currentComputer ? [currentComputer] : computers}
               current={selectedComputer}
               onPick={pickEnvironment}
               {...(offload && onOffload ? { offload, onOffload } : {})}
               {...(!started && onConnect ? { onConnect } : {})}
-              {...(started && browseNewChat ? { onBrowseFolder: browseNewChat } : {})}
               {...(savedRows ? { saved: savedRows } : {})}
               {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}
               {...(runMode && !started && !readOnly ? { runMode } : {})}
