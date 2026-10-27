@@ -54,8 +54,9 @@ enum RoomDefaultsArguments {
         invocation["cwd"] != nil || invocation["env"] != nil
     }
 
-    /// The fields a run names, parsed: nil leaves a field as the space has it.
-    struct Patch: Sendable, Equatable {
+    /// The fields a run names, parsed: nil leaves a field as the space has it. Nonisolated: the
+    /// defaults run applies it off the main actor, to the defaults the daemon holds.
+    nonisolated struct Patch: Sendable, Equatable {
         /// `.some(nil)` clears the directory.
         var cwd: String??
         var env: [String: String]?
