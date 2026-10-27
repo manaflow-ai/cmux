@@ -524,7 +524,7 @@ thread_local! {
 }
 
 #[cfg(test)]
-fn after_off_count(hub: &Hub) {
+pub(super) fn after_off_count(hub: &Hub) {
     if let Some(f) = AFTER_OFF_COUNT.take() {
         f(hub);
     }

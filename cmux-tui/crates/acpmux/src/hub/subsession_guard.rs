@@ -517,7 +517,10 @@ impl Hub {
 
     /// Whether session `m` runs a laxer policy than `than`.
     pub(super) async fn policy_laxer(&self, m: &SessionMeta, than: &SessionMeta) -> bool {
-        policy_rank(self.effective_policy(m).await) > policy_rank(self.effective_policy(than).await)
+        let first = self.effective_policy(m).await;
+        #[cfg(test)]
+        super::full_access_bound::after_off_count(self);
+        policy_rank(first) > policy_rank(self.effective_policy(than).await)
     }
 
     /// Whether session `m` is set to run a laxer policy than `than` (`set_policy_of`).

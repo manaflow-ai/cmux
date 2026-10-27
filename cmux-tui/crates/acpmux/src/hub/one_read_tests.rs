@@ -182,3 +182,49 @@ fn edit_ask() -> Value {
 fn current_epoch(session: &Session) -> u64 {
     session.permission_epoch.load(Ordering::SeqCst)
 }
+
+/// MDM's off is unset.
+fn unset(hub: &Hub) {
+    hub.update_start_mode_state(None, |s| s.full_access_managed = None);
+}
+
+/// Two chats on the stand-in agent: an approve-all caller and an approve-edits target. Under
+/// MDM's off the caller runs as ask, so the target asks less than it.
+async fn approve_all_caller_and_target(hub: &Arc<Hub>) -> (Arc<Session>, Arc<Session>) {
+    let caller = hub.new_session(here()).await.unwrap();
+    let target = hub.new_session(here()).await.unwrap();
+    hub.set_policy(&caller, PermissionPolicy::ApproveAll).await;
+    hub.set_policy(&target, PermissionPolicy::ApproveEdits).await;
+    hub.apply_full_access_push(Some(false)).await;
+    (caller, target)
+}
+
+/// A family message's check at its send (`receiver_check`, also a retry's and an answer's)
+/// holds an off that held as it began, though an unset lands between its reads (review 125).
+#[tokio::test]
+async fn a_send_check_holds_an_off_unset_after_its_first_read() {
+    let hub = hub_on(&[], &[]);
+    let (caller, target) = approve_all_caller_and_target(&hub).await;
+    AFTER_OFF_COUNT.set(Some(unset));
+    let checked = hub.receiver_check(&caller, &target).await;
+    AFTER_OFF_COUNT.set(None);
+    assert!(
+        checked.is_err(),
+        "an approve-all caller messaged an approve-edits target under the off"
+    );
+}
+
+/// The same at its dispatch (`family_dispatch_check`, under the family gate).
+#[tokio::test]
+async fn a_dispatch_check_holds_an_off_unset_after_its_first_read() {
+    let hub = hub_on(&[], &[]);
+    let (caller, target) = approve_all_caller_and_target(&hub).await;
+    let provenance = json!({"kind": super::subsessions::PROVENANCE_KIND, "from": caller.id});
+    AFTER_OFF_COUNT.set(Some(unset));
+    let checked = hub.family_dispatch_check(&target, Some(&provenance)).await;
+    AFTER_OFF_COUNT.set(None);
+    assert!(
+        checked.is_err(),
+        "an approve-all caller's message ran in an approve-edits target under the off"
+    );
+}
