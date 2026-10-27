@@ -144,7 +144,7 @@ class Writer(unittest.TestCase):
         import zipfile
         with tempfile.TemporaryDirectory() as tmp:
             dmg = os.path.join(tmp, "x.dmg")
-            open(dmg, "wb").write(b"dmg")
+            Path(dmg).write_bytes(b"dmg")
             archive = os.path.join(tmp, "plist.zip")
             with zipfile.ZipFile(archive, "w") as zf:
                 zf.writestr("cmux NIGHTLY.app/Contents/Info.plist", plistlib.dumps(
