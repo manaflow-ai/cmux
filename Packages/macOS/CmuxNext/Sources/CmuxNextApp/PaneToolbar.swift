@@ -206,7 +206,10 @@ final class PaneToolbar {
         let own = contentMenu()
         if !own.isEmpty, !menu.items.isEmpty { menu.insertItem(.separator(), at: 0) }
         for (index, item) in own.enumerated() { menu.insertItem(item, at: index) }
-        let buttons = shownButtons()
+        view.layoutSubtreeIfNeeded()
+        let buttons = zip(view.items, view.buttons).compactMap { item, button in
+            button.isHidden ? nil : ActionID(rawValue: item.id)
+        }
         let tabOwn = registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: target),
                                               entries: tabActions().filter { !buttons.contains($0) }.map { .action($0) })
         if !menu.items.isEmpty, !tabOwn.items.isEmpty { menu.addItem(.separator()) }

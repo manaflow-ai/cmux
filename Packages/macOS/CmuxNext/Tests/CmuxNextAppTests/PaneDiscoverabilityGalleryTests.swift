@@ -32,6 +32,9 @@ import Testing
 
     private static func render(_ variant: Variant) throws -> CGImage {
         _ = NSApplication.shared
+        let animationsEnabled = DesignSettings.shared.animationsEnabled
+        DesignSettings.shared.animationsEnabled = false
+        defer { DesignSettings.shared.animationsEnabled = animationsEnabled }
         let size = NSSize(width: 900, height: 190)
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -61,7 +64,6 @@ import Testing
         let pane = PaneContentView(stripModel: model, reveal: reveal)
         pane.frame = NSRect(x: 24, y: 22, width: 852, height: 122)
         pane.stripView.opensNewTabMenuOnPress = variant.opensMenu
-        pane.stripView.buttonReveal.pointerInStrip = variant.opensMenu
         let registry = ActionRegistry.standard()
         pane.stripView.contextMenuProvider = { _ in
             let target = ActionTargetRef(kind: .pane, id: "gallery-pane")
@@ -80,7 +82,20 @@ import Testing
         pane.layoutSubtreeIfNeeded()
         pane.stripView.layoutSubtreeIfNeeded()
         pane.toolbar?.view.layoutSubtreeIfNeeded()
-        #expect(pane.stripView.alphaValue == 1, "gallery must capture the revealed tab strip")
+        // Window attachment and strip layout reread/reset the pointer. Show every variant with
+        // the same pointer-in-strip state only after those passes, with motion settled above.
+        pane.stripView.buttonReveal.pointerInStrip = true
+        let plus = pane.stripView.newTabButton
+        plus.needsLayout = true
+        plus.layoutSubtreeIfNeeded()
+        // These native glyphs are drawn by updateLayer; a synchronous layer-tree render does
+        // not wait for AppKit's next display turn to initialize their colors.
+        plus.updateLayer()
+        try #require(pane.stripView.alphaValue == 1, "gallery must capture the revealed tab strip")
+        try #require(!plus.isHiddenOrHasHiddenAncestor && plus.alphaValue == 1, "gallery must show the creation button")
+        try #require(plus.bounds.width > 0 && plus.bounds.height > 0)
+        let glyph = try #require(plus.layer?.sublayers?.compactMap { $0 as? CAShapeLayer }.first)
+        try #require(glyph.path != nil && glyph.strokeColor != nil, "gallery must draw the production plus/chevron glyph")
         root.displayIfNeeded()
         CATransaction.flush()
         let scale: CGFloat = 2

@@ -135,4 +135,39 @@ import Testing
             }
         }
     }
+
+    @Test func narrowBrowserBandKeepsTabsAndOverflowActionsAccessible() throws {
+        let density = DesignSettings.shared.density
+        DesignSettings.shared.density = .comfortable
+        defer { DesignSettings.shared.density = density }
+        let tab = PaneToolbarBottomTests.Pane(tabBar: .top, toolbar: .top, order: .belowToolbar)
+        defer { tab.tearDown() }
+        let registry = ActionRegistry.standard()
+        let target = ActionTargetRef(kind: .pane, id: "sample-pane")
+        let pins = ["splitRight", "splitDown", "toggleSplitZoom"]
+        for action in pins { registry.bind(ActionID(rawValue: action), invoke: { _ in }) }
+        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { registry.makePaneCreationMenu(target: target) }, paneTarget: target)
+        toolbar.update(target: "sample-browser", kind: .browser, pinned: pins)
+        tab.pane.toolbar = toolbar
+        for width: CGFloat in [200, 600, 200] {
+            tab.window.setContentSize(NSSize(width: width, height: 400))
+            tab.pane.frame = tab.window.contentLayoutRect
+            tab.pane.layoutSubtreeIfNeeded()
+            toolbar.view.layoutSubtreeIfNeeded()
+            #expect(tab.pane.isBandActive)
+            #expect(toolbar.view.frame.width <= width / 2)
+            #expect(tab.pane.stripView.tabAvailableWidth > 0, "the browser band must retain a tab viewport")
+            let creation = Array(toolbar.view.buttons.prefix(2))
+            #expect(creation.allSatisfy { $0.isHidden == (width == 200) })
+            let visible: [NSView] = toolbar.view.buttons.filter { !$0.isHidden } + [toolbar.view.moreButton]
+            for (left, right) in zip(visible, visible.dropFirst()) {
+                #expect(left.frame.maxX <= right.frame.minX)
+            }
+            let menu = try #require(toolbar.view.moreMenu?())
+            let menuActions = menu.items.compactMap { ActionRegistry.menuRun(of: $0)?.id }
+            for (item, button) in zip(toolbar.view.items, toolbar.view.buttons) where button.isHidden && pins.contains(item.id) {
+                #expect(menuActions.contains(ActionID(rawValue: item.id)), "overflowed pins must remain actionable")
+            }
+        }
+    }
 }

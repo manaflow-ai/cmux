@@ -29,6 +29,7 @@ extension PaneContentView {
             view.topAnchor.constraint(equalTo: stripView.topAnchor),
             view.heightAnchor.constraint(equalTo: stripView.heightAnchor),
             view.trailingAnchor.constraint(equalTo: trailingAnchor),
+            view.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, multiplier: 0.5),
         ]
     }
 }

@@ -150,13 +150,15 @@ public final class PaneToolbarView: NSView {
         moreButton.frame = moreFrame()
         let trailingSlot = hasMore || reservedCount > buttons.count ? 1 : 0
         // Creation actions remain in the + menu. Fold their buttons away together when the
-        // pane caps this toolbar's width, keeping the existing pins in their trailing slots.
+        // pane caps this toolbar's width, keeping pins in their trailing slots. Pins that also
+        // cannot fit return to the more menu instead of overlapping the remaining controls.
         let creationFits = items.indices.filter { items[$0].alwaysVisible }.allSatisfy {
             slotX(buttons.count - $0 - 1 + trailingSlot) >= 0
         }
         for (index, button) in buttons.enumerated() {
-            button.isHidden = items[index].alwaysVisible && !creationFits
-            button.frame = NSRect(x: max(0, slotX(buttons.count - index - 1 + trailingSlot)), y: y, width: side, height: side)
+            let x = slotX(buttons.count - index - 1 + trailingSlot)
+            button.isHidden = x < 0 || (items[index].alwaysVisible && !creationFits)
+            button.frame = NSRect(x: max(0, x), y: y, width: side, height: side)
         }
         applyTint()
     }
