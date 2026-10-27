@@ -61,10 +61,14 @@ extension BrowserHostProvider {
         let link = connection
         // The agent's own page code passes the Secure Store login guard first (ProviderScriptGate).
         let gated: String? = Self.runsAgentCode(method, params) ? targetID : nil
+        // A capture of a site holding a filled sign-in is refused too.
+        let captured: String? = Self.capturesPage(method) ? targetID : nil
         let gate = scriptGate
         Task { [weak self] in
             let frame: ProviderFrame
             if let gated, let gate, let refusal = await gate.admitAgentCode(targetID: gated) {
+                frame = .result(id: id, result: nil, error: DriverError(.forbidden, "\(method): \(refusal)").json)
+            } else if let captured, let gate, let refusal = await gate.admitCapture(targetID: captured) {
                 frame = .result(id: id, result: nil, error: DriverError(.forbidden, "\(method): \(refusal)").json)
             } else {
                 do throws(DriverError) {

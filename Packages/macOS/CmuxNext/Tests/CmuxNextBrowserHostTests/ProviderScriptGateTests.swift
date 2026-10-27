@@ -22,4 +22,11 @@ import Testing
             #expect(!BrowserHostProvider.runsAgentCode(method, unnamed), "\(method)")
         }
     }
+
+    @Test func capturesAreTheScreenshotAndThePDF() {
+        #expect(BrowserHostProvider.capturesPage("tab.screenshot"))
+        #expect(BrowserHostProvider.capturesPage("tab.pdf"))
+        #expect(!BrowserHostProvider.capturesPage("frame.evaluate"))
+        #expect(!BrowserHostProvider.capturesPage("tab.info"))
+    }
 }

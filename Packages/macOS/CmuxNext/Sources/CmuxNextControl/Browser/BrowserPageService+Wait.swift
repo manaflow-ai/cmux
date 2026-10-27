@@ -51,6 +51,8 @@ extension BrowserPageService {
                     guard allowsUnsafeCapture else { throw Self.unguardedCaptureRefusal() }
                     capture = .viewport
                 }
+                // A site holding a filled sign-in is never captured (BrowserLoginGuards).
+                try await Self.refuseCaptureOfFilledSite(engine, tab, guards)
                 let shot = try await Self.run(engine, .screenshot(capture), tab)
                 var result = Self.base(tab)
                 for key in ["path", "png_base64", "width", "height"] { result.updateValue(shot[key] ?? .null, forKey: key) }

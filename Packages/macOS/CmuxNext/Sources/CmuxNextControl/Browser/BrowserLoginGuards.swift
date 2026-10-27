@@ -11,7 +11,10 @@ import os
 ///   of that site's origin can read the password back.
 /// - `fill_login` on an origin agent code ever ran on is refused: that code could have left a hook
 ///   behind in another tab of the origin, an opener handle or a service worker. So is a tab that
-///   ever had a raw DevTools relay (it reaches every site that tab visits) or that a page opened.
+///   ever had a raw DevTools relay (it reaches every site that tab visits) or that a page opened,
+///   and any tab of a profile while a raw DevTools relay is attached in it.
+/// - Raw DevTools (sessions reach other frames and targets) is all or nothing per profile: while
+///   the profile holds ANY filled sign-in, no relay attaches and no raw message passes.
 ///
 /// An origin is `scheme://host[:port]` as `location.origin` gives it, keyed with the tab's
 /// profile (each profile has its own storage and service workers). Check and mark happen in one
@@ -30,10 +33,18 @@ public actor BrowserLoginGuards {
         case admitted
         /// Agent code ran on the origin, or the tab had a raw DevTools relay.
         case scripted = "scripted_origin"
+        /// A raw DevTools relay is attached to a tab of the profile.
+        case rawAttached = "raw_devtools_attached"
         /// A page opened the tab: its opener's script could reach in.
         case openedByPage = "opened_by_page"
         case unreadable = "guard_unreadable"
         case unsaved = "guard_unsaved"
+    }
+
+    /// A fill's admission and the filled marks it newly added (all ``forgetFill(_:)`` may remove).
+    public struct Fill: Sendable {
+        public let admission: FillAdmission
+        public let added: Set<String>
     }
 
     private struct Saved: Codable {
@@ -41,9 +52,18 @@ public actor BrowserLoginGuards {
         var filled: [String]
     }
 
-    /// The filled keys, readable without the actor for the raw DevTools relay's per-message check
-    /// (``rawMessageAllowed(profile:origin:)``). Nil until the file was read.
-    private let filledMirror = Mutex<Set<String>?>(nil)
+    /// What the raw DevTools relay reads and writes without the actor, so it keeps message order
+    /// and its marks count at once.
+    private struct Mirror {
+        /// The filled keys; nil until the file was read.
+        var filled: Set<String>?
+        /// Sites a raw relay reached, marked at once (persisted on the actor after).
+        var rawScripted: Set<String> = []
+        /// Attached raw relays: tab -> profile key prefix.
+        var attached: [String: String] = [:]
+    }
+
+    private let mirrorState = Mutex(Mirror(filled: nil))
 
     private let file: URL?
     private var scripted: Set<String> = []
@@ -71,23 +91,40 @@ public actor BrowserLoginGuards {
         guard let origins else { return !holdsFill(profile) }
         let keys = origins.map { Self.key(profile: profile, origin: $0) }
         if keys.contains(where: filled.contains) { return false }
-        insert(keys, scripted: true)
+        insertScripted(keys)
         return true
     }
 
     /// Marks `origins` scripted after agent code ran (it may have moved to another site).
     public func markScripted(profile: String?, origins: [String]?) {
         load()
-        insert((origins ?? []).map { Self.key(profile: profile, origin: $0) }, scripted: true)
+        insertScripted((origins ?? []).map { Self.key(profile: profile, origin: $0) })
     }
 
-    /// A raw DevTools relay is about to attach to `tab` showing `origins` (nil: unknown). False
-    /// when one of them holds a filled login (or, unknown, the profile holds any); else the
-    /// origins are marked scripted and the tab never gets a fill.
+    /// Whether a page of `origins` (nil: unknown) may be captured (a screenshot, a PDF): not when
+    /// one holds a filled login, nor, unknown, while the profile holds any.
+    public func mayCapture(profile: String?, origins: [String]?) -> Bool {
+        load()
+        guard let origins else { return !holdsFill(profile) }
+        return !origins.contains { filled.contains(Self.key(profile: profile, origin: $0)) }
+    }
+
+    /// A raw DevTools relay is about to attach to `tab` showing `origins`. False while the profile
+    /// holds any filled login; else the origins are marked scripted, the tab never gets a fill,
+    /// and no tab of the profile gets one while the relay stays attached (``rawDevToolsEnded(tab:)``).
     public func beginRawDevTools(tab: String, profile: String?, origins: [String]?) -> Bool {
-        guard beginScript(profile: profile, origins: origins) else { return false }
+        load()
+        guard !holdsFill(profile) else { return false }
+        insertScripted((origins ?? []).map { Self.key(profile: profile, origin: $0) })
         rawTabs.insert(tab)
+        let prefix = Self.key(profile: profile, origin: "")
+        mirrorState.withLock { $0.attached[tab] = prefix }
         return true
+    }
+
+    /// The raw DevTools relay of `tab` ended (detached, closed).
+    public nonisolated func rawDevToolsEnded(tab: String) {
+        mirrorState.withLock { _ = $0.attached.removeValue(forKey: tab) }
     }
 
     /// A page opened `tab` (a popup): it never gets a fill.
@@ -96,42 +133,52 @@ public actor BrowserLoginGuards {
     }
 
     /// A login is about to be filled into `tab`, a page of `origins`. Refused when agent code ran
-    /// on one of them, the tab had a raw DevTools relay or a page opened it, or the guard file
-    /// cannot be read or saved; else each origin is marked filled.
-    public func beginFill(tab: String, profile: String?, origins: [String]) -> FillAdmission {
+    /// on one of them (a raw relay's mark counts at once), the tab had a raw DevTools relay, a raw
+    /// relay is attached in the profile, a page opened the tab, or the guard file cannot be read or
+    /// saved; else each origin is marked filled and the answer names the marks it newly added.
+    public func beginFill(tab: String, profile: String?, origins: [String]) -> Fill {
         load()
-        if unreadable { return .unreadable }
-        if openedTabs.contains(tab) { return .openedByPage }
+        func refused(_ admission: FillAdmission) -> Fill { Fill(admission: admission, added: []) }
+        if unreadable { return refused(.unreadable) }
+        if openedTabs.contains(tab) { return refused(.openedByPage) }
         let keys = origins.map { Self.key(profile: profile, origin: $0) }
-        if rawTabs.contains(tab) || keys.contains(where: scripted.contains) { return .scripted }
-        if keys.contains(where: unsaved.contains) { return .unsaved }
-        insert(keys, scripted: false)
-        return keys.contains(where: unsaved.contains) ? .unsaved : .admitted
-    }
-
-    /// The fill set nothing on `origins` (no login field, or the page moved first).
-    public func forgetFill(profile: String?, origins: [String]) {
-        load()
-        let keys = Set(origins.map { Self.key(profile: profile, origin: $0) })
-        guard !filled.isDisjoint(with: keys) else { return }
-        filled.subtract(keys)
-        mirror()
-        save(changed: keys)
-    }
-
-    /// One raw DevTools message on a tab now at `origin` (nil: unknown), checked without the
-    /// actor so the relay keeps message order: false while the origin holds a filled login (or,
-    /// unknown or before the file was read, while the profile holds any). The caller marks the
-    /// origin scripted (``markScripted(profile:origins:)``).
-    public nonisolated func rawMessageAllowed(profile: String?, origin: String?) -> Bool {
-        filledMirror.withLock { filled in
-            guard let filled else { return false }
-            guard let origin else {
-                let prefix = Self.key(profile: profile, origin: "")
-                return !filled.contains { $0.hasPrefix(prefix) }
-            }
-            return !filled.contains(Self.key(profile: profile, origin: origin))
+        let prefix = Self.key(profile: profile, origin: "")
+        let (rawScripted, attached) = mirrorState.withLock { ($0.rawScripted, $0.attached.values.contains(prefix)) }
+        if rawTabs.contains(tab) || keys.contains(where: { scripted.contains($0) || rawScripted.contains($0) }) {
+            return refused(.scripted)
         }
+        if attached { return refused(.rawAttached) }
+        if keys.contains(where: unsaved.contains) { return refused(.unsaved) }
+        let added = Set(keys).subtracting(filled)
+        insertFilled(added)
+        return Fill(admission: keys.contains(where: unsaved.contains) ? .unsaved : .admitted, added: added)
+    }
+
+    /// The fill set nothing: removes only the marks it added (``Fill/added``), never one an
+    /// earlier fill made.
+    public func forgetFill(_ added: Set<String>) {
+        load()
+        guard !filled.isDisjoint(with: added) else { return }
+        filled.subtract(added)
+        mirror()
+        save(changed: added)
+    }
+
+    /// One raw DevTools message in `profile`, checked without the actor so the relay keeps
+    /// message order: false while the profile holds any filled login, or before the file was read.
+    public nonisolated func rawMessageAllowed(profile: String?) -> Bool {
+        let prefix = Self.key(profile: profile, origin: "")
+        return mirrorState.withLock { mirror in
+            guard let filled = mirror.filled else { return false }
+            return !filled.contains { $0.hasPrefix(prefix) }
+        }
+    }
+
+    /// A raw DevTools message reached `origin`: marked scripted at once (a fill there is refused
+    /// from now on); true when it is new, so the caller persists it (``markScripted(profile:origins:)``).
+    public nonisolated func noteRawSite(profile: String?, origin: String) -> Bool {
+        let key = Self.key(profile: profile, origin: origin)
+        return mirrorState.withLock { $0.rawScripted.insert(key).inserted }
     }
 
     /// Reads the file now (the app calls it at start, so the relay's mirror is ready).
@@ -148,17 +195,23 @@ public actor BrowserLoginGuards {
         return filled.contains { $0.hasPrefix(prefix) }
     }
 
-    private func insert(_ keys: [String], scripted toScripted: Bool) {
-        let new = Set(keys).subtracting(toScripted ? scripted : filled)
+    private func insertScripted(_ keys: [String]) {
+        let new = Set(keys).subtracting(scripted)
         guard !new.isEmpty else { return }
-        if toScripted { scripted.formUnion(new) } else { filled.formUnion(new) }
-        if !toScripted { mirror() }
+        scripted.formUnion(new)
         save(changed: new)
+    }
+
+    private func insertFilled(_ keys: Set<String>) {
+        guard !keys.isEmpty else { return }
+        filled.formUnion(keys)
+        mirror()
+        save(changed: keys)
     }
 
     private func mirror() {
         let snapshot = filled
-        filledMirror.withLock { $0 = snapshot }
+        mirrorState.withLock { $0.filled = snapshot }
     }
 
     private func load() {

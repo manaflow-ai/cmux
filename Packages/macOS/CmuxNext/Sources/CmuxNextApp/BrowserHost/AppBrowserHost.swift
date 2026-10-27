@@ -69,8 +69,10 @@ final class AppBrowserHost {
             page: { [weak services] id in services.map { Self.page(id, in: $0) } ?? (nil, nil) },
             admit: { id, page in await codeGate.admit(tabID: id, url: page.url, profile: page.profile) },
             ran: { id, page in await codeGate.ran(tabID: id, url: page.url, profile: page.profile) },
+            capture: { id, page in await codeGate.admitCapture(tabID: id, url: page.url, profile: page.profile) },
             admitRaw: { id, page in await codeGate.admitRaw(tabID: id, url: page.url, profile: page.profile) },
-            raw: { page in codeGate.rawMessage(url: page.url, profile: page.profile) })
+            raw: { page in codeGate.rawMessage(url: page.url, profile: page.profile) },
+            rawEnded: { id in codeGate.rawEnded(tabID: id) })
         self.scriptGate = scriptGate
         cursorLeases = AgentCursorLeaseFanOut(models: { [weak services] in
             guard let services else { return [] }

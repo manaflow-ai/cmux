@@ -13,13 +13,18 @@ public protocol ProviderScriptGate: AnyObject {
     func admitAgentCode(targetID: String) async -> String?
     /// After that code ran: the site the tab is on now (it may have navigated) is marked too.
     func agentCodeRan(targetID: String) async
+    /// Before a capture of a tab (`tab.screenshot`, `tab.pdf`): nil admits it; else why not (its
+    /// site holds a filled sign-in).
+    func admitCapture(targetID: String) async -> String?
     /// Before a raw DevTools relay attaches to a tab: nil admits it (the tab never gets a fill,
-    /// and its site is marked); else why not.
+    /// its site is marked, and no tab of its profile gets one while it stays attached); else why
+    /// not (the profile holds a filled sign-in).
     func admitRawDevTools(targetID: String) async -> String?
-    /// Each raw DevTools message, in order: nil sends it (the tab's current site is marked); else
-    /// why it is refused (the tab is on a site holding a filled sign-in, or its site is unknown
-    /// while one is filled).
+    /// Each raw DevTools message, in order: nil sends it (the tab's current site is marked at
+    /// once); else why it is refused (the tab's profile holds a filled sign-in).
     func rawDevToolsMessage(targetID: String) -> String?
+    /// A tab's raw DevTools relay ended (detached, the page closed, the link dropped).
+    func rawDevToolsEnded(targetID: String)
 }
 
 extension BrowserHostProvider {
@@ -33,5 +38,10 @@ extension BrowserHostProvider {
             return true
         default: return false
         }
+    }
+
+    /// Whether a driver call captures the page: a screenshot or a PDF.
+    nonisolated static func capturesPage(_ method: String) -> Bool {
+        method == "tab.screenshot" || method == "tab.pdf"
     }
 }

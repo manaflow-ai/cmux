@@ -271,9 +271,9 @@ import Testing
         defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
         let first = BrowserLoginGuards(file: file)
         #expect(await first.beginScript(profile: nil, origins: ["https://scripted.test"]))
-        #expect(await first.beginFill(tab: "tab_a", profile: nil, origins: ["https://filled.test"]) == .admitted)
+        #expect(await first.beginFill(tab: "tab_a", profile: nil, origins: ["https://filled.test"]).admission == .admitted)
         let second = BrowserLoginGuards(file: file)
-        #expect(await second.beginFill(tab: "tab_a", profile: nil, origins: ["https://scripted.test"]) == .scripted,
+        #expect(await second.beginFill(tab: "tab_a", profile: nil, origins: ["https://scripted.test"]).admission == .scripted,
                 "a scripted site stays scripted")
         #expect(await !second.beginScript(profile: nil, origins: ["https://filled.test"]), "a filled site stays filled")
         #expect(await second.beginScript(profile: "default", origins: ["https://filled.test"]), "another profile is another store")
@@ -336,14 +336,14 @@ import Testing
         try Data().write(to: blocker)
         let guards = BrowserLoginGuards(file: blocker.appendingPathComponent("guards.json"))
         #expect(await guards.beginScript(profile: nil, origins: ["https://a.test"]))
-        #expect(await guards.beginFill(tab: "tab_x", profile: nil, origins: ["https://b.test"]) == .unsaved)
+        #expect(await guards.beginFill(tab: "tab_x", profile: nil, origins: ["https://b.test"]).admission == .unsaved)
         // The marks stay in memory: the scripted site still refuses a fill, the filled one a script.
-        #expect(await guards.beginFill(tab: "tab_x", profile: nil, origins: ["https://a.test"]) == .scripted)
+        #expect(await guards.beginFill(tab: "tab_x", profile: nil, origins: ["https://a.test"]).admission == .scripted)
         #expect(await !guards.beginScript(profile: nil, origins: ["https://b.test"]))
         // Saving works again: the next change saves, and fills are admitted again.
         try FileManager.default.removeItem(at: blocker)
         #expect(await guards.beginScript(profile: nil, origins: ["https://c.test"]))
-        #expect(await guards.beginFill(tab: "tab_x", profile: nil, origins: ["https://d.test"]) == .admitted)
+        #expect(await guards.beginFill(tab: "tab_x", profile: nil, origins: ["https://d.test"]).admission == .admitted)
     }
 
     @Test func storageAndCookieWritesAreAgentCode() async throws {
@@ -376,7 +376,7 @@ import Testing
         #expect(engine.probes == 2, "one guard read before the wait and one after, however many polls ran")
     }
 
-    @Test func theBrowserHostGateGuardsItsAgentCodeAndRawRelay() async throws {
+    @Test func theBrowserHostGateGuardsItsAgentCodeAndCaptures() async throws {
         let engine = LoginEngine(url: "https://www.example.com/login", fill: Self.filledBoth)
         let guards = BrowserLoginGuards(file: nil)
         let gate = BrowserAgentCodeGate(guards: guards, engine: engine)
@@ -385,24 +385,98 @@ import Testing
         // A host `frame.evaluate` on a site marks it, as `eval` does: no fill there.
         #expect(await gate.admit(tabID: "tab_other", url: engine.url, profile: profile) == nil)
         #expect(try await call(router).get()["reason"] == "scripted_origin")
-        // A filled site refuses host code, a raw relay and each raw message.
+        // A filled site refuses host code and host captures (screenshot, PDF).
         engine.navigate(to: "https://login.example.net/")
+        #expect(await gate.admitCapture(tabID: "tab_other", url: engine.url, profile: profile) == nil, "nothing filled yet")
         #expect(try await call(router).get()["filled"] == true)
         #expect(await gate.admit(tabID: "tab_other", url: engine.url, profile: profile) != nil)
-        #expect(await gate.admitRaw(tabID: "tab_other", url: engine.url, profile: profile) != nil)
-        #expect(gate.rawMessage(url: "https://login.example.net/x", profile: profile) != nil)
-        #expect(gate.rawMessage(url: nil, profile: profile) != nil, "an unknown site is refused while one is filled")
-        #expect(gate.rawMessage(url: "https://elsewhere.test/", profile: profile) == nil)
-        #expect(gate.rawMessage(url: "about:blank", profile: profile) == nil)
-        // A tab that had a raw relay never gets a fill, wherever it goes.
-        engine.navigate(to: "https://fresh.example.com/")
-        #expect(await gate.admitRaw(tabID: "tab_0123abcd", url: engine.url, profile: profile) == nil)
-        engine.navigate(to: "https://other.example.com/")
-        #expect(try await call(router).get()["reason"] == "scripted_origin")
-        // A tab a page opened never gets one either.
+        #expect(await gate.admitCapture(tabID: "tab_other", url: engine.url, profile: profile) != nil)
+        // A tab a page opened never gets a fill.
         await gate.openedByPage(tabID: "tab_other")
         engine.navigate(to: "https://third.example.com/")
         #expect(try await call(router, tab: "tab_other").get()["reason"] == "opened_by_page")
+    }
+
+    @Test func rawDevToolsIsRefusedInAProfileHoldingAnyFill() async throws {
+        let engine = LoginEngine(url: "https://login.example.net/", fill: Self.filledBoth)
+        let guards = BrowserLoginGuards(file: nil)
+        let gate = BrowserAgentCodeGate(guards: guards, engine: engine)
+        let router = install(engine, Lookups(Self.saved), guards: guards)
+        let profile = BrowserPageService.agentBrowserProfileID
+        #expect(try await call(router).get()["filled"] == true)
+        // Another site, another tab: still refused, the attach and every message (raw DevTools
+        // sessions reach other frames and targets).
+        engine.navigate(to: "https://elsewhere.test/")
+        #expect(await gate.admitRaw(tabID: "tab_other", url: engine.url, profile: profile) != nil)
+        for url in ["https://elsewhere.test/", "about:blank", nil] as [String?] {
+            #expect(gate.rawMessage(url: url, profile: profile) != nil, "\(url ?? "nil")")
+        }
+        // Another profile holds no fill: its relay runs.
+        #expect(gate.rawMessage(url: "https://elsewhere.test/", profile: "default") == nil)
+        #expect(await gate.admitRaw(tabID: "tab_person", url: "https://elsewhere.test/", profile: "default") == nil)
+    }
+
+    @Test func anAttachedRawRelayHoldsBackFillsInItsProfile() async throws {
+        let engine = LoginEngine(url: "https://start.example.com/", fill: Self.filledBoth)
+        let guards = BrowserLoginGuards(file: nil)
+        let gate = BrowserAgentCodeGate(guards: guards, engine: engine)
+        let router = install(engine, Lookups(Self.saved), guards: guards)
+        let profile = BrowserPageService.agentBrowserProfileID
+        #expect(await gate.admitRaw(tabID: "tab_other", url: engine.url, profile: profile) == nil)
+        engine.navigate(to: "https://login.example.net/")
+        #expect(try await call(router).get()["reason"] == "raw_devtools_attached")
+        // Detached: the other tab fills; the relayed tab itself never does.
+        gate.rawEnded(tabID: "tab_other")
+        #expect(try await call(router, tab: "tab_other").get()["reason"] == "scripted_origin")
+        #expect(try await call(router).get()["filled"] == true)
+    }
+
+    @Test func aRawMessageMarksItsSiteAtOnce() async throws {
+        let engine = LoginEngine(url: "https://start.example.com/", fill: Self.filledBoth)
+        let guards = BrowserLoginGuards(file: nil)
+        let gate = BrowserAgentCodeGate(guards: guards, engine: engine)
+        let router = install(engine, Lookups(Self.saved), guards: guards)
+        let profile = BrowserPageService.agentBrowserProfileID
+        #expect(await gate.admitRaw(tabID: "tab_other", url: engine.url, profile: profile) == nil)
+        #expect(gate.rawMessage(url: "https://site.example.com/a", profile: profile) == nil)
+        #expect(!guards.noteRawSite(profile: profile, origin: "https://site.example.com"), "marked by the message itself")
+        gate.rawEnded(tabID: "tab_other")
+        engine.navigate(to: "https://site.example.com/login")
+        #expect(try await call(router).get()["reason"] == "scripted_origin")
+    }
+
+    @Test func aFailedFillRemovesOnlyTheMarksItAdded() async throws {
+        let guards = BrowserLoginGuards(file: nil)
+        let first = await guards.beginFill(tab: "tab_a", profile: nil, origins: ["https://x.test"])
+        #expect(first.admission == .admitted)
+        #expect(first.added == [BrowserLoginGuards.key(profile: nil, origin: "https://x.test")])
+        // A second fill on the same site adds nothing; its failure removes nothing.
+        let second = await guards.beginFill(tab: "tab_b", profile: nil, origins: ["https://x.test"])
+        #expect(second.admission == .admitted)
+        #expect(second.added.isEmpty)
+        await guards.forgetFill(second.added)
+        #expect(await !guards.beginScript(profile: nil, origins: ["https://x.test"]), "the first fill's mark stays")
+        // The first fill's own failure removes its mark.
+        await guards.forgetFill(first.added)
+        #expect(await guards.beginScript(profile: nil, origins: ["https://x.test"]))
+    }
+
+    @Test func aScreenshotOfAFilledSiteIsRefused() async throws {
+        let engine = LoginEngine(url: "https://login.example.net/", fill: Self.filledBoth)
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
+        BrowserPageService(engine: engine, leases: BrowserTabLeases(), allowsUnsafeCapture: true, logins: Lookups(Self.saved).logins,
+                           loginGuards: BrowserLoginGuards(file: nil), secureStoreFillEnabled: { true }).install(on: router)
+        var snapshot = ControlSnapshot.sample()
+        var tab = ControlTabInfo(id: "tab_0123abcd", surface: "12", kind: "browser", title: "Sign in", url: engine.url)
+        tab.browserProfileID = BrowserPageService.agentBrowserProfileID
+        snapshot.topology.workspaces[0].screens[0].panes[0].tabs.append(tab)
+        router.snapshots.publish { $0 = snapshot }
+        _ = try await call(router).get()
+        guard case .failure(let error) = await router.handle(ControlRequest(method: "browser.page.screenshot", params: ["tab": "tab_0123abcd"])) else {
+            Issue.record("the filled site was captured")
+            return
+        }
+        #expect(error.code == "login_filled")
     }
 
     @Test func aSavedLoginNeverPrintsItsSecrets() {

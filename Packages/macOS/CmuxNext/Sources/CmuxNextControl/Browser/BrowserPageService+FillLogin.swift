@@ -15,7 +15,8 @@ import Foundation
 /// Answers `{tab, filled, site, username_filled, password_filled, submitted}`, plus `reason` when
 /// nothing was filled: `disabled` (the setting is off), `no_saved_login` (`site` null),
 /// `not_agent_tab` (the person's profile), `not_https`, `scripted_origin` (agent code ran on this
-/// site, or the tab had a raw DevTools relay), `opened_by_page` (a page opened the tab and could
+/// site, or the tab had a raw DevTools relay), `raw_devtools_attached` (a raw DevTools relay is
+/// attached to a tab of the profile), `opened_by_page` (a page opened the tab and could
 /// reach in), `guard_unreadable` / `guard_unsaved` (the guard file cannot be read or saved),
 /// `page_unavailable` (the page's origin could not be read), `no_login_field`, or `navigated`
 /// (the page moved before the fill ran). The answer never
@@ -51,15 +52,16 @@ extension BrowserPageService {
                     return Self.loginAnswer(tab, site: login.site, reason: "page_unavailable")
                 }
                 guard !page.opener else { return Self.loginAnswer(tab, site: login.site, reason: "opened_by_page") }
-                let admission = await guards.beginFill(tab: tab.id, profile: tab.browserProfileID, origins: origins)
-                guard admission == .admitted else { return Self.loginAnswer(tab, site: login.site, reason: admission.rawValue) }
+                let fill = await guards.beginFill(tab: tab.id, profile: tab.browserProfileID, origins: origins)
+                guard fill.admission == .admitted else { return Self.loginAnswer(tab, site: login.site, reason: fill.admission.rawValue) }
                 let script = BrowserPageScripts.fillLogin(host: host, origin: probed, username: login.username, password: login.password)
                 let value = try await Self.runLoginScript(engine, script, tab)
                 let fields = value["value"] ?? .null
                 let username = fields["username"]?.boolValue == true
                 let password = fields["password"]?.boolValue == true
                 guard username || password else {
-                    await guards.forgetFill(profile: tab.browserProfileID, origins: origins)
+                    // Only the marks this fill added: an earlier fill's stay.
+                    await guards.forgetFill(fill.added)
                     return Self.loginAnswer(tab, site: login.site, reason: fields["reason"]?.stringValue ?? "no_login_field")
                 }
                 var input = BrowserPageAgentInput.from(kind: .type, answer: value, replace: true)
@@ -122,6 +124,19 @@ extension BrowserPageService {
     static func beginAgentScript(_ engine: any BrowserPageEngine, _ tab: Tab, _ guards: BrowserLoginGuards) async throws {
         let page = await pageOrigin(engine, tab)
         guard await guards.beginScript(profile: tab.browserProfileID, origins: page.origins) else {
+            throw ControlError(code: "login_filled",
+                               message: ControlStrings.text("control.error.loginFilled",
+                                                            "This site holds a filled sign-in; agent scripts cannot run on it"),
+                               data: ["tab": .string(tab.id)])
+        }
+    }
+
+    /// Before a capture (a screenshot): refused with `login_filled` on a site holding a filled
+    /// sign-in (or, its origin unknown, while the profile holds any). The fill's observer empties a
+    /// revealed password, but a capture does not rely on it.
+    static func refuseCaptureOfFilledSite(_ engine: any BrowserPageEngine, _ tab: Tab, _ guards: BrowserLoginGuards) async throws {
+        let page = await pageOrigin(engine, tab)
+        guard await guards.mayCapture(profile: tab.browserProfileID, origins: page.origins) else {
             throw ControlError(code: "login_filled",
                                message: ControlStrings.text("control.error.loginFilled",
                                                             "This site holds a filled sign-in; agent scripts cannot run on it"),

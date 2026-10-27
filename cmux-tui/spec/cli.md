@@ -713,8 +713,11 @@ over https that no page opened and that never had a raw DevTools relay, only on 
 per browser profile) no agent code (`eval`, `wait --function`, storage and cookie writes, the
 browser host's `frame.evaluate` and raw DevTools) ever ran on (else `reason:
 "scripted_origin"`); once a site's sign-in is filled, that code is refused on that site in every
-tab (error code `login_filled`). Both marks persist across app restarts; an unreadable guard
-file refuses every fill (`guard_unreadable`). Never eval on a site you will sign into.
+tab (error code `login_filled`), and so are screenshots and PDFs of it. While a browser profile
+holds any filled sign-in, no raw DevTools relay attaches to its tabs and no raw message passes;
+while a relay is attached, no tab of its profile gets a fill (`raw_devtools_attached`). Both
+marks persist across app restarts; an unreadable guard file refuses every fill
+(`guard_unreadable`). Never eval on a site you will sign into.
 
 Terminal and sidebar attachments stream styled render snapshots and patches.
 Browser attachments stream browser state and frames. Public attachments never
