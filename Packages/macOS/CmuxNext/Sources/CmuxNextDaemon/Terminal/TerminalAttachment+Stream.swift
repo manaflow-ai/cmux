@@ -76,7 +76,9 @@ extension TerminalAttachment {
         streamed.stream = handle.id
         let response: AttachSurfaceRequest.Response
         do {
-            response = try await DaemonConnection.perform(streamed, on: transport, timeout: timeout)
+            // Framed, the opener's header names the stream, so the view's keys may go as INPUT frames on it.
+            response = try await DaemonRequestExecutor(transport: transport).perform(streamed, timeout: timeout,
+                                                                                     opening: handle)
         } catch {
             owner.abandon(after: error)
             throw error

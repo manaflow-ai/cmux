@@ -17,16 +17,20 @@ extension TerminalAttachment {
     /// INPUT (cmux-ipc frame.rs `FrameKind::Input`).
     static let inputFrameKind: UInt8 = 9
 
-    /// The stream this view's keys go to as INPUT frames: its own stream on a connection that holds
-    /// `ipc-frames-v2`. Nil sends them as `send` lines: a view on a connection of its own (INPUT on stream 0
-    /// is a bad message), or a connection the daemon granted no frames.
+    /// The stream this view's keys go to as INPUT frames: its own stream, once its `attach-surface` went as a
+    /// REQUEST frame whose header names it. The daemon takes INPUT only on a stream an opener announced that way
+    /// and closes the connection on any other (pending_streams.rs `ClientStreams::input`, p05-ipc-087). Nil sends
+    /// the keys as `send` lines: a view on a connection of its own, or a stream whose opener went as a line (no
+    /// frames granted, or the daemon does not answer `attach-surface` on frames).
     nonisolated var inputFrameStream: UInt16? {
-        guard let stream, transport.wireGrants.frames else { return nil }
+        guard let stream, transport.announcedAttachStream(stream) else { return nil }
         return stream.id
     }
 
     /// Writes `data` as INPUT frames on `stream`, in call order with every earlier key of this view, then marks
-    /// the press `flow` names as sent, as the `send` line path does.
+    /// the press `flow` names as sent, as the `send` line path does. A frame the writer refuses ends the
+    /// connection (``LineTransport/sendFrame(_:priority:)``), so no later key is written behind the gap; the view
+    /// sees its stream end and reattaches.
     nonisolated func sendInputFrames(_ data: Data, stream: UInt16, flow: UInt64?) {
         var failure: SocketWriteFailure?
         Self.forEachInputFrame(data, stream: stream, flow: flow) { frame in
@@ -39,7 +43,7 @@ extension TerminalAttachment {
         case .closed?, .peerClosed?:
             logger.debug("input dropped after close")
         case let failure?:
-            logger.error("input frame not written: \(failure.description, privacy: .public)")
+            logger.error("input frame refused, connection ended: \(failure.description, privacy: .public)")
         }
     }
 

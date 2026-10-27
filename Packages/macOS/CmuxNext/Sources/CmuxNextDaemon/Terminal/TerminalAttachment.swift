@@ -206,13 +206,12 @@ public actor TerminalAttachment: TerminalByteChannel {
 
     /// Synchronous, ordered input path for Ghostty's `io_write_cb` thread. Writes from one thread reach the PTY
     /// in call order: as INPUT frames on a framed stream (TerminalAttachment+InputFrames.swift), else `send` lines.
+    /// A key after ``detachNow()`` is dropped, as a closed connection drops it: it never follows the view's
+    /// `cancel-stream`.
     public nonisolated func enqueueInput(_ data: Data) {
-        guard !data.isEmpty else { return }
+        guard !data.isEmpty, !control.value.withLock({ $0.detached }) else { return }
         let flow = TypingLatencyProbe.shared.openFlow
         guard let stream = inputFrameStream else { return sendInputLine(data, flow: flow) }
-        // Once detached, the stream may be gone on the daemon, where INPUT on it is refused: the key is
-        // dropped, as a closed connection drops it.
-        guard !control.value.withLock({ $0.detached }) else { return }
         sendInputFrames(data, stream: stream, flow: flow)
     }
 
