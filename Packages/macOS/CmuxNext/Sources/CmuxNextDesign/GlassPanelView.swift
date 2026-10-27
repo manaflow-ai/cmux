@@ -197,6 +197,7 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
     override func updateConstraints() { ActiveLookScope.during(window) { super.updateConstraints() } }
     override func viewWillDraw() { ActiveLookScope.during(window) { super.viewWillDraw() } }
     override func viewDidMoveToWindow() {
+        if let window { ActiveLookScope.markKeepsActiveLook(window) }
         scopeGraphHosts()
         ActiveLookScope.during(window) { super.viewDidMoveToWindow() }
     }
@@ -366,14 +367,32 @@ enum ActiveLookScope {
         scopePointer(hostClass, NSSelectorFromString("_updateConstraintsForSubtreeIfNeededCollectingViewsWithInvalidBaselines:"))
     }
 
-    /// The window to scope `view`'s update to: its window when its nearest glass ancestor is an
-    /// `ActiveLookGlassEffectView` and it is not in that glass's content view, else nil.
+    /// Marks `window` as one whose backdrop glass keeps its key look.
+    static func markKeepsActiveLook(_ window: NSWindow) {
+        objc_setAssociatedObject(window, &keepsActiveLookKey, true, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+
+    /// Whether an ``ActiveLookGlassEffectView`` backdrop was ever in `window`.
+    static func keepsActiveLook(_ window: NSWindow) -> Bool {
+        objc_getAssociatedObject(window, &keepsActiveLookKey) as? Bool ?? false
+    }
+
+    nonisolated(unsafe) private static var keepsActiveLookKey: UInt8 = 0
+
+    /// The window to scope `view`'s update to, else nil: its window when `view` is a glass's own
+    /// view (not in that glass's content view) and the glass is an `ActiveLookGlassEffectView` or
+    /// shares a window with one. Liquid Glass draws one window's glass together: on a fleet mini the
+    /// composer's and header's plain glass re-rendering inactive frosted the window background
+    /// even when the backdrop glass had kept its key look. Glass in other windows (popups, the
+    /// palette) is untouched.
     @available(macOS 26.0, *)
     static func glassWindow(of view: NSView) -> NSWindow? {
+        guard let window = view.window else { return nil }
         var child = view
         while let parent = child.superview {
             if let glass = parent as? NSGlassEffectView {
-                return glass is ActiveLookGlassEffectView && child !== glass.contentView ? view.window : nil
+                guard child !== glass.contentView else { return nil }
+                return glass is ActiveLookGlassEffectView || keepsActiveLook(window) ? window : nil
             }
             child = parent
         }

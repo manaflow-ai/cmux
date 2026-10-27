@@ -64,28 +64,44 @@ import CmuxNextDesignTokens
         #expect(ActiveLookScope.imageKind(path: "") == .other)
     }
 
-    /// A hosting view updating on its own is scoped to its window only inside an
-    /// `ActiveLookGlassEffectView` and outside its content view; a plain glass's is not.
-    @Test func onlyTheActiveLookGlassScopesItsHostingView() {
+    /// A glass's own view updating on its own is scoped to its window inside an
+    /// `ActiveLookGlassEffectView`, and inside any glass sharing a window with one (Liquid Glass draws
+    /// a window's glass together); never in a glass's content view, never in another window.
+    @Test func theActiveLookWindowScopesItsGlassViews() {
         guard #available(macOS 26.0, *) else { return }
-        let window = NSWindow(contentRect: .init(x: 0, y: 0, width: 10, height: 10), styleMask: [], backing: .buffered, defer: true)
-        window.isReleasedWhenClosed = false
-        let root = NSView()
-        window.contentView = root
+        func window() -> NSWindow {
+            let window = NSWindow(contentRect: .init(x: 0, y: 0, width: 10, height: 10), styleMask: [], backing: .buffered, defer: true)
+            window.isReleasedWhenClosed = false
+            window.contentView = NSView()
+            return window
+        }
+        let other = window()
+        let lonePlain = NSGlassEffectView()
+        other.contentView?.addSubview(lonePlain)
+        let inLonePlain = NSView()
+        lonePlain.addSubview(inLonePlain)
+        #expect(ActiveLookScope.glassWindow(of: inLonePlain) == nil, "a plain glass alone follows the key state")
+
+        let shell = window()
+        let root = shell.contentView!
         let glass = ActiveLookGlassEffectView(frame: .zero)
         let plain = NSGlassEffectView()
-        let content = NSView()
+        let content = NSView(), plainContent = NSView()
         glass.contentView = content
+        plain.contentView = plainContent
         root.addSubview(glass)
         root.addSubview(plain)
-        let host = NSView(), inContent = NSView(), inPlain = NSView()
+        let host = NSView(), inContent = NSView(), inPlain = NSView(), inPlainContent = NSView()
         glass.addSubview(host)
         content.addSubview(inContent)
         plain.addSubview(inPlain)
-        #expect(ActiveLookScope.glassWindow(of: host) === window)
+        plainContent.addSubview(inPlainContent)
+        #expect(ActiveLookScope.glassWindow(of: host) === shell)
+        #expect(ActiveLookScope.glassWindow(of: inPlain) === shell, "the same window's glass draws together")
         #expect(ActiveLookScope.glassWindow(of: inContent) == nil, "the content view is the app's")
-        #expect(ActiveLookScope.glassWindow(of: inPlain) == nil, "a plain glass follows the key state")
+        #expect(ActiveLookScope.glassWindow(of: inPlainContent) == nil)
         #expect(ActiveLookScope.glassWindow(of: root) == nil)
+        #expect(ActiveLookScope.glassWindow(of: inLonePlain) == nil, "another window is untouched")
     }
 
     /// Only the window whose backdrop glass is updating is in scope, the innermost when updates
