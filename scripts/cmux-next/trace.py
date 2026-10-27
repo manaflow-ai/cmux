@@ -2549,7 +2549,8 @@ RING_HEADER_FIELDS = ("magic", "version", "header_bytes", "pid", "role", "ring_k
 RING_HEADER = struct.Struct("<8sIIIHBBQQQ16s16s32sIIQQQIIQIIQQQIIQQQQI")  # bytes 0-235; 236-255 are reserved
 RING_CHUNK_HEAD = struct.Struct("<IIQI")  # thread_index, thread_generation, lap_seq, published
 RING_RECORD = struct.Struct("<QIHBBQQ")  # t_ns, seq, name, phase, flags, arg0, arg1
-RING_ROLES = {1: "app", 2: "daemon", 3: "holder", 4: "terminal-host", 5: "acpmux", 6: "chromium-host", 7: "cli"}
+RING_ROLES = {1: "app", 2: "daemon", 3: "holder", 4: "terminal-host", 5: "acpmux", 6: "chromium-host", 7: "cli",
+              8: "agent-host", 9: "app-host", 10: "browser-host"}
 RING_KINDS = {1: "blackbox", 2: "recording"}
 RING_CLOCKS = {1: "uptime_raw", 2: "linux_monotonic", 3: "windows_qpc"}
 RING_PHASES = {0x42: "B", 0x45: "E", 0x49: "I", 0x62: "b", 0x65: "e", 0x73: "s", 0x66: "f", 0x43: "C"}

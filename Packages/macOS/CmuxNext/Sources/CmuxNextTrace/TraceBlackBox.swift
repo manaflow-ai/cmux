@@ -249,8 +249,8 @@ extension TraceRuntime.Role {
         switch self {
         case .app, .daemon: (4096, 2048, 512, 32768)
         case .chromiumHost: (4096, 2048, 512, 8192)
-        case .holder, .acpmux, .cli: (2048, 512, 256, 8192)
-        case .terminalHost: (1024, 256, 64, 512)
+        case .holder, .acpmux, .cli, .agentHost, .browserHost: (2048, 512, 256, 8192)
+        case .terminalHost, .appHost: (1024, 256, 64, 512)
         }
     }
 
@@ -264,6 +264,9 @@ extension TraceRuntime.Role {
         case .acpmux: .acpmux
         case .chromiumHost: .chromiumHost
         case .cli: .cli
+        case .agentHost: .agentHost
+        case .appHost: .appHost
+        case .browserHost: .browserHost
         }
     }
 }

@@ -16,6 +16,7 @@ use tokio::sync::mpsc;
 /// start the harness, answer on stdout, then serve controllers until the
 /// harness ended and its exit was logged.
 pub fn main() -> Result<()> {
+    drop(cmux_trace::init_blackbox(cmux_trace::process_dir(), cmux_trace::Role::AgentHost));
     // The host must not die when a controller or the bootstrap parent goes
     // away mid-write.
     // SAFETY: setting a signal disposition has no memory-safety preconditions.

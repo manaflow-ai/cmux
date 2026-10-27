@@ -32,6 +32,15 @@ fn serve(limits: Limits) -> i32 {
     use std::os::fd::FromRawFd;
     use std::os::unix::net::UnixStream;
 
+    // The black box first (p09-observability-095), and its file mapped before
+    // the sandbox, which refuses opening files and starting threads; the
+    // mapping stays writable after it. A host whose file failed keeps the
+    // heap ring.
+    if let Some(open) =
+        cmux_trace::init_blackbox(cmux_trace::process_dir(), cmux_trace::Role::AppHost)
+    {
+        let _ = open.wait();
+    }
     // SAFETY: fstat on a descriptor number only inspects it.
     let mut stat: libc::stat = unsafe { std::mem::zeroed() };
     if unsafe { libc::fstat(3, &mut stat) } != 0 || (stat.st_mode & libc::S_IFMT) != libc::S_IFSOCK

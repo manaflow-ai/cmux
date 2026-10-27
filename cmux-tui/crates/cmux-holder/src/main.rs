@@ -8,11 +8,16 @@
 
 #[cfg(unix)]
 fn main() -> std::process::ExitCode {
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    // The black box first (p09-observability-095), in the holder-lifetime
+    // directory beside its socket; the file opens on a one-shot thread.
+    if let Some(dir) = cmux_holder::blackbox_dir(&args) {
+        drop(cmux_trace::init_blackbox(dir, cmux_trace::Role::Holder));
+    }
     // Chromium's SetCurrentTaskDefaultRole: echo is on a person's input path.
     if let Err(error) = cmux_threads::process_role::set_default_role() {
         eprintln!("cmux-holder: {error}");
     }
-    let args = std::env::args().skip(1).collect::<Vec<_>>();
     match cmux_holder::serve(&args) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {

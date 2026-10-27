@@ -33,6 +33,27 @@ pub(crate) fn register_main_thread() -> bool {
     cmux_threads::register_current("main", MAIN_THREAD_QOS)
 }
 
+/// The daemon's black box (p09-observability-095), first: its heap ring takes records at once and
+/// a one-shot thread maps its file in the app's trace folder ([`cmux_trace::process_dir`]), which
+/// the daemon's hosts share. Then, once per start and never on a timer, a background thread
+/// deletes the rings of processes that ended long ago ([`cmux_trace::cleanup`]).
+#[cfg(unix)]
+fn start_blackbox() {
+    let dir = cmux_trace::process_dir();
+    drop(cmux_trace::init_blackbox(&dir, cmux_trace::Role::Daemon));
+    let cleanup =
+        cmux_threads::spawn("trace-cleanup", cmux_threads::ThreadQos::Background, move || {
+            cmux_trace::cleanup::run(&dir);
+        });
+    if let Err(error) = cleanup {
+        crate::client_log::stderr_log!(
+            "startup",
+            "{}: no trace ring cleanup: {error}",
+            crate::cli::BIN
+        );
+    }
+}
+
 /// Validate the owner's storage flags and raise its open-file soft limit.
 ///
 /// The owner holds descriptors for every terminal, and the default soft
@@ -45,6 +66,8 @@ pub(crate) fn register_main_thread() -> bool {
 /// and the daily update answer (`background_checks`).
 pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
     if args.headless {
+        #[cfg(unix)]
+        start_blackbox();
         owner_panic::install(&args.session);
         #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
         poll_watch_lab::install(&args.session);

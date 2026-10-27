@@ -297,6 +297,12 @@ extension TraceRuntime {
         case chromiumHost = 6
         /// The `cmux` CLI.
         case cli = 7
+        /// acpmux's `__agent-host`, one per harness.
+        case agentHost = 8
+        /// `cmux-app-host`, one sandboxed VM per app.
+        case appHost = 9
+        /// `cmux-browser-host serve`, the agent browser runtime.
+        case browserHost = 10
     }
 
     /// What a record marks: the record's phase byte, Chrome's ASCII `TRACE_EVENT_PHASE_*` codes
