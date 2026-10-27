@@ -4,35 +4,6 @@ import CmuxFoundation
 import CmuxSettings
 import Foundation
 
-/// One workspace's session priority as cmux sees it now, for the socket and the CLI.
-struct SessionPrioritySnapshot: Equatable, Sendable {
-    /// One Claude pane of the workspace.
-    struct Pane: Equatable, Sendable {
-        var surfaceId: UUID
-        var sessionId: String?
-        /// The effort the pane's Claude was launched with, from its recorded launch environment.
-        var currentEffort: ClaudeEffortLevel?
-        var state: SessionPriorityPaneState
-        /// How the pane's last restart attempt ended, e.g. `held.draft`; `nil` before any.
-        var detail: String?
-    }
-
-    var workspaceId: UUID
-    /// `nil` while session priority is off or the workspace has no Claude pane.
-    var tier: SessionPriorityTier?
-    var difficulty: ClaudeSessionDifficulty
-    var difficultySource: SessionPriorityWorkspaceState.DifficultySource
-    var difficultyOverride: ClaudeSessionDifficulty?
-    var difficultyAuto: ClaudeSessionDifficulty?
-    var isManual: Bool
-    /// Why cmux leaves the workspace alone: the user's flag, else a pane's signal.
-    var manualSignal: SessionPriorityManualSignal?
-    /// What the workspace's tier and difficulty ask for; `nil` while off or manual.
-    var target: SessionPriorityTarget?
-    /// Empty while session priority is off.
-    var panes: [Pane]
-}
-
 /// Gives each Claude pane the effort its workspace's priority asks for, while
 /// `automation.sessionPriority.enabled` is on.
 ///
@@ -468,7 +439,6 @@ final class SessionPriorityCoordinator {
         entry: SessionPriorityPlan.Entry?,
         enabled: Bool
     ) -> SessionPrioritySnapshot {
-        let priority = workspace.sessionPriorityState
         let paneSnapshots: [SessionPrioritySnapshot.Pane] = enabled ? panes.map { pane in
             let record = state.records[pane.panelId]
             return SessionPrioritySnapshot.Pane(
@@ -479,21 +449,12 @@ final class SessionPriorityCoordinator {
                 detail: record?.lastResultDescription
             )
         } : []
-        let paneSignal = paneSnapshots.lazy.compactMap { pane -> SessionPriorityManualSignal? in
-            if case .manual(let signal) = pane.state { return signal }
-            return nil
-        }.first
         return SessionPrioritySnapshot(
             workspaceId: workspace.id,
-            tier: entry?.tier,
-            difficulty: priority.effectiveDifficulty,
-            difficultySource: priority.difficultySource,
-            difficultyOverride: priority.difficultyOverride,
-            difficultyAuto: priority.autoDifficulty,
-            isManual: priority.isManual,
-            manualSignal: enabled ? (priority.isManual ? .flag : paneSignal) : nil,
-            target: entry?.target,
-            panes: paneSnapshots
+            priority: workspace.sessionPriorityState,
+            entry: entry,
+            panes: paneSnapshots,
+            enabled: enabled
         )
     }
 
