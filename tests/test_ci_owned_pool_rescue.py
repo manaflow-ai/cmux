@@ -1515,7 +1515,8 @@ class BlacksmithStall(unittest.TestCase):
         refused_job = {**job("Build the unsigned cmux NEXT DEV tip DMG", labels=[LIGHT]), "status": "completed",
                        "conclusion": "failure", "runner_name": "mini", "started_at": stamp(1),
                        "completed_at": stamp(5), "steps": [{"name": "Set up job", "conclusion": "failure"}]}
-        api = FakeAPI(clock, lambda seconds: [refused_job], finished=lambda seconds: True,
+        # Still in progress at the hold's look (a sibling runs on); it may finish before rescue() reads it.
+        api = FakeAPI(clock, lambda seconds: [refused_job], finished=lambda seconds: False,
                       snapshot=blacksmith_snapshot(queued=40, running=0, oldest=30), workflow=DEV_WORKFLOW)
         target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)
         outcome, _, _ = rescue.hold_for_destination(

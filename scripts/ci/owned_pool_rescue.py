@@ -1624,11 +1624,11 @@ def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: s
         turned_away = [job for job in read(lambda: client.jobs(target.run_id, target.attempt), sleep, log)
                        if refused(job)]
         if turned_away:
+            # The refusal path re-runs the failed jobs whether or not the run has finished by the time
+            # rescue() reads it (a queued sibling may still run meanwhile); a queue rescue would skip a
+            # finished run. A ci.yml attempt-1 full re-run never gets here (repicks(), above).
             names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
-            if read(lambda: client.run(target.run_id), sleep, log).get("status") == "completed":
-                # The queued sibling ran while held: the run is over, so this is the refusal's re-run.
-                return "refused", f"{names} refused by {job_pool(turned_away[0])} at job start", held
-            break
+            return "refused", f"{names} refused by {job_pool(turned_away[0])} at job start", held
         verdict, label = move_verdict(client, target, now=now(), sleep=sleep, log=log)
         if verdict == "free" or verdict == "busy" and floor is not None and floor >= OWNED_WAIT_FLOOR_SECONDS:
             break
