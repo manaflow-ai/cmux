@@ -96,6 +96,11 @@ impl Hub {
                 && method == crate::rpc::method::SESSION_UPDATE
             {
                 tap_hub.note_tool_update(&tap_session, &p["update"]);
+                // Counted before it is logged, so no check waits for the inbound loop to apply
+                // it (review 69 of #23322).
+                if super::full_access_bound::own_full_access_report(&tap_session, p) {
+                    tap_session.floor.unapplied_full_access.fetch_add(1, Ordering::SeqCst);
+                }
             }
             let (d, kind) = match (dir, msg) {
                 // Agent host stderr and exit entries: logged here, in entry

@@ -16,7 +16,8 @@
 //!   (`RemoteFloor::undeclared_mode`); for a host a restart left, read back from its log first;
 //! - option: any config option holds a full-access value, the `mode` one included (a harness can
 //!   keep `modes.currentModeId` at an asking mode while its `mode` option says full access);
-//! - reported: its harness reported full access while nothing watched it (`StartReports`).
+//! - reported: its harness reported full access while nothing watched it (`StartReports`), or in
+//!   a report the inbound loop has not applied yet (`FloorState::unapplied_full_access`).
 //!
 //! Each form is judged by the shared rule (`start_mode::is_full_access`). A start whose profile
 //! pins full access is refused (`refuse_pinned_full_access`), and so is one that comes up in it
@@ -80,7 +81,7 @@ impl FullAccessView {
             options: config_options(&meta).cloned().collect(),
             // The argv its agent started with; before any start, the creation's.
             argv: meta.spawn_argv.unwrap_or(meta.harness_argv),
-            reported: false,
+            reported: session.floor.unapplied_full_access.load(Ordering::SeqCst) > 0,
         }
     }
 }
@@ -717,6 +718,7 @@ impl Hub {
             }
         }
         session.floor.full_access_end_pending.store(false, Ordering::SeqCst);
+        session.floor.unapplied_full_access.store(0, Ordering::SeqCst);
         // What only the ended agent said goes with it: the mode it reported without declaring
         // modes, and a full-access value of any option (the next agent reports its own, and
         // `replay_config` skips a null).
@@ -757,6 +759,16 @@ impl Hub {
 /// The string at `key` of an object, if any.
 fn text_at(v: Option<&Value>, key: &str) -> Option<String> {
     v.and_then(|v| v.get(key)).and_then(Value::as_str).map(str::to_owned)
+}
+
+/// Whether `params` of a `session/update` the session's harness sent reports full access for the
+/// session itself, not one of its subagents (`on_update` skips those): counted by the tap as it
+/// is logged and taken back once the inbound loop applied it (`FloorState::unapplied_full_access`).
+pub(super) fn own_full_access_report(session: &Session, params: &Value) -> bool {
+    StartReports::reports_full_access(params)
+        && !params["sessionId"].as_str().is_some_and(|sid| {
+            session.subagents.lock().unwrap_or_else(|e| e.into_inner()).owns(sid)
+        })
 }
 
 /// What `end_if_runs_full_access` did.

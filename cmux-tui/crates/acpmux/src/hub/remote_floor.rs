@@ -47,6 +47,12 @@ pub(crate) struct FloorState {
     /// check counts it as full access until the end succeeds or a new host starts (review 51 of
     /// #23322).
     pub(super) full_access_end_pending: AtomicBool,
+    /// Full-access mode or option reports of the session's own harness that the tap logged and
+    /// the inbound loop has not applied yet (`session_tap`, `on_update`). The full-access bound
+    /// counts them at once (`FullAccessView::of_session`), so `child_for` never hands out an
+    /// agent whose report waits in the queue (review 69 of #23322). None are left once its agent
+    /// ends or a new host starts.
+    pub(super) unapplied_full_access: AtomicU64,
     /// The agent process holds a lasting grant a client gave it ("allow
     /// always"): Web control ends until the agent exits (`web_control.rs`).
     pub(super) harness_grant: AtomicBool,
