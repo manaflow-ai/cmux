@@ -15,6 +15,13 @@ Subcommands:
         covered only when a tip that contains it (the commit itself or a later one) passed every fast
         lane of the registry. `--check` exits 1 when a commit is not covered.
 
+    signatures DIR... [--lane L] [--major M] [--sha SHA] [--json-out PATH]
+        Reads every artifact a lane left in DIR (recursively) with crash_signature.py and prints its
+        findings, the `findings` of a cmux-stability-run/v1 file (stability_issues.py sync). Crashes and
+        non-crash failures alike: crash and hang reports, Rust panic and hang JSONL (hangs, blocking stalls,
+        slow polls), sanitizer output, BadMessage closes and invariant failures in logs, and ErrorJournal
+        segments (page JS errors, faults). Each finding names its artifact relative to DIR.
+
 Inputs (the runner, task p10-stability-003, writes the state; this file reads it):
 
     stability-lanes.json   {"lanes": [{"id": "smoke-26", "tier": "fast" | "long", ...}]}
@@ -24,13 +31,14 @@ Inputs (the runner, task p10-stability-003, writes the state; this file reads it
 a list of runs (the last run counts). Only `passed` and `failed` are verdicts; every other status
 (queued, running, cancelled, infra) is reported as pending and does not pass the lane.
 
-Runs anywhere with git and python3; it reads only git and the two JSON files.
+Runs anywhere with git and python3; `coverage` reads only git and the two JSON files.
 """
 
 from __future__ import annotations
 
 import argparse
 import datetime as dt
+import importlib.util
 import json
 import os
 import re
@@ -318,6 +326,66 @@ def cmd_coverage(args: argparse.Namespace) -> int:
     return 1 if args.check and report["summary"]["uncovered"] else 0
 
 
+# --- signatures -----------------------------------------------------------------------------------
+
+# Artifacts larger than this are a lane's bulk output (videos, core files, traces), not a report.
+ARTIFACT_MAX_BYTES = 64 << 20
+# Suffixes of reports and logs; anything else in a lane's directory (images, videos, archives) is skipped.
+REPORT_SUFFIXES = (".ips", ".crash", ".jsonl", ".ndjson", ".json", ".log", ".txt", ".out", ".err")
+
+
+def load_crash_signature():
+    if "crash_signature" in sys.modules:
+        return sys.modules["crash_signature"]
+    spec = importlib.util.spec_from_file_location("crash_signature", Path(__file__).resolve().with_name(
+        "crash_signature.py"))
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["crash_signature"] = module  # dataclasses resolve annotations through sys.modules
+    spec.loader.exec_module(module)
+    return module
+
+
+def artifact_paths(root: Path) -> list[Path]:
+    if root.is_file():
+        return [root]
+    if not root.is_dir():
+        raise LabError(f"artifact directory not found: {root}")
+    return sorted(path for path in root.rglob("*")
+                  if path.is_file() and path.suffix.lower() in REPORT_SUFFIXES
+                  and path.stat().st_size <= ARTIFACT_MAX_BYTES)
+
+
+def lane_findings(roots: list[Path], lane: str = "", major: str = "", sha: str = "") -> list[dict]:
+    """Every signature in the lanes' artifacts as a stability_issues.py finding, in path order."""
+    cs = load_crash_signature()
+    ignore = cs.IgnoreList.load()
+    findings = []
+    for root in roots:
+        for path in artifact_paths(root):
+            try:
+                signatures = cs.signatures_from_path(path, ignore)
+            except OSError as error:
+                raise LabError(f"cannot read {path}: {error}") from None
+            artifact = path.name if root.is_file() else path.relative_to(root).as_posix()
+            for signature in signatures:
+                finding = signature.to_json()
+                finding["source"] = artifact
+                finding.update({key: value for key, value in (("lane", lane), ("major", major), ("sha", sha))
+                                if value})
+                findings.append(finding)
+    return findings
+
+
+def cmd_signatures(args: argparse.Namespace) -> int:
+    findings = lane_findings([Path(path) for path in args.paths], args.lane, args.major, args.sha)
+    if args.json_out:
+        Path(args.json_out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.json_out).write_text(json.dumps({"findings": findings}, indent=2) + "\n", encoding="utf-8")
+    for finding in findings:
+        print(json.dumps(finding, sort_keys=True))
+    return 0
+
+
 # --- entry ----------------------------------------------------------------------------------------
 
 
@@ -336,6 +404,14 @@ def parser() -> argparse.ArgumentParser:
     cov.add_argument("--json-out", help="also write the JSON report to this path")
     cov.add_argument("--check", action="store_true", help="exit 1 when a commit is not covered")
     cov.set_defaults(handler=cmd_coverage)
+
+    sig = commands.add_parser("signatures", help="findings (crashes and non-crash failures) in lane artifacts")
+    sig.add_argument("paths", nargs="+", help="a lane's artifact directory, or one artifact")
+    sig.add_argument("--lane", default="", help="the lane that made the artifacts")
+    sig.add_argument("--major", default="", help="the macOS major it ran on")
+    sig.add_argument("--sha", default="", help="the build's commit (stability_issues.py defaults it to the tip)")
+    sig.add_argument("--json-out", help='also write {"findings": [...]} to this path')
+    sig.set_defaults(handler=cmd_signatures)
     return root
 
 

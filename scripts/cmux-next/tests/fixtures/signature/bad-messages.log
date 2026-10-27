@@ -1,0 +1,5 @@
+2026-10-26T10:00:01Z cmux-tui: client 7 closed: bad_message line_too_long: line of 1048577 bytes, limit 1048576
+2026-10-26T10:00:02Z cmux-tui: client 12 closed: bad_message line_too_long: line of 2000000 bytes, limit 1048576
+2026-10-26T10:00:03Z cmux-tui: client 13 closed: bad_message unknown_method: unknown method 0x0123
+2026-10-26 10:00:04.123 cmux NEXT[4410:88] [daemon] connection lost: bad message: line_too_long
+2026-10-26 10:00:05.456 cmux NEXT[4410:88] invariant tab-in-its-workspace failed at CmuxNextApp/WorkspaceStore.swift:412

@@ -1,0 +1,4 @@
+{"kind":"invariant","id":"tab-in-its-workspace","site":"CmuxNextApp/WorkspaceStore.swift:412","tier":"notFatalUntil","process":"cmux NEXT"}
+{"kind":"invariant","id":"tab-in-its-workspace","site":"CmuxNextApp/WorkspaceStore.swift:419","tier":"notFatalUntil","process":"cmux NEXT"}
+{"tags":{"invariant_id":"selection-in-range","invariant_tier":"dump_will_be_check"},"fingerprint":["invariant","selection-in-range","CmuxNextTerminal/Selection.swift:51"],"process":"cmux NEXT"}
+{"kind":"bad_message","peer":"daemon","reason":"truncated","detail":"have 4 bytes, need 16","process":"cmux NEXT"}

@@ -1,0 +1,5 @@
+{"process":"acpmux","pid":901,"version":"0.64.0","kind":"slow_poll","spawned_at":"/Users/ci/work/cmux/cmux-tui/crates/acpmux/src/daemon/sessions.rs:212:9","task_id":"14","polled_us":20412,"thread":"tokio-runtime-worker","runtime":"multi_thread"}
+{"process":"acpmux","pid":977,"version":"0.65.0","kind":"slow_poll","spawned_at":"/home/runner/cmux/cmux-tui/crates/acpmux/src/daemon/sessions.rs:230:13","task_id":"88","polled_us":3100,"thread":"tokio-runtime-worker","runtime":"multi_thread"}
+{"process":"acpmux","pid":977,"version":"0.65.0","kind":"slow_poll","spawned_at":"/home/runner/cmux/cmux-tui/crates/acpmux/src/agent_host.rs:51:5","task_id":"90","polled_us":2900,"thread":"tokio-runtime-worker","runtime":"multi_thread"}
+{"process":"acpmux","pid":977,"version":"0.65.0","kind":"blocking","op":"fs::read","blocking_kind":"file","blocking_type":"io","outcome":"stalled","location":"/home/runner/cmux/cmux-tui/crates/acpmux/src/config.rs:40:17","thread":"tokio-runtime-worker","blocked_ms":31}
+{"process":"acpmux","pid":977,"version":"0.65.0","kind":"slow_poll_summary","slow":3,"slow_us":26412,"recorded":3,"sites_dropped":0,"threshold_us":2000}

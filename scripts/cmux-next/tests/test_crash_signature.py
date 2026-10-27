@@ -291,6 +291,167 @@ class StabilityTests(unittest.TestCase):
         self.assertNotEqual(cs.signature_hash("crash", "trap", frames), cs.signature_hash("hang", "trap", frames))
 
 
+def sigs(name: str) -> list:
+    return cs.signatures_from_path(FIXTURES / name, IGNORE)
+
+
+class NonCrashKindsTests(unittest.TestCase):
+    """p10-stability-195: hangs, slow polls, BadMessage, invariants, page JS errors and journal faults."""
+
+    # The pinned hash of each kind's fixture. A change here re-files every open signature of that kind: change
+    # a value only with the normalization change that needs it.
+    PINNED = {
+        "rust-hang": "d343eda4f908",
+        "slow-poll": "8ce74e55422a",
+        "rust-blocking": "72ca907114d9",
+        "bad-message": "4ae6aa9d881c",
+        "invariant": "305d828c5666",
+        "page-js-error": "d4b4c1075657",
+        "error-fault": "3a4a60fa02a8",
+    }
+
+    def test_every_kind_has_its_pinned_hash(self):
+        found = {}
+        for name in ("rust-hangs-build-a.jsonl", "slow-polls.jsonl", "bad-messages.log",
+                     "error-journal-segment.ndjson"):
+            for sig in sigs(name):
+                found.setdefault(sig.kind, sig.hash12)
+        self.assertEqual(found, self.PINNED)
+
+    def test_rust_hang_takes_the_hung_stack_below_the_lock_wait(self):
+        sig, ended = sigs("rust-hangs-build-a.jsonl")
+        self.assertEqual(sig.kind, "rust-hang")
+        self.assertEqual(sig.process, "cmux-tui-owner")
+        self.assertEqual(sig.exception, "hang request")
+        self.assertEqual(sig.frames, ["cmux_tui_core::workspace_registry::snapshot",
+                                      "cmux_tui_core::server::dispatch::workspace",
+                                      "cmux_tui_core::server::line_connection::run"])
+        self.assertEqual(sig.extra["method"], "workspace.snapshot")
+        # A run that ended before its stack was taken buckets by its method.
+        self.assertEqual(ended.frames, ["frame:page-router"])
+        self.assertEqual(ended.extra["stack_error"], "run-ended")
+
+    def test_same_rust_hang_from_two_builds_has_one_hash(self):
+        [a, _] = sigs("rust-hangs-build-a.jsonl")
+        [b] = sigs("rust-hangs-build-b.jsonl")
+        self.assertNotEqual(a.extra["version"], b.extra["version"])
+        self.assertEqual(a.hash12, b.hash12)
+
+    def test_rust_hang_with_no_named_app_frame_buckets_by_its_method(self):
+        def hang(app_offset: int) -> cs.Signature:
+            record = {"event": "hang", "scope": "journal", "method": "journal.flush", "stack": [
+                {"image": "libsystem_kernel.dylib", "offset": 4660, "symbol": "__psynch_cvwait"},
+                {"image": "cmux-tui", "offset": app_offset, "symbol": None}]}
+            [sig] = cs.signatures_from_text(json.dumps(record), "hangs.jsonl", IGNORE)
+            return sig
+        a, b = hang(0x1000), hang(0x2000)
+        self.assertEqual(a.frames, ["journal.flush"])
+        self.assertEqual(a.hash12, b.hash12)
+
+    def test_rust_legacy_demangling(self):
+        cases = {
+            "_ZN5tokio7runtime4park17h0123456789abcdefE": "tokio::runtime::park",
+            "_ZN4core3ptr85drop_in_place$LT$std..rt..lang_start$LT$$LP$$RP$$GT$..$u7b$$u7b$closure$u7d$$u7d$$GT$17h1a2b3c4d5e6f7a8bE":
+                "core::ptr::drop_in_place<std::rt::lang_start<()>::{{closure}}>",
+            "_ZN3foo3bar17h0123456789abcdefE.llvm.1234": "foo::bar",
+            "__psynch_mutexwait": "__psynch_mutexwait",
+            "_ZN3fooE": "foo",
+            "_ZN9truncated": "_ZN9truncated",
+        }
+        for mangled, expected in cases.items():
+            self.assertEqual(cs.demangle_rust_legacy(mangled), expected, mangled)
+
+    def test_slow_polls_bucket_by_spawn_file_across_checkouts_and_lines(self):
+        first, moved, other, blocking = sigs("slow-polls.jsonl")
+        self.assertEqual([first.kind, moved.kind, other.kind], ["slow-poll"] * 3)
+        self.assertEqual(first.frames, ["acpmux/src/daemon/sessions.rs"])
+        self.assertEqual(first.hash12, moved.hash12)
+        self.assertNotEqual(first.hash12, other.hash12)
+        self.assertEqual(first.process, "acpmux")
+        self.assertEqual(blocking.kind, "rust-blocking")
+        self.assertEqual((blocking.exception, blocking.frames), ("fs::read", ["acpmux/src/config.rs"]))
+
+    def test_slow_poll_summary_is_not_a_signature(self):
+        self.assertNotIn("slow_poll_summary", {sig.exception for sig in sigs("slow-polls.jsonl")})
+        self.assertEqual(len(sigs("slow-polls.jsonl")), 4)
+
+    def test_bad_messages_bucket_by_reason_and_peer(self):
+        daemon_a, daemon_b, method, app, _ = sigs("bad-messages.log")
+        self.assertEqual([s.kind for s in (daemon_a, daemon_b, method, app)], ["bad-message"] * 4)
+        self.assertEqual(daemon_a.hash12, daemon_b.hash12)
+        self.assertEqual((method.exception, method.frames), ("unknown_method", ["socket-client"]))
+        self.assertNotEqual(daemon_a.hash12, method.hash12)
+        # The same reason on the app's side is the other decoder's bug.
+        self.assertEqual((app.exception, app.frames), ("line_too_long", ["daemon"]))
+        self.assertNotEqual(daemon_a.hash12, app.hash12)
+        [record] = [s for s in sigs("invariant-events.jsonl") if s.kind == "bad-message"]
+        self.assertEqual((record.exception, record.frames, record.process), ("truncated", ["daemon"], "cmux NEXT"))
+
+    def test_invariant_is_its_id_and_file_from_every_source(self):
+        logged = sigs("bad-messages.log")[-1]
+        first, moved, sentry, _ = sigs("invariant-events.jsonl")
+        self.assertEqual(logged.kind, "invariant")
+        self.assertEqual(logged.frames, ["tab-in-its-workspace", "CmuxNextApp/WorkspaceStore.swift"])
+        # The site's line moves with edits; the bug does not.
+        self.assertEqual({logged.hash12, first.hash12, moved.hash12}, {logged.hash12})
+        self.assertEqual(first.extra["tier"], "not_fatal_until")
+        self.assertEqual(sentry.frames, ["selection-in-range", "CmuxNextTerminal/Selection.swift"])
+        self.assertEqual(sentry.extra["tier"], "dump_will_be_check")
+
+    def test_error_journal_page_errors_faults_and_invariants(self):
+        found = sigs("error-journal-segment.ndjson")
+        self.assertEqual([s.kind for s in found],
+                         ["page-js-error", "page-js-error", "page-js-error", "error-fault", "invariant"])
+        build_a, build_b, minified, fault, invariant = found
+        # Two builds' chunk hashes, a V8 and a JSC frame: one bug.
+        self.assertEqual(build_a.frames, ["renderRows @ index.js"])
+        self.assertEqual(build_a.hash12, build_b.hash12)
+        self.assertEqual(build_a.process, "page:settings")
+        self.assertEqual(build_a.extra["journal_count"], 3)
+        # A minified name says nothing; the script and the message do.
+        self.assertEqual((minified.exception, minified.frames),
+                         ("unhandled rejection: fetch failed after <n> tries", ["index.js"]))
+        self.assertEqual((fault.exception, fault.frames), ("session journal write failed at offset <n>", ["app"]))
+        self.assertEqual(invariant.frames, ["pane-has-surface", "CmuxNextApp/PaneStore.swift"])
+
+    def test_warnings_journal_panics_and_crash_entries_are_left_to_their_own_readers(self):
+        processes = {sig.process for sig in sigs("error-journal-segment.ndjson")}
+        self.assertNotIn("acpmux", processes)
+        self.assertNotIn("crash", processes)
+
+    def test_js_frame_labels(self):
+        cases = {
+            "renderRows (cmux-page://settings/assets/index-B3x9kQ1z.js:1:4410)": "renderRows @ index.js",
+            "async Store.load (cmux-page://diff/assets/store.4f2a1c9e.js?v=2:10:2)": "Store.load @ store.js",
+            "renderRows@cmux-page://settings/assets/index-Zq81mmP0.js:1:5022": "renderRows @ index.js",
+            "cmux-page://settings/assets/index-B3x9kQ1z.js:1:4410": "index.js",
+            "e.n (cmux-page://settings/assets/vendor-Ab12Cd34.js:1:2)": "vendor.js",
+        }
+        for frame, expected in cases.items():
+            self.assertEqual(cs.js_frame_label(frame), expected, frame)
+
+    def test_message_template_matches_the_journal_normalizer(self):
+        self.assertEqual(cs.message_template("fetch /Users/me/x.json failed after 3 tries at 0x1f (id_a1b2c3d4)"),
+                         "fetch <path> failed after <n> tries at <hex> (<id>)")
+
+    def test_mixed_panic_and_hang_jsonl_reads_each_line_by_its_writer(self):
+        panic = (FIXTURES / "rust-panics.jsonl").read_text(encoding="utf-8").splitlines()[0]
+        hang = (FIXTURES / "rust-hangs-build-b.jsonl").read_text(encoding="utf-8").splitlines()[0]
+        kinds = [sig.kind for sig in cs.signatures_from_text(f"{panic}\n{hang}\n", "owner.jsonl", IGNORE)]
+        self.assertEqual(kinds, ["rust-panic", "rust-hang"])
+
+    def test_json_that_no_writer_made_gives_no_signature(self):
+        text = '{"message": "lane passed", "status": "ok"}\n{"kind": "slow_poll_summary", "slow": 1}\n[1, 2]\n'
+        self.assertEqual(cs.signatures_from_text(text, "result.json", IGNORE), [])
+
+    def test_the_fixtures_hold_fifteen_distinct_bugs(self):
+        # 2 hangs, 2 slow-poll sites, 1 blocking stall, 4 (reason, peer) pairs, 3 invariants, 2 page errors, 1 fault.
+        every = {sig.hash12 for name in ("rust-hangs-build-a.jsonl", "rust-hangs-build-b.jsonl", "slow-polls.jsonl",
+                                         "bad-messages.log", "error-journal-segment.ndjson", "invariant-events.jsonl")
+                 for sig in sigs(name)}
+        self.assertEqual(len(every), 15)
+
+
 class NormalizeTests(unittest.TestCase):
     def test_swift_names(self):
         cases = {

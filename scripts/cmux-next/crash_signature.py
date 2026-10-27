@@ -13,6 +13,17 @@ Reads each report and prints one JSON line per signature:
                sanitizer reports in any text output (one per report)
   hang         `sample` or spindump text (heaviest stack of the main thread)
 
+Failures that end no process (see "non-crash failures" below for each one's identity):
+
+  rust-hang, rust-blocking, slow-poll
+               the Rust hang JSONL (hangs.jsonl, owner-hangs-<session>.jsonl)
+  bad-message  a peer closed for a bad message, in a log or a JSONL record
+  invariant    an Invariant.notFatalUntil / dumpWillBeCheck failure
+  page-js-error, error-fault
+               ErrorJournal segment lines (segment-N.ndjson)
+
+A JSONL file may mix panic, hang, journal and record lines; each line is read by its writer's shape.
+
 The signature is ClusterFuzz's crash state (google/clusterfuzz
 src/clusterfuzz/stacktraces/__init__.py, constants.py): drop the frames that
 match signature-ignore.txt (runtime, libc, allocators, assertion and panic
@@ -779,19 +790,331 @@ def _heaviest_path(nodes: list[tuple[int, int, str, str, int | None]]) -> list[t
         parent_depth = nodes[best][0]
 
 
+# ---------------------------------------------------------------- non-crash failures
+#
+# Failures that end no process still get one signature per bug, so the lab files them like crashes:
+#
+#   rust-hang      the hang JSONL's `"event": "hang"` lines (cmux-tui-core server/request_watchdog.rs, Chrome's
+#                  HangWatcher): the hung thread's stack, else the watched method
+#   rust-blocking  the hang JSONL's `"kind": "blocking"` lines (cmux-blocking): the stalled wrapper and its caller
+#   slow-poll      the hang JSONL's `"kind": "slow_poll"` lines (cmux-blocking poll_watch.rs): the spawn site
+#   bad-message    a peer closed for a bad message (cmux-tui `bad_message <reason>`, the app's `bad message:
+#                  <reason>`, or a `"kind": "bad_message"` record): one bucket per reason and peer, as Chrome
+#                  buckets ReceivedBadMessage by its reason enum (content/browser/bad_message.h)
+#   invariant      an `Invariant.notFatalUntil` / `dumpWillBeCheck` failure (CmuxSafeConcurrency Invariant.swift,
+#                  Chrome's base/not_fatal_until.h): the invariant's id and file, as InvariantSink fingerprints
+#                  it in Sentry, without the line
+#   page-js-error  an app page's uncaught error or console.error in the ErrorJournal (`page:<page>` source):
+#                  the message template and the top JS frame
+#   error-fault    any other ErrorJournal entry at level fault: its source, message template and top frame
+#
+# Only the hang stack goes through the ignore list; every other kind's frames are stable labels already (a
+# site, a peer, an id). Line numbers never enter these hashes: they move with every edit above the site, and
+# ClusterFuzz keeps function names, not lines, in a crash state for the same reason.
+
+# Rust's legacy mangling (rustc's default): `_ZN` + length-prefixed path segments + `E`, the last one `h<hash>`.
+_RUST_LEGACY = re.compile(r"^_{1,2}ZN(?P<body>\d.*)E(?:\.[\w.]+)?$")
+_RUST_ESCAPES = {"$LT$": "<", "$GT$": ">", "$RF$": "&", "$BP$": "*", "$C$": ",", "$LP$": "(", "$RP$": ")",
+                 "$SP$": "@"}
+_RUST_ESCAPE = re.compile(r"\$(?:LT|GT|RF|BP|C|LP|RP|SP|u[0-9a-f]{2})\$")
+_RUST_SEGMENT_HASH = re.compile(r"h[0-9a-f]{16}")
+
+
+def _rust_unescape(match: re.Match) -> str:
+    token = match.group(0)
+    return _RUST_ESCAPES.get(token) or chr(int(token[2:-1], 16))
+
+
+def demangle_rust_legacy(symbol: str) -> str:
+    """`_ZN5tokio7runtime4park17h0123456789abcdefE` -> `tokio::runtime::park`; any other text unchanged.
+
+    The hang JSONL holds the nearest exported symbol still mangled, and its `h<hash>` segment changes per build.
+    """
+    match = _RUST_LEGACY.match(symbol)
+    if not match:
+        return symbol
+    body = match.group("body")
+    segments: list[str] = []
+    index = 0
+    while index < len(body):
+        digits = re.match(r"\d+", body[index:])
+        if not digits:
+            return symbol
+        index += len(digits.group(0))
+        length = int(digits.group(0))
+        segment = body[index:index + length]
+        if len(segment) != length:
+            return symbol
+        index += length
+        segments.append(_RUST_ESCAPE.sub(_rust_unescape, segment.removeprefix("_")).replace("..", "::"))
+    if segments and _RUST_SEGMENT_HASH.fullmatch(segments[-1]):
+        segments.pop()
+    return "::".join(segments)
+
+
+def make_labeled_signature(kind: str, process: str, exception: str, labels: list[str], source: str = "",
+                           message: str = "", **extra) -> Signature:
+    """A signature whose frames are stable labels already (a site, a peer, an id): no stack, no ignore list."""
+    state = [label for label in labels if label][:TOP_FRAMES]
+    return Signature(kind=kind, process=process, exception=exception, frames=state,
+                     hash12=signature_hash(kind, exception, state), source=source,
+                     message=message[:MESSAGE_LIMIT], extra={key: value for key, value in extra.items() if value})
+
+
+_LINE_SUFFIX = re.compile(r":\d+(?::\d+)?$")
+
+
+def _source_site(location: str) -> str:
+    """`/Users/me/cmux/cmux-tui/crates/acpmux/src/a.rs:12:5` -> `acpmux/src/a.rs`: no checkout path, no line."""
+    location = location.strip()
+    return _crate_relative(_LINE_SUFFIX.sub("", location)) if location else ""
+
+
+def _record_process(record: dict) -> str:
+    """The process a cmux-tui JSONL line came from, by the fields its writer adds (as for panics)."""
+    return str(record.get("process") or ("cmux-tui-owner" if "session" in record else "") or "rust")
+
+
+def _rust_hang(record: dict, ignore: IgnoreList, source: str) -> Signature:
+    # The watchdog names only exported symbols; a local function's frame is an image offset that moves with
+    # every build, so it is left out and a stack with no named frame buckets by its method.
+    frames = [Frame(function=demangle_rust_legacy(str(raw["symbol"])),
+                    image=os.path.basename(str(raw.get("image") or "")))
+              for raw in record.get("stack") or [] if isinstance(raw, dict) and raw.get("symbol")]
+    method = str(record.get("method") or "")
+    if method and all(ignore.ignores(normalize_function(frame.function), frame.image) for frame in frames):
+        frames.append(Frame(function=method))
+    scope = str(record.get("scope") or "")
+    return make_signature("rust-hang", _record_process(record), f"hang {scope}".strip(), frames, ignore, source,
+                          f"{scope} {method} busy {record.get('busy_ms', '?')} ms", method=method,
+                          version=record.get("version", ""), stack_error=record.get("stack_error") or "")
+
+
+def _rust_blocking(record: dict, source: str) -> Signature:
+    op = str(record.get("op") or "")
+    site = _source_site(str(record.get("location") or ""))
+    return make_labeled_signature("rust-blocking", _record_process(record), op or "blocking", [site], source,
+                                  f"{op} blocked {record.get('blocked_ms', '?')} ms at {site}",
+                                  blocking_kind=record.get("blocking_kind", ""), version=record.get("version", ""))
+
+
+def _slow_poll(record: dict, source: str) -> Signature:
+    site = _source_site(str(record.get("spawned_at") or ""))
+    return make_labeled_signature("slow-poll", _record_process(record), "slow poll", [site], source,
+                                  f"task spawned at {site} polled {record.get('polled_us', '?')} us",
+                                  runtime=record.get("runtime", ""), version=record.get("version", ""))
+
+
+def bad_message_signature(reason: str, peer: str, process: str, source: str = "", message: str = "") -> Signature:
+    """One bucket per (reason, peer): the reason is the bug, the peer says which side's decoder refused it."""
+    return make_labeled_signature("bad-message", process, reason, [peer], source, message, peer=peer)
+
+
+def _bad_message_record(record: dict, source: str) -> Signature | None:
+    reason = str(record.get("reason") or "")
+    if not reason:
+        return None
+    return bad_message_signature(reason, str(record.get("peer") or "peer"), _record_process(record), source,
+                                 str(record.get("detail") or ""))
+
+
+# InvariantEvent.message: `invariant tab-in-its-workspace failed at CmuxNextApp/Store.swift:120`.
+_INVARIANT_TEXT = re.compile(r"\binvariant (?P<id>\S+) failed at (?P<file>[^\s:]+\.swift):\d+")
+_INVARIANT_TIERS = {"notFatalUntil": "not_fatal_until", "dumpWillBeCheck": "dump_will_be_check"}
+
+
+def invariant_signature(invariant_id: str, file_id: str, process: str, source: str = "", tier: str = "",
+                        message: str = "") -> Signature:
+    """An invariant's id and its file (`fileID`, `Module/File.swift`): InvariantSink's Sentry grouping, line-free."""
+    return make_labeled_signature("invariant", process, "invariant", [invariant_id, file_id], source,
+                                  message or f"invariant {invariant_id} failed in {file_id}",
+                                  tier=_INVARIANT_TIERS.get(tier, tier))
+
+
+def _invariant_record(record: dict, source: str) -> Signature | None:
+    """`{"kind": "invariant", "id", "site" | "file_id", "tier"}`, or a Sentry event with InvariantSink's tags."""
+    tags = record.get("tags") if isinstance(record.get("tags"), dict) else {}
+    invariant_id = str(record.get("invariant_id") or tags.get("invariant_id") or record.get("id") or "")
+    site = str(record.get("site") or record.get("file_id") or "")
+    fingerprint = record.get("fingerprint")
+    if not site and isinstance(fingerprint, list) and len(fingerprint) == 3:
+        site = str(fingerprint[2])
+    if not invariant_id or not site:
+        return None
+    tier = str(record.get("tier") or record.get("invariant_tier") or tags.get("invariant_tier") or "")
+    return invariant_signature(invariant_id, _LINE_SUFFIX.sub("", site), str(record.get("process") or "app"),
+                               source, tier)
+
+
+# ErrorNormalizer.swift's placeholders, so a raw message and the journal's template of it give one exception.
+_MESSAGE_RULES = (
+    (re.compile(r"\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?"), "<time>"),
+    (re.compile(r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"), "<uuid>"),
+    (re.compile(r"(?i)\b0x[0-9a-f]+\b"), "<hex>"),
+    (re.compile(r"[a-z]+://[^\s\"'<>)]+"), "<url>"),
+    (re.compile(r"(?:~|/(?:Users|private|tmp|var|Applications|Library|opt|System|Volumes))(?:/[^\s\"':,()\[\]]+)+"),
+     "<path>"),
+    (re.compile(r'"[^"\n]{0,200}"'), '"<str>"'),
+    (re.compile(r"\b[A-Za-z]+_[0-9a-f]{6,}\b"), "<id>"),
+    (re.compile(r"\b[0-9a-f]*\d[0-9a-f]*[a-f][0-9a-f]*\b|\b[0-9a-f]*[a-f][0-9a-f]*\d[0-9a-f]*\b"), "<id>"),
+    (re.compile(r"\d+(?:\.\d+)?"), "<n>"),
+)
+
+
+def message_template(message: str) -> str:
+    """The first line with times, ids, addresses, URLs, paths, quoted text and numbers as placeholders."""
+    text = message.split("\n", 1)[0].strip()
+    for pattern, replacement in _MESSAGE_RULES:
+        text = pattern.sub(replacement, text)
+    return _SPACES.sub(" ", text).strip()[:MESSAGE_LIMIT]
+
+
+# V8 `fn (url:1:2)`, `url:1:2`, `async fn (url:1:2)` (ConsoleErrorCapture drops the `at `); JSC `fn@url:1:2`.
+_V8_FRAME = re.compile(r"^(?:(?P<fn>.+?) \()?(?P<url>[^\s()]+?)(?::\d+){0,2}\)?$")
+_JSC_FRAME = re.compile(r"^(?P<fn>[^@\s]*)@(?P<url>\S+?)(?::\d+){0,2}$")
+# Bundler content hashes in chunk names (`index-B3x9_kQ1.js`, `chunk.4f2a1c9e.js`) change every build.
+_CHUNK_HASH = re.compile(r"[-.][A-Za-z0-9_]{8,}(?=\.m?js$)")
+# A minifier's names are 1-3 characters and change with any edit to the bundle; they do not name the bug.
+_MINIFIED = re.compile(r"[A-Za-z_$][\w$]{0,2}")
+
+
+def js_frame_label(frame: str) -> str:
+    """`render (cmux-page://settings/assets/index-B3x9kQ1z.js:1:2)` -> `render @ index.js`; minified names dropped."""
+    text = frame.strip().removeprefix("at ").strip()
+    if not text:
+        return ""
+    match = _JSC_FRAME.match(text) if "@" in text and " (" not in text else _V8_FRAME.match(text)
+    if not match:
+        return _LINE_SUFFIX.sub("", text)
+    function = (match.group("fn") or "").removeprefix("async ").removeprefix("new ").strip()
+    if _MINIFIED.fullmatch(function.rsplit(".", 1)[-1]):
+        function = ""
+    script = _CHUNK_HASH.sub("", re.sub(r"[?#].*$", "", match.group("url")).rsplit("/", 1)[-1])
+    return f"{function} @ {script}" if function else script
+
+
+def _journal_entry(record: dict, source: str) -> Signature | None:
+    """An ErrorJournal segment line (ErrorEntry.swift): a page error, an invariant or a fault, else nothing.
+
+    Crash-level entries are the system's crash reports, read as .ips; journal panics (`panic: ...`) come from
+    a process's log and are read from its panic JSONL. Errors and warnings are expected failures, not bugs.
+    """
+    origin = str(record.get("source") or "")
+    level = str(record.get("level") or "")
+    sample = str(record.get("sample") or "")
+    template = message_template(str(record.get("template") or sample))
+    frame = str(record.get("frame") or "")
+    extra = {"journal_fp": record.get("fp", ""), "journal_count": record.get("count", 0)}
+    invariant = _INVARIANT_TEXT.search(sample)
+    if invariant and level in ("error", "fault"):
+        return invariant_signature(invariant.group("id"), invariant.group("file"), origin or "app", source)
+    if origin.startswith("page:") and level in ("error", "fault"):
+        return make_labeled_signature("page-js-error", origin, template or "error", [js_frame_label(frame)], source,
+                                      sample, **extra)
+    if level == "fault" and not template.startswith("panic: "):
+        # ErrorFingerprint.swift's identity (source, template, top frame), with the frame's line dropped.
+        label = _LINE_SUFFIX.sub("", normalize_function(frame)) if frame else ""
+        return make_labeled_signature("error-fault", origin, template or "fault", [origin, label], source,
+                                      sample, **extra)
+    return None
+
+
+def _record_kind(record: dict) -> str:
+    """Which writer made one JSONL line: panic, hang, blocking, slow_poll, bad_message, invariant, journal or ""."""
+    tag = str(record.get("kind") or record.get("event") or "")
+    if tag in ("hang", "blocking", "slow_poll", "bad_message", "invariant"):
+        return tag
+    if tag == "slow_poll_summary":
+        return ""
+    if "fp" in record and "template" in record and "level" in record:
+        return "journal"
+    tags = record.get("tags")
+    if "invariant_id" in record or (isinstance(tags, dict) and "invariant_id" in tags):
+        return "invariant"
+    # cmux-panic-log's `record` writes message and backtrace on every panic and supervised exit.
+    if "message" in record and "backtrace" in record:
+        return "panic"
+    return ""
+
+
+def parse_jsonl(text: str, ignore: IgnoreList, source: str = "", include_test: bool = False) -> list[Signature]:
+    """Any mix of cmux JSONL lines: Rust panics and supervised exits, the hang log, journal segments, records."""
+    signatures: list[Signature] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(record, dict):
+            continue
+        kind = _record_kind(record)
+        signature: Signature | None = None
+        if kind == "panic":
+            signatures.extend(parse_rust_panic_jsonl(line, ignore, source, include_test))
+        elif kind == "hang":
+            signature = _rust_hang(record, ignore, source)
+        elif kind == "blocking":
+            signature = _rust_blocking(record, source)
+        elif kind == "slow_poll":
+            signature = _slow_poll(record, source)
+        elif kind == "bad_message":
+            signature = _bad_message_record(record, source)
+        elif kind == "invariant":
+            signature = _invariant_record(record, source)
+        elif kind == "journal":
+            signature = _journal_entry(record, source)
+        if signature is not None:
+            signatures.append(signature)
+    return signatures
+
+
+# cmux-tui server/line_connection.rs: `cmux-tui: client 7 closed: bad_message line_too_long: ...`.
+_DAEMON_BAD_MESSAGE = re.compile(r"\bclient \S+ closed: bad_message (?P<reason>[a-z_]+)")
+# The app's LineTransport close detail: `bad message: frames_not_negotiated`.
+_APP_BAD_MESSAGE = re.compile(r"\bbad message: (?P<reason>[a-z_]+)\b")
+
+
+def parse_event_lines(text: str, source: str = "", process: str = "") -> list[Signature]:
+    """BadMessage closes and invariant failures in a process's text log (stderr, `log show`, a lane's output)."""
+    signatures: list[Signature] = []
+    for line in text.splitlines():
+        daemon = _DAEMON_BAD_MESSAGE.search(line)
+        app = _APP_BAD_MESSAGE.search(line)
+        invariant = _INVARIANT_TEXT.search(line)
+        if daemon:
+            signatures.append(bad_message_signature(daemon.group("reason"), "socket-client", process or "cmux-tui",
+                                                    source, line.strip()))
+        elif app:
+            signatures.append(bad_message_signature(app.group("reason"), "daemon", process or "app", source,
+                                                    line.strip()))
+        elif invariant:
+            signatures.append(invariant_signature(invariant.group("id"), invariant.group("file"), process or "app",
+                                                  source, message=line.strip()))
+    return signatures
+
+
+def _has_event_lines(text: str) -> bool:
+    return any(pattern.search(text) for pattern in (_DAEMON_BAD_MESSAGE, _APP_BAD_MESSAGE, _INVARIANT_TEXT))
+
+
 # ---------------------------------------------------------------- dispatch
 
 def detect_kind(text: str, name: str = "") -> str:
-    """ips, rust-panic, sanitizer, hang or "" for a report this module cannot read."""
+    """ips, jsonl, sanitizer, hang, events or "" for a report this module cannot read."""
     first = text.lstrip()[:1]
     if name.endswith(".ips") or (first == "{" and '"bug_type"' in text.split("\n", 1)[0]):
         return "ips"
-    if first == "{" and '"backtrace"' in text and '"message"' in text:
-        return "rust-panic"
+    if first == "{":
+        return "jsonl"
     if re.search(r"==\d+==ERROR: (?:Address|Leak)Sanitizer|WARNING: ThreadSanitizer:|: runtime error: ", text):
         return "sanitizer"
     if "Call graph:" in text or "Heaviest stack" in text or re.search(r"^\s*Thread 0x[0-9a-f]+", text, re.MULTILINE):
         return "hang"
+    if _has_event_lines(text):
+        return "events"
     return ""
 
 
@@ -801,12 +1124,14 @@ def signatures_from_text(text: str, name: str = "", ignore: IgnoreList | None = 
     kind = detect_kind(text, name)
     if kind == "ips":
         return parse_ips(text, ignore, name)
-    if kind == "rust-panic":
-        return parse_rust_panic_jsonl(text, ignore, name, include_test)
+    if kind == "jsonl":
+        return parse_jsonl(text, ignore, name, include_test)
     if kind == "sanitizer":
         return parse_sanitizer(text, ignore, name, process)
     if kind == "hang":
         return parse_hang(text, ignore, name)
+    if kind == "events":
+        return parse_event_lines(text, name, process)
     return []
 
 
