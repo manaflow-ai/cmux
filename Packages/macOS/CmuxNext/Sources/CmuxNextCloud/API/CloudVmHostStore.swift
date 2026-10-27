@@ -1,5 +1,5 @@
 import Foundation
-import Observation
+public import Observation
 
 /// Settings > Machines' "Dedicated agent machine" switch on a Cloud machine (``CloudVmHost``):
 /// what each machine last said, read once when its row first shows while it is connected, and
