@@ -209,6 +209,8 @@ test("the received card says when it is read and keeps the queue row's actions i
   expect(host.querySelector(".cv-received__body")?.textContent).toContain("CI is green on #24001");
   expect(host.querySelector(".cv-received__queued")?.textContent).toBe(t("message.readAfterTurn"));
   expect(host.querySelector(".acpmux-queued, .cv-spinner, [data-spinner]")).toBeNull();
+  // Queue controls use the same 16px action glyph as the delivered message controls.
+  expect(host.querySelector('[data-menu="queued-message"] svg')?.getAttribute("width")).toBe("16");
   await act(async () => host.querySelector<HTMLButtonElement>("button.cv-received__name")!.click());
   expect(calls).toEqual(["open s-1"]);
 
@@ -283,6 +285,7 @@ test("a steer the agent has not read: Read after this step, and Send now in its 
   await show(<SteerWaitingActions promptId="p-steer" send={(id) => void sent.push(id)} />);
   expect(host.querySelector(".cv-received__queued")?.textContent).toBe(t("message.readAfterStep"));
   expect(host.querySelector(".cv-spinner, [data-spinner]")).toBeNull();
+  expect(host.querySelector('[data-menu="queued-message"] svg')?.getAttribute("width")).toBe("16");
   await openMenu();
   expect(items()).toEqual([t("steer.sendNow")]);
   await act(async () => item(t("steer.sendNow")).click());
