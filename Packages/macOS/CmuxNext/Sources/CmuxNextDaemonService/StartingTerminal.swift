@@ -8,7 +8,7 @@ public import CmuxNextDaemon
 /// focus and sizing resolve. The start's outcome is a separate follow-up (``outcome()``) that only
 /// reports a failure (the daemon rolls back what the command made), as Chromium's
 /// `ChildProcessLauncher::Client::OnProcessLaunchFailed` reaches a tab that already shows.
-public struct StartingTerminal: Sendable {
+public nonisolated struct StartingTerminal: Sendable {
     /// The command's reply.
     public let created: SurfaceCreated
     /// The watch of its terminal's start; nil when the reply came after the start.
@@ -48,7 +48,7 @@ public struct StartingTerminal: Sendable {
     /// - Parameters:
     ///   - id: The action that made the terminal.
     ///   - registry: The registry whose failure notice shows a failed start.
-    public func followStart(after id: ActionID, in registry: ActionRegistry) {
+    @MainActor public func followStart(after id: ActionID, in registry: ActionRegistry) {
         guard isStarting else { return }
         let reply = self
         ActionFollowUp(registry).run(id) {
