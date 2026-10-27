@@ -9,13 +9,24 @@
  
  // Markdown layout (shared/MARKDOWN.md): a parsed document at a column width becomes
  // a display list in body-local points (origin = the bubble's top-left; text starts
-@@ -73,10 +75,15 @@
+@@ -40,7 +42,9 @@
+ }
+ 
+ struct MDBox {
+-    enum Kind: Equatable { case codeBlock, inlineCode, tableHeader, tableBorder, gridH, gridV, quoteBar, rule, checkbox(Bool), strike, fadeHint, image(CGImage) }
++    /// cmux (p07-memory-115): an image box holds the provider's source, not its pixels; drawing asks the provider
++    /// (MarkdownDraw), so a picture the host's cache drops is freed and no cached layout keeps a copy.
++    enum Kind: Equatable { case codeBlock, inlineCode, tableHeader, tableBorder, gridH, gridV, quoteBar, rule, checkbox(Bool), strike, fadeHint, image(source: String, alt: String) }
+     var rect: CGRect
+     var kind: Kind
+     var region: Int
+@@ -73,10 +77,15 @@
      var children: [MDAXNode] = []
  }
  
 -final class MarkdownLayout: Hashable, @unchecked Sendable {
 +/// cmux: checked `Sendable` (p10-stability-055): the lines (attributed strings and CTLines) and boxes
-+/// (an image box's CGImage) are held as one immutable shared value; everything else is a Sendable value.
++/// are held as one immutable shared value; everything else is a Sendable value.
 +final class MarkdownLayout: Hashable, Sendable {
      let size: CGSize
 -    let frags: [MDFrag]
@@ -28,7 +39,7 @@
      let regions: [MDRegion]
      /// Display text: what selection offsets index and what Copy returns.
      let plain: String
-@@ -88,7 +95,7 @@
+@@ -88,7 +97,7 @@
      let proxy: TextLayout
  
      init(size: CGSize, frags: [MDFrag], boxes: [MDBox], regions: [MDRegion], plain: String, source: String, ax: [MDAXNode], identity: Int) {
@@ -37,7 +48,7 @@
          self.plain = plain; self.source = source; self.ax = ax; self.identity = identity
          let n = (plain as NSString).length
          proxy = TextLayout(text: plain, runs: [], lines: [TextLayout.Line(range: NSRange(location: 0, length: n), width: size.width)], width: size.width)
-@@ -128,7 +135,8 @@
+@@ -128,20 +137,22 @@
  /// never loads a URL and never reads a file for `![alt](src)`: it asks this provider, and shows
  /// the image only when the host returns one (an attachment, a local file the host allows).
  /// Without a provider (the default) an image is a link or the text "[Image: alt]".
@@ -47,7 +58,8 @@
      /// The image for `source` (the destination exactly as written), or nil. Called during layout,
      /// off the main thread: return only what the host already has, never fetch here. Answers
      /// must be stable per source (block layouts are cached by content and width).
-@@ -136,12 +144,12 @@
++    /// cmux (p07-memory-115): drawing asks again (a layout keeps the source, not the image).
+     func markdownImage(source: String, alt: String) -> CGImage?
  }
  
  enum MarkdownImages {
@@ -64,7 +76,7 @@
      }
      /// Largest image height in a bubble (points).
      static let maxHeight: CGFloat = 320
-@@ -157,7 +165,7 @@
+@@ -157,7 +168,7 @@
  
  enum MarkdownLayoutEngine {
      /// Laid-out top-level blocks, keyed by block content and width (streams re-use all but the tail).
@@ -73,7 +85,7 @@
      struct BlockKey: Hashable { var block: MDBlock; var width: CGFloat; var columns: [CGFloat]? = nil }
  
      /// A block laid out at y = 0, x = 0 (content-local).
-@@ -172,6 +180,16 @@
+@@ -172,6 +183,16 @@
          var ax: [MDAXNode] = []
      }
  
@@ -90,7 +102,7 @@
      /// `tableColumns`: fixed column widths for the first table (a long message's table continued
      /// from an earlier block). `fill`: the inner width is the whole column (long rows are always
      /// column wide), not the widest content.
-@@ -188,14 +206,15 @@
+@@ -188,14 +209,15 @@
              var cols: [CGFloat]?
              if fixed != nil, case .table = b.kind { cols = fixed; fixed = nil }
              let key = BlockKey(block: MDBlock(kind: b.kind), width: maxWidth, columns: cols)
@@ -112,7 +124,22 @@
              }
              if let p = prev {
                  y += gap(p, b, nested: false)
-@@ -378,9 +397,9 @@
+@@ -310,12 +332,12 @@
+             let top = y, p0 = plainLen
+             switch k {
+             case let .paragraph(t):
+-                if let (img, _) = MarkdownImages.image(t) {
++                if let (img, src) = MarkdownImages.image(t) {
+                     // A host-provided image (MarkdownImageProvider), fitted to the width; 2x pixels.
+                     let natural = CGSize(width: CGFloat(img.width) / 2, height: CGFloat(img.height) / 2)
+                     let scale = min(1, max(1, w) / natural.width, MarkdownImages.maxHeight / natural.height)
+                     let size = CGSize(width: max(1, (natural.width * scale).rounded()), height: max(1, (natural.height * scale).rounded()))
+-                    out.boxes.append(MDBox(rect: CGRect(x: x, y: top, width: size.width, height: size.height), kind: .image(img), region: -1))
++                    out.boxes.append(MDBox(rect: CGRect(x: x, y: top, width: size.width, height: size.height), kind: .image(source: src, alt: t.string), region: -1)) // cmux: the source, not the pixels (p07-memory-115)
+                     y += (size.height / Markdown.lineHeight).rounded(.up) * Markdown.lineHeight
+                     out.extent = max(out.extent, x + size.width)
+                     appendPlain(t.string)
+@@ -378,9 +400,9 @@
                  // typesetter only chooses the break.
                  let sub = attr.attributedSubstring(from: range)
                  let line = CTLineCreateWithAttributedString(sub)
@@ -124,7 +151,7 @@
                  var lx = x
                  switch align {
                  case .center: lx = x + max(0, (w - tw) / 2)
-@@ -412,8 +431,8 @@
+@@ -412,8 +434,8 @@
              sub.enumerateAttribute(.mdStyle, in: NSRange(location: 0, length: sub.length)) { v, r, _ in
                  guard let raw = v as? UInt16 else { return }
                  let st = MDStyle(rawValue: raw)
@@ -135,7 +162,7 @@
                  if st.contains(.code) {
                      out.boxes.append(MDBox(rect: CGRect(x: f.origin.x + x0 - 1.5, y: f.origin.y + 1, width: x1 - x0 + 3, height: 14.5), kind: .inlineCode, region: f.region))
                  }
-@@ -449,14 +468,14 @@
+@@ -449,14 +471,14 @@
                  }
                  let sub = r.length > 0 ? attr.attributedSubstring(from: r) : NSAttributedString(string: "")
                  let line = CTLineCreateWithAttributedString(sub)
@@ -152,7 +179,7 @@
                      out.frags.append(MDFrag(attr: label, line: ml, origin: CGPoint(x: x + Markdown.codePadX + lw, y: y), width: mw, baseline: Markdown.bodyBaseline,
                                              range: NSRange(location: plainLen + NSMaxRange(r), length: 0), region: rid, role: .more, links: []))
                      lineW += mw
-@@ -507,7 +526,7 @@
+@@ -507,7 +529,7 @@
                      let m = markerText(i, it)
                      let attr = NSAttributedString(string: m, attributes: [.font: markerFont, .kern: Fixture.bodyKern, .mdRole: MDRole.marker.rawValue])
                      let line = CTLineCreateWithAttributedString(attr)
@@ -161,7 +188,7 @@
                      out.frags.append(MDFrag(attr: attr, line: line, origin: CGPoint(x: x + ind - Markdown.markerGap - mw, y: y), width: mw, baseline: Markdown.bodyBaseline,
                                              range: NSRange(location: plainLen, length: (m as NSString).length), region: -1, role: .marker, links: []))
                      appendPlain(m + " ")
-@@ -546,7 +565,7 @@
+@@ -546,7 +568,7 @@
                          let line = CTLineCreateWithAttributedString(a)
                          let word = MarkdownLayoutEngine.longestWord(a, line)
                          // c < cols == every width array's count; written through checked slots.
@@ -170,7 +197,7 @@
                          if let s = wordW.checkedIndex(c) { wordW[s] = max(wordW[s], word) }
                          if let s = minW.checkedIndex(c) { minW[s] = max(minW[s], min(140, word)) }
                      }
-@@ -640,7 +659,7 @@
+@@ -640,7 +662,7 @@
          let n = s.length
          func measure(_ lo: Int, _ hi: Int) {
              guard hi > lo else { return }
@@ -179,7 +206,7 @@
          }
          for i in 0..<n {
              let c = s.character(at: i)
-@@ -684,27 +703,38 @@
+@@ -684,27 +706,38 @@
  
  // MARK: - LRU
  
@@ -190,7 +217,7 @@
 +/// cmux: checked `Sendable` (p10-stability-055): Sendable keys and values in one lock state (it was an
 +/// unchecked class over an NSLock; its only user caches `HomeShared` blocks).
 +/// cmux: memory: fixed at most `capacity` entries (the layout's 2048 blocks of messages under LongText.minBytes; longer
-+/// text is tiled), the older half dropped when full.
++/// text is tiled), the older half dropped when full; a block holds text lines and boxes, never a picture's pixels.
 +final class MDLRU<K: Hashable & Sendable, V: Sendable>: Sendable {
 +    private struct State: Sendable {
 +        var map: [K: (V, Int)] = [:]

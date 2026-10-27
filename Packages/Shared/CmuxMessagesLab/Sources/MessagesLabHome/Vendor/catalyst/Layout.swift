@@ -753,8 +753,14 @@ enum VectorAsset {
 /// Filled off the main thread when pages load; the main thread only reads.
 /// cmux: checked `Sendable` (p10-stability-055): the stores and counters are one lock state (they were
 /// vars under an NSLock in an unchecked class); measuring runs outside the lock, as before.
+/// cmux (p07-memory-115): bounded (`widthsPerPart` widths of at most `partLimit` parts) and counted (`count`, `bytes`)
+/// for the host, which trims the layouts and keeps each part's `Basis`, so a trim never turns estimates into measures.
 final class MeasureCache: Sendable { // cmux: memory: consumer via MessagesLabMemoryConsumer (CmuxNextHome)
     static let shared = MeasureCache()
+    /// cmux: the exact measurements kept per part: a pane's width, another pane's, a resize's last ones.
+    static let widthsPerPart = 4
+    /// cmux: the parts kept; past it the least recently asked half goes (several transcripts' loaded windows).
+    static let partLimit = 16_384
     /// `markdown`: the message's format (Message.format). A plain/markdown change under the same
     /// id and text (a host marking a message later, a local echo) is a new measurement.
     /// `scale`: the asking view's render scale (text balloon widths end on its device pixels; two views at two
@@ -762,21 +768,79 @@ final class MeasureCache: Sendable { // cmux: memory: consumer via MessagesLabMe
     struct Key: Hashable { var id: ID; var part: Int; var version: Int; var width: CGFloat; var markdown: Bool; var scale: CGFloat }
     struct PartKey: Hashable { var id: ID; var part: Int; var version: Int; var markdown: Bool; var scale: CGFloat }
     struct Value { var size: CGSize; var text: TextLayout?; var width: CGFloat = 0; var estimated = false; var markdown: MarkdownLayout? = nil }
-    private struct State: Sendable {
-        var byKey: [Key: Value] = [:]
-        /// Streaming bubbles (ask 11): every chunk is a new text under one id; only their latest measurements are
-        /// kept (at most 16), never in `byKey` or `latest` (they grew by one text layout per chunk).
-        var streamStore: [Key: Value] = [:]
-        /// The latest exact measurement of each part at any width (estimates).
-        var latest: [PartKey: Value] = [:]
-        var hits = 0, misses = 0, estimates = 0, reuses = 0
+    /// cmux (p07-memory-115): what an estimate and a same-lines reuse read of the latest exact measurement: its size,
+    /// width and a plain text's lines, no Markdown layout. A trim keeps it.
+    struct Basis: Sendable {
+        var size: CGSize; var width: CGFloat; var markdown: Bool; var text: TextLayout?
+        init(_ v: Value) { size = v.size; width = v.width; markdown = v.markdown != nil; text = v.markdown == nil ? v.text : nil }
     }
-    // Lock carve-out: the measure threads and main look up and store measurements; no measuring under the lock.
+    /// cmux: one part's measurements: the exact ones at the widths asked last (the most recent first) and its basis.
+    private struct Entry: Sendable {
+        var widths: [Value] = []
+        var basis: Basis?
+        var tick = 0
+        var bytes: Int { (basis.map { MeasureCache.cost($0) } ?? 0) + widths.reduce(0) { $0 + MeasureCache.cost($1) } }
+    }
+    private struct State: Sendable {
+        var parts: [PartKey: Entry] = [:]
+        /// Streaming bubbles (ask 11): every chunk is a new text under one id; only their latest measurements are
+        /// kept (at most 16), never in `parts` (they grew by one text layout per chunk).
+        var streamStore: [Key: Value] = [:]
+        var tick = 0
+        /// cmux: the exact measurements in `parts` and every entry's estimated bytes, kept as counters.
+        var count = 0, bytes = 0
+        var hits = 0, misses = 0, estimates = 0, reuses = 0
+
+        /// Takes `pk`'s entry out of the counters (the caller stores it again or drops it).
+        mutating func take(_ pk: PartKey) -> Entry? {
+            guard let e = parts.removeValue(forKey: pk) else { return nil }
+            count -= e.widths.count; bytes -= e.bytes
+            return e
+        }
+        mutating func put(_ e: Entry, _ pk: PartKey) {
+            count += e.widths.count; bytes += e.bytes
+            parts.updateValue(e, forKey: pk) // dictionary write
+        }
+        /// `v` at its width first, at most `widthsPerPart` widths; returns the measurements it pushed out.
+        mutating func add(_ v: Value, basis: Bool, _ pk: PartKey) -> [Value] {
+            tick += 1
+            var e = take(pk) ?? Entry()
+            e.tick = tick
+            if basis { e.basis = Basis(v) }
+            e.widths.removeAll { $0.width == v.width }
+            e.widths.insert(v, at: 0)
+            let out = Array(e.widths.dropFirst(MeasureCache.widthsPerPart))
+            e.widths.removeLast(out.count)
+            put(e, pk)
+            return out
+        }
+        /// Past `partLimit` parts, drops the least recently asked half (amortized O(1) per store, as MDLRU).
+        mutating func bound() -> [Entry] {
+            guard parts.count > MeasureCache.partLimit else { return [] }
+            let cut = parts.values.map(\.tick).sorted()[checked: parts.count / 2] ?? 0 // checked (crash ratchet)
+            let old = parts.filter { $0.value.tick < cut }
+            for k in old.keys { _ = take(k) }
+            return Array(old.values)
+        }
+    }
+    // Lock carve-out: the measure threads and main look up and store measurements; no measuring under the lock (a host
+    // trim and the part bound are one sort of the parts, as MDLRU's).
     private let state = Mutex(State())
     var hits: Int { state.withLock { $0.hits } }
     var misses: Int { state.withLock { $0.misses } }
     var estimates: Int { state.withLock { $0.estimates } }
     var reuses: Int { state.withLock { $0.reuses } }
+
+    /// cmux: a measurement's estimated bytes: the value and, for Markdown, its drawn lines and boxes (a plain text's
+    /// lines are its basis's, counted there).
+    static func cost(_ v: Value) -> Int {
+        guard let md = v.markdown else { return 64 }
+        return 576 + md.plain.utf8.count * 8 + md.frags.count * 256 + md.boxes.count * 64
+    }
+    /// cmux: a basis's estimated bytes, its text counted (it may outlive the message).
+    static func cost(_ b: Basis) -> Int {
+        48 + (b.text.map { $0.text.utf8.count + $0.lines.count * 40 + $0.runs.count * 48 } ?? 0)
+    }
 
     /// A part whose content changes in place is a new measurement: text a host
     /// replaces under the same message id (an optimistic send, then the stored
@@ -828,24 +892,34 @@ final class MeasureCache: Sendable { // cmux: memory: consumer via MessagesLabMe
         let pk = PartKey(id: m.id, part: pi, version: version, markdown: m.isMarkdown, scale: scale)
         let streaming = StreamBubble.isStream(m.id)
         // cmux: one lookup under the lock decides the path; the measuring and scaling run outside it.
-        enum Found: Sendable { case hit(Value), measureStream, reused(Value), estimateFrom(Value), measure }
+        enum Found: Sendable { case hit(Value), measureStream, reused(Value, [Value]), estimateFrom(Basis), measure }
         let found = state.withLock { s -> Found in
-            if let v = streaming ? s.streamStore[k] : s.byKey[k] { s.hits += 1; return .hit(v) }
-            if streaming { s.misses += 1; return .measureStream }
+            if streaming {
+                if let v = s.streamStore[k] { s.hits += 1; return .hit(v) }
+                s.misses += 1; return .measureStream
+            }
+            s.tick += 1
+            let tick = s.tick
+            if let v = s.parts[pk]?.widths.first(where: { $0.width == width }) {
+                s.parts[pk]?.tick = tick
+                s.hits += 1; return .hit(v)
+            }
             // Plain text that no width wrapped and that fits the new column: the same lines at the new
             // width, exact (no Core Text, no estimate). A divider drag or live resize changes most
             // short bubbles' widths only in this way.
-            if let old = s.latest[pk], let v = MeasureCache.sameLayout(old, at: width, part: part, scale: scale) { // the checked part
+            let basis = s.parts[pk]?.basis
+            if let old = basis, let v = MeasureCache.sameLayout(old, at: width, part: part, scale: scale) { // the checked part
                 s.reuses += 1
-                s.byKey[k] = v
-                return .reused(v)
+                return .reused(v, s.add(v, basis: false, pk))
             }
-            if estimate, let old = s.latest[pk] { s.estimates += 1; return .estimateFrom(old) }
+            s.parts[pk]?.tick = tick
+            if estimate, let old = basis { s.estimates += 1; return .estimateFrom(old) }
             s.misses += 1
             return .measure
         }
         switch found {
-        case let .hit(v), let .reused(v): return v
+        case let .hit(v): return v
+        case let .reused(v, _): return v // the widths it pushed out are a few lines, freed here outside the lock
         case let .estimateFrom(old): return MeasureCache.scale(old, to: width, part: part, scale: scale)
         case .measureStream:
             let v = MeasureCache.measure(m, part, width: width, scale: scale)
@@ -856,10 +930,9 @@ final class MeasureCache: Sendable { // cmux: memory: consumer via MessagesLabMe
             return v
         case .measure:
             let v = MeasureCache.measure(m, part, width: width, scale: scale)
-            state.withLock { s in
-                s.byKey.updateValue(v, forKey: k) // dictionary writes
-                s.latest.updateValue(v, forKey: pk)
-            }
+            // The width pushed out is freed here, outside the lock; a half of the parts goes off main.
+            let evicted = state.withLock { s -> [Entry] in _ = s.add(v, basis: true, pk); return s.bound() }
+            Reclaimer.release(bitmaps: evicted)
             return v
         }
     }
@@ -876,8 +949,8 @@ final class MeasureCache: Sendable { // cmux: memory: consumer via MessagesLabMe
     /// each line is the same again; the bubble width follows the new column (Sizing.size: a wrapped line's
     /// trailing space can reach past it). A line within 0.01 pt of the column is measured again (Core Text's
     /// own fit test may sum the widths differently from the cut line's).
-    static func sameLayout(_ v: Value, at width: CGFloat, part: Part, scale: CGFloat = Fixture.renderScale) -> Value? {
-        guard v.markdown == nil, !v.estimated, let tl = v.text, case .text = part else { return nil }
+    static func sameLayout(_ v: Basis, at width: CGFloat, part: Part, scale: CGFloat = Fixture.renderScale) -> Value? { // cmux: a Basis
+        guard !v.markdown, let tl = v.text, case .text = part else { return nil }
         let col = Metrics(width: width).maxTextWidth
         if v.width > 0, col <= Metrics(width: v.width).maxTextWidth, tl.lines.allSatisfy({ $0.fit <= col - 0.01 }) {
             return Value(size: CGSize(width: Sizing.textBalloonWidth(tl.width, column: col, scale: scale), height: v.size.height), text: tl, width: width)
@@ -891,8 +964,8 @@ final class MeasureCache: Sendable { // cmux: memory: consumer via MessagesLabMe
         return Value(size: v.size, text: tl, width: width)
     }
 
-    private static func scale(_ v: Value, to width: CGFloat, part: Part, scale: CGFloat) -> Value {
-        if v.markdown != nil {
+    private static func scale(_ v: Basis, to width: CGFloat, part: Part, scale: CGFloat) -> Value { // cmux: a Basis
+        if v.markdown {
             // Markdown keeps its height until measured at the new width.
             let col = Metrics(width: width).maxTextWidth + 2 * Fixture.bubblePadX
             return Value(size: CGSize(width: min(v.size.width, col), height: v.size.height), text: nil, width: width, estimated: true)
@@ -928,26 +1001,42 @@ final class MeasureCache: Sendable { // cmux: memory: consumer via MessagesLabMe
         }
     }
 
-    var count: Int { state.withLock { $0.byKey.count } }
+    /// cmux: the exact measurements kept (every part's widths).
+    var count: Int { state.withLock { $0.count } }
+    /// cmux: the parts kept (each with its basis).
+    var partCount: Int { state.withLock { $0.parts.count } }
+    /// cmux: the measurements' estimated bytes, read from a counter.
+    var bytes: Int { state.withLock { $0.bytes } }
 
-    /// cmux: the host's memory policy (p07-memory-115, `MessagesLabTranscriptCaches.trim(toFraction: 0)`): every
-    /// measurement goes, freed outside the lock; the next layout measures again (near rows exactly, the rest estimated).
-    func removeAll() {
-        let dropped = state.withLock { s -> ([Key: Value], [Key: Value], [PartKey: Value]) in
-            defer { s.byKey = [:]; s.streamStore = [:]; s.latest = [:] }
-            return (s.byKey, s.streamStore, s.latest)
+    /// cmux: the host's memory policy (p07-memory-115, `MessagesLabTranscriptCaches.trim(toFraction:)`): drops the
+    /// least recently asked parts' layouts until at most `fraction` of ``bytes`` remain, or all of them at 0. Every
+    /// part keeps its basis, so the next layout still estimates the rows it does not measure. Freed off main.
+    func trim(toFraction fraction: Double) {
+        let dropped = state.withLock { s -> [Value] in
+            let target = s.bytes.trimTarget(fraction)
+            guard s.count > 0, s.bytes > target else { return [] }
+            var out: [Value] = []
+            for (pk, held) in s.parts.sorted(by: { $0.value.tick < $1.value.tick }) where !held.widths.isEmpty {
+                if s.bytes <= target { break }
+                guard var e = s.take(pk) else { continue }
+                out += e.widths
+                e.widths = []
+                s.put(e, pk)
+            }
+            return out
         }
-        withExtendedLifetime(dropped) {}
+        Reclaimer.release(bitmaps: dropped)
     }
 
     /// LRU-ish bound: drop measurements for messages outside the window.
     func trim(keeping ids: Set<ID>) {
-        state.withLock { s in
-            if s.byKey.count > 4 * ids.count + 2000 {
-                s.byKey = s.byKey.filter { ids.contains($0.key.id) }
-                s.latest = s.latest.filter { ids.contains($0.key.id) }
-            }
+        let dropped = state.withLock { s -> [Entry] in
+            guard s.count > 4 * ids.count + 2000 else { return [] }
+            let old = s.parts.filter { !ids.contains($0.key.id) }
+            for k in old.keys { _ = s.take(k) }
+            return Array(old.values)
         }
+        Reclaimer.release(bitmaps: dropped)
     }
 }
 

@@ -42,7 +42,9 @@ struct MDFrag {
 }
 
 struct MDBox {
-    enum Kind: Equatable { case codeBlock, inlineCode, tableHeader, tableBorder, gridH, gridV, quoteBar, rule, checkbox(Bool), strike, fadeHint, image(CGImage) }
+    /// cmux (p07-memory-115): an image box holds the provider's source, not its pixels; drawing asks the provider
+    /// (MarkdownDraw), so a picture the host's cache drops is freed and no cached layout keeps a copy.
+    enum Kind: Equatable { case codeBlock, inlineCode, tableHeader, tableBorder, gridH, gridV, quoteBar, rule, checkbox(Bool), strike, fadeHint, image(source: String, alt: String) }
     var rect: CGRect
     var kind: Kind
     var region: Int
@@ -76,7 +78,7 @@ struct MDAXNode {
 }
 
 /// cmux: checked `Sendable` (p10-stability-055): the lines (attributed strings and CTLines) and boxes
-/// (an image box's CGImage) are held as one immutable shared value; everything else is a Sendable value.
+/// are held as one immutable shared value; everything else is a Sendable value.
 final class MarkdownLayout: Hashable, Sendable {
     let size: CGSize
     var frags: [MDFrag] { drawn.value.frags }
@@ -140,6 +142,7 @@ protocol MarkdownImageProvider: AnyObject, Sendable {
     /// The image for `source` (the destination exactly as written), or nil. Called during layout,
     /// off the main thread: return only what the host already has, never fetch here. Answers
     /// must be stable per source (block layouts are cached by content and width).
+    /// cmux (p07-memory-115): drawing asks again (a layout keeps the source, not the image).
     func markdownImage(source: String, alt: String) -> CGImage?
 }
 
@@ -329,12 +332,12 @@ enum MarkdownLayoutEngine {
             let top = y, p0 = plainLen
             switch k {
             case let .paragraph(t):
-                if let (img, _) = MarkdownImages.image(t) {
+                if let (img, src) = MarkdownImages.image(t) {
                     // A host-provided image (MarkdownImageProvider), fitted to the width; 2x pixels.
                     let natural = CGSize(width: CGFloat(img.width) / 2, height: CGFloat(img.height) / 2)
                     let scale = min(1, max(1, w) / natural.width, MarkdownImages.maxHeight / natural.height)
                     let size = CGSize(width: max(1, (natural.width * scale).rounded()), height: max(1, (natural.height * scale).rounded()))
-                    out.boxes.append(MDBox(rect: CGRect(x: x, y: top, width: size.width, height: size.height), kind: .image(img), region: -1))
+                    out.boxes.append(MDBox(rect: CGRect(x: x, y: top, width: size.width, height: size.height), kind: .image(source: src, alt: t.string), region: -1)) // cmux: the source, not the pixels (p07-memory-115)
                     y += (size.height / Markdown.lineHeight).rounded(.up) * Markdown.lineHeight
                     out.extent = max(out.extent, x + size.width)
                     appendPlain(t.string)
@@ -706,7 +709,7 @@ extension Markdown {
 /// cmux: checked `Sendable` (p10-stability-055): Sendable keys and values in one lock state (it was an
 /// unchecked class over an NSLock; its only user caches `HomeShared` blocks).
 /// cmux: memory: fixed at most `capacity` entries (the layout's 2048 blocks of messages under LongText.minBytes; longer
-/// text is tiled), the older half dropped when full.
+/// text is tiled), the older half dropped when full; a block holds text lines and boxes, never a picture's pixels.
 final class MDLRU<K: Hashable & Sendable, V: Sendable>: Sendable {
     private struct State: Sendable {
         var map: [K: (V, Int)] = [:]

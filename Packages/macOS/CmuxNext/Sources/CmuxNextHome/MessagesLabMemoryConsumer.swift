@@ -101,7 +101,7 @@ public final class MessagesLabMemoryConsumer {
         isIdle ? 0 : limit.scale(budgetBytes)
     }
 
-    /// Pixel bytes the caches hold now, read from their counters.
+    /// Bytes the caches hold now (pixels and the transcript's text measurements), read from their counters.
     public var memoryBytes: Int {
         liveSidebars.reduce(transcript.bytes) { $0 + $1.bitmapBytes }
     }

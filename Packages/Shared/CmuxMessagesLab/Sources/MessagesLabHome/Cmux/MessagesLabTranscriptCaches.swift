@@ -6,8 +6,9 @@
 /// (CmuxNextHome's `MessagesLabMemoryConsumer`).
 ///
 /// Everything dropped here is lossless: a row or tile on screen keeps the image its layer shows, and
-/// the next miss draws or decodes it again off the main thread. The measurements go only at a trim to
-/// 0 (no Home shows, or critical pressure): every layout reads them, so a partial trim keeps them.
+/// the next miss draws or decodes it again off the main thread. A trim drops the least recently asked
+/// parts' text layouts and keeps each part's estimate basis, so the next layout measures only the rows
+/// near the viewport again and estimates the rest, as before the trim.
 ///
 /// ```swift
 /// let caches = MessagesLabTranscriptCaches()
@@ -40,14 +41,15 @@ public final class MessagesLabTranscriptCaches { // memory: consumer via Message
         self.measurements = measurements
     }
 
-    /// Pixel bytes the caches hold now. Read from counters, never a walk.
+    /// Bytes the caches hold now: pixels, and the text measurements' estimate. Read from counters, never a walk.
     public var bytes: Int {
         rows.bytes + media.bytes + tiles.bytes + (markdownImages?.bytes ?? 0) + (ownsSlices ? BubbleSlices.bytes : 0)
+            + (measurements?.bytes ?? 0)
     }
 
-    /// The bitmaps, images and tiles the caches hold now.
+    /// The bitmaps, images, tiles and exact text measurements the caches hold now.
     public var entryCount: Int {
-        rows.count + media.count + tiles.count + (markdownImages?.count ?? 0)
+        rows.count + media.count + tiles.count + (markdownImages?.count ?? 0) + (measurements?.count ?? 0)
     }
 
     /// Caps the caches at `bytes` together, in MessagesLab's proportions (row bitmaps 160, media 96 and
@@ -65,7 +67,7 @@ public final class MessagesLabTranscriptCaches { // memory: consumer via Message
     }
 
     /// Frees now, the least recently used first, until at most `fraction` of ``bytes`` remain; `0`
-    /// frees everything, the text measurements too. The caps stay as they are.
+    /// frees every bitmap, picture and text layout (the measurements' estimate bases stay). The caps stay as they are.
     ///
     /// - Parameter fraction: The share of what the caches hold now to keep, 0...1 (NaN keeps all).
     public func trim(toFraction fraction: Double) {
@@ -74,7 +76,7 @@ public final class MessagesLabTranscriptCaches { // memory: consumer via Message
         media.trim(toFraction: fraction)
         tiles.trim(toFraction: fraction)
         markdownImages?.trim(toFraction: fraction)
-        if fraction <= 0 { measurements?.removeAll() }
+        measurements?.trim(toFraction: fraction)
         // The outlines are a few small images per bubble width: kept whole or dropped whole.
         if ownsSlices { BubbleSlices.removeAll() }
     }

@@ -4,7 +4,8 @@ import Testing
 @testable import MessagesLabHome
 
 /// The transcript's remaining caches are bounded or given to the host (p07-memory-115): Markdown's pictures are a
-/// byte-capped LRU the host sizes and trims, the text measurements go at a trim to 0 only, and the context menu
+/// byte-capped LRU the host sizes and trims and no Markdown layout keeps their pixels, the text measurements keep a
+/// few widths per part, are counted and trimmed by the host and keep their estimate bases, and the context menu
 /// keeps glyphs for the tapbacks and the recent emoji alone.
 @MainActor @Suite(.serialized) struct HomeCachesBoundsTests {
     private static func folder() throws -> URL {
@@ -25,10 +26,28 @@ import Testing
 
     private static func bytes(_ image: CGImage) -> Int { image.bytesPerRow * image.height }
 
-    private static func message(_ i: Int) -> MessagesLabHome.Message {
+    private static func message(_ i: Int, text: String? = nil) -> MessagesLabHome.Message {
         MessagesLabHome.Message(id: "bounds\(i)", senderId: "p\(i % 3)", sentAt: "2026-10-27T12:00:00-07:00",
-                                parts: [.text("Message \(i) with a few words to measure", runs: [])],
+                                parts: [.text(text ?? "Message \(i) with a few words to measure", runs: [])],
                                 replyTo: nil, status: nil, edits: nil, retractedAt: nil, reactions: [])
+    }
+
+    /// A text that wraps at every transcript width (so a narrower width cannot reuse its lines).
+    private static let wrapping = Array(repeating: "a sentence long enough to wrap the bubble", count: 12).joined(separator: " ")
+
+    /// The image sources a layout's boxes name.
+    private static func imageSources(_ md: MarkdownLayout) -> [String] {
+        md.boxes.compactMap { box in
+            if case let .image(source, _) = box.kind { return source }
+            return nil
+        }
+    }
+
+    /// Hands out one picture for every source, and holds it only while the provider lives.
+    private final class OnePicture: MarkdownImageProvider, Sendable {
+        let picture: HomeShared<CGImage>
+        init(_ picture: CGImage) { self.picture = HomeShared(picture) }
+        func markdownImage(source: String, alt: String) -> CGImage? { picture.value }
     }
 
     @Test func markdownPicturesStayUnderTheirBudgetDroppingTheOldestFirst() throws {
@@ -73,7 +92,7 @@ import Testing
         #expect(images.count == 0 && images.bytes == 0)
     }
 
-    @Test func theTranscriptCachesSizeAndTrimMarkdownPicturesAndDropMeasurementsOnlyAtZero() throws {
+    @Test func theTranscriptCachesCountAndTrimMarkdownPicturesAndMeasurements() throws {
         let folder = try Self.folder()
         let sources = try (0..<4).map { try Self.png("caches\($0).png", in: folder) }
         let images = HomeMarkdownImages(directory: folder)
@@ -86,18 +105,110 @@ import Testing
         for source in sources { _ = images.markdownImage(source: source, alt: "") }
         for i in 0..<6 { _ = measurements.size(Self.message(i), 0, width: 320, scale: 2) }
         try #require(measurements.count == 6)
-        #expect(caches.bytes == images.bytes && caches.bytes > 0)
-        #expect(caches.entryCount == 4)
+        #expect(measurements.bytes > 0)
+        #expect(caches.bytes == images.bytes + measurements.bytes, "the host does not see the measurements")
+        #expect(caches.entryCount == 4 + 6)
 
+        let measured = measurements.bytes
         caches.trim(toFraction: 0.5)
         #expect(images.count == 2, "a half trim kept \(images.count) of 4 equal pictures")
-        #expect(measurements.count == 6, "a partial trim dropped text measurements every layout reads")
+        #expect(measurements.count < 6 && measurements.bytes < measured, "a partial trim kept every text layout")
+        #expect(measurements.partCount == 6, "a partial trim dropped an estimate basis")
 
         caches.trim(toFraction: 0)
-        #expect(caches.bytes == 0 && images.count == 0)
-        #expect(measurements.count == 0)
+        #expect(images.count == 0 && measurements.count == 0)
+        #expect(caches.bytes == measurements.bytes, "a trim to 0 kept bytes other than the estimate bases")
         let remeasured = measurements.size(Self.message(0), 0, width: 320, scale: 2)
         #expect(remeasured.size.width > 0 && measurements.count == 1, "a measurement after the trim was not taken again")
+    }
+
+    /// A trim to 0 while Home shows keeps what the next rows pass estimates from: no exact Core Text measure on its turn.
+    @Test func aTrimToZeroStillEstimatesThePartsMeasuredBefore() {
+        let measurements = MeasureCache()
+        let m = Self.message(7, text: Self.wrapping)
+        let exact = measurements.size(m, 0, width: 600, scale: 2)
+        #expect(!exact.estimated && measurements.count == 1)
+
+        measurements.trim(toFraction: 0)
+        #expect(measurements.count == 0 && measurements.partCount == 1)
+        let misses = measurements.misses, estimates = measurements.estimates
+        let estimated = measurements.size(m, 0, width: 200, estimate: true, scale: 2)
+        #expect(estimated.estimated, "the part was not estimated after the trim")
+        #expect(estimated.size.height > exact.size.height, "the estimate at a narrower width did not grow")
+        #expect(measurements.misses == misses, "the estimate measured the part again")
+        #expect(measurements.estimates == estimates + 1)
+    }
+
+    /// One message asked at many widths (a divider drag) keeps only its last few measurements.
+    @Test func oneMessageAtManyWidthsKeepsAFewMeasurements() {
+        let measurements = MeasureCache()
+        let m = Self.message(8, text: Self.wrapping)
+        let widths = (0..<64).map { 220 + CGFloat($0) * 7 }
+        for width in widths { _ = measurements.size(m, 0, width: width, scale: 2) }
+        #expect(measurements.count <= MeasureCache.widthsPerPart, "one part kept \(measurements.count) measurements")
+        #expect(measurements.partCount == 1)
+        let hits = measurements.hits
+        _ = measurements.size(m, 0, width: widths[widths.count - 1], scale: 2)
+        #expect(measurements.hits == hits + 1, "the latest width was not kept")
+    }
+
+    /// No Markdown layout keeps a picture's pixels: the block cache and the measurements hold its source, and drawing
+    /// asks the provider, so a picture the provider drops is freed.
+    @Test func aMarkdownLayoutKeepsNoPicture() throws {
+        let previous = MarkdownImages.provider
+        defer { MarkdownImages.provider = previous }
+        let source = "file:///no-folder/\(UUID().uuidString).png"
+        let text = "![a picture](\(source))"
+        weak var pixels: NSData?
+        let md: MarkdownLayout
+        do {
+            let data = NSData(data: Data(repeating: 0x80, count: 4 * 3 * 4))
+            pixels = data
+            let provider = try #require(CGDataProvider(data: data as CFData))
+            let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+            let picture = try #require(CGImage(width: 4, height: 3, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 16, space: space,
+                                               bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                                               provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+            let pictures = OnePicture(picture)
+            MarkdownImages.provider = pictures
+            md = MarkdownLayoutEngine.layout(MarkdownStore.shared.document(text), source: text, maxWidth: 300)
+            MarkdownImages.provider = previous
+        }
+        #expect(Self.imageSources(md) == [source], "the picture did not lay out as an image box")
+        #expect(pixels == nil, "a Markdown layout kept the picture's pixels")
+    }
+
+    /// After a trim to 0, a layout at a second width and a draw of the first one decode the picture once, into the provider.
+    @Test func aTrimmedPictureDecodesOnceForTheNextLayoutAndDraw() throws {
+        let previous = MarkdownImages.provider
+        defer { MarkdownImages.provider = previous }
+        let folder = try Self.folder()
+        let source = try Self.png("layout.png", in: folder)
+        let images = HomeMarkdownImages(directory: folder)
+        MarkdownImages.provider = images
+        let text = "![a picture](\(source))"
+        let doc = MarkdownStore.shared.document(text)
+        let first = MarkdownLayoutEngine.layout(doc, source: text, maxWidth: 300)
+        #expect(Self.imageSources(first) == [source])
+        #expect(images.count == 1)
+
+        images.trim(toFraction: 0)
+        #expect(images.count == 0 && images.bytes == 0)
+        let second = MarkdownLayoutEngine.layout(doc, source: text, maxWidth: 260)
+        #expect(Self.imageSources(second) == [source])
+        let kept = try #require(images.markdownImage(source: source, alt: "a picture"))
+        #expect(images.count == 1 && images.bytes == Self.bytes(kept), "the second width made a second copy")
+
+        // Drawing the first layout asks the provider: the one kept picture, no new decode.
+        let ctx = try #require(CGContext(data: nil, width: 320, height: 120, bitsPerComponent: 8, bytesPerRow: 0,
+                                         space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        MarkdownDraw.draw(ctx, first, body: CGRect(origin: .zero, size: first.size), outgoing: false)
+        #expect(images.count == 1 && images.markdownImage(source: source, alt: "a picture") === kept)
+
+        // After another trim, the draw itself decodes the picture into the provider (the layout has none to draw).
+        images.trim(toFraction: 0)
+        MarkdownDraw.draw(ctx, first, body: CGRect(origin: .zero, size: first.size), outgoing: false)
+        #expect(images.count == 1, "drawing did not ask the provider for the picture")
     }
 
     @Test func theMenuKeepsGlyphsOnlyForTapbacksAndRecentEmoji() {
