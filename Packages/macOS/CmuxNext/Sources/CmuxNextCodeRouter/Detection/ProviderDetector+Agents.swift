@@ -67,14 +67,15 @@ extension ProviderDetector {
 
     static let codexKeychainService = "Codex Auth"
 
-    /// Whether config.toml sets `cli_auth_credentials_store = "keyring"`.
+    /// Whether config.toml keeps credentials in the OS keychain (`keyring` or
+    /// Codex's `auto` mode when its platform store is selected).
     var codexUsesKeyring: Bool {
         let config = codexHome.appendingPathComponent("config.toml")
         guard let data = environment.files.data(at: config), let text = String(data: data, encoding: .utf8) else { return false }
         return text.split(whereSeparator: \.isNewline).contains { line in
             let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
             return parts.count == 2 && parts[0] == "cli_auth_credentials_store"
-                && parts[1].trimmingCharacters(in: CharacterSet(charactersIn: "\"'")) == "keyring"
+                && ["keyring", "auto"].contains(parts[1].trimmingCharacters(in: CharacterSet(charactersIn: "\"'")))
         }
     }
 
