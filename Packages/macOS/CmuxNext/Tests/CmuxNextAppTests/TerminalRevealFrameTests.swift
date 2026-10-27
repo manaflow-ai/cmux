@@ -170,8 +170,13 @@ import Testing
             samples.append(Self.onScreen(session))
             try await Task.sleep(for: .milliseconds(4))
         }
-        let first = samples.firstIndex(of: .text)
-        #expect(first == 0 && !samples.contains(where: { $0 != .text }), "OSC 11 reveal showed \(samples)")
+        // The first display pass can run before Ghostty installs its IOSurface. Once a frame
+        // exists, the reveal must show text continuously; the unfixed path stays blank forever.
+        guard let firstRendered = samples.firstIndex(where: { $0 != .none }) else {
+            Issue.record("OSC 11 reveal never presented a rendered frame: \(samples)")
+            return
+        }
+        #expect(samples[firstRendered...].allSatisfy { $0 == .text }, "OSC 11 reveal showed \(samples)")
         #expect(session.surfaceView.presentedFrame != nil, "OSC 11 reveal never presented an IOSurface")
     }
 }
