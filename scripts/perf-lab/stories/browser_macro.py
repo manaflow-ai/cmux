@@ -45,7 +45,9 @@ pins and Chrome's version.
 
 The story takes the runner's `--app APP --tag TAG --out DIR` (stories.d/README.md). Exit codes: 0 every suite
 written, 1 some suites written (the others listed), 2 nothing to write, 3 env-invalid (the build, the host, Chrome
-or a pinned copy cannot be named; checked before any browser starts), 128 + N when signal N ended it.
+or a pinned copy cannot be named, checked before any browser starts; or a launch refused for the host, such as no
+GUI session or Low Power Mode, which the runs file then names), 128 + N when signal N ended it. A run whose arm
+did not start (a failed launch or spawn) fails only its suite.
 
   python3 -I scripts/perf-lab/stories/browser_macro.py --app APP --tag TAG --out DIR       # as the runner
   python3 -I scripts/perf-lab/stories/browser_macro.py fetch                               # fill the pinned copies
@@ -81,6 +83,7 @@ import tempfile
 import threading
 import urllib.parse
 import urllib.request
+import xml.parsers.expat
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
@@ -260,9 +263,12 @@ def load_by_path(name: str, path: Path) -> ModuleType:
     return module
 
 
-bench_launch = load_by_path("bench_launch", SCRIPTS / "cmux-next" / "bench_launch.py")
+# wpr.bench_launcher loads bench_launch under this name: one copy, so its LaunchError is the class CmuxArm catches.
+bench_launch = load_by_path("perf_lab_bench_launch", SCRIPTS / "cmux-next" / "bench_launch.py")
 perf_result = load_by_path("perf_lab_browser_macro_perf_result", PERF_LAB / "perf_result.py")
 wpr = load_by_path("perf_lab_browser_macro_wpr", PERF_LAB / "corpus" / "wpr.py")
+# BenchApp.launch refuses these for the host before the app starts, so every later run would be refused too.
+HOST_LAUNCH_REASONS = frozenset({"no-gui-session", "low-power-mode", "low-power-mode-not-restored"})
 
 
 def suite_named(key: str) -> Suite:
@@ -604,11 +610,24 @@ class CmuxArm:
     def switches() -> str:
         return f"host-resolver-rules={LOOPBACK_ONLY_RULES}"
 
+    def start(self, out: Path) -> Any:
+        """A launched bench app with the loopback-only switch and empty Chromium storage. A launch the host refuses
+        is EnvInvalid; any other failure to start is this run's StoryError."""
+        try:
+            if self.chromium_root is not None:
+                wpr.empty_chromium_root(self.chromium_root)
+            return self.launch(wpr.bench_env(self.switches()), out)
+        except bench_launch.LaunchError as error:
+            detail = f"{error.reason}: {error.report.get('detail', '')}"
+            if error.reason in HOST_LAUNCH_REASONS:
+                raise EnvInvalid(f"cmux arm: the host refused the launch: {detail}") from None
+            raise StoryError(f"cmux arm did not start: {detail}") from None
+        except (wpr.WprError, OSError) as error:
+            raise StoryError(f"cmux arm did not start: {error}") from None
+
     def run(self, server: SuiteServer, out: Path) -> ArmRun:
-        if self.chromium_root is not None:
-            wpr.empty_chromium_root(self.chromium_root)
         switches = self.switches()
-        bench = self.launch(wpr.bench_env(switches), out)
+        bench = self.start(out)
         try:
             if (getattr(bench, "launched_env", None) or {}).get(wpr.BENCH_SWITCHES_ENV) != switches:
                 raise StoryError("the bench app was not launched with the loopback-only resolver switch")
@@ -631,19 +650,32 @@ class CmuxArm:
             bench.stop()
 
 
+def bundle_info(bundle: Path) -> dict[str, Any]:
+    """A Chrome .app's Info.plist; EnvInvalid when it cannot be read as a dictionary."""
+    path = bundle / "Contents" / "Info.plist"
+    try:
+        with open(path, "rb") as f:
+            info = plistlib.load(f)
+    except (OSError, ValueError, xml.parsers.expat.ExpatError) as error:  # InvalidFileException is a ValueError
+        raise EnvInvalid(f"{path}: {error}") from None
+    if not isinstance(info, dict):
+        raise EnvInvalid(f"{path}: not a dictionary")
+    return info
+
+
 def chrome_binary(bundle: Path) -> Path:
     """The executable of a Chrome .app bundle (its CFBundleExecutable), or BUNDLE itself when it is an executable."""
     if bundle.suffix == ".app":
-        with open(bundle / "Contents" / "Info.plist", "rb") as f:
-            info = plistlib.load(f)
-        return bundle / "Contents" / "MacOS" / info["CFBundleExecutable"]
+        executable = bundle_info(bundle).get("CFBundleExecutable")
+        if not isinstance(executable, str) or not executable:
+            raise EnvInvalid(f"{bundle}: Info.plist names no CFBundleExecutable")
+        return bundle / "Contents" / "MacOS" / executable
     return bundle
 
 
 def chrome_version(bundle: Path) -> str:
     if bundle.suffix == ".app":
-        with open(bundle / "Contents" / "Info.plist", "rb") as f:
-            return str(plistlib.load(f).get("CFBundleShortVersionString") or "unknown")
+        return str(bundle_info(bundle).get("CFBundleShortVersionString") or "unknown")
     try:
         done = subprocess.run([str(bundle), "--version"], capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired) as error:
@@ -672,12 +704,23 @@ class ChromeArm:
         self.binary = chrome_binary(bundle)
         self.spawn = spawn
 
+    def start(self, url: str, out: Path) -> tuple[Any, Path]:
+        """Chrome at URL with a new profile, or this run's StoryError when it did not start."""
+        profile = None
+        try:
+            out.mkdir(parents=True, exist_ok=True)
+            profile = Path(tempfile.mkdtemp(prefix="browser-macro-chrome-"))
+            with open(out / "chrome.log", "ab") as log:
+                process = self.spawn(chrome_argv(self.binary, profile, url), stdout=log, stderr=log,
+                                     stdin=subprocess.DEVNULL, start_new_session=True)
+        except OSError as error:
+            if profile is not None:
+                shutil.rmtree(profile, ignore_errors=True)
+            raise StoryError(f"chrome arm did not start: {error}") from None
+        return process, profile
+
     def run(self, server: SuiteServer, out: Path) -> ArmRun:
-        out.mkdir(parents=True, exist_ok=True)
-        profile = Path(tempfile.mkdtemp(prefix="browser-macro-chrome-"))
-        with open(out / "chrome.log", "ab") as log:
-            process = self.spawn(chrome_argv(self.binary, profile, server.url), stdout=log, stderr=log,
-                                 stdin=subprocess.DEVNULL, start_new_session=True)
+        process, profile = self.start(server.url, out)
         try:
             report = server.wait(server.suite.timeout_s)
             if process.poll() is not None:
@@ -927,11 +970,11 @@ def main(argv: list[str] | None = None, environ: Mapping[str, str] | None = None
     try:
         build, host = measure(args.app, environ)
         arms = make_arms(args, environ)
+        chrome = arms["chrome"].bundle
+        chrome_info = {"bundle": str(chrome), "version": chrome_version(chrome)}
     except EnvInvalid as error:
         log(str(error))
         return ENV_INVALID
-    chrome = arms["chrome"].bundle
-    chrome_info = {"bundle": str(chrome), "version": chrome_version(chrome)}
     log(f"Chrome {chrome_info['version']}; {args.rounds} rounds of {', '.join(s.key for s in args.suite_list)}")
     args.out.mkdir(parents=True, exist_ok=True)
     night = Night()
@@ -946,6 +989,11 @@ def main(argv: list[str] | None = None, environ: Mapping[str, str] | None = None
         write_runs(args.out, night, chrome_info)
         log(f"{error}; no result")
         return 2
+    except EnvInvalid as error:
+        night.failed["*"] = [f"env-invalid: {error}"]
+        write_runs(args.out, night, chrome_info)
+        log(f"{error}; env-invalid, no result")
+        return ENV_INVALID
     finally:
         for number, handler in previous.items():
             signal.signal(number, handler)

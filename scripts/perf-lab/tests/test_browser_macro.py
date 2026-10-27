@@ -13,6 +13,7 @@ import io
 import json
 import plistlib
 import re
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -77,6 +78,18 @@ def post(url: str, body) -> int:
 
 def base(server: macro.SuiteServer) -> str:
     return f"http://127.0.0.1:{server.port}"
+
+
+def harness_post(url: str, score: float) -> None:
+    """What the harness does in a browser at URL: read its suite from the entry page's harness tag, post the scores."""
+    _status, page = get(url)
+    key = re.search(rb'data-suite="([a-z0-9_]+)"', page).group(1).decode()
+    origin = "/".join(url.split("/")[:3])
+    post(origin + macro.REPORT_PATH, {"scores": [score] * macro.suite_named(key).iterations})
+
+
+def launch_error(reason: str) -> BaseException:
+    return macro.bench_launch.LaunchError(reason, {"detail": f"{reason} detail", "log_tail": ""})
 
 
 class FakeArm:
@@ -441,6 +454,30 @@ class CmuxArmTest(unittest.TestCase):
         with self.assertRaisesRegex(macro.StoryError, "sad tab"):
             self.run_arm(arm, launched)
 
+    def run_failing_launch(self, error: BaseException) -> None:
+        def launch(_env, _out):
+            raise error
+
+        arm = macro.CmuxArm(self.dir / "cmux DEV t.app", launch, None)
+        with macro.SuiteServer(self.copy.root, make_suite()) as server:
+            arm.run(server, self.dir / "run")
+
+    def test_a_failed_launch_fails_only_the_run(self) -> None:
+        with self.assertRaisesRegex(macro.StoryError, "cmux arm did not start: tag-in-use"):
+            self.run_failing_launch(launch_error("tag-in-use"))
+        with self.assertRaisesRegex(macro.StoryError, "cmux arm did not start: .*socket"):
+            self.run_failing_launch(OSError("no socket"))
+        with self.assertRaisesRegex(macro.StoryError, "cmux arm did not start: .*leaked"):
+            self.run_failing_launch(macro.wpr.WprError("switches leaked"))
+
+    def test_the_shared_bench_launch_copy_is_the_one_wpr_launches_with(self) -> None:
+        self.assertIs(macro.bench_launch, sys.modules["perf_lab_bench_launch"])
+
+    def test_a_launch_the_host_refuses_is_env_invalid(self) -> None:
+        for reason in ("no-gui-session", "low-power-mode"):
+            with self.assertRaisesRegex(macro.EnvInvalid, f"host refused the launch: {reason}"):
+                self.run_failing_launch(launch_error(reason))
+
 
 class ChromeTest(unittest.TestCase):
     def test_chrome_resolves_only_loopback_and_skips_background_network(self) -> None:
@@ -459,6 +496,31 @@ class ChromeTest(unittest.TestCase):
                 plistlib.dump({"CFBundleExecutable": "Google Chrome", "CFBundleShortVersionString": "151.0.1"}, f)
             self.assertEqual(macro.chrome_binary(bundle), bundle / "Contents" / "MacOS" / "Google Chrome")
             self.assertEqual(macro.chrome_version(bundle), "151.0.1")
+
+    def test_a_broken_bundle_cannot_be_named(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp) / "Google Chrome.app"
+            with self.assertRaises(macro.EnvInvalid):
+                macro.chrome_binary(bundle)  # no Info.plist
+            (bundle / "Contents").mkdir(parents=True)
+            for content in (b"not a plist", b"<?xml version='1.0'?><plist><dict><key>x", plistlib.dumps(["a"]),
+                            plistlib.dumps({"CFBundleShortVersionString": "151"})):
+                (bundle / "Contents" / "Info.plist").write_bytes(content)
+                with self.assertRaises(macro.EnvInvalid, msg=content[:40]):
+                    macro.chrome_binary(bundle)
+
+    def test_a_failed_spawn_fails_only_the_run(self) -> None:
+        profiles = []
+
+        def spawn(argv, **_kwargs):
+            profiles.append(Path(next(a for a in argv if a.startswith("--user-data-dir=")).split("=", 1)[1]))
+            raise PermissionError("not executable")
+
+        arm = macro.ChromeArm(Path("/nonexistent/chrome"), spawn=spawn)
+        with tempfile.TemporaryDirectory() as tmp, macro.SuiteServer(Path(tmp), make_suite()) as server:
+            with self.assertRaisesRegex(macro.StoryError, "chrome arm did not start: not executable"):
+                arm.run(server, Path(tmp) / "run")
+        self.assertFalse(profiles[0].exists())  # the temporary profile does not outlive the failed spawn
 
 
 class StoryTest(unittest.TestCase):
@@ -489,9 +551,80 @@ class StoryTest(unittest.TestCase):
         return lambda _args, _env: {"cmux": cmux, "chrome": chrome}
 
     def setUp(self) -> None:
-        original = macro.chrome_version
+        self.real_chrome_version = macro.chrome_version
         macro.chrome_version = lambda _bundle: "151.0.1"
-        self.addCleanup(setattr, macro, "chrome_version", original)
+        self.addCleanup(setattr, macro, "chrome_version", self.real_chrome_version)
+
+    def real_arms(self, cmux_failures: dict[int, BaseException], chrome_failures: dict[int, BaseException]):
+        """The story's own CmuxArm and ChromeArm. Their Nth launch or spawn raises cmux_failures[N] or
+        chrome_failures[N]; any other one posts the harness's report (cmux 3.0, Chrome 2.0) from the served page."""
+        launches, spawns = [], []
+
+        class HarnessBench(FakeBench):
+            def rpc(self, method, params=None, timeout=60):
+                if method == "action.run":
+                    harness_post(params["args"]["url"], 3.0)
+                    return {"created": ["tab_1"]}
+                return super().rpc(method, params, timeout)
+
+        def launch(env, _out):
+            launches.append(1)
+            if len(launches) in cmux_failures:
+                raise cmux_failures[len(launches)]
+            return HarnessBench(env, [{"state": "ready"}, {"state": "ready"}])
+
+        def spawn(argv, **kwargs):
+            spawns.append(1)
+            if len(spawns) in chrome_failures:
+                raise chrome_failures[len(spawns)]
+            harness_post(argv[-1], 2.0)
+            return subprocess.Popen(["sleep", "60"], **kwargs)  # a real process group for stop_group to end
+
+        arms = {"cmux": macro.CmuxArm(Path("/x/cmux DEV t.app"), launch, None),
+                "chrome": macro.ChromeArm(Path("/nonexistent/chrome"), spawn=spawn)}
+        return lambda _args, _env: arms
+
+    def test_a_failed_launch_or_spawn_keeps_the_suites_that_finished(self) -> None:
+        # Run order: r0 speedometer cmux, chrome; r0 jetstream cmux (launch 2), chrome; r1 speedometer chrome, cmux;
+        # r1 jetstream chrome (spawn 4), cmux.
+        code, out = self.main(self.real_arms({2: launch_error("tag-in-use")}, {4: OSError("Chrome is gone")}),
+                              suites=("speedometer3_1", "jetstream2_2"))
+        self.assertEqual(code, 1)
+        self.assertEqual({r.metric: r.samples for r in perf_result.read_dir(out)},
+                         {"browser_macro.cmux.speedometer3_1.score": [3.0] * 4,
+                          "browser_macro.chrome.speedometer3_1.score": [2.0] * 4,
+                          "browser_macro.cmux_over_chrome.speedometer3_1.score_ratio": [1.5, 1.5]})
+        runs = json.loads((out / macro.RUNS_FILE).read_text(encoding="utf-8"))
+        self.assertEqual(runs["written"], ["speedometer3_1"])
+        failed = runs["failed"]["jetstream2_2"]
+        self.assertEqual(len(failed), 2)
+        self.assertIn("r0-jetstream2_2-cmux: cmux arm did not start: tag-in-use", failed[0])
+        self.assertIn("r1-jetstream2_2-chrome: chrome arm did not start: Chrome is gone", failed[1])
+        self.assertEqual(len(runs["runs"]), 6)
+
+    def test_a_launch_the_host_refuses_is_env_invalid(self) -> None:
+        code, out = self.main(self.real_arms({1: launch_error("no-gui-session")}, {}))
+        self.assertEqual(code, macro.ENV_INVALID)
+        self.assertEqual(list(out.glob("*.ndjson")), [])
+        self.assertIn("no-gui-session", json.loads((out / macro.RUNS_FILE).read_text())["failed"]["*"][0])
+
+    def test_a_chrome_that_cannot_be_named_is_env_invalid(self) -> None:
+        macro.chrome_version = self.real_chrome_version
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        broken = Path(tmp.name) / "Google Chrome.app"
+        (broken / "Contents").mkdir(parents=True)
+        (broken / "Contents" / "Info.plist").write_bytes(b"not a plist")
+        not_executable = Path(tmp.name) / "chrome"
+        not_executable.write_text("#!/bin/sh\necho 151\n", encoding="utf-8")
+        not_executable.chmod(0o644)
+        for chrome in (broken, not_executable):
+            started = []
+            code, out = self.main(lambda _args, _env, chrome=chrome: {"cmux": FakeArm(), "chrome": macro.ChromeArm(
+                chrome, spawn=lambda *a, **k: started.append(1))})
+            self.assertEqual(code, macro.ENV_INVALID, chrome)
+            self.assertEqual(started, [])
+            self.assertFalse(out.exists())  # nothing ran, nothing written
 
     def test_main_writes_result_v1_and_the_runs(self) -> None:
         cmux, chrome = FakeArm({"speedometer3_1": [3.0, 3.0]}), FakeArm({"speedometer3_1": [2.0, 2.0]})
