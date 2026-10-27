@@ -12,19 +12,27 @@ selection that can catch it runs first, base against base+patch at one SHA, and 
 ends that mutant's search:
 
 1. `exercising`: every case the product can run whose steps call one of the names in the patch's `Exercises`
-   header (a resource.call `method` or an action.run `action`), in any suite.
+   header, in any suite: a resource.call `method`, an action.run `action`, the action a `key` step's stroke or
+   chord is bound to by default, the action or operation a `cli` argv or an `mcp` tool runs, or a facet a
+   `snapshot` step reads (Entrypoints: the action catalog export plans/cmux-next/action-surfaces.json, the
+   operation list cmux-tui/spec/resource-operations-v2.json and the corpus's mcp/_tools.json).
 2. `suite`: the whole suite of the patch's `Suite` header, when it holds other cases than rung 1.
 
 A rung that selects no case is left out. Each rung is one diff run with the diff retry policy
-(oracle.DEFAULT_RETRY_LIMIT): a case that passes on retry is Flaky and diff.py leaves it out, so a flaky case
-is never a catch. A mutant is:
-- caught: a rung's comparison has a divergent case: a checkpoint value or a case result (diff.py compares the
-  result too, so a Failure the base does not have, an invariant failure of the run included, is a divergence);
+(oracle.DEFAULT_RETRY_LIMIT): a case that passes on retry is Flaky and diff.py leaves it out. A case that passes
+every time with a value that changes between two processes is caught by the control instead: the first time a
+rung of a selection diverges, the same selection runs once more without the patch (SHA against SHA), and a case
+that diverges there does not count for any mutant of that selection. A mutant is:
+- caught: a rung's comparison has a divergent case that its control does not have: a checkpoint value or a case
+  result (diff.py compares the result too, so a Failure the base does not have, an invariant failure of the run
+  included, is a divergence);
 - missed: every rung compared cases and none diverged, or no case exercises the fault at all. Each miss is one
   MQ-mutants corpus-gap line (OUT/corpus-gaps.jsonl): the suite to extend and what its new case must do;
-- unviable: the patch does not apply at the SHA, or the head build fails; it counts as not caught, and its
-  line asks for the fault to be written again against the new code (tests/oracle/mutants/README.md);
-- unmeasured: no rung caught it and at least one could not compare (refused, incomplete, infra error).
+- unviable: the patch does not apply at the SHA, or the patched head does not compile (a rustc or Swift compiler
+  error in the build's output while the base side built); it counts as not caught, and its line asks for the
+  fault to be written again against the new code (tests/oracle/mutants/README.md);
+- unmeasured: no rung caught it and at least one could not compare (refused, incomplete, infra error, a head
+  build that failed with no compiler error, or a diverged rung whose control did not compare).
 
 Gate (spec 5, item 7): over the full checked-in set, >= 19/20 caught and >= 9/10 per product; with
 `--product`, that product's 9/10; with `--mutant`, every selected mutant. Unmeasured mutants count both ways:
@@ -40,7 +48,8 @@ Backends (both apply the patch to the head side only, in the job's own worktree;
   commit's tree (fleet.py checks).
 
 Outputs (outside the checkout; default /tmp/oracle/mutants/<run id>): mutants.json (cmux-oracle-mutants-v1:
-every mutant, its rungs, the comparisons and the gate), corpus-gaps.jsonl, and one directory per rung run.
+every mutant, its rungs, the comparisons and the gate), corpus-gaps.jsonl, one directory per rung run and
+controls/<product>/ (one per selection that diverged).
 Exit: 0 pass, 1 fail, 2 bad usage, 3 undecided (an unmeasured mutant could change the verdict).
 
 Chrome reference: docs/testing/mutation_testing.md (the Gerrit Mutation Testing plugin reports a change's
@@ -55,11 +64,13 @@ import argparse
 import concurrent.futures
 import fnmatch
 import glob
+import hashlib
 import json
 import platform as platform_mod
 import re
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -68,6 +79,8 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
+import driver_app  # noqa: E402  (KEY_NAMES: a case-v1 key name as debug.key sends it)
+import gen_entrypoints  # noqa: E402  (tool_name: an action's MCP tool, cli/mcp/action_tools.rs)
 import oracle  # noqa: E402  (corpus, selection, retry policy, out-dir rule)
 import patch_mutants  # noqa: E402  (the seeded mutants of task 026)
 
@@ -97,17 +110,172 @@ EXITS = {PASS: EXIT_PASS, FAIL: EXIT_FAIL, UNDECIDED: EXIT_UNDECIDED}
 
 def exercise_names(exercises: str) -> frozenset:
     """The names in an `Exercises` header: `closePane (layout.splitSizing even)` -> closePane, layout.splitSizing,
-    even. Words that are no method or action select nothing, so prose in the header is harmless."""
+    even. Words that are no method, action or facet select nothing, so prose in the header is harmless."""
     return frozenset(token for token in re.split(r"[\s,;()]+", exercises) if token)
 
 
-def called_names(case: oracle.Case) -> frozenset:
-    """What a case's steps call: each resource.call `method` and action.run `action`."""
-    names = set()
+Stroke = Tuple[str, frozenset]
+
+# AppKit's function-key characters and the control characters as action-surfaces.json writes a shortcut's key, by
+# their keybindings.json names (scripts/ci/defaults_guard.py FUNCTION_KEYS and NAMED_KEYS).
+WIRE_KEY_NAMES = {"": "up", "": "down", "": "left", "": "right", "": "forwarddelete",
+                  "": "home", "": "end", "": "pageup", "": "pagedown", "\t": "tab",
+                  "\r": "return", "\n": "return", " ": "space", "\x1b": "escape", "\x7f": "delete", "\x08": "delete"}
+MODIFIER_NAMES = {"cmd": "cmd", "command": "cmd", "ctrl": "ctrl", "control": "ctrl", "opt": "opt", "alt": "opt",
+                  "option": "opt", "shift": "shift"}
+# A case-v1 key name that is not the catalog's: driver_app.KEY_NAMES (what debug.key gets), plus the spellings
+# keybindings.json takes for return and escape.
+CASE_KEY_NAMES = {**driver_app.KEY_NAMES, "enter": "return", "esc": "escape"}
+DIGITS = "123456789"
+
+
+def case_stroke(text: str) -> Optional[Stroke]:
+    """A case-v1 keystroke (`cmd+opt+left`) as (key, modifiers), or None for a modifier this grammar does not have."""
+    *mods, key = text.lower().split("+")
+    if any(m not in MODIFIER_NAMES for m in mods):
+        return None
+    return CASE_KEY_NAMES.get(key, key), frozenset(MODIFIER_NAMES[m] for m in mods)
+
+
+def wire_stroke(shortcut: Any) -> Optional[Stroke]:
+    """An action-surfaces.json shortcut ({"key", "modifiers"}) as (key, modifiers)."""
+    if not isinstance(shortcut, dict) or not isinstance(shortcut.get("key"), str):
+        return None
+    key = shortcut["key"]
+    mods = [MODIFIER_NAMES.get(m, m) for m in shortcut.get("modifiers") or ()]
+    return WIRE_KEY_NAMES.get(key, key.lower()), frozenset(mods)
+
+
+@dataclass
+class Entrypoints:
+    """What a key, cli or mcp step runs, by name: the default keymap and CLI and MCP names of the action catalog
+    export (plans/cmux-next/action-surfaces.json, the table the app's key router resolves a debug.key stroke
+    with), the daemon's operations (cmux-tui/spec/resource-operations-v2.json) and the app methods the MCP tool
+    list names (the corpus's mcp/_tools.json). A key resolves in every context its binding's `when` names: a
+    selection may hold a case that does not reach the action, never leave out one that does."""
+
+    strokes: Dict[Stroke, set] = field(default_factory=dict)
+    chords: Dict[Tuple[Stroke, ...], set] = field(default_factory=dict)
+    cli: Dict[Tuple[str, ...], set] = field(default_factory=dict)
+    tools: Dict[str, set] = field(default_factory=dict)
+    methods: set = field(default_factory=set)
+    actions: set = field(default_factory=set)
+
+    SURFACES = REPO / "plans" / "cmux-next" / "action-surfaces.json"
+    OPERATIONS = REPO / "cmux-tui" / "spec" / "resource-operations-v2.json"
+
+    @classmethod
+    def load(cls, corpus: Path = oracle.DEFAULT_CORPUS, surfaces: Path = SURFACES,
+             operations: Path = OPERATIONS) -> "Entrypoints":
+        try:
+            actions = json.loads(surfaces.read_text(encoding="utf-8"))["actions"]
+            ops = json.loads(operations.read_text(encoding="utf-8"))["operations"]
+        except (OSError, ValueError, KeyError) as error:
+            raise oracle.UsageError(f"the action catalog or the operation list does not load: {error}") from None
+        found = cls()
+        for action in actions:
+            ident = action.get("id")
+            if not isinstance(ident, str):
+                continue
+            found.actions.add(ident)
+            found.bind_keys(ident, action)
+            cli_name = action.get("cli_name")
+            if isinstance(cli_name, str) and cli_name.split():
+                found.cli.setdefault(tuple(cli_name.split()), set()).add(ident)
+                tool = gen_entrypoints.tool_name(cli_name)
+                if tool:
+                    found.tools.setdefault(tool, set()).add(ident)
+        for op in ops:
+            found.methods.add(op)
+            found.tools.setdefault(op.replace(".", "_"), set()).add(op)
+        try:
+            listed = json.loads((corpus / "mcp" / "_tools.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            listed = {}
+        for entry in listed.get("excluded") or ():
+            if isinstance(entry, dict) and entry.get("kind") == "app_method" and isinstance(entry.get("name"), str):
+                found.methods.update(name.strip() for name in entry["name"].split(",") if "*" not in name)
+        return found
+
+    def bind_keys(self, ident: str, action: Dict[str, Any]) -> None:
+        shortcut = action.get("default_shortcut")
+        stroke = wire_stroke(shortcut)
+        if stroke:
+            keys = [stroke[0]]
+            if shortcut.get("family") == "digits":
+                keys = list(DIGITS)
+            for key in keys:
+                self.strokes.setdefault((key, stroke[1]), set()).add(ident)
+        sequences = [alias.get("keys") for alias in action.get("default_aliases") or () if isinstance(alias, dict)]
+        sequences.append(action.get("default_chord"))
+        for sequence in sequences:
+            if not isinstance(sequence, list) or not sequence:
+                continue
+            strokes = tuple(wire_stroke(item) for item in sequence)
+            if None in strokes:
+                continue
+            table = self.strokes if len(strokes) == 1 else self.chords
+            table.setdefault(strokes[0] if len(strokes) == 1 else strokes, set()).add(ident)
+
+    def of_keys(self, keys: Any) -> set:
+        """The actions a key step's strokes run: each stroke's binding, and each chord its strokes spell in a row."""
+        strokes = [case_stroke(k) for k in keys if isinstance(k, str)] if isinstance(keys, list) else []
+        names: set = set()
+        for index, stroke in enumerate(strokes):
+            if stroke is None:
+                continue
+            names |= self.strokes.get(stroke, set())
+            for chord, actions in self.chords.items():
+                if tuple(strokes[index:index + len(chord)]) == chord:
+                    names |= actions
+        return names
+
+    def of_cli(self, argv: Any) -> set:
+        """The action whose CLI name a cli step's words start with (gen_entrypoints.py's `<cli name> --flags`), and
+        each operation or app method its command words name as `<noun>.<words>` (`settings set` is settings.set)."""
+        if not isinstance(argv, list):
+            return set()
+        words = [w for w in argv if isinstance(w, str)]
+        while words and words[0].startswith("-"):
+            words = words[1:]
+        command = []
+        for word in words:
+            if word.startswith("-"):
+                break
+            command.append(word)
+        names: set = set()
+        for end in range(1, len(command) + 1):
+            names |= self.cli.get(tuple(command[:end]), set())
+        for start in range(1, len(command)):
+            for end in range(start + 1, len(command) + 1):
+                dotted = ".".join([command[0], *command[start:end]])
+                if dotted in self.methods:
+                    names.add(dotted)
+        return names
+
+    def of_tool(self, tool: Any) -> set:
+        """What an mcp step's tool runs: an `app_<cli words>` action or an operation (gen_mcp.py's names)."""
+        return set(self.tools.get(tool, set())) if isinstance(tool, str) else set()
+
+
+def called_names(case: oracle.Case, entrypoints: Entrypoints) -> frozenset:
+    """What a case's steps call: each resource.call `method` and action.run `action`, the actions its key, cli and
+    mcp steps run (Entrypoints), and the facets its snapshot steps read."""
+    names: set = set()
     for step in case.data.get("steps") or ():
-        args = step.get("args") if isinstance(step, dict) else None
-        if isinstance(args, dict):
-            names.update(value for key in ("method", "action") for value in (args.get(key),) if isinstance(value, str))
+        if not isinstance(step, dict):
+            continue
+        args = step.get("args") if isinstance(step.get("args"), dict) else {}
+        names.update(value for key in ("method", "action") for value in (args.get(key),) if isinstance(value, str))
+        op = step.get("op")
+        if op == "key":
+            names |= entrypoints.of_keys(args.get("keys"))
+        elif op == "cli":
+            names |= entrypoints.of_cli(args.get("argv"))
+        elif op == "mcp":
+            names |= entrypoints.of_tool(args.get("tool"))
+        elif op == "snapshot":
+            names.update(f for f in args.get("facets") or () if isinstance(f, str))
     return frozenset(names)
 
 
@@ -127,12 +295,12 @@ class Rung:
         return {"rung": self.label, "suite": self.suite, "cases": len(self.cases)}
 
 
-def ladder(mutant: patch_mutants.Mutant, cases: Sequence[oracle.Case]) -> List[Rung]:
+def ladder(mutant: patch_mutants.Mutant, cases: Sequence[oracle.Case], entrypoints: Entrypoints) -> List[Rung]:
     """The mutant's rungs, smallest first; a rung that selects nothing or repeats the one before is left out."""
     runnable, _ = oracle.select_cases(cases, suites=(), filters=(), product=mutant.product,
                                       platform=PLATFORM[mutant.product])
     wanted = exercise_names(mutant.exercises)
-    exercising = tuple(sorted(case.id for case in runnable if called_names(case) & wanted))
+    exercising = tuple(sorted(case.id for case in runnable if called_names(case, entrypoints) & wanted))
     suite = tuple(sorted(case.id for case in runnable if case.suite == mutant.suite))
     rungs = []
     if exercising:
@@ -154,6 +322,7 @@ class Outcome:
     divergent: Tuple[str, ...] = ()
     compared: int = 0
     comparison: Optional[str] = None
+    noise: Tuple[str, ...] = ()  # divergent cases left out: they diverged in the unpatched control too
 
 
 def judge_comparison(path: Path) -> Outcome:
@@ -198,15 +367,34 @@ def log_tail(log: Path, lines: int = 3) -> str:
     return " | ".join(line.strip() for line in text.strip().splitlines()[-lines:])
 
 
+# Positive evidence that the patched sources do not compile (rustc's coded diagnostics or cargo's count of them; a
+# Swift compiler diagnostic). Any other failed head build (a timeout, a killed compiler, a full disk, the queue or
+# the fleet) is no verdict on the patch.
+RUSTC_ERROR = re.compile(r"error\[E\d{4}\]|could not compile `[^`]+`.* due to \d+ previous errors?")
+SWIFTC_ERROR = re.compile(r"\.swift:\d+:\d+: error:")
+
+
+def read_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+def first_match(pattern: "re.Pattern[str]", text: str) -> Optional[str]:
+    return next((line.strip()[:300] for line in text.splitlines() if pattern.search(line)), None)
+
+
 class Backend:
-    """Runs base against base+patch for one rung and judges the comparison."""
+    """Runs base against base+patch (or, for the control, base against base) for one rung and judges it."""
 
     product = ""
 
     def __init__(self, runner: Runner = run_logged) -> None:
         self.runner = runner
 
-    def command(self, mutant: patch_mutants.Mutant, rung: Rung, sha: str, out: Path) -> List[str]:
+    def command(self, mutant: Optional[patch_mutants.Mutant], rung: Rung, sha: str, out: Path) -> List[str]:
+        """The diff of SHA against SHA with the patch on the head side; `mutant` None is the unpatched control."""
         raise NotImplementedError
 
     def comparison(self, out: Path) -> Path:
@@ -216,20 +404,28 @@ class Backend:
         """Why this backend cannot run here, or None."""
         return None
 
-    def judge(self, out: Path, code: int, log: Path) -> Outcome:
+    def head_build_failure(self, out: Path, log: Path) -> Optional[Outcome]:
+        """When the base side built and the patched head did not: UNVIABLE on a compiler error, else UNMEASURED."""
+        return None
+
+    def judge(self, out: Path, code: int, log: Path, *, patched: bool) -> Outcome:
+        if patched and not self.comparison(out).is_file():
+            failed = self.head_build_failure(out, log)
+            if failed is not None:
+                return failed
         outcome = judge_comparison(self.comparison(out))
         if outcome.status == UNMEASURED and outcome.comparison is None:
             return Outcome(UNMEASURED, f"exit {code}, {outcome.detail}: {log_tail(log)}")
         return outcome
 
-    def check(self, mutant: patch_mutants.Mutant, rung: Rung, sha: str, out: Path) -> Outcome:
+    def check(self, mutant: Optional[patch_mutants.Mutant], rung: Rung, sha: str, out: Path) -> Outcome:
         reason = self.unavailable()
         if reason:
             return Outcome(UNMEASURED, reason)
         out.mkdir(parents=True, exist_ok=True)
         log = out / "command.log"
         code = self.runner(self.command(mutant, rung, sha, out), log)
-        return self.judge(out, code, log)
+        return self.judge(out, code, log, patched=mutant is not None)
 
 
 class VmBackend(Backend):
@@ -246,19 +442,24 @@ class VmBackend(Backend):
             return "daemon mutants build and run in the Linux VM's queue (linux_run.sh); nothing was queued"
         return None
 
-    def command(self, mutant: patch_mutants.Mutant, rung: Rung, sha: str, out: Path) -> List[str]:
-        return ["bash", str(LINUX_RUN), "diff", sha, sha, "--mutant", str(mutant.path), "--suite", rung.suite,
+    def command(self, mutant: Optional[patch_mutants.Mutant], rung: Rung, sha: str, out: Path) -> List[str]:
+        patch = ["--mutant", str(mutant.path)] if mutant is not None else []
+        return ["bash", str(LINUX_RUN), "diff", sha, sha, *patch, "--suite", rung.suite,
                 "--out", str(out), "--", "--retry-limit", str(oracle.DEFAULT_RETRY_LIMIT), *rung.filter_arg()]
 
     def comparison(self, out: Path) -> Path:
         return out / "comparison.json"
 
-    def judge(self, out: Path, code: int, log: Path) -> Outcome:
-        # linux_run.sh copies a side's build receipt only after that build succeeded.
-        if (not self.comparison(out).is_file() and (out / "build-base.json").is_file()
-                and not (out / "build-head.json").is_file()):
-            return Outcome(UNVIABLE, f"the head build with the patch failed: {log_tail(log)}")
-        return super().judge(out, code, log)
+    def head_build_failure(self, out: Path, log: Path) -> Optional[Outcome]:
+        # linux_run.sh copies a side's build receipt only after that build succeeded, and runnerd replays the last
+        # lines of a failed job's log (cargo's errors) into the command's output.
+        if not (out / "build-base.json").is_file() or (out / "build-head.json").is_file():
+            return None
+        error = first_match(RUSTC_ERROR, read_text(log))
+        if error:
+            return Outcome(UNVIABLE, f"the patched head does not compile: {error}")
+        return Outcome(UNMEASURED, f"the patched head build failed with no compiler error in its log (a timeout, a "
+                                   f"kill, the disk or the queue): {log_tail(log)}")
 
 
 class FleetBackend(Backend):
@@ -266,15 +467,84 @@ class FleetBackend(Backend):
 
     product = "app"
 
-    def command(self, mutant: patch_mutants.Mutant, rung: Rung, sha: str, out: Path) -> List[str]:
-        patch = mutant.path.resolve()
-        rel = patch.relative_to(REPO).as_posix() if REPO in patch.parents else str(patch)
+    def command(self, mutant: Optional[patch_mutants.Mutant], rung: Rung, sha: str, out: Path) -> List[str]:
+        patch: List[str] = []
+        if mutant is not None:
+            path = mutant.path.resolve()
+            patch = ["--head-mutant", path.relative_to(REPO).as_posix() if REPO in path.parents else str(path)]
         return [sys.executable, "-I", str(FLEET), "diff", "--product", "app", "--base", sha, "--head", sha,
-                "--head-mutant", rel, "--suite", rung.suite, *rung.filter_arg(),
+                *patch, "--suite", rung.suite, *rung.filter_arg(),
                 "--retry-limit", str(oracle.DEFAULT_RETRY_LIMIT), "--out", str(out)]
 
     def comparison(self, out: Path) -> Path:
         return out / "compare" / "comparison.json"
+
+    def head_build_failure(self, out: Path, log: Path) -> Optional[Outcome]:
+        # fleet.json (fleet.py fleet_record): the base side merged and a head shard's step failed. `cmux-ci run`
+        # streams the step's log, oracle.sh's compiler errors included, into the shard's step.log.
+        try:
+            sides = json.loads((out / "fleet.json").read_text(encoding="utf-8")).get("sides") or {}
+        except (OSError, ValueError, AttributeError):
+            return None
+        base, head = sides.get("base") or {}, sides.get("head") or {}
+        failed = [s for s in head.get("shards") or () if isinstance(s, dict) and s.get("state") == "failed"]
+        if not base.get("merged") or head.get("merged") or not failed:
+            return None
+        for shard in failed:
+            error = first_match(SWIFTC_ERROR, read_text(out / "shards" / "head" / str(shard.get("index")) / "step.log"))
+            if error:
+                return Outcome(UNVIABLE, f"the patched head does not compile (step {shard.get('step_id')}): {error}")
+        return Outcome(UNMEASURED, f"the patched head's step failed with no compiler error in its log: "
+                                   f"{failed[0].get('error') or failed[0].get('state')}")
+
+
+class Controls:
+    """One unpatched SHA-against-SHA comparison per selection, run the first time a mutant's rung diverges and shared
+    by every mutant with that selection. A case that diverges there differs between two runs of one build (spec 5
+    item 6 allows some), so its divergence is no catch: Chrome's CQ retries a failing test without the patch and
+    does not blame the change for a failure that repeats there (the model diff.py cites)."""
+
+    def __init__(self, out: Path) -> None:
+        self.out = out
+        self._lock = threading.Lock()  # guards _runs only; the control runs outside it
+        self._runs: Dict[Tuple[Any, ...], "concurrent.futures.Future[Outcome]"] = {}
+
+    def directory(self, product: str, rung: Rung) -> Path:
+        digest = hashlib.sha256("\n".join(rung.cases).encode("utf-8")).hexdigest()[:12]
+        return self.out / "controls" / product / f"control-{rung.label}-{rung.suite}-{digest}"
+
+    def outcome(self, backend: Backend, rung: Rung, sha: str) -> Outcome:
+        key = (backend.product, rung.suite, rung.cases, rung.filtered)
+        with self._lock:
+            future = self._runs.get(key)
+            owner = future is None
+            if owner:
+                future = self._runs[key] = concurrent.futures.Future()
+        assert future is not None
+        if owner:
+            try:
+                future.set_result(backend.check(None, rung, sha, self.directory(backend.product, rung)))
+            except BaseException as error:
+                future.set_exception(error)
+                raise
+        return future.result()
+
+
+def discount(outcome: Outcome, control: Outcome) -> Outcome:
+    """A diverged rung less the cases that diverged in its selection's unpatched control."""
+    if control.status not in (CAUGHT, SURVIVED):
+        return Outcome(UNMEASURED, f"{outcome.detail}, but the unpatched control did not compare ({control.detail})",
+                       outcome.divergent, outcome.compared, outcome.comparison)
+    noise = set(control.divergent)
+    counted = tuple(case for case in outcome.divergent if case not in noise)
+    left_out = tuple(case for case in outcome.divergent if case in noise)
+    note = (f"; {len(left_out)} more also diverged without the patch ({control.comparison}) and do not count"
+            if left_out else "")
+    if counted:
+        return Outcome(CAUGHT, f"{len(counted)} of {outcome.compared} compared cases diverged{note}", counted,
+                       outcome.compared, outcome.comparison, left_out)
+    return Outcome(SURVIVED, f"{outcome.compared} compared cases, none diverged with the patch alone{note}", (),
+                   outcome.compared, outcome.comparison, left_out)
 
 
 # ------------------------------------------------------------------------------------------------ one mutant
@@ -302,8 +572,10 @@ def rung_dir(out: Path, mutant: patch_mutants.Mutant, index: int, rung: Rung) ->
 
 
 def measure(mutant: patch_mutants.Mutant, rungs: Sequence[Rung], sha: str, backend: Backend, out: Path,
-            apply_error: Optional[str] = None) -> Result:
-    """Runs the rungs smallest first and stops at the first catch (or at a patch that cannot be built)."""
+            apply_error: Optional[str] = None, controls: Optional[Controls] = None) -> Result:
+    """Runs the rungs smallest first and stops at the first catch (or at a patch that cannot be built). A rung that
+    diverges counts only the cases that did not also diverge in its selection's unpatched control."""
+    controls = controls or Controls(out)
     result = Result(mutant, list(rungs))
     if apply_error:
         result.status, result.reason = UNVIABLE, apply_error
@@ -316,9 +588,14 @@ def measure(mutant: patch_mutants.Mutant, rungs: Sequence[Rung], sha: str, backe
     unmeasured: List[str] = []
     for index, rung in enumerate(rungs):
         outcome = backend.check(mutant, rung, sha, rung_dir(out, mutant, index, rung))
+        control: Optional[Outcome] = None
+        if outcome.status == CAUGHT:
+            control = controls.outcome(backend, rung, sha)
+            outcome = discount(outcome, control)
         result.tried.append({**rung.record(), "status": outcome.status, "detail": outcome.detail,
                              "compared": outcome.compared, "divergent": list(outcome.divergent),
-                             "comparison": outcome.comparison})
+                             "noise": list(outcome.noise), "comparison": outcome.comparison,
+                             "control": control.comparison if control else None})
         if outcome.status == CAUGHT:
             result.status, result.reason, result.catcher = CAUGHT, outcome.detail, rung
             return result
@@ -446,7 +723,9 @@ def run(*, ref: str, products: Sequence[str], globs: Sequence[str], root: Path, 
     cases, case_errors = oracle.load_corpus(corpus)
     if case_errors:
         raise oracle.UsageError("the corpus does not load (oracle.py check):\n  " + "\n  ".join(case_errors[:20]))
-    plans = [(m, ladder(m, cases)) for m in mutants]
+    entrypoints = Entrypoints.load(corpus)
+    plans = [(m, ladder(m, cases, entrypoints)) for m in mutants]
+    controls = Controls(out)
     stale = {}
     for mutant in mutants:
         found = patch_mutants.apply_errors([mutant], sha)
@@ -458,13 +737,15 @@ def run(*, ref: str, products: Sequence[str], globs: Sequence[str], root: Path, 
             steps = ", ".join(f"{r.label} {r.suite} ({len(r.cases)} cases)" for r in rungs) or "no case"
             log(f"  plan {mutant.id}: {steps}" + (f"; stale: {stale[mutant.id]}" if mutant.id in stale else ""))
             for index, rung in enumerate(rungs):
-                command = backends[mutant.product].command(mutant, rung, sha, rung_dir(out, mutant, index, rung))
-                log("    $ " + " ".join(command))
+                backend = backends[mutant.product]
+                log("    $ " + " ".join(backend.command(mutant, rung, sha, rung_dir(out, mutant, index, rung))))
+                control = backend.command(None, rung, sha, controls.directory(mutant.product, rung))
+                log("      control, once per selection when a rung diverges: $ " + " ".join(control))
         return EXIT_PASS, {"schema": SCHEMA, "sha": sha, "dryRun": True,
                            "plan": {m.id: [r.record() for r in rungs] for m, rungs in plans}}
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
-        futures = [pool.submit(measure, m, rungs, sha, backends[m.product], out, stale.get(m.id))
+        futures = [pool.submit(measure, m, rungs, sha, backends[m.product], out, stale.get(m.id), controls)
                    for m, rungs in plans]
         results = [future.result() for future in futures]
 

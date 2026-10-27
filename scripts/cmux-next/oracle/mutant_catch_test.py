@@ -9,6 +9,7 @@ outputs are tested together without a build.
 
 from __future__ import annotations
 
+import concurrent.futures
 import io
 import json
 import sys
@@ -27,6 +28,19 @@ import oracle  # noqa: E402
 import patch_mutants  # noqa: E402
 
 SHA = "0" * 40
+NONE = mc.Entrypoints()  # a hand-written corpus calls by method and action only
+CATALOG = mc.Entrypoints.load()  # the checked-in action catalog export and operation list
+
+
+def stepped(case_id: str, *steps: dict, requires: Sequence[str] = ("keys", "gui")) -> oracle.Case:
+    """An app case of the given steps (op and args only)."""
+    data = {"id": case_id.split("/", 1)[1], "requires": list(requires), "platforms": ["mac"],
+            "steps": [{"id": f"s{i}", **step} for i, step in enumerate(steps)]}
+    return oracle.Case(case_id, case_id.split("/", 1)[0], Path(case_id + ".json"), data)
+
+
+def keys(*strokes: str) -> dict:
+    return {"op": "key", "target": {"window": "main"}, "args": {"keys": list(strokes)}}
 
 
 def case(case_id: str, *methods: str, requires: Sequence[str] = ("resource_api",),
@@ -51,7 +65,9 @@ def comparison(divergent: Sequence[str] = (), compared: int = 2, refused: Option
 
 class FakeRunner:
     """Answers each backend command with a comparison: `verdicts` maps (mutant name, rung label) to a comparison
-    dict, `None` (the command wrote nothing), or "build-failed" (the head build receipt is missing)."""
+    dict, `None` (the command wrote nothing), or ("build-failed", log text): the head build failed with that output
+    (the VM's head build receipt is missing; the fleet's head shard failed and its step.log holds the text). The
+    unpatched control is ("control", rung label), by default a comparison with no divergence."""
 
     def __init__(self, verdicts: Dict[tuple, object]) -> None:
         self.verdicts = verdicts
@@ -63,20 +79,45 @@ class FakeRunner:
         with self.lock:
             self.calls.append(argv)
         out = Path(argv[argv.index("--out") + 1])
-        patch = argv[argv.index("--mutant" if "--mutant" in argv else "--head-mutant") + 1]
-        name = Path(patch).stem
-        label = out.name.split("-", 1)[1]
+        flag = next((f for f in ("--mutant", "--head-mutant") if f in argv), None)
+        if flag is None:
+            name, label = "control", out.name.split("-")[1]
+        else:
+            name, label = Path(argv[argv.index(flag) + 1]).stem, out.name.split("-", 1)[1]
         verdict = self.verdicts.get((name, label), comparison())
         log.write_text("fake runner\nlast line of the log\n", encoding="utf-8")
-        if verdict == "build-failed":
-            (out / "build-base.json").write_text("{}", encoding="utf-8")
-            return 2
+        if isinstance(verdict, tuple) and verdict[0] == "build-failed":
+            if "--head-mutant" in argv:
+                self.fleet_build_failed(out, verdict[1])
+            else:
+                (out / "build-base.json").write_text("{}", encoding="utf-8")
+                log.write_text(verdict[1] + "\nlast line of the log\n", encoding="utf-8")
+            return 2 if "--mutant" in argv else 3
         if verdict is None:
             return 3
-        target = out / "compare" / "comparison.json" if "--head-mutant" in argv else out / "comparison.json"
+        target = out / "compare" / "comparison.json" if "fleet.py" in argv[2] else out / "comparison.json"
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(verdict), encoding="utf-8")
         return 1 if verdict.get("divergent") else 0
+
+    def patched(self) -> List[List[str]]:
+        """The calls with a patch on the head side (not the controls)."""
+        return [argv for argv in self.calls if "--mutant" in argv or "--head-mutant" in argv]
+
+    def controls(self) -> List[List[str]]:
+        return [argv for argv in self.calls if argv not in self.patched()]
+
+    @staticmethod
+    def fleet_build_failed(out: Path, step_log: str) -> None:
+        """fleet.py's outputs when the base side merged and the head step failed: fleet.json and the step.log."""
+        shard = {"index": 0, "total": 1, "state": "failed", "step_id": "abc123def456",
+                 "error": "step abc123def456 failed with no shard receipt in its artifact; see step.log"}
+        record = {"schema": "cmux-oracle-fleet-v1", "sides": {
+            "base": {"merged": str(out / "base" / "receipt.json"), "shards": [{**shard, "state": "done"}]},
+            "head": {"merged": None, "shards": [shard]}}}
+        (out / "fleet.json").write_text(json.dumps(record), encoding="utf-8")
+        (out / "shards" / "head" / "0").mkdir(parents=True, exist_ok=True)
+        (out / "shards" / "head" / "0" / "step.log").write_text(step_log, encoding="utf-8")
 
 
 def result(product: str, status: str, index: int = 0) -> mc.Result:
@@ -102,7 +143,7 @@ class Selection(unittest.TestCase):
                          frozenset({"settings", "facet", "splitRight", "splitDown"}))
 
     def test_the_exercising_rung_comes_first_and_holds_only_runnable_callers(self) -> None:
-        rungs = mc.ladder(mutant("daemon/move"), self.CORPUS)
+        rungs = mc.ladder(mutant("daemon/move"), self.CORPUS, NONE)
         self.assertEqual([r.label for r in rungs], ["exercising", "suite"])
         self.assertEqual(rungs[0].cases, ("daemon-ops/workspace-move-error", "daemon-ops/workspace-move-ok"))
         self.assertEqual((rungs[0].suite, rungs[0].filtered), ("all", True))
@@ -112,14 +153,14 @@ class Selection(unittest.TestCase):
 
     def test_a_rung_that_repeats_the_one_before_is_left_out(self) -> None:
         corpus = [case("daemon-ops/workspace-move-ok", "workspace.move")]
-        self.assertEqual([r.label for r in mc.ladder(mutant("daemon/move"), corpus)], ["exercising"])
+        self.assertEqual([r.label for r in mc.ladder(mutant("daemon/move"), corpus, NONE)], ["exercising"])
 
     def test_an_app_mutant_finds_its_callers_in_any_suite(self) -> None:
-        rungs = mc.ladder(mutant("app/close", suite="actions", exercises="closePane"), self.CORPUS)
+        rungs = mc.ladder(mutant("app/close", suite="actions", exercises="closePane"), self.CORPUS, NONE)
         self.assertEqual([(r.label, r.cases) for r in rungs], [("exercising", ("e2e/close-pane",))])
 
     def test_no_caller_and_an_empty_suite_is_no_rung(self) -> None:
-        self.assertEqual(mc.ladder(mutant("app/x", suite="actions", exercises="equalizeSplits"), self.CORPUS), [])
+        self.assertEqual(mc.ladder(mutant("app/x", suite="actions", exercises="equalizeSplits"), self.CORPUS, NONE), [])
 
     def test_the_filter_names_each_case_exactly(self) -> None:
         rung = mc.Rung("exercising", "all", ("e2e/a[1]", "e2e/b"), filtered=True)
@@ -132,9 +173,70 @@ class Selection(unittest.TestCase):
         self.assertEqual(case_errors, [])
         for m in mutants:
             if m.product == "daemon":
-                rungs = mc.ladder(m, cases)
+                rungs = mc.ladder(m, cases, CATALOG)
                 self.assertTrue(rungs and rungs[0].label == "exercising", m.id)
                 self.assertTrue(all(cid.startswith("daemon-ops/") for cid in rungs[0].cases), m.id)
+
+    def test_the_workspace_layout_keys_select_the_split_and_focus_mutants(self) -> None:
+        # ax/workspace-layout-* press Cmd-D, Cmd-Shift-D and Cmd-Opt-Left: splitRight, splitDown and focusLeft
+        # (schemas/keybindings/ghostty-reserved-keys.json).
+        mutants = {m.id: m for m in patch_mutants.load()[0]}
+        cases, _ = oracle.load_corpus(oracle.DEFAULT_CORPUS)
+        layout = {"ax/workspace-layout-narrow", "ax/workspace-layout-normal", "ax/workspace-layout-wide"}
+        for name in ("app/split-sizing-default-halve", "app/focus-left-right-swapped",
+                     "app/even-split-sizing-mirrored"):
+            with self.subTest(name):
+                rungs = mc.ladder(mutants[name], cases, CATALOG)
+                self.assertEqual(rungs[0].label, "exercising")
+                self.assertLessEqual(layout, set(rungs[0].cases))
+
+    def test_every_app_mutant_names_a_catalog_action(self) -> None:
+        # A name no step can resolve to (focusPaneLeft for focusLeft) would leave its mutant without a case.
+        for m in patch_mutants.load()[0]:
+            if m.product == "app":
+                self.assertTrue(mc.exercise_names(m.exercises) & CATALOG.actions, m.id)
+
+
+class Resolving(unittest.TestCase):
+    """Key, cli and mcp steps resolve to the actions and operations they run (Entrypoints over the catalog)."""
+
+    def names(self, *steps: dict) -> frozenset:
+        return mc.called_names(stepped("ax/x", *steps), CATALOG)
+
+    def test_a_key_runs_its_default_binding(self) -> None:
+        self.assertLessEqual({"splitRight", "splitDown", "focusLeft", "resizePaneLeft"},
+                             self.names(keys("cmd+d", "cmd+shift+d"), keys("cmd+opt+left"), keys("ctrl+cmd+left")))
+        self.assertIn("toggleSplitZoom", self.names(keys("cmd+shift+return")))
+        self.assertIn("toggleSplitZoom", self.names(keys("cmd+shift+enter")))
+
+    def test_a_key_alias_and_a_digit_family_resolve(self) -> None:
+        self.assertIn("focusLeft", self.names(keys("ctrl+cmd+h")))
+        self.assertIn("selectSurfaceByNumber", self.names(keys("ctrl+3")))
+        self.assertNotIn("selectSurfaceByNumber", self.names(keys("cmd+3")))
+
+    def test_a_chord_resolves_from_its_strokes_in_a_row(self) -> None:
+        chord = next((a["id"], a["default_chord"]) for a in json.loads(
+            mc.Entrypoints.SURFACES.read_text(encoding="utf-8"))["actions"] if a.get("default_chord"))
+        strokes = ["+".join([*sorted(k["modifiers"]), mc.WIRE_KEY_NAMES.get(k["key"], k["key"])]) for k in chord[1]]
+        self.assertIn(chord[0], self.names(keys(*strokes)))
+        self.assertNotIn(chord[0], self.names(keys(strokes[-1])))
+
+    def test_a_cli_step_runs_its_action_or_operation(self) -> None:
+        def cli(*argv: str) -> dict:
+            return {"op": "cli", "args": {"argv": list(argv)}}
+        self.assertIn("splitRight", self.names(cli("pane", "split-right", "--focus")))
+        self.assertIn("settings.set", self.names(cli("settings", "set", "layout.splitSizing", "even")))
+        self.assertIn("terminal.screen.read", self.names(cli("--json", "terminal", "current", "screen", "read")))
+        self.assertEqual(self.names(cli("--json", "nothing", "--like", "this")), frozenset())
+
+    def test_an_mcp_step_runs_its_action_or_operation(self) -> None:
+        def tool(name: str) -> dict:
+            return {"op": "mcp", "args": {"tool": name, "arguments": {}}}
+        self.assertIn("splitRight", self.names(tool("app_pane_split_right")))
+        self.assertIn("browser.close", self.names(tool("browser_close")))
+
+    def test_a_snapshot_names_its_facets(self) -> None:
+        self.assertIn("settings", self.names({"op": "snapshot", "args": {"facets": ["settings", "ax"]}}))
 
 
 class Judging(unittest.TestCase):
@@ -178,12 +280,56 @@ class Measuring(unittest.TestCase):
 
     def test_the_first_catch_ends_the_search(self) -> None:
         result, runner = self.measure({("m", "exercising"): comparison(["daemon-ops/a"])})
-        self.assertEqual((result.status, result.catcher.label, len(runner.calls)), (mc.CAUGHT, "exercising", 1))
+        self.assertEqual((result.status, result.catcher.label, len(runner.patched())), (mc.CAUGHT, "exercising", 1))
 
     def test_a_larger_rung_runs_when_the_smaller_survives(self) -> None:
         result, runner = self.measure({("m", "suite"): comparison(["daemon-ops/b"])})
-        self.assertEqual((result.status, result.catcher.label, len(runner.calls)), (mc.CAUGHT, "suite", 2))
+        self.assertEqual((result.status, result.catcher.label, len(runner.patched())), (mc.CAUGHT, "suite", 2))
         self.assertEqual([t["status"] for t in result.tried], [mc.SURVIVED, mc.CAUGHT])
+
+    def test_a_divergent_rung_runs_its_unpatched_control_once(self) -> None:
+        result, runner = self.measure({("m", "exercising"): comparison(["daemon-ops/a"])})
+        self.assertEqual(len(runner.controls()), 1)
+        control = runner.controls()[0]
+        self.assertEqual(control[:5], ["bash", str(mc.LINUX_RUN), "diff", SHA, SHA])
+        self.assertEqual(control[control.index("--") + 1:], ["--retry-limit", str(oracle.DEFAULT_RETRY_LIMIT),
+                                                             "--filter", "daemon-ops/a"])
+        self.assertEqual(result.tried[0]["control"], str(Path(control[control.index("--out") + 1]) / "comparison.json"))
+
+    def test_a_survived_rung_runs_no_control(self) -> None:
+        _, runner = self.measure({})
+        self.assertEqual(runner.controls(), [])
+
+    def test_a_case_that_diverges_in_the_control_too_is_no_catch(self) -> None:
+        result, _ = self.measure({("m", "exercising"): comparison(["daemon-ops/a"]),
+                                  ("m", "suite"): comparison(["daemon-ops/a"]),
+                                  ("control", "exercising"): comparison(["daemon-ops/a"]),
+                                  ("control", "suite"): comparison(["daemon-ops/a"])})
+        self.assertNotEqual(result.status, mc.CAUGHT)
+        self.assertEqual(result.status, mc.MISSED)
+        self.assertEqual([(t["status"], t["divergent"], t["noise"]) for t in result.tried],
+                         [(mc.SURVIVED, [], ["daemon-ops/a"]), (mc.SURVIVED, [], ["daemon-ops/a"])])
+
+    def test_only_the_cases_the_control_does_not_share_count(self) -> None:
+        result, _ = self.measure({("m", "suite"): comparison(["daemon-ops/a", "daemon-ops/b"]),
+                                  ("control", "suite"): comparison(["daemon-ops/a"])})
+        self.assertEqual((result.status, result.tried[-1]["divergent"], result.tried[-1]["noise"]),
+                         (mc.CAUGHT, ["daemon-ops/b"], ["daemon-ops/a"]))
+
+    def test_a_control_that_does_not_compare_leaves_the_catch_unmeasured(self) -> None:
+        result, _ = self.measure({("m", "exercising"): comparison(["daemon-ops/a"]), ("control", "exercising"): None,
+                                  ("control", "suite"): None, ("m", "suite"): comparison(["daemon-ops/b"])})
+        self.assertEqual(result.status, mc.UNMEASURED)
+        self.assertIn("the unpatched control did not compare", result.reason)
+
+    def test_mutants_with_one_selection_share_its_control(self) -> None:
+        runner = FakeRunner({(name, "exercising"): comparison(["daemon-ops/a"]) for name in ("m1", "m2", "m3")})
+        backend, controls = mc.VmBackend(runner, system="Linux"), mc.Controls(self.out)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+            results = list(pool.map(lambda name: mc.measure(mutant(f"daemon/{name}"), self.rungs, SHA, backend,
+                                                            self.out, None, controls), ("m1", "m2", "m3")))
+        self.assertEqual([r.status for r in results], [mc.CAUGHT] * 3)
+        self.assertEqual(len(runner.controls()), 1)
 
     def test_every_rung_surviving_is_a_miss(self) -> None:
         result, _ = self.measure({})
@@ -199,9 +345,39 @@ class Measuring(unittest.TestCase):
         result, _ = self.measure({("m", "exercising"): None, ("m", "suite"): comparison(["daemon-ops/a"])})
         self.assertEqual(result.status, mc.CAUGHT)
 
-    def test_a_head_build_failure_is_unviable_and_stops(self) -> None:
-        result, runner = self.measure({("m", "exercising"): "build-failed"})
+    def test_a_head_that_does_not_compile_is_unviable_and_stops(self) -> None:
+        for log in ("  | error[E0308]: mismatched types",
+                    "  | error: could not compile `cmux-tui-core` (lib) due to 2 previous errors"):
+            with self.subTest(log):
+                result, runner = self.measure({("m", "exercising"): ("build-failed", log)})
+                self.assertEqual((result.status, len(runner.calls)), (mc.UNVIABLE, 1))
+                self.assertIn("does not compile", result.reason)
+
+    def test_a_head_build_that_failed_for_another_reason_is_unmeasured(self) -> None:
+        for log in ("runnerd: finished job 1234: exit 124 (timed out) after 7200.0 s",
+                    "  | error: could not compile `cmux-tui-core` (lib)\n  | Caused by:\n  |   process didn't exit "
+                    "successfully: rustc (signal: 9, SIGKILL: kill)",
+                    "  | No space left on device", "linux_run.sh: build of 0000 gave no binary"):
+            with self.subTest(log):
+                result, _ = self.measure({("m", "exercising"): ("build-failed", log)})
+                self.assertEqual(result.status, mc.UNMEASURED)
+                self.assertIn("no compiler error", result.reason)
+
+    def test_a_fleet_head_that_does_not_compile_is_unviable(self) -> None:
+        runner = FakeRunner({("m", "exercising"): ("build-failed", (
+            "oracle.sh: the tagged reload printed no app path\n"
+            "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/FocusNavigation.swift:65:17: error: "
+            "cannot find 'x' in scope\n"))})
+        result = mc.measure(mutant("app/m", suite="actions"), self.rungs, SHA, mc.FleetBackend(runner), self.out)
         self.assertEqual((result.status, len(runner.calls)), (mc.UNVIABLE, 1))
+        self.assertIn("FocusNavigation.swift:65:17: error:", result.reason)
+
+    def test_a_fleet_head_step_that_failed_without_a_compiler_error_is_unmeasured(self) -> None:
+        runner = FakeRunner({("m", "exercising"): ("build-failed", "oracle.sh: the tagged reload printed no app path\n"
+                                                                   "error: No space left on device\n")})
+        result = mc.measure(mutant("app/m", suite="actions"), self.rungs, SHA, mc.FleetBackend(runner), self.out)
+        self.assertEqual(result.status, mc.UNMEASURED)
+        self.assertIn("no compiler error", result.reason)
 
     def test_a_patch_that_does_not_apply_runs_nothing(self) -> None:
         result, runner = self.measure({}, apply_error="does not apply at 000000000000")
@@ -306,7 +482,7 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(len(statuses), 20)
         # Only the mutants that a case calls ran; the others are corpus gaps with no run.
         ran = {Path(argv[argv.index("--mutant" if "--mutant" in argv else "--head-mutant") + 1]).stem
-               for argv in runner.calls}
+               for argv in runner.patched()}
         for mutant_id, status in statuses.items():
             name = mutant_id.split("/")[1]
             self.assertEqual(status, mc.CAUGHT if name in ran else mc.MISSED, mutant_id)
