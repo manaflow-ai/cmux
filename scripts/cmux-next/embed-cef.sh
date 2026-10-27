@@ -9,6 +9,8 @@
 #                                                                build-chromium-host.sh)
 #   Contents/Frameworks/libcmux_cef_shim_remote.dylib           (with the host: the shim ABI
 #                                                                cmux loads in host mode)
+#   Contents/Resources/crash_reporter.cfg                       (CMUX_NEXT_CEF_CRASHPAD=1 only: Crashpad,
+#                                                                no ServerURL)
 #
 # then signs them inside out with the build's identity (ad hoc for dev
 # builds) through sign-cef.sh. Xcode signs the outer app afterwards; release
@@ -59,8 +61,10 @@ rm -f "$phase_stamp"
 # Remove the complete CEF payload when this build explicitly has no CEF. A
 # valid prior payload must not survive a skip, or a dependency-analysis stamp
 # would make the app claim CEF is unavailable while still shipping stale code.
+crash_cfg="$app/Contents/Resources/crash_reporter.cfg"
 remove_embed() {
   rm -rf "$frameworks/$FW_NAME" "$frameworks/libcmux_cef_shim.dylib" "$frameworks/libcmux_cef_shim_remote.dylib"
+  rm -f "$crash_cfg"
   for helper in "$frameworks"/*" Helper"*.app "$frameworks"/*" Chromium Host.app" "$app/Contents/MacOS/"*" Chromium Host"; do
     if [[ -e "$helper" ]]; then rm -rf "$helper"; fi
   done
@@ -365,6 +369,34 @@ else
 fi
 
 printf '%s' "$shim_key $product" > "$binary_stamp"
+
+# 3c. Crashpad (p09-observability-105). CEF starts Crashpad in every Chromium
+# process when the main bundle's Resources holds crash_reporter.cfg
+# (libcef/common/crash_reporter_client.cc). Only a build that asks for it gets
+# one (CMUX_NEXT_CEF_CRASHPAD=1, the Nightly configuration), and never with a
+# ServerURL: Crashpad keeps reports in its local database, and the app forwards
+# them redacted, with hang report consent only (ChromiumMinidumpForwarder).
+# BrowserCrashForwardingEnabled keeps the browser process's .ips. "ver" names
+# the Chromium build and the fork API; the event's release names cmux's.
+if [[ "${CMUX_NEXT_CEF_CRASHPAD:-0}" == "1" ]]; then
+  cef_build="$(/usr/bin/python3 -c 'import json, sys; m = json.load(open(sys.argv[1])); print(m["chromium"] + "-cef" + str(m.get("cmux_cef_api_version", 0)))' "$SCRIPT_DIR/cef-manifest.json")"
+  mkdir -p "$app/Contents/Resources"
+  tmp_cfg="$(mktemp)"
+  cat > "$tmp_cfg" <<CFG
+# Written by scripts/cmux-next/embed-cef.sh (p09-observability-105).
+# No ServerURL: Crashpad keeps reports on disk and never uploads them.
+[Config]
+ProductName=cmux-next
+ProductVersion=$cef_build
+BrowserCrashForwardingEnabled=true
+MaxDatabaseSizeInMb=50
+MaxDatabaseAgeInDays=7
+CFG
+  chmod 644 "$tmp_cfg"
+  if ! cmp -s "$tmp_cfg" "$crash_cfg"; then mv "$tmp_cfg" "$crash_cfg"; else rm -f "$tmp_cfg"; fi
+else
+  rm -f "$crash_cfg"
+fi
 
 # 4. Sign inside out, unless nothing changed since the last signature.
 stamp="$stamp_dir/signed"

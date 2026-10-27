@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextCrashReporting
 import CmuxNextDaemon
@@ -82,7 +83,14 @@ struct AppCrashReporting: Sendable {
         let stateDirectory = AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
         let system = SystemCrashForwarder(
             stateFile: stateDirectory.appending(path: "crash-forwarder.json"),
-            bundlePath: Bundle.main.bundlePath, mainExecutable: Bundle.main.executablePath, sends: sends)
+            bundlePath: Bundle.main.bundlePath, mainExecutable: Bundle.main.executablePath, sends: sends,
+            minidumps: ChromiumMinidumpForwarder.forThisApp(
+                policy: reporter.policy, sends: sends, stateFile: stateDirectory.appending(path: "chromium-minidumps.json"),
+                consentKey: HangReportsController.consentKey, devOptInKey: HangReportsController.devOptInKey,
+                database: { [resources = Bundle.main.resourceURL, bundleID = Bundle.main.bundleIdentifier] in
+                    CEFCrashReporterConfig.minidumpDatabase(
+                        resources: resources, chromiumRoot: CEFProfileStorage.forApplication(bundleIdentifier: bundleID).root)
+                }))
         let ownerPanics = OwnerPanicForwarder(
             log: OwnerPanicForwarder.log(stateRoot: Self.ownerStateRoot(stateDirectory: environment.daemonStateDirectory),
                                          session: environment.daemonSession),

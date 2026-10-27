@@ -22,6 +22,8 @@ public nonisolated struct SystemCrashReport: Sendable, Equatable {
     }
 
     public var processName: String
+    /// The crashed process's id (`pid`), when the report has it.
+    public var pid: Int32?
     /// `procPath` as macOS wrote it (the user name already replaced with `USER`).
     public var processPath: String
     public var incident: String?
@@ -66,6 +68,7 @@ public nonisolated struct SystemCrashReport: Sendable, Equatable {
         let faulting = body["faultingThread"] as? Int ?? threads.firstIndex { $0["triggered"] as? Bool == true } ?? 0
         guard threads.indices.contains(faulting) else { return nil }
         processName = body["procName"] as? String ?? header["name"] as? String ?? "unknown"
+        pid = (body["pid"] as? NSNumber)?.int32Value
         processPath = body["procPath"] as? String ?? ""
         incident = body["incident"] as? String ?? header["incident_id"] as? String
         let exception = body["exception"] as? [String: Any] ?? [:]

@@ -66,4 +66,39 @@ STUB
     printf 'embedded CEF library keeps local symbols or debug stabs:\n%s\n' "$syms" >&2; exit 1
   fi
 fi
+# Crashpad (p09-observability-105): CMUX_NEXT_CEF_CRASHPAD=1 writes Contents/Resources/crash_reporter.cfg with
+# no ServerURL, so reports stay in Crashpad's local database; any other build removes it.
+cp_root="$TMP/crashpad"; cp_dist="$cp_root/dist"; cp_fw="$cp_dist/Chromium Embedded Framework.framework"
+mkdir -p "$cp_root/scripts" "$cp_root/bin" "$cp_root/cache" "$cp_fw/Libraries" "$cp_fw/Resources" "$cp_root/build/app.app/Contents/Frameworks"
+: > "$cp_fw/Chromium Embedded Framework"
+cp "$ROOT/scripts/cmux-next/embed-cef.sh" "$ROOT/scripts/cmux-next/cef-locale-allowlist.sh" "$ROOT/scripts/cmux-next/bundle-ublock.sh" "$cp_root/scripts/"
+printf '{"chromium": "154.0.1.2", "cmux_cef_api_version": 30}\n' > "$cp_root/scripts/cef-manifest.json"
+for stub in install-cef-credits.sh install-cef-license.sh sign-cef.sh; do
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$cp_root/scripts/$stub"
+done
+printf '#!/usr/bin/env bash\necho "%s"\n' "$cp_dist" > "$cp_root/scripts/ensure-cef.sh"
+printf '#!/usr/bin/env bash\necho "%s"\n' "$cp_root/cache" > "$cp_root/scripts/cef-cache-root.sh"
+cat > "$cp_root/scripts/build-cef-shim.sh" <<STUB
+#!/usr/bin/env bash
+mkdir -p "$cp_root/shim"; : > "$cp_root/shim/libcmux_cef_shim.dylib"; : > "$cp_root/shim/cmux-cef-helper"; printf k > "$cp_root/shim/.build-key"
+echo "$cp_root/shim"
+STUB
+if ! command -v ditto >/dev/null; then
+  printf '#!/usr/bin/env bash\nmkdir -p "$(dirname "$2")"; cp -R "$1" "$2"\n' > "$cp_root/bin/ditto"
+fi
+chmod +x "$cp_root/scripts/"*.sh "$cp_root/bin/"* 2>/dev/null || true
+embed_crashpad() { # <CMUX_NEXT_CEF_CRASHPAD>
+  env -i PATH="$cp_root/bin:/usr/bin:/bin" HOME="$cp_root" ARCHS=arm64 TARGET_BUILD_DIR="$cp_root/build" WRAPPER_NAME=app.app \
+    PRODUCT_NAME=app PRODUCT_BUNDLE_IDENTIFIER=test.app DERIVED_FILE_DIR="$cp_root/derived" CMUX_NEXT_SKIP_UBLOCK=1 \
+    CMUX_STRIP_TOOL=true CMUX_NEXT_CEF_CRASHPAD="$1" /bin/bash "$cp_root/scripts/embed-cef.sh" 2>&1
+}
+cfg="$cp_root/build/app.app/Contents/Resources/crash_reporter.cfg"
+out=$(embed_crashpad 1) || { printf 'embed-cef.sh with Crashpad failed:\n%s\n' "$out" >&2; exit 1; }
+[[ -f "$cfg" ]] || { printf 'CMUX_NEXT_CEF_CRASHPAD=1 wrote no crash_reporter.cfg:\n%s\n' "$out" >&2; exit 1; }
+if grep -qi 'ServerURL *=' "$cfg"; then printf 'crash_reporter.cfg names a ServerURL:\n%s\n' "$(cat "$cfg")" >&2; exit 1; fi
+for want in '^\[Config\]$' '^ProductName=cmux-next$' '^ProductVersion=154\.0\.1\.2-cef30$' '^BrowserCrashForwardingEnabled=true$'; do
+  grep -qE "$want" "$cfg" || { printf 'crash_reporter.cfg lacks %s:\n%s\n' "$want" "$(cat "$cfg")" >&2; exit 1; }
+done
+out=$(embed_crashpad 0) || { printf 'embed-cef.sh without Crashpad failed:\n%s\n' "$out" >&2; exit 1; }
+[[ ! -e "$cfg" ]] || { echo 'a build without CMUX_NEXT_CEF_CRASHPAD kept the crash_reporter.cfg' >&2; exit 1; }
 printf 'embed-cef tests: ok\n'

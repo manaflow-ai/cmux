@@ -15,6 +15,10 @@ import os
 /// debug files. Reports written before the first forwarder run are never
 /// sent. The app's own crashes are Sentry's (in-process), so its executable
 /// is skipped.
+///
+/// With Crashpad on (p09-observability-105), each pass first runs the
+/// ``ChromiumMinidumpForwarder``, and a helper report of a process whose
+/// minidump it sent is the same crash: it is marked done, not sent again.
 public final class SystemCrashForwarder: Sendable {
     /// Where macOS writes the current user's crash reports.
     public static let standardDirectory = FileManager.default.homeDirectoryForCurrentUser
@@ -41,14 +45,17 @@ public final class SystemCrashForwarder: Sendable {
     /// from a time they were off.
     private let sends: Bool
     private let capture: @Sendable (Event) -> Void
+    /// The Chromium minidumps, sent first in each pass; nil without Crashpad.
+    private let minidumps: ChromiumMinidumpForwarder?
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.crash-forwarder", qos: .utility)
     private let watcher = Mutex<(any DispatchSourceFileSystemObject)?>(nil)
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
 
     public init(directory: URL = SystemCrashForwarder.standardDirectory, stateFile: URL, bundlePath: String,
-                mainExecutable: String?, sends: Bool = true,
+                mainExecutable: String?, sends: Bool = true, minidumps: ChromiumMinidumpForwarder? = nil,
                 // A clean scope: the app's breadcrumbs and contexts do not describe a helper's crash.
                 capture: @escaping @Sendable (Event) -> Void = { SentrySDK.capture(event: $0, scope: Scope()) }) {
+        self.minidumps = minidumps
         self.directory = directory
         self.stateFile = stateFile
         self.bundlePath = bundlePath
@@ -72,10 +79,12 @@ public final class SystemCrashForwarder: Sendable {
         watch()
     }
 
-    /// Sends the reports newer than the saved watermark and moves it.
-    /// The first run only sets the watermark. Returns the files sent.
+    /// Sends the Chromium minidumps, then the reports newer than the saved
+    /// watermark and moves it. The first run only sets the watermark. Returns
+    /// the report files sent.
     @discardableResult
     public func forwardNew(now: Date) -> [URL] {
+        let minidumpPIDs = minidumps?.forwardNew(now: now)
         guard var state = loadState() else {
             save(State(watermark: now.timeIntervalSince1970, sentAtWatermark: []))
             return []
@@ -103,6 +112,10 @@ public final class SystemCrashForwarder: Sendable {
                 if changed { save(state) }
                 return sent
             case .crash(let report) where report.isHelper(ofBundle: bundlePath, mainExecutable: mainExecutable):
+                if let pid = report.pid, minidumpPIDs?.covers(pid: pid, at: Date(timeIntervalSince1970: candidate.time)) == true {
+                    logger.info("crash report has a sent minidump process=\(report.processName, privacy: .public)")
+                    break
+                }
                 capture(SystemCrashEvent(report: report).event())
                 sent.append(candidate.url)
                 logger.info("forwarded crash report process=\(report.processName, privacy: .public)")
