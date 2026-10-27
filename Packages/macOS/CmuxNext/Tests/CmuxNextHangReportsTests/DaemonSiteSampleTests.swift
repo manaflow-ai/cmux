@@ -12,8 +12,14 @@ struct DaemonSiteSampleTests {
                                                    resolver: HangReportFixtures.FakeResolver(), wireSchema: .v3)
 
     private static func collector(schema3: Bool = true) -> HangReportCollector {
-        HangReportCollector(resolve: { builder.frames(addresses: $0) },
-                            resolveBlocking: schema3 ? { builder.frames(blocking: $0) } : nil, schedule: { $0() })
+        let resolveBlocking: HangReportCollector.ResolveBlocking?
+        if schema3 {
+            resolveBlocking = { Self.builder.frames(blocking: $0) }
+        } else {
+            resolveBlocking = nil
+        }
+        return HangReportCollector(resolve: { Self.builder.frames(addresses: $0) }, resolveBlocking: resolveBlocking,
+                                   schedule: { $0() })
     }
 
     private static func fsSite(line: UInt32 = 412, kind: String = "fs") throws -> DaemonDiagnosticSite {
@@ -219,10 +225,12 @@ struct DaemonSiteSampleTests {
         var ledger = DaemonSiteLedger()
         let site = try Self.fsSite()
         for life in 0..<(DaemonSiteLedger.maxLives + 2) {
-            #expect(ledger.admit(Self.sighting(site, life: "life-\(life)")))
+            let admitted = ledger.admit(Self.sighting(site, life: "life-\(life)"))
+            #expect(admitted)
         }
         #expect(ledger.lives.map(\.life) == (2..<(DaemonSiteLedger.maxLives + 2)).map { "life-\($0)" })
-        #expect(!ledger.admit(Self.sighting(site, life: "life-\(DaemonSiteLedger.maxLives + 1)")))
+        let readmitted = ledger.admit(Self.sighting(site, life: "life-\(DaemonSiteLedger.maxLives + 1)"))
+        #expect(!readmitted)
         let decoded = try JSONDecoder().decode(DaemonSiteLedger.self, from: JSONEncoder().encode(ledger))
         #expect(decoded == ledger)
     }
