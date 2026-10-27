@@ -219,6 +219,20 @@ class DefaultsGuardTests(unittest.TestCase):
         result = self.check(head)
         self.assertEqual(result.returncode, 0, result.stdout)
 
+    def test_backticked_static_default_dependency_is_snapshotted(self):
+        path = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DevTunables.swift"
+        source = """enum DevTunables {
+    static let enabled = Tunable<Bool>.toggle("dev.enabled", .status, "Dev", default: BrowserResize.default)
+}
+enum BrowserResize { static let `default` = true }
+"""
+        self.repo.write(path, source)
+        self.base = self.repo.commit("backticked dependency")
+        head = self.head(extra={path: source.replace("= true", "= false")})
+        result = self.check(head)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("DEFAULTS tunable-source.CmuxNextDesign/DevTunables.swift:default", result.stdout)
+
     def test_two_flags_with_one_name_are_judged_apart(self):
         two = "enum A {\n    static let isEnabled = false\n}\nenum B {\n    static let isEnabled = true\n}\n"
         self.repo.write("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Trace.swift", two)
