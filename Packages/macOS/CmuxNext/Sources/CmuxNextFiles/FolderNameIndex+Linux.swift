@@ -1,4 +1,5 @@
 #if os(Linux)
+import CmuxNextCompat
 import Foundation
 import Glibc
 
@@ -10,9 +11,12 @@ import Glibc
 extension FolderNameIndex {
     /// Walks the tree under `rootPath`, depth first, and hands `visit` each item's full path and
     /// whether it is a directory; true when `visit` ended the walk.
+    /// Each file system call is a checked blocking call (CmuxNextCompat/Threading).
     static func walk(_ rootPath: String, root: URL, _ visit: (String, Bool) -> WalkStep) throws -> Bool {
         // SAFETY: opendir reads the NUL-terminated copy of the path made for the call.
-        guard let top = unsafe opendir(rootPath) else { throw FileBrowserError.unreadable(root, errno) }
+        guard let top = unsafe blockingCall(.fileIO, { unsafe opendir(rootPath) }) else {
+            throw FileBrowserError.unreadable(root, errno)
+        }
         return unsafe walk(top, path: rootPath == "/" ? "" : rootPath, visit)
     }
 
@@ -25,7 +29,7 @@ extension FolderNameIndex {
         // SAFETY: each dirent readdir returns lives until the next readdir or closedir on `directory`; its name and
         // type are copied out before the next call. fstatat and openat read the NUL-terminated copy of the name made
         // for each call, and fstatat writes one struct stat into `info`, a local.
-        while let item = unsafe readdir(directory) {
+        while let item = unsafe blockingCall(.fileIO, { unsafe readdir(directory) }) {
             let name = unsafe withUnsafeBytes(of: item.pointee.d_name) { bytes in
                 unsafe String(decoding: bytes.prefix { $0 != 0 }, as: UTF8.self)
             }
@@ -33,7 +37,8 @@ extension FolderNameIndex {
             var isDirectory = unsafe item.pointee.d_type == UInt8(DT_DIR)
             if unsafe item.pointee.d_type == UInt8(DT_UNKNOWN) {
                 var info = stat()
-                isDirectory = unsafe fstatat(fd, name, &info, AT_SYMLINK_NOFOLLOW) == 0 && info.st_mode & S_IFMT == S_IFDIR
+                let found = blockingCall(.fsMetadata, { unsafe fstatat(fd, name, &info, AT_SYMLINK_NOFOLLOW) })
+                isDirectory = found == 0 && info.st_mode & S_IFMT == S_IFDIR
             }
             let full = path + "/" + name
             switch visit(full, isDirectory) {
@@ -42,7 +47,7 @@ extension FolderNameIndex {
             case .next: break
             }
             guard isDirectory else { continue }
-            let child = unsafe openat(fd, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+            let child = blockingCall(.fileIO, { unsafe openat(fd, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC) })
             guard child >= 0 else { continue }
             // SAFETY: fdopendir takes `child`, an open descriptor; on failure it is still ours to close.
             guard let stream = unsafe fdopendir(child) else {

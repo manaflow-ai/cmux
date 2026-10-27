@@ -12,16 +12,13 @@ extension FileOperator {
             let target = folder.appendingPathComponent(namer.freeName(for: url.lastPathComponent, style: .alias,
                                                                       taken: Self.names(in: folder)))
             do {
-                switch kind {
+                switch LinkKind.made(for: kind) {
                 case .symlink:
                     try FileManager.default.createSymbolicLink(atPath: target.path, withDestinationPath: url.path)
                 case .alias:
                     #if canImport(Darwin)
                     let bookmark = try url.bookmarkData(options: .suitableForBookmarkFile)
                     try URL.writeBookmarkData(bookmark, to: target)
-                    #else
-                    // Bookmark files are Apple-only; the nearest link elsewhere is a symbolic one.
-                    try FileManager.default.createSymbolicLink(atPath: target.path, withDestinationPath: url.path)
                     #endif
                 }
             } catch {

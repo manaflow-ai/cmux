@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Reads and changes what Get Info shows, off the main actor.
@@ -19,7 +20,7 @@ public struct FileInfoReader: Sendable {
         let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey])
         return (values?.volumeAvailableCapacityForImportantUsage, values?.volumeAvailableCapacity.map(Int64.init))
         #else
-        let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityKey])
+        let values = try? url.blockingResourceValues(forKeys: [.volumeAvailableCapacityKey])
         return (nil, values?.volumeAvailableCapacity.map(Int64.init))
         #endif
     }

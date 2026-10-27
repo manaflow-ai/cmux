@@ -1,4 +1,7 @@
 #if os(Linux)
+// swift-corelibs-libdispatch does not mark its source protocols Sendable; a dispatch source is safe to
+// cancel and resume from any thread, as on Darwin, where they are.
+@unsafe @preconcurrency import Dispatch
 import Foundation
 import Glibc
 
@@ -9,16 +12,25 @@ import Glibc
 /// every queued event into one change, so a burst reaches the model as one update; `latency`
 /// (FSEvents' coalescing) has no inotify counterpart. The stream's termination handler
 /// (``FolderWatcher/changes(in:)``) owns it until `stop()` has run.
-// crash-allow: `source` changes only on the serial `queue` (start, stop, and the read handler there); the rest is immutable
-final class FolderWatchStream: @unchecked Sendable {
+///
+/// Every member is immutable: the descriptor and its read source are made with the stream, the
+/// watch is added and the source resumed by `start()` (exactly once) on `queue`, and `stop()`
+/// cancels the source there; a source cancelled before it was resumed runs only its cancel handler.
+final class FolderWatchStream: Sendable {
     private let folderPath: String
     private let continuation: AsyncStream<FolderChange>.Continuation
     private let queue = DispatchQueue(label: "cmux.files.inotify", qos: .userInitiated)
-    private var source: (any DispatchSourceRead)?
+    private let descriptor: Int32
+    private let source: (any DispatchSourceRead)?
 
     init(folder: URL, latency: TimeInterval, continuation: AsyncStream<FolderChange>.Continuation) {
-        self.folderPath = folder.path.hasSuffix("/") ? String(folder.path.dropLast()) : folder.path
+        folderPath = folder.path.hasSuffix("/") ? String(folder.path.dropLast()) : folder.path
         self.continuation = continuation
+        let fd = inotify_init1(Int32(IN_NONBLOCK | IN_CLOEXEC))
+        descriptor = fd
+        source = fd >= 0 ? DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue) : nil
+        source?.setEventHandler { [weak self] in self?.drain() }
+        source?.setCancelHandler { close(fd) }
     }
 
     /// The events a watch asks for: every change to a direct child, and the folder itself going away.
@@ -29,46 +41,41 @@ final class FolderWatchStream: @unchecked Sendable {
     static let rescanMask = UInt32(IN_Q_OVERFLOW | IN_IGNORED | IN_DELETE_SELF | IN_MOVE_SELF | IN_UNMOUNT)
 
     func start() {
+        guard let source else { continuation.finish(); return }
         queue.async { [self] in
-            let fd = inotify_init1(Int32(IN_NONBLOCK | IN_CLOEXEC))
-            guard fd >= 0 else { continuation.finish(); return }
             // SAFETY: inotify_add_watch reads the NUL-terminated copy of the path made for the call.
-            guard unsafe inotify_add_watch(fd, folderPath, Self.mask) >= 0 else {
-                close(fd)
+            if unsafe inotify_add_watch(descriptor, folderPath, Self.mask) < 0 {
+                source.cancel()
                 continuation.finish()
-                return
             }
-            let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
-            source.setEventHandler { [weak self] in self?.drain(fd) }
-            source.setCancelHandler { close(fd) }
-            self.source = source
+            // Resumed once, also when cancelled: an inactive source must not be released.
             source.resume()
         }
     }
 
     func stop() {
-        queue.async { [self] in
-            // Cancelled on its own queue, the source runs no handler after this; its cancel handler closes the descriptor.
-            source?.cancel()
-            source = nil
-        }
+        // Cancelled on its own queue, the source runs no event handler after this; its cancel handler closes the
+        // descriptor.
+        queue.async { [source] in source?.cancel() }
     }
 
     /// Reads every queued event (the descriptor is non-blocking: a read with nothing queued ends the drain).
-    private func drain(_ fd: Int32) {
+    private func drain() {
         var buffer = [UInt8](repeating: 0, count: 64 * 1024)
         var names: [String] = []
         var rescan = false
-        var count = 0
-        repeat {
+        func read() -> Int {
             // SAFETY: read writes at most bytes.count bytes into the array's own storage, lent for the call.
-            count = unsafe buffer.withUnsafeMutableBytes { bytes in unsafe read(fd, bytes.baseAddress, bytes.count) }
-            if count > 0 {
-                let batch = Self.parse(buffer, count: count)
-                names += batch.names
-                rescan = rescan || batch.rescan
-            }
-        } while count > 0
+            unsafe buffer.withUnsafeMutableBytes { bytes in unsafe Glibc.read(descriptor, bytes.baseAddress, bytes.count) }
+        }
+        var count = read()
+        // Each pass parses one read; an empty queue (EAGAIN on the non-blocking descriptor) or an error ends it.
+        while count > 0 {
+            let batch = Self.parse(buffer, count: count)
+            names += batch.names
+            rescan = rescan || batch.rescan
+            count = read()
+        }
         var seen: Set<String> = []
         let items = names.filter { seen.insert($0).inserted }
         guard rescan || !items.isEmpty else { return }

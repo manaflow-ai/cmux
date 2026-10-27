@@ -1,4 +1,5 @@
 #if canImport(Darwin)
+import CmuxNextCompat
 import Darwin
 import Foundation
 
@@ -6,7 +7,7 @@ extension FileOperator {
     /// rename(2), which the instance method of that name hides.
     static func systemRename(_ source: String, _ target: String) -> Int32 {
         // SAFETY: rename reads the NUL-terminated copies of both paths made for the call.
-        unsafe Darwin.rename(source, target)
+        unsafe blockingRename(source, target)
     }
 
     /// Moves `url` to the Trash, which names it itself (`namer` names items in the Linux trash); the item's URL
