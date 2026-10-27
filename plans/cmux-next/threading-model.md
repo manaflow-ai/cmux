@@ -741,6 +741,65 @@ remote-view transport and mock host, remote-fetch, import-history-sync, acpmux, 
 queues, each at the QoS listed above. Watchers run at utility; a queue that a visible pane or a waiting caller
 needs runs at user-initiated. None goes to user-interactive.
 
+## QoS audit (MQ-15, p02-threads-302)
+
+`scripts/cmux-next/qos-audit.py` reads what runs and judges it against the thread parts of RUN-3 and RUN-4
+(chrome-parity/p02-threads.md). Each finding is one task, `p02-threads-R-qos-<process>-<kind>-<thread>`, with
+its evidence rows and the spawn sites that spell the name (`qos-tasks.json`). The id stays the same on a rerun.
+Chrome keeps the same facts per thread (`ThreadType` to QoS in `base/threading/platform_thread_apple.mm`, thread
+type and priority in chrome://tracing metadata).
+
+- App: `qos-audit.py app --app "$NX_APP"` (fleet GUI Mac, Debug or bench build) builds STRESS
+  (perf-stress-session.py). It reads `debug.threads` with the window visible, then with the app hidden
+  (`showHideAllWindows`), then shows the app again. It finds: `mismatch` (`match` false), `hidden-tier` (a Ghostty
+  surface thread not at utility while hidden), `undeclared-cmux`, `undeclared-library`,
+  `interactive-outside-closed-list` (a cmux thread at user-interactive that the closed list above does not name),
+  `queue-problem`, `undeclared-queue`, `queue-log-overflow` and `task-role`. `--daemon-socket` also reads the
+  app's daemon in both phases.
+- Daemon: `qos-audit.py daemon --bin <cmux-tui>` starts a headless daemon with `daemonRequestQos` on and the
+  blocking detector in record mode. It builds STRESS (60 workspaces, 14 panes of 2 terminals in the measured
+  one, 10 busy terminals) and runs lifecycle rounds on a second connection. During the rounds it reads
+  `server-threads` and the process's OS threads by id (Linux `/proc/<pid>/task`, macOS `proc_pidinfo`). It finds:
+  `unregistered` (an OS thread with no row; `main` is the first thread, `unnamed` a thread that never set its
+  name), `mismatch` (`matches` false), `automation-class` (a script connection's `mux-conn` or
+  `mux-control-dispatch` not resting at utility), `interactive-outside-closed-list` and `peak-threads` (peak not
+  below `--base-peak`, measured with `--peak-only` on the base binary).
+- `qos-audit.py judge` reads saved replies again. Exit 0 means RUN-3 and RUN-4 thread parts pass, 1 means a
+  finding is open, 2 means a read failed. RUN-3 (b) queue literals and RUN-4's crate deny attributes and clippy
+  are static checks (threading-inventory.py, task 219); the audit does not read them.
+
+Run 1, Linux daemon only (2026-10-27, 360-core Linux VM, Debug `cmux-tui` of perf/chrome-parity 3bbdf9d3d6a,
+base feat-cmux-next 772cdfc45ac). Peak OS threads: 383 (base 389), so this part of RUN-4 passes. RUN-4 fails on
+21 findings: 2 mismatches and 19 unregistered threads. The 128 `terminal-host-r` threads are the per-child
+`terminal-host-reaper` (task 237). Linux cuts names to 15 characters. The deny attributes are on no daemon crate
+root (task 219 has not landed). The fleet run is still open: app STRESS visible and hidden (RUN-3), and the
+macOS daemon (RUN-4's user-interactive echo threads for the app's UI connection). Until it is done, this task
+does not pass.
+
+| Task (`p02-threads-R-qos-daemon-` + suffix) | Thread | Seen | Spawn site |
+|---|---|---|---|
+| `mismatch-mux-conn` | `mux-conn` | desired utility, applied default: `RestingClass::follow` asks the registry slot for utility before `WorkQos::enter`, which does not lower a class the process cannot raise again (Linux nice without CAP_SYS_NICE) | server/connection_qos.rs, server/listen.rs |
+| `mismatch-mux-control-dispatch` | `mux-control-dispatch` | desired utility, applied user-initiated, same cause | server/connection_qos.rs, server/connection_scheduler.rs |
+| `unregistered-main` | daemon main thread | no row | cmux-tui/src/main.rs |
+| `unregistered-unnamed` | a thread with no name of its own | no row | (by stack) |
+| `unregistered-tokio-rt-worker` | an unnamed tokio worker, idle phase | no row; task 228 runtimes name theirs | (by stack) |
+| `unregistered-background-chec` | `background-checks` | no row | cmux-tui/src/owner_start/background_checks.rs |
+| `unregistered-client-log` | `client-log` | no row | cmux-tui/src/client_log.rs |
+| `unregistered-memory-guard` | `memory-guard` | no row | cmux-tui/src/owner_start/memory_guard.rs |
+| `unregistered-headless-signal` | `headless-signal` | no row | cmux-tui/src/headless.rs |
+| `unregistered-cmux-config-wat` | `cmux-config-watch` (2) | no row | cmux-config/src/watch/inotify.rs, portable.rs |
+| `unregistered-notify-rs-inoti` | `notify-rs inotify` (the notify crate's watcher thread) | no row | a `notify` watcher of cmux-config or cmux-tui-core |
+| `unregistered-mux-project-sou` | `mux-project-sources` | no row | cmux-tui-core/src/state/project_watch.rs |
+| `unregistered-mux-agent-chat` | `mux-agent-chat-*` | no row | cmux-tui-core/src/mux/agent_chat_notices.rs |
+| `unregistered-cmux-journal-pl` | `cmux-journal-plugin*` | no row | cmux-tui-core/src/journal_plugin.rs |
+| `unregistered-mux-cloud-io` | `mux-cloud-io` | no row | cmux-tui/src/cloud_conversations_backend.rs |
+| `unregistered-mux-host-replic` | `mux-host-replica*` (2) | no row | cmux-tui-core/src/server/cloud_host_replica.rs |
+| `unregistered-mux-deadline-n` | `mux-deadline-<n>` | no row | cmux-tui-core/src/mux/deadline_fanout.rs |
+| `unregistered-mux-idle-close` | `mux-idle-close` | no row | cmux-tui-core/src/mux/idle_close.rs |
+| `unregistered-mux-launch-snap` | `mux-launch-snapshot` | no row | cmux-tui-core/src/server/launch_snapshot.rs |
+| `unregistered-terminal-host-r` | `terminal-host-reaper` (up to 131) | one thread per child | terminal_host_runtime/sys/unix/spawned_host.rs (task 237) |
+| `unregistered-terminal-host-c` | `terminal-host-close` or `-child` (up to 8, during lifecycle closes) | no row | mux/host_close.rs, terminal_host_runtime/shared/host_start.rs |
+
 ## Reviewed blocking allowances
 
 `allowBlocking(<reason>)` lets the main thread block for one of these reasons only (Chrome's
