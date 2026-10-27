@@ -150,6 +150,12 @@ impl Hub {
             tracing::warn!(session = %session.id, ?mode, "the session left the asking-mode table: Web control ends");
             self.append(session, "mux", "remote_control_ended", json!({"mode": mode}));
         }
+        // MDM forces full access off (#23322): a write that moves the chat into full access (the
+        // harness's own update, in any form) ends its agent. The hub's background task does it
+        // under the session's spawn lock (`idle.rs`, `end_every_managed_full_access`).
+        if self.managed_off_runs_full_access(session) {
+            self.idle_wake.notify_one();
+        }
         // The remote floor: a Web turn does not go on in a mode that does
         // not ask, whatever the mode was before (`remote_floor.rs`).
         if !asks && session.turn().is_some_and(|t| t.control == Control::Web) {

@@ -14,6 +14,7 @@ import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel } from "../sessionList";
 import { WorktreeFailure } from "../startFolder";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
+import { sandboxFailureKey, type RunModeRows } from "../sandboxRun";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
 import { useSavedEnvironments } from "./savedEnvironments";
 import type { ComposerAttachment, DroppedKind, LinkItem } from "../attachments";
@@ -151,6 +152,15 @@ export type NewTabScreenActions = {
   onCreate?(kind: "terminal" | "browser"): void;
   /// The Now Playing player's controls (`nowPlaying.command`); without it the page shows no player.
   onNowPlaying?(command: NowPlayingCommand): void;
+  /// With `environments`, Run as in the picker (Persistent or Sandboxed, hq#3367); while Sandboxed
+  /// is the mode, Enter hands the prompt to `onSandbox` instead of starting a chat.
+  runMode?: RunModeRows;
+  /// Answers true when the send started, false when nothing did (an empty prompt, already sent), or
+  /// a refusal code the page shows itself (attachments, an agent a sandbox can't run).
+  onSandbox?(harness: string, text: string, attachments: ComposerAttachment[]): boolean | string;
+  /// The page goes with an unsent draft (a typed prompt, staged attachments): handed over so the
+  /// view that replaces it can keep it (the tab's Sandboxed run taking the chat view).
+  onLeaveDraft?(text: string, attachments: ComposerAttachment[]): void;
 };
 
 /// The agent's model, effort and speed chip (App's composer chips), for the agent and project a
@@ -387,6 +397,22 @@ export function NewTabScreen(props: Props) {
   useWebSwapHold(
     text !== (location ?? "") ? "newtab.draft" : attachments.length || reading.length ? "newtab.attachments" : null,
   );
+  // The draft as it is now, for `onLeaveDraft` when the page goes.
+  const leaving = useRef({ text, attachments, typed: false, onLeaveDraft: props.onLeaveDraft });
+  leaving.current = {
+    text,
+    attachments,
+    typed: text !== (location ?? ""),
+    onLeaveDraft: props.onLeaveDraft,
+  };
+  useEffect(
+    () => () => {
+      const draft = leaving.current;
+      if ((draft.typed && draft.text.trim()) || draft.attachments.length)
+        draft.onLeaveDraft?.(draft.text, draft.attachments);
+    },
+    [],
+  );
   // The page a file drag covers with the drop overlay (composer/DropOverlay.tsx); a drop lands in the field.
   const [dropHost, setDropHost] = useState<Element | null>(null);
   useLayoutEffect(() => {
@@ -458,10 +484,37 @@ export function NewTabScreen(props: Props) {
         snapshot.peerStates ?? {},
       ).filter((environment) => environment.kind === "local" || peers.includes(environment.id)),
     ];
-  }, [props.machineName, snapshot.peers, snapshot.sessions, snapshot.peerKinds, snapshot.peerConnected, snapshot.peerStates, t]);
+  }, [
+    props.machineName,
+    snapshot.peers,
+    snapshot.sessions,
+    snapshot.peerKinds,
+    snapshot.peerConnected,
+    snapshot.peerStates,
+    t,
+  ]);
+  const autoChoice = useMemo(
+    () =>
+      chooseAutoEnvironment({
+        prompt: text,
+        project,
+        environments: autoEnvironments,
+        sessions: snapshot.sessions,
+      }),
+    [text, project, autoEnvironments, snapshot.sessions],
+  );
   // A prompt's chat, in no project when that was the pick.
   // The images and files pasted or dropped on the page go with the first prompt.
-  const askChat = (agent: string, prompt: string, cwd?: string, model?: string) => {
+  /// A Sandboxed send refused here (attachments, an agent a sandbox can't run): said over the box,
+  /// and the prompt stays.
+  const [sandboxRefusal, setSandboxRefusal] = useState<string>();
+  /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
+  const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
+    if (props.runMode?.mode === "sandboxed" && props.onSandbox) {
+      const started = props.onSandbox(agent, prompt, attachments);
+      setSandboxRefusal(typeof started === "string" ? started : undefined);
+      return started === true;
+    }
     if (environment) return askInEnvironment(environment, agent, prompt, model);
     if (props.environments && autoEnvironment) {
       const choice = chooseAutoEnvironment({
@@ -472,7 +525,9 @@ export function NewTabScreen(props: Props) {
       });
       const extra = attachments.length ? attachments : undefined;
       if (choice.environment.kind !== "local")
-        return props.onAsk(agent, prompt, choice.cwd, model, undefined, extra, { peer: choice.environment.id });
+        return props.onAsk(agent, prompt, choice.cwd, model, undefined, extra, {
+          peer: choice.environment.id,
+        });
     }
     if (machine)
       return props.onAsk(
@@ -546,7 +601,11 @@ export function NewTabScreen(props: Props) {
             home,
             create: creates,
             ...(ask ? { ask } : {}),
-            createNames: { terminal: nt("create.terminal"), browser: nt("create.browser"), chat: nt("create.chat") },
+            createNames: {
+              terminal: nt("create.terminal"),
+              browser: nt("create.browser"),
+              chat: nt("create.chat"),
+            },
             ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
           })
         : [],
@@ -837,12 +896,14 @@ export function NewTabScreen(props: Props) {
     if (created.current) return;
     created.current = true;
     const prompt = shell ? "" : text.trim();
-    askChat(
+    const asked = askChat(
       harness,
       prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "",
       project,
       chipModel,
     );
+    // A Sandboxed New chat that started nothing (no prompt, a refusal) leaves the page's creates open.
+    if (asked === false) created.current = false;
   };
   const send = () => {
     touch();
@@ -1061,7 +1122,9 @@ export function NewTabScreen(props: Props) {
   function askInEnvironment(picked: SavedEnvironment, agent: string, prompt: string, model?: string) {
     const extra = attachments.length > 0 ? attachments : undefined;
     if (picked.kind === "ssh")
-      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, { peer: picked.host });
+      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, {
+        peer: picked.host,
+      });
     if (!picked.worktree || !picked.folder || !props.onNewWorktree)
       return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, {});
     if (worktreePending.current) return;
@@ -1155,11 +1218,13 @@ export function NewTabScreen(props: Props) {
         summary={{
           ...chipSnapshot.summary,
           sessionId: chipSnapshot.summary?.sessionId ?? "",
-          ...(machine
-            ? { peer: machine.peer, cwd: machine.folder }
-            : askFolder
-              ? { cwd: askFolder }
-              : { cwd: undefined }),
+          ...(props.environments && autoEnvironment && autoChoice.environment.kind !== "local"
+            ? { peer: autoChoice.environment.id, cwd: autoChoice.cwd }
+            : machine
+              ? { peer: machine.peer, cwd: machine.folder }
+              : askFolder
+                ? { cwd: askFolder }
+                : { cwd: undefined }),
         }}
         // Every machine acpmux lists (`_acpmux/status`), as the chat composer lists them: a pick
         // starts the chat there (screenActions onAsk with its `peer`).
@@ -1171,7 +1236,8 @@ export function NewTabScreen(props: Props) {
         {...(props.onRefreshMachines ? { onRefreshMachines: props.onRefreshMachines } : {})}
         onComputer={(computer) => pickMachine(computer === "local" ? undefined : { peer: computer })}
         auto={{
-          detail: t("composer.autoDetail"),
+          detail: autoChoice.environment.label,
+          kind: autoChoice.environment.kind,
           selected: autoEnvironment,
           onPick: () => {
             saved.pick(undefined);
@@ -1190,6 +1256,7 @@ export function NewTabScreen(props: Props) {
         {...(props.environments ? { environments: true } : {})}
         {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
         {...(props.environments && props.onConnect ? { onConnect: props.onConnect } : {})}
+        {...(props.environments && props.runMode ? { runMode: props.runMode } : {})}
         {...(saved.on
           ? {
               saved: {
@@ -1339,8 +1406,13 @@ export function NewTabScreen(props: Props) {
           composer location strip; newtab/screen.css). */}
       <div ref={setComposer} className="nt-composer" data-composer-look={look === "codex" ? "codex" : undefined}>
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
+        {sandboxRefusal && props.runMode?.mode === "sandboxed" && (
+          <output className="acpmux-switch-notice">
+            <span role="alert">{t(sandboxFailureKey(sandboxRefusal) ?? "sandbox.error.failed")}</span>
+          </output>
+        )}
         {/* Above the box: the project strip (Cards draws it under the field). */}
-        {!pill && <div className="nt-above">{folderStrip}</div>}
+        {!pill && !split && <div className="nt-above">{folderStrip}</div>}
         <div ref={setBox} className="ui-glass ui-glass-floats nt-box">
           {commandsOpen && (
             <SlashMenu
@@ -1427,11 +1499,12 @@ export function NewTabScreen(props: Props) {
           />
           {!pill && !split && pickers}
         </div>
-        {/* Claude Code's split, the chat composer's (ComposerFoot.tsx): the mode, model and effort in
-            a quiet row under the box; the box keeps the prompt, the mic and Send. */}
+        {/* Claude Code's one quiet row: folder and computer lead the mode, model and effort;
+            the box keeps the prompt, the mic and Send (Leo: "one single row"). */}
         {split && Chips && (
           <div className="nt-foot" onPointerDownCapture={touch}>
             <ComposerFoot ref={foot}>
+              {folderStrip}
               <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />
             </ComposerFoot>
           </div>
@@ -1522,7 +1595,11 @@ export function NewTabScreen(props: Props) {
         onEditWidgets
           ? [
               editing.editing
-                ? { id: "edit.done", label: nt("edit.done"), onSelect: () => editing.setEditing(false) }
+                ? {
+                    id: "edit.done",
+                    label: nt("edit.done"),
+                    onSelect: () => editing.setEditing(false),
+                  }
                 : { id: "edit", label: nt("edit.menu"), onSelect: () => editing.setEditing(true) },
             ]
           : []

@@ -57,10 +57,12 @@ describe("new chat Auto environment", () => {
   });
 
   test("requires a complete machine-name reference", () => {
-    expect(chooseAutoEnvironment({ prompt: "Improve the developer documentation", environments: [
-      ...environments,
-      { id: "dev", label: "dev", kind: "ssh", connected: true },
-    ] }).environment.id).toBe("local");
+    expect(
+      chooseAutoEnvironment({
+        prompt: "Improve the developer documentation",
+        environments: [...environments, { id: "dev", label: "dev", kind: "ssh", connected: true }],
+      }).environment.id,
+    ).toBe("local");
   });
 
   test("keeps a known project folder when the prompt names its machine", () => {
@@ -73,4 +75,18 @@ describe("new chat Auto environment", () => {
       }),
     ).toMatchObject({ environment: { id: "gpu-box" }, cwd: "/home/dev/model" });
   });
+});
+
+test("resolves the folder on the named destination when peers share a project path", () => {
+  expect(
+    chooseAutoEnvironment({
+      prompt: "Continue on gpu-box",
+      project: "/repo",
+      environments,
+      sessions: [
+        { peer: "cloud-1", cwd: "/repo" },
+        { peer: "gpu-box", cwd: "/repo" },
+      ],
+    }),
+  ).toMatchObject({ environment: { id: "gpu-box" }, cwd: "/repo" });
 });

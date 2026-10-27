@@ -239,7 +239,11 @@ test("the picker lists the saved environments in a Saved section over the machin
   ]);
   expect(saved[0]!.querySelector(".acpmux-env-row")!.getAttribute("data-section")).toBe(t("composer.envSaved"));
   // The machines follow, still numbered from ⌥⌘1, and Create environment heads New environment.
-  expect(rows()[3]!.querySelector(".acpmux-env-key")?.textContent).toBe("⌥⌘1");
+  expect(
+    rows()
+      .find((item) => item.querySelector(".acpmux-env-key"))
+      ?.querySelector(".acpmux-env-key")?.textContent,
+  ).toBe("⌥⌘1");
   const created = row(t("environment.create"));
   expect(created?.querySelector(".acpmux-env-row")!.getAttribute("data-section")).toBe(t("composer.newEnvironment"));
   // No Edit environment until one is picked.
@@ -463,4 +467,21 @@ test("a chat started on another machine starts on the model the page showed", as
     model: "claude-opus-5-5",
     peer: "devbox",
   });
+});
+
+test("Auto previews the remote destination without showing the local folder it will not send", async () => {
+  const calls = await mount({ tabCwd: APP });
+  await type(host.querySelector<HTMLTextAreaElement>(".nt-field"), "Build in cloud");
+  expect(environmentButton()?.textContent).toContain("Auto · cloud-1");
+  expect(host.querySelector(".acpmux-composer-context")?.textContent).not.toContain("app");
+  await ask("Build in cloud");
+  const launch = calls.find((call) => call.method === "chat.new");
+  expect(launch?.params?.peer).toBe("cloud-1");
+  expect(launch?.params?.cwd).toBeUndefined();
+});
+
+test("preview features off keeps a cloud-keyword prompt on the displayed local machine", async () => {
+  const calls = await mount({ previews: false, tabCwd: APP });
+  await ask("Build in cloud");
+  expect(calls.find((call) => call.method === "chat.new")?.params?.peer).toBeUndefined();
 });

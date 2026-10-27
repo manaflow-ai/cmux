@@ -54,17 +54,26 @@ export function chooseAutoEnvironment({
           return id !== undefined && remotes.some((environment) => environment.id === id);
         })
     : undefined;
-  const projectMachine = projectSession?.peer ?? (projectSession?.hostKind === "cloud" ? projectSession.host : undefined);
+  const projectMachine =
+    projectSession?.peer ?? (projectSession?.hostKind === "cloud" ? projectSession.host : undefined);
 
   const named = [...remotes]
     .sort((left, right) => right.label.length - left.label.length)
     .find((environment) => containsMachineReference(words, environment.label));
-  if (named)
+  if (named) {
+    const namedProject = normalizedProject
+      ? sessions.find(
+          (session) =>
+            normalizePath(session.cwd) === normalizedProject &&
+            (session.peer ?? (session.hostKind === "cloud" ? session.host : undefined)) === named.id,
+        )
+      : undefined;
     return {
       environment: named,
       reason: "machine",
-      ...(named.id === projectMachine && projectSession?.cwd ? { cwd: projectSession.cwd } : {}),
+      ...(namedProject?.cwd ? { cwd: namedProject.cwd } : {}),
     };
+  }
 
   const projectEnvironment = projectMachine ? remotes.find((candidate) => candidate.id === projectMachine) : undefined;
   if (projectEnvironment) return { environment: projectEnvironment, reason: "project", cwd: projectSession?.cwd };

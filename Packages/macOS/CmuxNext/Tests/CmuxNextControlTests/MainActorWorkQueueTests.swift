@@ -42,6 +42,24 @@ import Testing
         #expect(queue.stats.executed == 0)
     }
 
+    /// A request already past its deadline when it reaches the queue (an `action.batch`
+    /// transaction after a slow one) times out at once and never runs, even when a frame drains
+    /// the queue before any timer could fire: its caller is answered `timeout`, so the work must
+    /// not happen after all.
+    @Test func aRequestPastItsDeadlineOnArrivalNeverRuns() async throws {
+        let frames = ManualFrameSource()
+        let queue = MainActorWorkQueue(frameSource: frames)
+        let ran = Shared(false)
+        await #expect(throws: ControlError.self) {
+            try await queue.run(method: "action.batch", deadline: .now - .milliseconds(1)) { ran.withLock { $0 = true } }
+        }
+        #expect(frames.scheduledCount == 0, "nothing was queued")
+        #expect(queue.stats.pending == 0)
+        await frames.fire()
+        #expect(!ran.withLock { $0 })
+        #expect(queue.stats.expired == 1)
+    }
+
     /// cx-asb1 tab switch timeline: a control request waited for the next
     /// display frame even on an idle queue (request to run about 6.5 ms of a
     /// 13 ms tab switch). The first request after idle runs on the next main

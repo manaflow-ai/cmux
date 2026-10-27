@@ -11,6 +11,7 @@ import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
 import CmuxNextPages
+import CmuxNextSidebar
 import CmuxNextWakeups
 import ImageIO
 
@@ -268,14 +269,16 @@ final class HomeHostView: NSView {
         // (the Chief with no messages yet): otherwise no tab is read, so tab
         // changes never wake a Chief with history.
         agentsWatch = Task { [weak self] in
-            var shown: [HomeAgentGlance] = []
-            for await agents in ObservationStream({ () -> [HomeAgentGlance] in
+            for await state in ObservationStream({ () -> ([HomeAgentGlance], HomeStarterContext)? in
                 guard let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
-                      summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return [] }
-                return HomeAgentGlances(services: services).current
-            }) where agents != shown {
-                shown = agents
-                self?.transcript.setFirstRunAgents(agents)
+                      summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return nil }
+                let glances = HomeAgentGlances(services: services)
+                let agents = glances.current
+                return (agents, glances.starters(agents: agents, badges: SidebarSessionTree.shared.pullRequests))
+            }) {
+                guard let state else { continue }
+                self?.transcript.setFirstRunAgents(state.0)
+                self?.transcript.setFirstRunStarters(state.1)
             }
         }
         // The first-run rows' shortcuts and the Switching card follow rebinds

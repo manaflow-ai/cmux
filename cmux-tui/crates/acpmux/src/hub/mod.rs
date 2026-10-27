@@ -115,6 +115,7 @@ pub use new_request::{
 pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, page_bytes};
 pub use spawn::expand_env_value;
 pub mod approvers;
+pub mod mac_approvers;
 mod own_host;
 mod peer_cache;
 mod peer_lease;
@@ -247,6 +248,11 @@ pub(super) struct PendingPermission {
     pub(super) ancestor_may_answer: bool,
     /// The session's status before this prompt made it Waiting (`settle_permission`).
     pub(super) prev_status: SessionStatus,
+    /// The agent's JSON-RPC id for the request, when the agent asked. A
+    /// matching `$/cancel_request` withdraws this prompt.
+    pub(super) agent_request: Option<Id>,
+    /// The hosted child generation that owns `agent_request`.
+    pub(super) agent_host_incarnation: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -452,6 +458,9 @@ pub struct Hub {
     pub(super) trust_gate: StdMutex<Option<crate::trust::Paths>>,
     /// The `sandbox-exec` remote chains run Claude Code under (`remote_sandbox.rs`).
     pub(super) remote_sandbox_exec: StdMutex<PathBuf>,
+    /// Fault injection for integration tests; never replaces the keeper's pinned bwrap.
+    #[cfg(target_os = "linux")]
+    pub(super) linux_bwrap_probe: StdMutex<Option<PathBuf>>,
     /// Where `vm_host.rs` reads the creation marker (`/`; a folder in tests).
     pub(super) vm_marker_root: StdMutex<PathBuf>,
     /// The device-wide chat index, once started (`chats/`).
@@ -460,10 +469,15 @@ pub struct Hub {
     pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
     /// The forced start mode and the setting's change count (`start_mode_state.rs`).
     pub(super) start_mode_state: start_mode_state::StartModeCell,
-    /// Held (read) by a family message from its last check to its write, and an answer from
-    /// its check to its delivery; an MDM off push takes it (write) once the off is stored
+    /// Held by each `sessions.allowFullAccess` push through its teardown (`apply_full_access_push`).
+    pub(super) full_access_pushes: tokio::sync::Mutex<()>,
+    /// Held (read) by a family message from its last check until it is written to the agent, and
+    /// an answer from its check to its delivery; an MDM off push takes it (write) once the off is
+    /// stored
     /// (`full_access_bound.rs` `family_gate`).
-    pub(super) family_gate: tokio::sync::RwLock<()>,
+    pub(super) family_gate: Arc<tokio::sync::RwLock<()>>,
+    /// Bumped by an off push that waited too long on the gate: its holders cut their message.
+    pub(super) family_cut: tokio::sync::watch::Sender<u64>,
     /// Tests only: a pause before a family message's write (`full_access_bound::WriteSeam`).
     #[cfg(test)]
     pub(super) family_write_seam: full_access_bound::WriteSeam,
@@ -603,11 +617,15 @@ impl Hub {
             web_modes: StdMutex::new(Default::default()),
             trust_gate: StdMutex::new(None),
             remote_sandbox_exec: StdMutex::new(PathBuf::from(remote_sandbox::SANDBOX_EXEC)),
+            #[cfg(target_os = "linux")]
+            linux_bwrap_probe: StdMutex::new(None),
             vm_marker_root: StdMutex::new(PathBuf::from("/")),
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
             start_mode_state,
-            family_gate: tokio::sync::RwLock::new(()),
+            full_access_pushes: tokio::sync::Mutex::new(()),
+            family_gate: Arc::new(tokio::sync::RwLock::new(())),
+            family_cut: tokio::sync::watch::channel(0).0,
             #[cfg(test)]
             family_write_seam: Default::default(),
             #[cfg(test)]
