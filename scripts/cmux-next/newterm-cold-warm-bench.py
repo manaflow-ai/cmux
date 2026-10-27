@@ -334,24 +334,26 @@ def tag_processes(bench):
     return {"count": len(procs), "by_name": names, "commands": [c[:160] for _, c in procs][:40]}
 
 
-ALT_APP = []
+ALT_APP = {}
 
 
-def alt_app():
-    if not ALT_APP:
-        dest = os.path.join(os.path.dirname(OUT), "fleet-apps-alt")
-        got = subprocess.run([sys.executable, os.path.join(HERE, "fleet-app-fetch.py"), "--sha256", opts.alt_app_sha256,
+def alt_app(index=0):
+    """The index-th app of --alt-app-sha256 (comma separated), fetched once."""
+    if index not in ALT_APP:
+        sha = opts.alt_app_sha256.split(",")[index]
+        dest = os.path.join(os.path.dirname(OUT), f"fleet-apps-alt{index}")
+        got = subprocess.run([sys.executable, os.path.join(HERE, "fleet-app-fetch.py"), "--sha256", sha,
                               "--dest", dest], capture_output=True, text=True, check=True)
-        ALT_APP.append(os.path.abspath(got.stdout.strip().splitlines()[-1]))
-        note(f"alt app: {ALT_APP[0]} (sha256 {opts.alt_app_sha256[:12]})")
-    return ALT_APP[0]
+        ALT_APP[index] = os.path.abspath(got.stdout.strip().splitlines()[-1])
+        note(f"alt app {index}: {ALT_APP[index]} (sha256 {sha[:12]})")
+    return ALT_APP[index]
 
 
 def run_session(spec, digest):
     app = APP
-    if spec.startswith("alt:"):
-        app = alt_app()
-        spec_core = spec[4:]
+    if spec.startswith("alt"):
+        head, spec_core = spec.split(":", 1)
+        app = alt_app(int(head[3:] or 0))
     else:
         spec_core = spec
     CONTROL.cli_path = os.path.join(app, "Contents/Resources/bin/cmux")
