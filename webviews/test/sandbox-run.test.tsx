@@ -522,3 +522,21 @@ test("the only documented request refusals free the tab; a host read with no att
     expect(tab.checked).toBe(false);
   }
 });
+
+test("a read that fails keeps the run the tab last knew in view, with Check again", async () => {
+  const { SandboxTab } = await import("../src/agent-session/acpmux/sandboxRun");
+  let fail = false;
+  const tab = new SandboxTab(
+    (_method, params) =>
+      fail ? Promise.reject({ code: "native.not_connected" }) : params.wait ? new Promise(() => undefined) : Promise.resolve({ task: "go", key: "k", running: true }),
+    () => undefined,
+  );
+  void tab.read();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(tab.view()).toEqual({ task: "go", state: "running" });
+  fail = true;
+  await tab.read();
+  expect(tab.unread).toBe(true);
+  expect(tab.view()).toEqual({ task: "go", state: "running" });
+  expect(tab.spent()).toBe(true);
+});

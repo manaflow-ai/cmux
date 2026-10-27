@@ -149,6 +149,9 @@ export class SandboxTab {
   /// A read answered (none, running or ended): the page knows what the host holds for this tab, so
   /// Sandboxed can be offered.
   checked = false;
+  /// The newest read didn't answer: the chat offers Check again. What the tab last knew (``host``)
+  /// stays shown, so a run that may be live never drops out of view.
+  unread = false;
   /// The attempt the host said reached Cloud (running, or ended other than by a refusal before any
   /// Run). It stays until that attempt's own refusal before any Run: a later read that fails can't
   /// make the tab's one paid send available again.
@@ -245,8 +248,8 @@ export class SandboxTab {
 
   /// Reads the host's send (each handshake, Check again, a lost answer) and renders what it says.
   /// One plain read (15 s) and, for a running send, one wait read (the run's page bound): a read that
-  /// fails or misses its deadline leaves `unknown`, with Check again; a newer read wins; nothing
-  /// replaces a confirmed receipt.
+  /// fails or misses its deadline sets `unread` (with Check again) and keeps what the tab last knew;
+  /// a newer read wins; nothing replaces a confirmed receipt.
   async read(): Promise<void> {
     if (this.receipt) return;
     const id = ++this.reads;
@@ -274,7 +277,15 @@ export class SandboxTab {
     } else if (answer.kind === "running" || (answer.kind === "ended" && !sandboxRetryable(answer.run))) {
       this.refusal = undefined;
     }
-    if (answer.kind !== "unknown") this.checked = true;
+    if (answer.kind === "unknown") {
+      // No answer says nothing new: keep what the tab last knew (a run, a lost answer), with Check again.
+      this.unread = true;
+      if (!this.receipt && this.host.kind === "none") this.host = answer;
+      this.emit();
+      return;
+    }
+    this.unread = false;
+    this.checked = true;
     if (answer.kind === "none") this.held = undefined;
     else if (answer.kind === "running" || (answer.kind === "ended" && !sandboxRetryable(answer.run)))
       this.held = answer.key;
