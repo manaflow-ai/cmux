@@ -201,6 +201,8 @@ jobs:
           home="$RUNNER_TEMP/acpmux-home"
           rm -rf "$home" && mkdir -m 700 "$home"
           echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home" >> "$GITHUB_ENV"
+          # An inherited socket would still name another home's daemon; empty is unset.
+          echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"
 
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -270,7 +272,7 @@ jobs:
           home="$RUNNER_TEMP/acpmux-home"
           [[ -d "$home" ]] || exit 0
           acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
-          [[ -z "$acpmux" ]] || ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
+          [[ -z "$acpmux" ]] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
           rm -rf "$home"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

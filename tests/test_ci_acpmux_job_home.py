@@ -10,9 +10,11 @@ ACPMUX_HOME they resolved ~/.acpmux, handed the host daemon (pid 11252) off at
 A job that runs cmux NEXT's Swift tests (the only Swift package that starts
 acpmux: AcpmuxEnvironment), acpmux's or cmux-tui's daemon tests, or the acpmux
 CLI against a daemon must therefore, before its first such step, export
-ACPMUX_HOME=$RUNNER_TEMP/acpmux-home, and after its last one, in an always()
-step, end that home's daemon and agents with `acpmux daemon shutdown
---end-agents` and delete the home, so a failed or cancelled job cleans up too.
+ACPMUX_HOME=$RUNNER_TEMP/acpmux-home and an empty ACPMUX_SOCKET (a socket wins
+over the home, and empty counts as unset), and after its last one, in an
+always() step, end that home's daemon and agents with `env -u ACPMUX_SOCKET
+acpmux daemon shutdown --end-agents` and delete the home, so a failed or
+cancelled job cleans up too.
 In the tests themselves, AcpmuxEnvironment refuses the account's ~/.acpmux in
 a test process (AcpmuxEnvironment+TestGuard.swift).
 
@@ -51,6 +53,9 @@ LAUNCHES = (
 )
 SWIFT_TEST = re.compile(r"\bswift test\b")
 HOME_EXPORT = re.compile(r'ACPMUX_HOME=\$(?:RUNNER_TEMP|\{RUNNER_TEMP\})/acpmux-home["\']?\s*>>\s*"?\$GITHUB_ENV')
+# ACPMUX_SOCKET wins over the home (acpmux config::socket_path): an inherited one is another
+# home's daemon. Empty counts as unset everywhere (Swift, Rust).
+SOCKET_CLEAR = re.compile(r'ACPMUX_SOCKET=["\']?\s*>>\s*"?\$GITHUB_ENV')
 SHUTDOWN = "daemon shutdown --end-agents"
 
 
@@ -63,12 +68,13 @@ def launches(step: dict) -> bool:
 
 
 def is_start(step: dict) -> bool:
-    return bool(HOME_EXPORT.search(str(step.get("run") or "")))
+    run = str(step.get("run") or "")
+    return bool(HOME_EXPORT.search(run) and SOCKET_CLEAR.search(run))
 
 
 def is_stop(step: dict) -> bool:
     run = str(step.get("run") or "")
-    return (SHUTDOWN in run and "rm -rf" in run and "acpmux-home" in run
+    return (SHUTDOWN in run and "env -u ACPMUX_SOCKET" in run and "rm -rf" in run and "acpmux-home" in run
             and "always()" in str(step.get("if") or "").replace(" ", ""))
 
 
@@ -83,10 +89,10 @@ def job_failures(where: str, job: dict) -> list[str]:
     starts = [index for index, step in enumerate(steps) if is_start(step)]
     if not any(index < first and not steps[index].get("if") for index in starts):
         failures.append(f"{where}: '{named}' can start acpmux, but no unconditional step before it exports "
-                        "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home to $GITHUB_ENV")
+                        "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home and an empty ACPMUX_SOCKET to $GITHUB_ENV")
     if not any(index > last and is_stop(step) for index, step in enumerate(steps)):
-        failures.append(f"{where}: no always() step after its last acpmux step runs `acpmux {SHUTDOWN}` "
-                        "for $RUNNER_TEMP/acpmux-home and deletes it")
+        failures.append(f"{where}: no always() step after its last acpmux step runs `env -u ACPMUX_SOCKET "
+                        f"acpmux {SHUTDOWN}` for $RUNNER_TEMP/acpmux-home and deletes it")
     return failures
 
 
@@ -107,10 +113,10 @@ def failures() -> list[str]:
 
 START = {"name": "Give this job its own acpmux home",
          "run": 'home="$RUNNER_TEMP/acpmux-home"\nrm -rf "$home" && mkdir -m 700 "$home"\n'
-                'echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home" >> "$GITHUB_ENV"\n'}
+                'echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home" >> "$GITHUB_ENV"\necho "ACPMUX_SOCKET=" >> "$GITHUB_ENV"\n'}
 STOP = {"name": "Stop this job's acpmux daemons and remove its home", "if": "${{ always() }}",
         "run": 'home="$RUNNER_TEMP/acpmux-home"\n'
-               'ACPMUX_HOME="$home" acpmux daemon shutdown --end-agents || true\nrm -rf "$home"\n'}
+               'env -u ACPMUX_SOCKET ACPMUX_HOME="$home" acpmux daemon shutdown --end-agents || true\nrm -rf "$home"\n'}
 TEST = {"name": "Run package tests", "working-directory": CMUX_NEXT_PACKAGE,
         "run": "../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build"}
 
@@ -134,6 +140,11 @@ class AcpmuxJobHomeTests(unittest.TestCase):
         self.assertEqual(len(job_failures("w:j", {"steps": [dict(START, **{"if": "x"}), TEST, STOP]})), 1)
         # A stop that does not run after a failure or a cancel.
         self.assertEqual(len(job_failures("w:j", {"steps": [START, TEST, {**STOP, "if": "success()"}]})), 1)
+        # An inherited ACPMUX_SOCKET left in place: the job's steps, or its shutdown, reach that daemon.
+        keeps_socket = dict(START, run=START["run"].replace('echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"\n', ""))
+        self.assertEqual(len(job_failures("w:j", {"steps": [keeps_socket, TEST, STOP]})), 1)
+        stops_by_socket = dict(STOP, run=STOP["run"].replace("env -u ACPMUX_SOCKET ", ""))
+        self.assertEqual(len(job_failures("w:j", {"steps": [START, TEST, stops_by_socket]})), 1)
 
     def test_a_job_with_its_own_home_passes(self) -> None:
         self.assertEqual(job_failures("w:j", {"steps": [START, TEST, STOP]}), [])
