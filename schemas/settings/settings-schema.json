@@ -469,6 +469,7 @@
           {
             "key" : "settings.group.sidebar",
             "rows" : [
+              "sidebar.showWorkspaceTabs",
               "workspaces.newPlacement",
               "sidebar.groupByComputer",
               "workspaces.autoName",
@@ -479,7 +480,6 @@
               "sidebar.topBandMaxShare",
               "sidebar.bottomBandMaxShare",
               "sidebar.pinnedBandsScroll",
-              "sidebar.showWorkspaceTabs",
               "sidebar.sessionTree",
               "sidebar.showProjects",
               "sidebar.groupBy",
@@ -22457,7 +22457,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -22472,7 +22472,16 @@
       "keywords" : [
         "sidebar",
         "workspace",
-        "tabs"
+        "workspaces",
+        "tabs",
+        "panes",
+        "under",
+        "beneath",
+        "nested",
+        "expand",
+        "list",
+        "tree",
+        "disclosure"
       ],
       "kind" : "toggle",
       "page_hidden" : false,

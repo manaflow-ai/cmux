@@ -3783,7 +3783,7 @@
       "type" : "boolean"
     },
     "sidebar.showWorkspaceTabs" : {
-      "default" : true,
+      "default" : false,
       "description" : "Lists tabs beneath each workspace in the sidebar.",
       "title" : "Show Workspace Tabs",
       "type" : "boolean"
