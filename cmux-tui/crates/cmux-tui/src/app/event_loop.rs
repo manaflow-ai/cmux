@@ -71,11 +71,18 @@ impl App {
         Ok(action)
     }
 
-    /// The soonest future deadline of the work every loop turn checks, or
-    /// `None` when nothing is due without an event. A passed deadline is
-    /// skipped: the turn that just ran served it, or its work now waits for
-    /// an event (a reply, a completion).
-    pub(super) fn next_idle_wake(&self, now: Instant) -> Option<Instant> {
+    /// When the idle wait must end, or `None` when nothing is due without
+    /// an event. `served_at` is when the last turn's deadline consumers
+    /// started: they saw a deadline at or before it as passed, so it was
+    /// served or it waits behind a closed gate for an event (a reply, a
+    /// completion). A later deadline that has passed by `now` was not served
+    /// and ends the wait at once. The files view refreshes only on an idle
+    /// wake, so its passed deadline always ends the wait.
+    pub(super) fn next_idle_wake(
+        &self,
+        served_at: Option<Instant>,
+        now: Instant,
+    ) -> Option<Instant> {
         let durable_notice = self
             .durable_notices
             .front()
@@ -97,11 +104,12 @@ impl App {
             self.session.next_surface_attach_retry_at(),
             self.session.next_surface_overflow_retry_at(),
             self.session.next_sidebar_doc_read_at(),
-            sidebar_files,
         ]
         .into_iter()
         .flatten()
-        .filter(|at| *at > now)
+        .filter(|at| served_at.is_none_or(|served_at| *at > served_at))
+        .chain(sidebar_files)
+        .map(|at| at.max(now))
         .min()
     }
 
@@ -127,6 +135,7 @@ impl App {
 
         let mut replay_ready =
             !self.deferred_input.is_empty() || self.pending_pointer_motion.is_some();
+        let mut deadlines_served_at = None;
         while !self.quit
             && !crate::shutdown_requested()
             && !self.session.daemon_shutdown_requested()
@@ -153,7 +162,7 @@ impl App {
             } else if self.shake_frames > 0 || self.selection_auto_scroll_active() {
                 Some(now + Duration::from_millis(30))
             } else {
-                self.next_idle_wake(now)
+                self.next_idle_wake(deadlines_served_at, now)
             };
             let mut toast_expired_on_timeout = false;
             let received = match terminal_paints.wake_at(wake_at) {
@@ -172,6 +181,9 @@ impl App {
                     }
                     if self.expire_toast() {
                         toast_expired_on_timeout = true;
+                        action = action.merge(RenderAction::Draw);
+                    }
+                    if self.tick_sidebar_files() {
                         action = action.merge(RenderAction::Draw);
                     }
                     None
@@ -204,14 +216,12 @@ impl App {
                     Err(_) => break,
                 }
             }
-            // Every loop turn, so a deadline that passed under a burst of
-            // events is served (next_idle_wake skips passed ones): the
-            // sidebar document's fallback read (a changed document arrives
-            // as tree-changed) and the files view's refresh.
+            // From here to the end of the turn, each deadline consumer of
+            // next_idle_wake runs and reads the clock after this instant.
+            deadlines_served_at = Some(Instant::now());
+            // Every loop turn: the sidebar document's fallback read; a
+            // changed document arrives as tree-changed.
             self.session.tick_sidebar_doc();
-            if self.tick_sidebar_files() {
-                action = action.merge(RenderAction::Draw);
-            }
             action = action.merge(self.apply_graphics_completion());
             action = action.merge(self.process_machine_requests());
             // Always drain retained failures. PtyFailuresReady only shortens

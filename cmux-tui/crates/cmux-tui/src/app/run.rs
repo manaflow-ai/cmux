@@ -575,7 +575,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
 /// owner mux (its waker), and a termination signal (a thread that waits for
 /// the signal wake descriptor without consuming it). A remote daemon's
 /// shutdown arrives as a session event.
-fn wake_loop_on_shutdown(
+pub(super) fn wake_loop_on_shutdown(
     session: &Session,
     owner_mux: Option<&Mux>,
     events: &crossbeam_channel::Sender<AppEvent>,
