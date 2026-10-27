@@ -133,6 +133,7 @@ def main():
 
     # ---- the Mac app ------------------------------------------------------
     mac_bundle, tag, ls_env = step_tag(a.mac_app)
+    no_data_protection_keychain(a.mac_app)
     sock = ls_env.get("CMUX_SOCKET_PATH") or f"/tmp/cmux-debug-{tag}.sock"
     support = os.path.expanduser(f"~/Library/Application Support/{mac_bundle}")
     rig = os.path.join(a.work, "pair-rig")  # written only once cleanup is armed (below)
@@ -318,6 +319,19 @@ def step_tag(app):
     return bundle, tag, ls_env
 
 
+def no_data_protection_keychain(app):
+    """reload.sh signs the tagged app ad hoc with no entitlements, so it can't reach the data-protection
+    Keychain (no application identifier or access group). Its tokens go to the file fallback, and
+    the pairing seal and relay secrets are never stored. Everything it can store is then in the file
+    Keychain, which `forget_keychain` reaches. An app signed with those entitlements would leave items
+    only it can delete, so the run refuses it."""
+    out = subprocess.run(["/usr/bin/codesign", "-d", "--entitlements", "-", "--xml", app],
+                         capture_output=True, text=True).stdout
+    for key in ("keychain-access-groups", "com.apple.application-identifier", "com.apple.developer.team-identifier"):
+        if key in out:
+            raise SystemExit(f"the Mac app is signed with {key}: its data-protection Keychain items would outlive the run")
+
+
 def forget_tag(app):
     """Everything the tagged app and reload.sh leave for this tag, by exact path (the one list both cleanup
     paths use): the app's settings, support, auth file fallback, run markers and defaults; the daemon's
@@ -356,10 +370,11 @@ def forget_tag(app):
 
 
 def forget_keychain(bundle):
-    """This run's Keychain items: the Stack tokens (`<bundle>.auth`, CloudConfiguration) and the iPhone
-    host's identity (`<bundle>.iphone-host.identity`, MobileHostMacIdentity), by their exact services;
+    """This run's file-Keychain items: the Stack tokens (`<bundle>.auth`, CloudConfiguration), the iPhone
+    host's identity (`<bundle>.iphone-host.identity`, MobileHostMacIdentity) and the device hub's keys
+    (`<bundle>.device-hub`, DeviceKeychain), by their exact services;
     the bundle id is this tag's own. Every item of a service goes (one per account)."""
-    for service in (f"{bundle}.auth", f"{bundle}.iphone-host.identity"):
+    for service in (f"{bundle}.auth", f"{bundle}.iphone-host.identity", f"{bundle}.device-hub"):
         for _ in range(32):  # bounded: delete-generic-password removes one item per call
             if subprocess.run(["/usr/bin/security", "delete-generic-password", "-s", service],
                               capture_output=True).returncode != 0:
