@@ -251,14 +251,22 @@ test("producer PR revisions invalidate on activity edits, deletion and transcrip
   expect(transcriptPullRequestKey(rows.sorted(), true)).not.toBe(deleted);
 });
 
+const toolsRows = (...items: ReturnType<typeof shell>[]) => [activity(items, 1)];
+
 test("brokered PR mutations are Changes", () => {
-  const rows = [activity([shell("glaeda-gh gh pr edit 41 -R acme/uploader --title 'Changed'")], 1)];
+  const rows = toolsRows(shell("glaeda-gh gh pr edit 41 -R acme/uploader --title 'Changed'"));
   expect(transcriptPullRequests(rows).map((pr) => [pr.number, pr.changed])).toEqual([[41, true]]);
 });
 
-test("git observations, pushes and reverts do not infer PR mutations", () => {
+test("git activity, help, comments and quoted commands do not infer PR mutations", () => {
   const rows = [activity([shell("gh pr view 41 -R acme/uploader")], 1)];
   for (const command of [
+    "gh pr edit 41 -R acme/uploader --help",
+    "gh pr close 41 -R acme/uploader -h",
+    "true\n# gh pr edit 41 -R acme/uploader",
+    "true # ignored; gh pr edit 41 -R acme/uploader",
+    "echo 'gh pr edit 41 -R acme/uploader'",
+    "echo gh pr edit 41 -R acme/uploader",
     "git branch --show-current",
     "git push origin unrelated",
     "git add . && git commit -m fix && git push origin feature-41",
@@ -274,7 +282,8 @@ test("git observations, pushes and reverts do not infer PR mutations", () => {
 test("brokered comment writes produce one mutation and no Source", () => {
   for (const kind of ["pr", "issue"]) {
     const rows = [activity([shell(`glaeda-gh post ${kind}-comment acme/uploader#41 --body-file -`)], 1)];
-    const findings = transcriptPullRequests(rows, { folder: "acme/uploader" });
+    rows.push(assistant("Updated acme/uploader#41.", 2));
+    const findings = transcriptPullRequests(rows, { folder: "acme/uploader", replies: true });
     expect(findings).toHaveLength(1);
     expect(findings[0]).toMatchObject({ number: 41, changed: true, kind: kind === "pr" ? "pullRequest" : "issue" });
     expect(sessionSummary(rows, "acme/uploader").sources).toEqual([]);
@@ -282,7 +291,7 @@ test("brokered comment writes produce one mutation and no Source", () => {
 });
 
 test("mutating issue calls do not become read-only Sources", () => {
-  for (const action of ["edit", "comment", "close", "reopen", "create"]) {
+  for (const action of ["edit", "comment", "close", "reopen", "create", "delete", "pin", "unpin", "transfer"]) {
     const command =
       action === "create" ? "gh issue create -R acme/uploader --title x" : `gh issue ${action} 7 -R acme/uploader`;
     const output = action === "create" ? "https://github.com/acme/uploader/issues/8" : "";
@@ -291,35 +300,22 @@ test("mutating issue calls do not become read-only Sources", () => {
   }
 });
 
-test("fetched pull request URLs become Sources", () => {
-  const rows = [
-    activity(
-      [
-        tool("Fetch pull request", "fetch", "completed", {
-          inputSummary: JSON.stringify({ url: "https://github.com/acme/uploader/pull/41/files" }),
-          output: "pull request page",
-        }),
-      ],
-      1,
-    ),
-  ];
-  expect(sessionSummary(rows, "acme/uploader").sources).toEqual([
-    { url: "https://github.com/acme/uploader/pull/41", label: "acme/uploader #41", kind: "pullRequest" },
-  ]);
-});
-
 test("OrderedRows summary revisions track row addition, settling and removal", () => {
   const rows = new OrderedRows();
   const initial = transcriptSummaryVersion(rows.sorted());
-  const streaming = { ...assistant("working", 2), streaming: true };
+  const streaming = { ...assistant("Verified https://github.com/acme/app/pull/41", 2), streaming: true };
   rows.set(streaming.id, streaming);
   const added = transcriptSummaryVersion(rows.sorted());
   expect(added).not.toBe(initial);
-  rows.set(streaming.id, { ...streaming, text: "still working", version: 2 });
+  const key = transcriptPullRequestKey(rows.sorted(), true);
+  expect(transcriptPullRequests(rows.sorted(), { replies: true })).toEqual([]);
+  rows.set(streaming.id, { ...streaming, version: 2 });
   expect(transcriptSummaryVersion(rows.sorted())).toBe(added);
   rows.set(streaming.id, { ...streaming, streaming: false, version: 3 });
   const settled = transcriptSummaryVersion(rows.sorted());
   expect(settled).not.toBe(added);
+  expect(transcriptPullRequestKey(rows.sorted(), true)).not.toBe(key);
+  expect(transcriptPullRequests(rows.sorted(), { replies: true })[0]?.number).toBe(41);
   rows.delete(streaming.id);
   expect(transcriptSummaryVersion(rows.sorted())).not.toBe(settled);
 });
@@ -359,19 +355,16 @@ test("sessionSummary skips history across 50 mixed activity and assistant chunks
 });
 
 test("sources include fetched URLs, files read and MCP tools", () => {
-  const rows = [
-    activity(
-      [
-        tool("Read config", "read", "completed", { locations: [{ path: "config/app.json" }] }),
-        tool("Fetch docs", "fetch", "completed", { inputSummary: JSON.stringify({ url: "https://example.com/docs" }) }),
-        tool("mcp__github__get_issue", "other", "completed", {
-          inputSummary: JSON.stringify({ owner: "acme", number: 7 }),
-        }),
-      ],
-      1,
-    ),
-  ];
+  const rows = toolsRows(
+    tool("Fetch PR", "fetch", "completed", { inputSummary: '{"url":"https://github.com/acme/app/pull/41/files"}' }),
+    tool("Read config", "read", "completed", { locations: [{ path: "config/app.json" }] }),
+    tool("Fetch docs", "fetch", "completed", { inputSummary: JSON.stringify({ url: "https://example.com/docs" }) }),
+    tool("mcp__github__get_issue", "other", "completed", {
+      inputSummary: JSON.stringify({ owner: "acme", number: 7 }),
+    }),
+  );
   expect(sessionSummary(rows, "acme/app").sources).toEqual([
+    { url: "https://github.com/acme/app/pull/41", label: "acme/app #41", kind: "pullRequest" },
     { label: "config/app.json", kind: "file" },
     { url: "https://example.com/docs", label: "example.com/docs", kind: "url" },
     { label: "github · get issue", kind: "mcp" },
@@ -379,96 +372,65 @@ test("sources include fetched URLs, files read and MCP tools", () => {
 });
 
 test("update-branch is a Change and JSON titles preserve apostrophes", () => {
-  const rows = [
-    activity(
-      [
-        shell("gh pr update-branch 41 -R acme/uploader"),
-        shell("gh pr view 42 -R acme/uploader --json title", '{"title":"Leo\'s retry"}'),
-      ],
-      1,
-    ),
-  ];
+  const rows = toolsRows(
+    shell("gh pr update-branch 41 -R acme/uploader"),
+    shell("gh pr view 42 -R acme/uploader --json title", '{"title":"Leo\'s retry"}'),
+  );
   expect(transcriptPullRequests(rows).map((pr) => [pr.number, pr.changed, pr.title])).toEqual([
     [41, true, undefined],
     [42, undefined, "Leo's retry"],
   ]);
 });
 
-test("gh issue view references become issue Sources, never pull request URLs", () => {
-  const rows = [activity([shell("gh issue view 7 -R acme/uploader --json title", '{"title":"Scratch output"}')], 1)];
-  const issue = transcriptPullRequests(rows, { folder: "acme/uploader", replies: true })[0]!;
-  expect(issue).toMatchObject({
-    url: "https://github.com/acme/uploader/issues/7",
-    kind: "issue",
-    mentioned: true,
-  });
-  expect(sessionSummary(rows, "acme/uploader").sources).toEqual([
-    { url: "https://github.com/acme/uploader/issues/7", label: "Scratch output", kind: "issue" },
-  ]);
-});
-
-test("issue URLs in settled replies remain issue Sources", () => {
-  const rows = [assistant("See https://github.com/acme/uploader/issues/8", 1)];
-  expect(transcriptPullRequests(rows, { replies: true })).toMatchObject([
-    { url: "https://github.com/acme/uploader/issues/8", kind: "issue", mentioned: true },
-  ]);
-});
-
-test("settled assistant URLs become Sources while streaming prose is ignored", () => {
-  const settled = assistant("Read https://example.com/guide", 2);
-  const streaming = { ...assistant("Read https://example.com/live", 3), streaming: true };
-  expect(sessionSummary([settled]).sources).toEqual([
-    { url: "https://example.com/guide", label: "example.com/guide", kind: "url" },
-  ]);
-  expect(sessionSummary([streaming]).sources).toEqual([]);
+test("Sources preserve issue, URL and shorthand reference meaning", () => {
+  const github = "https://github.com/acme/app";
+  const cases: [Rows, string, string, "issue" | "url" | "pullRequest"][] = [
+    [
+      toolsRows(shell("gh issue view 7 -R acme/app --json title", '{"title":"Scratch"}')),
+      `${github}/issues/7`,
+      "Scratch",
+      "issue",
+    ],
+    [[assistant(`See ${github}/issues/8`, 1)], `${github}/issues/8`, "acme/app #8", "issue"],
+    [[assistant("Read https://example.com/guide", 1)], "https://example.com/guide", "example.com/guide", "url"],
+    [toolsRows(shell("echo acme/app#7")), `${github}/issues/7`, "acme/app#7", "url"],
+    [[assistant("See acme/app#7", 1)], `${github}/issues/7`, "acme/app#7", "url"],
+    [[assistant(`See ${github}/pull/9`, 1)], `${github}/pull/9`, "acme/app #9", "pullRequest"],
+    [
+      [...toolsRows(shell("gh pr view 7 -R acme/app")), assistant("See acme/app#7", 2)],
+      `${github}/pull/7`,
+      "acme/app #7",
+      "pullRequest",
+    ],
+  ];
+  for (const [rows, url, label, kind] of cases)
+    expect(sessionSummary(rows, "acme/app").sources).toEqual([{ url, label, kind }]);
+  expect(sessionSummary([{ ...assistant("Read https://example.com/live", 1), streaming: true }]).sources).toEqual([]);
 });
 
 test("pending and failed tools do not enter Sources", () => {
-  const pending = tool("Read pending", "read", "in_progress", {
-    output: "https://example.com/pending",
-    locations: [{ path: "/tmp/pending.txt" }],
-  });
-  const failed = tool("Read failed", "read", "failed", {
-    output: "https://example.com/failed",
-    exitCode: 1,
-    locations: [{ path: "/tmp/failed.txt" }],
-  });
-  const row = activity([pending, failed], 1);
-  expect(sessionSummary([row], "acme/app").sources).toEqual([]);
-});
-
-test("ambiguous shorthand Sources use neutral labels and redirect-safe URLs", () => {
-  for (const row of [activity([shell("echo acme/app#7")], 1), assistant("See acme/app#7 and #8", 1)]) {
-    const sources = sessionSummary([row], "acme/app").sources;
-    expect(sources[0]).toEqual({ url: "https://github.com/acme/app/issues/7", label: "acme/app#7", kind: "url" });
+  for (const status of ["in_progress", "failed"] as const) {
+    const rows = toolsRows(
+      tool("Read", "read", status, {
+        output: "https://example.com/pending",
+        locations: [{ path: "/tmp/pending.txt" }],
+      }),
+    );
+    expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
   }
-  const explicit = sessionSummary([assistant("See https://github.com/acme/app/pull/9", 1)], "acme/app").sources;
-  expect(explicit[0]).toMatchObject({ url: "https://github.com/acme/app/pull/9", kind: "pullRequest" });
-});
-
-test("known PR evidence stays a PR when later referenced by shorthand", () => {
-  const rows = [activity([shell("gh pr view 7 -R acme/app")], 1), assistant("See acme/app#7", 0)];
-  expect(sessionSummary(rows, "acme/app").sources).toEqual([
-    { url: "https://github.com/acme/app/pull/7", label: "acme/app #7", kind: "pullRequest" },
-  ]);
 });
 
 test("Outputs preserve unscoped callers and filter canonical paths when cwd is given", () => {
-  const rows = [
-    activity(
-      [
-        tool("Write files", "edit", "completed", {
-          diffs: [
-            { path: "src/main.ts", newText: "export {}" },
-            { path: "scratch.txt", canonical: "/tmp/scratch.txt", newText: "scratch" },
-            { path: "/tmp/m1076.txt", newText: "scratch" },
-            { path: "../outside.txt", newText: "scratch" },
-          ],
-        }),
+  const rows = toolsRows(
+    tool("Write files", "edit", "completed", {
+      diffs: [
+        { path: "src/main.ts", newText: "export {}" },
+        { path: "scratch.txt", canonical: "/tmp/scratch.txt", newText: "scratch" },
+        { path: "/tmp/m1076.txt", newText: "scratch" },
+        { path: "../outside.txt", newText: "scratch" },
       ],
-      1,
-    ),
-  ];
+    }),
+  );
   expect(sessionSummary(rows).outputs.map((file) => file.path)).toEqual([
     "src/main.ts",
     "scratch.txt",
@@ -476,4 +438,15 @@ test("Outputs preserve unscoped callers and filter canonical paths when cwd is g
     "../outside.txt",
   ]);
   expect(sessionSummary(rows, undefined, "/project").outputs.map((file) => file.path)).toEqual(["src/main.ts"]);
+});
+
+test("only explicit title data supplies titles; edits preserve their supplied title", () => {
+  const rows = [activity([shell("gh pr view 41 -R acme/app --json state --jq .state", "OPEN")], 1)];
+  expect(transcriptPullRequests(rows)[0]?.title).toBeUndefined();
+  rows.push(activity([shell("gh pr view 41 -R acme/app --json title --jq '.title'", "Correct title")], 2));
+  expect(transcriptPullRequests(rows)[0]?.title).toBe("Correct title");
+  rows.push(
+    activity([shell("gh pr edit 41 -R acme/app --title 'New title'", "https://github.com/acme/app/pull/41")], 3),
+  );
+  expect(transcriptPullRequests(rows)[0]?.title).toBe("New title");
 });

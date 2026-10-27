@@ -205,6 +205,8 @@ test("a checkpoint's root package.json is the root output, not a package's", asy
 });
 
 test("completed searches without URLs remain named Sources", () => {
-  const sources = sessionSummary([activity([tool("Search retry policies", "fetch", "completed", { inputSummary: '{"query":"retry policies"}' })], 1)]).sources;
+  const sources = sessionSummary([
+    activity([tool("Search retry policies", "fetch", "completed", { inputSummary: '{"query":"retry policies"}' })], 1),
+  ]).sources;
   expect(sources).toEqual([{ label: "Search retry policies" }]);
 });
