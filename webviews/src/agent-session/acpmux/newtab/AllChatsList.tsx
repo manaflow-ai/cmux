@@ -432,7 +432,8 @@ export function AllChatsList({
       // Let focused controls keep their native keyboard action. In particular, the inline
       // later-page retry is a button: swallowing Enter here would open the current selection
       // instead of retrying the failed page.
-      if (event.defaultPrevented || target?.closest("button, input, textarea, select, a, [role=menu]")) return;
+      const control = target?.closest("button, input, textarea, select, a, [role=menu]");
+      if (event.defaultPrevented || (control && !control.classList.contains("nt-all-row"))) return;
       if (event.key === "Enter") {
         event.preventDefault();
         onBring(selected);

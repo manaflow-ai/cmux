@@ -228,3 +228,39 @@ test("Enter on a failed history-page retry keeps the selection shortcut out of t
   expect(requests[2]!.cursor).toBe("page-2");
   expect(opened).toEqual([]);
 });
+
+test("Enter and Escape still operate on a focused selected chat row", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { AllChatsList } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
+  const brought: string[][] = [];
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <AllChatsList
+        load={async () => ({ chats, ready: true })}
+        onOpen={() => {}}
+        onBring={(keys) => brought.push(keys)}
+      />,
+    ),
+  );
+  await settle();
+  for (const title of ["Retry uploads", "Fix the sidebar"]) {
+    await press(allChatsRow(title), { metaKey: true });
+    await release(allChatsRow(title), { metaKey: true });
+  }
+  const row = allChatsRow("Fix the sidebar");
+  row.focus();
+  const enter = new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" });
+  row.dispatchEvent(enter);
+  expect(enter.defaultPrevented).toBe(true);
+  expect(brought).toEqual([["a", "b"]]);
+
+  for (const title of ["Retry uploads", "Fix the sidebar"]) {
+    await press(allChatsRow(title), { metaKey: true });
+    await release(allChatsRow(title), { metaKey: true });
+  }
+  const escape = new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Escape" });
+  allChatsRow("Retry uploads").dispatchEvent(escape);
+  expect(escape.defaultPrevented).toBe(true);
+  expect(host.querySelectorAll(".nt-all-row[data-selected]")).toHaveLength(0);
+});
