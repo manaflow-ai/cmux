@@ -28,7 +28,6 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
     init(actionID: String) {
         self.actionID = actionID
         super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
         isBordered = false
         bezelStyle = .regularSquare
         imagePosition = .imageOnly
@@ -37,13 +36,15 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
         target = self
         action = #selector(run)
         setAccessibilityIdentifier(ExtensionActionToolbar.Identifier.action(actionID))
-        // The toolbar's button size (BrowserToolbarLayout counts on it).
-        NSLayoutConstraint.activate([
-            density.bind(widthAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.buttonSize },
-            density.bind(heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.buttonSize },
-        ])
+        // The toolbar's button size (BrowserToolbarLayout counts on it), a fixed square: frame layout
+        // reads `intrinsicContentSize`, the toolbar's stack view keeps it exactly.
+        for orientation in [NSLayoutConstraint.Orientation.horizontal, .vertical] {
+            setContentHuggingPriority(.required, for: orientation)
+            setContentCompressionResistancePriority(.required, for: orientation)
+        }
         density.update { [weak self] in
             guard let self else { return }
+            if side != OmnibarStyle.buttonSize { side = OmnibarStyle.buttonSize; invalidateIntrinsicContentSize() }
             layer?.cornerRadius = OmnibarStyle.buttonCornerRadius
             // The icon is sized for the density.
             if let shown { applyIcon(shown) }
@@ -55,6 +56,10 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// The toolbar's button size, read in the density binding so a density change applies.
+    private var side: CGFloat = 0
+    override var intrinsicContentSize: NSSize { NSSize(width: side, height: side) }
 
     func update(_ action: CEFExtensionAction) {
         // Every store change renders every button: decode only an icon that changed.
@@ -106,6 +111,7 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
         isHighlighted = true
     }
 
+    // local-monitor-allow: a drag is delivered unbuffered until its mouse-up (p06-scheduler.md section E, FrameInputCoalescer); each move only offsets the pinned buttons
     override func mouseDragged(with event: NSEvent) {
         guard var press else { return super.mouseDragged(with: event) }
         let dx = event.locationInWindow.x - press.start.x
@@ -146,11 +152,13 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
         }
     }
 
+    // visibility-walk-allow: hover is a hit test: a view hidden or shown under a still pointer gets no exit or enter, so PointerHover reads the pointer again (input state, no view work)
     override func viewDidHide() {
         super.viewDidHide()
         hover?.refresh()
     }
 
+    // visibility-walk-allow: hover is a hit test: a view hidden or shown under a still pointer gets no exit or enter, so PointerHover reads the pointer again (input state, no view work)
     override func viewDidUnhide() {
         super.viewDidUnhide()
         hover?.refresh()
@@ -168,6 +176,7 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
         hover?.refresh()
     }
 
+    // visibility-walk-allow: the hover fill is one layer color store in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateFill()

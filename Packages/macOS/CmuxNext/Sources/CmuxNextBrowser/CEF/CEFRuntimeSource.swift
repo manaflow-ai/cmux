@@ -35,6 +35,18 @@ public final class CEFRuntimeSource {
     /// Chromium's (feature `chromiumPageDialogs`, set by the App; ``CEFPageDialogs``), in process and in
     /// host mode. Read when the runtime adopts the source, before Chromium starts.
     public var asksPageDialogs = false
+    /// Host mode: a page's `<select>` popups show as cmux menus over the page and the host never shows its
+    /// own (feature `chromiumHostPopupMenus`, set by the App; ``ChromiumHostPopupMenus``). Read when the
+    /// runtime adopts the source; in process it changes nothing.
+    public var drawsHostPopupMenus = false
+    /// Host mode: a page's autofill, password and `<datalist>` suggestions show in cmux's list, not
+    /// Chromium's popup, which would open in the host (feature `chromiumHostSuggestions`, set by the App;
+    /// p01-process-061). Read when the runtime adopts the source; in process it changes nothing.
+    public var drawsHostSuggestions = false
+    /// Host mode: a page's file chooser shows cmux's picker on the page's window, and the chosen files
+    /// go to the host as paths (feature `chromiumHostFileDialogs`, set by the App; ``ChromiumHostFiles``).
+    /// Nil leaves Chromium's own panel, which in host mode opens in the host. Read when the runtime adopts the source.
+    public var hostFileDialogs: (any ChromiumFileDialogAnswering)?
 
     /// Creates a source.
     ///

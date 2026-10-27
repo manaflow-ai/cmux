@@ -278,14 +278,25 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let tabSetFrozen: (@convention(c) (Int32, Int32) -> Int32)?
     /// `CefBrowserHost::SendMouseClickEvent` down and up: browser, x, y (view points), button, modifiers, clicks.
     let tabSendClick: (@convention(c) (Int32, Double, Double, Int32, Int32, Int32) -> Int32)?
+    /// `CefBrowserHost::SendMouseMoveEvent` with no button held (p13-webui-077): browser, x, y (view points),
+    /// modifiers. Nil without the export.
+    let tabSendMouseMove: (@convention(c) (Int32, Double, Double, Int32) -> Int32)?
     /// The page's `prefers-color-scheme` (WebPreferences preferred_color_scheme): browser, 1 light, 2 dark.
     let tabSetColorScheme: (@convention(c) (Int32, Int32) -> Int32)?
     /// `WebContents::Discard` in place (p13-webui-018): browser; 1 discarded, 0 refused. Nil without the
     /// export and in host mode, whose return means only "sent" (the answer is a later REPLY).
     let tabDiscard: (@convention(c) (Int32) -> Int32)?
+    /// The page as it last drew, with no DevTools agent (the fork's `cmux_browser_capture`, p13-webui-077):
+    /// browser, reply id, max width, max height (pixels), format (``CEFSurfaceCopyFormat``), JPEG quality;
+    /// 1 started. CMUX_SHIM_REPLY answers (``CEFTab/copySurface(maxPixelSize:)``). Nil without the export.
+    let tabCopySurface: (@convention(c) (Int32, Int32, Int32, Int32, Int32, Int32) -> Int32)?
     let widgets: CEFShimWidgetOps
     /// Drops into a detached page (task 050, fork API 31).
     let dragTarget: CEFShimDragTargetOps
+    /// <select> popups as data (task 060, fork API 31).
+    let popupMenus: CEFShimPopupMenuOps
+    /// Autofill, password and `<datalist>` suggestions as data (task 061, fork API 31).
+    let suggestions: CEFShimSuggestionOps
     let textInput: CEFShimTextInputOps
     /// `cmux_shim_browser_attach_view(browser, parent_view)` (fork API 36, p03-rendering-044, Track B): moves the
     /// browser's `WebContentsViewCocoa` into `parent_view` (an NSView), below its other subviews; 1 attached, 0

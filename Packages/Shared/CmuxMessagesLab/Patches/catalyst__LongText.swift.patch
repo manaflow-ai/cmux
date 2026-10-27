@@ -182,7 +182,7 @@
          let a = NSMutableAttributedString(string: string as String,
                                            attributes: [.font: Fixture.bodyFont, .foregroundColor: color, .kern: Fixture.bodyKern])
          if string.range(of: "http").location != NSNotFound || string.range(of: "www.").location != NSNotFound {
-@@ -348,42 +370,56 @@
+@@ -348,42 +370,57 @@
                  a.addAttributes([.foregroundColor: link, .underlineStyle: NSUnderlineStyle.single.rawValue], range: m.range)
              }
          }
@@ -241,7 +241,8 @@
 +            s.map.updateValue((v, s.tick), forKey: k) // dictionary write
 +            if s.map.count > BlockLayoutCache.capacity + 64 {
 +                let keep = s.map.sorted { $0.value.1 > $1.value.1 }.prefix(BlockLayoutCache.capacity)
-+                s.map = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
++                // cmux: keys come from `s.map`, so they are unique; no trapping init (p10-stability-096).
++                s.map = Dictionary(keep.map { ($0.key, $0.value) }, uniquingKeysWith: { first, _ in first })
 +            }
          }
      }
@@ -258,7 +259,7 @@
      let index: LongTextIndex
      let width: CGFloat
      let column: CGFloat
-@@ -391,22 +427,35 @@
+@@ -391,22 +428,35 @@
      let markdown: Bool
      /// What the row's tiles look like (TiledBody sets it): a streamed tail block is measured and
      /// its tiles near the end are drawn off main, then both reach the screen in one publish.
@@ -306,7 +307,7 @@
  
      static let measureQueue: OperationQueue = {
          let q = OperationQueue()
-@@ -431,34 +480,32 @@
+@@ -431,34 +481,32 @@
          var v = (0..<index.blockCount).map { (b: Int) -> Int32 in
              max(index.pieces[checked: b] ?? 1, Int32(clamping: CrashGuard.int(Double((Float(index.estRef[checked: b] ?? 0) * k).rounded()))))
          }
@@ -350,7 +351,7 @@
      }
      var textHeight: CGFloat { CGFloat(totalLines) * Fixture.lineHeight }
      var size: CGSize { size(scale: Fixture.renderScale) }
-@@ -467,11 +514,11 @@
+@@ -467,11 +515,11 @@
          CGSize(width: Sizing.textBalloonWidth(column, column: column, scale: scale), height: textHeight + 2 * Fixture.bubblePadY)
      }
      var blockCount: Int { index.blockCount }
@@ -367,7 +368,7 @@
  
      func key(_ b: Int) -> BlockLayoutCache.Key {
          // A markdown block's layout also depends on whether the next block continues it.
-@@ -491,7 +538,7 @@
+@@ -491,7 +539,7 @@
          }
          let out = l ?? BlockLayout(string: index.blockString(b), column: column, final: index.isFinal(b), reuse: reuse)
          BlockLayoutCache.shared.put(k, out)
@@ -376,7 +377,7 @@
          report(b, out.lineCount)
          return out
      }
-@@ -510,9 +557,7 @@
+@@ -510,9 +558,7 @@
      /// (2 screens), then publish counts and tiles together.
      func measureTail(_ blocks: Range<Int>) {
          guard !blocks.isEmpty else { return }
@@ -387,7 +388,7 @@
          LongTextLayout.tailQueue.addOperation { [weak self] in
              guard let self, !self.retired else { return }
              // Lines of the first tail block before this append: its tiles above them did not change.
-@@ -547,10 +592,11 @@
+@@ -547,10 +593,11 @@
                      line += c
                  }
              }
@@ -403,7 +404,7 @@
              LongTextCenter.schedule(self)
          }
      }
-@@ -563,7 +609,7 @@
+@@ -563,7 +610,7 @@
          }
          let out = l ?? BlockLayout(string: index.blockString(b), column: column, final: index.isFinal(b))
          BlockLayoutCache.shared.put(key(b), out)
@@ -412,7 +413,7 @@
          return out
      }
  
-@@ -574,10 +620,11 @@
+@@ -574,10 +621,11 @@
          require(blocks: a..<(b + 1))
      }
      func require(blocks: Range<Int>) {
@@ -428,7 +429,7 @@
          guard !todo.isEmpty else { return }
          // Chunks of 8 blocks per operation (fewer queue hops).
          for i in stride(from: 0, to: todo.count, by: 8) {
-@@ -596,33 +643,38 @@
+@@ -596,33 +644,38 @@
      }
  
      func report(_ b: Int, _ n: Int) {
@@ -483,7 +484,7 @@
  
      // MARK: Anchors (text-local y: 0 at the first line's slot top)
  
-@@ -722,8 +774,8 @@
+@@ -722,8 +775,8 @@
                  if s < e || (lr.length == 0 && NSLocationInRange(lineRange.location, range)) {
                      let attr = NSAttributedString(string: bl.string.substring(with: lr), attributes: [.font: Fixture.bodyFont])
                      let ct = CTLineCreateWithAttributedString(attr)
@@ -494,7 +495,7 @@
                      out.append(CGRect(x: x0, y: CGFloat(gl) * lh, width: max(1, x1 - x0), height: lh))
                  }
              }
-@@ -750,54 +802,97 @@
+@@ -750,54 +803,97 @@
      }
  }
  
@@ -623,7 +624,7 @@
          let apply = {
              rs.forEach { $0() }
              ls.forEach { $0.applyPending() }
-@@ -807,19 +902,26 @@
+@@ -807,19 +903,26 @@
  }
  
  /// Text to index and layouts (thread safe). Finds a streamed text's previous index by prefix.
@@ -660,7 +661,7 @@
      static let maxIndexes = 12
      static let syncBytes = 512 << 10
  
-@@ -843,65 +945,119 @@
+@@ -843,65 +946,119 @@
          let idx = index(for: text) ?? LongTextIndex.build(text, lineage: 0)
          let md = idx.markdown && markdown && !(message.map { MarkdownStore.shared.showsSource($0) } ?? false)
          let wk = md || !idx.markdown ? width : -width
@@ -814,7 +815,7 @@
                      let old = layoutsOf(prev)
                      register(i, addr: addr, print: pr, head: hd, replacing: prev)
                      // Layouts carry the measured blocks. The tail keeps its previous line count (and
-@@ -911,7 +1067,10 @@
+@@ -911,7 +1068,10 @@
                      for o in old {
                          let tailOffMain = LongText.offMainTail
                          let l = LongTextLayout(index: i, width: o.width, carry: o, markdown: o.markdown, provisional: tailOffMain ? keep : nil)
@@ -826,7 +827,7 @@
                          if tailOffMain { l.measureTail(keep..<max(keep, i.blockCount)); continue } // never an inverted range
                          // The previous rule: the new tail is measured now (about 4 KB).
                          let reuse = BlockLayoutCache.shared.get(o.key(keep))
-@@ -921,10 +1080,9 @@
+@@ -921,10 +1081,9 @@
                      return i
                  }
              }
@@ -840,7 +841,7 @@
                  let i = LongTextIndex.build(t, lineage: lineage)
                  register(i, addr: addr, print: pr, head: hd, replacing: nil)
                  return i
-@@ -932,8 +1090,9 @@
+@@ -932,8 +1091,9 @@
              // Large: a placeholder (estimated height, no tiles) until the scan finishes off main.
              let ph = LongTextIndex.placeholder(t, lineage: lineage)
              register(ph, addr: addr, print: pr, head: hd, replacing: nil)
@@ -851,7 +852,7 @@
                  LongTextCenter.scheduleReplace(lineage: lineage) {
                      self.register(i, addr: addr, print: pr, head: hd, replacing: ph)
                  }
-@@ -943,37 +1102,42 @@
+@@ -943,37 +1103,42 @@
      }
  
      private func layoutsOf(_ i: LongTextIndex) -> [LongTextLayout] {
@@ -919,7 +920,7 @@
  }
  
  /// Collapsed long messages (shared/LONG-MESSAGES.md, product rule): a message taller than
-@@ -982,6 +1146,11 @@
+@@ -982,6 +1147,11 @@
  /// fixed (80 lines and the band), so measurement never changes it.
  enum LongTextFold {
      static let headLines = 40, tailLines = 40
@@ -931,7 +932,7 @@
      /// 3 screens (the 1041 pt window).
      static var maxLines: Int { CrashGuard.int(3 * 1041 / Fixture.lineHeight, in: CrashGuard.countRange) }
      static var bandHeight: CGFloat { 2 * Fixture.lineHeight }
-@@ -992,15 +1161,16 @@
+@@ -992,15 +1162,16 @@
          if disabledByArgument { return false }
          return UserDefaults.standard.object(forKey: defaultsKey) as? Bool ?? true
      }

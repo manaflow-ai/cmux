@@ -123,6 +123,7 @@ extension BlockingKind {
         case .systemQuery: 16
         case .priorityInversion: 17
         case .ffi: 18
+        case .xpcReply: 19
         }
     }
 }

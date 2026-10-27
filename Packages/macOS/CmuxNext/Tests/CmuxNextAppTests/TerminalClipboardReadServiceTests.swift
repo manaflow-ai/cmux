@@ -1,6 +1,8 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -52,5 +54,24 @@ struct TerminalClipboardReadServiceTests {
         services.daemon.store.apply(.disconnected(reason: "after stop"))
         await drainMainTurns()
         #expect(service.handOffs == 1)
+    }
+
+    /// The prompt's scope reads the tab's node, not a walk up its views (p06-scheduler-320, recipe R-vis): a tab in an
+    /// occluded window (covered, or cmux behind another app) still gets the tab-scoped dialog, as the view walk gave it;
+    /// a hidden tab (unselected, parked, miniaturized) gets the active window.
+    @Test func aTabInAnOccludedWindowKeepsItsTabScopedPrompt() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: .borderless, backing: .buffered, defer: true)
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        window.contentView = view
+        let windowNode = VisibilityNode(root: "window", own: .occluded)
+        let tabNode = VisibilityNode("tab:1", parent: windowNode)
+        let occluded = TerminalClipboardReadService.scope(tabView: view, tabNode: tabNode, activeWindow: window)
+        guard case .tab(let scoped) = occluded else { Issue.record("an occluded window's tab got \(occluded.kind)"); return }
+        #expect(scoped === view)
+
+        tabNode.set(.hidden)
+        let hidden = TerminalClipboardReadService.scope(tabView: view, tabNode: tabNode, activeWindow: window)
+        #expect(hidden.kind == "window", "a hidden tab's prompt goes to the active window")
+        #expect(TerminalClipboardReadService.scope(tabView: nil, tabNode: nil, activeWindow: nil).kind == "app")
     }
 }

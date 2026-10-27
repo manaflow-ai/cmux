@@ -110,11 +110,39 @@ Per mode:
            the window moves there and back, counted from the move (pass: rate within 2 frames, scale within 1, the
            1x to 2x move reported as `scale_up`) (chromium_host_display.py).
 
---native-ui runs instead the hosted widget rows (chromium_host_native_ui.py, p01-process-066): date, datalist,
-popup window, DevTools docked and in a window, an extension popup and a side panel, each shown by cmux from the
-host's layer context (`debug.cef` `host_widgets`), with feature chromiumHostWidgets on and two test extensions, and
-the page dialog rows (chromium_host_page_dialogs.py, p01-process-063): alert, confirm, prompt and an HTTP sign-in in
-cmux's own dialogs, with feature chromiumPageDialogs on.
+  swipe    `--modes swipe` (task 234), on an input host (real HID events): a two-finger trackpad swipe
+           (pointer-probe.swift swipe, through NSApp's event dispatch like a hand's) over a Chromium tab of the app's
+           backend. flat: a page that does not scroll sideways, opened twice (?1 then ?2); a swipe that drags the
+           content right must go Back to ?1. wide: a page whose sideways scroller is scrolled to its middle; the same
+           swipe must scroll it and stay on ?2. Per gesture, `debug.cef` `swipe` gives the page probes (each a script
+           run in the page: a control request in host mode) and the WHEEL_ACKs it decided from. Pass: back on flat,
+           no navigation on wide, and on a host that acks wheels (`host_acks_wheels`) 0 probes per gesture. A swipe no
+           gesture of reaches (`gestures` unchanged: the page view takes no scrolls before the host input route,
+           p01-process-042) says not_measurable.
+  pinch    `--modes pinch` (task 234), on an input host: a real trackpad pinch (pointer-probe.swift magnify, zoom in)
+           over a Chromium tab of the app's backend. Pass: the page's visual viewport scale grows (Chrome's pinch
+           zoom), the page stays put, and the pinch starts no swipe gesture (`debug.cef` `swipe`). The page counts
+           the ctrl+wheel events Chrome makes of a pinch, so a pinch that reached Chromium but did not zoom fails
+           apart from one that never arrived. In host mode a pinch that never reaches the page (the page view's
+           magnify route is p01-process-042's input route with p01-process-054's PinchEvent) says not_measurable.
+
+--native-ui [ROWS] runs instead the native UI rows (chromium_host_native_ui.py), all or the comma-separated ROWS: a
+<select> as a cmux menu while the host is never frontmost (p01-process-060, feature chromiumHostPopupMenus), the page
+menu (CONTEXT_MENU and context_menu_done) and a page's download (DOWNLOAD_* and download_continue) in host mode
+(p01-process-069), the hosted widget rows (p01-process-066): date, datalist, popup window, DevTools docked and in a window, an extension
+popup and a side panel, each shown by cmux from the host's layer context (`debug.cef` `host_widgets`), with feature
+chromiumHostWidgets on and two test extensions, then the autofill and password rows (chromium_host_suggestions.py,
+p01-process-061): the field's suggestions in cmux's list (`debug.cef` `host_suggestions`) with feature
+chromiumHostSuggestions on, then the page dialog rows (chromium_host_native_ui_dialogs.py, p01-process-064): file
+picker, certificate error, beforeunload and renderer hang, each answered by cmux while the host is never frontmost
+and shows no window, with feature chromiumHostFileDialogs on. The JavaScript and sign-in dialog rows
+(chromium_host_page_dialogs.py, p01-process-063) run with the native UI rows: alert, confirm, prompt and an HTTP
+sign-in in cmux's own dialogs, with feature chromiumPageDialogs on.
+
+--kill-host runs instead the host kill rows (chromium_host_kill.py, p01-process-082): one `--signals` signal per row
+(default KILL; TRAP,SEGV,ABRT,KILL for the done check) to the Chromium Host under a Chromium tab of the app's backend:
+cmux runs on, the tab shows the crash page with Reload (`crash_page_ms` from the signal), and Reload brings the page
+back under a new host.
 
 --find runs instead the find rows (chromium_host_find.py, p01-process-048): Cmd-F, a typed query, Cmd-G, Cmd-Shift-G
 and Escape through cmux's find pill on a Chromium page in the host (`debug.cef` backend `host`), the pill's match
@@ -144,7 +172,9 @@ import browser_engine_bench_report as results  # noqa: E402
 import chromium_host_baseline  # noqa: E402
 import chromium_host_display  # noqa: E402
 import chromium_host_find  # noqa: E402
+import chromium_host_kill  # noqa: E402
 import chromium_host_native_ui  # noqa: E402
+import chromium_host_native_ui_dialogs  # noqa: E402
 
 
 def parse(argv=None):
@@ -159,8 +189,13 @@ def parse(argv=None):
     parser.add_argument("--pump-seconds", type=float, default=10.0)
     parser.add_argument("--host-switches", default="", help="more Chromium switches for the host, comma-separated (diagnosis)")
     parser.add_argument("--ime", action="store_true", help="helper: TEXT_INPUT_STATE pushes per keystroke (ime_row)")
-    parser.add_argument("--native-ui", action="store_true", help="only the hosted widget rows (chromium_host_native_ui.py)")
+    parser.add_argument("--native-ui", nargs="?", const="", default=None, metavar="ROWS",
+                        help="only the native UI rows (chromium_host_native_ui.py): all, or the comma-separated ROWS "
+                             f"({', '.join(chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS)})")
     parser.add_argument("--find", action="store_true", help="only the find rows (chromium_host_find.py)")
+    parser.add_argument("--kill-host", action="store_true", help="only the host kill rows (chromium_host_kill.py)")
+    parser.add_argument("--signals", default="KILL",
+                        help=f"--kill-host: the signals, one row each ({','.join(chromium_host_kill.SIGNALS)})")
     parser.add_argument("--baseline", action="store_true", help="task p01-process-005: stall 9a, 10-tab idle wakes, census, rows")
     parser.add_argument("--idle-settle-seconds", type=float, default=35.0, help="wait before the 10-tab idle sample")
     parser.add_argument("--tag", help="the lab runner's tag of --app (checked against the bundle's name)")
@@ -170,8 +205,18 @@ def parse(argv=None):
     parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
                         help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
     args = parser.parse_args(argv)
-    if args.native_ui and args.find:
-        parser.error("--native-ui and --find each run instead of the modes: pick one")
+    if sum([args.native_ui is not None, args.find, args.kill_host]) > 1:
+        parser.error("--native-ui, --find and --kill-host each run instead of the modes: pick one")
+    try:
+        args.signals = chromium_host_kill.signal_numbers(args.signals)
+    except ValueError as error:
+        parser.error(str(error))
+    if args.native_ui is not None:
+        try:
+            args.native_ui = chromium_host_native_ui.rows_named(
+                args.native_ui, chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS)
+        except ValueError as error:
+            parser.error(str(error))
     if args.tag is not None and tag_of(f"cmux DEV {args.tag}.app") != tag_of(args.app):
         parser.error(f"--tag {args.tag!r} is not the tag of --app {args.app!r}")
     return args
@@ -270,6 +315,40 @@ for (const type of ['dragenter', 'dragover', 'dragleave', 'drop']) zone.addEvent
 document.getElementById('file').addEventListener('change', event => { log.file = [...event.target.files].map(f => [f.name, f.size]); });
 </script>"""
 DRAG_FILE_TEXT = "cmux drag-in probe\n" * 64
+
+# The swipe probe: `?flat` does not scroll sideways (taller than the pane: it scrolls only down); `?wide` is a
+# sideways scroller filling the page. The title names the variant and the step (?flat-1, ?flat-2), so a Back shows.
+SWIPE_PAGE = """<!doctype html><meta charset=utf-8><title>swipe probe</title>
+<style>html,body{margin:0;background:#204080;color:#fff;font:16px system-ui}#tall{height:300vh}
+#wide{position:fixed;inset:0;overflow-x:auto;overflow-y:hidden}#wide div{width:400vw;height:100%;
+background:linear-gradient(90deg,#204080,#f0c000)}</style>
+<div id=tall></div>
+<script>
+const [variant, step] = location.search.slice(1).split('-');
+document.title = 'swipe ' + variant + ' ' + step;
+if (variant === 'wide') {
+  document.getElementById('tall').remove();
+  const wide = document.createElement('div');
+  wide.id = 'wide';
+  wide.appendChild(document.createElement('div'));
+  document.body.appendChild(wide);
+  wide.scrollLeft = wide.scrollWidth / 2 - innerWidth / 2;
+}
+window.__scrollLeft = () => (document.getElementById('wide') || document.scrollingElement).scrollLeft;
+</script>"""
+
+# The pinch probe: a page the pinch zooms. Chrome turns a trackpad pinch into ctrl+wheel events for the page first
+# (a script may take them) and, untaken, into a pinch of the visual viewport; the page counts the ctrl+wheels so a
+# pinch that reached Chromium but did not zoom shows apart from one that never arrived.
+PINCH_PAGE = """<!doctype html><meta charset=utf-8><title>pinch probe</title>
+<style>html,body{margin:0;background:#204080;color:#fff;font:16px system-ui}
+#grid{height:100vh;background:repeating-linear-gradient(45deg,#204080 0 20px,#f0c000 20px 40px)}</style>
+<div id=grid></div>
+<script>
+window.__pinch = {ctrlWheels: 0};
+addEventListener('wheel', event => { if (event.ctrlKey) window.__pinch.ctrlWheels += 1; }, {passive: true});
+window.__zoom = () => ({scale: visualViewport.scale, dpr: devicePixelRatio, ctrlWheels: window.__pinch.ctrlWheels});
+</script>"""
 # ChromiumHostDragDestination.forkAPI: the fork whose DragTarget calls reach a detached page (task 172).
 DRAG_TARGET_FORK_API = 31
 
@@ -489,6 +568,20 @@ def front_pid():
     return int(found.group(1)) if found else None
 
 
+def chromium_host_pid():
+    """The pid of the running Chromium Host (`<Product> Chromium Host` in the app's Contents/MacOS), or None."""
+    macos = os.path.join(os.path.abspath(opts.app), "Contents", "MacOS") + "/"
+    try:
+        listing = subprocess.run(["/bin/ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=10).stdout
+    except subprocess.TimeoutExpired:
+        return None
+    for line in listing.splitlines():
+        pid, _, command = line.strip().partition(" ")
+        if command.startswith(macos) and command[len(macos):].split(" --", 1)[0].endswith(" Chromium Host"):
+            return int(pid)
+    return None
+
+
 def defaults_snapshot(domain):
     """cmux's defaults domain as {key: value repr} (`defaults export`), or None."""
     import plistlib
@@ -598,6 +691,11 @@ def main():
         open(native, "w").write(chromium_host_native_ui.PAGE)
         url = pathlib.Path(native).as_uri()
         env.update(chromium_host_native_ui.launch_env(chromium_host_native_ui.write_extensions(opts.out)))
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_native_ui_dialogs.FEATURES]))
+    if opts.kill_host:
+        kill_page = os.path.join(opts.out, "kill-host.html")
+        open(kill_page, "w").write(chromium_host_kill.PAGE)
+        url = pathlib.Path(kill_page).as_uri()
     if opts.find:
         find_page = os.path.join(opts.out, "find.html")
         open(find_page, "w").write(chromium_host_find.PAGE)
@@ -625,11 +723,25 @@ def main():
         RESULT["cef"] = {"fork_api": (cef.get("windows") or {}).get("fork_api"), "unavailable": cef.get("unavailable"),
                          "fallback": cef.get("fallback")}
         DEFAULTS["launch"] = defaults_snapshot(app_bundle_id())
-        modes = [] if opts.native_ui or opts.find else opts.modes.split(",")
+        modes = [] if opts.native_ui or opts.find or opts.kill_host else opts.modes.split(",")
         if opts.native_ui:
-            RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
+            RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(
+                rpc, wait, lambda script: page_eval(rpc, script, None), url,
+                rows_to_run=[row for row in opts.native_ui if row in chromium_host_native_ui.ROWS], front=front_pid,
+                app_pid=app.process.pid if app.process else None, right_click=page_right_click(rpc))
+            dialog_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_dialogs.ROWS]
+            if dialog_rows:
+                dialogs, dialogs_ok = chromium_host_native_ui_dialogs.run(
+                    rpc, wait, lambda script: page_eval(rpc, script, None), opts.out, chromium_host_pid, front_pid,
+                    on_screen_windows, rows_to_run=dialog_rows)
+                RESULT["modes"]["native_ui"].update(dialogs)
+                ok = ok and dialogs_ok
         if opts.find:
             RESULT["modes"]["find"], ok = chromium_host_find.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
+        if opts.kill_host:
+            RESULT["modes"]["kill_host"], ok = chromium_host_kill.run(
+                rpc, wait, url, opts.signals, chromium_host_pid, app.process.pid if app.process else None,
+                lambda pid: pid is not None and not pid_gone(pid))
         inproc_tab = None
         if "inproc" in modes:
             inproc_tab = run_inproc(rpc, url)
@@ -646,6 +758,14 @@ def main():
             cursor_probe = os.path.join(opts.out, "cursor.html")
             open(cursor_probe, "w").write(CURSOR_PAGE)
             ok = run_cursor(rpc, pathlib.Path(cursor_probe).as_uri()) and ok
+        if "swipe" in modes:
+            swipe_probe = os.path.join(opts.out, "swipe.html")
+            open(swipe_probe, "w").write(SWIPE_PAGE)
+            ok = run_swipe(rpc, pathlib.Path(swipe_probe).as_uri()) and ok
+        if "pinch" in modes:
+            pinch_probe = os.path.join(opts.out, "pinch.html")
+            open(pinch_probe, "w").write(PINCH_PAGE)
+            ok = run_pinch(rpc, pathlib.Path(pinch_probe).as_uri()) and ok
         if "dragin" in modes:
             drag_probe = os.path.join(opts.out, "drag.html")
             open(drag_probe, "w").write(DRAG_PAGE)
@@ -1042,6 +1162,20 @@ def focused_pane_border(rpc):
                  if pane and p.get("pane") == pane and isinstance(p.get("border"), list)), None)
 
 
+def page_right_click(rpc):
+    """A right click (a posted window event, as a person's) on an empty spot of the focused pane's page, low and right
+    of the native-ui probe's controls and below any browser toolbar. The pane is read at each call (the probe's tab
+    opens after this is made); the click returns False when no pane is focused."""
+    def click():
+        border = focused_pane_border(rpc)
+        if not border:
+            return False
+        bx, by, bw, bh = border
+        rpc("debug.mouse", {"x": bx + bw * 0.75, "y": by + bh * 0.8, "button": "right"})
+        return True
+    return click
+
+
 def run_host_probe(rpc, url, record=True):
     """Keys, clicks, pacing and (with --baseline) the 9a stall with the probe in the host over the focused pane.
     `url` carries a query of its own: the row waits for that page, fresh (no keys yet), not an earlier probe."""
@@ -1410,6 +1544,164 @@ def run_mouse(rpc, url):
 
     row["pass"] = all(row.get(name, {}).get("pass") is not False for name in ("tooltip", "back", "forward", "pinch", "smart_magnify"))
     RESULT["modes"]["mouse"] = row
+    return True
+
+
+def run_swipe(rpc, url):
+    """The swipe row (task 234): a real two-finger swipe (pointer-probe swipe) that drags the content right, over a
+    page that does not scroll sideways (Back must happen) and over one scrolled to the middle of its sideways
+    scroller (the page scrolls, no navigation), with the page probes and wheel acks each gesture took."""
+    probe = build_pointer_probe()
+    if not probe:
+        RESULT["modes"]["swipe"] = {"error": "pointer-probe.swift did not build (xcrun swiftc)"}
+        return False
+    page, title_is = tab_page(rpc)
+
+    def swipe_stats():
+        return (rpc("debug.cef") or {}).get("swipe") or {}
+
+    row = {}
+    opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url + "?flat-1"}, "focus": True,
+                                "origin": "script"}, timeout=120)
+    if not title_is("swipe flat 1"):
+        RESULT["modes"]["swipe"] = {"error": f"the swipe probe never loaded: {json.dumps(opened)[:200]}"}
+        return False
+    backend = rpc("debug.cef") or {}
+    row["backend"] = backend.get("backend")
+    center = focused_pane_center(rpc, probe)
+    if not center:
+        RESULT["modes"]["swipe"] = {"error": "no pane, window or screen geometry (debug.pane_chrome, debug.window_list)"}
+        return False
+
+    def gesture(variant, expect_title):
+        before = swipe_stats()
+        left_before = page("window.__scrollLeft()")
+        swiped = subprocess.run([probe, "swipe", f"{center[0]:.0f}", f"{center[1]:.0f}", "12", "24"],
+                                capture_output=True, text=True, timeout=30)
+        back = title_is(expect_title) if expect_title else None
+        time.sleep(0.5)  # a late Back would show here; the wide case must still be on its page
+        title = page("document.title")
+        after = swipe_stats()
+        delta = {key: (after.get(key) or 0) - (before.get(key) or 0) for key in ("gestures", "probes", "acks", "swipes")}
+        return {"variant": variant, "probe": swiped.stdout.strip() or swiped.stderr.strip()[:200], "title": title,
+                "back": bool(back), "scroll_left": [left_before, page("window.__scrollLeft()")], "swipe": delta,
+                "host_acks_wheels": after.get("host_acks_wheels")}
+
+    page(f"location.href = {json.dumps(url + '?flat-2')}")
+    if not title_is("swipe flat 2"):
+        RESULT["modes"]["swipe"] = {"error": "the second flat page never loaded"}
+        return False
+    flat = gesture("flat", "swipe flat 1")
+    flat["pass"] = flat["back"] and flat["title"] == "swipe flat 1"
+    row["flat"] = flat
+
+    page(f"location.href = {json.dumps(url + '?wide-1')}")
+    title_is("swipe wide 1")
+    page(f"location.href = {json.dumps(url + '?wide-2')}")
+    if not title_is("swipe wide 2"):
+        row["wide"] = {"error": "the wide pages never loaded", "pass": False}
+    else:
+        wide = gesture("wide", None)
+        left = wide["scroll_left"]
+        wide["pass"] = wide["title"] == "swipe wide 2" and None not in left and left[1] < left[0]
+        row["wide"] = wide
+    gestures = [r for r in (row.get("flat"), row.get("wide")) if r and "swipe" in r]
+    acks_on = any(r.get("host_acks_wheels") for r in gestures)
+    row["host_acks_wheels"] = acks_on
+    row["probes_per_gesture"] = max((r["swipe"]["probes"] / max(r["swipe"]["gestures"], 1) for r in gestures), default=None)
+    if not gestures or all(r["swipe"]["gestures"] == 0 for r in gestures):
+        row["not_measurable"] = ("no gesture reached the swipe: in host mode the page view takes no scrolls before the "
+                                 "host input route (p01-process-042); in process, the posted HID gesture never reached "
+                                 "a page window")
+    else:
+        zero_probes = not acks_on or row["probes_per_gesture"] == 0
+        row["pass"] = bool(row["flat"].get("pass") and row.get("wide", {}).get("pass") and zero_probes)
+    RESULT["modes"]["swipe"] = row
+    return True
+
+
+def tab_page(rpc):
+    """`page(script)`, the value of `script` in the tab of the first eval that names one (the focused tab), and
+    `title_is(title)`, true once that tab has loaded a page with that title (20 s)."""
+    tab = {}
+
+    def page(script):
+        reply = rpc("browser.page.eval", {"script": script, **({"tab": tab["tab"]} if tab.get("tab") else {})}, timeout=20)
+        if not isinstance(reply, dict) or "error" in reply:
+            return None
+        tab.setdefault("tab", reply.get("tab"))
+        return reply.get("value")
+
+    def title_is(title):
+        return wait(lambda: page(f"document.readyState === 'complete' && document.title === {json.dumps(title)}"), 20, 0.2)
+
+    return page, title_is
+
+
+def focused_pane_center(rpc, probe):
+    """The focused pane's center in screen points from the top left (the page view fills its border), or None
+    without pane, window or screen geometry."""
+    border = focused_pane_border(rpc)
+    window = next((w for w in (rpc("debug.window_list") or {}).get("windows") or []
+                   if w.get("kind") == "main" and w.get("visible")), None)
+    screen_h = subprocess.run([probe, "screen"], capture_output=True, text=True, timeout=20).stdout.strip()
+    if not border or not window or not screen_h:
+        return None
+    frame = window.get("frame") or {}
+    return (frame.get("x", 0) + border[0] + border[2] / 2,
+            float(screen_h) - (frame.get("y", 0) + frame.get("height", 0)) + border[1] + border[3] / 2)
+
+
+def run_pinch(rpc, url):
+    """The pinch row (task 234): a real trackpad pinch (pointer-probe magnify) over a Chromium tab must zoom the page
+    (its visual viewport's scale grows, as Chrome's pinch does) and must not become a swipe, now that the hosted page
+    view hands each scroll to the swipe first."""
+    probe = build_pointer_probe()
+    if not probe:
+        RESULT["modes"]["pinch"] = {"error": "pointer-probe.swift did not build (xcrun swiftc)"}
+        return False
+    page, title_is = tab_page(rpc)
+
+    def swipe_stats():
+        return (rpc("debug.cef") or {}).get("swipe") or {}
+
+    opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True,
+                                "origin": "script"}, timeout=120)
+    if not title_is("pinch probe"):
+        RESULT["modes"]["pinch"] = {"error": f"the pinch probe never loaded: {json.dumps(opened)[:200]}"}
+        return False
+    row = {"backend": (rpc("debug.cef") or {}).get("backend")}
+    center = focused_pane_center(rpc, probe)
+    if not center:
+        RESULT["modes"]["pinch"] = {"error": "no pane, window or screen geometry (debug.pane_chrome, debug.window_list)"}
+        return False
+    before = page("window.__zoom()") or {}
+    stats_before = swipe_stats()
+    pinched = subprocess.run([probe, "magnify", f"{center[0]:.0f}", f"{center[1]:.0f}", "0.05", "20"],
+                             capture_output=True, text=True, timeout=30)
+    start = before.get("scale") or 1
+    wait(lambda: ((page("window.__zoom()") or {}).get("scale") or start) > start + 0.05, 3, 0.1)
+    time.sleep(0.5)  # a swipe or navigation the pinch set off would show here
+    after = page("window.__zoom()") or {}
+    stats_after = swipe_stats()
+    row.update({
+        "probe": pinched.stdout.strip() or pinched.stderr.strip()[:200],
+        "before": before, "after": after, "title": page("document.title"),
+        "swipe": {key: (stats_after.get(key) or 0) - (stats_before.get(key) or 0) for key in ("gestures", "swipes")},
+    })
+    zoomed = (after.get("scale") or start) > start + 0.05
+    reached = zoomed or (after.get("ctrlWheels") or 0) > (before.get("ctrlWheels") or 0)
+    row["zoomed"] = zoomed
+    if not reached and row["backend"] == "host":
+        row["not_measurable"] = ("the pinch never reached the page: in host mode the page view sends the host no "
+                                 "magnify before the host input route (p01-process-042) and its PinchEvent "
+                                 "(p01-process-054)")
+    else:
+        row["pass"] = bool(zoomed and row["title"] == "pinch probe" and row["swipe"]["swipes"] == 0
+                           and row["swipe"]["gestures"] == 0)
+        if not reached:
+            row["error"] = "the posted pinch never reached the page (no ctrl+wheel, no zoom)"
+    RESULT["modes"]["pinch"] = row
     return True
 
 

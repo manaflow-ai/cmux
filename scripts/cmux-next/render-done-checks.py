@@ -5,7 +5,7 @@ Runs the static parts of the done checks (DC1, DC6 and DC8b rg parts, DC11) and 
 queries the plan writes, and prints, per row, the query, the count and the threshold. A fleet and local tool, not a
 CI gate (Lawrence 2026-10-23: no new CI tests). Run it at the branch tip at the start and at the end of the push.
 
-  python3 scripts/cmux-next/render-done-checks.py [--repo DIR] [--verbose] [--json OUT]
+  python3 scripts/cmux-next/render-done-checks.py [--repo DIR] [--verbose] [--json OUT] [--pin-window HOURS]
       [--motion J] [--hitches J] [--idle J] [--typing J] [--cef J]
   python3 scripts/cmux-next/render-done-checks.py --frameclients
   python3 scripts/cmux-next/render-done-checks.py --invalidate [PATH ...]
@@ -15,9 +15,16 @@ Rows:
   MQ*  machine queues: DONE when the unannotated count reaches the threshold, else OPEN (does not fail the run;
        DC11 fails on the queues it names). INFO rows have no threshold (a count to compare across runs).
 
-ghostty-next queries need the submodule initialized at the gitlink the checkout pins; otherwise the GHOSTTY row
-FAILs (the run exits 1) and the ghostty rows print SKIP: an uninitialized submodule makes rg print nothing, which
-would read as done.
+ghostty-next queries need the submodule initialized at the gitlink the checkout pins, and that gitlink must be the
+commit the pinned GhosttyNextKit was built from (the release tag xcframework-<sha>-<flavor> in
+Packages/Shared/CmuxGhosttyKit/Package.swift); otherwise the GHOSTTY or GHOSTTY-kit row FAILs (the run exits 1) and
+the ghostty rows print SKIP: an uninitialized submodule makes rg print nothing, which would read as done, and a
+gitlink off the kit counts source the app does not link.
+
+LANE-ghostty-pins (task 079, the ghostty-next integrator lane) lists the commits that moved the gitlink in the
+--pin-window hours before HEAD's commit (default 72), one pin per new gitlink value: DONE at <= 3 pins that each
+name a ghostty-next PR (`ghostty-next#N`) in the commit or, for a merge, in a commit it brings that moves the
+gitlink, else OPEN.
 
 Annotations (on the hit's line or on the line directly above it, comment-only or the trailing comment of a code
 line: the plan's "on the line or the line above", the same rule as task 066's sync-layout guardrail):
@@ -65,6 +72,13 @@ from typing import Callable, Iterator
 
 SOURCES = "Packages/macOS/CmuxNext/Sources"
 GHOSTTY = "ghostty-next"
+GHOSTTY_KIT = "Packages/Shared/CmuxGhosttyKit/Package.swift"
+# The release tag names the ghostty-next commit the xcframework was built from (guardrails.py GHOSTTY_PIN).
+GHOSTTY_KIT_PIN = re.compile(r"ghostty-next/releases/download/xcframework-([0-9a-f]{40})-")
+# A pin commit names the ghostty-next PRs it brings: `ghostty-next#88` or `manaflow-ai/ghostty-next#88`.
+GHOSTTY_PR = re.compile(r"ghostty-next#(\d+)")
+PIN_LIMIT = 3
+PIN_WINDOW_HOURS = 72
 
 
 class CheckError(Exception):
@@ -345,6 +359,16 @@ TRACKING = r"override (public |open )?func updateTrackingAreas"
 CHILD_WINDOW_FALLBACK = "!**/ChildWindowPageFallback.swift"
 DISPLAY_LINK_OWNERS = ("CmuxNextWakeups/DisplayClock.swift", "CmuxNextWakeups/VSyncHub.swift")  # one link per display
 APP = f"{SOURCES}/CmuxNextApp"
+# Views the pane-chrome queue (tasks 071-073, 111) leaves on Auto Layout: none sits in a pane, so a pane
+# resized every frame of a drag lays none of them out.
+PANE_AUTOLAYOUT_KEPT = (
+    "CmuxNextTabs/Groups/Editor/TabGroupEditorControls.swift",  # the group editor bubble, laid out once per open
+    "CmuxNextTabs/Groups/Editor/TabGroupEditorPanel.swift",  # its panel
+    "CmuxNextTabs/Demo/DemoContentView.swift",  # the tab strip demo's stand-in content, never in a cmux pane
+    "CmuxNextBrowser/UI/SidePanelHeaderView.swift",  # Chromium's side panel header, beside the page, not in its chrome
+    "CmuxNextBrowser/UI/BrowserCookieImportCard.swift",  # a one-time offer card over the page
+    "CmuxNextBrowser/UI/BrowserMediaRowView.swift",  # a card in the media hub menu, laid out once per open, never in a pane
+)
 
 REDRAW_POLICY = CommCheck("MQ-redraw-policy", "queue", q(r"override (public |open )?func updateLayer", files=True),
                           q("layerContentsRedrawPolicy", files=True), "-23", note="baseline 59 files")
@@ -421,7 +445,7 @@ CHECKS = (
                                              "CmuxNextBrowser/UI", "CmuxNextBrowser/CEF")),
                  f"{APP}/PaneContentView*.swift", f"{APP}/Screens", f"{APP}/WindowRootView*.swift",
                  f"{APP}/TitlebarView.swift", f"{APP}/EmptyWorkspaceView.swift", files=True),), 0,
-              note="files"),
+              allowed=PANE_AUTOLAYOUT_KEPT, note="files; kept on Auto Layout: PANE_AUTOLAYOUT_KEPT"),
     LineCheck("MQ-ghostty-main-hops", "queue",
               (q(r"dispatch_async|queue.getMain|isMainThread", f"{GHOSTTY}/src/renderer"),), 0, ghostty=True),
     LineCheck("MQ-terminal-contents", "info", (q(r"layer\?\.contents|presentedFrame", f"{SOURCES}/CmuxNextTerminal"),),
@@ -448,12 +472,21 @@ CHECKS = (
 
 @dataclass(frozen=True)
 class GhosttyState:
-    pin: str | None
-    head: str | None
+    pin: str | None  # the gitlink at HEAD
+    head: str | None  # the initialized submodule's HEAD
+    kit: str | None = None  # the ghostty-next commit HEAD's GhosttyNextKit release was built from
+
+    @property
+    def initialized(self) -> bool:
+        return self.pin is not None and self.pin == self.head
+
+    @property
+    def kit_ok(self) -> bool:
+        return self.pin is not None and self.pin == self.kit
 
     @property
     def ok(self) -> bool:
-        return self.pin is not None and self.pin == self.head
+        return self.initialized and self.kit_ok
 
     def describe(self) -> str:
         if self.pin is None:
@@ -465,16 +498,30 @@ class GhosttyState:
                     f"git submodule update {GHOSTTY}")
         return f"{GHOSTTY} at the pinned {self.pin[:12]}"
 
+    def describe_kit(self) -> str:
+        if self.pin is None:
+            return f"no {GHOSTTY} gitlink at HEAD"
+        if self.kit is None:
+            return f"no GhosttyNextKit release url in {GHOSTTY_KIT} at HEAD"
+        if self.kit != self.pin:
+            return (f"GhosttyNextKit is built from {self.kit[:12]}, the {GHOSTTY} gitlink is {self.pin[:12]}: "
+                    "move both in one pin commit")
+        return f"GhosttyNextKit built from the gitlink {self.pin[:12]}"
+
 
 def _git(cwd: Path, *args: str) -> str | None:
     done = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True)
     return done.stdout.strip() if done.returncode == 0 else None
 
 
+def gitlink_at(root: Path, rev: str) -> str | None:
+    """The ghostty-next gitlink in REV's tree, or None when REV has none."""
+    fields = (_git(root, "ls-tree", rev, GHOSTTY) or "").split()
+    return fields[2] if len(fields) >= 3 and fields[0] == "160000" else None
+
+
 def ghostty_state(root: Path) -> GhosttyState:
-    tree = _git(root, "ls-tree", "HEAD", GHOSTTY) or ""
-    fields = tree.split()
-    pin = fields[2] if len(fields) >= 3 and fields[0] == "160000" else None
+    pin = gitlink_at(root, "HEAD")
     module = root / GHOSTTY
     head = None
     if (module / ".git").exists():
@@ -482,7 +529,67 @@ def ghostty_state(root: Path) -> GhosttyState:
         # Without its own .git the directory resolves to the parent checkout: that is not initialized.
         if top and Path(top).resolve() == module.resolve():
             head = _git(module, "rev-parse", "HEAD")
-    return GhosttyState(pin, head)
+    kit = GHOSTTY_KIT_PIN.search(_git(root, "show", f"HEAD:{GHOSTTY_KIT}") or "")
+    return GhosttyState(pin, head, kit.group(1) if kit else None)
+
+
+@dataclass(frozen=True)
+class PinCommit:
+    sha: str
+    subject: str
+    prs: tuple[int, ...]
+
+    def describe(self) -> str:
+        named = ", ".join(f"ghostty-next#{n}" for n in self.prs) or "names no ghostty-next PR"
+        return f"{self.sha[:11]} {named}: {self.subject}"
+
+
+def _named_prs(*messages: str) -> tuple[int, ...]:
+    return tuple(dict.fromkeys(int(n) for message in messages for n in GHOSTTY_PR.findall(message)))
+
+
+def pin_commits(root: Path, hours: int) -> list[PinCommit]:
+    """The first-parent commits that moved the ghostty-next gitlink in the HOURS before HEAD's commit time (HEAD's
+    time, not the clock, so a checkout gives the same answer whenever it runs), one per new gitlink value.
+
+    A pin usually lands in a merge (`Merge cp/...`), so a merge names its own message's PRs and those of every
+    non-merge commit it brings that touches the gitlink (`git log --no-merges C^1..C -- ghostty-next`)."""
+    now = _git(root, "log", "-1", "--format=%ct", "HEAD")
+    if not now:
+        return []
+    since = int(now) - hours * 3600
+    out = _git(root, "log", "--first-parent", f"--since={since}", "--format=%H%x00%P%x00%B%x01", "HEAD", "--",
+               GHOSTTY)
+    pins: dict[str, PinCommit] = {}
+    for record in (out or "").split("\x01"):
+        sha, _, rest = record.strip().partition("\x00")
+        value = gitlink_at(root, sha) if sha else None
+        if value is None:  # no commit, or one that removes the gitlink: not a pin
+            continue
+        parents, _, message = rest.partition("\x00")
+        message = message.strip()
+        brought = ""
+        if len(parents.split()) > 1:
+            brought = _git(root, "log", "--no-merges", f"{sha}^1..{sha}", "--format=%B", "--", GHOSTTY) or ""
+        prs = _named_prs(message, brought)
+        if value in pins:  # the same gitlink value again: one pin, naming the PRs of both commits
+            seen = pins[value]
+            pins[value] = PinCommit(seen.sha, seen.subject, tuple(dict.fromkeys(seen.prs + prs)))
+        else:
+            pins[value] = PinCommit(sha, message.splitlines()[0] if message else "", prs)
+    return list(pins.values())
+
+
+def pin_lane_row(root: Path, hours: int) -> Row:
+    """Task 079: at most PIN_LIMIT GhosttyNextKit pins in the window, each naming the ghostty-next PRs it lands."""
+    pins = pin_commits(root, hours)
+    unnamed = sum(1 for p in pins if not p.prs)
+    note = f"{len(pins)} pins in {hours} h" + (f", {unnamed} naming no ghostty-next PR" if unnamed else "")
+    return Row("LANE-ghostty-pins", "queue",
+               f"git log --first-parent --since=HEAD-{hours}h HEAD -- {GHOSTTY} ; per merge C: "
+               f"git log --no-merges C^1..C -- {GHOSTTY}",
+               len(pins), f"<= {PIN_LIMIT}, each names ghostty-next#N", len(pins) <= PIN_LIMIT and not unnamed, note,
+               [p.describe() for p in pins])
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -738,12 +845,15 @@ def bench_rows(name: str, path: str) -> list[Row]:
 
 
 def evaluate(tree: Tree, ghostty: GhosttyState) -> list[Row]:
-    rows = [Row("GHOSTTY", "done", f"git submodule status {GHOSTTY}", None, "pinned", ghostty.ok, ghostty.describe())]
+    rows = [Row("GHOSTTY", "done", f"git submodule status {GHOSTTY}", None, "pinned", ghostty.initialized,
+                ghostty.describe()),
+            Row("GHOSTTY-kit", "done", f"git ls-tree HEAD {GHOSTTY} ; GhosttyNextKit url in {GHOSTTY_KIT}", None,
+                "same sha", ghostty.kit_ok, ghostty.describe_kit())]
     for check in CHECKS:
         if isinstance(check, LineCheck) and check.ghostty and not ghostty.ok:
             query = " ; ".join(query.shell() for query in check.queries)
-            rows.append(Row(check.id, check.kind, query, None, "-", None, "needs the pinned ghostty-next",
-                            skipped=True))
+            rows.append(Row(check.id, check.kind, query, None, "-", None,
+                            "needs ghostty-next initialized at the GhosttyNextKit pin", skipped=True))
             continue
         rows.append(check.evaluate(tree))
     return rows
@@ -794,6 +904,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", default=str(Path(__file__).resolve().parents[2]), help="cmux checkout root")
     parser.add_argument("--verbose", action="store_true", help="list every hit of every row")
     parser.add_argument("--json", metavar="OUT", help="also write the rows as JSON")
+    parser.add_argument("--pin-window", type=int, default=PIN_WINDOW_HOURS, metavar="HOURS",
+                        help=f"LANE-ghostty-pins counts gitlink moves in the HOURS before HEAD (default "
+                             f"{PIN_WINDOW_HOURS})")
     parser.add_argument("--frameclients", action="store_true",
                         help="only list FrameClient(owner: sites that are neither DEBUG-only nor marked")
     parser.add_argument("--invalidate", nargs="*", metavar="PATH",
@@ -817,7 +930,7 @@ def main(argv: list[str] | None = None) -> int:
             paths = [repo_path(root, p) for p in args.invalidate] or [SOURCES]
             check = LineCheck("invalidate", "done", (q(INVALIDATE, *paths),), 0, INVALIDATE_MARK)
             return listing(tree, check, "invalidations without a change check or // invalidate:")
-        rows = evaluate(tree, ghostty_state(root))
+        rows = evaluate(tree, ghostty_state(root)) + [pin_lane_row(root, args.pin_window)]
         for name in ("motion", "hitches", "idle", "typing", "cef"):
             if getattr(args, name):
                 rows += bench_rows(name, getattr(args, name))

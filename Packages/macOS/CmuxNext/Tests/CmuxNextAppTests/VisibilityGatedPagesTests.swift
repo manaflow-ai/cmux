@@ -170,7 +170,7 @@ import Testing
 
     @Test func theVaultPageReadsNothingOnAHideAndShow() async throws {
         let source = CountingVaultSource()
-        let vault = SessionVault(source: source, copyText: { _ in }, openURL: { _ in })
+        let vault = SessionVault(source: source, work: BackgroundWork(), copyText: { _ in }, openURL: { _ in })
         let host = VaultHostView(vault: vault, registry: ActionRegistry(), readsOnAppear: false)
         let gate = try #require(host.visibilityGate)
         let shown = Self.show(host, gate: gate)
@@ -184,7 +184,7 @@ import Testing
 
     @Test func theVaultSectionReadsWhenItAppears() {
         let source = CountingVaultSource()
-        let vault = SessionVault(source: source, copyText: { _ in }, openURL: { _ in })
+        let vault = SessionVault(source: source, work: BackgroundWork(), copyText: { _ in }, openURL: { _ in })
         let host = VaultHostView(vault: vault, registry: ActionRegistry())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 480), styleMask: [.titled],
                               backing: .buffered, defer: false)

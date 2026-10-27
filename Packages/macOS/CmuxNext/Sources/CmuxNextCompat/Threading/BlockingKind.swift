@@ -14,7 +14,8 @@ public enum BlockingKind: String, Sendable, CaseIterable {
     case socketWrite = "socket-write"
     /// A wait on a semaphore, a dispatch group, a condition or a `DispatchQueue.sync`.
     case syncWait = "sync-wait"
-    /// A synchronous XPC or Mach send that waits for the reply.
+    /// A synchronous Mach send, or a framework call over one (ServiceManagement), that waits for the reply. A
+    /// synchronous XPC send is ``xpcReply``.
     case ipcReply = "ipc-reply"
     /// A wait for a child process to exit.
     case processWait = "process-wait"
@@ -64,6 +65,13 @@ public enum BlockingKind: String, Sendable, CaseIterable {
     /// ``blockingFFI(fileID:line:_:)``. Chrome marks the same calls into third-party code with a
     /// `ScopedBlockingCall` at the call (base/threading/scoped_blocking_call.h).
     case ffi
+    /// A synchronous XPC send that waits for the reply (`xpc_connection_send_message_with_reply_sync`, through
+    /// ``blockingXPCSendWithReply(_:_:fileID:line:)``): the thread waits for a daemon or an XPC service for as long as
+    /// it takes to answer. The blocking probe (scripts/measure/blocking-probe.sh) names the same call `xpc-reply`.
+    /// Chrome makes no synchronous cross-process call on its UI thread: a sync Mojo call needs a
+    /// `ScopedAllowBaseSyncPrimitivesOutsideBlockingScope`, whose friends are listed exceptions
+    /// (base/threading/thread_restrictions.h).
+    case xpcReply = "xpc-reply"
 
     /// Whether a site of this kind is recorded only, in every mode: ``lockWait`` (its measured wait includes the
     /// main thread's own scheduling delay) and ``priorityInversion`` (an await, not a wait).
@@ -73,14 +81,14 @@ public enum BlockingKind: String, Sendable, CaseIterable {
 
     /// Whether the kind waits for another thread or process to act: a semaphore, a group, a condition or a
     /// `DispatchQueue.sync` (``syncWait``), a contended ``Mutex`` past ``lockWaitLimitNanos`` (``lockWait``) or a
-    /// synchronous reply (``ipcReply``). These are Chrome's base sync primitives (`WaitableEvent`,
+    /// synchronous reply (``ipcReply``, ``xpcReply``). These are Chrome's base sync primitives (`WaitableEvent`,
     /// `ConditionVariable`, a sync Mojo call): a `BackgroundWork` lane may wait on the disk or a socket, but one
     /// of these in a lane item records a ``BlockingContext/laneSync`` site, as Chrome runs a `MayBlock()` task
     /// without `WithBaseSyncPrimitives()` under `ScopedDisallowBaseSyncPrimitives`
     /// (base/task/thread_pool/task_tracker.cc). A dedicated thread or queue may wait on them.
     public var isSyncPrimitive: Bool {
         switch self {
-        case .syncWait, .lockWait, .ipcReply:
+        case .syncWait, .lockWait, .ipcReply, .xpcReply:
             true
         case .fileIO, .socketRead, .socketWrite, .processWait, .processSpawn, .systemCall, .sleep, .wrongLane,
              .cpuIntensive, .fsMetadata, .sqlite, .processReap, .systemQuery, .priorityInversion, .ffi:

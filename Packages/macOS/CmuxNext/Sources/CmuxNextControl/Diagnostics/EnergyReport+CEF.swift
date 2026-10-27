@@ -6,7 +6,8 @@ extension EnergyReport {
         public enum Saver: String, Sendable {
             /// The fork took the app's last saver state (`cmux_cef_set_energy_saver`, p14-energy-030).
             case applied
-            /// Chromium has not taken it: not started, a fork below the API, or the Chromium Host (p14-energy-045).
+            /// Chromium has not taken it: not started, or a fork below the API (in process or in the Chromium Host,
+            /// whose hello says whether its fork has it; p14-energy-045).
             case unsupported
 
             /// `applied` only when the engine says the fork took the last state; nil is no Chromium built yet.

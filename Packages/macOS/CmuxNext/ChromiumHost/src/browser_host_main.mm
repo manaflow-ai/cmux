@@ -21,6 +21,17 @@
 // a shutdown op, closes every browser and ends the loop; a host that has
 // not ended kQuitLimitSeconds after that _exits, so a hung UI thread or a
 // hung CefInitialize never leaves an orphaned host behind.
+//
+// Energy Saver: this process is the page's browser process, so the saver's
+// browser-side work runs here, as Chrome's BatterySaverModeManager runs it in
+// its browser process (host_energy_saver.h). cmux's Chromium switches come in
+// INITIALIZE, the set the app runs in process with (CEFSwitches); the host
+// fits them to its own message loop and adds TimerSlackMac (host_switches.h).
+//
+// App Nap: no window of the host is on screen, so macOS may nap it. The host
+// holds a user-initiated activity while cmux shows one of its pages and lets
+// App Nap apply when every page is hidden (host_page_activity.h, task
+// p14-energy-128).
 
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
@@ -53,6 +64,8 @@
 #include "chromium_host_wire.h"
 #include "cmux_cef_shim.h"
 #include "host_dispatch.h"
+#include "host_page_activity.h"
+#include "host_switches.h"
 #include "host_user_input.h"
 #include "shim_internal.h"
 
@@ -154,6 +167,7 @@ void PostToMain(std::function<void()> task) {
 struct ForkInputCalls {
   cmux_host::PostTaskFn post_user_input_task = nullptr;  // API 30
   cmux_host::SetEventTimeFn set_input_event_time = nullptr;  // a fork item after API 31
+  cmux_host::SetWheelAckHandlerFn set_wheel_ack_handler = nullptr;  // a fork item after API 31 (host_wheel_ack.h)
 };
 
 // After cmux_shim_load. The CEF wrapper opened the framework RTLD_LOCAL, so
@@ -167,6 +181,8 @@ ForkInputCalls ResolveForkInputCalls(const std::string& framework_binary) {
       reinterpret_cast<cmux_host::PostTaskFn>(dlsym(image, "cmux_post_user_input_task"));
   calls.set_input_event_time =
       reinterpret_cast<cmux_host::SetEventTimeFn>(dlsym(image, "cmux_set_input_event_time"));
+  calls.set_wheel_ack_handler =
+      reinterpret_cast<cmux_host::SetWheelAckHandlerFn>(dlsym(image, "cmux_set_wheel_ack_handler"));
   return calls;
 }
 
@@ -222,6 +238,8 @@ void SendWheel(cmux_host::HostContext& host, cmux_host::WheelPixelCarry& carry, 
   const cmux_host::Wheel wheel = cmux_host::WheelOf(frame);
   if (cmux_shim_browser_send_wheel(browser_id, wheel.x, wheel.y, wheel.dx, wheel.dy, wheel.precise ? 1 : 0,
                                    wheel.phase, wheel.momentum_phase, wheel.modifiers)) {
+    // The fork's ack of this wheel goes back as WHEEL_ACK with its seq (task p01-process-234).
+    host.WheelSent(browser_id, frame.seq, wheel.momentum_phase != cmux_host::kWheelPhaseNone);
     return;
   }
   CefRefPtr<CefBrowser> browser = cmux_shim::BrowserById(browser_id);
@@ -406,6 +424,35 @@ void ObserveActivation() {
                   }];
 }
 
+// The activity that keeps App Nap off the host (PageShowActivity's hold): as
+// Chrome's AppNapActivity (content/common/mac/app_nap_activity.mm), user
+// initiated with idle system sleep allowed, so a shown page draws at the
+// display's rate and the Mac may still sleep. Main thread.
+class AppNapActivity {
+ public:
+  AppNapActivity() = default;
+  AppNapActivity(const AppNapActivity&) = delete;
+  AppNapActivity& operator=(const AppNapActivity&) = delete;
+  ~AppNapActivity() { Hold(false); }
+
+  void Hold(bool held) {
+    if (held == (token_ != nil)) return;
+    @autoreleasepool {
+      if (held) {
+        token_ = [[NSProcessInfo.processInfo beginActivityWithOptions:NSActivityUserInitiatedAllowingIdleSystemSleep
+                                                                reason:@"cmux shows a Chromium page"] retain];
+      } else {
+        [NSProcessInfo.processInfo endActivity:token_];
+        [token_ release];
+        token_ = nil;
+      }
+    }
+  }
+
+ private:
+  id<NSObject> token_ = nil;
+};
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -424,6 +471,10 @@ int main(int argc, char* argv[]) {
     [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
     ObserveActivation();
   }
+  // Held from here, through Chromium's start, until the first shown page
+  // count after initialize (HostContext::Resume).
+  AppNapActivity app_nap;
+  cmux_host::PageShowActivity page_activity([&app_nap](bool held) { app_nap.Hold(held); });
   // One thread so far: the framework's allocator and static initializers run
   // before any other thread exists. cmux_shim_load also binds the fork API.
   char error[512] = {0};
@@ -470,6 +521,10 @@ int main(int argc, char* argv[]) {
       cmux_host::CheckInFenceInbox(Arg(args, cmux_host::kResizeFenceSwitch));
   cmux_host::PageResizes page_resizes(fence_inbox.get(), &cmux_shim_browser_set_resize_fence);
   host.SetPageResizes(&page_resizes);
+  // cmux_shim_load bound the fork's cmux_cef_set_energy_saver (p14-energy-029) when it has
+  // it; without it the HELLO lists no saver and kOpEnergySaver changes nothing.
+  if (cmux_shim::fork_api().set_energy_saver) host.SetEnergySaver(&cmux_shim_set_energy_saver);
+  host.SetPageShowActivity(&page_activity);
   // Main thread only, like `host`. The input ring (task 041) attaches its
   // dispatch here (AttachInput) and hands each frame to AddInput; until then
   // no frame comes and cmux stamps no ordered op with an input seq.
@@ -495,6 +550,8 @@ int main(int argc, char* argv[]) {
         check(ordered.AddControl(std::move(messages)));
       },
       [&host_main](cmux_host::control::End) { host_main.Quit(); });
+  // Chromium's ack of each wheel goes to cmux's swipe navigation (WHEEL_ACK, task p01-process-234).
+  host.SetWheelAckHandler(fork_input.set_wheel_ack_handler);
   host.Attach();
 
   // Preinit ops apply as they arrive; INITIALIZE (or the channel's end) stops
@@ -511,8 +568,9 @@ int main(int argc, char* argv[]) {
   int status = host_main.exit_status();
   if (!host_main.quit_before_start() && host_main.request()) {
     const cmux_host::InitializeRequest& request = *host_main.request();
+    const std::vector<std::string> host_switches = cmux_host::HostSwitches(request.switches);
     std::vector<const char*> switches;
-    for (const std::string& entry : request.switches) switches.push_back(entry.c_str());
+    for (const std::string& entry : host_switches) switches.push_back(entry.c_str());
     switches.push_back(nullptr);
     auto c_str = [](const std::optional<std::string>& value) { return value ? value->c_str() : nullptr; };
     // The framework this host loaded at start; cmux names the same directory.

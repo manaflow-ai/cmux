@@ -15,6 +15,7 @@ struct BrowserHTTPSignIn {
     func run(_ completionHandler: @escaping @MainActor (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         let memory = memory, key = key, failures = failures
         // task-owner: one Keychain read off the main actor, then the answer; ends with it
+        // main-hop-allow: the read runs detached; its resume answers WebKit's challenge or asks through the tab's prompt queue, main-actor state that is not Sendable
         Task {
             let remembered = await Task.detached { memory?.remembered(key, failures: failures) }.value
             if let remembered {

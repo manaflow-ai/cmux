@@ -1,6 +1,9 @@
 public import AppKit
 import CmuxNextCompat
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 extension CEFTab {
     /// Translates shim events into `BrowserNavigationEvent`s.
@@ -259,10 +262,12 @@ extension CEFTab {
     private func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool,
                       deliveringTo update: ((BrowserFindResult) -> Void)?) async -> BrowserFindResult {
         guard let browserID, !text.isEmpty, let shim = runtime.shim else { return .none }
-        return await withCheckedContinuation { continuation in
+        // A request dropped unanswered (abandoned: the tab went away) found nothing.
+        let result = try? await withOnceContinuation { (continuation: OnceContinuation<BrowserFindResult, OnceContinuationError>) in
             let findID = findRequests.begin(answer: { continuation.resume(returning: $0) }, update: update)
             shim.find(browserID, findID, text, direction == .forward ? 1 : 0, caseSensitive ? 1 : 0, 1)
         }
+        return result ?? BrowserFindResult.none
     }
 
     public func clearFind() {

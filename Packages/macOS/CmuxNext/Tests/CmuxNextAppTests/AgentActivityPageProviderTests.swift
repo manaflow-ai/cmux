@@ -2,6 +2,7 @@ import CmuxNextAgentActivity
 @testable import CmuxNextApp
 @testable import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -14,7 +15,8 @@ import Testing
     @Test func aRequestRunsOnTheModelAndAFailedOneIsAPageError() async throws {
         let source = AgentActivityMockSource()
         let model = AgentActivityModel(source: source)
-        let provider = AgentActivityPageProvider(requests: AgentActivityRequests(model: model, source: source))
+        let provider = AgentActivityPageProvider(requests: AgentActivityRequests(model: model, source: source),
+                                                 mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         _ = try await provider.call("cmux.agentActivity.filter", params: ["value": "safari"], context: context)
         #expect(model.filter == "safari")
         await #expect(throws: PageError.self) {
@@ -28,7 +30,8 @@ import Testing
     @Test func theStateStreamStartsWithTheWholeStateAndFollowsChanges() async throws {
         let source = AgentActivityMockSource()
         let model = AgentActivityModel(source: source)
-        let provider = AgentActivityPageProvider(requests: AgentActivityRequests(model: model, source: source))
+        let provider = AgentActivityPageProvider(requests: AgentActivityRequests(model: model, source: source),
+                                                 mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         var states: [JSONValue] = []
         var next: CheckedContinuation<Void, Never>?
         let subscription = try await provider.subscribe(AgentActivityPageProvider.stateStream, filter: [:], context: context) { state in

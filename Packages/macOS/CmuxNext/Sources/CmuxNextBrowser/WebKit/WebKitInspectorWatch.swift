@@ -2,6 +2,7 @@ public import AppKit
 public import Observation
 import WebKit
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// Whether a WebKit tab's Web Inspector is shown, as an observable value
 /// (the toolbar's DevTools button). WebKit has no public inspector API and
@@ -23,16 +24,16 @@ import CmuxNextCompat
 public final class WebKitInspectorWatch: NSObject {
     public private(set) var isVisible = false
     @ObservationIgnored private weak var webView: WKWebView?
-    @ObservationIgnored private var closeObserver: MainActorObservation?
+    @ObservationIgnored private var closeObserver: EventSubscription?
 
     override init() {}
 
-    func attach(webView: WKWebView, container: WebKitPageContainer) {
+    /// Watches `webView`'s inspector: views WebKit adds to `container`, and any window's close from `events` (the
+    /// engine's one observer for every tab, which delivers a close off main on main).
+    func attach(webView: WKWebView, container: WebKitPageContainer, events: AppEvents) {
         self.webView = webView
         container.onSubviewsChange = { [weak self] in self?.refresh() }
-        // queue: .main: a window may close off main; a selector into this
-        // main-actor object trapped there. Inline for a close on main.
-        closeObserver = MainActorObservation(NSWindow.willCloseNotification) { [weak self] in
+        closeObserver = events.subscribe(NSWindow.willCloseNotification, owner: "WebKitInspectorWatch") { [weak self] in
             self?.refresh()
         }
     }

@@ -42,8 +42,9 @@ final class ScreenBarController {
     /// - Parameter node: The node the bar follows its screens under; nil: the workspace's, else the bar's own.
     init(content: WorkspaceContentController, node: VisibilityNode? = nil) {
         self.content = content
-        view =TabStripView(model: model, input: content.services.inputTap)
+        view = TabStripView(model: model, input: content.services.inputTap)
         view.hoverFrameInput = content.services.hoverFrameInput  // hover once per frame (`pointerFrameHover`)
+        view.scrollFrameInput = content.services.tabScrollFrameInput  // scroll by translation once per frame (`tabStripScrollFrames`)
         preview = ScreenPreviewSource(content: content)
         view.dragsWindowFromEmptySpace = false
         view.renamesOnDoubleClick = true
@@ -241,19 +242,27 @@ final class ScreenBarController {
 
 /// Hover card thumbnails for screens: the preview of the screen's active
 /// pane's selected tab (the terminal or page the screen shows first).
+///
+/// It holds what it reads, not the workspace content: a hover card's thumbnail task keeps it past the
+/// content's teardown, and none of these refers back to it.
 @MainActor
 final class ScreenPreviewSource: TabPreviewProvider {
-    private unowned let content: WorkspaceContentController
+    private let workspace: WorkspaceModel
+    private let selection: TabSelectionMemory
+    private let cache: TabContentCache
 
-    init(content: WorkspaceContentController) { self.content = content }
+    init(content: WorkspaceContentController) {
+        workspace = content.workspace
+        selection = content.state.selection
+        cache = content.services.cache
+    }
 
     func previewImage(for tab: StripTabID, maxPixelSize: CGSize) async -> CGImage? {
-        guard let screen = content.workspace.screens.first(where: { $0.id == tab.rawValue }),
+        guard let screen = workspace.screens.first(where: { $0.id == tab.rawValue }),
               let pane = screen.defaultPane.flatMap(screen.pane) ?? screen.panes.first else { return nil }
-        let selected = content.state.selection.selection(in: pane.id)
+        let selected = selection.selection(in: pane.id)
             ?? (pane.tabs.indices.contains(pane.defaultTabIndex) ? pane.tabs[pane.defaultTabIndex].id : pane.tabs.first?.id)
         guard let key = selected else { return nil }
-        let cache = content.services.cache
         return await TabPreviewSource.shown(cache.previewImage(for: key, maxPixelSize: maxPixelSize), key: key, cache: cache)
     }
 }

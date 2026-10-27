@@ -170,6 +170,7 @@ public final class InputLatencyTracker {
     ///     tap or the pending-input state), or nil when unknown: the stage stays skipped, not equal to dispatchStart.
     /// - Returns: The slot's token, or nil when the table is full (counted in its `droppedCount`).
     // perf-hot: 0.5us key-dispatch
+    // perf-hot: 0.5us input-latency-mark
     public func begin(event: NSEvent, kind: InputEventKind, target: InputTarget, entrypoint: InputEntrypoint,
                       arrivedMain: UInt64? = nil) -> InputLatencyToken? {
         begin(kind: kind, target: target, entrypoint: entrypoint, eventTimestamp: event.timestamp, window: event.window,
@@ -189,6 +190,7 @@ public final class InputLatencyTracker {
     ///   - frameInterval: The older interval the slot also carries (`key.frame`, `key.scroll_frame`), or nil.
     /// - Returns: The slot's token, or nil when the table is full.
     // perf-hot: 0.5us key-dispatch
+    // perf-hot: 0.5us input-latency-mark
     public func begin(kind: InputEventKind, target: InputTarget, entrypoint: InputEntrypoint,
                       eventTimestamp: TimeInterval, window: NSWindow?,
                       arrivedMain: UInt64? = nil, frameInterval: InputFrameInterval? = nil) -> InputLatencyToken? {
@@ -222,6 +224,7 @@ public final class InputLatencyTracker {
     ///   - nanos: `CLOCK_UPTIME_RAW` nanoseconds; now when omitted.
     /// - Returns: Whether it wrote.
     // perf-hot: 0.05us key-dispatch
+    // perf-hot: 0.05us input-latency-mark
     @discardableResult
     public nonisolated func mark(_ token: InputLatencyToken, _ stage: InputStage, at nanos: UInt64? = nil) -> Bool {
         table.mark(token, stage, at: nanos ?? now())
@@ -246,6 +249,7 @@ public final class InputLatencyTracker {
 
     /// Stamps `dispatchEnd`: the app's dispatch of `token`'s event returned. The slot closes after this turn's commit.
     // perf-hot: 0.05us key-dispatch
+    // perf-hot: 0.05us input-latency-mark
     public func endDispatch(_ token: InputLatencyToken) {
         table.mark(token, .dispatchEnd, at: now())
     }
@@ -311,7 +315,7 @@ public final class InputLatencyTracker {
                 kept += 1
             }
         }
-        waiting.removeLast(waiting.count - kept)
+        if kept < waiting.count { waiting.removeLast(waiting.count - kept) }
     }
 
     /// Asks the presentation clock when content committed at `nanos` in `window` reaches the glass; the slot closes

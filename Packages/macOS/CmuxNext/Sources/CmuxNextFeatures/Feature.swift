@@ -27,9 +27,6 @@ public nonisolated struct Feature: Sendable, Hashable {
 
         /// Whether local Labs and Debug overrides apply (DEV and NIGHTLY).
         public var allowsLocalOverrides: Bool { self != .release }
-
-        /// Whether field-trial arms apply (Nightly studies only).
-        public var allowsFieldTrials: Bool { self == .nightly }
     }
 
     /// What a feature is for (the registry's `kind`).
@@ -63,6 +60,8 @@ public nonisolated struct Feature: Sendable, Hashable {
         case remote
         /// A Nightly field-trial arm.
         case fieldTrial
+        /// The build's own default set: a dogfood build's switch list (``FeatureOverrides/buildDefaults``).
+        case buildDefault
         /// The channel default.
         case channelDefault
 
@@ -73,6 +72,7 @@ public nonisolated struct Feature: Sendable, Hashable {
             case .local: "local"
             case .remote: "remote"
             case .fieldTrial: "trial"
+            case .buildDefault: "build"
             case .channelDefault: "default"
             }
         }

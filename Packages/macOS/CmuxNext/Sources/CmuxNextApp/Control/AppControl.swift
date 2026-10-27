@@ -108,7 +108,8 @@ final class AppControl {
     /// (below), registered before the service serves (p08-startup-019).
     func start(registry: ActionRegistry, settings: SettingsController, launch: LaunchIdentity, services: AppServices) throws {
         let service = try ControlService.prepare(registry: registry, settings: settings, launch: launch,
-                                                 frameSource: frames, watchdog: watchdog, mainWork: mainWork)
+                                                 frameSource: frames, watchdog: watchdog, mainWork: mainWork,
+                                                 hangs: TraceRuntime.shared.hangWatch)
         self.service = service
         AppMemoryConsumers(services: services).registerControlCaches(service)
         actionBudget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
@@ -170,6 +171,7 @@ final class AppControl {
         if let wireStats = services.wireStats { router.register([DaemonWireControl(stats: wireStats).method]) }
         router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap), DebugCEF.pumpInputSource(services.cache.chromium),
                                                IntentPrewarmDebugSource { [weak services] in services?.cache.hibernation?.intentPrewarm?.service },
+                                               MainJobGateDebugSource { (NSApp as? CmuxApplication)?.jobGate?.gate },
                                                ScrollViewAuditSource { [mainWork = services.mainWork] in
                                                    // A job the scheduler dropped audits nothing.
                                                    (try? await withOnceContinuation { (continuation: OnceContinuation<DebugInputScrollViews, OnceContinuationError>) in

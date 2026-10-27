@@ -16,13 +16,16 @@ import http.server
 import threading
 import time
 
-PAGE = """<button id=alert style="top:220px" onclick="alert('native-ui alert'); S.alert = 'closed'">alert</button>
-<button id=confirm style="top:280px" onclick="S.confirm = String(confirm('native-ui confirm'))">confirm</button>
-<button id=prompt style="top:340px" onclick="S.prompt = String(prompt('native-ui prompt', 'default'))">prompt</button>
+PAGE = """<button id=alert style="top:400px" onclick="alert('native-ui alert'); S.alert = 'closed'">alert</button>
+<button id=confirm style="top:460px" onclick="S.confirm = String(confirm('native-ui confirm'))">confirm</button>
+<button id=prompt style="top:520px" onclick="S.prompt = String(prompt('native-ui prompt', 'default'))">prompt</button>
 <script>window.S = {}</script>
 """
 
 FEATURE = "chromiumPageDialogs"
+# The rows on the probe page, then http_auth, which navigates the tab away and so runs last.
+PAGE_ROWS = ("alert", "confirm", "prompt")
+ROWS = (*PAGE_ROWS, "http_auth")
 JAVASCRIPT_DIALOG = "browser.dialog.javascript"
 AUTH_DIALOG = "browser.dialog.httpAuth"
 AUTH_USER, AUTH_PASSWORD, AUTH_REALM = "native-ui", "s3cret", "native-ui"
@@ -72,19 +75,20 @@ def answered(rpc, wait, page_eval, opens, identifier, answer, script, expected):
             "dialog": {key: dialog.get(key) for key in ("title", "lines", "origin", "buttons")}}
 
 
-def rows(rpc, wait, page_eval, click):
-    """alert, confirm and prompt on the probe page (PAGE is part of it)."""
+def rows(rpc, wait, page_eval, click, names=ROWS):
+    """alert, confirm and prompt of `names` on the probe page (PAGE is part of it); http_auth is auth_row."""
     press = lambda button: (lambda dialog: rpc("debug.dialog", {"id": dialog, "press": button}))
 
     def typed(dialog):
         rpc("debug.dialog", {"id": dialog, "set": {"text": "typed"}})
         rpc("debug.dialog", {"id": dialog, "press": "ok"})
 
-    return {
-        "alert": answered(rpc, wait, page_eval, lambda: click("alert"), JAVASCRIPT_DIALOG, press("ok"), "S.alert", "closed"),
-        "confirm": answered(rpc, wait, page_eval, lambda: click("confirm"), JAVASCRIPT_DIALOG, press("ok"), "S.confirm", "true"),
-        "prompt": answered(rpc, wait, page_eval, lambda: click("prompt"), JAVASCRIPT_DIALOG, typed, "S.prompt", "typed"),
+    runs = {
+        "alert": lambda: answered(rpc, wait, page_eval, lambda: click("alert"), JAVASCRIPT_DIALOG, press("ok"), "S.alert", "closed"),
+        "confirm": lambda: answered(rpc, wait, page_eval, lambda: click("confirm"), JAVASCRIPT_DIALOG, press("ok"), "S.confirm", "true"),
+        "prompt": lambda: answered(rpc, wait, page_eval, lambda: click("prompt"), JAVASCRIPT_DIALOG, typed, "S.prompt", "typed"),
     }
+    return {name: run() for name, run in runs.items() if name in names}
 
 
 def auth_row(rpc, wait, page_eval):

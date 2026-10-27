@@ -1190,6 +1190,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-hang-watch"
+version = "0.1.0"
+dependencies = [
+ "cmux-trace",
+ "libc",
+]
+
+[[package]]
 name = "cmux-history"
 version = "0.1.0"
 dependencies = [
@@ -1364,6 +1372,7 @@ dependencies = [
  "cmux-blocking",
  "cmux-local-auth",
  "cmux-panic-log",
+ "cmux-threads",
  "futures-util",
  "getrandom 0.3.4",
  "jsonschema",
@@ -1384,8 +1393,11 @@ dependencies = [
 name = "cmux-panic-log"
 version = "0.1.0"
 dependencies = [
+ "cmux-trace",
  "libc",
  "serde_json",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -1702,6 +1714,7 @@ dependencies = [
  "cmux-build-identity",
  "cmux-config",
  "cmux-features",
+ "cmux-hang-watch",
  "cmux-holder",
  "cmux-host",
  "cmux-ipc",
@@ -1789,6 +1802,7 @@ dependencies = [
  "anyhow",
  "backtrace",
  "base64",
+ "bytes",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
  "cmux-app-host",
@@ -1800,6 +1814,7 @@ dependencies = [
  "cmux-feed-core",
  "cmux-flow-trace",
  "cmux-git",
+ "cmux-hang-watch",
  "cmux-history",
  "cmux-holder",
  "cmux-ipc",
@@ -1979,6 +1994,7 @@ dependencies = [
  "base64",
  "cmux-blocking",
  "cmux-panic-log",
+ "cmux-threads",
  "cmux-wg",
  "futures-util",
  "getrandom 0.3.4",
@@ -1993,6 +2009,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "subtle",
+ "tempfile",
  "tokio",
  "tokio-tungstenite",
  "x25519-dalek",

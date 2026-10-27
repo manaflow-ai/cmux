@@ -1768,6 +1768,7 @@ fn run_main() {
     // daemon signal handler.
     #[cfg(unix)]
     if raw_args.first().map(String::as_str) == Some("__holder") {
+        set_default_task_role();
         if let Err(error) = cmux_holder::serve(&raw_args[1..]) {
             crate::client_log::stderr_log!("startup", "cmux-tui holder: {error}");
             client_log::exit(1);
@@ -1775,6 +1776,7 @@ fn run_main() {
         return;
     }
     if raw_args.first().map(String::as_str) == Some("__terminal-host") {
+        set_default_task_role();
         if let Err(error) = run_terminal_host_process(&raw_args[1..]) {
             crate::client_log::stderr_log!("startup", "cmux-tui terminal host: {error}");
             client_log::exit(1);
@@ -2223,6 +2225,15 @@ impl Drop for LocalOwnerEventLoop {
     }
 }
 
+/// Chromium's `SetCurrentTaskDefaultRole` for the daemon, the holder and the
+/// terminal hosts: the person's input passes through each. A refusal is
+/// logged, never fatal.
+fn set_default_task_role() {
+    if let Err(error) = cmux_threads::process_role::set_default_role() {
+        crate::client_log::stderr_log!("startup", "{BIN}: {error}");
+    }
+}
+
 /// Starts the session server: surface environment, state root, mux, and listeners.
 fn run_server(
     args: Args,
@@ -2231,11 +2242,12 @@ fn run_server(
 ) -> anyhow::Result<()> {
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
+    set_default_task_role();
     daemon_build::install();
     // Windows hosts get no orphan grace (no app bundles there to classify).
     #[cfg(unix)]
     host_orphan_policy::install();
-    owner_start::prepare(&args)?;
+    owner_start::start_server_process(&args)?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
     let provider_management_listener = take_provider_management_listener()?;

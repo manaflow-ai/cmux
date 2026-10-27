@@ -12,7 +12,7 @@ public final class GatedHomeSource: HomeSource, Sendable {
     /// Everything the reads and closes change, reached only under the mutex.
     private struct State {
         var holding = false
-        var held: [CheckedContinuation<Void, Never>] = []
+        var held: [OnceContinuation<Void, OnceContinuationError>] = []
         var reads: [ConversationID] = []
         var closed: [ConversationID] = []
         var steps: [Step] = []
@@ -45,26 +45,26 @@ public final class GatedHomeSource: HomeSource, Sendable {
 
     /// Lets every held read go, and stops holding.
     public func release() {
-        let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>] in
+        let waiters = state.withLock { state -> [OnceContinuation<Void, OnceContinuationError>] in
             state.holding = false
             defer { state.held = [] }
             return state.held
         }
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: ()) }
     }
 
     public func events() async -> AsyncStream<HomeEvent> { await inner.events() }
     public func inbox() async throws -> InboxSnapshot { try await inner.inbox() }
 
     public func snapshot(of conversation: ConversationID, tail: Int) async throws -> ConversationPage {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
             let wait = state.withLock { state -> Bool in
                 state.reads.append(conversation)
                 state.steps.append(.read(conversation))
                 if state.holding { state.held.append(continuation) }
                 return state.holding
             }
-            if !wait { continuation.resume() }
+            if !wait { continuation.resume(returning: ()) }
         }
         defer { state.withLock { $0.steps.append(.readReturned(conversation)) } }
         return try await inner.snapshot(of: conversation, tail: tail)

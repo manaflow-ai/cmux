@@ -11,16 +11,16 @@ import Testing
     // MARK: Wire
 
     @Test func aJSDialogCarriesItsKindTextAndFrame() {
-        let prompt = CEFShimEvent(kind: 60, browser: 7, request: 3, a: 2, b: 0, s1: "Name?",
+        let prompt = CEFShimEvent(kind: 61, browser: 7, request: 3, a: 2, b: 0, s1: "Name?",
                                   s2: "https://a.example:8443/form\nAda\nLovelace")
         #expect(prompt == .jsDialog(browser: 7, token: 3, dialog: CEFJSDialog(kind: .prompt, message: "Name?",
                                                                              defaultText: "Ada\nLovelace",
                                                                              frameURL: "https://a.example:8443/form")))
-        let alert = CEFShimEvent(kind: 60, browser: 7, request: 4, a: 0, b: 0, s1: "Hi", s2: "https://a.example/\n")
+        let alert = CEFShimEvent(kind: 61, browser: 7, request: 4, a: 0, b: 0, s1: "Hi", s2: "https://a.example/\n")
         #expect(alert == .jsDialog(browser: 7, token: 4, dialog: CEFJSDialog(kind: .alert, message: "Hi", frameURL: "https://a.example/")))
-        #expect(CEFShimEvent(kind: 61, browser: 7, request: 0, a: 0, b: 0, s1: "", s2: "") == .jsDialogsDismissed(browser: 7))
+        #expect(CEFShimEvent(kind: 62, browser: 7, request: 0, a: 0, b: 0, s1: "", s2: "") == .jsDialogsDismissed(browser: 7))
         // A kind CEF does not have still asks, so the page gets an answer.
-        let odd = CEFShimEvent(kind: 60, browser: 7, request: 5, a: 9, b: 0, s1: "?", s2: "")
+        let odd = CEFShimEvent(kind: 61, browser: 7, request: 5, a: 9, b: 0, s1: "?", s2: "")
         #expect(odd == .jsDialog(browser: 7, token: 5, dialog: CEFJSDialog(kind: .alert, message: "?", frameURL: "")))
     }
 
@@ -33,7 +33,7 @@ import Testing
     }
 
     @Test func anAuthChallengeNamesWebKitsProtectionSpace() {
-        let event = CEFShimEvent(kind: 62, browser: 7, request: 8, a: 8443, b: 0, s1: "intranet.example",
+        let event = CEFShimEvent(kind: 63, browser: 7, request: 8, a: 8443, b: 0, s1: "intranet.example",
                                  s2: "https://intranet.example:8443/\nbasic\nStaff\nonly")
         let challenge = CEFAuthChallenge(host: "intranet.example", port: 8443, isProxy: false, originURL: "https://intranet.example:8443/",
                                          scheme: "basic", realm: "Staff\nonly")
@@ -46,7 +46,7 @@ import Testing
         #expect(proxy.isProxy && proxy.realm.isEmpty)
         #expect(proxy.protectionSpace.isProxy() && proxy.protectionSpace.realm == nil)
         #expect(proxy.protectionSpace.authenticationMethod == NSURLAuthenticationMethodHTTPDigest)
-        #expect(CEFShimEvent(kind: 63, browser: 7, request: 0, a: 0, b: 0, s1: "", s2: "") == .authDismissed(browser: 7))
+        #expect(CEFShimEvent(kind: 64, browser: 7, request: 0, a: 0, b: 0, s1: "", s2: "") == .authDismissed(browser: 7))
     }
 
     // MARK: The tab asks

@@ -36,23 +36,17 @@ final class ProfileBadgeView: NSView {
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
         layer?.cornerRadius = Self.size / 2
-        translatesAutoresizingMaskIntoConstraints = false
-        label.translatesAutoresizingMaskIntoConstraints = false
         label.font = .systemFont(ofSize: 9, weight: .semibold)
         label.alignment = .center
-        symbol.translatesAutoresizingMaskIntoConstraints = false
         symbol.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
         symbol.isHidden = true
         addSubview(label)
         addSubview(symbol)
-        NSLayoutConstraint.activate([
-            symbol.centerXAnchor.constraint(equalTo: centerXAnchor),
-            symbol.centerYAnchor.constraint(equalTo: centerYAnchor),
-            widthAnchor.constraint(equalToConstant: Self.size),
-            heightAnchor.constraint(equalToConstant: Self.size),
-            label.centerXAnchor.constraint(equalTo: centerXAnchor),
-            label.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
+        // The omnibar's badge row keeps the badge at its size, as a fixed one.
+        for orientation in [NSLayoutConstraint.Orientation.horizontal, .vertical] {
+            setContentHuggingPriority(.required, for: orientation)
+            setContentCompressionResistancePriority(.required, for: orientation)
+        }
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
         setAccessibilityIdentifier("cmux.browser.profileBadge")
@@ -77,6 +71,7 @@ final class ProfileBadgeView: NSView {
             label.stringValue = badge.monogram
         }
         symbol.isHidden = shownSymbol == nil
+        needsLayout = true // invalidate: another badge (the guard above) centers another monogram or symbol
         let help = BrowserProfileStrings.badgeHelp(badge.name)
         themedToolTip = help
         setAccessibilityLabel(help)
@@ -90,6 +85,33 @@ final class ProfileBadgeView: NSView {
         guard name.count > 1, name.allSatisfy({ ($0.isASCII && ($0.isLowercase || $0.isNumber)) || $0 == "." }) else { return nil }
         // chrome-icons: allow the profile's own symbol, chosen by the user
         return NSImage(systemSymbolName: name, accessibilityDescription: nil)
+    }
+
+    // MARK: Frame layout
+
+    /// A round badge of `size`, whatever it shows.
+    override var intrinsicContentSize: NSSize { NSSize(width: Self.size, height: Self.size) }
+
+    override var fittingSize: NSSize { intrinsicContentSize }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let oldSize = frame.size
+        super.setFrameSize(newSize)
+        if newSize != oldSize { needsLayout = true } // invalidate: a new size (the check above) centers the content again
+    }
+
+    /// The monogram and the symbol centered in the badge, each at its own size.
+    override func layout() {
+        super.layout()
+        for view in [label, symbol] as [NSView] {
+            view.setAlignmentFrame(Self.centered(view.intrinsicContentSize, in: bounds))
+        }
+    }
+
+    /// `size` centered in `bounds`, on whole points; a view with no intrinsic size (an empty symbol) gets none.
+    nonisolated static func centered(_ size: CGSize, in bounds: CGRect) -> CGRect {
+        let width = max(0, size.width), height = max(0, size.height)
+        return CGRect(x: (bounds.midX - width / 2).rounded(), y: (bounds.midY - height / 2).rounded(), width: width, height: height)
     }
 
     override func menu(for event: NSEvent) -> NSMenu? { makeMenu?() }
