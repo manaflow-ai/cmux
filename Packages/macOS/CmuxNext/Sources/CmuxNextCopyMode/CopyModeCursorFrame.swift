@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// Where the copy-mode cursor box goes over a terminal view.
 ///

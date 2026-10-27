@@ -12,7 +12,10 @@ public struct HostBudgetFormula: Equatable, Sendable {
     public var cores = "performance"
     /// The highest memory pressure within budget: "normal" or "warn".
     public var pressure = "normal"
-    /// Over when available RAM (kern.memorystatus_level) is under this fraction.
+    /// Linux: PSI `some avg10` (/proc/pressure/memory) at or over this is memory pressure warn.
+    public var psiSomeAvg10 = 10.0
+    /// Over when available RAM (macOS kern.memorystatus_level, Linux MemAvailable / MemTotal) is
+    /// under this fraction.
     public var minAvailableRAMFraction = 0.10
     /// Over when the swap-out rate is over this many MB a minute.
     public var swapGrowthMBPerMin = 64.0
@@ -29,12 +32,14 @@ public struct HostBudgetOverride: Decodable, Equatable, Sendable {
     public var load1PerCore: Double?
     public var cores: String?
     public var pressure: String?
+    public var psiSomeAvg10: Double?
     public var minAvailableRAMFraction: Double?
     public var swapGrowthMBPerMin: Double?
 
     enum CodingKeys: String, CodingKey {
         case load1PerCore = "load1_per_core"
         case cores, pressure
+        case psiSomeAvg10 = "psi_some_avg10"
         case minAvailableRAMFraction = "min_available_ram_fraction"
         case swapGrowthMBPerMin = "swap_growth_mb_per_min"
     }
@@ -46,6 +51,7 @@ public struct HostBudgetOverride: Decodable, Equatable, Sendable {
         if let load1PerCore, load1PerCore > 0 { formula.load1PerCore = load1PerCore }
         if let cores, ["performance", "logical"].contains(cores) { formula.cores = cores }
         if let pressure, ["normal", "warn"].contains(pressure) { formula.pressure = pressure }
+        if let psiSomeAvg10, psiSomeAvg10 > 0 { formula.psiSomeAvg10 = psiSomeAvg10 }
         if let minAvailableRAMFraction, (0 ... 1).contains(minAvailableRAMFraction) {
             formula.minAvailableRAMFraction = minAvailableRAMFraction
         }

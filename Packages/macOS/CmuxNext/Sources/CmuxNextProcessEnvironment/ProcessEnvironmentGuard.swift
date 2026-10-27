@@ -1,4 +1,3 @@
-import os
 import CmuxNextCompat
 
 /// The one gate for this process's environment writes (setenv, unsetenv).

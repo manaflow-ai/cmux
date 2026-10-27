@@ -1,21 +1,36 @@
-import Darwin
 import Foundation
 
-/// Reads this Mac's numbers the way the host budget does: the performance
-/// cores (`performanceCores`), the 1-minute load and the swap-out counter.
-/// The memory pressure level is not read here: it comes from the app's one
-/// `MemoryPressureEvents` (see `HostPressureMonitor`). Each read is one
-/// syscall; nothing here polls on its own.
+/// Reads this host's numbers the way the host budget does: the performance
+/// cores (`performanceCores`), the 1-minute load, available RAM and the
+/// swap-out counter. The platform reads are a ``HostReadings``: sysctl and
+/// Mach on macOS, /proc on Linux, as acpmux reads them (cmux-tui
+/// host_pressure_probe.rs). On macOS the memory pressure level is not read
+/// here: it comes from the app's one `MemoryPressureEvents` (see
+/// `HostPressureMonitor`). On Linux it is PSI, read with the other numbers.
+/// Each read is one syscall or one /proc file; nothing here polls on its own.
 public struct HostSampler: Sendable {
-    public init() {}
+    private let readings: any HostReadings
+
+    public init() {
+        #if canImport(Darwin)
+        self.init(readings: DarwinHostReadings())
+        #else
+        self.init(readings: ProcHostReadings(read: ProcHostReadings.readProcFile))
+        #endif
+    }
+
+    init(readings: any HostReadings) {
+        self.readings = readings
+    }
 
     /// The cores the budget counts and their kind, as acpmux counts them:
-    /// "performance" (else "physical"), or "logical" (every CPU).
+    /// "performance" (else "physical"), or "logical" (every CPU). Linux has
+    /// neither count, so it is logical there, as in acpmux.
     public func cores(_ which: String) -> (count: Int, kind: String) {
         let logical = (max(1, ProcessInfo.processInfo.activeProcessorCount), "logical")
         guard which == "performance" else { return logical }
-        if let count = Self.performanceCores(int: Self.sysctlInt32, string: Self.sysctlString) { return (count, "performance") }
-        if let count = Self.sysctlInt32("hw.physicalcpu"), count > 0 { return (Int(count), "physical") }
+        if let count = readings.performanceCores() { return (count, "performance") }
+        if let count = readings.physicalCores(), count > 0 { return (count, "physical") }
         return logical
     }
 
@@ -34,51 +49,33 @@ public struct HostSampler: Sendable {
         return total > 0 ? total : nil
     }
 
-    /// The share of RAM available (kern.memorystatus_level, the "System-wide
-    /// memory free percentage" memory_pressure prints), nil when unreadable.
+    /// The share of RAM available (macOS kern.memorystatus_level, the "System-wide
+    /// memory free percentage" memory_pressure prints; Linux MemAvailable / MemTotal),
+    /// nil when unreadable.
     public func availableRAMFraction() -> Double? {
-        Self.sysctlInt32("kern.memorystatus_level").map { Double($0) / 100 }
+        readings.availableRAMFraction()
     }
 
-    /// This Mac's name from kern.hostname (never a blocking name lookup).
+    /// This host's name from the kernel (never a blocking name lookup).
     public func hostName() -> String {
-        Self.sysctlString("kern.hostname") ?? "localhost"
+        readings.hostName() ?? "localhost"
+    }
+
+    /// The memory pressure read with the other numbers (Linux PSI against the
+    /// formula's `psiSomeAvg10`); nil on macOS, where the event feed reports it.
+    public func memoryPressure(formula: HostBudgetFormula) -> HostMemoryPressure? {
+        readings.memoryPressure(psiThreshold: formula.psiSomeAvg10)
     }
 
     public func load1() -> Double {
         var loads = [Double](repeating: 0, count: 3)
-        return getloadavg(&loads, 3) > 0 ? loads[0] : 0
+        // SAFETY: getloadavg writes at most 3 values into the array's own storage, lent for the call.
+        return unsafe getloadavg(&loads, 3) > 0 ? loads[0] : 0
     }
 
-    /// Bytes swapped out since boot (vm_stat's Swapouts, in bytes).
+    /// Bytes swapped out since boot (vm_stat's Swapouts on macOS, `pswpout` on Linux, in bytes).
     public func swappedOutBytes() -> UInt64? {
-        var stats = vm_statistics64_data_t()
-        var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size)
-        let result = withUnsafeMutablePointer(to: &stats) { pointer in
-            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                host_statistics64(Self.hostPort, HOST_VM_INFO64, $0, &count)
-            }
-        }
-        guard result == KERN_SUCCESS else { return nil }
-        return stats.swapouts &* UInt64(getpagesize())
-    }
-
-    /// One send right for the process's life: each `mach_host_self()` adds a
-    /// user reference that is never released.
-    private static let hostPort = mach_host_self()
-
-    private static func sysctlInt32(_ name: String) -> Int32? {
-        var value: Int32 = 0
-        var size = MemoryLayout<Int32>.size
-        return sysctlbyname(name, &value, &size, nil, 0) == 0 ? value : nil
-    }
-
-    private static func sysctlString(_ name: String) -> String? {
-        var size = 0
-        guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return nil }
-        var bytes = [CChar](repeating: 0, count: size)
-        guard sysctlbyname(name, &bytes, &size, nil, 0) == 0 else { return nil }
-        return String(decoding: bytes.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        readings.swappedOutBytes()
     }
 }
 

@@ -1,6 +1,5 @@
 import CmuxNextCompat
 @testable import CmuxNextHostPressure
-import os
 import Testing
 
 /// A memory pressure source the test drives, as the kernel's would: on the main actor, at once.
@@ -10,7 +9,7 @@ private final class DrivenPressureSource: MemoryPressureSource {
         var level = MemoryPressureLevel.normal
     }
 
-    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let state = Mutex(State())
 
     func start(delivering deliver: @escaping @MainActor @Sendable (MemoryPressureLevel) -> Void) {
         state.withLock { $0.deliver = deliver }
@@ -42,18 +41,18 @@ private final class DrivenPressureSource: MemoryPressureSource {
     @Test func eachLevelReachesTheMonitorUntilTheSubscriptionEnds() {
         let source = DrivenPressureSource()
         let events = MemoryPressureEvents(source: source)
-        let received = OSAllocatedUnfairLock<[HostMemoryPressure]>(initialState: [])
-        let subscription = events.hostPressureSubscription { pressure in received.withLock { $0.append(pressure) } }
+        let received = Received()
+        let subscription = events.hostPressureSubscription { pressure in received.append(pressure) }
         #expect(subscription.current == .normal)
 
         source.send(.warning)
         source.send(.critical)
         source.send(.normal)
-        #expect(received.withLock { $0 } == [.warn, .critical, .normal])
+        #expect(received.levels == [.warn, .critical, .normal])
 
         subscription.end()
         source.send(.critical)
-        #expect(received.withLock { $0 } == [.warn, .critical, .normal])
+        #expect(received.levels == [.warn, .critical, .normal])
     }
 
     /// The monitor itself, on the real events: a kernel-style level change reaches its level.
@@ -82,6 +81,19 @@ private final class DrivenPressureSource: MemoryPressureSource {
         #expect(await monitor.level == .critical)
         #expect(await monitor.verdict?.pressure == .critical)
         await monitor.stop()
+    }
+}
+
+/// The levels a subscriber received, from any thread.
+private final class Received: Sendable {
+    private let state = Mutex<[HostMemoryPressure]>([])
+
+    func append(_ pressure: HostMemoryPressure) {
+        state.withLock { $0.append(pressure) }
+    }
+
+    var levels: [HostMemoryPressure] {
+        state.withLock { $0 }
     }
 }
 

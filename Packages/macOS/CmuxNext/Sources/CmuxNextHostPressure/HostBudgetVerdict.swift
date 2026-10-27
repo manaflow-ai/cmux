@@ -2,13 +2,19 @@ public import Foundation
 
 /// The host's memory pressure as the budget reads it (macOS
 /// kern.memorystatus_vm_pressure_level 1, 2, 4; in the app, the levels of the
-/// shared `MemoryPressureEvents` feed, `HostPressureMonitor`'s `memoryPressure` subscription).
-/// acpmux reports `unknown` when it cannot read the level; it counts as normal.
+/// shared `MemoryPressureEvents` feed, `HostPressureMonitor`'s `memoryPressure` subscription;
+/// Linux PSI `some avg10`). acpmux reports `unknown` when it cannot read the level; it counts as normal.
 public enum HostMemoryPressure: String, Comparable, Sendable, Codable {
     case normal, warn, critical, unknown
 
     public init(sysctlLevel: Int32) {
         self = sysctlLevel >= 4 ? .critical : sysctlLevel >= 2 ? .warn : .normal
+    }
+
+    /// Linux's level as acpmux judges it (host_pressure.rs `evaluate`): PSI `some avg10` at or over
+    /// `threshold` (the formula's `psiSomeAvg10`) is warn, else normal. PSI has no critical level.
+    public init(psiSomeAvg10: Double, threshold: Double) {
+        self = psiSomeAvg10 >= threshold ? .warn : .normal
     }
 
     private var rank: Int { self == .critical ? 2 : self == .warn ? 1 : 0 }

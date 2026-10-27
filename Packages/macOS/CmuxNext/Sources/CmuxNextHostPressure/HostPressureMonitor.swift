@@ -9,14 +9,15 @@ public protocol HostPressureSource: Sendable {
     /// acpmux's verdict, nil while the daemon does not report one.
     func acpmuxVerdict() async -> HostBudgetVerdict?
     /// The local verdict (`HostSampler` through the formula) at memory pressure `pressure`, the
-    /// shared feed's level: the source reads no memory level of its own.
+    /// shared feed's level. With no feed (`unknown`) the source reads the level with its other
+    /// numbers where the host reports one (Linux PSI).
     func localVerdict(pressure: HostMemoryPressure) async -> HostBudgetVerdict
 }
 
 /// The host's own numbers, read through the shared formula, and acpmux's
 /// verdict through `acpmux` (the app runs `acpmux --json daemon status`).
 public actor LocalHostPressureSource: HostPressureSource {
-    private let sampler = HostSampler()
+    private let sampler: HostSampler
     private let host: String
     /// Read from the override file on the first local read, off the caller's thread.
     private lazy var formula = HostBudgetFile.loadFormula(host: host)
@@ -27,10 +28,15 @@ public actor LocalHostPressureSource: HostPressureSource {
     public static let acpmuxRetryReads = 20
     private var acpmuxSkips = 0
 
-    /// `host` defaults to kern.hostname (a sysctl, not a name lookup); `acpmux`
-    /// reads its verdict, and nil means there is no acpmux to ask.
+    /// `host` defaults to the kernel's host name (a sysctl or /proc read, not a name lookup);
+    /// `acpmux` reads its verdict, and nil means there is no acpmux to ask.
     public init(host: String? = nil, acpmux: (@Sendable () async -> HostBudgetVerdict?)? = nil) {
-        self.host = HostBudgetFile.shortName(host ?? HostSampler().hostName())
+        self.init(host: host, sampler: HostSampler(), acpmux: acpmux)
+    }
+
+    init(host: String?, sampler: HostSampler, acpmux: (@Sendable () async -> HostBudgetVerdict?)?) {
+        self.sampler = sampler
+        self.host = HostBudgetFile.shortName(host ?? sampler.hostName())
         self.acpmux = acpmux
     }
 
@@ -49,6 +55,7 @@ public actor LocalHostPressureSource: HostPressureSource {
         let formula = formula
         let cores = sampler.cores(formula.cores)
         let rate = sampler.swappedOutBytes().flatMap { swap.feed(bytes: $0, seconds: ProcessInfo.processInfo.systemUptime) }
+        let pressure = pressure == .unknown ? sampler.memoryPressure(formula: formula) ?? .unknown : pressure
         return HostBudgetVerdict(host: host, cores: cores.count, coresKind: cores.kind, load1: sampler.load1(), pressure: pressure,
                                  availableRAMFraction: sampler.availableRAMFraction(), swapMBPerMin: rate, formula: formula)
     }
@@ -59,7 +66,9 @@ public actor LocalHostPressureSource: HostPressureSource {
 ///
 /// Memory pressure comes only from the app's one shared pressure feed
 /// (`memoryPressure`, event-driven): its level when the run subscribes, then
-/// each change in the order the feed sent it. The monitor has no kernel source
+/// each change in the order the feed sent it. A host with no feed (Linux, where
+/// the level is PSI) passes nil: the source's verdict carries the level, read
+/// with load and swap on the same tick, as acpmux reads it. The monitor has no kernel source
 /// or sysctl read of its own: Chrome's `MemoryPressureListener`s share one
 /// monitor the same way and read its level from it
 /// (base/memory/memory_pressure_listener.cc,
@@ -84,7 +93,7 @@ public actor HostPressureMonitor {
     }
 
     private let source: any HostPressureSource
-    private let memoryPressure: MemoryPressureSubscription
+    private let memoryPressure: MemoryPressureSubscription?
     private let interval: Duration
     private let deliver: Delivery
     private let queue = DispatchQueue(label: "com.cmux.host-pressure", qos: .utility)
@@ -107,7 +116,7 @@ public actor HostPressureMonitor {
     /// Off in tests, which drive `read()` themselves; the pressure subscription runs either way.
     private let ticks: Bool
 
-    public init(source: any HostPressureSource, memoryPressure: @escaping MemoryPressureSubscription, interval: Duration = .seconds(15),
+    public init(source: any HostPressureSource, memoryPressure: MemoryPressureSubscription?, interval: Duration = .seconds(15),
                 calmSamples: Int = 2, ticks: Bool = true, deliver: @escaping Delivery = HostPressureMonitor.mainActorHop) {
         self.source = source
         self.memoryPressure = memoryPressure
@@ -122,7 +131,7 @@ public actor HostPressureMonitor {
     /// The newest verdict (the popover's numbers).
     public var verdict: HostBudgetVerdict? { tracker.verdict }
 
-    /// Subscribes to the memory pressure feed and starts the timer (idempotent); the first read
+    /// Subscribes to the memory pressure feed, if any, and starts the timer (idempotent); the first read
     /// runs now. `isCurrent` is checked on the actor before anything starts: a caller whose stop
     /// overtook this start returns false, and nothing starts.
     public func start(while isCurrent: @Sendable () -> Bool = { true }, onChange: @escaping Change) {
@@ -134,6 +143,13 @@ public actor HostPressureMonitor {
             state += 1
             return state
         }
+        if let memoryPressure { subscribe(to: memoryPressure, generation: generation) }
+        guard ticks else { return }
+        timer = Self.makeTimer(for: self, generation: generation, queue: queue, interval: interval)
+    }
+
+    /// Subscribes run `generation` to the memory pressure feed: its level now, then each change.
+    private func subscribe(to memoryPressure: MemoryPressureSubscription, generation: Int) {
         // A reader behind by `pendingPressureChanges` drops the oldest: the newest level always applies.
         let (changes, continuation) = AsyncStream<HostMemoryPressure>.makeStream(bufferingPolicy: .bufferingNewest(Self.pendingPressureChanges))
         let subscription = memoryPressure { pressure in continuation.yield(pressure) }
@@ -148,8 +164,6 @@ public actor HostPressureMonitor {
                 await self?.memoryPressureChanged(pressure, generation: generation)
             }
         }
-        guard ticks else { return }
-        timer = Self.makeTimer(for: self, generation: generation, queue: queue, interval: interval)
     }
 
     /// The live run's number (tests drive the hops with it).
@@ -198,7 +212,8 @@ public actor HostPressureMonitor {
     func read(generation: Int? = nil) async {
         guard isLive(generation), reading == nil else { return }
         let generation = self.generation
-        let (source, pressure) = (source, eventPressure)
+        // With no feed the source reads the level itself (`unknown` asks it to).
+        let (source, pressure) = (source, memoryPressure == nil ? HostMemoryPressure.unknown : eventPressure)
         // task-owner: this read; stop() cancels it, and a cancelled read applies nothing
         let task = Task { () -> HostBudgetVerdict in
             if let shared = await source.acpmuxVerdict() { return shared }
@@ -210,7 +225,7 @@ public actor HostPressureMonitor {
         if reading == task { reading = nil }
         guard isLive(generation), !task.isCancelled else { return }
         // The feed's level is the one memory level, over acpmux's too (and it may have changed during the read).
-        apply(verdict.with(pressure: eventPressure))
+        apply(memoryPressure == nil ? verdict : verdict.with(pressure: eventPressure))
     }
 
     func memoryPressureChanged(_ pressure: HostMemoryPressure, generation: Int? = nil) {

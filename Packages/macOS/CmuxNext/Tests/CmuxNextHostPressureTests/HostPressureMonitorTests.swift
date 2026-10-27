@@ -1,5 +1,5 @@
+import CmuxNextCompat
 import Foundation
-import os
 @testable import CmuxNextHostPressure
 import Testing
 
@@ -33,20 +33,20 @@ private final class Feed: Sendable {
         var level: HostMemoryPressure
     }
 
-    private let state: OSAllocatedUnfairLock<State>
+    private let state: Mutex<State>
 
     init(level: HostMemoryPressure = .normal) {
-        state = OSAllocatedUnfairLock(initialState: State(level: level))
+        state = Mutex(State(level: level))
     }
 
     var subscription: HostPressureMonitor.MemoryPressureSubscription {
-        { [state] handler in
+        { [self] handler in
             let id = UUID()
-            let level = state.withLock { state in
+            let level = self.state.withLock { state in
                 state.handlers[id] = handler
                 return state.level
             }
-            return (level, { state.withLock { $0.handlers[id] = nil } })
+            return (level, { self.state.withLock { $0.handlers[id] = nil } })
         }
     }
 
@@ -70,7 +70,7 @@ private let noFeed: HostPressureMonitor.MemoryPressureSubscription = { _ in (.no
 
 /// The main-actor hops the monitor asked for, held until the test runs them.
 private final class Held: Sendable {
-    private let work = OSAllocatedUnfairLock<[@MainActor @Sendable () -> Void]>(initialState: [])
+    private let work = Mutex<[@MainActor @Sendable () -> Void]>([])
     func add(_ item: @escaping @MainActor @Sendable () -> Void) { work.withLock { $0.append(item) } }
     func take() -> [@MainActor @Sendable () -> Void] { work.withLock { items in defer { items = [] }; return items } }
 }
