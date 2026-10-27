@@ -89,13 +89,15 @@ impl crate::mux::Mux {
         });
         // The turn's own answer comes when it ends; the link closes first.
         let caller = link.clone();
-        let spawned = std::thread::Builder::new()
-            .name("mux-agent-message-prompt".into())
-            .stack_size(PROMPT_THREAD_STACK_BYTES)
-            .spawn(move || {
+        let spawned = crate::thread_qos::spawn_raisable(
+            "mux-agent-message-prompt",
+            crate::thread_qos::ThreadType::Utility.qos(),
+            Some(PROMPT_THREAD_STACK_BYTES),
+            move || {
                 let answer = caller.call("session/prompt", params, ACCEPT_TIMEOUT);
                 let _ = heard.try_send(Heard::Answered(answer));
-            });
+            },
+        );
         if spawned.is_err() {
             link.close();
             return Handover::Unreachable;

@@ -21,10 +21,17 @@ final class AndroidScreenStream {
     var onSample: (@MainActor (CMSampleBuffer) -> Void)?
     /// Called when the stream cannot start or adb ended with an error.
     var onError: (@MainActor (PhoneError) -> Void)?
+    /// The app's main-thread scheduler: each frame, the exit and a failed launch reach main as one visible task
+    /// (the phone's screen shows them), in the order adb produced them.
+    private let mainWork: MainWorkScheduler
+    /// The frames' owner on the board, interned once (a task per frame).
+    private let frameOwner: MainTaskOwner
 
-    init(adb: String, serial: String) {
+    init(adb: String, serial: String, mainWork: MainWorkScheduler) {
         self.adb = adb
         self.serial = serial
+        self.mainWork = mainWork
+        frameOwner = mainWork.board.owner("AndroidScreenStream.frame")
     }
 
     func start() {
@@ -48,25 +55,25 @@ final class AndroidScreenStream {
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
         let decoder = AndroidFrameAssembler()
+        let mainWork = mainWork, frameOwner = frameOwner
         pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
             let data = handle.availableData
             if data.isEmpty { handle.readabilityHandler = nil; return }
             for sample in decoder.samples(from: data) {
-                // task-owner: one main-actor hop per frame; it ends when the frame is enqueued.
-                Task { @MainActor [weak self] in self?.onSample?(sample.buffer) }
+                mainWork.postFromAnyThread(.visible, owner: frameOwner) { [weak self] in self?.onSample?(sample.buffer) }
             }
         }
         process.terminationHandler = { [weak self] finished in
             let status = finished.terminationStatus
-            // task-owner: restarts screenrecord after its time limit, or reports the failure; ends at once.
-            Task { @MainActor [weak self] in self?.ended(finished, status: status) }
+            // Restarts screenrecord after its time limit, or reports the failure, after the frames before it.
+            mainWork.postFromAnyThread(.visible, owner: frameOwner) { [weak self] in self?.ended(finished, status: status) }
         }
         self.process = process
         // The spawn runs off main, in order with a later stop's terminate.
-        launcher.launch(process) { error in
+        launcher.launch(process) { [weak self] error in
             let message = error.localizedDescription
-            Task { @MainActor [weak self] in
+            mainWork.postFromAnyThread(.visible, owner: frameOwner) { [weak self] in
                 guard let self, self.process === process else { return }
                 self.running = false
                 self.process = nil
