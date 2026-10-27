@@ -19,7 +19,8 @@ src="$TMP/src"
 chief="$src/Native/OptChat/optchat-chief"
 mkdir -p "$src/scripts/cmux-next" "$chief/inspector" "$src/Native/OptChat/optchat-core" \
   "$src/cmux-tui/crates/cmux-chief" "$src/cmux-tui/crates/unrelated" "$src/docs" "$TMP/bin"
-cp "$ROOT/scripts/cmux-next/build-optchat-chief.sh" "$ROOT/scripts/cmux-next/optchat-chief-input-key.py" "$src/scripts/cmux-next/"
+cp "$ROOT/scripts/cmux-next/build-optchat-chief.sh" "$ROOT/scripts/cmux-next/optchat-chief-input-key.py" \
+  "$ROOT/scripts/cmux-next/lipo-dsym.sh" "$src/scripts/cmux-next/"
 cat > "$chief/Cargo.toml" <<'EOF'
 [package]
 name = "optchat-chief"
@@ -69,6 +70,13 @@ done
 mkdir -p "$CARGO_TARGET_DIR/$target/release"
 printf '#!/bin/sh\necho %s\n' "$OPTCHAT_BUILD_COMMIT" > "$CARGO_TARGET_DIR/$target/release/optchat-chief"
 chmod 755 "$CARGO_TARGET_DIR/$target/release/optchat-chief"
+# rustc's packed dSYM, when the build asks for line tables in one.
+dsym="$CARGO_TARGET_DIR/$target/release/optchat-chief.dSYM"
+rm -rf "$dsym"
+if [[ "${CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO:-}" == packed && "${CARGO_PROFILE_RELEASE_DEBUG:-}" == line-tables-only ]]; then
+  mkdir -p "$dsym/Contents/Resources/DWARF"
+  echo "$OPTCHAT_BUILD_COMMIT" > "$dsym/Contents/Resources/DWARF/optchat-chief"
+fi
 echo "$OPTCHAT_BUILD_COMMIT" >> "$FAKE_CARGO_LOG"
 EOF
 printf '#!/bin/sh\nexit 0\n' > "$TMP/bin/rustup"
@@ -88,11 +96,16 @@ expect_builds() { [[ "$(builds)" == "$1" ]] || fail "$2 (cargo ran $(builds) tim
 
 keyed; expect_builds 1 "the first keyed build did not run cargo"
 first=$(git -C "$src" rev-parse --short=11 HEAD)
+# Its dSYM is delivered beside --output (nightly.yml uploads it to Sentry).
+chief_dwarf="$TMP/out/optchat-chief.dSYM/Contents/Resources/DWARF/optchat-chief"
+[[ "$(cat "$chief_dwarf" 2>/dev/null)" == "$first" ]] || fail "the build delivered no dSYM beside $TMP/out/optchat-chief"
 
 # A commit that changes nothing the Chief reads reuses the binary.
 echo two > "$src/docs/notes.md"; commit two
+rm -rf "$TMP/out/optchat-chief.dSYM"
 keyed; expect_builds 1 "a docs-only commit rebuilt the Chief"
 [[ "$("$TMP/out/optchat-chief")" == "$first" ]] || fail "the reused binary is not the one built at $first"
+[[ "$(cat "$chief_dwarf" 2>/dev/null)" == "$first" ]] || fail "the reused binary came without the dSYM built with it"
 # A dev-dependency is not linked into the release binary.
 echo '# x' >> "$src/cmux-tui/crates/unrelated/Cargo.toml"; commit three
 keyed; expect_builds 1 "a dev-dependency change rebuilt the Chief"

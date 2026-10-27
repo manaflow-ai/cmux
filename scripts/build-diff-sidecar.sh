@@ -62,8 +62,13 @@ for arch in $requested_archs; do
   seen_targets="$seen_targets $target"
   ensure_rust_target "$target"
   target_dir="${BUILD_WORK_DIR}/${target}"
+  # Line tables in a packed .dSYM beside the cargo output (rustc runs dsymutil
+  # before the profile's strip), kept beside the app below; the shipped binary
+  # stays stripped (verify-diff-sidecar-artifact.sh).
   CARGO_TARGET_DIR="$target_dir" \
     MACOSX_DEPLOYMENT_TARGET="${CMUX_DIFF_SIDECAR_MIN_MACOS:-14.0}" \
+    CARGO_PROFILE_RELEASE_DEBUG=line-tables-only \
+    CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed \
     "$CARGO_RUNNER" build \
       --manifest-path "${CRATE_DIR}/Cargo.toml" \
       --bin "$BINARY_NAME" \
@@ -83,6 +88,9 @@ else
   lipo -create -output "$output_binary" "${binaries[@]}"
 fi
 chmod +x "$output_binary"
+dsyms=()
+for binary in "${binaries[@]}"; do dsyms+=("$binary.dSYM"); done
+"${ROOT}/scripts/cmux-next/lipo-dsym.sh" "$output_binary.dSYM" "${dsyms[@]}"
 "${ROOT}/scripts/verify-diff-sidecar-artifact.sh" "$output_binary" --archs "$requested_archs"
 
 if [[ -z "${TARGET_BUILD_DIR:-}" ]]; then
