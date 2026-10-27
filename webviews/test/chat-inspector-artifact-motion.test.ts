@@ -151,16 +151,26 @@ await requireBrowserLane("chat-inspector-artifact-motion.test.ts", async () => {
         });
         await recording.send("Page.startScreencast", { format: "png", everyNthFrame: 1 });
       }
-      let navigation = false;
+      // The route is the native pane host seam: WebKit hands the navigation to the host, which
+      // cancels the page navigation and resizes the live agent pane before the next paint.
+      let nativeOpened = "";
+      let resolveNativeOpen!: () => void;
+      const nativeOpen = new Promise<void>((resolve) => {
+        resolveNativeOpen = resolve;
+      });
       await page.route(URL, async (route) => {
-        navigation = route.request().isNavigationRequest();
+        if (!route.request().isNavigationRequest()) return route.continue();
+        nativeOpened = route.request().url();
+        resolveNativeOpen();
+        // The native host consumes the navigation; fulfilling keeps the fake page alive while
+        // the host applies the pane resize below.
         await route.fulfill({ status: 204, body: "" });
       });
-      const openedNavigation = page.waitForResponse((response) => response.url() === URL);
       await startRecording(page, 1200);
-      await page.locator(LINK).click();
-      await openedNavigation;
-      expect(navigation).toBe(true);
+      await page.locator(LINK).click({ noWaitAfter: true });
+      await nativeOpen;
+      expect(nativeOpened).toBe(URL);
+      // The fake native host applies the pane's final viewport after it accepts the link.
       await page.setViewportSize({ width: 1200, height: 700 });
       const opening = await finishRecording(page);
 
@@ -183,6 +193,10 @@ await requireBrowserLane("chat-inspector-artifact-motion.test.ts", async () => {
         expect(frames.every((frame) => frame.visible && frame.sameNode)).toBe(true);
         expect(frames.every((frame) => frame.animations === 0)).toBe(true);
         expect(movement(frames.map((frame) => frame.x))).toEqual({ phases: 1, reversed: false });
+        const settled = frames.at(-1)!;
+        const firstFinalWidth = frames.find((frame) => frame.width === (name === "open" ? 1200 : 1600));
+        expect(firstFinalWidth, `${name} has no painted target-width frame`).toBeDefined();
+        expect(firstFinalWidth!.x, `${name} landed one frame late`).toBe(settled.x);
       }
       expect(await page.locator(".acpmux-shell").getAttribute("data-inspector-chat-resizing")).toBeNull();
     } finally {
@@ -191,6 +205,38 @@ await requireBrowserLane("chat-inspector-artifact-motion.test.ts", async () => {
         await recording.detach();
         await Promise.all(images);
       }
+      await page.close();
+    }
+  });
+
+  test("hiding during the native resize handoff clears its transition marker", async () => {
+    const page = await pane!.open({ width: 1600, height: 700 });
+    try {
+      await page.evaluate(() => {
+        const bridge = (window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } })
+          .cmuxAcpmuxBridge;
+        bridge.applyHeaderState({ inspector: true, version: 2 });
+      });
+      await inspectorPushAlways(page, false);
+      const toggle = page.locator("button.acpmux-chat-inspector-toggle");
+      await toggle.waitFor({ timeout: 10_000 });
+      if ((await page.locator('aside.acpmux-chat-inspector[data-presence="shown"]').count()) === 0)
+        await toggle.click({ force: true });
+      await page.locator('aside.acpmux-chat-inspector[data-presence="shown"]').waitFor({ timeout: 10_000 });
+
+      // This is the state left by the native resize handoff before its scheduled RAF. Hiding the
+      // inspector must clear it immediately; otherwise the next open keeps transitions disabled.
+      await page.evaluate(() => {
+        const shell = document.querySelector<HTMLElement>(".acpmux-shell")!;
+        shell.dataset.inspectorChatResizing = "true";
+        (document.querySelector("button.acpmux-chat-inspector-toggle") as HTMLButtonElement).click();
+      });
+      await page.waitForFunction(() => {
+        const presence = document.querySelector("aside.acpmux-chat-inspector")?.getAttribute("data-presence");
+        return !presence || presence === "hidden";
+      });
+      expect(await page.locator(".acpmux-shell").getAttribute("data-inspector-chat-resizing")).toBeNull();
+    } finally {
       await page.close();
     }
   });

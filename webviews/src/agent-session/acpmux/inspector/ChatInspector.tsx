@@ -546,6 +546,7 @@ function InspectorPresence({
     if (!shell) return;
     if (!drawn) {
       delete shell.dataset.inspectorChatPlacement;
+      delete shell.dataset.inspectorChatResizing;
       shell.style.removeProperty("--acpmux-chat-shift");
       return;
     }
