@@ -29,11 +29,18 @@ public final class MacScreenHubViewer {
     @ObservationIgnored var endSession: @MainActor (DeviceHub, String, String) async -> Void = { hub, id, reason in
         try? await hub.endSession(id, reason: reason)
     }
+    /// Asks the hub for a session with a host (`POST /v1/sessions`); tests replace it.
+    @ObservationIgnored var askSession: @MainActor (DeviceHub, String, SessionScope) async throws -> HubSession = { hub, host, scope in
+        try await hub.requestSession(host: host, scope: scope)
+    }
     /// DEV builds (Relay Only): the stream uses only TURN relays.
     @ObservationIgnored var relayOnly = false
     /// The signaling the next `ScreenSession.connect()` takes (once).
     @ObservationIgnored private var pendingSignaling: (any ScreenSignaling)?
     @ObservationIgnored private var requestTask: Task<Void, Never>?
+    /// The request out now: every cancel moves it on, so an answer that lands after a cancel (or a newer
+    /// request) reads as cancelled on main, in the turn that applies it.
+    @ObservationIgnored private var requestGeneration: UInt64 = 0
     /// The tab hid past its grace mid-session: showing it asks again for this scope.
     @ObservationIgnored var resumeScope: SessionScope?
     /// The app's one deadline placer: this viewer's deadlines, and the tab's hidden grace (``MacScreenPane``).
@@ -79,17 +86,17 @@ public final class MacScreenHubViewer {
             return
         }
         phase = .requesting(scope)
-        let deviceID = deviceID, work = deadlines.work
+        let deviceID = deviceID, work = deadlines.work, ask = askSession, generation = requestGeneration
         // The request is the hub's own main-actor call; its answer lands as the rest of the person's
-        // Connect (userBlocking), whatever the cancel did meanwhile.
+        // Connect (userBlocking). Whether it was cancelled is read there, on main.
         requestTask = Task { @concurrent [weak self] in
             let answer: Result<HubSession, DeviceHubError>
-            do { answer = .success(try await hub.requestSession(host: deviceID, scope: scope)) } catch {
+            do { answer = .success(try await ask(hub, deviceID, scope)) } catch {
                 answer = .failure(error as? DeviceHubError ?? .transport("\(error)"))
             }
-            let cancelled = Task.isCancelled
             await work.apply(.userBlocking, owner: "mac-screen.hub.request") { [weak self] () -> Void in
-                self?.requestReturned(answer, scope: scope, hub: hub, cancelled: cancelled)
+                guard let self else { return }
+                requestReturned(answer, scope: scope, hub: hub, cancelled: requestGeneration != generation)
             }
         }
     }
@@ -227,9 +234,15 @@ public final class MacScreenHubViewer {
         }
     }
 
-    private func cancelPending(endingSession: Bool) {
+    /// The request out (if any) is cancelled: its answer, when it lands, ends the session it made.
+    private func cancelRequest() {
         requestTask?.cancel()
         requestTask = nil
+        requestGeneration &+= 1
+    }
+
+    private func cancelPending(endingSession: Bool) {
+        cancelRequest()
         approvalExpiry.cancel()
         pendingSignaling = nil
         if endingSession, phase.isPending, let id = phase.sessionID, let hub = hub() {
@@ -281,7 +294,7 @@ public final class MacScreenHubViewer {
         case let .requesting(requested): scope = requested
         default: scope = lastScope
         }
-        requestTask?.cancel()
+        cancelRequest()
         approvalExpiry.cancel()
         pendingSignaling = nil
         phase = .declined(scope)
@@ -291,7 +304,7 @@ public final class MacScreenHubViewer {
     func revoked(reason: String?) {
         failureEnd.cancel()
         if keepsFailedCard(reason) { return }
-        requestTask?.cancel()
+        cancelRequest()
         approvalExpiry.cancel()
         pendingSignaling = nil
         stopStream()
@@ -302,7 +315,7 @@ public final class MacScreenHubViewer {
     func ended(reason: String?) {
         failureEnd.cancel()
         if keepsFailedCard(reason) { return }
-        requestTask?.cancel()
+        cancelRequest()
         approvalExpiry.cancel()
         pendingSignaling = nil
         stopStream()
@@ -323,7 +336,7 @@ public final class MacScreenHubViewer {
     /// stream in progress is over. A tab that already shows an end keeps it.
     func hubGone(reason: String = MacScreenHubReason.signedOut.rawValue) {
         guard phase.isPending || phase.streamingScope != nil else { return }
-        requestTask?.cancel()
+        cancelRequest()
         approvalExpiry.cancel()
         pendingSignaling = nil
         stopStream()

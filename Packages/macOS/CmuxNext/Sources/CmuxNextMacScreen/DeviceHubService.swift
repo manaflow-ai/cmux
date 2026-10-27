@@ -58,6 +58,9 @@ public final class DeviceHubService {
     private var loading: Task<Void, Never>?
     /// What `loading` is making a hub for.
     private var loadingFor: (url: URL, user: String)?
+    /// The identity load out now: every start and stop moves it on, so a load that lands after a stop (or a
+    /// newer start for the same account) installs nothing; read on main, in the turn that applies it.
+    private var loadGeneration: UInt64 = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "device-hub")
     /// The app's Energy Saver policy, which holds the hub socket's ping while the Mac sleeps and
     /// reconnects it once after a wake; nil keeps it always awake.
@@ -144,6 +147,8 @@ public final class DeviceHubService {
         let work = pages.mainWork
         let name = pages.store.hubDeviceName ?? MacScreenShareHost.computerName
         loadingFor = (url, user)
+        loadGeneration &+= 1
+        let generation = loadGeneration
         // task-owner: DeviceHubService.loading: one identity load (the hub loads it off main); stopHub cancels it.
         // The result lands in one visible task: the hub's devices show on Mac Screen's home page.
         loading = Task { @concurrent [weak self] in
@@ -154,16 +159,15 @@ public final class DeviceHubService {
             } catch {
                 made = .failure(error as? DeviceHubError ?? .identity("\(error)"))
             }
-            guard !Task.isCancelled else { return }
             await work.apply(.visible, owner: "DeviceHubService.loaded") { [weak self] () -> Void in
-                self?.loaded(made, url: url, user: user)
+                self?.loaded(made, url: url, user: user, generation: generation)
             }
         }
     }
 
     /// The identity load ended: installs the hub unless a stop or another start came first.
-    private func loaded(_ made: Result<DeviceHub, DeviceHubError>, url: URL, user: String) {
-        guard let loadingFor, loadingFor.url == url, loadingFor.user == user else { return }
+    private func loaded(_ made: Result<DeviceHub, DeviceHubError>, url: URL, user: String, generation: UInt64) {
+        guard generation == loadGeneration else { return }
         self.loadingFor = nil
         loading = nil
         switch made {
@@ -209,6 +213,7 @@ public final class DeviceHubService {
         loading?.cancel()
         loading = nil
         loadingFor = nil
+        loadGeneration &+= 1
         removalWatch?.cancel()
         removalWatch = nil
         guard let hub else { return }

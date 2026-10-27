@@ -42,8 +42,14 @@ public final class MacScreenDevicesSettings {
     @ObservationIgnored private var watchers = 0
     /// Follows the hub's pushes while a Settings page shows the card.
     @ObservationIgnored private var auditWatch: ServiceObservation<Int>?
-    /// The audit reads in order: each waits for the one before it, so an older answer never lands last.
+    /// The audit read in flight: one at a time, so an older answer never lands last.
     @ObservationIgnored private var auditRead: Task<Void, Never>?
+    /// Which read `auditRead` is: one that ends after `endWatching` (or after a newer read began) changes nothing.
+    @ObservationIgnored private var auditReadID: UInt64 = 0
+    /// A push came while a read was out: one more read follows it, however many pushes came.
+    @ObservationIgnored private var auditDirty = false
+    /// Reads the hub's audit log; tests replace it.
+    @ObservationIgnored var refreshAudit: @MainActor (DeviceHub) async -> Void = { await $0.refreshAudit() }
     @ObservationIgnored private let mainWork: MainWorkScheduler
 
     public init(pages: MacScreenPages) {
@@ -79,18 +85,36 @@ public final class MacScreenDevicesSettings {
         auditWatch = nil
         auditRead?.cancel()
         auditRead = nil
+        auditReadID &+= 1
+        auditDirty = false
     }
 
-    /// One more audit read after the ones in flight. Off main: the read is the hub's own main-actor request.
-    private func readAudit() {
-        guard let hub else { return }
-        let previous = auditRead
-        // task-owner: auditRead: one read per push while the card shows; endWatching cancels the chain
-        auditRead = Task { @concurrent in
-            await previous?.value
-            guard !Task.isCancelled else { return }
-            await hub.refreshAudit()
+    /// The hub pushed (tests call it directly): reads the audit log now, or once more after the read in flight.
+    /// Off main: the read is the hub's own main-actor request.
+    func readAudit() {
+        guard auditRead == nil else {
+            auditDirty = true
+            return
         }
+        guard let hub else { return }
+        auditDirty = false
+        auditReadID &+= 1
+        let id = auditReadID, refresh = refreshAudit, work = mainWork
+        // task-owner: auditRead: one read at a time while the card shows; endWatching cancels it. Its end lands
+        // in one background task (the card's History is the only reader).
+        auditRead = Task { @concurrent [weak self] in
+            await refresh(hub)
+            await work.apply(.background, owner: "MacScreenDevicesSettings.auditRead") { [weak self] () -> Void in
+                self?.auditReadEnded(id)
+            }
+        }
+    }
+
+    /// The read `id` ended: a push that came meanwhile reads once more while a card still shows.
+    private func auditReadEnded(_ id: UInt64) {
+        guard id == auditReadID else { return }
+        auditRead = nil
+        if auditDirty, watchers > 0 { readAudit() }
     }
 
     // MARK: State

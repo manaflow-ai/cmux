@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDevices
 @testable import CmuxNextMacScreen
 import CmuxNextWakeups
 import CmuxScreenKit
@@ -14,6 +15,47 @@ struct MacScreenSchedulerSweepTests {
 
     private final class Counter {
         var value = 0
+    }
+
+    /// Calls in order (a class: actor-isolated closures cannot capture a mutable local).
+    @MainActor
+    private final class Log {
+        var items: [String] = []
+    }
+
+    /// Audit reads that wait until the test lets them end.
+    @MainActor
+    private final class HeldAuditReads {
+        var calls = 0
+        private var held: [AsyncStream<Void>.Continuation] = []
+
+        func read() async {
+            calls += 1
+            let (stream, continuation) = AsyncStream<Void>.makeStream()
+            held.append(continuation)
+            for await _ in stream {}
+        }
+
+        func releaseAll() {
+            let all = held
+            held = []
+            for continuation in all { continuation.finish() }
+        }
+    }
+
+    /// Yields to the main actor's other jobs until `done` holds (at most 500 times); returns `done()`.
+    private static func settle(_ done: () -> Bool) async -> Bool {
+        for _ in 0..<500 where !done() { await Task.yield() }
+        return done()
+    }
+
+    /// Runs up to `count` frames, each after the main actor's other jobs ran, until `done` holds; returns `done()`.
+    private static func frames(_ rig: MainDeadlineRig, count: Int = 200, until done: () -> Bool) async -> Bool {
+        for _ in 0..<count where !done() {
+            for _ in 0..<10 { await Task.yield() }
+            rig.frame()
+        }
+        return done()
     }
 
     private static func pages(_ deadlines: MainDeadlineScheduler, events: AppEvents) -> MacScreenPages {
@@ -122,5 +164,70 @@ struct MacScreenSchedulerSweepTests {
         #expect(rig.work.postedCount(.visible) == 1)
         rig.frame()
         #expect(titled.value == 1)
+    }
+
+    /// R-hop: a Cancel that comes after the request's HTTP answer but before its posted userBlocking task still
+    /// reads as a cancel there, so the session the request made ends (the host's prompt goes away).
+    @Test func aCancelBeforeTheAnswersPostedTaskEndsTheSessionItMade() async {
+        let rig = MainDeadlineRig()
+        let hub = testHub()
+        let viewer = MacScreenHubViewer(deviceID: Self.deviceID, deadlines: rig.deadlines) { hub }
+        let ends = Log()
+        viewer.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        viewer.askSession = { _, _, scope in HubSession(id: "s1", state: .pending, scope: scope) }
+        viewer.request(.view)
+        #expect(await Self.settle { rig.work.postedCount(.userBlocking) == 1 }, "the answer never reached its posted task")
+        viewer.cancel()
+        rig.frame()
+        #expect(await Self.settle { !ends.items.isEmpty })
+        #expect(ends.items == ["s1 viewer_disconnected"])
+        #expect(viewer.phase == .idle)
+    }
+
+    /// R-hop: a new request that comes before the older answer's posted task never takes that answer: the older
+    /// session ends, and the newer answer is the one the card shows.
+    @Test func aNewRequestNeverTakesTheOlderAnswer() async {
+        let rig = MainDeadlineRig()
+        let hub = testHub()
+        let viewer = MacScreenHubViewer(deviceID: Self.deviceID, deadlines: rig.deadlines) { hub }
+        let ends = Log()
+        viewer.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        let asked = Log()
+        viewer.askSession = { _, _, scope in
+            asked.items.append("\(scope)")
+            return HubSession(id: "s\(asked.items.count)", state: .pending, scope: scope)
+        }
+        viewer.request(.view)
+        #expect(await Self.settle { rig.work.postedCount(.userBlocking) == 1 })
+        viewer.request(.full)
+        #expect(await Self.settle { rig.work.postedCount(.userBlocking) == 2 })
+        #expect(await Self.frames(rig) { !ends.items.isEmpty && rig.work.postedCount(.userBlocking) == 0 })
+        #expect(ends.items == ["s1 viewer_disconnected"])
+        #expect(viewer.phase == .waitingForApproval(sessionID: "s2", scope: .full))
+        viewer.cancel()
+    }
+
+    /// R-hop: pushes during a held audit read start one more read after it, never one per push, and none once the
+    /// last Settings card closed.
+    @Test func pushesDuringAHeldAuditReadReadOnceMoreAndNoneAfterTheCardCloses() async {
+        let rig = MainDeadlineRig()
+        let pages = Self.pages(rig.deadlines, events: AppEvents(center: NotificationCenter()))
+        pages.hub = testHub()
+        let settings = MacScreenDevicesSettings(pages: pages)
+        let reads = HeldAuditReads()
+        settings.refreshAudit = { _ in await reads.read() }
+        settings.beginWatching()
+        #expect(await Self.settle { reads.calls == 1 }, "showing the card read no audit")
+        settings.readAudit()
+        settings.readAudit()
+        reads.releaseAll()
+        #expect(await Self.frames(rig) { reads.calls == 2 }, "the pushes during the read read nothing after it")
+        // Two more pushes during the second read, then the card closes: no read follows.
+        settings.readAudit()
+        settings.readAudit()
+        settings.endWatching()
+        reads.releaseAll()
+        _ = await Self.frames(rig, count: 50) { false }
+        #expect(reads.calls == 2, "an audit read ran after the last card closed")
     }
 }
