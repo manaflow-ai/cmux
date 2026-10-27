@@ -91,7 +91,10 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
         const misses = overlapping
           .map((row) => {
             const box = row.getBoundingClientRect();
-            const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+            const hit = document.elementFromPoint(
+              (Math.max(box.left, suggestions.left) + Math.min(box.right, suggestions.right)) / 2,
+              (Math.max(box.top, suggestions.top) + Math.min(box.bottom, suggestions.bottom)) / 2,
+            );
             return menu.contains(hit) ? null : `${row.textContent?.trim().slice(0, 24)} -> ${hit?.className}`;
           })
           .filter(Boolean);
@@ -108,7 +111,9 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
       height: 720,
       button: ".acpmux-model-name",
       menu: ".acpmux-quick-menu",
-      rows: "[role^=menuitem]",
+      // A wrapped harness rail is the first part of the menu over the suggestions.
+      // Its buttons must receive presses just like the model rows below it.
+      rows: ".acpmux-quick-rail-tab, [role^=menuitem]",
     },
     {
       name: "access",
