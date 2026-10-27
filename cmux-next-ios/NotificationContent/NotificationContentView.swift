@@ -201,18 +201,16 @@ private final class PickerDelegate: NSObject, PHPickerViewControllerDelegate {
 
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         picker.dismiss(animated: true)
-        let folder = folder
+        let outbox = outbox
         let done = done
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         for result in results {
             let provider = result.itemProvider
             guard provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) else { continue }
             provider.loadFileRepresentation(forTypeIdentifier: UTType.image.identifier) { url, _ in
                 guard let url else { return }
                 let name = UUID().uuidString + "." + (url.pathExtension.isEmpty ? "jpg" : url.pathExtension)
-                let target = folder.appendingPathComponent(name)
-                guard (try? FileManager.default.copyItem(at: url, to: target)) != nil else { return }
-                let thumbnail = attachmentThumbnail(target, side: AttachTray.thumbnailSize)
+                guard (try? outbox.adopt(url, as: name, move: false)) != nil else { return }
+                let thumbnail = attachmentThumbnail(outbox.attachments.appendingPathComponent(name), side: AttachTray.thumbnailSize)
                 let item = PickedAttachment(name: name, title: String(localized: "Photo"), thumbnail: thumbnail)
                 Task { @MainActor in done(item) }
             }
@@ -243,10 +241,9 @@ private final class FilePickerDelegate: NSObject, UIDocumentPickerDelegate {
                         try? FileManager.default.removeItem(at: url)
                         return .failure(TooLarge())
                     }
-                    try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                     let name = attachmentName(url.lastPathComponent)
-                    let target = folder.appendingPathComponent(name)
-                    guard (try? FileManager.default.moveItem(at: url, to: target)) != nil else { return nil }
+                    guard (try? outbox.adopt(url, as: name, move: true)) != nil else { return nil }
+                    let target = outbox.attachments.appendingPathComponent(name)
                     let isImage = UTType(filenameExtension: target.pathExtension)?.conforms(to: .image) ?? false
                     let thumbnail = isImage ? attachmentThumbnail(target, side: AttachTray.thumbnailSize) : nil
                     return .success(PickedAttachment(name: name, title: url.lastPathComponent, thumbnail: thumbnail))

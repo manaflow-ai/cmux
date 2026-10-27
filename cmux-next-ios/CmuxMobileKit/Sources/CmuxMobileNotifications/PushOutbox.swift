@@ -113,13 +113,32 @@ public struct PushOutbox: Sendable {
         }
     }
 
-    /// Deletes attachments older than `maxAge` (their reply expired unsent).
+    /// Brings a picked file into `attachments` as `name` (moved when `move`, else
+    /// copied) and dates it now: a copy or a move keeps the original's date, and
+    /// `pruneAttachments` ages files by it, so a document last edited days ago
+    /// would be pruned before its reply is sent.
+    public func adopt(_ source: URL, as name: String, move: Bool, now: Date = Date()) throws {
+        guard (name as NSString).lastPathComponent == name, !name.hasPrefix(".") else { throw Refused() }
+        try FileManager.default.createDirectory(at: attachments, withIntermediateDirectories: true)
+        let target = attachments.appendingPathComponent(name)
+        if move {
+            try FileManager.default.moveItem(at: source, to: target)
+        } else {
+            try FileManager.default.copyItem(at: source, to: target)
+        }
+        try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: target.path)
+    }
+
+    /// Deletes attachments, and stages of notifications never replied to, older
+    /// than `maxAge` (their reply expired unsent).
     public func pruneAttachments(now: Date = Date()) {
         let keys: [URLResourceKey] = [.contentModificationDateKey]
-        guard let files = try? FileManager.default.contentsOfDirectory(at: attachments, includingPropertiesForKeys: keys) else { return }
-        for url in files {
-            let date = (try? url.resourceValues(forKeys: Set(keys)).contentModificationDate) ?? .distantPast
-            if now.timeIntervalSince(date) >= Self.maxAge { try? FileManager.default.removeItem(at: url) }
+        for folder in [attachments, staged] {
+            guard let files = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys) else { continue }
+            for url in files {
+                let date = (try? url.resourceValues(forKeys: Set(keys)).contentModificationDate) ?? .distantPast
+                if now.timeIntervalSince(date) >= Self.maxAge { try? FileManager.default.removeItem(at: url) }
+            }
         }
     }
 
