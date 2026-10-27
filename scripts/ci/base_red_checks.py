@@ -21,6 +21,8 @@ STAMP = re.compile(r"^\d{4}-\d\d-\d\dT[0-9:.]+Z ")
 RED_LINE = re.compile(r"^- (.+?) \((?:failure|cancelled|timed_out|not run)\)$")
 JOB_ID = re.compile(r"/job/(\d+)(?:$|[/?#])")
 CHECKS_JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+# Only these read as "not finished yet"; a missing or unknown status fails closed.
+PENDING = {"queued", "in_progress", "waiting", "requested", "pending"}
 
 
 def failed_names(text: str) -> set[str]:
@@ -39,7 +41,8 @@ class DropAuthOnRedirect(urllib.request.HTTPRedirectHandler):
     # API host.
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         new = super().redirect_request(req, fp, code, msg, headers, newurl)
-        if new is not None and urllib.parse.urlsplit(newurl).netloc != urllib.parse.urlsplit(req.full_url).netloc:
+        old, moved = urllib.parse.urlsplit(req.full_url), urllib.parse.urlsplit(newurl)
+        if new is not None and (moved.scheme, moved.netloc) != (old.scheme, old.netloc):
             new.remove_header("Authorization")
         return new
 
@@ -66,8 +69,11 @@ def base_reds(repo: str, before: str, base: str, token: str) -> set[str] | None:
     # feat-cmux-next rule is that pending and queued base checks never block a
     # landing, so let the caller classify this push's reds as warning-only until
     # the next completed tip provides comparable evidence.
-    if runs[0].get("status") != "completed":
+    status = runs[0].get("status")
+    if status in PENDING:
         return None
+    if status != "completed":
+        raise RuntimeError(f"previous checks job has status {status!r}")
     details = runs[0].get("details_url", "")
     match = JOB_ID.search(details)
     if not match:

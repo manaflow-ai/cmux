@@ -92,6 +92,19 @@ class BaseRedChecksTests(unittest.TestCase):
         self.assertEqual(moved.get_header("Accept"), "application/vnd.github+json")
         same = handler.redirect_request(request, None, 302, "Found", {}, "https://api.github.com/other")
         self.assertEqual(same.get_header("Authorization"), "Bearer token")
+        downgraded = handler.redirect_request(request, None, 307, "Temporary", {}, "http://api.github.com/other")
+        self.assertFalse(downgraded.has_header("Authorization"))
+
+    def test_unknown_previous_status_fails_closed(self):
+        original = module.api
+        try:
+            for run in ('{"name":"cmux-next checks (god files, concurrency, crash safety, l10n)"}',
+                        '{"name":"cmux-next checks (god files, concurrency, crash safety, l10n)","status":"odd"}'):
+                module.api = lambda _base, _token, _path, run=run: ('{"check_runs":[%s]}' % run).encode()
+                with self.assertRaises(RuntimeError):
+                    module.base_reds("manaflow-ai/cmux", "before", "https://api.github.com", "token")
+        finally:
+            module.api = original
 
 if __name__ == "__main__":
     unittest.main()
