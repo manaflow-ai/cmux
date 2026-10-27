@@ -133,7 +133,7 @@ public struct CloudWorkspaceSetupWizard {
         if answer.isOn("codex") { try await transfer(.codex) }
     }
 
-    /// Discloses the destination, reusable Claude token and per-VM Codex login.
+    /// Discloses the destination, reusable Claude token and local Codex refresh ownership.
     public static func credentialDialogSpec(machine: String, account: String) -> CmuxDialogSpec {
         CmuxDialogSpec(
             title: CloudWorkspaceSetupWizardStrings.credentialTitle(machine),
@@ -185,7 +185,7 @@ private enum CloudWorkspaceSetupWizardStrings {
     }
 
     nonisolated static func credentialDisclosure(_ machine: String, _ team: String) -> String {
-        String(format: String(localized: "cloud.workspaceSetup.credentialDisclosure", defaultValue: "Claude runs claude setup-token on this Mac when needed and saves the long-lived token for later VMs. Codex requires a separate device login for each VM, shown in cmux on this Mac. The selected credential is installed on %@ for %@, replacing that provider's login for future launches. Existing sessions stay unchanged. Select one or both providers, then confirm the transfer.", table: "Cloud", bundle: .module), machine, team)
+        String(format: String(localized: "cloud.workspaceSetup.credentialDisclosure", defaultValue: "Claude runs claude setup-token on this Mac when needed and saves the long-lived token for later VMs. Codex signs in on this Mac once when needed. Only short-lived Codex access moves to the VM; the refresh token stays on this Mac. Keep cmux running on this Mac to renew Codex access. The selected credential is installed on %@ for %@, replacing that provider's login for future launches. Existing sessions stay unchanged. Select one or both providers, then confirm the transfer.", table: "Cloud", bundle: .module), machine, team)
     }
 
 }
