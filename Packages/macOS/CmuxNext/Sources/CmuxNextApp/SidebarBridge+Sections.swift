@@ -85,6 +85,7 @@ extension SidebarBridge {
         let service = services.sidebarLayout
         let apps = services.apps.client
         let store = services.machines.local.store
+        let settings = services.settings
         let refs = WorkspaceLayoutRefs(machines: services.machines)
         // The default Chief's upload, else its pet character (`home.chiefPetMascot`), is the Chief item's picture: a new pick redraws it.
         let chiefPicture = { [weak services] in services?.characterPicture(of: nil) }
@@ -102,7 +103,7 @@ extension SidebarBridge {
                 // The window closed: the bridge is gone, stop observing.
                 guard self != nil else { return }
                 // `model.layout` is written with the rows it projects (SidebarBridge.show).
-                let visibleLayout = SidebarRows.visibleLayout(layout, showAppStore: services.settings?.snapshot.previewFeatures == true)
+                let visibleLayout = SidebarRows.visibleLayout(layout, showAppStore: settings?.snapshot.previewFeatures == true)
                 let infos = Self.itemInfo(for: visibleLayout, registered: { registry.action(for: $0) != nil },
                                           unread: unread, homeUnread: homeUnread,
                                           app: { SidebarAppItemInfo.info($0, client: apps) }, shortcut: { shortcuts[$0] },
