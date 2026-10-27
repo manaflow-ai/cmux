@@ -172,13 +172,21 @@ fn run_wg_dial(args: &[String]) -> anyhow::Result<()> {
     let port = port.parse::<u16>().ok().filter(|port| *port > 0);
     let (true, Some(port)) = (flag == "--hub", port) else { return Err(anyhow!(WG_DIAL_USAGE)) };
     let runtime = tokio_runtime()?;
-    let result = runtime.block_on(bridge_through_hub(
-        Path::new(hub),
-        host,
-        port,
-        tokio::io::stdin(),
-        tokio::io::stdout(),
-    ));
+    // SIGINT, SIGTERM or SIGHUP (ssh going away) ends the bridge even on a quiet connection.
+    let result = runtime.block_on(async {
+        tokio::select! {
+            result = bridge_through_hub(
+                Path::new(hub),
+                host,
+                port,
+                tokio::io::stdin(),
+                tokio::io::stdout(),
+            ) => result,
+            result = crate::wait_for_shutdown_signal_async() => {
+                result.map_err(|error| anyhow!("{error}"))
+            }
+        }
+    });
     // Tokio reads stdin on a thread that cannot be cancelled: do not wait for its next byte.
     runtime.shutdown_background();
     result
