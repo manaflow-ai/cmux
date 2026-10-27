@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextInput
 
 /// One extension action: Chromium's icon, which already carries the badge
 /// and the disabled look laid out on the whole button, with gray hover
@@ -102,28 +103,36 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
     /// The horizontal travel past which a press may become a reorder drag.
     static let dragThreshold: CGFloat = 3
 
+    /// A reorder drag's moves, once per frame on the window's drag frames (`pointerFrameDrags`); the drag's
+    /// start past ``dragThreshold`` acts on its own event.
+    private(set) lazy var dragMoves = PointerFrameDrag(owner: "ExtensionActionButton.drag", view: self) { [weak self] point in
+        guard let self, let press = self.press, press.dragging else { return }
+        onDragMoved?(point.x - press.start.x)
+    }
+
     /// A click runs the action; a horizontal drag past ``dragThreshold`` reorders the pinned buttons.
     /// The press ends in `mouseUp(with:)`; no modal loop holds the run loop (Chromium's
     /// `views::Button` presses in OnMousePressed and clicks in OnMouseReleased, ui/views/controls/button/button.cc).
     override func mouseDown(with event: NSEvent) {
         guard isEnabled, window != nil else { return super.mouseDown(with: event) }
         press = Press(start: event.locationInWindow)
+        dragMoves.began()
         isHighlighted = true
     }
 
-    // local-monitor-allow: a drag is delivered unbuffered until its mouse-up (p06-scheduler.md section E, FrameInputCoalescer); each move only offsets the pinned buttons
     override func mouseDragged(with event: NSEvent) {
         guard var press else { return super.mouseDragged(with: event) }
+        if press.dragging { return dragMoves.dragged(event) }
         let dx = event.locationInWindow.x - press.start.x
-        if !press.dragging, abs(dx) > Self.dragThreshold, canDrag?() == true {
-            press.dragging = true
-            isHighlighted = false
-        }
+        guard abs(dx) > Self.dragThreshold, canDrag?() == true else { return }
+        press.dragging = true
+        isHighlighted = false
         self.press = press
-        if press.dragging { onDragMoved?(dx) }
+        onDragMoved?(dx)
     }
 
     override func mouseUp(with event: NSEvent) {
+        dragMoves.ended() // the frame's pending offset lands before the drop
         guard let press else { return super.mouseUp(with: event) }
         self.press = nil
         isHighlighted = false
@@ -169,6 +178,7 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
         // Out of the window, the press's mouse-up never comes here: end the press. A reorder drag
         // ends at offset 0, its start index, so the toolbar clears the shifts and moves nothing.
         if window == nil, let press {
+            dragMoves.cancel()
             self.press = nil
             isHighlighted = false
             if press.dragging { onDragEnded?(0) }

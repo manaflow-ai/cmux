@@ -37,7 +37,8 @@ cmux-pty.workspace = true
 # The panic log and the process's hang watcher: request, journal writer and holder-link scopes.
 cmux-panic-log.workspace = true
 # The Release hang watch (p09-observability 3E): frame, request, journal batch,
-# terminal job and line-out write scopes.
+# terminal job and line-out write scopes, and the terminal host's loop
+# registrations (p09-observability-074).
 cmux-hang-watch.workspace = true
 cmux-holder.workspace = true
 cmux-ipc.workspace = true
