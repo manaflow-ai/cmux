@@ -2,6 +2,7 @@ import CmuxSSHClipboardTrust
 import CmuxCloud
 import CmuxSurfaceCatalogModel
 import CmuxRemoteSession
+import CmuxTerminal
 import Foundation
 import Testing
 
@@ -18,7 +19,12 @@ struct SSHClipboardWriteTrustStoreTests {
     func bootstrapWorkspaceObservesClipboardTrustChanges() throws {
         let previousDelegate = AppDelegate.shared
         AppDelegate.shared = nil
-        defer { AppDelegate.shared = previousDelegate }
+        defer {
+            AppDelegate.shared = previousDelegate
+            if let previousDelegate {
+                GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(previousDelegate)
+            }
+        }
 
         // Recreate the composition root with no published delegate, as on first
         // launch, rather than injecting a trust store into a test workspace.
