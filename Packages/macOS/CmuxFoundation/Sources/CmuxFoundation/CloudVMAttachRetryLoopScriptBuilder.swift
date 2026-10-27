@@ -19,17 +19,18 @@ public struct CloudVMAttachRetryLoopScriptBuilder: Sendable {
 
     /// Lines that resolve the reconnect settings, before the attach function.
     ///
-    /// The exported variables keep the values the caller's environment gave,
-    /// with the loop's own defaults, because the attach command reads and
-    /// normalizes them itself. The loop reads only the normalized copies.
+    /// The exported reconnect variables keep the values the caller's
+    /// environment gave, with the loop's own defaults, because the attach
+    /// command reads and normalizes them itself. The attach command's own
+    /// retry reads its `CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_*` defaults as
+    /// given, with no ceiling and no delay check, so those come from the
+    /// normalized copies unless the caller set them explicitly. The loop
+    /// reads only the normalized copies.
     public var configurationLines: [String] {
         [
             "CMUX_SSH_RECONNECT_LIMIT=\"${CMUX_SSH_RECONNECT_LIMIT:-\(budget.maximumLimit)}\"",
             "CMUX_SSH_RECONNECT_DELAY_SECONDS=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-\(budget.defaultDelaySeconds)}\"",
-            "CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT=\"${CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT:-$CMUX_SSH_RECONNECT_LIMIT}\"",
-            "CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS=\"${CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS:-$CMUX_SSH_RECONNECT_DELAY_SECONDS}\"",
             "export CMUX_SSH_RECONNECT_LIMIT CMUX_SSH_RECONNECT_DELAY_SECONDS",
-            "export CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS",
         ]
             + budget.limitNormalizationShellLines(
                 variable: "cmux_freestyle_reconnect_limit",
@@ -43,6 +44,11 @@ public struct CloudVMAttachRetryLoopScriptBuilder: Sendable {
                 // long delay someone chose is kept up to the ceiling rather than cut to 30s.
                 defaultMaximum: budget.maximumLimit
             )
+            + [
+                "CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT=\"${CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT:-$cmux_freestyle_reconnect_limit}\"",
+                "CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS=\"${CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS:-$cmux_freestyle_reconnect_delay}\"",
+                "export CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS",
+            ]
     }
 
     /// The loop itself, after the caller has defined `cmux_freestyle_attach`.
