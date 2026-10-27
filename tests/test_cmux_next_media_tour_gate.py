@@ -149,7 +149,11 @@ def main():
     push = triggers.get("push") or {}
     _check(push.get("branches") == ["nightly-next"],
            f"only the nightly tip (a push to nightly-next) starts a push tour, not every merge ({push.get('branches')})")
-    _check(push.get("paths") == pr_trigger["paths"], "nightly tips and pull requests share the UI path filter")
+    # GitHub matches push paths against the first 300 changed files only; a nightly tip spans many
+    # merges, so a filter could drop a UI change past that window. The route job decides instead.
+    _check("paths" not in push and "paths-ignore" not in push,
+           "a nightly tip has no push path filter; the route job takes no Mac when nothing UI changed")
+    _check(bool(pr_trigger.get("paths")), "a pull request's label tour keeps the UI path filter")
 
     route_if = jobs["route"]["if"]
     group = workflow["concurrency"]["group"]

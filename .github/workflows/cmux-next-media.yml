@@ -61,16 +61,12 @@ name: cmux-next media
 # Classic main has no cmux-next UI, and a nightly schedule would run only
 # from main's copy of this file, so neither has a tour.
 on:
+  # No path filter: GitHub matches a push's paths against its first 300 changed
+  # files only, and a nightly tip spans many merges, so a UI change past that
+  # window would start no run. The route job lists the paths on Linux and takes
+  # no Mac when nothing UI changed (past the compare API's 300, the Mac maps them).
   push:
     branches: [nightly-next]
-    paths:
-      - 'Packages/macOS/CmuxNext/Sources/**'
-      - 'Packages/macOS/CmuxNext/Resources/**'
-      - 'Packages/macOS/CmuxNext/Tests/**'
-      - 'webviews/**'
-      - 'agent-chat/**'
-      # A change to a tour tours it (path_map.py maps tours/<name>.json to <name>).
-      - 'scripts/cmux-next/media/tours/**'
   pull_request:
     branches: [feat-cmux-next]
     # Only adding a label starts a run: no push of a pull request tours.
