@@ -221,7 +221,7 @@ done
         func logout() { scope = nil }
     }
 
-    @Test(arguments: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]) func deliversAccessOnlyGrantAndRestoresPriorModeOnRevoke(interruption: Int) async throws {
+    @Test(arguments: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]) func deliversAccessOnlyGrantAndRestoresPriorModeOnRevoke(interruption: Int) async throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -259,7 +259,9 @@ done
             if interruption == 1 || interruption == 2 { await gate.pause() }
             await recorder.commit((a, b, c, d))
             if interruption == 5 { throw CloudCodexBrokerError.remoteDeliveryFailed }
+            if interruption == 11 { await recorder.failAccessRead(true); throw CloudCodexBrokerError.remoteDeliveryFailed }
             if interruption == 7 { await recorder.failRestore(true); await account.logout() }
+            if interruption == 10 { await recorder.failRemoval(true) }
         }, removeFile: { path in try await recorder.remove(path) }, isLive: {
             if interruption == 4 { return await recorder.liveUntilDelivery() }
             return true
@@ -285,6 +287,22 @@ done
             #expect(await recorder.files.keys.filter { $0.contains(".access-") }.isEmpty)
             await recorder.failAccessRead(false)
             try await broker.revoke(target: target)
+            return
+        }
+        if interruption == 10 {
+            await #expect(throws: CloudCodexBrokerError.remoteDeliveryFailed) { try await broker.transfer(target: target, confirmed: true) }
+            #expect(await recorder.files.keys.contains { $0.contains(".access-") })
+            await recorder.failRemoval(false)
+            try await broker.revoke(target: target)
+            #expect(await recorder.files.keys.filter { $0.contains(".access-") || $0.contains(".codex-") }.isEmpty)
+            return
+        }
+        if interruption == 11 {
+            await #expect(throws: CloudCodexBrokerError.remoteDeliveryFailed) { try await broker.transfer(target: target, confirmed: true) }
+            await recorder.failAccessRead(false)
+            try await broker.revoke(target: target)
+            #expect(await recorder.read(CloudCodexBroker.accessPath) == nil)
+            #expect(await recorder.read(CloudCodexBroker.modePath) == Data("team\n".utf8))
             return
         }
         if interruption == 4 {
