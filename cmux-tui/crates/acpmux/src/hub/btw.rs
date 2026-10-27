@@ -87,11 +87,9 @@ where
 }
 
 /// Creation publishes a session before all of its startup awaits finish. Abort a timed-out
-/// creation and purge the uniquely named session it may already have published.
+/// creation; its publication guard purges the exact session it may already have published.
 async fn with_inline_creation<F>(
-    hub: Arc<Hub>,
     deadline: Option<tokio::time::Instant>,
-    name: String,
     future: F,
 ) -> Result<Arc<Session>, RpcError>
 where
@@ -108,7 +106,6 @@ where
         Err(_) => {
             task.abort();
             let _ = task.await;
-            hub.btw_discard_named(&name).await;
             Err(RpcError::internal("the inline side question timed out"))
         }
     }
@@ -168,7 +165,7 @@ impl Hub {
         .await??
         {
             Some(through) => (
-                with_inline_creation(self.clone(), inline_deadline, name.clone(), {
+                with_inline_creation(inline_deadline, {
                     let hub = self.clone();
                     let parent = session.clone();
                     async move {
@@ -202,23 +199,18 @@ impl Hub {
                     disallowed_tools: Vec::new(),
                     checked_cwd: None,
                 };
-                let side = match with_inline_creation(
-                    self.clone(),
-                    inline_deadline,
-                    name.clone(),
-                    {
-                        let hub = self.clone();
-                        let req = req.clone();
-                        async move { hub.new_session(req).await }
-                    },
-                )
+                let side = match with_inline_creation(inline_deadline, {
+                    let hub = self.clone();
+                    let req = req.clone();
+                    async move { hub.new_session(req).await }
+                })
                 .await
                 {
                     // A default model the harness refuses: its own default instead.
                     Err(e) if !inline && explicit.is_none() && model.is_some() => {
                         tracing::warn!(session = %session.id, "side session model: {}", e.message);
                         model = None;
-                        with_inline_creation(self.clone(), inline_deadline, name.clone(), {
+                        with_inline_creation(inline_deadline, {
                             let hub = self.clone();
                             async move { hub.new_session(NewRequest { model: None, ..req }).await }
                         })
@@ -596,20 +588,6 @@ impl Hub {
     async fn btw_discard(&self, side: &Arc<Session>) {
         if let Err(e) = self.kill(side, true).await {
             tracing::warn!(session = %side.id, "side session cleanup: {}", e.message);
-        }
-    }
-
-    /// Find and purge a temporary inline session after its creation task was aborted.
-    async fn btw_discard_named(&self, name: &str) {
-        let side = self
-            .sessions
-            .lock()
-            .unwrap()
-            .values()
-            .find(|session| session.meta().name == name)
-            .cloned();
-        if let Some(side) = side {
-            self.btw_discard(&side).await;
         }
     }
 }

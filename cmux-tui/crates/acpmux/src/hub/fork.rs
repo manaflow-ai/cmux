@@ -340,6 +340,7 @@ impl Hub {
         }
         // Indexed again once published (`transfer.rs` `import_into`).
         self.child_tags.note(&new);
+        let creation_guard = super::lifecycle::CreationGuard::new(self.clone(), new.clone(), 0);
         // Copy the transcript-relevant history so attach replays it.
         // Read one record at a time; only these kinds are parsed.
         const COPIED: &[&str] = &[
@@ -431,6 +432,7 @@ impl Hub {
             Err(e) => tracing::warn!(session = %new.id, "fork child start failed: {e}"),
         }
         self.save_meta(&new);
+        creation_guard.disarm();
         Ok(new)
     }
 }
