@@ -1,4 +1,5 @@
 import AppKit
+public import Foundation
 import os
 
 /// A second copy's hand-off (``SingleInstanceGuard``): a plain `NSApplication` that takes this launch's open
@@ -15,7 +16,7 @@ import os
 /// Stop conditions: it exits ``settle`` after the last event it took once nothing is pending (open events AppKit
 /// delivers after `applicationDidFinishLaunching` still go), at ``deadline`` from a main-actor task, and at
 /// ``hardDeadline`` from a timer off the main thread, so a blocked send cannot hold it.
-@MainActor final class SingleInstanceHandoff: NSObject, NSApplicationDelegate {
+@MainActor public final class SingleInstanceHandoff: NSObject, NSApplicationDelegate {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "launch")
     static let settle: Duration = .milliseconds(300)
     static let retry: Duration = .milliseconds(250)
@@ -35,13 +36,13 @@ import os
     }
 
     /// Runs the hand-off to the owner of `lock`; never returns.
-    static func run(lock: URL, activates: Bool) -> Never {
+    public static func run(lock: URL, activates: Bool) -> Never {
         logger.notice("launch: another copy of this app holds \(lock.path, privacy: .public); handing off and exiting before Chromium or the session start")
         guard activates else {
             logger.notice("launch: an agent launch of a second copy forwards nothing (the running copy would come forward); exiting")
             exit(0)
         }
-        DispatchQueue.global().asyncAfter(deadline: .now() + hardDeadline) { exit(0) }
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + hardDeadline) { exit(0) }
         // No saved windows of this copy: its restoration store would take over the running copy's.
         UserDefaults.standard.setVolatileDomain(["ApplePersistenceIgnoreState": true], forName: UserDefaults.argumentDomain)
         let app = NSApplication.shared
@@ -54,13 +55,13 @@ import os
     }
 
     /// This launch's documents and URLs (AppKit routes both `odoc` and `GURL` here).
-    func application(_ application: NSApplication, open urls: [URL]) {
+    public func application(_ application: NSApplication, open urls: [URL]) {
         pending += urls
         reopenPending = false
         if launched { attempt() }
     }
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
+    public func applicationDidFinishLaunching(_ notification: Notification) {
         launched = true
         Task { [weak self] in
             try? await Task.sleep(for: Self.deadline)

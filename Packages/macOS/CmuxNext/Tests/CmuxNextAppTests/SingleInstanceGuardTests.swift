@@ -1,5 +1,5 @@
 import AppKit
-@testable import CmuxNextApp
+@testable import CmuxNextUpdater
 import Foundation
 import Testing
 
@@ -10,33 +10,31 @@ import Testing
         SingleInstanceGuard(bundleIdentifier: bundle, environment: environment)
     }
 
-    @Test func aSecondCopyHandsOffToTheClaimsOwner() {
-        #expect(guardFor().decide(.taken(owner: 100)) == .handOff(owner: 100, activates: true))
+    @Test func aSecondCopyNeverStarts() {
+        #expect(guardFor().decide(.taken) == .handOff(activates: true))
     }
 
     @Test func theOwnerAndUnclaimableLaunchesStart() {
         #expect(guardFor().decide(.held) == .launch)
         #expect(guardFor().decide(.unavailable) == .launch, "no lock file: launch as before")
-        #expect(guardFor().decide(.taken(owner: nil)) == .launch, "no owner pid to hand to: never lose the launch")
-        #expect(guardFor().decide(.taken(owner: getpid())) == .launch)
     }
 
     @Test func anAgentLaunchHandsOffWithoutActivating() {
-        #expect(guardFor(environment: ["CMUX_NEXT_NO_ACTIVATE": "1"]).decide(.taken(owner: 100)) == .handOff(owner: 100, activates: false))
+        #expect(guardFor(environment: ["CMUX_NEXT_NO_ACTIVATE": "1"]).decide(.taken) == .handOff(activates: false))
     }
 
     @Test func devBundlesAndTheOptOutAreNotGuarded() {
         for bundle in ["com.cmuxterm.app.debug", "com.cmuxterm.app.debug.my-tag", "com.cmuxterm.app.staging"] {
             #expect(!guardFor(bundle).isGuarded, "\(bundle): harnesses run a tagged bundle twice")
-            #expect(guardFor(bundle).decide(.taken(owner: 100)) == .launch)
+            #expect(guardFor(bundle).decide(.taken) == .launch)
         }
-        #expect(guardFor(environment: [SingleInstanceGuard.allowKey: "1"]).decide(.taken(owner: 100)) == .launch)
-        #expect(guardFor(nil).decide(.taken(owner: 100)) == .launch)
+        #expect(guardFor(environment: [SingleInstanceGuard.allowKey: "1"]).decide(.taken) == .launch)
+        #expect(guardFor(nil).decide(.taken) == .launch)
     }
 
     @Test func releaseChannelsAreGuarded() {
         for bundle in ["com.cmuxterm.app.next", "com.cmuxterm.app.nightly", "com.cmuxterm.app"] {
-            #expect(guardFor(bundle).decide(.taken(owner: 100)) == .handOff(owner: 100, activates: true), "\(bundle)")
+            #expect(guardFor(bundle).decide(.taken) == .handOff(activates: true), "\(bundle)")
         }
     }
 
@@ -51,7 +49,9 @@ import Testing
         let other = open(url.path, O_RDWR | O_CLOEXEC)
         defer { close(other) }
         #expect(flock(other, LOCK_EX | LOCK_NB) != 0, "held by the first descriptor")
-        #expect(SingleInstanceGuard.claim(at: url, ownerWait: 0) == .taken(owner: getpid()))
+        #expect(SingleInstanceGuard.claim(at: url) == .taken)
+        #expect(!SingleInstanceGuard.isFree(at: url))
+        #expect(SingleInstanceGuard.owner(at: url) == nil, "this process's own pid is never an owner to hand to")
     }
 
     @Test func eachBundleHasItsOwnLock() throws {
@@ -67,6 +67,16 @@ import Testing
         let link = try #require(URL(string: "cmux-nightly://open"))
         #expect(SingleInstanceHandoffEvents.events(for: [web, file, link]) == [.openDocuments([file]), .getURL(web), .getURL(link)])
         #expect(SingleInstanceHandoffEvents.events(for: []).isEmpty)
+    }
+
+    @Test func theOwnerIsReadFromTheClaimAndAFreedClaimIsFree() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "single-instance-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appending(path: "instance.lock")
+        try Data("4242\n".utf8).write(to: url)
+        #expect(SingleInstanceGuard.owner(at: url) == 4242)
+        #expect(SingleInstanceGuard.isFree(at: url), "nobody holds it: its owner ended")
     }
 
     @Test func theGetURLEventTargetsTheOwnersPid() throws {

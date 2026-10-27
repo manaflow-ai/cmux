@@ -21,10 +21,10 @@ import Testing
     }
 
     @Test func onlyAStartFailureHoldsTheTab() {
-        #expect(ChromiumUnavailableRestore.holds(.startFailed("CefInitialize failed")))
-        #expect(!ChromiumUnavailableRestore.holds(.notBundled), "a build without Chromium keeps its WebKit fallback")
-        #expect(!ChromiumUnavailableRestore.holds(.downloading(fraction: nil)))
-        #expect(!ChromiumUnavailableRestore.holds(.downloadFailed("offline")))
+        #expect(CEFUnavailableReason.startFailed("CefInitialize failed").keepsChromiumTabsOutOfWebKit)
+        #expect(!CEFUnavailableReason.notBundled.keepsChromiumTabsOutOfWebKit, "a build without Chromium keeps its WebKit fallback")
+        #expect(!CEFUnavailableReason.downloading(fraction: nil).keepsChromiumTabsOutOfWebKit)
+        #expect(!CEFUnavailableReason.downloadFailed("offline").keepsChromiumTabsOutOfWebKit)
     }
 
     @Test func aBuildWithoutChromiumStillOpensTheTabInWebKit() throws {

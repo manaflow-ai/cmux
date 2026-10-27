@@ -1,6 +1,5 @@
-import CmuxNextUpdater
 import Darwin
-import Foundation
+public import Foundation
 
 /// One copy of a cmux bundle per user (field log, 2026-10-26: a NIGHTLY started by direct exec from an ssh session
 /// while the first copy ran; its Chromium could not start, since the first copy holds the profile in
@@ -16,8 +15,8 @@ import Foundation
 /// ids keep their data apart) and a launch with `CMUX_NEXT_ALLOW_SECOND_INSTANCE=1`. DEV, NIGHTLY and stable have
 /// different bundle ids, so different locks. Sparkle's relaunch starts the new build only after the old process
 /// exited (its installer waits on the old pid), so the lock is free by then.
-nonisolated struct SingleInstanceGuard: Equatable, Sendable {
-    enum Decision: Equatable, Sendable {
+public nonisolated struct SingleInstanceGuard: Equatable, Sendable {
+    public enum Decision: Equatable, Sendable {
         /// Start normally (this process owns the claim, or is not guarded).
         case launch
         /// Another copy owns the claim: forward to it and exit, never start. `activates` is false for an agent
@@ -26,7 +25,7 @@ nonisolated struct SingleInstanceGuard: Equatable, Sendable {
     }
 
     /// The outcome of trying to take the claim.
-    enum Claim: Equatable, Sendable {
+    public enum Claim: Equatable, Sendable {
         /// This process holds it.
         case held
         /// Another live process holds it.
@@ -35,25 +34,30 @@ nonisolated struct SingleInstanceGuard: Equatable, Sendable {
         case unavailable
     }
 
-    static let allowKey = "CMUX_NEXT_ALLOW_SECOND_INSTANCE"
+    public static let allowKey = "CMUX_NEXT_ALLOW_SECOND_INSTANCE"
 
-    var bundleIdentifier: String?
-    var environment: [String: String]
+    public var bundleIdentifier: String?
+    public var environment: [String: String]
+
+    public init(bundleIdentifier: String?, environment: [String: String]) {
+        self.bundleIdentifier = bundleIdentifier
+        self.environment = environment
+    }
 
     /// Whether this launch takes part in the claim at all.
-    var isGuarded: Bool {
+    public var isGuarded: Bool {
         guard let bundleIdentifier, !bundleIdentifier.isEmpty else { return false }
         return !UpdateTrack.isDevelopmentBundle(bundleIdentifier) && environment[Self.allowKey] != "1"
     }
 
     /// The decision for this launch given the claim's outcome: a taken claim never starts a second copy.
-    func decide(_ claim: Claim) -> Decision {
+    public func decide(_ claim: Claim) -> Decision {
         guard isGuarded, claim == .taken else { return .launch }
         return .handOff(activates: environment["CMUX_NEXT_NO_ACTIVATE"] != "1")
     }
 }
 
-extension SingleInstanceGuard {
+public extension SingleInstanceGuard {
     /// This process.
     static var current: SingleInstanceGuard {
         SingleInstanceGuard(bundleIdentifier: Bundle.main.bundleIdentifier, environment: ProcessInfo.processInfo.environment)
@@ -68,6 +72,7 @@ extension SingleInstanceGuard {
     /// Takes the claim at `url`, keeping the descriptor open (close-on-exec) for the life of the process, and
     /// records this pid in it (``owner(at:)``).
     static func claim(at url: URL) -> Claim {
+        // blocking-allow: runs once in `main` before NSApp exists and before any other thread starts; whether this copy may start at all decides everything after it, so nothing can run first (one mkdir of an existing folder)
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let fd = open(url.path, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
         guard fd >= 0 else { return .unavailable }
