@@ -1434,14 +1434,14 @@ def main():
                      "options": [{"value": v, "name": n} for v, n in CLAUDE_MODELS]}]
             send({"jsonrpc": "2.0", "id": rid, "result": result})
         elif m == "session/set_mode":
-            # FAKE_SET_MODE_FAIL=1: the harness refuses every mode change.
-            if os.environ.get("FAKE_SET_MODE_FAIL") == "1":
-                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "mode change refused"}})
-                continue
             # FAKE_SET_MODE_DELAY_MS: each mode change takes that long to answer.
             if os.environ.get("FAKE_SET_MODE_DELAY_MS"):
                 import time as pause  # main() binds `time` locally
                 pause.sleep(int(os.environ["FAKE_SET_MODE_DELAY_MS"]) / 1000)
+            # FAKE_SET_MODE_FAIL=1: the harness refuses every mode change (after that delay).
+            if os.environ.get("FAKE_SET_MODE_FAIL") == "1":
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "mode change refused"}})
+                continue
             send({"jsonrpc": "2.0", "id": rid, "result": {}})
         elif m == "session/set_config_option":
             v = params.get("value")

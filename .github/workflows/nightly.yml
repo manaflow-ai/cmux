@@ -1529,14 +1529,15 @@ jobs:
     # link failure that pinned this job to macOS 15 is gone. Zig on Linux has
     # no macOS SDK, so only a reused helper (resolve-nightly-ghostty-cli-helper)
     # leaves this job on Linux, for the source archive. A fresh helper takes an
-    # owned pool on attempt 1 (main's trusted pool on a push or schedule;
-    # nightly-next: pick-nightly-build-runner's owned pick, never the dedicated
-    # builder, else its moving Blacksmith label); a retry, dispatch or empty
-    # variable takes Blacksmith macOS 26, so a rescue re-run leaves a busy mini. Not
+    # owned pool (main's trusted pool on attempt 1 of a push or schedule;
+    # nightly-next: pick-nightly-build-runner's owned pick when it was made for
+    # this attempt, as build-nightly-app reads it, never the dedicated builder,
+    # else its moving Blacksmith label); a re-run of failed jobs keeps the older
+    # pick and takes Blacksmith macOS 26, so a rescue re-run leaves a busy mini. Not
     # CI_NIGHTLY_NEXT_BUILD_RUNNER: it holds every attempt on its label, and a
     # trusted NEXT runner admits only build-nightly-app. Never a hosted Mac past
     # the fork branch, never macOS 15. glaeda sizes it light at its measured cores.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || needs.resolve-nightly-ghostty-cli-helper.outputs.hit == 'true' && (vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') || github.ref == 'refs/heads/nightly-next' && (github.run_attempt == 1 && needs.pick-nightly-build-runner.outputs.owned != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.owned || needs.pick-nightly-build-runner.outputs.blacksmith || 'blacksmith-6vcpu-macos-26') || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || needs.resolve-nightly-ghostty-cli-helper.outputs.hit == 'true' && (vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.owned != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.owned || needs.pick-nightly-build-runner.outputs.blacksmith || 'blacksmith-6vcpu-macos-26') || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 20
     env:
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
@@ -1799,15 +1800,20 @@ jobs:
   # moves. Owned Macs first, Blacksmith last (Leo, 2026-10-24); never one label with no
   # fallback. Until 2026-10-27 the build read vars.CI_NIGHTLY_NEXT_BUILD_RUNNER alone for
   # every attempt: runs 40446901975 and 40448164753 died at "Set up runner" on it, and a
-  # rescue re-run went back to the label that had refused it. Attempt 1 takes `owned`
-  # when set; a refusal or a stuck queue there is re-run by ci-owned-pool-rescue.yml as
-  # attempt 2, which takes `blacksmith`. A failed pick reads as success with empty outputs,
+  # rescue re-run went back to the label that had refused it. The build takes `owned`
+  # when set by a pick made for its own attempt (`attempt`): a push, a dispatch, or a
+  # re-run that ran this job again. A refusal or a stuck queue there is re-run by
+  # ci-owned-pool-rescue.yml as a re-run of failed jobs, which keeps this job's outputs
+  # from the earlier attempt and so takes `blacksmith`. A failed pick reads as success with empty outputs,
   # and the build then takes blacksmith-6vcpu-macos-26, never an unvalidated variable.
   pick-nightly-build-runner:
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: ${{ !cancelled() && needs.resolve-nightly-cmux-tui-client.result == 'success' }}
     continue-on-error: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # A dispatch mints the routing token too, so the key is read in the routing environment, as
+    # the other dispatchable pickers do (iroh-release-gate.yml, test-ios.yml).
+    environment: ci-routing-agent
     # Checkout, the two token mints (1 + 1) and the pick (8: up to 5 min waiting for a busy
     # dedicated builder, then the owned and Blacksmith reads).
     timeout-minutes: 12
@@ -1817,8 +1823,12 @@ jobs:
       contents: read
     outputs:
       dedicated: ${{ steps.pick.outputs.dedicated }}
-      owned: ${{ steps.pick.outputs.owned }}
+      # Outside attempt 1 of a push (the rescue's workflow_run watch), an owned pick stands only once
+      # its owned-pool-watch marker is uploaded: with no marker nothing would move a refused or stuck job.
+      owned: ${{ (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.pick.outputs.owned || '' }}
       blacksmith: ${{ steps.pick.outputs.blacksmith }}
+      # The attempt the pick was made for: a re-run of failed jobs keeps an older one.
+      attempt: ${{ steps.pick.outputs.attempt }}
     steps:
       - name: Checkout the runner picker at the workflow commit
         if: github.ref == 'refs/heads/nightly-next'
@@ -1829,12 +1839,14 @@ jobs:
           path: .publish-tooling
           sparse-checkout: scripts/ci
 
-      # Only nightly-next push runs on attempt 1, the scope ci-owned-pool-rescue.yml
-      # watches (owned_pool_rescue.nightly_target), and only while owned pools are on:
-      # without the rescue nothing would move a refused or stuck owned job.
+      # Only nightly-next push and dispatch runs, at any attempt, the scope
+      # ci-owned-pool-rescue.yml watches (owned_pool_rescue.nightly_target, and its sweeper
+      # through the marker below), and only while owned pools are on: without the rescue
+      # nothing would move a refused or stuck owned job. Until 2026-10-27 only attempt 1 of
+      # a push got it, so a dispatched or re-run tip nightly queued on a stalled Blacksmith label.
       - name: Mint the owned-pool routing token
         id: route-token
-        if: github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && github.event_name == 'push' && github.ref == 'refs/heads/nightly-next'
+        if: github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/nightly-next'
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -1873,6 +1885,34 @@ jobs:
           CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
         run: python3 .publish-tooling/scripts/ci/nightly_build_runner.py
 
+      # The rescue's workflow_run watch covers attempt 1 of a push. A dispatch made with
+      # GITHUB_TOKEN, or a re-run, may start no workflow_run event, so an owned pick there
+      # also leaves the sweeper's owned-pool-watch marker (owned_pool_rescue.sweep()).
+      - name: Write the owned-pool watch marker
+        id: marker
+        if: steps.pick.outputs.owned != '' && (github.event_name != 'push' || github.run_attempt != 1)
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          OWNED: ${{ steps.pick.outputs.owned }}
+        run: |
+          marker="$RUNNER_TEMP/owned-pool-watch/nightly-build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "${marker%/*}"
+          printf '%s\n' "$OWNED" > "$marker"
+          echo "path=$marker" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the owned-pool watch marker
+        id: upload-marker
+        if: steps.marker.outputs.path != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: owned-pool-watch
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+          overwrite: true
+
   build-nightly-app:
     permissions:
       contents: write
@@ -1907,7 +1947,7 @@ jobs:
     # Rescue watches both refs. Signing, notarization and GUI checks follow the
     # same owned-Mac then Blacksmith route; secrets remain in the protected
     # release environment. Non-Mac control and publication steps use Linux.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.nightly_next_unsigned_run != '' && 'blacksmith-4vcpu-ubuntu-2404' || github.ref == 'refs/heads/nightly-next' && (github.run_attempt == 1 && needs.pick-nightly-build-runner.outputs.owned || needs.pick-nightly-build-runner.outputs.blacksmith || 'blacksmith-6vcpu-macos-26') || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.nightly_next_unsigned_run != '' && 'blacksmith-4vcpu-ubuntu-2404' || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.owned || needs.pick-nightly-build-runner.outputs.blacksmith || 'blacksmith-6vcpu-macos-26') || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # The cloud cache is scoped per branch and also drops main's own
     # entry (runs 35179030871 and 35182663752 restored nothing and were
