@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample chats and folders), not shipped UI.
 // The composer's location strip (hq#1957 composer location strip, Composer.tsx, ComposerContext.tsx,
-// composerLocation.css): the folder, the computer and the branch sit in a tab on the card's top
-// edge instead of a second row inside it, so the card holds one controls row. Only a new chat has
+// composerLocation.css): the folder, the computer and the branch stand a few px over the card
+// instead of a second row inside it, so the card holds one controls row. Only a new chat has
 // it, before its first send (locationRow.ts); a started chat's card stands alone, and its queued
 // prompts sit on the card. The strip keeps one height with a project, without one and while the
 // host's name loads. A new chat's effort chip draws what this harness last showed and its access
