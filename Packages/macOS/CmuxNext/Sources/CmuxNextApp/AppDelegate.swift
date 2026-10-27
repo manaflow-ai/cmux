@@ -196,7 +196,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Idle wakeups per inactive minute (p09-observability-059), once the launch's own work is done.
         order.startup.post(.afterStartup, "AppServices.startIdleWakeups", on: .main) { [weak services, control = self.control] in
             guard let services else { return }
-            services.startIdleWakeups(watchdog: control.watchdog, hiddenWorkspaceMemory: AppProcessRoot.shared.hangReports?.memory)
+            let hangReports = AppProcessRoot.shared.hangReports
+            services.startIdleWakeups(watchdog: control.watchdog, hiddenWorkspaceMemory: hangReports?.memory, processResources: hangReports?.resources)
             control.idleWakeups = services.idleWakeups  // the person's input ends an idle period at that input
         }
         DebugTimings.markReveal(services.launchReveal)

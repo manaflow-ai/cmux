@@ -956,22 +956,29 @@ final class AppServices {
     /// app's one observer per notice, no timer); an app that is inactive now opens its first period. `AppDelegate`
     /// calls it after startup, with the watchdog that counts main run-loop wakes, and hands the sampler to the input
     /// tap's subscription (`AppControl.idleWakeups`); a second call does nothing. The same resign-active notice
-    /// takes a `hiddenWorkspaceMemory` sample (p09-observability-061).
-    func startIdleWakeups(watchdog: MainThreadWatchdog, hiddenWorkspaceMemory: HiddenWorkspaceMemory?) {
+    /// takes a `hiddenWorkspaceMemory` sample (p09-observability-061), and both notices a `processResources` sample
+    /// (p09-observability-121).
+    func startIdleWakeups(watchdog: MainThreadWatchdog, hiddenWorkspaceMemory: HiddenWorkspaceMemory?, processResources: ProcessResources?) {
         guard idleWakeups == nil else { return }
         let sampler = IdleWakeupSampler(sources: .live(mainRunLoopWakes: { [weak watchdog] in watchdog?.mainRunLoopWakes },
                                                        daemonPID: { [weak daemon = self.daemon] in daemon?.identity?.pid }))
         idleWakeups = sampler
         idleWakeupEvents = [
-            appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "IdleWakeupSampler") { [weak sampler, weak hiddenWorkspaceMemory] in
+            appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "IdleWakeupSampler") {
+                [weak sampler, weak hiddenWorkspaceMemory, weak processResources] in
                 sampler?.appResignedActive()
                 hiddenWorkspaceMemory?.appDidResignActive()
+                processResources?.appDidResignActive()
             },
-            appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "IdleWakeupSampler") { [weak sampler] in
+            appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "IdleWakeupSampler") { [weak sampler, weak processResources] in
                 sampler?.appBecameActive()
+                processResources?.appDidBecomeActive()
             },
         ]
-        if !NSApp.isActive { sampler.appResignedActive() }
+        if !NSApp.isActive {
+            sampler.appResignedActive()
+            processResources?.appDidResignActive()
+        }
     }
     /// Follows `energy.saver` into the policy driver once the settings have loaded, so the first policy it
     /// publishes already follows the setting. `AppDelegate` calls it at launch; a second call does nothing.

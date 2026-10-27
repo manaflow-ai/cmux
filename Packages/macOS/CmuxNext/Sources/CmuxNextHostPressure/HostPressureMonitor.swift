@@ -1,4 +1,5 @@
 import CmuxNextCompat
+public import CmuxNextTrace
 import Dispatch
 public import Foundation
 
@@ -69,6 +70,12 @@ public actor LocalHostPressureSource: HostPressureSource {
 /// or it quits; cleanup: it ends the pressure subscription, cancels the timer
 /// and any read in flight, and ends the run, so a hop or a level change
 /// already queued from it is dropped.
+///
+/// Each level change writes two trace records (task 121) in the `hang` category, which the black box keeps from
+/// launch: a counter (`host.pressure`, arg0 the new level), the level's track in a trace viewer, and an instant
+/// (`host.pressure.change`) that says what changed: arg0 the new level; arg1 the old level in bits 0-7, the memory
+/// pressure in bits 8-15 and how many parts of the budget are over in bits 16-23. Chrome marks each memory pressure
+/// notification with a trace instant the same way (base/memory/memory_pressure_listener.cc, `NotifyMemoryPressure`).
 public actor HostPressureMonitor {
     public typealias Change = @MainActor @Sendable (HostPressureLevel, HostBudgetVerdict) -> Void
     /// Subscribes a handler to the shared memory pressure feed and returns the feed's level now
@@ -106,10 +113,20 @@ public actor HostPressureMonitor {
     private nonisolated let run = Mutex(0)
     /// Off in tests, which drive `read()` themselves; the pressure subscription runs either way.
     private let ticks: Bool
+    /// Where the level changes are traced (the app's runtime; tests pass their own).
+    private let trace: TraceRuntime
+    /// `host.pressure`: the level's counter track.
+    static let levelCounter = TraceRuntime.InternedName("host.pressure", categoryBit: hangCategoryBit)
+    /// `host.pressure.change`: one instant per level change.
+    static let levelChange = TraceRuntime.InternedName("host.pressure.change", categoryBit: hangCategoryBit)
+    /// The `hang` category's bit (plans/cmux-next/trace.md, "Release trace ring: category bits").
+    static let hangCategoryBit = UInt8(TraceCategories.hang.rawValue.trailingZeroBitCount)
 
     public init(source: any HostPressureSource, memoryPressure: @escaping MemoryPressureSubscription, interval: Duration = .seconds(15),
-                calmSamples: Int = 2, ticks: Bool = true, deliver: @escaping Delivery = HostPressureMonitor.mainActorHop) {
+                calmSamples: Int = 2, ticks: Bool = true, deliver: @escaping Delivery = HostPressureMonitor.mainActorHop,
+                trace: TraceRuntime = .shared) {
         self.source = source
+        self.trace = trace
         self.memoryPressure = memoryPressure
         self.interval = interval
         self.deliver = deliver
@@ -213,6 +230,25 @@ public actor HostPressureMonitor {
         apply(verdict.with(pressure: eventPressure))
     }
 
+    /// The counter and the instant of one level change.
+    private func traceChange(from previous: HostPressureLevel, to level: HostPressureLevel, verdict: HostBudgetVerdict) {
+        trace.write(Self.levelCounter, phase: .counter, arg0: UInt64(level.rawValue))
+        trace.write(Self.levelChange, phase: .instant, arg0: UInt64(level.rawValue),
+                    arg1: Self.changeDetail(previous: previous, verdict: verdict))
+    }
+
+    /// The instant's arg1: the old level in bits 0-7, the memory pressure (0 normal, 1 warn, 2 critical, 3 unknown) in
+    /// bits 8-15, the parts of the budget over in bits 16-23.
+    static func changeDetail(previous: HostPressureLevel, verdict: HostBudgetVerdict) -> UInt64 {
+        let pressure: UInt64 = switch verdict.pressure {
+        case .normal: 0
+        case .warn: 1
+        case .critical: 2
+        case .unknown: 3
+        }
+        return UInt64(previous.rawValue) | pressure << 8 | UInt64(min(verdict.over.count, 255)) << 16
+    }
+
     func memoryPressureChanged(_ pressure: HostMemoryPressure, generation: Int? = nil) {
         guard isLive(generation) else { return }
         eventPressure = pressure
@@ -221,7 +257,10 @@ public actor HostPressureMonitor {
     }
 
     private func apply(_ verdict: HostBudgetVerdict) {
-        guard let level = tracker.feed(verdict), let onChange else { return }
+        let previous = tracker.level
+        guard let level = tracker.feed(verdict) else { return }
+        traceChange(from: previous, to: level, verdict: verdict)
+        guard let onChange else { return }
         let generation = self.generation
         // Dropped when stop() ended this run while it waited for the main actor.
         deliver { [self] in

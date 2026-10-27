@@ -48,6 +48,11 @@ final class HangReportsController {
     /// in every build: the histogram is local until a report sends it. The app's window manager and its one
     /// resign-active subscription (`AppServices.startIdleWakeups`) tell it the transitions.
     let memory: HiddenWorkspaceMemory?
+    /// Samples `memory.<kind>_kib`, `memory.total_kib`, `cpu.<kind>_pct` and `disk.idle_write_kib_per_min` at the
+    /// app's resign and become-active notices and at report triggers (task 121), in every build: the histograms are
+    /// local until a report sends them. The app's one activation subscription (`AppServices.startIdleWakeups`) tells
+    /// it the transitions.
+    let resources: ProcessResources?
     /// Whether a managed profile forces `DisableTelemetry` (read off the main thread at start).
     private let managedDisables: @Sendable () -> Bool
     /// Before each report: the local daemon's `daemon.request.<class>` from its metrics file (task 062).
@@ -78,11 +83,13 @@ final class HangReportsController {
     }
 
     init(service: HangReportService?, managedDisables: @escaping @Sendable () -> Bool, defaults: UserDefaults = .standard,
-         activityFeed: MainThreadActivityFeed? = nil, memory: HiddenWorkspaceMemory? = nil, daemonMetrics: DaemonMetricsFold? = nil,
+         activityFeed: MainThreadActivityFeed? = nil, memory: HiddenWorkspaceMemory? = nil, resources: ProcessResources? = nil,
+         daemonMetrics: DaemonMetricsFold? = nil,
          daemonPID: @escaping @MainActor @Sendable () -> Int32? = { nil }, work: BackgroundWork, mainWork: MainWorkScheduler) {
         self.service = service
         self.activityFeed = activityFeed
         self.memory = memory
+        self.resources = resources
         self.managedDisables = managedDisables
         self.defaults = defaults
         self.daemonMetrics = daemonMetrics
@@ -94,13 +101,14 @@ final class HangReportsController {
     /// The controller for this launch: the service over this build's folder, the real transport,
     /// classifier and dyld resolver, the app's own envelope values, and (when the wire schema carries
     /// them) the active time and `watchdog`'s main-turn and input-queueing histograms. Before each report the local
-    /// daemon's request latency is folded from its metrics file in `metricsFolder` on `work`'s files lane. `memory`
-    /// samples at the report triggers too, and runs where nothing is sent. `wireSchema` is schema 3 only while the
+    /// daemon's request latency is folded from its metrics file in `metricsFolder` on `work`'s files lane. `memory` and
+    /// `resources` sample at the report triggers too, and run where nothing is sent. `wireSchema` is schema 3 only while the
     /// `hangReportsSchema3` feature says cmux.com accepts it. `features` reads the features hash and overrides the
     /// app runs with, at each report. `blockingSites` reads the blocking detector's main-thread sites (and reset count), whose counts a
     /// schema-3 report carries by hashed site id.
     static func forThisLaunch(policy: CrashReportingPolicy, folder: URL, counts: @escaping @Sendable () async -> CoarseCounts,
                               watchdog: MainThreadWatchdog, input: any InputObserving, events: AppEvents, memory: HiddenWorkspaceMemory,
+                              resources: ProcessResources,
                               work: BackgroundWork, mainWork: MainWorkScheduler,
                               metricsFolder: URL, daemonPID: @escaping @MainActor @Sendable () -> Int32?,
                               wireSchema: HangReport.WireSchema = .deployed,
@@ -114,7 +122,8 @@ final class HangReportsController {
             managed.read().forced[CrashReportingPolicy.disableTelemetryPolicyKey]?.boolValue == true
         }
         guard mayReport else {
-            return HangReportsController(service: nil, managedDisables: managedDisables, memory: memory, work: work, mainWork: mainWork)
+            return HangReportsController(service: nil, managedDisables: managedDisables, memory: memory, resources: resources, work: work,
+                                         mainWork: mainWork)
         }
         let endpoint = devOptIn ? environment[devEndpointKey] ?? URLSessionHangReportTransport.defaultEndpoint
             : URLSessionHangReportTransport.defaultEndpoint
@@ -144,7 +153,7 @@ final class HangReportsController {
         let daemonMetrics = DaemonMetricsFold(reader: ChildMetricsReader(role: .daemon, directory: metricsFolder), metrics: Metrics(),
                                               work: work)
         return HangReportsController(service: service, managedDisables: managedDisables, activityFeed: feed, memory: memory,
-                                     daemonMetrics: daemonMetrics, daemonPID: daemonPID, work: work, mainWork: mainWork)
+                                     resources: resources, daemonMetrics: daemonMetrics, daemonPID: daemonPID, work: work, mainWork: mainWork)
     }
 
     /// The local daemon's request latency into the app's histograms, before a report reads them (no socket request).
@@ -246,10 +255,11 @@ final class HangReportsController {
     /// View Hang Report: the last report sent, else a preview; opened in a cmux file tab.
     func viewReport(open: @escaping @MainActor @Sendable (URL) -> Void) {
         guard let service else { return }
-        let mainWork = mainWork, memory = memory, daemonMetrics = daemonMetrics, pid = daemonPID(), logger = logger
-        // task-owner: one memory sample, fold, read and open, the rest of the person's click; nothing to cancel.
+        let mainWork = mainWork, memory = memory, resources = resources, daemonMetrics = daemonMetrics, pid = daemonPID(), logger = logger
+        // task-owner: the memory and resource samples, fold, read and open, the rest of the person's click; nothing to cancel.
         work.task(.userBlocking) {
             await memory?.sampleNow(.report)
+            await resources?.sampleNow()
             await Self.foldDaemonMetrics(daemonMetrics, pid: pid, logger: logger)
             guard let url = await service.viewableReport() else { return }
             mainWork.postFromAnyThread(.userBlocking, owner: "HangReports.view") { open(url) }
@@ -268,11 +278,14 @@ final class HangReportsController {
             if subscriber == nil {
                 // MetricKit hands over payloads it kept from before the consent: dropped.
                 let since = defaults.object(forKey: Self.consentKey) as? Date ?? Date()
-                let work = work, memory = memory, daemonMetrics = daemonMetrics, daemonPID = daemonPID, logger = logger
+                let work = work, memory = memory, resources = resources, daemonMetrics = daemonMetrics, daemonPID = daemonPID
+                let logger = logger
                 let subscriber = MetricKitSubscriber(since: since) { input in
-                    // task-owner: one memory sample and fold, then one delivery handed to the service actor, at best effort.
+                    // task-owner: the memory and resource samples and fold, then one delivery handed to the service actor, at
+                    // best effort.
                     work.task(.bestEffort) {
                         await memory?.sampleNow(.report)
+                        await resources?.sampleNow()
                         let pid = await daemonPID()
                         await Self.foldDaemonMetrics(daemonMetrics, pid: pid, logger: logger)
                         await service.receive(input)

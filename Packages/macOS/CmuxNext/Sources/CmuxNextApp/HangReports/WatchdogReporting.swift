@@ -7,6 +7,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextHangReports
+import CmuxNextMetrics
 import CmuxNextTrace
 import CmuxNextWakeups
 
@@ -25,11 +26,19 @@ enum WatchdogReporting {
             work: services.work, mainWork: services.mainWork,
             capture: { [weak services] in services.map(WatchdogReporting.hiddenWorkspaceCapture) ?? .init() },
             rendererPIDs: { Dictionary(AppProcesses.tabRendererClients().map { pid, client in (client, pid) }, uniquingKeysWith: { first, _ in first }) })
+        // Per-process memory, CPU and idle disk writes (p09-observability-121), over known pids only.
+        let resources = ProcessResources(
+            work: services.work, localProcesses: { WatchdogReporting.localProcesses() },
+            daemonPID: { [weak services] in services?.daemon.identity?.pid },
+            daemonStatus: { [weak services] in
+                guard let daemon = services?.daemon, daemon.isLocal, let connection = daemon.connection else { return nil }
+                return try? await connection.request(TraceStatusRequest(), timeout: .seconds(2))
+            })
         let hangReports = HangReportsController.forThisLaunch(
             policy: reporter.policy, folder: SidebarSnapshotFile.buildDirectory(launch: services.environment.launch)
                 .appending(path: "HangReports", directoryHint: .isDirectory),
             counts: { @MainActor [weak services] in services.map(WatchdogReporting.counts) ?? .unknown },
-            watchdog: watchdog, input: services.inputTap, events: services.appEvents, memory: memory,
+            watchdog: watchdog, input: services.inputTap, events: services.appEvents, memory: memory, resources: resources,
             work: services.work, mainWork: services.mainWork,
             metricsFolder: TraceBlackBoxFileSteps.appDirectory(bundleID: Bundle.main.bundleIdentifier),
             daemonPID: { [weak services] in services?.daemon.identity?.pid },
@@ -104,6 +113,22 @@ enum WatchdogReporting {
         return CoarseCounts(windows: services.windows.controllers.count, workspaces: workspaces.count, panes: panes.count,
                             tabs: panes.reduce(0) { $0 + $1.tabs.count },
                             userBlockingWaitP99Nanos: services.work.userBlockingQueueWaitP99Nanos)
+    }
+
+    /// This process and its Chromium helpers by type (the app's own children, classified by their argv): blocking
+    /// system calls, off the main thread. A helper of no listed type (crashpad, a zygote) is left out.
+    nonisolated static func localProcesses() -> [ProcessResources.KnownProcess] {
+        var processes = [ProcessResources.KnownProcess(kind: .app, pid: getpid())]
+        for helper in ChromiumHelperProcess.list() {
+            let kind: ProcessResourceSampler.Kind? = switch helper.kind {
+            case .renderer, .extensionRenderer: .renderer
+            case .gpu: .gpu
+            case .network, .utility: .utility
+            case .other: nil
+            }
+            if let kind { processes.append(.init(kind: kind, pid: helper.pid)) }
+        }
+        return processes
     }
 
     /// Every mounted browser tab with its workspace and renderer frames, the workspaces with one that no window
