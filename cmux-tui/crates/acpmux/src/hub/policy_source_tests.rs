@@ -331,6 +331,8 @@ async fn any_start_turns_a_cleared_host_chat_cleared_first() {
     let hub = Hub::new(cfg, store);
     let req = super::NewRequest { cwd: Some(std::env::temp_dir()), ..Default::default() };
     let s = hub.new_session(req).await.unwrap();
+    // No agent runs: the next `child_for` is a start (`reach_or_start`).
+    hub.kill(&s, false).await.unwrap();
     s.meta.lock().unwrap().policy_source = Some(CLEARED_HOST.into());
     hub.child_for(&s).await.unwrap();
     assert_eq!(s.meta().policy_source.as_deref(), Some(CLEARED));

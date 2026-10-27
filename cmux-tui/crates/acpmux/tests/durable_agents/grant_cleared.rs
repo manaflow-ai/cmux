@@ -85,7 +85,7 @@ async fn a_cleared_grants_live_agent_is_ended_not_adopted_and_its_chat_asks() {
 /// ended and the next start asks.
 #[tokio::test]
 async fn a_cleared_chat_is_refused_while_its_old_host_is_not_proven_ended() {
-    let flag = std::env::temp_dir().join(format!("amd-grantrec-{}", std::process::id()));
+    let flag = std::env::temp_dir().join(format!("amd-grantrec-flag-{}", std::process::id()));
     let flag_env = flag.to_string_lossy().into_owned();
     let env = [("ACPMUX_TEST_HOST_RECORDS_FAIL_FILE", flag_env.as_str())];
     let mut daemon = Daemon::with_env("grantrec", "ask", &env);
