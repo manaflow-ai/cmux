@@ -6,6 +6,7 @@
 #![allow(dead_code)]
 
 use std::io;
+use std::os::fd::{FromRawFd, OwnedFd};
 
 pub(crate) fn deny_filter() -> Result<Vec<libc::sock_filter>, String> {
     filter(false)
@@ -277,8 +278,7 @@ pub(crate) fn filter(notify: bool) -> Result<Vec<libc::sock_filter>, String> {
     asm.mark(socketpair_not);
 
     if notify {
-        // E1: write opens. E2 adds mkdir/mknod/symlink; F adds the
-        // rename/unlink/chmod/chown/time/xattr tables here, after all denies.
+        // Write opens and every name/metadata mutation follow the deny rules.
         for (nr, argument) in [
             (libc::SYS_openat, SECCOMP_DATA_ARG2_LO),
             #[cfg(target_arch = "x86_64")]
@@ -303,6 +303,50 @@ pub(crate) fn filter(notify: bool) -> Result<Vec<libc::sock_filter>, String> {
         #[cfg(target_arch = "x86_64")]
         {
             asm.jump(BPF_JMP | BPF_JEQ | BPF_K, libc::SYS_creat as u32, 0, 1);
+            asm.stmt(BPF_RET | BPF_K, libc::SECCOMP_RET_USER_NOTIF);
+        }
+        #[allow(unused_mut)] // The legacy syscall extension exists only on x86_64.
+        let mut mutations = vec![
+            libc::SYS_mkdirat,
+            libc::SYS_mknodat,
+            libc::SYS_symlinkat,
+            libc::SYS_renameat,
+            libc::SYS_renameat2,
+            libc::SYS_unlinkat,
+            libc::SYS_truncate,
+            libc::SYS_fchmodat,
+            452, /* fchmodat2 */
+            libc::SYS_fchownat,
+            libc::SYS_utimensat,
+            libc::SYS_setxattr,
+            libc::SYS_lsetxattr,
+            libc::SYS_removexattr,
+            libc::SYS_lremovexattr,
+            463,
+            466, /* setxattrat, removexattrat */
+            libc::SYS_fchmod,
+            libc::SYS_fchown,
+            libc::SYS_fsetxattr,
+            libc::SYS_fremovexattr,
+            libc::SYS_ftruncate,
+        ];
+        #[cfg(target_arch = "x86_64")]
+        mutations.extend([
+            libc::SYS_mkdir,
+            libc::SYS_mknod,
+            libc::SYS_symlink,
+            libc::SYS_rename,
+            libc::SYS_unlink,
+            libc::SYS_rmdir,
+            libc::SYS_chmod,
+            libc::SYS_chown,
+            libc::SYS_lchown,
+            libc::SYS_utime,
+            libc::SYS_utimes,
+            libc::SYS_futimesat,
+        ]);
+        for nr in mutations {
+            asm.jump(BPF_JMP | BPF_JEQ | BPF_K, nr as u32, 0, 1);
             asm.stmt(BPF_RET | BPF_K, libc::SECCOMP_RET_USER_NOTIF);
         }
     }
@@ -332,30 +376,46 @@ fn classify_install_result(rc: libc::c_long, errno: i32) -> io::Result<()> {
     }
 }
 
-pub(crate) fn install(filter: &[libc::sock_filter]) -> io::Result<()> {
+fn install_flags(filter: &[libc::sock_filter], flags: libc::c_ulong) -> io::Result<libc::c_long> {
     if filter.is_empty() || filter.len() >= 4096 {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid seccomp filter length"));
     }
     // SAFETY: PR_SET_NO_NEW_PRIVS takes an integer flag and no pointers.
-    let rc = unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) };
-    if rc != 0 {
+    if unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } != 0 {
         return Err(io::Error::last_os_error());
     }
     let program = libc::sock_fprog {
         len: filter.len() as libc::c_ushort,
         filter: filter.as_ptr() as *mut libc::sock_filter,
     };
-    // SAFETY: `program` points to the immutable filter for the duration of
-    // the raw syscall, and TSYNC asks the kernel to synchronize this process.
-    let rc = unsafe {
-        libc::syscall(
-            libc::SYS_seccomp,
-            libc::SECCOMP_SET_MODE_FILTER,
-            libc::SECCOMP_FILTER_FLAG_TSYNC,
-            &program,
-        )
-    };
-    classify_install_result(rc, io::Error::last_os_error().raw_os_error().unwrap_or(libc::EIO))
+    // SAFETY: `program` remains live for the raw syscall.
+    let rc =
+        unsafe { libc::syscall(libc::SYS_seccomp, libc::SECCOMP_SET_MODE_FILTER, flags, &program) };
+    if rc < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(rc)
+}
+
+pub(crate) fn install(filter: &[libc::sock_filter]) -> io::Result<()> {
+    let rc = install_flags(filter, libc::SECCOMP_FILTER_FLAG_TSYNC as _)?;
+    classify_install_result(rc, 0)
+}
+
+/// Install USER_NOTIF and return the kernel-owned listener. The listener is
+/// handed to the host before exec; the target filter remains active afterward.
+pub(crate) fn install_notify(filter: &[libc::sock_filter]) -> io::Result<OwnedFd> {
+    const NEW_LISTENER: libc::c_ulong = 1 << 3;
+    const TSYNC_ESRCH: libc::c_ulong = 1 << 4;
+    let fd = install_flags(
+        filter,
+        (libc::SECCOMP_FILTER_FLAG_TSYNC as libc::c_ulong) | NEW_LISTENER | TSYNC_ESRCH,
+    )?;
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: seccomp returned a newly owned listener descriptor.
+    Ok(unsafe { OwnedFd::from_raw_fd(fd as _) })
 }
 
 #[cfg(all(test, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
@@ -613,6 +673,80 @@ mod tests {
             ),
             SECCOMP_RET_KILL_PROCESS
         );
+    }
+
+    #[test]
+    fn review_creators_notify_on_both_architectures() {
+        let program = super::filter(true).unwrap();
+        #[allow(unused_mut)]
+        let mut numbers = vec![SYS_mkdirat, SYS_mknodat, SYS_symlinkat];
+        #[cfg(target_arch = "x86_64")]
+        numbers.extend([SYS_mkdir, SYS_mknod, SYS_symlink]);
+        for nr in numbers {
+            assert_eq!(evaluate(&program, ARCH, nr as u32, [0; 6]), SECCOMP_RET_USER_NOTIF);
+        }
+        assert_eq!(evaluate(&program, ARCH, SYS_linkat as u32, [0; 6]), EPERM_ACTION);
+    }
+
+    #[test]
+    fn mutation_filter_notifies_every_name_and_metadata_operation() {
+        let notify = super::filter(true).unwrap();
+        let deny_only = super::filter(false).unwrap();
+        // New syscall numbers are shared by x86_64 and aarch64; this libc
+        // version does not expose all three constants on both architectures.
+        for nr in [
+            SYS_renameat,
+            SYS_renameat2,
+            SYS_unlinkat,
+            SYS_truncate,
+            SYS_fchmodat,
+            452, /* fchmodat2 */
+            SYS_fchownat,
+            SYS_utimensat,
+            SYS_setxattr,
+            SYS_lsetxattr,
+            SYS_removexattr,
+            SYS_lremovexattr,
+            463, /* setxattrat */
+            466, /* removexattrat */
+            SYS_fchmod,
+            SYS_fchown,
+            SYS_fsetxattr,
+            SYS_fremovexattr,
+            SYS_ftruncate,
+            #[cfg(target_arch = "x86_64")]
+            SYS_rename,
+            #[cfg(target_arch = "x86_64")]
+            SYS_unlink,
+            #[cfg(target_arch = "x86_64")]
+            SYS_rmdir,
+            #[cfg(target_arch = "x86_64")]
+            SYS_chmod,
+            #[cfg(target_arch = "x86_64")]
+            SYS_chown,
+            #[cfg(target_arch = "x86_64")]
+            SYS_lchown,
+            #[cfg(target_arch = "x86_64")]
+            SYS_utime,
+            #[cfg(target_arch = "x86_64")]
+            SYS_utimes,
+            #[cfg(target_arch = "x86_64")]
+            SYS_futimesat,
+        ] {
+            assert_eq!(
+                evaluate(&notify, ARCH, nr as u32, [0; 6]),
+                SECCOMP_RET_USER_NOTIF,
+                "nr {nr}"
+            );
+            assert_eq!(evaluate(&deny_only, ARCH, nr as u32, [0; 6]), SECCOMP_RET_ALLOW, "nr {nr}");
+        }
+        for nr in [
+            SYS_linkat,
+            #[cfg(target_arch = "x86_64")]
+            SYS_link,
+        ] {
+            assert_eq!(evaluate(&notify, ARCH, nr as u32, [0; 6]), EPERM_ACTION);
+        }
     }
 
     #[test]

@@ -22,7 +22,11 @@
 //! complete after the last, so a pass a crash cut short is done again (`compacted_seq`).
 
 use super::*;
+use compact_archive::Archive;
 use std::borrow::Cow;
+
+#[path = "compact_archive.rs"]
+mod compact_archive;
 
 /// The record of a log's compaction, beside its segments.
 pub const MARKER: &str = "compacted.json";
@@ -97,6 +101,16 @@ impl LocalStore {
         self.dir(id).join("events").join(MARKER)
     }
 
+    /// When the log was last written, in ms: its newest segment's modification time. A record
+    /// appended, a compaction put in place and a copy an import made all set it; a status write
+    /// that logs nothing does not.
+    pub(super) fn log_written_at(&self, id: &str) -> Option<u64> {
+        let (_, newest) = self.segments(id).ok()?.pop()?;
+        let at = std::fs::metadata(newest).ok()?.modified().ok()?;
+        let ms = at.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis();
+        u64::try_from(ms).ok()
+    }
+
     /// The last `seq` of the log when its last compaction completed.
     pub(super) fn compacted_seq(&self, id: &str) -> Option<u64> {
         let text = std::fs::read(self.marker(id)).ok()?;
@@ -112,29 +126,20 @@ impl LocalStore {
         }
         let (write, archive) = match mode {
             CompactMode::DryRun => (false, None),
-            CompactMode::Write { archive } => {
-                (true, archive.map(|a| a.join(id).join(format!("{}", now_ms()))))
-            }
+            CompactMode::Write { archive } => (true, archive),
         };
-        // The nearest folder above the pass's that was there before it: every one from the pass's
-        // up to it is synced before any segment is replaced.
-        let mut existed = None;
-        if let Some(archive) = &archive {
-            // Owner-only, as the chat's own folder is.
-            if archive.exists() {
-                anyhow::bail!("archive folder {} already exists", archive.display());
+        let archive = match archive {
+            Some(root) => {
+                let kept = Archive::create(root, id, &now_ms().to_string())?;
+                let meta = self.dir(id).join("session.json");
+                if meta.exists() {
+                    // A copy: the chat's own file may be written again in place.
+                    kept.keep(&meta, false, true)?;
+                }
+                Some(kept)
             }
-            existed = archive.ancestors().skip(1).find(|dir| dir.is_dir()).map(Path::to_path_buf);
-            std::fs::create_dir_all(archive.parent().unwrap_or(archive))?;
-            crate::config::private_state_dir(archive)?;
-            crate::config::private_state_dir(&archive.join("events"))?;
-            let meta = self.dir(id).join("session.json");
-            if meta.exists() {
-                let to = archive.join("session.json");
-                std::fs::copy(&meta, &to)?;
-                File::open(&to)?.sync_all()?;
-            }
-        }
+            None => None,
+        };
         let mut staged = Staged { stats: Compaction::default(), last_seq: 0, segments: Vec::new() };
         let mut line = Vec::new();
         let mut timing = Timing::default();
@@ -176,25 +181,14 @@ impl LocalStore {
                 drop_cache(&out);
             }
             drop_cache(&file);
-            if let (Some(archive), Some(name)) = (&archive, path.file_name()) {
-                let to = archive.join("events").join(name);
-                if std::fs::hard_link(&path, &to).is_err() {
-                    std::fs::copy(&path, &to)?;
-                    File::open(&to)?.sync_all()?;
-                }
+            if let Some(archive) = &archive {
+                archive.keep(&path, true, false)?;
             }
         }
-        // The copies are on disk before any segment is replaced, and so is every folder that
-        // names them: each one from the pass's up to the first that was there before the pass,
-        // whose entry for the first one it made is synced too.
+        // The copies, and every folder that names them, are on disk before any segment is
+        // replaced.
         if let Some(archive) = &archive {
-            sync_directory(&archive.join("events"))?;
-            for dir in archive.ancestors().filter(|dir| !dir.as_os_str().is_empty()) {
-                sync_directory(dir)?;
-                if existed.as_deref() == Some(dir) {
-                    break;
-                }
-            }
+            archive.sync()?;
         }
         Ok(Some(staged))
     }

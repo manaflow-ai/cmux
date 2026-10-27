@@ -94,8 +94,11 @@ nonisolated enum AgentActivityWire {
     }
 
     /// Request line, with the socket credential envelope when configured.
-    static func requestLine(method: String, args: [String: Any], authToken: String?, hostAuthToken: String?) -> Data {
-        let request: [String: Any] = ["method": method, "args": args]
+    static func requestLine(method: String, name: String? = nil, args: [String: Any], authToken: String?,
+                            hostAuthToken: String?) -> Data {
+        var request: [String: Any] = ["method": method, "args": args]
+        // A daemon request's own `name` (the grant of `request_system_permission`).
+        if let name { request["name"] = name }
         let body: [String: Any]
         if let authToken {
             var envelope: [String: Any] = ["auth_token": authToken, "request": request]

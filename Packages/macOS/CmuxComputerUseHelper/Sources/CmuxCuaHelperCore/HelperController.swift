@@ -15,6 +15,7 @@ private let controlLogger = Logger(subsystem: "com.cmuxterm.cua", category: "con
 ///   {"type":"configure","socket":PATH,"secret":HEX,"acpmux_cdhashes":[HEX],"acpmux_requirement":STRING|null}
 ///   {"type":"register_acpmux","pid":N,"start_sec":N,"start_usec":N}
 ///   {"type":"call","id":N,"name":TOOL,"arguments":{...}}
+///   {"type":"request_permission","permission":"accessibility"|"screen_recording"}
 /// helper -> host:
 ///   {"type":"ready","protocol":1,"pid":N,"socket":PATH}
 ///   {"type":"ack","of":"register_acpmux","ok":BOOL}
@@ -26,18 +27,21 @@ public final class HelperController: Sendable {
     private let tools: any ToolInvoking
     private let inspector: any PeerInspecting
     private let onExit: @Sendable (Int32) -> Void
+    private let requestPermission: @Sendable (HelperPermission) async -> Bool
     public let admission = AdmissionState()
     private let server = OSAllocatedUnfairLock<HelperSocketServer?>(initialState: nil)
     private let writeLock = OSAllocatedUnfairLock(initialState: ())
 
     public init(input: Int32 = STDIN_FILENO, output: Int32 = STDOUT_FILENO, tools: any ToolInvoking,
                 inspector: any PeerInspecting = KernelPeerInspector(),
+                requestPermission: @escaping @Sendable (HelperPermission) async -> Bool = { await $0.request() },
                 onExit: @escaping @Sendable (Int32) -> Void = { exit($0) }) {
         self.input = input
         self.output = output
         self.tools = tools
         self.inspector = inspector
         self.onExit = onExit
+        self.requestPermission = requestPermission
     }
 
     /// Reads the control pipe on its own thread until EOF.
@@ -78,6 +82,15 @@ public final class HelperController: Sendable {
         }
         switch type {
         case "configure": configure(message)
+        case "request_permission":
+            guard let name = message["permission"] as? String,
+                  let permission = HelperPermission(rawValue: name) else {
+                return send(["type": "error", "error": "unknown permission"])
+            }
+            Task { [self] in
+                let granted = await requestPermission(permission)
+                send(["type": "ack", "of": "request_permission", "permission": name, "granted": granted])
+            }
         case "register_acpmux":
             var ok = false
             if let pid = message["pid"] as? Int, pid > 1, pid <= Int(Int32.max),

@@ -10,6 +10,16 @@ export type AllowanceExpiry = "session_stop_or_daemon_restart";
 export interface AnswerMeta {
   /** `{device, feedItem}`, from the person's connection only. */
   answeredBy?: (AnsweredBy | null);
+  /**
+   * An enrolled approver's signed answer beside `decisionNonce`: a phone's
+   * (`hub/approvers.rs`) or a Mac's (`hub/mac_approvers.rs`).
+   */
+  approverDecision?: (ApproverDecision | null);
+  /**
+   * A group's one-time allow from an enrolled Mac (`_acpmux/permission_group_respond`):
+   * one signed allow per pending member of the group, by permission id.
+   */
+  approverDecisions?: (Record<string, MemberApproverDecision> | null);
   decisionNonce?: (string | null);
   personDecision?: (string | null);
   via?: (string | null);
@@ -18,6 +28,17 @@ export interface AnswerMeta {
 export interface AnsweredBy {
   device: string;
   feedItem: string;
+}
+
+/**
+ * `{approver, expiresAt, signature}`: ECDSA P-256 / SHA-256, raw `r || s` as
+ * lowercase hex, over the approver's message for this exact answer.
+ */
+export interface ApproverDecision {
+  approver: string;
+  /** Unix seconds, at most 300 ahead. */
+  expiresAt: number;
+  signature: string;
 }
 
 export interface AttachParams {
@@ -45,6 +66,13 @@ export type AttachResult = {
   /** More records lie beyond this page. */
   hasMore: boolean;
   lastSeq: number;
+  /**
+   * How far the page holds: every record of the kinds asked from the page's first one up to it
+   * is in the page (a peer's copy of the chat, `hub/peer_snapshot.rs`, covers that far). The
+   * log's last seq, read before the page, for the newest page; a page of older records
+   * (`beforeSeq`) or a forward one with more to read holds only to its own last record.
+   */
+  pageThrough: number;
   /** Who has the chat open now, this attachment included (`hub/presence.rs`). */
   presence: PresenceNote;
   session: SessionDetail;
@@ -146,9 +174,20 @@ export interface EventsParams {
 }
 
 export type EventsResult = {
+  /**
+   * The session the page is of (its `createdAt`): a session recreated under the same id while
+   * the page was asked is another journal (`hub/peer_snapshot.rs`).
+   */
+  createdAt: number;
   events: SessionEvent[];
   hasMore: boolean;
   lastSeq: number;
+  /**
+   * How far the page holds: every record of the kinds asked after `afterSeq` up to it is in the
+   * page (`hub/peer_snapshot.rs`). The log's last seq, read before the page, when the page reads
+   * to its end; else (`beforeSeq`, or `hasMore`) the page's own last record.
+   */
+  pageThrough: number;
 } & Record<string, unknown>;
 
 export interface HarnessUpdatePlanParams {
@@ -308,6 +347,12 @@ export type McpServerSummary = {
   status: McpServerStatus;
 } & Record<string, unknown>;
 
+/** One group member's signed one-time allow: the member prompt's nonce and the signature. */
+export interface MemberApproverDecision {
+  approverDecision: ApproverDecision;
+  decisionNonce: string;
+}
+
 export type MessageRole = "agent" | "user";
 
 /**
@@ -372,10 +417,22 @@ export type PermissionGroupItem = {
 } & Record<string, unknown>;
 
 export type PermissionGroupList = {
+  /**
+   * Set when this reader's group allows would be refused, with the
+   * refusal's reason (`permission.person_required`: only the person
+   * allows a group, and a peer's link never is one). A deny still counts.
+   */
+  allowRefused?: (string | null);
   batching: PermissionBatching;
   chatAllowance: ChatAllowance;
   coverage: PermissionCoverage;
   groups: PermissionGroup[];
+  /**
+   * Set (true) beside `allowRefused` when this daemon still counts a group's
+   * one-time allow signed by an enrolled Mac for every pending member
+   * (`_meta.acpmux.approverDecisions`, `hub/mac_approvers.rs`).
+   */
+  macAllowOnce?: (boolean | null);
 } & Record<string, unknown>;
 
 export type PermissionGroupReceipt = {

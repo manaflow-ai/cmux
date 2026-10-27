@@ -116,6 +116,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case setAgentAvatar(String)
     /// `agent.avatar.remove {sessionId}`: Remove Avatar: the session's harness mark again.
     case removeAgentAvatar(String)
+    /// `harness.symbol {name}`: a custom harness's SF Symbol icon as a template PNG `data:` URL
+    /// (``HarnessSymbolImages``); a name this Mac cannot draw answers nothing.
+    case harnessSymbol(String)
     /// `chats.open {key}`: a device chat card (`harness:sessionId`) the New Tab page shows,
     /// opened through the app's shared Open Chat path.
     case openChat(String)
@@ -127,6 +130,17 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case chatsPage(AgentPaneChatsQuery)
     /// `environment.list|save|remove`: the New Tab page's saved environments (``AgentPaneEnvironmentRequest``).
     case environment(AgentPaneEnvironmentRequest)
+    /// `sandbox.run {task, agent?, key}`: a new chat's Sandboxed send (hq#3367): one task on a
+    /// throwaway Cloud VM, answered with its receipt (``AgentPaneModel/onSandboxRun``). `key` names
+    /// the page's send, so its retry after an unclear failure finds the same Run.
+    case sandboxRun(task: String, agent: String?, key: String)
+    /// `sandbox.state {wait?}`: this pane's Sandboxed send, for a page that reloaded while it ran
+    /// (``AgentPaneSandboxRuns/state(wait:)``).
+    case sandboxState(wait: Bool)
+    /// `cloudMachine.list|open|resume`: the account's Cloud machines in the environment picker (``AgentPaneCloudMachineRequest``).
+    case cloudMachine(AgentPaneCloudMachineRequest)
+    /// A user-confirmed provider credential transfer for one Cloud chat.
+    case cloudCredentialTransfer(AgentPaneCloudCredentialTransferRequest)
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
     /// The chat header's tools and "..." menu: run app action `id` (one of
@@ -262,9 +276,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.saveLog` (the ACP inspector's export) and `pane.saveFile` (a side panel document):
     /// text to save where the user picks (``AgentPaneSave``).
     case saveFile(AgentPaneSave)
-    /// `pane.showContextUsage` or `pane.showDictation` with `{show}`: the composer's Hide or Show
-    /// Context Usage, or the mic's Hide dictation button, which the host writes to cmux.json at `path`
-    /// (`agentPane.showContextUsage`, `agentPane.showDictation`).
+    /// `pane.showContextUsage`, `pane.showDictation` or `pane.setScrollToBottomOnSend` with
+    /// `{show}`: a composer setting which the host writes to cmux.json at `path`.
     case composerSetting(path: [String], show: Bool)
     /// `pane.setDisplay {key, value}`: the ··· menu's Text & Width popover writes one `agentPane.display.*`
     /// key (``AgentPaneDisplaySetting/writablePath(_:)``); a null value removes it.
@@ -313,6 +326,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     public static let maximumPacingFrames = 640
     /// Longest `tab.open` text kept; a command or address is far shorter.
     public static let maximumOpenTabText = 8192
+    /// Longest `sandbox.run` task: the Run API's own cap (web/services/runs/model.ts).
+    public static let maximumSandboxTask = 16_000
     /// The page keeps about 2M characters of wire log; JSON escaping and
     /// multi-byte text can grow that, but not past this.
     public static let maximumLogBytes = 16 * 1024 * 1024

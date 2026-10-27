@@ -46,6 +46,11 @@ SINGLE_HOST_VAR = re.compile(r"\bvars\.([A-Z0-9_]*TRUSTED_RUNNER)\b")
 # that is not another single-host one. A configured variable naming a dead host still never falls through;
 # the controller's fall-through and the queue rescue cover that at run time.
 POOL_FALLBACK = re.compile(r"\|\|\s*(?:'[^'\s]+'|vars\.(?![A-Z0-9_]*TRUSTED_RUNNER\b)[A-Z0-9_]+)")
+# A reserved slot's placement output: the DEV compile slot (side_lane_placement.fresh_route(), one side instance
+# per opted-in mini, glaeda#1628, for the compiles a feed's freshness waits on). It names a label only while that slot is idle, and
+# the runs-on alternative that reads it must check it is set, then fall through to a later pool literal, so a busy,
+# unregistered or unread slot never holds a feed's compile.
+RESERVED_OUTPUT = re.compile(r"needs\.[\w-]+\.outputs\.(fresh_runner)\b")
 # A job that compiles, or is a fallback route for one.
 COMPILE_OR_FALLBACK = re.compile(r"compile|fallback", re.IGNORECASE)
 # Keys that scope a group to one pull request, commit, run or branch, as whole identifiers
@@ -60,6 +65,60 @@ SUPERSEDE_KEY = re.compile(r"(?<![\w.])(?:github\.(?:head_ref|ref|ref_name|run_i
 # branch tip, like a github.ref key: a newer tip of that branch is what replaces its pending run.
 PINNED_REF = re.compile(r"github\.(?:ref|ref_name)\s*==\s*'[^']+'")
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
+
+
+def unwrap(text: str) -> str:
+    """`text` without whitespace and enclosing parentheses, `((a))` -> `a`."""
+    text = text.strip()
+    while wrapped(text):
+        text = text[1:-1].strip()
+    return text
+
+
+def unconditional(alternative: str) -> bool:
+    """Whether an `||` alternative always yields a runner label: a non-empty label literal, or a group one of
+    whose own alternatives does. A variable may be unset, and a conjunction may be false."""
+    alternative = unwrap(alternative)
+    alternatives = split_top(alternative, "||")
+    if len(alternatives) > 1:
+        return any(unconditional(part) for part in alternatives)
+    return re.fullmatch(r"'[^'\s]+'", alternative) is not None
+
+
+def conjuncts(text: str) -> list[str]:
+    """The `&&` terms of `text`, with parenthesized conjunctions flattened: `a && (b && c)` -> [a, b, c].
+    A parenthesized term holding an `||` stays one term."""
+    terms = []
+    for term in split_top(unwrap(text), "&&"):
+        term = unwrap(term)
+        nested = split_top(term, "&&")
+        terms += conjuncts(term) if len(nested) > 1 and len(split_top(term, "||")) == 1 else [term]
+    return terms
+
+
+def reserved_unsafe(expression: str, falls_through: bool = False) -> list[str]:
+    """The reserved-slot reads in `expression` that are not a guarded preference with a fallback.
+
+    An alternative that reads a reserved output must be `... && OUT != '' && OUT`: it yields the slot only when
+    one is set, and nothing else. Some later alternative, at its own level or an enclosing one
+    (`falls_through`), must always yield a label, so an empty slot never leaves the job without a runner.
+    """
+    found = []
+    alternatives = split_top(unwrap(expression), "||")
+    for index, alternative in enumerate(alternatives):
+        if not RESERVED_OUTPUT.search(alternative):
+            continue
+        tail = falls_through or any(unconditional(later) for later in alternatives[index + 1:])
+        inner = unwrap(alternative)
+        if len(split_top(inner, "||")) > 1:
+            found += reserved_unsafe(inner, tail)
+            continue
+        terms = conjuncts(inner)
+        for name in dict.fromkeys(match.group(0) for match in RESERVED_OUTPUT.finditer(inner)):
+            guarded = any(re.fullmatch(re.escape(name) + r"\s*!=\s*''", term) for term in terms[:-1])
+            if not (guarded and terms[-1] == name and tail):
+                found.append(name)
+    return found
 
 
 def split_top(text: str, operator: str) -> list[str]:
@@ -210,6 +269,65 @@ class RunsOnFallbackTests(unittest.TestCase):
                     if not POOL_FALLBACK.search(text[match.end():]):
                         failures.append(f"{path.name} {job_id}: vars.{match.group(1)} is the last alternative")
         self.assertEqual(failures, [], "a single-host runner variable needs a later `||` pool fallback")
+
+    def test_a_picked_signing_label_has_a_rerun_alternative(self) -> None:
+        # A Blacksmith macOS label picked once can stall after the pick, and GitHub never
+        # re-routes a queued job: only a re-run leaves it. nightly.yml's signing jobs read the
+        # picker's other macOS 26 size on attempt 2 on, so a re-run never queues on the label
+        # that stalled (run 40489472569, 2026-10-27, waited on blacksmith-6vcpu-macos-26).
+        jobs = load(WORKFLOWS / "nightly.yml")["jobs"]
+        picked = re.compile(r"\|\| (needs\.(?:pick-nightly-sign-runner|find-nightly-next-recovery|legacy-identity-target)"
+                            r"\.outputs\.)(runner|sign_runner) \|\|")
+        failures, seen = [], set()
+        for job_id, job in jobs.items():
+            text = runs_on_text(job)
+            for match in picked.finditer(text):
+                seen.add(job_id)
+                alternate = match.group(1) + ("alternate" if match.group(2) == "runner" else "sign_alternate")
+                if f"|| github.run_attempt > 1 && {alternate} {match.group(0)}" not in text:
+                    failures.append(f"nightly.yml {job_id}: {match.group(1)}{match.group(2)} has no re-run alternative")
+        self.assertTrue({"build-sign-notarize-nightly", "sign-nightly-identity-legacy"} <= seen, seen)
+        self.assertEqual(failures, [], "a picked signing label needs `github.run_attempt > 1 && <alternate>` before it")
+
+    def test_a_reserved_slot_always_has_a_fallback(self) -> None:
+        failures, seen = [], 0
+        for path in workflows():
+            for job_id, job in (load(path).get("jobs") or {}).items():
+                text = runs_on_text(job)
+                seen += len(RESERVED_OUTPUT.findall(text))
+                for expression in EXPRESSION.findall(text):
+                    for name in reserved_unsafe(expression):
+                        failures.append(f"{path.name} {job_id}: {name} without a set check "
+                                        "and a later fallback that always names a runner")
+        self.assertEqual(failures, [], "a reserved slot is a preference with a fallback, never the only route")
+        self.assertGreater(seen, 0, "cmux-next's feed compiles read the freshness slot")
+
+    def test_the_reserved_slot_rule_reads_expression_branches(self) -> None:
+        r = "needs.macos-placement.outputs.fresh_runner"
+        # Review of #25769: an empty slot and an unset variable yield `false`, not a runner.
+        self.assertEqual(reserved_unsafe(f"{r} != '' && {r} || vars.CI_PR_POOL_OWNED == '1' && 'macos-26'"), [r])
+        self.assertEqual(reserved_unsafe(f"{r} != '' && {r} || vars.MACOS_RUNNER_26"), [r])
+        # A parenthesized preference with its own literal fallback is safe, at any depth.
+        self.assertEqual(reserved_unsafe(f"({r} != '' && {r} || 'macos-26')"), [])
+        self.assertEqual(reserved_unsafe(f"(a && {r} != '' && {r} || b && 'x') || (c || 'y')"), [])
+        self.assertEqual(reserved_unsafe(f"a && {r} != '' && {r} || (b && 'x' || vars.V || 'y')"), [])
+        # A guard and value inside a nested conjunction (review of #25769, round 3).
+        self.assertEqual(reserved_unsafe(f"github.run_attempt == 1 && ({r} != '' && {r}) || 'macos-26'"), [])
+        self.assertEqual(reserved_unsafe(f"a && (b && ({r} != '' && {r})) || 'macos-26'"), [])
+        self.assertEqual(reserved_unsafe(f"a && ({r} != '' && {r} && b) || 'macos-26'"), [r])
+        # No set check, or a slot that is not the alternative's value.
+        self.assertEqual(reserved_unsafe(f"a && {r} || 'x'"), [r])
+        self.assertEqual(reserved_unsafe(f"{r} != '' && 'other' || 'x'"), [r])
+        self.assertEqual(reserved_unsafe(f"{r} != '' && {r}"), [r])
+        self.assertEqual(reserved_unsafe(f"({r} != '' && {r} || b && 'x')"), [r])
+
+    def test_the_freshness_slot_is_a_pool_label(self) -> None:
+        place = next(step for step in load(WORKFLOWS / "cmux-next.yml")["jobs"]["macos-placement"]["steps"]
+                     if step.get("id") == "place")
+        label = place["env"]["FRESH_LABEL"]
+        self.assertRegex(label, r"'glaeda-dev-std-xcode-[0-9.]+'")
+        self.assertIsNone(SINGLE_HOST.search(label))
+        self.assertIsNone(SINGLE_HOST_VAR.search(label))
 
     def test_compile_and_fallback_routes_never_evict_another_head(self) -> None:
         failures = []
