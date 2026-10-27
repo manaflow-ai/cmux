@@ -26,6 +26,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.3.4",
  "libc",
+ "memchr",
  "notify",
  "png",
  "pulldown-cmark",

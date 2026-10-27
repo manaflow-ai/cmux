@@ -31047,6 +31047,33 @@
           }
         }
       }
+    },
+    "argument.machineConfig": {
+      "comment": "cloud new-machine / apply-machine-config argument: a .cmux/machine.toml file on this Mac.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Machine Config"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン構成"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Maschinenkonfiguration"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Configuration de la machine"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Configuración de la máquina"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "إعداد الجهاز"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 구성"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器配置"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器設定"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Konfiguracija mašine"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Maskinkonfiguration"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Configurazione della macchina"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ការកំណត់ម៉ាស៊ីន"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Maskinkonfigurasjon"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Konfiguracja maszyny"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Configuração da máquina"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Конфигурация машины"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "การกำหนดค่าเครื่อง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Makine yapılandırması"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Конфігурація машини"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Cấu hình máy"}}
+      }
     }
   },
   "version": "1.0"
