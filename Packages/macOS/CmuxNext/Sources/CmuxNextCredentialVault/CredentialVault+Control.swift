@@ -1,3 +1,4 @@
+public import AppKit
 public import CmuxNextControl
 public import CmuxNextSettings
 import Foundation
@@ -31,6 +32,11 @@ extension CredentialVault {
         /// Who may use it now (a replaced secret's scope): the sheet's Agents box starts from it,
         /// and the answer keeps its other consumers.
         public var scope: [Consumer]
+        /// The value the person typed on a sheet that comes back (the name they chose was taken):
+        /// filled in again, with their name in the name field.
+        public var typed: String = ""
+        /// The sheet came back because the name the person chose is taken.
+        public var taken = false
 
         public init(name: String, reason: String?, requester: String, replaces: Bool, pasted: String = "",
                     scope: [Consumer] = Consumer.allCases) {
@@ -57,32 +63,65 @@ extension CredentialVault {
         }
     }
 
-    /// Stores what the person saved from a pasted key, off the caller's actor (the Keychain
-    /// blocks); the name it went under, nil when the vault refused it.
-    public func storePasted(_ answer: EntryAnswer) async -> String? {
+    /// Moves a key the person pasted in a message to the vault on its sheet in `window`; the name
+    /// it went under, nil when they cancelled or the vault refused it. A name the vault holds is
+    /// never replaced from here: the sheet comes back saying so.
+    @MainActor
+    public func movePasted(_ value: String, suggestedName: String, in window: NSWindow) async -> String? {
         let person = Caller(consumer: .user, label: CredentialVaultStrings.homeChat)
-        return await Task.detached(priority: .userInitiated) {
-            (try? self.set(answer.name, value: answer.value, scope: answer.scope, note: nil, by: person, event: "paste")).map { _ in answer.name }
-        }.value
+        return try? await enterNew(Self.pasteRequest(suggestedName: suggestedName, value: value), by: person, event: "paste") {
+            await Self.askForEntry($0, in: window)
+        }
+    }
+
+    /// Asks with `ask` until the person saves under a name the vault does not hold yet, and stores
+    /// it there; the name, nil when they cancelled. A taken name brings the sheet back with their
+    /// name and value and a line saying it is taken: nothing they typed is lost, nothing is replaced.
+    @MainActor
+    func enterNew(_ request: EntryRequest, by person: Caller, event: String,
+                  ask: (EntryRequest) async -> EntryAnswer?) async throws -> String? {
+        var request = request
+        while let answer = await ask(request) {
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    try self.set(answer.name, value: answer.value, scope: answer.scope, note: nil, by: person, event: event, onlyNew: true)
+                }.value
+                return answer.name
+            } catch Failure.exists(let name) {
+                request.name = name
+                request.typed = answer.value
+                request.scope = answer.scope
+                request.reason = nil
+                request.taken = true
+            }
+        }
+        return nil
     }
 
     /// Shows the secure entry sheet and answers what the person saved (nil: cancelled or closed).
     public typealias Ask = @MainActor @Sendable (EntryRequest) async -> EntryAnswer?
 
-    /// The `vault.*` methods over this vault, with `ask` as the person's sheet.
-    public func controlMethods(ask: @escaping Ask) -> [ControlMethod] {
-        VaultControl.methods(vault: self, ask: ask)
+    /// The process behind a control connection, as the socket server read it.
+    public typealias Lineage = @Sendable (ControlConnectionID) -> ControlConnectionPeers.Lineage?
+
+    /// The `vault.*` methods over this vault, with `ask` as the person's sheet and `lineage` as
+    /// who really calls (the server's peer process, not the request's params).
+    public func controlMethods(ask: @escaping Ask,
+                               lineage: @escaping Lineage = { ControlConnectionPeers.shared.lineage($0) }) -> [ControlMethod] {
+        VaultControl.methods(vault: self, ask: ask, lineage: lineage)
     }
 }
 
-/// The method bodies and their params (internal: the public surface is ``CredentialVault/controlMethods(ask:)``).
+/// The method bodies and their params (internal: the public surface is ``CredentialVault/controlMethods(ask:lineage:)``).
 enum VaultControl {
     typealias EntryRequest = CredentialVault.EntryRequest
     typealias EntryAnswer = CredentialVault.EntryAnswer
     typealias Ask = CredentialVault.Ask
+    typealias Lineage = CredentialVault.Lineage
 
-    static func methods(vault: CredentialVault, ask: @escaping Ask) -> [ControlMethod] {
-        [
+    static func methods(vault: CredentialVault, ask: @escaping Ask, lineage: @escaping Lineage) -> [ControlMethod] {
+        let caller = { (call: ControlCall) throws -> CredentialVault.Caller in try Self.caller(call, lineage: lineage) }
+        return [
             .async("vault.list") { _ in
                 return ["secrets": .array(try run { try vault.list() }.sorted { $0.key < $1.key }.map { json(name: $0.key, $0.value) })]
             },
@@ -95,18 +134,18 @@ enum VaultControl {
                 guard let value = call.params["value"]?.stringValue else { throw missingParam("vault.set", "value") }
                 let scope = try scope(call.params)
                 let note = try optionalText(call.params, "note")
-                let replaced = try run { try vault.set(name, value: value, scope: scope, note: note, by: caller(call.params)) }
+                let replaced = try run { try vault.set(name, value: value, scope: scope, note: note, by: caller(call)) }
                 return ["stored": .string(name), "replaced": .bool(replaced)]
             },
             .async("vault.scope") { call in
                 let name = try text(call.params, "name")
                 guard let scope = try scope(call.params) else { throw missingParam("vault.scope", "scope") }
-                try run { try vault.setScope(name, scope: scope, by: caller(call.params)) }
+                try run { try vault.setScope(name, scope: scope, by: caller(call)) }
                 return ["name": .string(name), "scope": .array(scope.map { .string($0.rawValue) })]
             },
             .async("vault.remove") { call in
                 let name = try text(call.params, "name")
-                let existed = try run { try vault.remove(name, by: caller(call.params)) }
+                let existed = try run { try vault.remove(name, by: caller(call)) }
                 return ["removed": .string(name), "existed": .bool(existed)]
             },
             .async("vault.resolve") { call in
@@ -116,7 +155,7 @@ enum VaultControl {
                     return name
                 }
                 let command = try optionalText(call.params, "command")
-                let values = try run { try vault.resolve(names, for: caller(call.params), command: command) }
+                let values = try run { try vault.resolve(names, for: caller(call), command: command) }
                 return ["values": .object(values.mapValues(JSONValue.string))]
             },
             .async("vault.request") { call in
@@ -124,10 +163,11 @@ enum VaultControl {
                 guard CredentialVault.isValidName(name) else { throw error(.invalidName(name)) }
                 let reason = try optionalText(call.params, "reason").map { String($0.prefix(CredentialVault.maxNoteCharacters)) }
                 let store = vault
-                let asker = try caller(call.params)
+                let asker = try caller(call)
                 let existing = try run { try store.list()[name] }
                 let replaces = existing != nil
-                let request = EntryRequest(name: name, reason: reason, requester: asker.label, replaces: replaces,
+                // The person asking for themselves names no asker on the sheet.
+                let request = EntryRequest(name: name, reason: reason, requester: asker.consumer == .user ? "" : asker.label, replaces: replaces,
                                            scope: existing?.scope ?? CredentialVault.Consumer.allCases)
                 guard let answer = await askUntilClosed(request, ask: ask, connection: call.connection) else {
                     throw ControlError(code: "declined", message: CredentialVaultStrings.declined(name), data: ["name": .string(name)])
@@ -155,20 +195,48 @@ enum VaultControl {
 
     // MARK: Params
 
-    /// The request's caller (`caller` as the CLI adds it): an agent session or a Chief turn is an
-    /// agent; a terminal or no caller is the person.
+    /// Processes that run agents: acpmux hosts every agent session and the Chief's turns run
+    /// under `optchat-chief`. A caller below one is an agent, whatever its params say.
+    static let agentHosts: Set<String> = ["acpmux", "optchat-chief"]
+
+    /// Who calls. The params (`caller`, as the CLI adds it) can only narrow it: an agent session or
+    /// a Chief turn is an agent. The person is a socket peer the server saw start inside cmux with
+    /// no agent host above it; a peer below an agent host, outside cmux or unknown is an agent,
+    /// so an agent cannot become the person by dropping its `CMUX_AGENT_SESSION`. The in-process
+    /// connection is the app itself.
+    static func caller(_ call: ControlCall, lineage: Lineage) throws -> CredentialVault.Caller {
+        let claimed = try caller(call.params)
+        guard claimed.consumer == .user, call.connection != .inProcess else { return claimed }
+        guard let peer = lineage(call.connection), peer.insideCmux else {
+            return .init(consumer: .agents, label: CredentialVaultStrings.unknownProcess)
+        }
+        if peer.executables.contains(where: agentHosts.contains) {
+            return .init(consumer: .agents, label: CredentialVaultStrings.unnamedAgent)
+        }
+        return claimed
+    }
+
+    /// The caller the params claim (see ``caller(_:lineage:)``, which checks it).
     static func caller(_ params: [String: JSONValue]) throws -> CredentialVault.Caller {
         guard let raw = params["caller"], !raw.isNull else { return .init(consumer: .user, label: CredentialVaultStrings.you) }
         guard let members = raw.objectValue else { throw ControlError.invalidParams(CredentialVaultStrings.callerMustBeObject) }
         if let session = members["agent_session"]?.stringValue, !session.isEmpty {
             return .init(consumer: .agents, label: members["home_chat"]?.boolValue == true
-                ? CredentialVaultStrings.chief : CredentialVaultStrings.agentSession(String(session.prefix(64))))
+                ? CredentialVaultStrings.chief : CredentialVaultStrings.agentSession(identifier(session)))
         }
         if members["home_chat"]?.boolValue == true { return .init(consumer: .agents, label: CredentialVaultStrings.chief) }
         if let terminal = members["terminal_id"]?.stringValue, !terminal.isEmpty {
-            return .init(consumer: .user, label: CredentialVaultStrings.terminal(String(terminal.prefix(64))))
+            return .init(consumer: .user, label: CredentialVaultStrings.terminal(identifier(terminal)))
         }
         return .init(consumer: .user, label: CredentialVaultStrings.you)
+    }
+
+    /// A caller-chosen id as the sheet and the audit show it: letters, digits, `-`, `_`, `.` and
+    /// `:` only, at most 40, so it cannot carry words of its own.
+    static func identifier(_ raw: String) -> String {
+        let kept = raw.unicodeScalars.filter { ($0.isASCII && CharacterSet.alphanumerics.contains($0)) || "-_.:".unicodeScalars.contains($0) }
+        let text = String(String.UnicodeScalarView(kept.prefix(40)))
+        return text.isEmpty ? "?" : text
     }
 
     /// `scope`: an array of `user` and `agents`, or one comma-separated string; nil when absent.
@@ -233,6 +301,8 @@ enum VaultControl {
                          data: ["names": .array(names.map(JSONValue.string)), "consumer": .string(consumer.rawValue)])
         case .agentsMayNotWrite:
             ControlError(code: "vault.user_only", message: CredentialVaultStrings.agentsMayNotWrite)
+        case .exists(let name):
+            ControlError(code: "vault.exists", message: CredentialVaultStrings.alreadyThere(name), data: ["name": .string(name)])
         case .keychain(let status):
             ControlError(code: "vault.keychain", message: CredentialVaultStrings.keychain(status), data: ["status": JSONValue(Int(status))])
         case .index(let path):

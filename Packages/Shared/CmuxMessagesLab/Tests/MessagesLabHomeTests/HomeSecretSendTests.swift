@@ -47,19 +47,30 @@ import Testing
         #expect(rig.storeItems() == ["\(HomeChatRig.tag) run the eval with [vault:WORK_OPENAI]"])
     }
 
-    @Test func aSecondReturnSendsItAsTypedWhenThePersonMovesNothing() async throws {
+    /// Review of https://github.com/manaflow-ai/cmux/issues/26412: a double Return sent the key
+    /// before the vault sheet was answered. While the offer is open every Return is held; only after
+    /// the person answered and moved nothing does a Return send the text as typed.
+    @Test func aReturnSendsItAsTypedOnlyAfterThePersonAnsweredAndMovedNothing() async throws {
         let rig = try await HomeChatRig(history: 0)
         defer { rig.stop() }
         var asks = 0
+        var answer: CheckedContinuation<Void, Never>?
         rig.view.secretHost = { _ in
             asks += 1
+            await withCheckedContinuation { answer = $0 }
             return nil
         }
         let text = "\(HomeChatRig.tag) this one is a test key \(Self.key)"
         #expect(await rig.send(text)?.hasPrefix("held") == true)
-        await HomeChatRig.until { asks == 1 }
+        await HomeChatRig.until { answer != nil }
+        #expect(await rig.send(text)?.hasPrefix("held") == true, "a second Return while the sheet is open")
+        #expect(await rig.send(text)?.hasPrefix("held") == true, "and a third")
         #expect(rig.storeItems().isEmpty)
-        #expect(await rig.send(text) == nil, "the person chose to send it")
+        #expect(asks == 1, "one offer")
+
+        answer?.resume()
+        await HomeChatRig.until { !rig.view.projection.secretOfferOpen }
+        #expect(await rig.send(text) == nil, "the person answered and chose to send it")
         #expect(rig.storeItems() == [text])
         #expect(asks == 1)
     }

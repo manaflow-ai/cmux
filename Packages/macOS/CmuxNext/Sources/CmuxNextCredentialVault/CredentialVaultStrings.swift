@@ -13,6 +13,8 @@ nonisolated enum CredentialVaultStrings {
     static var chief: String { text("credentialVault.caller.chief", "the Chief") }
     static func agentSession(_ id: String) -> String { String(format: text("credentialVault.caller.agentSession", "agent session %@"), id) }
     static func terminal(_ id: String) -> String { String(format: text("credentialVault.caller.terminal", "terminal %@"), id) }
+    static var unnamedAgent: String { text("credentialVault.caller.unnamedAgent", "an agent") }
+    static var unknownProcess: String { text("credentialVault.caller.unknownProcess", "a process outside cmux") }
     static func personAskedBy(_ asker: String) -> String { String(format: text("credentialVault.caller.personAskedBy", "you, asked by %@"), asker) }
 
     // MARK: Refusals
@@ -76,6 +78,9 @@ nonisolated enum CredentialVaultStrings {
     static var settingsCaller: String { text("credentialVault.caller.settings", "you, in Settings") }
     static func alreadyThere(_ name: String) -> String {
         String(format: text("credentialVault.error.exists", "The vault already has %@. Use its Replace to change the value."), name)
+    }
+    static func nameTaken(_ name: String) -> String {
+        String(format: text("credentialVault.entry.nameTaken", "The vault already has %@. Choose another name, or cancel and use its Replace in Settings."), name)
     }
     static func deleteTitle(_ name: String) -> String {
         String(format: text("credentialVault.delete.title", "Delete %@ from the Credential Vault?"), name)

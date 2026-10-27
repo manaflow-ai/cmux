@@ -126,8 +126,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     /// Moves credentials found in a send to the Credential Vault (the host's sheet); nil sends them as typed.
     var secretHost: HomeSecretHost?
-    /// The draft text the person was warned about: a second Return sends it as it is.
+    /// The draft text the person answered the vault offer for, moving nothing: a Return sends it as it is.
     var secretWarnedDraft: String?
+    /// The vault offer's sheet is open: every send waits for its answer.
+    var secretOfferOpen = false
 
     /// Link card previews (MessagesLab's guarded HTML/image fetcher): fetched once per URL for
     /// links this Mac sends or the user taps; nil keeps domain cards.

@@ -64,6 +64,8 @@ public nonisolated final class CredentialVault: Sendable {
         case missing([String])
         case denied([String], Consumer)
         case agentsMayNotWrite
+        /// A new secret's name is taken (``set(_:value:scope:note:by:event:onlyNew:)``).
+        case exists(String)
         case keychain(Int32)
         case index(String)
     }
@@ -135,10 +137,12 @@ public nonisolated final class CredentialVault: Sendable {
 
     // MARK: Writes (the person only)
 
-    /// Stores `value` under `name` (replacing one there); true when it replaced one. `scope` nil
-    /// keeps a replaced secret's scope (new: every consumer); `note` nil keeps its note.
+    /// Stores `value` under `name` (replacing one there, unless `onlyNew`); true when it replaced
+    /// one. `scope` nil keeps a replaced secret's scope (new: every consumer); `note` nil keeps its
+    /// note. When the index cannot be written the Keychain goes back to what it held.
     @discardableResult
-    func set(_ name: String, value: String, scope: [Consumer]?, note: String?, by caller: Caller, event: String = "set") throws -> Bool {
+    func set(_ name: String, value: String, scope: [Consumer]?, note: String?, by caller: Caller, event: String = "set",
+             onlyNew: Bool = false) throws -> Bool {
         guard caller.consumer == .user else { throw Failure.agentsMayNotWrite }
         guard Self.isValidName(name) else { throw Failure.invalidName(name) }
         guard !value.isEmpty, value.utf8.count <= Self.maxValueBytes, !value.contains("\0") else { throw Failure.invalidValue(name) }
@@ -149,12 +153,19 @@ public nonisolated final class CredentialVault: Sendable {
             var index = try readIndex()
             let at = millis()
             let old = index[name]
+            if onlyNew, old != nil { throw Failure.exists(name) }
+            let previous = old == nil ? nil : try secrets.value(for: name)
             try secrets.save(value, for: name)
             index[name] = Entry(scope: Self.ordered(scope ?? old?.scope ?? Consumer.allCases),
                                 note: (note ?? old?.note).flatMap { $0.isEmpty ? nil : $0 },
                                 createdMs: old?.createdMs ?? at, updatedMs: at, lastUsedMs: old?.lastUsedMs,
                                 lastUsedBy: old?.lastUsedBy, uses: old?.uses ?? 0)
-            try writeIndex(index)
+            do {
+                try writeIndex(index)
+            } catch {
+                if let previous { try? secrets.save(previous, for: name) } else { try? secrets.delete(name) }
+                throw error
+            }
             appendAudit(AuditRecord(atMs: at, event: event, names: [name], by: caller.label, consumer: caller.consumer,
                                     command: nil, outcome: old == nil ? "stored" : "replaced"))
             return old != nil
@@ -178,16 +189,23 @@ public nonisolated final class CredentialVault: Sendable {
         }
     }
 
-    /// Removes `name` from the Keychain and the index; false when there was none.
+    /// Removes `name` from the index, then the Keychain (the index goes back when the Keychain
+    /// refuses, so a listed name always has its value); false when there was none.
     @discardableResult
     func remove(_ name: String, by caller: Caller) throws -> Bool {
         guard caller.consumer == .user else { throw Failure.agentsMayNotWrite }
         defer { changed() }
         return try lock.withLock { _ in
-            var index = try readIndex()
-            try secrets.delete(name)
+            let before = try readIndex()
+            var index = before
             let existed = index.removeValue(forKey: name) != nil
             try writeIndex(index)
+            do {
+                try secrets.delete(name)
+            } catch {
+                try? writeIndex(before)
+                throw error
+            }
             appendAudit(AuditRecord(atMs: millis(), event: "remove", names: [name], by: caller.label, consumer: caller.consumer,
                                     command: nil, outcome: existed ? "removed" : "absent"))
             return existed

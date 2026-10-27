@@ -169,8 +169,8 @@ final class HomeHostView: NSView {
             var moved: [(value: String, name: String)] = []
             for finding in findings {
                 guard let services, let window = services.windows.active?.window,
-                      let answer = await CredentialVault.askForEntry(.pasteRequest(suggestedName: finding.suggestedName, value: finding.value), in: window),
-                      let name = await services.credentialVault.storePasted(answer) else { continue }
+                      let name = await services.credentialVault.movePasted(finding.value, suggestedName: finding.suggestedName, in: window)
+                else { continue }
                 moved.append((finding.value, name))
             }
             return moved

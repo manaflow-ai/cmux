@@ -6,13 +6,21 @@
 // Keychain itself, and Delete asks on a native sheet first.
 import { useId, useState } from "react";
 import { useSettingsState, useStore } from "../context";
-import type { CredentialVaultSecret } from "../ops";
+import type { CredentialVaultConsumer, CredentialVaultSecret } from "../ops";
 import type { CredentialVaultRun } from "../store";
 import { locale, t } from "../strings";
 import { Switch } from "../editors/ToggleEditor";
 
 function when(ms: number): string {
   return new Intl.DateTimeFormat(locale(), { dateStyle: "medium", timeStyle: "short" }).format(new Date(ms));
+}
+
+/** The scope with agents on or off; its other consumers stay (an agents-only secret stays
+ * agents-only), and a scope left empty is the person's. */
+export function withAgents(scope: CredentialVaultConsumer[], agents: boolean): CredentialVaultConsumer[] {
+  const rest = scope.filter((consumer) => consumer !== "agents");
+  if (agents) return [...rest, "agents"];
+  return rest.length > 0 ? rest : ["user"];
 }
 
 /** Its last use and how often, or that nothing used it yet; then its note. */
@@ -57,7 +65,7 @@ function SecretRow({
             checked={agents}
             disabled={busy}
             labelId={labelId}
-            onToggle={(next) => run({ op: "scope", name: secret.name, scope: next ? ["user", "agents"] : ["user"] })}
+            onToggle={(next) => run({ op: "scope", name: secret.name, scope: withAgents(secret.scope, next) })}
           />
           <button
             type="button"

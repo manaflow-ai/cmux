@@ -21,7 +21,7 @@ extension CredentialVault {
 
     /// Whether the sheet asks for the name: a pasted key (named by a guess from its shape) or Settings' Add.
     static func asksName(_ request: EntryRequest) -> Bool {
-        !request.pasted.isEmpty || request.name.isEmpty
+        !request.pasted.isEmpty || request.name.isEmpty || request.taken
     }
 
     public static func entrySheet(_ request: EntryRequest) -> CmuxDialogSpec {
@@ -33,15 +33,17 @@ extension CredentialVault {
             lines.append(CredentialVaultStrings.entryAsks(request.requester, request.name))
         }
         if let reason = request.reason, !reason.isEmpty { lines.append(CredentialVaultStrings.entryReason(reason)) }
+        if request.taken { lines.append(CredentialVaultStrings.nameTaken(request.name)) }
         lines.append(CredentialVaultStrings.entryPrivacy)
         var fields: [CmuxDialogField] = []
         // A pasted key's name is the person's to choose (a guess from its shape); an agent's request names it.
         if asksName(request) { fields.append(.text(id: entryNameField, label: CredentialVaultStrings.entryNameLabel, initial: request.name, placeholder: nil, secure: false)) }
-        fields += [.text(id: entryValueField, label: CredentialVaultStrings.entryValueLabel, initial: request.pasted, placeholder: nil, secure: true),
+        fields += [.text(id: entryValueField, label: CredentialVaultStrings.entryValueLabel, initial: request.typed.isEmpty ? request.pasted : request.typed,
+                                     placeholder: nil, secure: true),
                    .check(id: entryAgentsField, title: CredentialVaultStrings.entryAgentsCheck, on: request.scope.contains(.agents))]
         return CmuxDialogSpec(
             title: pasted ? CredentialVaultStrings.entryPasteTitle
-                : request.name.isEmpty ? CredentialVaultStrings.entryAddTitle
+                : request.name.isEmpty || request.taken ? CredentialVaultStrings.entryAddTitle
                 : request.replaces ? CredentialVaultStrings.entryReplaceTitle(request.name) : CredentialVaultStrings.entryTitle(request.name),
             lines: lines,
             fields: fields,

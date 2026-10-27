@@ -71,3 +71,11 @@ test("an empty vault says how to add one, and a build without the vault has no c
   expect(card(none.container)).toBeNull();
   none.unmount();
 });
+
+test("the Agents switch changes only agents: an agents-only secret never gains the person", async () => {
+  const { withAgents } = await import("./components/CredentialVaultCard");
+  expect(withAgents(["agents"], false)).toEqual(["user"]);
+  expect(withAgents(["agents"], true)).toEqual(["agents"]);
+  expect(withAgents(["user", "agents"], false)).toEqual(["user"]);
+  expect(withAgents(["user"], true)).toEqual(["user", "agents"]);
+});

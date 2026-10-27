@@ -12,6 +12,13 @@
 //!   its environment. Its output is masked: every secret value it prints shows as
 //!   `[vault:NAME]`, so an agent reading the output never sees one. `--no-mask` (the person only)
 //!   passes the output through untouched.
+//!
+//! Masking guards against accidents (a tool that prints its own token into an agent's context);
+//! it is not a boundary: a command that has a value can write it elsewhere or transform it. The
+//! boundary is the scope: an agent gets no value of a secret kept for the person, and the app
+//! decides who is an agent from the calling process (`VaultControl.caller`: below acpmux or the
+//! Chief host, outside cmux or unknown), not from the `caller` this command sends, which can only
+//! narrow it.
 
 use std::io::{IsTerminal as _, Read, Write};
 use std::os::unix::net::UnixStream;
@@ -183,14 +190,21 @@ fn valid_name(name: &str) -> Result<String, UsageError> {
     }
 }
 
+/// Variables that steer what a process loads or runs (the loader, shells, interpreters, git's and
+/// ssh's helpers): a secret never fills one.
+const RESERVED_ENV: &[&str] = &[
+    "PATH", "HOME", "SHELL", "USER", "LOGNAME", "TMPDIR", "IFS", "ENV", "BASH_ENV", "PWD", "TERM", "ZDOTDIR", "PS4",
+    "PROMPT_COMMAND", "NODE_OPTIONS", "NODE_PATH", "PERL5OPT", "PERL5LIB", "PERLLIB", "RUBYOPT", "RUBYLIB",
+    "SSH_ASKPASS", "SUDO_ASKPASS", "EDITOR", "VISUAL", "PAGER", "BROWSER",
+];
+const RESERVED_ENV_PREFIXES: &[&str] = &["DYLD_", "LD_", "CMUX_", "BASH_FUNC_", "PYTHON", "GIT_", "LESS"];
+
 /// An env variable a secret may fill: a vault name that the loader, the shell or cmux does not
 /// own, so a secret never redirects what runs (`PATH`, `DYLD_*`) or which cmux it talks to.
 fn valid_env_var(var: &str) -> Result<String, UsageError> {
     let var = valid_name(var)?;
     let upper = var.to_ascii_uppercase();
-    let reserved = ["PATH", "HOME", "SHELL", "USER", "LOGNAME", "TMPDIR", "IFS", "ENV", "BASH_ENV", "PWD", "TERM"]
-        .contains(&upper.as_str())
-        || ["DYLD_", "LD_", "CMUX_", "BASH_FUNC_"].iter().any(|p| upper.starts_with(p));
+    let reserved = RESERVED_ENV.contains(&upper.as_str()) || RESERVED_ENV_PREFIXES.iter().any(|p| upper.starts_with(p));
     if reserved {
         return Err(UsageError::new(format!("{var} is not an env variable a secret may fill")));
     }
@@ -444,17 +458,19 @@ impl Masker {
         let mut index = 0;
         'scan: while index < data.len() {
             let rest = &data[index..];
+            // The tail may be the start of a value the next read completes: wait for it before
+            // taking any match, so a shorter value never wins over a longer one that starts the
+            // same way (that would show the longer one's tail).
+            if !end && self.secrets.iter().any(|(value, _)| rest.len() < value.len() && value.starts_with(rest)) {
+                self.pending = rest.to_vec();
+                break;
+            }
             for (value, name) in &self.secrets {
                 if rest.starts_with(value) {
                     out.extend_from_slice(format!("[vault:{name}]").as_bytes());
                     index += value.len();
                     continue 'scan;
                 }
-            }
-            // The tail may be the start of a value the next read completes.
-            if !end && self.secrets.iter().any(|(value, _)| rest.len() < value.len() && value.starts_with(rest)) {
-                self.pending = rest.to_vec();
-                break;
             }
             out.push(data[index]);
             index += 1;
@@ -525,6 +541,10 @@ mod tests {
             "exec --env PATH=K -- env",
             "exec --env DYLD_INSERT_LIBRARIES=K -- env",
             "exec --env CMUX_SOCKET_PATH=K -- env",
+            "exec --env NODE_OPTIONS=K -- env",
+            "exec --env PYTHONSTARTUP=K -- env",
+            "exec --env GIT_SSH_COMMAND=K -- env",
+            "exec --env PROMPT_COMMAND=K -- env",
             "exec --env K --env K=L -- env",
             "exec --bogus -- env",
         ] {
@@ -555,7 +575,22 @@ mod tests {
 
     #[test]
     fn the_longest_value_wins_and_short_values_are_left_alone() {
-        assert_eq!(mask_in_chunks(&[("abcd", "A"), ("abcdefgh", "B")], "xabcdefghx abcdx", 3), "x[vault:B]x [vault:A]x");
+        let input = "xabcdefghx abcdx abcdefg";
+        for chunk in 1..=input.len() {
+            assert_eq!(
+                mask_in_chunks(&[("abcd", "A"), ("abcdefgh", "B")], input, chunk),
+                "x[vault:B]x [vault:A]x [vault:A]efg",
+                "chunk {chunk}"
+            );
+        }
+        // The reads that showed the longer value's tail before: `ab`, `cde`, `fgh`.
+        let mut masker = Masker::new(vec![(b"abcd".to_vec(), "A".into()), (b"abcdefgh".to_vec(), "B".into())]);
+        let mut out = Vec::new();
+        for piece in ["ab", "cde", "fgh"] {
+            out.extend(masker.push(piece.as_bytes()));
+        }
+        out.extend(masker.finish());
+        assert_eq!(String::from_utf8(out).unwrap(), "[vault:B]");
         assert_eq!(mask_in_chunks(&[("abc", "S")], "abc abc", 2), "abc abc", "under 4 bytes is not masked");
     }
 }

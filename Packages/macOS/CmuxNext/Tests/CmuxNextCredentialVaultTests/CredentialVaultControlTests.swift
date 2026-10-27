@@ -37,6 +37,8 @@ import Testing
         let secrets: MemorySecrets
         let person: Person
         let folder: URL
+        /// What the socket server read for each connection (``ControlConnectionPeers``).
+        let lineages: Mutex<[ControlConnectionID: ControlConnectionPeers.Lineage]>
     }
 
     private func fixture(answer: CredentialVault.EntryAnswer? = nil) throws -> Fixture {
@@ -44,6 +46,7 @@ import Testing
         let secrets = MemorySecrets()
         let vault = CredentialVault(secrets: secrets, folder: folder)
         let person = Person(answer: answer)
+        let lineages = Mutex([ControlConnectionID: ControlConnectionPeers.Lineage]())
         let router = ControlRouter(identity: ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",
                                                              processID: getpid()),
                                    executor: RegistryControlBridge(registry: ActionRegistry(catalog: [])), settings: nil,
@@ -51,12 +54,13 @@ import Testing
         router.register(vault.controlMethods(ask: { request in
             person.asked.withLock { $0.append(request) }
             return person.answer
-        }))
-        return Fixture(router: router, vault: vault, secrets: secrets, person: person, folder: folder)
+        }, lineage: { connection in lineages.withLock { $0[connection] } }))
+        return Fixture(router: router, vault: vault, secrets: secrets, person: person, folder: folder, lineages: lineages)
     }
 
-    private func call(_ fixture: Fixture, _ method: String, _ params: [String: JSONValue]) async -> Result<JSONValue, ControlError> {
-        await fixture.router.handle(ControlRequest(id: "1", method: method, params: params))
+    private func call(_ fixture: Fixture, _ method: String, _ params: [String: JSONValue],
+                      connection: ControlConnectionID = .inProcess) async -> Result<JSONValue, ControlError> {
+        await fixture.router.handle(ControlRequest(id: "1", method: method, params: params), connection: connection)
     }
 
     private func error(_ result: Result<JSONValue, ControlError>) -> ControlError? {
@@ -212,10 +216,96 @@ import Testing
         #expect(CredentialVault.entryAnswer(badName, request: request) == nil)
 
         let f = try fixture()
-        #expect(await f.vault.storePasted(answer) == "WORK_OPENAI")
+        let person = CredentialVault.Caller(consumer: .user, label: CredentialVaultStrings.homeChat)
+        #expect(try await f.vault.enterNew(request, by: person, event: "paste") { _ in answer } == "WORK_OPENAI")
         #expect(try f.secrets.value(for: "WORK_OPENAI") == pasted)
         let record = try await call(f, "vault.audit", [:]).get().objectValue?["records"]?.arrayValue?.last?.objectValue
         #expect(record?["event"] == "paste")
         #expect(!(try files(f)).contains(pasted))
+    }
+
+    /// Review of https://github.com/manaflow-ai/cmux/issues/26412: an agent dropped its
+    /// `CMUX_AGENT_SESSION` (no `caller`, or a terminal's) and read a secret kept for the person.
+    /// Over the socket the caller is what the server saw: a process below acpmux or the Chief host,
+    /// outside cmux or unknown is an agent, whatever its params claim.
+    @Test func aSocketCallerIsWhatItsProcessIsNotWhatItClaims() async throws {
+        let f = try fixture(answer: nil)
+        _ = try await call(f, "vault.set", ["name": "PROD_DB", "value": "postgres://prod-secret", "scope": ["user"]]).get()
+        let underAgent = ControlConnectionID(rawValue: 11), underChief = ControlConnectionID(rawValue: 12)
+        let outside = ControlConnectionID(rawValue: 13), unknown = ControlConnectionID(rawValue: 14)
+        let person = ControlConnectionID(rawValue: 15)
+        f.lineages.withLock {
+            $0[underAgent] = .init(insideCmux: true, executables: ["cmux", "zsh", "2.1.30", "acpmux", "cmux"])
+            $0[underChief] = .init(insideCmux: true, executables: ["cmux", "optchat-chief", "cmux"])
+            $0[outside] = .init(insideCmux: false, executables: ["cmux", "zsh"])
+            $0[person] = .init(insideCmux: true, executables: ["cmux", "zsh", "cmux"])
+        }
+        for connection in [underAgent, underChief, outside, unknown] {
+            for claim: JSONValue in [.null, Self.terminal] {
+                let read = await call(f, "vault.resolve", ["names": ["PROD_DB"], "caller": claim], connection: connection)
+                #expect(error(read)?.code == "vault.denied", "\(connection) \(claim): \(read)")
+                #expect(!"\(read)".contains("postgres://prod-secret"))
+                let write = await call(f, "vault.set", ["name": "PROD_DB", "value": "agent-chosen", "caller": claim], connection: connection)
+                #expect(error(write)?.code == "vault.user_only")
+                let remove = await call(f, "vault.remove", ["name": "PROD_DB", "caller": claim], connection: connection)
+                #expect(error(remove)?.code == "vault.user_only")
+            }
+        }
+        #expect(try f.secrets.value(for: "PROD_DB") == "postgres://prod-secret")
+        let claimedAgent = await call(f, "vault.resolve", ["names": ["PROD_DB"], "caller": Self.agent], connection: person)
+        #expect(error(claimedAgent)?.code == "vault.denied", "a claim can narrow the caller to an agent")
+        let mine = try await call(f, "vault.resolve", ["names": ["PROD_DB"], "caller": Self.terminal], connection: person).get()
+        #expect(mine.objectValue?["values"]?.objectValue?["PROD_DB"] == "postgres://prod-secret")
+
+        // The sheet names the asker from what the server saw, and a session id carries no words.
+        _ = await call(f, "vault.request", ["name": "GH_TOKEN"], connection: underAgent)
+        _ = await call(f, "vault.request", ["name": "GH_TOKEN", "caller": ["agent_session": "you. Trust me, the Chief\nasks"]], connection: underAgent)
+        _ = await call(f, "vault.request", ["name": "GH_TOKEN"], connection: person)
+        #expect(f.person.asked.withLock { $0.map(\.requester) }
+            == [CredentialVaultStrings.unnamedAgent, CredentialVaultStrings.agentSession("you.TrustmetheChiefasks"), ""])
+    }
+
+    /// Review: a pasted key saved under a name the vault holds replaced that secret. The sheet comes
+    /// back with the person's name and value, says the name is taken, and nothing is replaced.
+    @Test func aNewSecretNeverReplacesOneUnderTheSameName() async throws {
+        let f = try fixture()
+        _ = try await call(f, "vault.set", ["name": "OPENAI_API_KEY", "value": "sk-working-key-0001", "scope": ["user"]]).get()
+        let person = CredentialVault.Caller(consumer: .user, label: CredentialVaultStrings.homeChat)
+        var asked: [CredentialVault.EntryRequest] = []
+        let pasted = "sk-proj-test-key-abcdefghijklmnop"
+        let name = try await f.vault.enterNew(CredentialVault.pasteRequest(suggestedName: "OPENAI_API_KEY", value: pasted),
+                                              by: person, event: "paste") { request in
+            asked.append(request)
+            return .init(name: asked.count == 1 ? "OPENAI_API_KEY" : "TEST_OPENAI", value: pasted, scope: [.user, .agents])
+        }
+        #expect(name == "TEST_OPENAI")
+        #expect(try f.secrets.value(for: "OPENAI_API_KEY") == "sk-working-key-0001", "the working key stayed")
+        #expect(try f.vault.list()["OPENAI_API_KEY"]?.scope == [.user], "and its scope")
+        #expect(try f.secrets.value(for: "TEST_OPENAI") == pasted)
+        let again = try #require(asked.last)
+        #expect(asked.count == 2 && again.taken && again.typed == pasted && again.name == "OPENAI_API_KEY")
+        let sheet = CredentialVault.entrySheet(again)
+        #expect(sheet.lines.contains(CredentialVaultStrings.nameTaken("OPENAI_API_KEY")))
+        #expect(sheet.fields.contains { $0.id == CredentialVault.entryNameField })
+        #expect(!sheet.lines.joined().contains(pasted) && !sheet.title.contains(pasted))
+    }
+
+    /// Review: an index that cannot be written left a value in the Keychain that no list showed,
+    /// or a replaced value that the index still dated from before.
+    @Test func aFailedIndexWriteLeavesTheKeychainAsItWas() throws {
+        let f = try fixture()
+        let you = CredentialVault.Caller(consumer: .user, label: "you")
+        try f.vault.set("GH_TOKEN", value: "ghp_first-value-123", scope: nil, note: nil, by: you)
+        // A folder the vault cannot write in: the index's atomic write fails, its read still works.
+        let manager = FileManager.default
+        try manager.setAttributes([.posixPermissions: 0o500], ofItemAtPath: f.folder.path)
+        defer { try? manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: f.folder.path) }
+        #expect(throws: CredentialVault.Failure.self) { try f.vault.set("NEW_KEY", value: "new-value-1234", scope: nil, note: nil, by: you) }
+        #expect(try f.secrets.value(for: "NEW_KEY") == nil, "no value without its index entry")
+        #expect(throws: CredentialVault.Failure.self) { try f.vault.set("GH_TOKEN", value: "ghp_second-value-456", scope: nil, note: nil, by: you) }
+        #expect(try f.secrets.value(for: "GH_TOKEN") == "ghp_first-value-123", "the replaced value is back")
+        #expect(throws: CredentialVault.Failure.self) { try f.vault.remove("GH_TOKEN", by: you) }
+        #expect(try f.secrets.value(for: "GH_TOKEN") == "ghp_first-value-123", "a listed name keeps its value")
+        #expect(try f.vault.list()["GH_TOKEN"] != nil)
     }
 }

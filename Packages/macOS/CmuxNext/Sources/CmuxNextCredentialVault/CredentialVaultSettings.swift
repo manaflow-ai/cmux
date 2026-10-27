@@ -129,17 +129,22 @@ public final class CredentialVaultPageRoute: PageProvider {
         return name
     }
 
-    /// Shows the entry sheet and stores the answer; false when the person cancelled. Add refuses a
-    /// name the vault already holds: its row's Replace replaces it.
+    /// Shows the entry sheet and stores the answer; false when the person cancelled. Add never
+    /// replaces: a taken name brings the sheet back (``CredentialVault/enterNew(_:by:event:ask:)``),
+    /// and the row's Replace replaces.
     private func enter(_ request: CredentialVault.EntryRequest, person: CredentialVault.Caller) async throws -> Bool {
         guard let window = window() else { throw PageError.unavailable("Settings has no window") }
-        guard let answer = await CredentialVault.askForEntry(request, in: window) else { return false }
         let vault = board.vault
-        if !request.replaces, try await Self.off({ try vault.list() })[answer.name] != nil {
-            throw PageError(code: "vault.exists", message: CredentialVaultStrings.alreadyThere(answer.name))
+        guard request.replaces else {
+            do {
+                return try await vault.enterNew(request, by: person, event: "set") { await CredentialVault.askForEntry($0, in: window) } != nil
+            } catch let failure as CredentialVault.Failure {
+                throw Self.pageError(failure)
+            }
         }
+        guard let answer = await CredentialVault.askForEntry(request, in: window) else { return false }
         _ = try await Self.off {
-            try vault.set(answer.name, value: answer.value, scope: answer.scope, note: nil, by: person, event: request.replaces ? "replace" : "set")
+            try vault.set(answer.name, value: answer.value, scope: answer.scope, note: nil, by: person, event: "replace")
         }
         return true
     }
@@ -149,9 +154,13 @@ public final class CredentialVaultPageRoute: PageProvider {
         do {
             return try await Task.detached(priority: .userInitiated) { try body() }.value
         } catch let failure as CredentialVault.Failure {
-            let error = VaultControl.error(failure)
-            throw PageError(code: error.code, message: error.message)
+            throw pageError(failure)
         }
+    }
+
+    private static func pageError(_ failure: CredentialVault.Failure) -> PageError {
+        let error = VaultControl.error(failure)
+        return PageError(code: error.code, message: error.message)
     }
 
     public static let deleteDialogIdentifier = "cmux.dialog.credentialVault.delete"
