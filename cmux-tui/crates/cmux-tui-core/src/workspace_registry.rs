@@ -5644,6 +5644,7 @@ impl SessionCoordinatorWaiter {
                     events: libc::POLLIN,
                     revents: 0,
                 };
+                // wakeup-allow: deadline the waiter's one deadline; the coordinator's signal ends the wait first
                 // SAFETY: descriptor points to one valid pollfd for the call.
                 let ready = unsafe { libc::poll(&raw mut descriptor, 1, timeout_ms) };
                 if ready == 0 {
@@ -5680,6 +5681,7 @@ impl SessionCoordinatorWaiter {
                 if remaining.is_zero() {
                     return Ok(false);
                 }
+                // wakeup-allow: deadline the waiter's one deadline, shrunk on each read; the coordinator's signal ends it first
                 self.socket.set_read_timeout(Some(remaining))?;
                 match self.socket.recv_from(&mut message) {
                     Ok((length, sender))

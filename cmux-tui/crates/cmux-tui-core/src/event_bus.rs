@@ -745,6 +745,7 @@ impl MuxEventReceiver {
             if state.closed {
                 return Err(RecvTimeoutError::Disconnected);
             }
+            // wakeup-allow: deadline the caller's one timeout, shrunk on each wake; an event or the bus closing ends it first
             let (next, waited) =
                 self.mailbox.changed.wait_timeout(state, remaining).recover_poison();
             state = next;

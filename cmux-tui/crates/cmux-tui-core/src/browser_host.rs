@@ -400,6 +400,7 @@ fn start(inner: &Arc<Inner>, binary: &Path, config: &Config) -> Result<Running, 
         let ok = BufReader::new(stdout).read_line(&mut line).is_ok() && line == "ready\n";
         let _ = ready_tx.send(ok);
     });
+    // wakeup-allow: deadline the host's one start deadline; its ready line or its exit ends the wait first
     let ready = written.is_ok()
         && reader.is_ok()
         && matches!(ready_rx.recv_timeout(READY_TIMEOUT), Ok(true));

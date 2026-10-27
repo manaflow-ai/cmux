@@ -237,6 +237,7 @@ pub fn serve(
                         );
                         return;
                     }
+                    // wakeup-allow: deadline the peer's one request read; the peer thread ends after it
                     let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
                     let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
                     let Ok(bytes) = read_message(&stream) else { return };
@@ -278,6 +279,7 @@ fn exchange(socket: &Path, request: &impl Serialize) -> Result<Response, ClientE
     use std::os::unix::net::UnixStream;
 
     let mut stream = UnixStream::connect(socket).map_err(|_| ClientError::Unavailable)?;
+    // wakeup-allow: deadline the one response read of this exchange; the response ends the wait first
     stream.set_read_timeout(Some(IO_TIMEOUT)).map_err(|_| ClientError::Unavailable)?;
     stream.set_write_timeout(Some(IO_TIMEOUT)).map_err(|_| ClientError::Unavailable)?;
     let mut encoded =

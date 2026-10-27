@@ -75,10 +75,21 @@ fn run(shared: &(Mutex<State>, Condvar)) {
                 job();
                 state = lock.lock().unwrap();
             }
-            Some(key) => state = wake.wait_timeout(state, key.0 - now).unwrap().0,
+            Some(key) => {
+                // wakeup-allow: deadline the earliest job's due time on the wake grid; a schedule, cancel or stop ends it first
+                state = wake.wait_timeout(state, aligned_wait(key.0 - now)).unwrap().0;
+            }
             None => state = wake.wait(state).unwrap(),
         }
     }
+}
+
+/// The wait until a job due `delay` from now, as a never-sooner
+/// [`crate::wake::deadline`]: the supervisor's idle stops and restarts
+/// share a wake with the daemon's other deadlines near them.
+fn aligned_wait(delay: Duration) -> Duration {
+    let now = crate::wake::Ticks::now();
+    crate::wake::deadline(now, delay, crate::wake::Policy::FlexibleNoSooner).wait_from(now)
 }
 
 #[cfg(test)]
@@ -88,6 +99,18 @@ mod tests {
 
     /// Real time only bounds how long the test waits for the timer thread.
     const SAFETY_BOUND: Duration = Duration::from_secs(30);
+
+    #[test]
+    fn a_job_wait_is_never_sooner_than_its_delay_and_within_its_leeway() {
+        for (delay, leeway) in [
+            (Duration::from_millis(20), Duration::from_millis(8)),
+            (Duration::from_secs(5), Duration::from_millis(500)),
+            (Duration::from_secs(60), Duration::from_secs(1)),
+        ] {
+            let wait = aligned_wait(delay);
+            assert!(wait >= delay && wait <= delay + leeway, "{delay:?} waits {wait:?}");
+        }
+    }
 
     #[test]
     fn jobs_run_in_deadline_order_and_cancelled_ones_never_run() {

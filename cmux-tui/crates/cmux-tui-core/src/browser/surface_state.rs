@@ -199,6 +199,7 @@ impl BrowserSurface {
         // The replacement session starts its own screencast (or none).
         state.screencast_paused = false;
         state.frame_demand_retry_at = None;
+        state.frame_demand_backoff.reset();
         state.failure_kind = None;
         state.source = None;
         state.title = state.url.clone();

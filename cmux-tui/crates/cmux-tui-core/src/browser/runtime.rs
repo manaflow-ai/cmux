@@ -343,6 +343,7 @@ pub(crate) fn new_surface_with_resource_identity(
             not_responding_reported: false,
             screencast_paused: false,
             frame_demand_retry_at: None,
+            frame_demand_backoff: frame_demand_backoff(),
         })),
         frame_epoch,
         dirty: AtomicBool::new(true),

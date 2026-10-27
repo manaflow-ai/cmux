@@ -142,8 +142,10 @@ fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
                             guard.due = None;
                             break;
                         }
+                        let wait = durable_wait(due - now);
+                        // wakeup-allow: deadline the dirty-triggered pass's due time on the wake grid; stop or an earlier pass ends it first
                         guard = changed
-                            .wait_timeout(guard, due - now)
+                            .wait_timeout(guard, wait)
                             .unwrap_or_else(PoisonError::into_inner)
                             .0;
                     }
@@ -154,6 +156,15 @@ fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
         let _pass = mux.request_qos().enter_upkeep_pass();
         write_pass(&mux, &mux.output_store);
     }
+}
+
+/// The wait until a pass due `delay` from now: a durability deadline
+/// ([`crate::wake::deadline`], never sooner, 10% leeway on the whole-second
+/// grid from 1 s, no Energy Saver stretch), so the writer's wake shares a
+/// boundary with the other daemon deadlines near it.
+fn durable_wait(delay: Duration) -> Duration {
+    let now = crate::wake::Ticks::now();
+    crate::wake::deadline(now, delay, crate::wake::Policy::FlexibleNoSooner).wait_from(now)
 }
 
 /// Write the snapshot of every terminal that printed since the last pass and
@@ -500,6 +511,24 @@ pub(super) fn enforce_total(directory: &Path, suffix: &str, cap: u64) {
         }
         if files::remove_file(&path).is_ok() {
             total -= len;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::durable_wait;
+    use std::time::Duration;
+
+    #[test]
+    fn a_pass_waits_out_its_interval_within_the_durability_leeway() {
+        for (delay, leeway) in [
+            (Duration::from_millis(250), Duration::from_millis(8)),
+            (super::super::FULL_FLUSH_INTERVAL, super::super::FULL_FLUSH_INTERVAL / 10),
+            (super::super::SNAPSHOT_INTERVAL, Duration::from_secs(1)),
+        ] {
+            let wait = durable_wait(delay);
+            assert!(wait >= delay && wait <= delay + leeway, "{delay:?} waits {wait:?}");
         }
     }
 }

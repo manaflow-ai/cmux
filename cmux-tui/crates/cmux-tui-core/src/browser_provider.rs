@@ -217,6 +217,7 @@ impl BrowserProviderRegistry {
                 if remaining.is_zero() {
                     return true;
                 }
+                // wakeup-allow: backoff the caller's one retry backoff; a registration change or a cancel wakes it first
                 state = self
                     .changed
                     .wait_timeout(state, remaining)

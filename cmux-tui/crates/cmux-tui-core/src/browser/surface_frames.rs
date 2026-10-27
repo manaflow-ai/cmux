@@ -72,6 +72,7 @@ impl BrowserSurface {
             let mut state = self.state.lock().unwrap();
             if session.is_none() || wanted != state.screencast_paused {
                 state.frame_demand_retry_at = None;
+                state.frame_demand_backoff.reset();
                 return;
             }
             if state.frame_demand_retry_at.is_some_and(|retry_at| now < retry_at) {
@@ -92,10 +93,12 @@ impl BrowserSurface {
         }
         let mut state = self.state.lock().unwrap();
         if result.is_err() {
-            state.frame_demand_retry_at = Some(Instant::now() + FRAME_DEMAND_RETRY_DELAY);
+            let delay = state.frame_demand_backoff.next_delay();
+            state.frame_demand_retry_at = Some(Instant::now() + delay);
             return;
         }
         state.frame_demand_retry_at = None;
+        state.frame_demand_backoff.reset();
         drop(state);
         self.set_screencast_paused(!wanted);
         if !wanted {

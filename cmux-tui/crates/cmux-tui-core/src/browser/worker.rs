@@ -248,6 +248,7 @@ pub(super) fn start_browser_worker(
             loop {
                 let first = match next_browser_lifecycle_deadline(&surface, &failures) {
                     Some(deadline) => {
+                        // wakeup-allow: deadline the earliest pending lifecycle's due time; with none pending the worker blocks in recv()
                         match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
                             Ok(first) => first,
                             Err(RecvTimeoutError::Timeout) => {

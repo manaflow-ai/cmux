@@ -381,6 +381,7 @@ impl JournalWriterCompletion {
             if wait.is_zero() {
                 anyhow::bail!("session journal writer did not stop before the shutdown deadline");
             }
+            // wakeup-allow: deadline the one shutdown deadline; the writer's result ends the wait first
             let (next, timeout) = self.changed.wait_timeout(result, wait).recover_poison();
             result = next;
             if timeout.timed_out() && result.is_none() {
@@ -543,6 +544,7 @@ impl JournalIngressState {
                     journal_durable_wait().as_millis()
                 ));
             }
+            // wakeup-allow: deadline the event's one durable-wait deadline; freed queue space ends the wait first
             let (next, result) =
                 self.queue_space_changed.wait_timeout(epoch, remaining).recover_poison();
             epoch = next;

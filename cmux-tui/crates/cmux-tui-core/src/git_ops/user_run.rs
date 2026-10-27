@@ -137,6 +137,7 @@ impl UserGit<'_> {
         };
         let stdout = Pipe::read(stdout, MAX_STDOUT_BYTES);
         let stderr = Pipe::read(stderr, MAX_STDERR_BYTES);
+        // wakeup-allow: deadline the run's one deadline; git's exit ends the wait first
         let status = match child.wait_timeout(remaining) {
             Ok(Some(status)) => status,
             Ok(None) => {
@@ -189,6 +190,7 @@ fn environment() -> BTreeMap<OsString, OsString> {
 /// whatever is left once git exits or the grace ends.
 fn terminate(child: &mut Child) {
     signal(child, libc_signal::TERM);
+    // wakeup-allow: deadline the one grace after SIGTERM; git's exit ends the wait first
     let exited = matches!(child.wait_timeout(TERMINATE_GRACE), Ok(Some(_)));
     signal(child, libc_signal::KILL);
     if !exited {

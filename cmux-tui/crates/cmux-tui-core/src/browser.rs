@@ -355,6 +355,9 @@ struct BrowserState {
     screencast_paused: bool,
     /// A failed frame-demand start or stop is retried at this time.
     frame_demand_retry_at: Option<Instant>,
+    /// Spaces those retries while the start or stop keeps failing; reset by
+    /// a success or a change of demand or session.
+    frame_demand_backoff: crate::backoff::Backoff,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -819,6 +822,11 @@ pub const TRANSPORT_SAFE_CAPTURE_MEGAPIXELS: f64 = 2.0;
 const DEFAULT_CAPTURE_MEGAPIXELS: f64 = TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 const STALL_THRESHOLD: Duration = Duration::from_secs(2);
 const FRAME_DEMAND_RETRY_DELAY: Duration = Duration::from_millis(500);
+const FRAME_DEMAND_RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
+
+fn frame_demand_backoff() -> crate::backoff::Backoff {
+    crate::backoff::Backoff::new(FRAME_DEMAND_RETRY_DELAY, FRAME_DEMAND_RETRY_MAX_DELAY)
+}
 const BROWSER_COMMAND_QUEUE_CAPACITY: usize = 64;
 const BROWSER_RETAINED_RELEASE_CAPACITY: usize = BROWSER_COMMAND_QUEUE_CAPACITY + 1;
 const LEGACY_POINTER_PRESS_LEASE: Duration = Duration::from_secs(30);
