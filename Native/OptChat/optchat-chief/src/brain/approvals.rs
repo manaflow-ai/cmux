@@ -243,6 +243,8 @@ impl Brain {
             "mcp__optchat__automation" => {
                 return field("action").is_none_or(|a| a == "list");
             }
+            // Nor spend the owner's money on a Cloud machine.
+            "mcp__optchat__cloud_workspace" => return false,
             _ => return true,
         }
         let Some(id) = field("id") else {

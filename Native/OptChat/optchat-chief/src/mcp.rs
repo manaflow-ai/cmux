@@ -9,7 +9,8 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use crate::prompt::{
-    AUTOMATION_DESCRIPTION, CONTROL_DESCRIPTION, DATE_DESCRIPTION, ESCALATE_AUTH_DESCRIPTION,
+    AUTOMATION_DESCRIPTION, CLOUD_WORKSPACE_DESCRIPTION, CONTROL_DESCRIPTION, DATE_DESCRIPTION,
+    ESCALATE_AUTH_DESCRIPTION,
     PEER_TELL_DESCRIPTION, PEERS_DESCRIPTION, REACT_DESCRIPTION, REMEMBER_DESCRIPTION,
     REPLY_DESCRIPTION, SEND_DESCRIPTION, SLEEP_DESCRIPTION, SPAWN_CWD_DESCRIPTION,
     SPAWN_DESCRIPTION, STOP_DESCRIPTION, TELL_DESCRIPTION, TRANSCRIPT_DESCRIPTION,
@@ -74,6 +75,15 @@ pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Val
             "n": {"type": "integer", "minimum": 0, "description": "cap: subagents at work at once; 0 is no cap."},
             "peer": {"type": "string", "minLength": 1, "description": "cloud: the acpmux peers (acpmux host ls, comma-separated) new subagents run on by default, each on the least busy, or off; without it, shows the setting."}},
           "required": ["action"], "additionalProperties": false}}));
+    }
+    // A Cloud machine and its workspace for a task: on the spawn grant.
+    if !subagent && grant.allows("spawn") {
+        list.push(json!({"name": "cloud_workspace", "description": CLOUD_WORKSPACE_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "title": {"type": "string", "minLength": 1, "description": "The task in 2-5 words: the machine's name (lowercased, with dashes) and its sidebar group."},
+            "size": {"type": "string", "enum": crate::cloud_workspace::SIZES, "description": "The machine's size; by default the app's. small for docs and edits, medium for builds and tests; large or xlarge only when asked."},
+            "machine": {"type": "string", "minLength": 1, "description": "An existing Cloud machine (machine:<id> from `cmux cloud list-machines`): open another workspace on it instead of making a machine."}},
+          "required": ["title"], "additionalProperties": false}}));
     }
     if !subagent && grant.allows("profile") {
         list.push(crate::chief_profile::profile_tool());
@@ -235,6 +245,7 @@ pub fn handle(message: &Value, backend: &dyn Backend) -> Option<Value> {
                     | Call::Remember { .. }
                     | Call::Control(_)
                     | Call::Automation(_)
+                    | Call::CloudWorkspace(_)
                     | Call::Profile { .. }
                     | Call::Chiefs { .. }
                         if backend.subagent() =>

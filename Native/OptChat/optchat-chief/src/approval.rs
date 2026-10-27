@@ -22,8 +22,9 @@ pub const MEMORY_TOOLS: [&str; 4] = [
 /// The Chief's own tools: Chief talking to the person and to its
 /// subagents, never a local effect of their own. `spawn` is safe in a gated turn because a child spawned there
 /// takes the ask floor (`spawn_policy`); `tell` and `control` are checked
-/// against their target by the brain (`Brain::internal_allowed`).
-pub const CHIEF_TOOLS: [&str; 11] = [
+/// against their target by the brain (`Brain::internal_allowed`), and
+/// `cloud_workspace` (a billed Cloud machine) runs only in the owner's turn.
+pub const CHIEF_TOOLS: [&str; 12] = [
     "mcp__optchat__send",
     "mcp__optchat__reply",
     "mcp__optchat__react",
@@ -35,6 +36,7 @@ pub const CHIEF_TOOLS: [&str; 11] = [
     "mcp__optchat__profile",
     "mcp__optchat__remember",
     "mcp__optchat__automation",
+    "mcp__optchat__cloud_workspace",
 ];
 
 /// The tools a turn session runs without a permission request (its

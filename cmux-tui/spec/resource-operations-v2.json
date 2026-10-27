@@ -9010,6 +9010,15 @@
           },
           "description": "The file's unified diff from its first @@ line. Only with include_patch, and never for an untracked file."
         },
+        "blob_fingerprint": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The file's git blob identity from its patch's index and mode lines, so a client can tell an unchanged file from a changed one even when the patch is cut. Only with include_patch, and never for an untracked file."
+        },
         "patch_truncated": {
           "required": false,
           "type": {

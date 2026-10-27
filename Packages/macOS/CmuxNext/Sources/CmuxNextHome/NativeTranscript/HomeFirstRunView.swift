@@ -31,6 +31,9 @@ final class HomeFirstRunView: NSView {
     private(set) var memoryOffer: String?
     /// The Chief's face and what it does; out of the layout when the tunable hides it or it does not fit.
     let hero = HomeFirstRunHero()
+    let starters = HomeStarterChips()
+    private lazy var startersHeight = starters.heightAnchor.constraint(equalToConstant: 0)
+    private lazy var startersWidth = starters.widthAnchor.constraint(equalToConstant: Self.maxWidth)
     private lazy var heroHeight = hero.heightAnchor.constraint(equalToConstant: 0)
     private lazy var heroWidth = hero.widthAnchor.constraint(equalToConstant: Self.maxWidth)
     /// `HomeTunables.firstRunHero`: false keeps the rows-only panel.
@@ -70,6 +73,9 @@ final class HomeFirstRunView: NSView {
         switchCard.translatesAutoresizingMaskIntoConstraints = false
         cardHeight.isActive = true
         cardWidth.isActive = true
+        starters.translatesAutoresizingMaskIntoConstraints = false
+        startersHeight.isActive = true
+        startersWidth.isActive = true
         hero.translatesAutoresizingMaskIntoConstraints = false
         heroHeight.isActive = true
         heroWidth.isActive = true
@@ -127,7 +133,7 @@ final class HomeFirstRunView: NSView {
     private func arrange() {
         for view in stack.arrangedSubviews { stack.removeArrangedSubview(view); view.removeFromSuperview() }
         let listed: [NSView] = agentRows.isEmpty ? [] : [agentsHeader] + agentRows
-        for view in [hero] + actionRows + listed + [switchCard] as [NSView] { stack.addArrangedSubview(view) }
+        for view in [hero, starters] + actionRows + listed + [switchCard] as [NSView] { stack.addArrangedSubview(view) }
         applySpacing()
     }
 
@@ -154,7 +160,10 @@ final class HomeFirstRunView: NSView {
         let heroPart = heroHeight.constant + Self.heroGap * scale
         let heroFits = showsHero && actionsFit && cardFits == wantsCard && actions + card + heroPart <= bounds.height
         if hero.isHidden != !heroFits { hero.isHidden = !heroFits }
-        let base = actions + card + (heroFits ? heroPart : 0)
+        let starterPart = starters.prompts.isEmpty ? 0 : startersHeight.constant + group
+        let startersFit = !starters.prompts.isEmpty && actionsFit && actions + card + (heroFits ? heroPart : 0) + starterPart <= bounds.height
+        if starters.isHidden != !startersFit { starters.isHidden = !startersFit }
+        let base = actions + card + (heroFits ? heroPart : 0) + (startersFit ? starterPart : 0)
         let header = group + ceil(agentsHeader.intrinsicContentSize.height)
         // Agent rows go first: none while the hero or the card it wants has gone.
         var shown = heroFits == showsHero && cardFits == wantsCard ? agentRows.count : 0
@@ -171,6 +180,7 @@ final class HomeFirstRunView: NSView {
     private func applySpacing() {
         stack.spacing = 6 * scale
         stack.setCustomSpacing(14 * scale, after: pet)
+        stack.setCustomSpacing(14 * scale, after: starters)
         stack.setCustomSpacing(Self.heroGap * scale, after: hero)
     }
 
@@ -206,6 +216,7 @@ final class HomeFirstRunView: NSView {
         self.scale = scale
         switchCard.applyScale(scale)
         hero.applyScale(scale)
+        starters.applyScale(scale)
         agentsHeader.font = .systemFont(ofSize: 12 * scale, weight: .medium)
         applySpacing()
         for row in rows { row.applyScale(scale) }
@@ -238,6 +249,7 @@ final class HomeFirstRunView: NSView {
         switchCard.applyColors(primary: colors.primary, tertiary: colors.tertiary, fill: colors.fill, border: colors.border)
         agentsHeader.textColor = colors.tertiary
         hero.applyColors(primary: colors.primary, secondary: colors.secondary)
+        starters.applyColors(text: colors.primary, fill: colors.fill)
         for row in actionRows {
             row.applyColors(text: colors.primary, quiet: colors.tertiary, fill: colors.fill, hover: colors.hover, border: colors.border)
         }
@@ -259,6 +271,9 @@ final class HomeFirstRunView: NSView {
         if headerWidth.constant != width { headerWidth.constant = width }
         if cardWidth.constant != width { cardWidth.constant = width }
         if heroWidth.constant != width { heroWidth.constant = width }
+        if startersWidth.constant != width { startersWidth.constant = width }
+        let starterTall = starters.measure(width: width)
+        if startersHeight.constant != starterTall { startersHeight.constant = starterTall }
         let heroTall = hero.height(for: width)
         if heroHeight.constant != heroTall { heroHeight.constant = heroTall }
         let card = switchCard.height(for: width)
