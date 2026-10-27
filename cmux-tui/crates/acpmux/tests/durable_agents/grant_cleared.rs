@@ -1,21 +1,31 @@
 //! An approve-all an older daemon saved with no source, on a chat whose agent host outlived it
 //! (`hub/policy_source.rs`): the next daemon clears the grant before it reaches the host, and
-//! ends that host rather than adopt it, so nothing the agent asked under the old grant is
+//! ends that host rather than adopt it, so nothing the agent asks under the old grant is
 //! approved by it.
 
 use super::*;
 
-/// A handoff target (local, tagged) that an older daemon gave approve-all, and that asked for a
-/// permission before the restart.
+/// Lets a `gate-ask:` agent that still waits on `gate` go on to ask; none waits once it ended.
+fn release(gate: &Path) {
+    let open = std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NONBLOCK).open(gate);
+    if let Ok(mut gate) = open {
+        let _ = std::io::Write::write_all(&mut gate, b"go");
+    }
+}
+
+/// A handoff target (local, tagged) that an older daemon gave approve-all, whose agent is about
+/// to ask for a permission across the restart.
 #[tokio::test]
 async fn a_cleared_grants_live_agent_is_ended_not_adopted_and_its_chat_asks() {
     let mut daemon = Daemon::new("grant", "ask");
     let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
     let mut client = daemon.rpc().await;
     let ask =
         |text: &str| json!({"sessionId": session, "prompt": [{"type": "text", "text": text}]});
-    client.send("session/prompt", ask("ask: deploy")).await;
-    daemon.wait_event(&session, "permission_request", |e| e["kind"] == "permission_request");
+    client.send("session/prompt", ask(&format!("gate-ask: {}", gate.display()))).await;
+    daemon.wait_event(&session, "before-gate chunk", |e| chunk(e, "before-gate"));
     let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
     daemon.sigterm();
     drop(client);
@@ -30,10 +40,16 @@ async fn a_cleared_grants_live_agent_is_ended_not_adopted_and_its_chat_asks() {
     std::fs::write(&path, meta.to_string()).unwrap();
 
     daemon.start();
-    let first = daemon.wait_event(&session, "grant_cleared or the agent's answer", |e| {
-        e["kind"] == "grant_cleared" || chunk(e, "chose yes")
+    let first = daemon.wait_event(&session, "grant_cleared or host_adopted", |e| {
+        e["kind"] == "grant_cleared" || e["kind"] == "host_adopted"
     });
-    assert_eq!(first["kind"], "grant_cleared", "the old grant answered the agent: {first}");
+    if first["kind"] == "host_adopted" {
+        release(&gate);
+        let answer = daemon.wait_event(&session, "the agent's ask", |e| {
+            e["kind"] == "permission_request" || e["kind"] == "permission_auto"
+        });
+        panic!("the cleared chat's host was adopted, and its ask got {answer}");
+    }
     assert_eq!(first["msg"]["hostEnded"], true, "{first}");
     assert!(gone_within(harness_pid, Duration::from_secs(10)), "the agent still runs");
     let saved: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
@@ -45,11 +61,9 @@ async fn a_cleared_grants_live_agent_is_ended_not_adopted_and_its_chat_asks() {
     // Its next start asks.
     let mut rpc = daemon.rpc().await;
     rpc.send("session/prompt", ask("ask: again")).await;
-    daemon.wait_event(&session, "a new permission_request", |e| {
-        e["kind"] == "permission_request" && e.to_string().contains("again")
-    });
+    daemon.wait_event(&session, "a permission_request", |e| e["kind"] == "permission_request");
     let events = daemon.events(&session);
-    for kind in ["host_adopted", "permission_auto", "permission_reissued"] {
+    for kind in ["host_adopted", "permission_auto"] {
         assert!(!events.iter().any(|e| e["kind"] == kind), "{kind}: {events:#?}");
     }
 }
