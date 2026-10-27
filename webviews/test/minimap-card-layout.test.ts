@@ -149,7 +149,11 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
             row("summary-short", "turnSummary", undefined, { status: "completed" }),
           ],
           [
-            row("user-long", "user", "First prompt line\nSecond prompt line\nThird prompt line"),
+            row(
+              "user-long",
+              "user",
+              "First prompt line\nSecond prompt line\nThird prompt line\nFourth line is beyond the cap",
+            ),
             row(
               "reply-long",
               "assistant",
@@ -184,6 +188,7 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
           return {
             card: card.height,
             prompt: prompt.height,
+            promptScroll: (node.querySelector(".acpmux-minimap__prompt") as HTMLElement).scrollHeight,
             reply: reply.height,
             text: node.querySelector(".acpmux-minimap__prompt")?.textContent ?? "",
           };
@@ -195,9 +200,10 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
       expect(short.card).toBeLessThan(166);
       expect(long.prompt).toBeGreaterThan(short.prompt);
       expect(long.prompt).toBeLessThanOrEqual(60);
+      expect(long.promptScroll).toBeGreaterThan(long.prompt + 1);
       expect(long.reply).toBeGreaterThanOrEqual(40);
       expect(long.card).toBeLessThanOrEqual(166);
-      expect(long.text).toBe("First prompt line\nSecond prompt line\nThird prompt line");
+      expect(long.text).toContain("Fourth line is beyond the cap");
     } finally {
       await page.close();
     }
