@@ -11,9 +11,7 @@
     "ref": "$RUN",
     "artifact": "$RUN"
   },
-  "environment": {
-    "engine": "chromium"
-  },
+  "environment": {},
   "fixture": {
     "seed": "live.reopen-closed-history-chromium",
     "network": "offline",
@@ -55,9 +53,9 @@
         ]
       },
       "waitFor": {
-        "pointer": "/tabs/panes/0/tabs/0/loading",
+        "pointer": "/tabs/panes/0/tabs/0/loadState",
         "maxMs": 15000,
-        "equals": false
+        "equals": "finished"
       },
       "checkpoint": [
         "before",
@@ -195,7 +193,7 @@
     "the driver resets the session before the next case (app_reset.py)"
   ],
   "untested": [
-    "the same across a quit and relaunch: driver_app.py has no app restart step",
+    "the same across a quit and relaunch: driver_app.py has no app restart step (p15-oracle-351)",
     "the page's own report of what it shows: the script's server counts each document's path"
   ]
 }

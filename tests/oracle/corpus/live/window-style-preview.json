@@ -11,9 +11,7 @@
     "ref": "$RUN",
     "artifact": "$RUN"
   },
-  "environment": {
-    "engine": "none"
-  },
+  "environment": {},
   "fixture": {
     "seed": "live.window-style-preview",
     "network": "offline",
@@ -67,13 +65,14 @@
         "before",
         "turn",
         "settled"
-      ]
+      ],
+      "note": "Cmd-Shift-P opens the palette"
     },
     {
       "id": "query",
       "op": "key",
       "target": {
-        "window": "current"
+        "overlay": "palette"
       },
       "args": {
         "keys": [
@@ -96,19 +95,33 @@
         "noReceiptReason": "typed text goes to the focused field or terminal, not to an action"
       },
       "waitFor": {
-        "pointer": "/overlays/palette/topIds",
+        "pointer": "/overlays/palette/querySha256",
         "maxMs": 10000,
-        "predicate": "nonEmpty"
+        "equals": "sha256:ddbcead0685b2e3f4cb0d66d16fecf91e0c33113c8dd8aa8f5fb37302d4fa4aa"
       },
       "checkpoint": [
         "settled"
-      ]
+      ],
+      "note": "the palette's field holds 'window style'"
+    },
+    {
+      "id": "query-lists-appearance-chromestyle-default",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/overlays/palette/topIds",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "action:appearance.chromeStyle.default"
+        }
+      },
+      "note": "the query's ranked rows list appearance.chromeStyle.default"
     },
     {
       "id": "down-1",
       "op": "key",
       "target": {
-        "window": "current"
+        "overlay": "palette"
       },
       "args": {
         "keys": [
@@ -117,11 +130,15 @@
       },
       "expect": {
         "outcome": "ok",
-        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+        "noReceiptReason": "the palette panel's own key handler takes it (PaletteController.handleKeyDown, PaletteModel.handle), not a perform turn of the registry; the settled facets are the check"
+      },
+      "waitFor": {
+        "pointer": "/overlays/palette/selectedIndex",
+        "maxMs": 10000,
+        "predicate": "changed"
       },
       "checkpoint": [
         "before",
-        "turn",
         "settled"
       ],
       "note": "the selection moves; a Window Style row previews its style and writes nothing"
@@ -130,7 +147,7 @@
       "id": "down-2",
       "op": "key",
       "target": {
-        "window": "current"
+        "overlay": "palette"
       },
       "args": {
         "keys": [
@@ -139,11 +156,15 @@
       },
       "expect": {
         "outcome": "ok",
-        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+        "noReceiptReason": "the palette panel's own key handler takes it (PaletteController.handleKeyDown, PaletteModel.handle), not a perform turn of the registry; the settled facets are the check"
+      },
+      "waitFor": {
+        "pointer": "/overlays/palette/selectedIndex",
+        "maxMs": 10000,
+        "predicate": "changed"
       },
       "checkpoint": [
         "before",
-        "turn",
         "settled"
       ],
       "note": "the selection moves; a Window Style row previews its style and writes nothing"
@@ -152,7 +173,7 @@
       "id": "down-3",
       "op": "key",
       "target": {
-        "window": "current"
+        "overlay": "palette"
       },
       "args": {
         "keys": [
@@ -161,11 +182,15 @@
       },
       "expect": {
         "outcome": "ok",
-        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+        "noReceiptReason": "the palette panel's own key handler takes it (PaletteController.handleKeyDown, PaletteModel.handle), not a perform turn of the registry; the settled facets are the check"
+      },
+      "waitFor": {
+        "pointer": "/overlays/palette/selectedIndex",
+        "maxMs": 10000,
+        "predicate": "changed"
       },
       "checkpoint": [
         "before",
-        "turn",
         "settled"
       ],
       "note": "the selection moves; a Window Style row previews its style and writes nothing"
@@ -174,16 +199,17 @@
       "id": "escape",
       "op": "key",
       "target": {
-        "window": "current"
+        "overlay": "palette"
       },
       "args": {
         "keys": [
+          "escape",
           "escape"
         ]
       },
       "expect": {
         "outcome": "ok",
-        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+        "noReceiptReason": "the palette panel's own key handler takes it (PaletteController.handleKeyDown, PaletteModel.handle), not a perform turn of the registry; the settled facets are the check"
       },
       "waitFor": {
         "pointer": "/overlays/palette/open",
@@ -192,9 +218,9 @@
       },
       "checkpoint": [
         "before",
-        "turn",
         "settled"
-      ]
+      ],
+      "note": "the first Escape clears the query, the second closes the palette and puts the committed style back"
     },
     {
       "id": "reopen",
@@ -220,13 +246,14 @@
         "before",
         "turn",
         "settled"
-      ]
+      ],
+      "note": "Cmd-Shift-P opens the palette"
     },
     {
       "id": "query-again",
       "op": "key",
       "target": {
-        "window": "current"
+        "overlay": "palette"
       },
       "args": {
         "keys": [
@@ -241,6 +268,11 @@
           "t",
           "y",
           "l",
+          "e",
+          "space",
+          "b",
+          "a",
+          "r",
           "e"
         ]
       },
@@ -249,41 +281,30 @@
         "noReceiptReason": "typed text goes to the focused field or terminal, not to an action"
       },
       "waitFor": {
-        "pointer": "/overlays/palette/topIds",
+        "pointer": "/overlays/palette/querySha256",
         "maxMs": 10000,
-        "predicate": "nonEmpty"
+        "equals": "sha256:849d477af342efb351e987188f883d8123031c4fcbbb661c111615823c9c060d"
       },
       "checkpoint": [
-        "settled"
-      ]
-    },
-    {
-      "id": "pick",
-      "op": "key",
-      "target": {
-        "window": "current"
-      },
-      "args": {
-        "keys": [
-          "down"
-        ]
-      },
-      "expect": {
-        "outcome": "ok",
-        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
-      },
-      "checkpoint": [
-        "before",
-        "turn",
         "settled"
       ],
-      "note": "the second row: a Window Style other than the committed default"
+      "note": "the palette's field holds 'window style bare'"
+    },
+    {
+      "id": "query-again-top",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/overlays/palette/topIds/0",
+        "maxMs": 10000,
+        "equals": "action:appearance.chromeStyle.bare"
+      },
+      "note": "the query's ranked rows put appearance.chromeStyle.bare first"
     },
     {
       "id": "commit",
       "op": "key",
       "target": {
-        "window": "current"
+        "overlay": "palette"
       },
       "args": {
         "keys": [
@@ -292,7 +313,7 @@
       },
       "expect": {
         "outcome": "ok",
-        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+        "noReceiptReason": "the palette panel's own key handler takes it (PaletteController.handleKeyDown, PaletteModel.handle), not a perform turn of the registry; the settled facets are the check"
       },
       "waitFor": {
         "pointer": "/settings/effectiveSha256",
@@ -301,16 +322,25 @@
       },
       "checkpoint": [
         "before",
-        "turn",
         "settled"
       ],
-      "note": "Return writes appearance.chromeStyle and closes the palette"
+      "note": "Return on Window Style: Bare writes appearance.chromeStyle"
+    },
+    {
+      "id": "commit-closed",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/overlays/palette/open",
+        "maxMs": 10000,
+        "equals": false
+      },
+      "note": "running the row closes the palette"
     }
   ],
   "invariants": [
     "converted from scripts/cmux-next/window-style-preview-live.py (p15-oracle-225); the script stays, and scripts/cmux-next/oracle/live-map.json links it to this case",
     "/settings/effectiveSha256 and /settings/nonDefaultKeys are the same at every checkpoint from `committed` through `escape`: a preview writes nothing",
-    "after `commit` /settings/nonDefaultKeys holds appearance.chromeStyle and the palette is closed"
+    "after `commit` /settings/nonDefaultKeys holds appearance.chromeStyle (bare) and the palette is closed"
   ],
   "teardown": [
     "the driver quits the tagged app it launched and ends the tag's daemons (TagTeardown)",

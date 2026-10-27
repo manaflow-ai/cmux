@@ -11,9 +11,7 @@
     "ref": "$RUN",
     "artifact": "$RUN"
   },
-  "environment": {
-    "engine": "none"
-  },
+  "environment": {},
   "fixture": {
     "seed": "live.close-all-workspaces",
     "network": "offline",
@@ -148,13 +146,14 @@
         "before",
         "turn",
         "settled"
-      ]
+      ],
+      "note": "Cmd-Shift-P opens the palette"
     },
     {
       "id": "palette-look-query",
       "op": "key",
       "target": {
-        "window": "current"
+        "overlay": "palette"
       },
       "args": {
         "keys": [
@@ -185,28 +184,56 @@
         "noReceiptReason": "typed text goes to the focused field or terminal, not to an action"
       },
       "waitFor": {
-        "pointer": "/overlays/palette/topIds",
+        "pointer": "/overlays/palette/querySha256",
         "maxMs": 10000,
-        "predicate": "nonEmpty"
+        "equals": "sha256:238f8d1ebb930e5c9f3c39e1b8e755947fd71429ffb7d238e36454fe4d777366"
       },
       "checkpoint": [
         "settled"
-      ]
+      ],
+      "note": "the palette's field holds 'close all workspaces'"
     },
     {
-      "id": "palette-look-escape",
+      "id": "palette-look-query-lists-workspace-closeall",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/overlays/palette/topIds",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "action:workspace.closeAll"
+        }
+      },
+      "note": "the query's ranked rows list workspace.closeAll"
+    },
+    {
+      "id": "palette-look-query-lists-workspace-closeallinallwindows",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/overlays/palette/topIds",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "action:workspace.closeAllInAllWindows"
+        }
+      },
+      "note": "the query's ranked rows list workspace.closeAllInAllWindows"
+    },
+    {
+      "id": "palette-look-close",
       "op": "key",
       "target": {
-        "window": "current"
+        "overlay": "palette"
       },
       "args": {
         "keys": [
+          "escape",
           "escape"
         ]
       },
       "expect": {
         "outcome": "ok",
-        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+        "noReceiptReason": "the palette panel's own key handler takes it (PaletteController.handleKeyDown, PaletteModel.handle), not a perform turn of the registry; the settled facets are the check"
       },
       "waitFor": {
         "pointer": "/overlays/palette/open",
@@ -215,10 +242,9 @@
       },
       "checkpoint": [
         "before",
-        "turn",
         "settled"
       ],
-      "note": "the palette lists Close All Workspaces and Close All Workspaces in All Windows"
+      "note": "the first Escape clears the query, the second closes the palette"
     },
     {
       "id": "script-refused",
@@ -236,7 +262,6 @@
       },
       "checkpoint": [
         "before",
-        "turn",
         "settled"
       ],
       "note": "a script's run of a destructive action without confirm is refused"
@@ -287,13 +312,14 @@
         "before",
         "turn",
         "settled"
-      ]
+      ],
+      "note": "Cmd-Shift-P opens the palette"
     },
     {
       "id": "person-close-query",
       "op": "key",
       "target": {
-        "window": "current"
+        "overlay": "palette"
       },
       "args": {
         "keys": [
@@ -324,19 +350,30 @@
         "noReceiptReason": "typed text goes to the focused field or terminal, not to an action"
       },
       "waitFor": {
-        "pointer": "/overlays/palette/topIds",
+        "pointer": "/overlays/palette/querySha256",
         "maxMs": 10000,
-        "predicate": "nonEmpty"
+        "equals": "sha256:238f8d1ebb930e5c9f3c39e1b8e755947fd71429ffb7d238e36454fe4d777366"
       },
       "checkpoint": [
         "settled"
-      ]
+      ],
+      "note": "the palette's field holds 'close all workspaces'"
+    },
+    {
+      "id": "person-close-query-top",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/overlays/palette/topIds/0",
+        "maxMs": 10000,
+        "equals": "action:workspace.closeAll"
+      },
+      "note": "the query's ranked rows put workspace.closeAll first"
     },
     {
       "id": "person-close-return",
       "op": "key",
       "target": {
-        "window": "current"
+        "overlay": "palette"
       },
       "args": {
         "keys": [
@@ -345,7 +382,7 @@
       },
       "expect": {
         "outcome": "ok",
-        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+        "noReceiptReason": "the palette panel's own key handler takes it (PaletteController.handleKeyDown, PaletteModel.handle), not a perform turn of the registry; the settled facets are the check"
       },
       "waitFor": {
         "pointer": "/topology/topology/workspaces",
@@ -354,10 +391,19 @@
       },
       "checkpoint": [
         "before",
-        "turn",
         "settled"
       ],
       "note": "a person's run (Return on the top row) asks nothing for idle terminals and closes the window's four workspaces, with the workspaces-closed undo toast"
+    },
+    {
+      "id": "person-close-closed",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/overlays/palette/open",
+        "maxMs": 10000,
+        "equals": false
+      },
+      "note": "running the row closes the palette"
     },
     {
       "id": "make-epsilon",
@@ -590,7 +636,7 @@
   ],
   "untested": [
     "the close question while a terminal runs `sleep` and its Cancel: no facet holds a terminal's foreground program, so no step can wait until sleep runs",
-    "the toast's Undo: debug.toast undo has no case step and the toast's button needs a pointer",
+    "the toast's Undo: debug.toast undo has no case step and the toast's button needs a pointer (p15-oracle-350)",
     "`cmux mcp serve` tools/list: driver_app.py's mcp step sends tools/call only"
   ]
 }

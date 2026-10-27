@@ -273,6 +273,10 @@
         "terminal": {"$ref": "#/$defs/handle"},
         "browser": {"$ref": "#/$defs/handle"},
         "agent": {"$ref": "#/$defs/handle"},
+        "overlay": {
+          "enum": ["palette"],
+          "description": "key steps only: the open overlay panel that takes the keys, as a person's keys go to the command palette while it is the key panel (debug.key target palette). It routes keys and names no object."
+        },
         "process": {
           "enum": ["app", "daemon", "holder", "renderer", "gpu", "browser", "utility"],
           "description": "The process a kill or restart step acts on."

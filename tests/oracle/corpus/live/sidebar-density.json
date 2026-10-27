@@ -11,9 +11,7 @@
     "ref": "$RUN",
     "artifact": "$RUN"
   },
-  "environment": {
-    "engine": "none"
-  },
+  "environment": {},
   "fixture": {
     "seed": "live.sidebar-density",
     "network": "offline",
@@ -220,6 +218,6 @@
     "row heights, padding and the one-line Comfortable layout (debug.sidebar_rows frames): no snapshot-v1 facet holds row geometry",
     "status glyphs of done and working rows: OSC 7501 records are in no facet the app can wait on",
     "the favicon tab row of a web workspace and the group rows",
-    "the sidebar background menu's Options folder: no step opens a context menu"
+    "the sidebar background menu's Options folder: no step opens a context menu (p15-oracle-350)"
   ]
 }

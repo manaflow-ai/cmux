@@ -11,9 +11,7 @@
     "ref": "$RUN",
     "artifact": "$RUN"
   },
-  "environment": {
-    "engine": "none"
-  },
+  "environment": {},
   "fixture": {
     "seed": "live.shortcut-hint-digits",
     "network": "offline",

@@ -11,9 +11,7 @@
     "ref": "$RUN",
     "artifact": "$RUN"
   },
-  "environment": {
-    "engine": "chromium"
-  },
+  "environment": {},
   "fixture": {
     "seed": "live.print-chromium",
     "network": "offline",
@@ -55,9 +53,9 @@
         ]
       },
       "waitFor": {
-        "pointer": "/tabs/panes/0/tabs/0/loading",
+        "pointer": "/tabs/panes/0/tabs/0/loadState",
         "maxMs": 15000,
-        "equals": false
+        "equals": "finished"
       },
       "checkpoint": [
         "before",

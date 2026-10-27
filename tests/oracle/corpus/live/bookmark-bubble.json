@@ -11,9 +11,7 @@
     "ref": "$RUN",
     "artifact": "$RUN"
   },
-  "environment": {
-    "engine": "webkit"
-  },
+  "environment": {},
   "fixture": {
     "seed": "live.bookmark-bubble",
     "network": "offline",
@@ -53,9 +51,9 @@
         ]
       },
       "waitFor": {
-        "pointer": "/tabs/panes/0/tabs/0/loading",
+        "pointer": "/tabs/panes/0/tabs/0/loadState",
         "maxMs": 15000,
-        "equals": false
+        "equals": "finished"
       },
       "checkpoint": [
         "before",
@@ -153,7 +151,7 @@
   ],
   "untested": [
     "the card's frame under the star and inside the window (debug.window_list)",
-    "a click outside closes it: no pointer step",
+    "a click outside closes it: no pointer step (p15-oracle-350)",
     "a star pressed before the page has a title, Page Info on the same host"
   ]
 }

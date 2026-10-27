@@ -11,9 +11,7 @@
     "ref": "$RUN",
     "artifact": "$RUN"
   },
-  "environment": {
-    "engine": "webkit"
-  },
+  "environment": {},
   "fixture": {
     "seed": "live.print-webkit",
     "network": "offline",
@@ -54,9 +52,9 @@
         ]
       },
       "waitFor": {
-        "pointer": "/tabs/panes/0/tabs/0/loading",
+        "pointer": "/tabs/panes/0/tabs/0/loadState",
         "maxMs": 15000,
-        "equals": false
+        "equals": "finished"
       },
       "checkpoint": [
         "before",
@@ -103,7 +101,7 @@
       },
       "expect": {
         "outcome": "ok",
-        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+        "noReceiptReason": "the system print sheet answers it (AppKit's sheet, not the app's key router), so no perform turn runs; the settled facets are the check"
       },
       "waitFor": {
         "pointer": "/focus/windows/0/hasSheet",
@@ -112,7 +110,6 @@
       },
       "checkpoint": [
         "before",
-        "turn",
         "settled"
       ]
     }

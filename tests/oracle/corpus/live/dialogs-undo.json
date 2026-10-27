@@ -11,9 +11,7 @@
     "ref": "$RUN",
     "artifact": "$RUN"
   },
-  "environment": {
-    "engine": "none"
-  },
+  "environment": {},
   "fixture": {
     "seed": "live.dialogs-undo",
     "network": "offline",
@@ -115,13 +113,14 @@
         "before",
         "turn",
         "settled"
-      ]
+      ],
+      "note": "Cmd-Shift-P opens the palette"
     },
     {
       "id": "close-group-query",
       "op": "key",
       "target": {
-        "window": "current"
+        "overlay": "palette"
       },
       "args": {
         "keys": [
@@ -157,19 +156,30 @@
         "noReceiptReason": "typed text goes to the focused field or terminal, not to an action"
       },
       "waitFor": {
-        "pointer": "/overlays/palette/topIds",
+        "pointer": "/overlays/palette/querySha256",
         "maxMs": 10000,
-        "predicate": "nonEmpty"
+        "equals": "sha256:49fe6943fbadebeb79861a51cf006a6af11fd2f0c12ac60a6cc70a79a717b266"
       },
       "checkpoint": [
         "settled"
-      ]
+      ],
+      "note": "the palette's field holds 'close workspaces in group'"
+    },
+    {
+      "id": "close-group-query-top",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/overlays/palette/topIds/0",
+        "maxMs": 10000,
+        "equals": "action:workspaceGroup.closeWorkspaces"
+      },
+      "note": "the query's ranked rows put workspaceGroup.closeWorkspaces first"
     },
     {
       "id": "close-group-return",
       "op": "key",
       "target": {
-        "window": "current"
+        "overlay": "palette"
       },
       "args": {
         "keys": [
@@ -178,7 +188,7 @@
       },
       "expect": {
         "outcome": "ok",
-        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+        "noReceiptReason": "the palette panel's own key handler takes it (PaletteController.handleKeyDown, PaletteModel.handle), not a perform turn of the registry; the settled facets are the check"
       },
       "waitFor": {
         "pointer": "/topology/topology/workspaces",
@@ -187,10 +197,19 @@
       },
       "checkpoint": [
         "before",
-        "turn",
         "settled"
       ],
       "note": "Close Workspaces in Group asks nothing for idle terminals and shows the workspace-group-closed toast"
+    },
+    {
+      "id": "close-group-closed",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/overlays/palette/open",
+        "maxMs": 10000,
+        "equals": false
+      },
+      "note": "running the row closes the palette"
     },
     {
       "id": "make-tab-group",
@@ -247,13 +266,14 @@
         "before",
         "turn",
         "settled"
-      ]
+      ],
+      "note": "Cmd-Shift-P opens the palette"
     },
     {
       "id": "tab-group-query",
       "op": "key",
       "target": {
-        "window": "current"
+        "overlay": "palette"
       },
       "args": {
         "keys": [
@@ -277,19 +297,30 @@
         "noReceiptReason": "typed text goes to the focused field or terminal, not to an action"
       },
       "waitFor": {
-        "pointer": "/overlays/palette/topIds",
+        "pointer": "/overlays/palette/querySha256",
         "maxMs": 10000,
-        "predicate": "nonEmpty"
+        "equals": "sha256:69ea97c382a887553bd8b17ee4426ab583f1688d13fe77367e06b164960bf20b"
       },
       "checkpoint": [
         "settled"
-      ]
+      ],
+      "note": "the palette's field holds 'new tab group'"
+    },
+    {
+      "id": "tab-group-query-top",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/overlays/palette/topIds/0",
+        "maxMs": 10000,
+        "equals": "action:tabGroup.create"
+      },
+      "note": "the query's ranked rows put tabGroup.create first"
     },
     {
       "id": "tab-group-return",
       "op": "key",
       "target": {
-        "window": "current"
+        "overlay": "palette"
       },
       "args": {
         "keys": [
@@ -298,14 +329,23 @@
       },
       "expect": {
         "outcome": "ok",
-        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+        "noReceiptReason": "the palette panel's own key handler takes it (PaletteController.handleKeyDown, PaletteModel.handle), not a perform turn of the registry; the settled facets are the check"
       },
       "checkpoint": [
         "before",
-        "turn",
         "settled"
       ],
       "note": "New Tab Group from the shown tab (tab groups are in the daemon facet, which waitFor cannot read: the settle barrier is the wait)"
+    },
+    {
+      "id": "tab-group-closed",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/overlays/palette/open",
+        "maxMs": 10000,
+        "equals": false
+      },
+      "note": "running the row closes the palette"
     },
     {
       "id": "close-tab-group-open",
@@ -331,13 +371,14 @@
         "before",
         "turn",
         "settled"
-      ]
+      ],
+      "note": "Cmd-Shift-P opens the palette"
     },
     {
       "id": "close-tab-group-query",
       "op": "key",
       "target": {
-        "window": "current"
+        "overlay": "palette"
       },
       "args": {
         "keys": [
@@ -363,19 +404,30 @@
         "noReceiptReason": "typed text goes to the focused field or terminal, not to an action"
       },
       "waitFor": {
-        "pointer": "/overlays/palette/topIds",
+        "pointer": "/overlays/palette/querySha256",
         "maxMs": 10000,
-        "predicate": "nonEmpty"
+        "equals": "sha256:1cfbf9e61ddf25a2ec85b20fe44fd1531acae5d6eacbd43f4f3ebeab4f91da4c"
       },
       "checkpoint": [
         "settled"
-      ]
+      ],
+      "note": "the palette's field holds 'close tab group'"
+    },
+    {
+      "id": "close-tab-group-query-top",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/overlays/palette/topIds/0",
+        "maxMs": 10000,
+        "equals": "action:tabGroup.close"
+      },
+      "note": "the query's ranked rows put tabGroup.close first"
     },
     {
       "id": "close-tab-group-return",
       "op": "key",
       "target": {
-        "window": "current"
+        "overlay": "palette"
       },
       "args": {
         "keys": [
@@ -384,7 +436,7 @@
       },
       "expect": {
         "outcome": "ok",
-        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+        "noReceiptReason": "the palette panel's own key handler takes it (PaletteController.handleKeyDown, PaletteModel.handle), not a perform turn of the registry; the settled facets are the check"
       },
       "waitFor": {
         "pointer": "/topology/tab_count",
@@ -393,10 +445,19 @@
       },
       "checkpoint": [
         "before",
-        "turn",
         "settled"
       ],
       "note": "closing the tab group asks nothing (an idle terminal) and shows the tab-closed toast"
+    },
+    {
+      "id": "close-tab-group-closed",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/overlays/palette/open",
+        "maxMs": 10000,
+        "equals": false
+      },
+      "note": "running the row closes the palette"
     }
   ],
   "invariants": [
@@ -409,7 +470,7 @@
     "the driver resets the session before the next case (app_reset.py)"
   ],
   "untested": [
-    "Undo of each toast: debug.toast undo has no case step and the toast's button needs a pointer",
+    "Undo of each toast: debug.toast undo has no case step and the toast's button needs a pointer (p15-oracle-350)",
     "Forget Machine: it needs a remote machine record (remote.connect to a host off loopback)",
     "Cmd-Q with a foreground program quits at once and a relaunch shows the terminal: no app restart step"
   ]

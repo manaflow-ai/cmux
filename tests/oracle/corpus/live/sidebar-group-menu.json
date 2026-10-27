@@ -11,9 +11,7 @@
     "ref": "$RUN",
     "artifact": "$RUN"
   },
-  "environment": {
-    "engine": "none"
-  },
+  "environment": {},
   "fixture": {
     "seed": "live.sidebar-group-menu",
     "network": "offline",
@@ -187,8 +185,8 @@
     "the driver resets the session before the next case (app_reset.py)"
   ],
   "untested": [
-    "the right-click menus' rows (debug.sidebar_rows menu_x/menu_y): no step opens a context menu",
+    "the right-click menus' rows (debug.sidebar_rows menu_x/menu_y): no step opens a context menu (p15-oracle-350)",
     "Move to Group of a second workspace: the new group's id is in no step reply a later step can reference (p15-oracle-180 seeds ids)",
-    "the group across a relaunch (phase verify): driver_app.py has no app restart step"
+    "the group across a relaunch (phase verify): driver_app.py has no app restart step (p15-oracle-351)"
   ]
 }

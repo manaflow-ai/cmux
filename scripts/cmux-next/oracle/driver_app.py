@@ -18,7 +18,7 @@ any Release bundle (it has no `debug.oracle.*`). The driver never starts, quits 
 or a `com.cmuxterm.app` bundle: bench_launch takes only `cmux DEV <tag>.app`, and the session checks again.
 
 Steps: action.run (`action.run`), key (`debug.key`, one request per keystroke, through the app's real key
-path, to the focused pane of the step's window), cli (the bundle's own `cmux --app-socket`), mcp (`cmux mcp
+path, to the focused pane of the step's window, or with `target.overlay` to that open overlay panel), cli (the bundle's own `cmux --app-socket`), mcp (`cmux mcp
 serve --all-tools` over stdio), settle (`debug.oracle.settle`), snapshot. Any step may carry `waitFor`
 (`debug.oracle.wait_for`, resolved from facet change signals; `changed` compares with the value read before the step). Checkpoints: `before`; `turn` for
 action.run and key (the turn recorder armed for that step, `debug.oracle.recorder` and `debug.oracle.turns`);
@@ -27,6 +27,10 @@ wait is one of the app's own barriers, each bounded by the case's ms times the S
 kill, restart, tui.key and advance_clock belong to other drivers and fail the case as a Crash that names them.
 So do the conditions a launch cannot apply yet: environment keys other than viewport, fixture.agent none,
 fixture.clock virtual, a named fixture handle (no seeding reaches the app) and a key aimed at a pane, tab or page.
+
+Web fixture. A case with `fixture.web` gets its own webfixture.py server (p15-oracle-222) on a loopback port the OS
+picks: every `$WEB` of the case is that origin before the first step, the server stops with the case, and its
+checkpoints are canonicalized with the origin as normalize.py's `--web`, so no snapshot holds the port.
 
 Expect: `result` is the action's own value (action.run's `result` member, never the run's sequence or ids).
 `receipt` needs the ActionEffect kind, which no app reply carries yet: the driver checks that an action ran,
@@ -41,6 +45,7 @@ Chrome reference (chromium/src):
 - ui/base/interaction/interactive_test.h, chrome/test/interaction/README.md (Kombucha): Action, WaitForState and
   Check verbs; a wait is a StateObserver on the producer's own signal, never a sleep.
 - content/public/test/browser_test_utils.h WaitForLoadStop: the checkpoint barrier waits on the page's signal.
+- net/test/embedded_test_server/embedded_test_server.h: each browser test starts its own loopback server.
 - chrome/test/base/in_process_browser_test.cc: a fresh user-data dir per launch (here: the tag's saved session
   moved aside, a scratch config, a hermetic HOME).
 
@@ -65,7 +70,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -78,6 +83,8 @@ FIXTURES = HERE / "action_fixtures"
 for _path in (str(HERE), str(SCRIPTS)):
     if _path not in sys.path:
         sys.path.insert(0, _path)
+
+import webfixture  # noqa: E402 - the sibling loopback server (p15-oracle-222), stdlib only
 
 FACETS = ("topology", "daemon", "focus", "layout", "sidebar", "tabs", "overlays", "settings", "intents", "windows",
           "history", "notifications", "agents", "terminals", "webviews", "ax", "crashes", "liveObjects", "invariants",
@@ -110,6 +117,10 @@ SOCKET_ORIGINS = ("cli", "mcp", "script", "remote")
 MODIFIERS = {"cmd": "cmd", "ctrl": "control", "opt": "option", "alt": "option", "shift": "shift"}
 # case-v1 key names -> debug.key names (DebugKey.named); function keys are not synthesized by debug.key.
 KEY_NAMES = {"plus": "+", "backspace": "delete", "delete": "forwarddelete"}
+# case-v1 target.overlay -> the debug.key target of that panel (DebugKey.send: the palette's visible panel).
+OVERLAY_KEY_TARGETS = {"palette": "palette"}
+# Target kinds that route a step and name no object (never a fixture handle).
+ROUTING_TARGETS = ("process", "overlay")
 OTHER_DRIVERS = {
     "resource.call": "driver_daemon.py (p15-oracle-023)",
     "kill": "driver_daemon.py (p15-oracle-023); app child kills are p15-oracle-188",
@@ -161,9 +172,10 @@ class LaunchSpec:
 @dataclass(frozen=True)
 class OraclePaths:
     """The session's hermetic prefixes: the root normalize.py rewrites to $ROOT (with its realpath alias) and
-    the HOME it rewrites to $HOME."""
+    the HOME it rewrites to $HOME; for a case with fixture.web, its loopback origin, rewritten to $WEB."""
 
     root: Path
+    web: Tuple[str, ...] = ()
 
     @property
     def home(self) -> Path:
@@ -174,7 +186,8 @@ class OraclePaths:
         return tuple(dict.fromkeys([str(self.root), os.path.realpath(self.root)]))
 
     def control_paths(self) -> Dict[str, List[str]]:
-        """The `paths` param of debug.oracle.snapshot, wait_for and an arming recorder."""
+        """The `paths` param of debug.oracle.snapshot, wait_for and an arming recorder. The web origin is not
+        one: the app hashes no URL, and normalize.py rewrites the `url` fields after the capture."""
         return {"root": list(self.roots), "home": [str(self.home)]}
 
 
@@ -234,8 +247,12 @@ def check_conditions(case: Mapping[str, Any]) -> None:
     for step in case.get("steps") or ():
         if step.get("op") in OTHER_DRIVERS:
             raise CaseError("Crash", other_driver(step["op"]), step.get("id"))
+        overlay = (step.get("target") or {}).get("overlay")
+        if overlay is not None and (step.get("op") != "key" or overlay not in OVERLAY_KEY_TARGETS):
+            raise CaseError("Crash", f"target.overlay {overlay!r} routes keys only: a key step to one of "
+                                     f"{', '.join(sorted(OVERLAY_KEY_TARGETS))}", step.get("id"))
         for kind, value in (step.get("target") or {}).items():
-            if kind != "process" and isinstance(value, str) and value != CURRENT and not STEP_REF.match(value):
+            if kind not in ROUTING_TARGETS and isinstance(value, str) and value != CURRENT and not STEP_REF.match(value):
                 raise CaseError("Crash", f"target.{kind} {value!r} is a named fixture identity, and no seeding "
                                          f"reaches the app yet ({SEED_TASK}); target `current` or a $step: value",
                                 step.get("id"))
@@ -296,7 +313,7 @@ def debug_key(stroke: str, step: str) -> Dict[str, Any]:
 
 def action_target(target: Mapping[str, Any], step: str) -> Optional[str]:
     """step.target as action.run's `kind:id`; `current` is the focused object (no target)."""
-    named = {k: v for k, v in target.items() if k != "process"}
+    named = {k: v for k, v in target.items() if k not in ROUTING_TARGETS}
     if not named:
         return None
     if len(named) > 1:
@@ -526,11 +543,15 @@ class CaseRun:
     def run(self) -> Dict[str, Any]:
         status, message, at = "Pass", "", None
         teardown = None
+        web = None
+        origins: Tuple[str, ...] = ()
         try:
             fixture = self.case.get("fixture") or {}
-            if fixture.get("web"):
-                raise CaseError("Crash", "driver_app has no loopback web fixture yet (fixture.web)")
             self.at = "setup"
+            if fixture.get("web"):
+                web = self.session.web_fixture()
+                origins = (self.start_web(web),)
+                self.case = web.expand(self.case)
             self.settle("sync", DEFAULT_SETTLE_MS, "setup")
             teardown = self.setup_fixture(fixture.get("setup"))
             for index, step in enumerate(self.case.get("steps") or ()):
@@ -547,6 +568,8 @@ class CaseRun:
                 except Exception as error:  # noqa: BLE001 - a fixture teardown failure fails the case
                     status = "Crash"
                     message = "; ".join(filter(None, [message, f"fixture teardown: {error!r}"]))
+            if web is not None:
+                web.stop()
         result: Dict[str, Any] = {"status": status, "message": message, "checkpoints": []}
         if at:
             result["step"] = at
@@ -558,13 +581,21 @@ class CaseRun:
             result["message"] = "; ".join(filter(None, [message, f"receipt kind not compared (the app reply has no "
                                                                  f"ActionEffect kind): {notes}"]))
         try:
-            result["checkpoints"] = self.session.canonical(self.case_id, self.state.captures)
+            result["checkpoints"] = self.session.canonical(self.case_id, self.state.captures, web=origins)
         except Exception as error:  # noqa: BLE001 - a snapshot normalize refuses is this case's Crash
             result.update(status="Crash", message="; ".join(filter(None, [message, f"snapshot refused: {error}"])))
         for checkpoint in result["checkpoints"]:
             if checkpoint["step"] in self.unchecked_receipts:
                 checkpoint["uncertain"] = True
         return result
+
+    @staticmethod
+    def start_web(web: Any) -> str:
+        """Starts the case's web fixture; its origin."""
+        try:
+            return web.start()
+        except webfixture.FixtureError as error:
+            raise CaseError("Crash", f"web fixture: {error}", "setup") from None
 
     def rpc(self, method: str, params: Optional[Mapping[str, Any]] = None) -> Any:
         """The fixtures' control call: the result, or the error object as {"error": ...}."""
@@ -739,15 +770,19 @@ class CaseRun:
         step_id = step["id"]
         target = resolve_refs(step.get("target") or {}, self.state.replies)
         # debug.key sends to the focused pane of a window (DebugKey.send reads `pane` only for a page or DevTools
-        # window): a key aimed at another object would land on whatever has focus.
-        aimed = sorted(k for k, v in target.items() if k != "window" and v != CURRENT)
+        # window), or to an open overlay's panel: a key aimed at another object would land on whatever has focus.
+        aimed = sorted(k for k, v in target.items() if k not in ("window", "overlay") and v != CURRENT)
         if aimed:
             raise CaseError("Crash", f"a key goes to the focused pane of its window; debug.key cannot aim at target."
                                      f"{', target.'.join(aimed)} (focus it in an earlier action.run step)", step_id)
         window = target.get("window", CURRENT)
         if not isinstance(window, str):
             raise CaseError("Crash", f"target.window is {window!r}, not a string", step_id)
-        where = {} if window == CURRENT else {"window": window}
+        where: Dict[str, Any] = {} if window == CURRENT else {"window": window}
+        if "overlay" in target:
+            if target["overlay"] not in OVERLAY_KEY_TARGETS:
+                raise CaseError("Crash", f"debug.key has no overlay {target['overlay']!r}", step_id)
+            where["target"] = OVERLAY_KEY_TARGETS[target["overlay"]]
         replies = []
         for stroke in step["args"]["keys"]:
             reply = self.call("debug.key", {**debug_key(stroke, step_id), **where}, step_id)
@@ -917,7 +952,7 @@ def normalize_canonicalizer(schema_path: Optional[str] = None) -> Tuple[Canonica
         raise ValueError(f"normalize.py refuses the snapshot schema, so no snapshot can be canonical: {error}") from None
 
     def canonicalize(snapshots: Sequence[Dict[str, Any]], paths: OraclePaths, labels: Sequence[str]) -> List[Any]:
-        ctx = normalize.Context(root=paths.roots, home=(str(paths.home),))
+        ctx = normalize.Context(root=paths.roots, home=(str(paths.home),), web=paths.web)
         return [r.value for r in normalize.canonicalize_case(list(snapshots), schema, ctx, list(labels))]
 
     return canonicalize, schema.doc
@@ -951,7 +986,8 @@ class AppSession:
                  canonicalizer: Optional[Tuple[Canonicalize, Dict[str, Any]]] = None,
                  run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
                  read_daemon: Callable[[str, Mapping[str, Any]], Dict[str, Any]] = read_daemon_facet,
-                 host: Callable[[], Dict[str, str]] = host_meta, root_base: Path = Path("/tmp/o")):
+                 host: Callable[[], Dict[str, str]] = host_meta, root_base: Path = Path("/tmp/o"),
+                 web_fixture: Callable[[], Any] = webfixture.WebFixture):
         app = session_ctx.get("binary")
         if not app:
             raise ValueError("the app driver needs --binary \"PATH/cmux DEV <tag>.app\" (a --config bench build)")
@@ -974,6 +1010,8 @@ class AppSession:
         self.tag = tag
         self.run = run
         self.read_daemon = read_daemon
+        # A case with fixture.web gets one of these: its own loopback server (start, expand, stop).
+        self.web_fixture = web_fixture
         self.host = host()
         root_base.mkdir(parents=True, exist_ok=True)
         self.paths = OraclePaths(Path(tempfile.mkdtemp(prefix="a", dir=str(root_base))))
@@ -1044,10 +1082,12 @@ class AppSession:
         except Exception as error:  # noqa: BLE001 - an SDK or reply failure is this case's Crash
             raise CaseError("Crash", f"daemon facet from {socket_path}: {error!r}", step) from None
 
-    def canonical(self, case_id: str, captures: Sequence[Capture]) -> List[Dict[str, Any]]:
+    def canonical(self, case_id: str, captures: Sequence[Capture], web: Sequence[str] = ()) -> List[Dict[str, Any]]:
+        """The case's checkpoints canonicalized together; `web` holds the origin of its web fixture, if any."""
         if not captures:
             return []
-        values = self.canonicalize([c.snapshot for c in captures], self.paths,
+        paths = replace(self.paths, web=tuple(web)) if web else self.paths
+        values = self.canonicalize([c.snapshot for c in captures], paths,
                                    [f"{c.step}/{c.checkpoint}" for c in captures])
         return [{"step": c.step, "checkpoint": c.checkpoint, "snapshot": v} for c, v in zip(captures, values)]
 

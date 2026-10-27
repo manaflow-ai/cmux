@@ -11,9 +11,7 @@
     "ref": "$RUN",
     "artifact": "$RUN"
   },
-  "environment": {
-    "engine": "webkit"
-  },
+  "environment": {},
   "fixture": {
     "seed": "live.error-pages-webkit",
     "network": "offline",
@@ -52,15 +50,15 @@
         ]
       },
       "waitFor": {
-        "pointer": "/tabs/panes/0/tabs/0/loading",
+        "pointer": "/tabs/panes/0/tabs/0/loadState",
         "maxMs": 15000,
-        "equals": false
+        "equals": "failed"
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "a webkit tab in front, its first load finished"
+      "note": "a webkit tab in front, its first load failed"
     },
     {
       "id": "error-page",
@@ -83,7 +81,7 @@
   ],
   "untested": [
     "a host that does not resolve and an expired certificate on a public host: they need DNS and a host off loopback",
-    "a self-signed https server's certificate interstitial: the web fixture serves http only",
+    "a self-signed https server's certificate interstitial: the web fixture serves http only (p15-oracle-352)",
     "which page the pane shows over the page (debug.browser.page_status), sampled every 0.1 s"
   ]
 }

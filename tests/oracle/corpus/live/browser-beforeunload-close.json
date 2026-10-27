@@ -11,9 +11,7 @@
     "ref": "$RUN",
     "artifact": "$RUN"
   },
-  "environment": {
-    "engine": "chromium"
-  },
+  "environment": {},
   "fixture": {
     "seed": "live.browser-beforeunload-close",
     "network": "offline",
@@ -55,9 +53,9 @@
         ]
       },
       "waitFor": {
-        "pointer": "/tabs/panes/0/tabs/0/loading",
+        "pointer": "/tabs/panes/0/tabs/0/loadState",
         "maxMs": 15000,
-        "equals": false
+        "equals": "finished"
       },
       "checkpoint": [
         "before",
@@ -147,7 +145,7 @@
       },
       "expect": {
         "outcome": "ok",
-        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+        "noReceiptReason": "the cmux dialog in front answers it (its key-hint buttons), not a perform turn of the registry; the settled facets are the check"
       },
       "waitFor": {
         "pointer": "/overlays/dialog/specId",
@@ -156,7 +154,6 @@
       },
       "checkpoint": [
         "before",
-        "turn",
         "settled"
       ],
       "note": "Cancel: the tab stays and answers"
@@ -200,7 +197,7 @@
       },
       "expect": {
         "outcome": "ok",
-        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+        "noReceiptReason": "the cmux dialog in front answers it (its key-hint buttons), not a perform turn of the registry; the settled facets are the check"
       },
       "waitFor": {
         "pointer": "/topology/tab_count",
@@ -209,7 +206,6 @@
       },
       "checkpoint": [
         "before",
-        "turn",
         "settled"
       ],
       "note": "Leave: the tab closes and no question is left"
@@ -234,9 +230,9 @@
         ]
       },
       "waitFor": {
-        "pointer": "/tabs/panes/0/tabs/0/loading",
+        "pointer": "/tabs/panes/0/tabs/0/loadState",
         "maxMs": 15000,
-        "equals": false
+        "equals": "finished"
       },
       "checkpoint": [
         "before",

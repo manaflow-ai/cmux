@@ -10,6 +10,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -50,11 +51,37 @@ class TablesTest(unittest.TestCase):
         _, _, problems = gen_live.generate(names)
         self.assertIn("print-live.py: in a table but not a live script of scripts/cmux-next", problems)
 
-    def test_exclusions_have_a_known_kind_and_a_reason(self):
+    def test_exclusions_have_a_known_kind_a_reason_and_a_task(self):
+        tasks = gen_live.work_tasks()
         for name, entry in Generated.live_map["scripts"].items():
             if entry["status"] == "excluded":
                 self.assertIn(entry["kind"], gen_live.EXCLUSION_KINDS, name)
                 self.assertGreater(len(entry["reason"]), 40, name)
+                self.assertIn(entry["task"], tasks, name)
+                self.assertNotEqual(entry["task"], gen_live.TASK, name)
+                self.assertIn(entry["task"], entry["reason"], name)
+
+    def test_an_exclusion_without_a_closing_task_is_refused(self):
+        """p15-oracle.md rule 6: every excluded script names the task that closes it."""
+        tasks = frozenset({"p15-oracle-350", gen_live.TASK})
+        reason = "it needs something no case step can do yet"
+        self.assertEqual(gen_live.exclusion_problems({"a-live.py": ("pointer", "p15-oracle-350", reason)}, tasks), [])
+        for entry, problem in (
+                (("pointer", reason), "(kind, task, reason)"),
+                (("pointer", "", reason), "the id of the task that closes it"),
+                (("pointer", "a follow-up", reason), "the id of the task that closes it"),
+                (("pointer", gen_live.TASK, reason), "closes nothing"),
+                (("pointer", "p15-oracle-999", reason), "not a task of WORK.tsv"),
+                (("nope", "p15-oracle-350", reason), "unknown exclusion kind"),
+                (("pointer", "p15-oracle-350", "short"), "needs a reason")):
+            found = gen_live.exclusion_problems({"a-live.py": entry}, tasks)
+            self.assertEqual(len(found), 1, (entry, found))
+            self.assertIn(problem, found[0])
+        with mock.patch.dict(gen_live.EXCLUSIONS, {"print-live.py": ("pointer", "", reason)}):
+            with mock.patch.dict(gen_live.CONVERSIONS, clear=False):
+                gen_live.CONVERSIONS.pop("print-live.py")
+                _, _, problems = gen_live.generate(Generated.names)
+        self.assertTrue(any(p.startswith("print-live.py: an exclusion needs the id") for p in problems), problems)
 
     def test_batches_split_the_inventory_in_eight(self):
         batches = [entry["batch"] for entry in Generated.live_map["scripts"].values()]
@@ -83,12 +110,74 @@ class CasesTest(unittest.TestCase):
             case = oracle.Case(f"live/{value['id']}", "live", Path(name), value)
             self.assertEqual(oracle.check_case(case, mutations), [], name)
 
-    def test_driver_app_accepts_every_step(self):
+    def test_driver_app_launches_and_accepts_every_case(self):
+        """launch_spec is what AppSession.run_case calls first: an environment key it cannot apply is a Crash
+        before the first step."""
         for name, value in Generated.cases.items():
-            driver_app.check_conditions(value)
+            with self.subTest(case=name):
+                self.assertEqual(value["environment"], {})
+                driver_app.launch_spec(value)
+                for step in value["steps"]:
+                    for stroke in step["args"]["keys"] if step["op"] == "key" else ():
+                        driver_app.debug_key(stroke, step["id"])
+
+    def test_an_error_step_asks_for_no_turn(self):
+        """A refused run is refused before the registry performs it (ControlRouter+ActionRun prepared()), so a
+        turn checkpoint on it is a Failure by construction (driver_app.record_turns)."""
+        for name, value in Generated.cases.items():
             for step in value["steps"]:
-                for stroke in step["args"]["keys"] if step["op"] == "key" else ():
-                    driver_app.debug_key(stroke, step["id"])
+                if step.get("expect", {}).get("outcome") == "error":
+                    self.assertNotIn("turn", step.get("checkpoint", ()), f"{name} {step['id']}")
+        refused = gen_live.act("r", "workspace.closeAll", error=gen_live.CONFIRMATION_REQUIRED)
+        self.assertEqual(refused["checkpoint"], ["before", "settled"])
+        self.assertIn("turn", gen_live.act("ok", "workspace.closeAll")["checkpoint"])
+
+    def test_keys_a_panel_answers_ask_for_no_turn(self):
+        """Keys to the palette, a cmux dialog or the print sheet run no registry perform turn."""
+        for name, value in Generated.cases.items():
+            for step in value["steps"]:
+                if step["op"] != "key":
+                    continue
+                reason = step["expect"]["noReceiptReason"]
+                if step["target"].get("overlay") or reason in (gen_live.DIALOG_KEY_NO_TURN, gen_live.SHEET_KEY_NO_TURN):
+                    self.assertNotIn("turn", step["checkpoint"], f"{name} {step['id']}")
+        with self.assertRaises(gen_live.GenError):
+            gen_live.key("k", "a", typed=True, no_turn=gen_live.PALETTE_KEY_NO_TURN)
+
+    def test_palette_keys_go_to_the_palette_panel(self):
+        """Every key between Cmd-Shift-P and the palette's close goes to its panel (target.overlay palette), and
+        typed queries are waited on as the palette's own query, never on rows the empty query already lists."""
+        for name, value in Generated.cases.items():
+            palette_open = False
+            for step in value["steps"]:
+                keys = step["args"]["keys"] if step["op"] == "key" else []
+                wait = step.get("waitFor") or {}
+                if palette_open and keys:
+                    self.assertEqual(step["target"], gen_live.PALETTE, f"{name} {step['id']}")
+                if "cmd+shift+p" in keys:
+                    palette_open = True
+                    self.assertEqual(step["target"], gen_live.TARGET, f"{name} {step['id']}")
+                if wait.get("pointer") == gen_live.PALETTE_OPEN and wait.get("equals") is False:
+                    palette_open = False
+                    if keys:
+                        self.assertEqual(keys, ["escape", "escape"], f"{name} {step['id']}: a typed query needs two")
+                if wait.get("pointer") == gen_live.PALETTE_TOP:
+                    self.assertNotEqual(wait.get("predicate"), "nonEmpty", f"{name} {step['id']}")
+                if step["op"] == "key" and step["expect"]["noReceiptReason"] == gen_live.TYPED_NO_RECEIPT \
+                        and step["target"] == gen_live.PALETTE and "waitFor" in step:
+                    self.assertEqual(wait["pointer"], gen_live.PALETTE_QUERY, f"{name} {step['id']}")
+            self.assertFalse(palette_open, f"{name}: the palette is left open or closed without a wait")
+        self.assertEqual(gen_live.query_sha256("abc"),
+                         "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+
+    def test_browser_tabs_wait_for_their_load_state(self):
+        """`loading` is false while a new tab is unloaded or idle, so a new tab waits on loadState."""
+        for name, value in Generated.cases.items():
+            for step in value["steps"]:
+                argv = step.get("args", {}).get("argv") or []
+                if step["op"] == "cli" and argv[:1] == ["tab"] and argv[1].startswith("new-"):
+                    self.assertEqual(step["waitFor"]["pointer"], f"{gen_live.FIRST_TAB}/loadState", name)
+                    self.assertIn(step["waitFor"]["equals"], ("finished", "failed"), name)
 
     def test_each_case_links_its_script(self):
         for script, entry in Generated.live_map["scripts"].items():
