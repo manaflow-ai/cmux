@@ -17,7 +17,7 @@ import Testing
         let reads = ReadGate()
         let model = RemoteTmuxFindWindowModel(environment: .init(
             candidates: { [first, second] },
-            readText: { candidate in await reads.wait(for: candidate.id) },
+            readText: { candidate, _ in await reads.wait(for: candidate.id) },
             jump: { _ in }
         ))
 
@@ -47,7 +47,7 @@ import Testing
         let reads = ReadGate()
         let model = RemoteTmuxFindWindowModel(environment: .init(
             candidates: { [a1, a2, b1] },
-            readText: { candidate in await reads.wait(for: candidate.id) },
+            readText: { candidate, _ in await reads.wait(for: candidate.id) },
             jump: { _ in }
         ))
 
@@ -63,13 +63,39 @@ import Testing
         model.close()
     }
 
+    @Test func panesTakeTheirTextFromOneSharedBudget() async throws {
+        let first = RemoteTmuxFindWindowSearchTests.pane(window: 1, name: "one", order: 0)
+        let second = RemoteTmuxFindWindowSearchTests.pane(window: 2, name: "two", order: 1)
+        var remainingAtEachRead: [Int] = []
+        let model = RemoteTmuxFindWindowModel(
+            environment: .init(
+                candidates: { [first, second] },
+                readText: { _, budget in
+                    remainingAtEachRead.append(budget.remaining)
+                    let line = String(repeating: "x", count: 80)
+                    guard budget.take(line.utf8.count) else { return nil }
+                    return RemoteTmuxPaneText(lines: [line], paneWidth: 80, isTruncated: false)
+                },
+                jump: { _ in }
+            ),
+            maximumTextBytes: 100
+        )
+
+        model.open()
+        try await waitUntil { !model.isReadingHistory }
+
+        // The second pane sees what the first left, and cannot take 80 more.
+        #expect(remainingAtEachRead == [100, 20])
+        model.close()
+    }
+
     @Test func returnJumpsToTheSelectedResultAndStopsReading() async throws {
         let first = RemoteTmuxFindWindowSearchTests.pane(window: 1, name: "build", order: 0)
         let second = RemoteTmuxFindWindowSearchTests.pane(window: 2, name: "builder", order: 1)
         var jumped: [RemoteTmuxFindWindowResult] = []
         let model = RemoteTmuxFindWindowModel(environment: .init(
             candidates: { [first, second] },
-            readText: { _ in nil },
+            readText: { _, _ in nil },
             jump: { jumped.append($0) }
         ))
 
@@ -87,7 +113,7 @@ import Testing
         let pane = RemoteTmuxFindWindowSearchTests.pane(window: 1, name: "shell", order: 0)
         let model = RemoteTmuxFindWindowModel(environment: .init(
             candidates: { [pane] },
-            readText: { _ in RemoteTmuxPaneText(lines: ["shell output"], paneWidth: 80, isTruncated: false) },
+            readText: { _, _ in RemoteTmuxPaneText(lines: ["shell output"], paneWidth: 80, isTruncated: false) },
             jump: { _ in }
         ))
         model.open()
@@ -105,7 +131,7 @@ import Testing
     @Test func theSlotClosesItsModelWhenAnotherOverlayTakesOver() {
         let model = RemoteTmuxFindWindowModel(environment: .init(
             candidates: { [] },
-            readText: { _ in nil },
+            readText: { _, _ in nil },
             jump: { _ in }
         ))
         var slot = RemoteTmuxFindWindowSlot()
@@ -124,8 +150,8 @@ import Testing
     }
 
     @Test func presentingAgainClosesTheEarlierModel() {
-        let first = RemoteTmuxFindWindowModel(environment: .init(candidates: { [] }, readText: { _ in nil }, jump: { _ in }))
-        let second = RemoteTmuxFindWindowModel(environment: .init(candidates: { [] }, readText: { _ in nil }, jump: { _ in }))
+        let first = RemoteTmuxFindWindowModel(environment: .init(candidates: { [] }, readText: { _, _ in nil }, jump: { _ in }))
+        let second = RemoteTmuxFindWindowModel(environment: .init(candidates: { [] }, readText: { _, _ in nil }, jump: { _ in }))
         var slot = RemoteTmuxFindWindowSlot()
         slot.present(first)
         first.open()
