@@ -28,6 +28,8 @@ struct Daemon {
     debounce_ms: u64,
     /// The readiness line of the current run (it has the `webUrl`).
     ready: String,
+    /// The daemon's `CMUX_ENABLE_FEATURES`.
+    features: &'static str,
 }
 
 fn profile(tag: &str) -> Value {
@@ -50,6 +52,17 @@ impl Daemon {
 
     /// `with_fakeb` with the cmux settings file `settings`, written before the first start.
     fn with_settings(tag: &str, debounce_ms: u64, fakeb: &Value, settings: Option<Value>) -> Self {
+        Self::with_features(tag, debounce_ms, fakeb, settings, "")
+    }
+
+    /// `with_settings` with the daemon features `features` on.
+    fn with_features(
+        tag: &str,
+        debounce_ms: u64,
+        fakeb: &Value,
+        settings: Option<Value>,
+        features: &'static str,
+    ) -> Self {
         // Short: socket paths must stay under the macOS limit.
         let home = std::env::temp_dir().join(format!("asp-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
@@ -60,6 +73,7 @@ impl Daemon {
             home,
             debounce_ms,
             ready: String::new(),
+            features,
         };
         daemon.write_config(fakeb);
         if let Some(settings) = settings {
@@ -98,6 +112,7 @@ impl Daemon {
             // Each marker file here stalls one agent host's hello (debug
             // builds' seam): `stall_hellos`.
             .env("ACPMUX_TEST_HOST_HELLO_STALL_DIR", self.stall_dir())
+            .env("CMUX_ENABLE_FEATURES", self.features)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -375,6 +390,47 @@ async fn a_hinted_switch_takes_a_hidden_session_that_was_never_listed() {
     eprintln!("session/new back to the last-used harness: {back:?}");
     assert!(taken(&daemon, &third));
     assert_runs_on_pooled_host(&daemon, &third, &pooled_fake);
+}
+
+/// Whether `pid` runs best-effort (`process_priority`'s read-back).
+fn best_effort(pid: &Value) -> bool {
+    let pid = u32::try_from(pid.as_i64().expect("a pid")).unwrap();
+    cmux_tui_platform::process_priority::is_background(pid).expect("read the priority")
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pooled_agent_runs_best_effort_until_a_session_takes_it() {
+    let feature = "idleHelperBackgroundPriority";
+    let daemon = Daemon::with_features("prio", 0, &profile("b"), None, feature);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    assert_eq!(warmed["accepted"], true, "{warmed}");
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let pooled = daemon.pool_records()[0].clone();
+    // Where a lowered priority could not be raised again (Linux without root
+    // or RLIMIT_NICE) the daemon changes nothing.
+    let lowers = cmux_tui_platform::process_priority::reversible();
+    assert_eq!(best_effort(&pooled["host_pid"]), lowers, "{pooled}");
+    assert_eq!(best_effort(&pooled["harness_pid"]), lowers, "{pooled}");
+
+    // The claim serves the entry only once it is back: normal when session/new answers.
+    let (session, _) = new_session(&mut rpc, &home, "fakeb").await;
+    assert!(taken(&daemon, &session));
+    assert_runs_on_pooled_host(&daemon, &session, &pooled);
+    assert!(!best_effort(&pooled["host_pid"]), "{pooled}");
+    assert!(!best_effort(&pooled["harness_pid"]), "{pooled}");
+    // The connected daemon itself runs at its normal priority.
+    let daemon_pid = daemon.child.as_ref().unwrap().id();
+    assert!(!cmux_tui_platform::process_priority::is_background(daemon_pid).unwrap());
+    let reply = rpc
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "hello"}]}),
+        )
+        .await;
+    assert_eq!(reply["stopReason"], "end_turn", "{reply}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
