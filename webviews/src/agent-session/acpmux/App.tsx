@@ -9464,14 +9464,22 @@ function AcpmuxPane() {
   const pane = !knowsWhatItIs ? (
     // Clear until it knows: the pane's background shows, never a chat screen a New Tab replaces.
     <ShortcutsContext.Provider value={shortcuts}>
-      <section ref={setShell} className="acpmux-shell" aria-busy="true" />
+      <section
+        ref={setShell}
+        className="acpmux-shell"
+        data-tab-row={inTabRow ? "" : undefined}
+        aria-busy="true"
+        style={inTabRow ? tabRowStyle(tabRow) : undefined}
+      />
     </ShortcutsContext.Provider>
   ) : (
     <ShortcutsContext.Provider value={shortcuts}>
       <section
         ref={setShell}
         className="acpmux-shell"
+        data-tab-row={inTabRow ? "" : undefined}
         aria-label={composerSnapshot.summary?.title || t("header.agentChat")}
+        style={inTabRow ? tabRowStyle(tabRow) : undefined}
       >
         <div
           className="acpmux-main"
