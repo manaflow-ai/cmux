@@ -140,6 +140,9 @@ nonisolated extension ActionSurfaceCatalog {
         "fileExplorerMoveToTrash": [p(.fileExplorerRow, .close, 0)],
         "notifications.toggleWorkspaceMute": [p(.workspaceRow, .identity, 113, folder: .options, label: ObjectMenuLabels.toggleWorkspaceMute)],
         "notifications.dismissHighlight": [p(.workspaceRow, .identity, 111, folder: .options)],
+        "notifications.setWorkspaceSound": [p(.workspaceRow, .identity, 116, .choices, folder: .options, label: ObjectMenuLabels.notificationSound)],
+        "notifications.previewSound": [p(.workspaceRow, .identity, 117, folder: .options)],
+        "notifications.setGroupSound": [p(.workspaceGroup, .identity, 110, .choices, folder: .options, label: ObjectMenuLabels.notificationSound)],
         "palette.newAgentChat": [p(.newTab, .create, 2)],
         // A tab kind: listed with the others, before the profile and New Tab Page rows (c0c88e7b24ff).
         "macScreen.open": [p(.newTab, .create, 3)],

@@ -126,18 +126,23 @@ WEB_GENERATED = (
     "webviews/src/pages/diff/generated/locales/*",
     "webviews/src/pages/diff/generated/localeLoaders.ts",
 )
+def settings_exports() -> tuple[str, ...]:
+    """scripts/cmux-next/settings-exports.txt, the one list of what the settings export writes, so
+    the settings half of SWIFT_GENERATED cannot drift from it. Its own copy was already short by
+    docs/mdm/cmux-example.mobileconfig, which made that export look rebuildable anywhere (review
+    of #23915)."""
+    text = (TOOLS_ROOT / "scripts/cmux-next/settings-exports.txt").read_text(encoding="utf-8")
+    listed = [line.split("#", 1)[0].strip() for line in text.splitlines()]
+    return tuple(path for path in listed if path)
+
+
 # Written by Swift tests under CMUX_UPDATE_*; only a mini can rebuild them.
 SWIFT_GENERATED = (
     "plans/cmux-next/action-surfaces.json",
     "plans/cmux-next/actions.md",
     "plans/cmux-next/links.json",
     "plans/cmux-next/daemon-capabilities.json",
-    "schemas/settings/settings-schema.json",
-    "docs/mdm/com.manaflow.cmux.json",
-    "docs/mdm/com.manaflow.cmux.plist",
-    "docs/mdm/com.manaflow.cmux.intune.plist",
-    "docs/mdm/managed-preferences.md",
-    "schemas/settings-export/settings-schema.sources.sha256",
+    *settings_exports(),
     "Packages/macOS/CmuxNext/ci-target-graph.json",
 )
 # cmux-tui/bindings/codegen/generate.py output.

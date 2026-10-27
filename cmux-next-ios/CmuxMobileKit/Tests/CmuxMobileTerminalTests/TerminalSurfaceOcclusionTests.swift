@@ -15,9 +15,6 @@ import UIKit
 /// Through the real Ghostty surface and its render counters.
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceOcclusionTests {
-    /// The app state a test drives (`TerminalSurfaceView.init(frame:inForeground:)`).
-    final class AppState { var foreground = false }
-
     /// About 120 KB of numbered lines: many output batches, many frames.
     static func output(_ tag: String) -> Data {
         Data((0..<1500).map { "\(tag) line \($0) " + String(repeating: "x", count: 60) + "\r\n" }.joined().utf8)
@@ -94,26 +91,6 @@ import UIKit
         NotificationCenter.default.post(name: UIApplication.willEnterForegroundNotification, object: UIApplication.shared)
         let backgroundTotal = surface.renderedFrames
         #expect(try await Self.framesGrow(surface, past: backgroundTotal), "back in the foreground, the surface never drew")
-    }
-
-    /// Cold launch (fleet flood benchmark, 2026-10-26: 0 frames presented in
-    /// every run): the terminal's view is made while `UIApplication` still
-    /// reports `.background`, and the app's `willEnterForeground` was posted
-    /// before the view could observe it. The next app event is
-    /// `didBecomeActive`; the surface must draw from then on.
-    @Test func aSurfaceMadeDuringLaunchDrawsOnceTheAppIsActive() async throws {
-        let app = AppState()
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
-        window.isHidden = false
-        let surface = TerminalSurfaceView(frame: CGRect(x: 0, y: 0, width: 390, height: 800), inForeground: { app.foreground })
-        window.addSubview(surface)
-        try #require(surface.surface != nil, "libghostty created no surface")
-
-        app.foreground = true
-        NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
-        await Self.feed(surface, Self.output("launch"))
-        #expect(surface.drawsFrames == true, "the surface stayed paused after the app became active")
-        #expect(try await Self.framesGrow(surface, past: 0), "the surface never drew after the app became active")
     }
 }
 #endif

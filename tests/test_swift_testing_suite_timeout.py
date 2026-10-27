@@ -154,7 +154,7 @@ class SettingsExportCatalogTests(unittest.TestCase):
             "else:\n"
             "    assert suite == 'SettingsSchemaExportTests'\n"
             "    assert os.environ.get('CMUX_UPDATE_ACTION_SURFACES') == '1'\n"
-            "    files = ['schemas/settings/settings-schema.json', 'schemas/settings-export/settings-schema.sources.sha256']\n"
+            "    files = ['schemas/settings/settings-schema.json']\n"
             "for file in files:\n"
             "    target = pathlib.Path(file)\n"
             "    target.parent.mkdir(parents=True, exist_ok=True)\n"
@@ -207,7 +207,7 @@ class SettingsExportCatalogTests(unittest.TestCase):
                     for index, line in enumerate(lines)
                     if line.startswith("BEGIN_ARTIFACT:")
                 ]
-                self.assertEqual(artifacts, ["Show Hints"] * 7, result.stdout)
+                self.assertEqual(artifacts, ["Show Hints"] * 6, result.stdout)
 
     def test_catalog_failure_prevents_export(self) -> None:
         for entrypoint in (

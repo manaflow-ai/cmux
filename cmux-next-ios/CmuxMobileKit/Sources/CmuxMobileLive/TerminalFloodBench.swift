@@ -137,15 +137,12 @@ final class TerminalFloodBench {
         daemon.startFlood()
         for index in 0..<floodSeconds { await second("flood", index) }
         daemon.stopFlood()
-        let stopAt = CACurrentMediaTime()
-        // Drain: until Ghostty processed every byte the daemon sent.
-        var drainMs: Double?
-        for index in 0..<6 {
-            await second("after", index)
-            if drainMs == nil, probe.take().processed >= daemon.emittedTotal + 2 {
-                drainMs = (CACurrentMediaTime() - stopAt) * 1000
-            }
-        }
+        // Drain: from the stop until Ghostty processed every byte the daemon
+        // had sent by then (+ the session's reset), timed by the probe as the
+        // bytes are parsed. Echoes typed after the stop do not move the target.
+        probe.timeDrain(until: daemon.emittedTotal + 2, since: CACurrentMediaTime())
+        for index in 0..<6 { await second("after", index) }
+        let drainMs = probe.take().drainMs.map { ($0 * 10).rounded() / 10 }
         keys.stop()
         sampler.stop()
         let flood = phases["flood"] ?? []

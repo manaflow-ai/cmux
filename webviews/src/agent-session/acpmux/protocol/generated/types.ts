@@ -45,6 +45,13 @@ export type AttachResult = {
   /** More records lie beyond this page. */
   hasMore: boolean;
   lastSeq: number;
+  /**
+   * How far the page holds: every record of the kinds asked from the page's first one up to it
+   * is in the page (a peer's copy of the chat, `hub/peer_snapshot.rs`, covers that far). The
+   * log's last seq, read before the page, for the newest page; a page of older records
+   * (`beforeSeq`) or a forward one with more to read holds only to its own last record.
+   */
+  pageThrough: number;
   /** Who has the chat open now, this attachment included (`hub/presence.rs`). */
   presence: PresenceNote;
   session: SessionDetail;
@@ -146,9 +153,20 @@ export interface EventsParams {
 }
 
 export type EventsResult = {
+  /**
+   * The session the page is of (its `createdAt`): a session recreated under the same id while
+   * the page was asked is another journal (`hub/peer_snapshot.rs`).
+   */
+  createdAt: number;
   events: SessionEvent[];
   hasMore: boolean;
   lastSeq: number;
+  /**
+   * How far the page holds: every record of the kinds asked after `afterSeq` up to it is in the
+   * page (`hub/peer_snapshot.rs`). The log's last seq, read before the page, when the page reads
+   * to its end; else (`beforeSeq`, or `hasMore`) the page's own last record.
+   */
+  pageThrough: number;
 } & Record<string, unknown>;
 
 export interface HarnessUpdatePlanParams {
@@ -372,6 +390,12 @@ export type PermissionGroupItem = {
 } & Record<string, unknown>;
 
 export type PermissionGroupList = {
+  /**
+   * Set when this reader's group allows would be refused, with the
+   * refusal's reason (`permission.person_required`: only the person
+   * allows a group, and a peer's link never is one). A deny still counts.
+   */
+  allowRefused?: (string | null);
   batching: PermissionBatching;
   chatAllowance: ChatAllowance;
   coverage: PermissionCoverage;
@@ -619,7 +643,10 @@ export type SessionDetail = {
   currentModeId?: (string | null);
   /** Lossy when the path is not UTF-8. */
   cwd: string;
-  /** 0 for a root session, 1 for its sub-sessions, and so on. */
+  /**
+   * Its lineage depth (`parent`): 0 for a root session, 1 for the sessions
+   * its agent started, and so on.
+   */
   depth: number;
   enforcement: Enforcement;
   eventCount: number;
@@ -656,6 +683,13 @@ export type SessionDetail = {
   /** Being moved to another daemon; it takes no prompt meanwhile. */
   moving: boolean;
   name: string;
+  /**
+   * The session whose agent started this one (`acpmux new` in its shell, or its
+   * `start_session` tool), recorded at creation from the proven caller; null for a
+   * session a person or the app started. Not the fork parent (`parentId`). Absent
+   * from a peer on an older acpmux.
+   */
+  parent?: (string | null);
   parentId?: (string | null);
   /** The peer daemon a remote session runs on; absent for this daemon's own. */
   peer?: (string | null);
@@ -685,6 +719,11 @@ export type SessionDetail = {
    * settled. Absent otherwise, and from a peer on an older acpmux.
    */
   retryDeciding?: boolean;
+  /**
+   * The root of its lineage tree: the first ancestor no agent started; its own
+   * id for a root. Absent from a peer on an older acpmux.
+   */
+  root?: string;
   /** The session has its own permission rules. */
   rules: boolean;
   /** The session's permission rules. */
@@ -694,9 +733,12 @@ export type SessionDetail = {
   shortName?: (string | null);
   /** Some attached client shows the chat. */
   shown: boolean;
+  /** The parent's tool call that started it, when acpmux could tell. */
+  spawnToolCallId?: (string | null);
   /**
-   * The session whose agent started this one (its `spawnedBy` tag), kept
-   * only while that parent is listed; one level.
+   * The session whose agent started this one, kept only while that parent
+   * is listed and is a root itself: one level, for lists that fold one level.
+   * `parent` without those rules, else an older client's `spawnedBy` tag.
    */
   spawnedBy?: (string | null);
   /**
@@ -795,7 +837,10 @@ export type SessionSummary = {
   currentModeId?: (string | null);
   /** Lossy when the path is not UTF-8. */
   cwd: string;
-  /** 0 for a root session, 1 for its sub-sessions, and so on. */
+  /**
+   * Its lineage depth (`parent`): 0 for a root session, 1 for the sessions
+   * its agent started, and so on.
+   */
   depth: number;
   enforcement: Enforcement;
   eventCount: number;
@@ -829,6 +874,13 @@ export type SessionSummary = {
   /** Being moved to another daemon; it takes no prompt meanwhile. */
   moving: boolean;
   name: string;
+  /**
+   * The session whose agent started this one (`acpmux new` in its shell, or its
+   * `start_session` tool), recorded at creation from the proven caller; null for a
+   * session a person or the app started. Not the fork parent (`parentId`). Absent
+   * from a peer on an older acpmux.
+   */
+  parent?: (string | null);
   parentId?: (string | null);
   /** The peer daemon a remote session runs on; absent for this daemon's own. */
   peer?: (string | null);
@@ -856,6 +908,11 @@ export type SessionSummary = {
    * settled. Absent otherwise, and from a peer on an older acpmux.
    */
   retryDeciding?: boolean;
+  /**
+   * The root of its lineage tree: the first ancestor no agent started; its own
+   * id for a root. Absent from a peer on an older acpmux.
+   */
+  root?: string;
   /** The session has its own permission rules. */
   rules: boolean;
   sessionId: string;
@@ -863,9 +920,12 @@ export type SessionSummary = {
   shortName?: (string | null);
   /** Some attached client shows the chat. */
   shown: boolean;
+  /** The parent's tool call that started it, when acpmux could tell. */
+  spawnToolCallId?: (string | null);
   /**
-   * The session whose agent started this one (its `spawnedBy` tag), kept
-   * only while that parent is listed; one level.
+   * The session whose agent started this one, kept only while that parent
+   * is listed and is a root itself: one level, for lists that fold one level.
+   * `parent` without those rules, else an older client's `spawnedBy` tag.
    */
   spawnedBy?: (string | null);
   /**

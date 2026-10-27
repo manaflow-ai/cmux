@@ -339,3 +339,42 @@ async fn a_secret_asked_after_the_stop_is_cancelled_and_the_session_stays_closed
     assert_eq!(listed_status(&mut c, &id).await, "closed", "{later:?}");
     assert!(!later.iter().any(|e| e == "secret_request"), "{later:?}");
 }
+
+/// A session resumed from stopped: its agent's load replays the earlier turns' replies, and the
+/// session's `lastMessage` is still the new turn's reply alone, as `wait --print` prints it.
+/// remote-ergo walk 4 (2026-10-26): "`acpmux session info HOST/S --json` lastMessage.text after
+/// a session resumed from stopped concatenates earlier turns' replies and commentary with the new
+/// reply".
+#[tokio::test]
+async fn a_session_resumed_from_stopped_keeps_only_the_new_reply_as_its_last_message() {
+    let env =
+        BTreeMap::from([("FAKE_LOAD_REPLAY_REPLY".to_owned(), "an earlier reply".to_owned())]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let id = new_session(&mut c, "resume-last-message").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "first", None)).await.unwrap();
+    let last =
+        |hub: &Arc<Hub>| hub.session_summary(&hub.resolve(&id).unwrap())["lastMessage"].clone();
+    assert_eq!(last(&hub), json!({"role": "agent", "text": "echo: first"}));
+    c.request(method::MUX_KILL, json!({"sessionId": id, "purge": false})).await.unwrap();
+    c.request(method::SESSION_PROMPT, prompt(&id, "second", None)).await.unwrap();
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    assert!(!find(&events, "agent_message_chunk.replay").is_empty(), "the load replayed no reply");
+    assert_eq!(last(&hub), json!({"role": "agent", "text": "echo: second"}));
+}
+
+/// The same with a history longer than the session's inbound queue (1024 items): the load's
+/// last replayed words still never reach `lastMessage`.
+#[tokio::test]
+async fn a_long_replayed_history_stays_out_of_the_resumed_sessions_last_message() {
+    let env = BTreeMap::from([
+        ("FAKE_LOAD_REPLAY_REPLY".to_owned(), "old ".to_owned()),
+        ("FAKE_LOAD_REPLAY_CHUNKS".to_owned(), "3000".to_owned()),
+    ]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let id = new_session(&mut c, "resume-long-history").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "first", None)).await.unwrap();
+    c.request(method::MUX_KILL, json!({"sessionId": id, "purge": false})).await.unwrap();
+    c.request(method::SESSION_PROMPT, prompt(&id, "second", None)).await.unwrap();
+    let summary = hub.session_summary(&hub.resolve(&id).unwrap());
+    assert_eq!(summary["lastMessage"], json!({"role": "agent", "text": "echo: second"}));
+}

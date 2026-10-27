@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample chats and folders), not shipped UI.
 // The composer's location strip (hq#1957 composer location strip, Composer.tsx, ComposerContext.tsx,
-// composerLocation.css): the folder, the computer and the branch sit in a tab on the card's top
-// edge instead of a second row inside it, so the card holds one controls row. Only a new chat has
+// composerLocation.css): the folder, the computer and the branch stand a few px over the card
+// instead of a second row inside it, so the card holds one controls row. Only a new chat has
 // it, before its first send (locationRow.ts); a started chat's card stands alone, and its queued
 // prompts sit on the card. The strip keeps one height with a project, without one and while the
 // host's name loads. A new chat's effort chip draws what this harness last showed and its access
@@ -79,6 +79,17 @@ export default agentPaneEntry({
     started: {
       note: "After the first send: no location strip (a chat cannot change folder or machine), and no gap where it stood.",
       snapshot: started(),
+    },
+    "started-movable": {
+      height: 520,
+      note: 'Leo: "Picking one moves the chat". A started chat the host can move (its tab\'s menu offers Move to Cloud) keeps its strip; the chip opens the environment picker with where the chat runs, Move to Cloud and Choose folder….',
+      native: { "pane.tabState": { moves: ["cloudMove"] } },
+      snapshot: started(),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-strip"));
+        await ctx.click({ selector: '.acpmux-composer-strip .acpmux-location-picker[data-kind="computer"] button' });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
     },
     "long-folder": {
       note: 'A new chat in a folder with a long name: in a narrow pane it cuts in the middle and keeps its last word ("atlas-we…service"); the branch keeps its name.',

@@ -3,7 +3,7 @@
 //! started under a closed parent carries none. A lane reports each turn to the session that
 //! started it (`hub/lane_reports.rs`): its name,
 //! the start of its last reply, the pull requests and commits it names and its state. One a
-//! turn, the same report not twice.
+//! turn, the same report not twice, and a parent's turn on reports never reports upward.
 
 #![cfg(unix)]
 
@@ -38,6 +38,12 @@ fn hub() -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "fake": {"argv": ["python3", FAKE]},
+            // Steers as Claude Code does: a prompt during a turn is read into it.
+            "steer": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_CLAUDE_STEER": "1"}},
+            // A turn on a lane report runs until it is cancelled.
+            "slow": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_UNTIL_CANCEL_IN": "lane report:"}},
+            "steer-slow": {"argv": ["python3", FAKE], "family": "fake",
+                           "env": {"FAKE_CLAUDE_STEER": "1", "FAKE_UNTIL_CANCEL_IN": "lane report:"}},
             // Starts no more once the file `FLAKY_MARK` names exists. Each variant is of the
             // starter's family, so a lane started from a `fake` parent inherits its mode.
             "flaky": {"argv": ["sh", "-c", "[ -e \"$FLAKY_MARK\" ] && exit 1; exec python3 \"$0\"", FAKE], "family": "fake",
@@ -306,6 +312,83 @@ async fn lane_report_an_ephemeral_run_reports_nothing() {
 }
 
 #[tokio::test]
+async fn lane_report_a_coordinators_turn_on_its_lanes_reports_reports_nothing_upward() {
+    let hub = hub();
+    let mut person = Client::new(&hub);
+    let top = person.new_session("top", json!({})).await;
+    let coord = Client::as_session(&hub, &top).await.new_session("coord", json!({})).await;
+    let one = Client::as_session(&hub, &coord).await.new_session("lane-one", json!({})).await;
+    let two = Client::as_session(&hub, &coord).await.new_session("lane-two", json!({})).await;
+
+    // The coordinator is busy while both lanes end a turn: their reports wait, then go in as
+    // one turn of agent messages.
+    let mut busy = Client::new(&hub);
+    busy.send(
+        "session/prompt",
+        json!({"sessionId": coord, "prompt": [{"type": "text", "text": "until-cancel"}]}),
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    Client::as_session(&hub, &coord).await.prompt(&one, "first lane task").await;
+    Client::as_session(&hub, &coord).await.prompt(&two, "second lane task").await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    person.ok("session/cancel", json!({"sessionId": coord})).await;
+    person.exactly(&coord, 2).await;
+
+    // Top hears the coordinator's own turn, never the turn it spent on the reports.
+    let got = person.exactly(&top, 1).await;
+    assert_eq!(got[0]["_meta"]["provenance"]["turn"], 1, "{got:#?}");
+}
+
+#[tokio::test]
+async fn lane_report_a_prompt_that_takes_a_reports_id_does_not_pass_for_one() {
+    let hub = hub();
+    let mut person = Client::new(&hub);
+    let coord = person.new_session("coord", json!({})).await;
+    let lane = Client::as_session(&hub, &coord).await.new_session("lane-f", json!({})).await;
+    person
+        .ok(
+            "session/prompt",
+            json!({"sessionId": lane, "prompt": [{"type": "text", "text": "work"}],
+                   "_meta": {"acpmux": {"promptId": "lane-report-forged"}}}),
+        )
+        .await;
+    let got = person.exactly(&coord, 1).await;
+    assert!(text(&got[0]).contains("Last message: echo: work"), "{}", got[0]);
+}
+
+#[tokio::test]
+async fn lane_report_a_report_waits_for_a_steering_parents_turn_and_reports_nothing_upward() {
+    let hub = hub();
+    let mut person = Client::new(&hub);
+    let top = person.new_session("top", json!({})).await;
+    let coord = Client::as_session(&hub, &top)
+        .await
+        .new_session("coord", json!({"harness": "steer"}))
+        .await;
+    let lane = Client::as_session(&hub, &coord).await.new_session("lane-s", json!({})).await;
+
+    let mut busy = Client::new(&hub);
+    busy.send(
+        "session/prompt",
+        json!({"sessionId": coord, "prompt": [{"type": "text", "text": "until-cancel"}]}),
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    Client::as_session(&hub, &coord).await.prompt(&lane, "lane task").await;
+    // The report waits in the queue: it never steers into the running turn.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(person.reports(&coord).await.is_empty());
+    person.ok("session/cancel", json!({"sessionId": coord})).await;
+    let got = person.exactly(&coord, 1).await;
+    assert!(got[0].get("steer").is_none(), "{got:#?}");
+
+    // Top hears the coordinator's cancelled turn, not the turn it spent on the report.
+    let got = person.exactly(&top, 1).await;
+    assert_eq!(got[0]["_meta"]["provenance"]["turn"], 1, "{got:#?}");
+}
+
+#[tokio::test]
 async fn lane_report_a_report_the_pair_guard_holds_goes_in_once_on_resume_as_the_lanes() {
     let hub = hub();
     // The pair trips on its second exchange: the task in, then the report back.
@@ -375,6 +458,62 @@ async fn lane_report_a_turn_whose_agent_cannot_start_reports_the_lane_blocked() 
     assert!(text(&got[0]).contains("Last message: answered"), "{}", got[0]);
     assert!(t.contains("Last message: (no reply)"), "{t}");
     assert!(!t.contains("answered") && !t.contains("Commits named"), "{t}");
+}
+
+#[tokio::test]
+async fn lane_report_a_coordinators_report_turn_with_a_task_queued_behind_it_reports_nothing_upward()
+ {
+    let hub = hub();
+    let mut person = Client::new(&hub);
+    let top = person.new_session("top", json!({})).await;
+    let coord =
+        Client::as_session(&hub, &top).await.new_session("coord", json!({"harness": "slow"})).await;
+    let lane = Client::as_session(&hub, &coord).await.new_session("lane-q", json!({})).await;
+
+    // The coordinator's turn on the report runs; the person's task waits behind it and starts the
+    // moment that turn ends.
+    Client::as_session(&hub, &coord).await.prompt(&lane, "lane task").await;
+    person.until(&coord, 1).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    person
+        .send(
+            "session/prompt",
+            json!({"sessionId": coord, "prompt": [{"type": "text", "text": "person task"}]}),
+        )
+        .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    person.ok("session/cancel", json!({"sessionId": coord})).await;
+
+    // Top hears the person's task (turn 2), never the turn on the report.
+    let got = person.exactly(&top, 1).await;
+    assert_eq!(got[0]["_meta"]["provenance"]["turn"], 2, "{got:#?}");
+}
+
+#[tokio::test]
+async fn lane_report_a_task_steered_into_a_report_turn_is_reported_upward() {
+    let hub = hub();
+    let mut person = Client::new(&hub);
+    let top = person.new_session("top", json!({})).await;
+    let coord = Client::as_session(&hub, &top)
+        .await
+        .new_session("coord", json!({"harness": "steer-slow"}))
+        .await;
+    let lane = Client::as_session(&hub, &coord).await.new_session("lane-v", json!({})).await;
+
+    Client::as_session(&hub, &coord).await.prompt(&lane, "lane task").await;
+    person.until(&coord, 1).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    // The person's task joins the turn on the report: that turn did real work now.
+    person
+        .ok(
+            "session/prompt",
+            json!({"sessionId": coord, "prompt": [{"type": "text", "text": "person task"}],
+                   "_meta": {"acpmux": {"steer": true}}}),
+        )
+        .await;
+    person.ok("session/cancel", json!({"sessionId": coord})).await;
+    let got = person.exactly(&top, 1).await;
+    assert_eq!(got[0]["_meta"]["provenance"]["turn"], 1, "{got:#?}");
 }
 
 #[tokio::test]

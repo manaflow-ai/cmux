@@ -28,11 +28,14 @@ public struct SidebarDocMachines {
         stores().lazy.compactMap { store in store.workspace(id: id).map { ($0, store) } }.first
     }
 
-    /// The document item that places sidebar workspace `id`.
+    /// The confirmed document item that places sidebar workspace `id`. A workspace only a pending change places (its
+    /// adopt still on the way) has none: a later change names it by its adopt again (`adoptRef`), so it does not depend
+    /// on the earlier change reaching the daemon first (a pin, an archive, a drag or a reorder right after Cmd-N).
     public func item(workspace id: String) -> String? {
         guard let store = SidebarDocStore.current, let (workspace, daemon) = workspace(id: id),
-              let ref = SidebarDocSections.ref(of: workspace, session: daemon.registryID) else { return nil }
-        return store.shown?.items[ref]
+              let ref = SidebarDocSections.ref(of: workspace, session: daemon.registryID),
+              let item = store.shown?.items[ref], store.records.items[item] != nil else { return nil }
+        return item
     }
 
     /// The drag half while the document is active.
