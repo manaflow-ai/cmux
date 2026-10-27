@@ -1,0 +1,33 @@
+$ bash -c 'cd cmux-tui && rc=0; { cargo test --locked -p cmux-tui --test idle_wakeups --no-run && timeout -k 30 600 cargo test --locked -p cmux-tui --test idle_wakeups; } || rc=$?; { cargo test --locked -p acpmux --test daemon_idle --no-run && timeout -k 30 600 cargo test --locked -p acpmux --test daemon_idle; } || rc=$?; exit $rc'
+   Compiling cmux-tui v1.0.0 (/work/cmux/cmux-tui/crates/cmux-tui)
+    Finished `test` profile [optimized + debuginfo] target(s) in 1m 43s
+  Executable tests/idle_wakeups.rs (/work/tmp/cargo/target/debug/deps/idle_wakeups-403b34695df82888)
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.31s
+     Running tests/idle_wakeups.rs (/work/tmp/cargo/target/debug/deps/idle_wakeups-403b34695df82888)
+
+running 8 tests
+test cmux_next_idle_verdict_ignores_a_one_off_burst_but_not_a_periodic_wake ... ok
+test cmux_next_daemon_idle_twenty_terminals ... ok
+test cmux_next_daemon_idle_holder_mode ... ok
+test cmux_next_daemon_idle_has_no_periodic_wakeups ... ok
+test cmux_next_daemon_idle_unprovided_browser_tab ... ok
+test cmux_next_daemon_idle_with_hook_plugin ... ok
+test cmux_next_daemon_idle_ignores_writes_below_a_missing_settings_folder ... ok
+test cmux_next_daemon_idle_all_app_streams ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 36.41s
+
+   Compiling acpmux v1.0.0 (/work/cmux/cmux-tui/crates/acpmux)
+    Finished `test` profile [optimized + debuginfo] target(s) in 48.02s
+  Executable tests/daemon_idle.rs (/work/tmp/cargo/target/debug/deps/daemon_idle-9a1b2c3d4e5f6a7b)
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.29s
+     Running tests/daemon_idle.rs (/work/tmp/cargo/target/debug/deps/daemon_idle-9a1b2c3d4e5f6a7b)
+
+running 4 tests
+test acpmux_daemon_idle_has_no_periodic_wakeups ... ok
+test acpmux_daemon_idle_with_a_watched_transcript ... ok
+test acpmux_daemon_idle_with_a_pending_wait ... ok
+test acpmux_daemon_idle_with_its_maintenance_jobs_registered ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 34.87s
+

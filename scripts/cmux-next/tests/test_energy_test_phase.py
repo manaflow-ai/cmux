@@ -2,7 +2,8 @@
 """energy-test-phase.py (p14-energy-090, -123): D7 auto simulates 15% on battery, wants reason `battery`, always
 clears, and wants the Mac's own policy and inputs back, "Turn Off for Now" included; a hung app or a failed clear is a
 problem, never a crash. The D1-D17 orchestrator: --dry-run prints each step's exact command; fixture outputs of
-wakeup-audit, idle-budget, cef-idle-probe, bench-typing, xbench, cargo nextest and the Swift suite lane parse into
+wakeup-audit, idle-budget, cef-idle-probe, bench-typing, xbench, cargo nextest (macOS), cargo test on Linux (a
+Testbox pinned to the commit, or --linux-local on a Linux host, task 131) and the Swift suite lane parse into
 pass, fail or not judged; --collect-only judges a run folder; it waits for a quiet host; no workflow references it.
 Not measured is never a pass: a skipped or refused step's earlier outputs, an unknown value, a failed reader, a failed
 reference session, a Debug build's signed-in rows, an unreported CEF counter and a display not at 120 Hz are all
@@ -17,6 +18,8 @@ import contextlib
 import importlib.util
 import io
 import json
+import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -194,7 +197,8 @@ class CommandLineTests(unittest.TestCase):
 
     def test_dry_run_with_a_bundle_prints_every_step(self):
         code, text = dry_run("--app", APP, "--debug-app", "/fleet/Debug/cmux DEV energy-p.app",
-                             "--chrome-app", "/Apps/Chromium.app", "--chrome-ublock", "/cache/ublock")
+                             "--chrome-app", "/Apps/Chromium.app", "--chrome-ublock", "/cache/ublock",
+                             "--linux-testbox", "tbx_energy")
         self.assertEqual(code, 0)
         self.assertNotIn("skipped", text)
         self.assertIn("python3 -I scripts/cmux-next/wakeup-audit.py --strict\n", text)
@@ -223,7 +227,8 @@ class CommandLineTests(unittest.TestCase):
 
     def test_checks_select_their_steps(self):
         _, text = dry_run("--app", APP, "--checks", "D9,D1")
-        self.assertEqual([line for line in text.splitlines() if line.startswith("# ")], ["# audit (D1)", "# rust-idle (D9)"])
+        self.assertEqual([line.split(":")[0] for line in text.splitlines() if line.startswith("# ")],
+                         ["# audit (D1)", "# rust-idle (D9)", "# rust-idle-linux (D9)"])
 
     def test_the_real_display_is_named_and_static_checks_bring_up_none(self):
         _, text = dry_run("--app", APP, "--checks", "D8", "--vdisplay", "0")
@@ -237,6 +242,44 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(phase.idle_sessions(["D15"]), phase.BENCH_SESSIONS)
         _, text = dry_run("--app", APP, "--checks", "D5")
         self.assertIn("--sessions stress-static --settle 60 --measure 60 --gate", text)
+
+    def test_d9_prints_a_linux_testbox_command_not_a_workflow(self):
+        code, text = dry_run("--checks", "D9", "--linux-testbox", "tbx_energy")
+        self.assertEqual(code, 0)
+        linux = text.split("# rust-idle-linux (D9)\n", 1)[1].splitlines()
+        pin = phase.TESTBOX_PIN.format(ref=SHA)
+        self.assertEqual(linux, [
+            shlex.join(["blacksmith", "testbox", "run", "--id", "tbx_energy", pin]),
+            shlex.join(["blacksmith", "testbox", "run", "--id", "tbx_energy", phase.D9_LINUX_SCRIPT])])
+        self.assertTrue(pin.startswith(f"set -euo pipefail; git fetch --no-tags origin {SHA}; git reset --hard {SHA};"))
+        self.assertTrue(pin.endswith("bash scripts/ci/init-submodule.sh ghostty-next; git rev-parse HEAD"))
+        self.assertNotIn(".github", text)
+        self.assertNotIn("gh workflow", text)
+
+    def test_without_a_linux_host_the_linux_step_is_skipped_but_printed(self):
+        _, text = dry_run("--checks", "D9")
+        self.assertIn("# rust-idle-linux (D9): skipped, needs --linux-testbox TBX", text)
+        self.assertIn("blacksmith testbox run --id TBX 'cd cmux-tui && rc=0; { cargo test --locked -p cmux-tui", text)
+
+    def test_linux_local_runs_cargo_only_on_a_linux_checkout_at_the_ref(self):
+        saved = phase.IS_LINUX
+        try:
+            phase.IS_LINUX = False
+            _, text = dry_run("--checks", "D9", "--linux-local")
+            self.assertIn("# rust-idle-linux (D9): skipped, --linux-local runs cargo on this host, which is not Linux", text)
+            self.assertIn("bash -c 'cd cmux-tui && rc=0; { cargo test --locked -p cmux-tui --test idle_wakeups --no-run", text)
+            phase.IS_LINUX = True
+            self.assertIn(f"not --ref {SHA[:12]}", phase.linux_local_problem(SHA))  # this checkout is not at SHA
+        finally:
+            phase.IS_LINUX = saved
+
+    def test_a_testbox_id_or_ref_that_is_not_one_is_refused(self):
+        for args in (["--linux-testbox", "tbx_a; rm -rf ~"], ["--linux-testbox", "box"],
+                     ["--linux-testbox", "tbx_a", "--linux-local"]):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                dry_run("--checks", "D9", *args)
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            phase.main(["--ref", "HEAD", "--checks", "D9", "--linux-testbox", "tbx_a", "--dry-run"])
 
     def test_an_unknown_check_or_bundle_is_refused_before_anything_runs(self):
         with self.assertRaises(SystemExit):
@@ -298,6 +341,13 @@ cmux-ci: step 0123456789abcdef succeeded on aws-m4pro-3
 """
 NEXTEST_RED = NEXTEST_OK.replace("        PASS [  32.120s] (2/10) cmux-tui::idle_wakeups",
                                  "        FAIL [  32.120s] (2/10) cmux-tui::idle_wakeups")
+LIBTEST_OK = (REPO / "scripts" / "cmux-next" / "tests" / "fixtures" / "energy-test-phase-linux-d9.log").read_text()
+LIBTEST_RED = LIBTEST_OK.replace("test cmux_next_daemon_idle_holder_mode ... ok",
+                                 "test cmux_next_daemon_idle_holder_mode ... FAILED")
+LIBTEST_BROKEN = """   Compiling acpmux v0.1.0 (/home/runner/cmux/cmux-tui/crates/acpmux)
+error[E0425]: cannot find value `clock` in this scope
+error: could not compile `acpmux` (test "daemon_idle") due to 1 previous error
+"""
 SUITES = ("Swift suite results (Packages/macOS/CmuxNext):\n"
           "suite                                            result                time\n"
           + "".join(f"{suite:<48} {'passed':<18} {12:6}s\n" for suite in phase.D10_SUITES))
@@ -491,6 +541,43 @@ class OtherJudgeTests(unittest.TestCase):
         self.assertEqual(phase.judge_d9(0, only_acpmux)["missing"], ["no passing idle_wakeups test"])
         self.assertEqual(phase.judge_d9(75, "")["status"], "not judged")
 
+    def test_d9_on_linux_needs_every_test_of_both_binaries_to_pass(self):
+        self.assertEqual(phase.judge_d9_linux([0], None, LIBTEST_OK)["status"], "pass")
+        results = phase.libtest_results(LIBTEST_OK)
+        self.assertEqual(sorted(results), ["daemon_idle", "idle_wakeups"])
+        self.assertIn(("cmux_next_daemon_idle_holder_mode", "ok"), results["idle_wakeups"])
+        self.assertIn(("acpmux_daemon_idle_has_no_periodic_wakeups", "ok"), results["daemon_idle"])
+        self.assertEqual(phase.judge_d9_linux([101], None, LIBTEST_RED)["problems"],
+                         ["Linux: FAILED idle_wakeups cmux_next_daemon_idle_holder_mode"])
+        self.assertEqual(phase.judge_d9_linux([0, 101], None, LIBTEST_BROKEN)["problems"],
+                         ["Linux: error[E0425]: cannot find value `clock` in this scope",
+                          "Linux: error: could not compile `acpmux` (test \"daemon_idle\") due to 1 previous error"])
+        only_tui = LIBTEST_OK.split("Running tests/daemon_idle.rs")[0]
+        self.assertEqual(phase.judge_d9_linux([0, 0], None, only_tui)["missing"], ["Linux: no passing daemon_idle test"])
+        ignored = re.sub(r"(?m)^(test acpmux_\S+ \.\.\.) ok$", r"\1 ignored", LIBTEST_OK)
+        self.assertEqual(phase.judge_d9_linux([0, 0], None, ignored)["missing"], ["Linux: no passing daemon_idle test"])
+
+    def test_d9_on_linux_is_not_judged_when_the_box_never_ran_the_commit(self):
+        self.assertEqual(phase.judge_d9_linux([], None, None)["status"], "not judged")
+        pin = phase.judge_d9_linux([128], "command 1 exited 128: the 1 after it did not run", "fatal: not our ref")
+        self.assertEqual(pin["missing"], ["Linux: the Testbox was not pinned to the commit (exit 128; is it pushed?): rerun"])
+        gone = phase.judge_d9_linux([0, 1], None, "error: testbox tbx_energy not found")
+        self.assertEqual(gone["status"], "fail")  # an error line with no test result: red, never a pass
+        lost = phase.judge_d9_linux([0, 255], None, "Connection closed by remote host")
+        self.assertEqual(lost["missing"], ["Linux: no test result (exit 255): see rust-idle-linux.log"])
+
+    def test_d9_on_linux_names_the_tests_that_hung_past_the_bound(self):
+        hung = LIBTEST_OK.split("test cmux_next_daemon_idle_twenty_terminals ... ok")[0] + (
+            "test cmux_next_daemon_idle_holder_mode has been running for over 60 seconds\n"
+            "test cmux_next_daemon_idle_idle_verdict_x ... ok\n")
+        result = phase.judge_d9_linux([124], None, hung)
+        self.assertEqual(result["problems"], [f"Linux: hung past {phase.D9_LINUX_TIMEOUT_S} s: idle_wakeups "
+                                              "cmux_next_daemon_idle_holder_mode"])
+        self.assertEqual(phase.judge_d9_linux([137], None, "")["problems"],
+                         [f"Linux: a test binary hung past {phase.D9_LINUX_TIMEOUT_S} s (exit 137)"])
+        self.assertIn(f"timeout -k 30 {phase.D9_LINUX_TIMEOUT_S} cargo test --locked -p acpmux --test daemon_idle;",
+                      phase.D9_LINUX_SCRIPT)
+
     def test_d10_every_suite_passes(self):
         self.assertEqual(phase.judge_d10(0, SUITES)["status"], "pass")
         red = SUITES.replace(f"{'SuspendWatchTests':<48} {'passed':<18}", f"{'SuspendWatchTests':<48} {'failed (exit 1)':<18}")
@@ -551,9 +638,11 @@ def write_run(out, idle=None, d7_problems=(), steps=None, display=VDISPLAY_120):
             ("bench-typing/d8.json", D8_PASS), ("d7-auto.log", {"problems": list(d7_problems), "reports": {}})]:
         (out / name).parent.mkdir(parents=True, exist_ok=True)
         (out / name).write_text(json.dumps(data))
-    for name, text in (("audit", AUDIT_OK), ("xbench", XBENCH_OK), ("rust-idle", NEXTEST_OK), ("swift-suites", SUITES)):
+    for name, text in (("audit", AUDIT_OK), ("xbench", XBENCH_OK), ("rust-idle", NEXTEST_OK),
+                       ("rust-idle-linux", LIBTEST_OK), ("swift-suites", SUITES)):
         (out / f"{name}.log").write_text(text)
     ran = {name: {"exits": [0], "load": 1.5} for name in ("audit", "xbench", "rust-idle", "swift-suites", "d7-auto")}
+    ran["rust-idle-linux"] = {"exits": [0, 0], "load": None}
     ran.update({name: {"exits": [0, 0, 0], "load": 1.5, "display": display}
                 for name in ("idle-budget", "cef-idle", "bench-typing")})
     (out / "steps.json").write_text(json.dumps({**ran, **(steps or {})}))
@@ -583,7 +672,7 @@ class RunTests(unittest.TestCase):
                              dict.fromkeys(["D1", "D2", "D6", "D7", "D9", "D10", "D12", "D17"], "pass"))
             self.assertIn("| D7 | energy saver: energy-saver session and auto at 15% on battery | pass |", text)
             self.assertIn("| p14-energy test phase (energy-test-phase.py, ", text)
-            self.assertIn(f"| {SHA[:11]} | D9 Rust idle tests on fleet macOS | - | pass |", text)
+            self.assertIn(f"| {SHA[:11]} | D9 Rust idle tests on fleet macOS and Linux | - | pass |", text)
             self.assertIn("Display of each measuring step: idle-budget 120 Hz virtual display, cef-idle 120 Hz", text)
 
     def test_a_failing_or_unmeasured_check_exits_one(self):
@@ -647,6 +736,34 @@ class RunTests(unittest.TestCase):
             _, report = self.run_main(out, "--app", APP, "--checks", "D8", runner=ok, display=FakeDisplay(dies=True))
             self.assertIn("refresh not measured (the virtual display helper exited during the step)",
                           " ".join(report["checks"]["D8"]["missing"]))
+
+    def test_d9_needs_the_linux_run_and_names_each_platforms_problem(self):
+        with tempfile.TemporaryDirectory() as out:
+            write_run(out, steps={"rust-idle-linux": {"skipped": "needs --linux-testbox TBX"}})
+            _, report, _ = self.collect_only(out, "--checks", "D9")
+            self.assertEqual(report["checks"]["D9"]["missing"],
+                             ["Linux: the Rust idle tests did not run (--linux-testbox TBX or --linux-local)"])
+            write_run(out, steps={"rust-idle": {"exits": [75]}})
+            _, report, _ = self.collect_only(out, "--checks", "D9")
+            self.assertEqual(report["checks"]["D9"]["missing"], ["macOS: cmux-ci: queue timeout (exit 75): rerun"])
+
+    def test_a_testbox_run_pins_the_box_then_runs_both_tests(self):
+        with tempfile.TemporaryDirectory() as out:
+            calls = []
+
+            def testbox(argv, cwd, stdout, stderr):
+                calls.append(argv)
+                tests = "cargo test" in argv[-1]
+                stdout.write(LIBTEST_RED if tests else f"{SHA}\n")
+                return subprocess.CompletedProcess(argv, 101 if tests else 0)
+
+            code, report = self.run_main(out, "--checks", "D9", "--linux-testbox", "tbx_energy", runner=testbox)
+            self.assertEqual(code, 1)
+            linux = [argv for argv in calls if argv[0] == "blacksmith"]
+            self.assertEqual([argv[:5] for argv in linux], [["blacksmith", "testbox", "run", "--id", "tbx_energy"]] * 2)
+            self.assertIn(f"git reset --hard {SHA}", linux[0][5])
+            self.assertEqual(report["steps"]["rust-idle-linux"]["exits"], [0, 101])
+            self.assertIn("Linux: FAILED idle_wakeups cmux_next_daemon_idle_holder_mode", report["checks"]["D9"]["problems"])
 
     def test_a_step_that_started_on_a_busy_host_says_so(self):
         with tempfile.TemporaryDirectory() as out:
