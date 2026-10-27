@@ -108,7 +108,7 @@ final class ChromiumHostSuggestionRows: NSView {
         layout.leadingColumn = 0
         layout.hoverFills = false
         rowViews = rows.enumerated().map { index, row in
-            guard row.kind != .separator else { return ChromiumHostSuggestionSeparator() }
+            guard row.kind != .separator else { return PopupSeparatorView() }
             let title = [row.main, row.minor].filter { !$0.isEmpty }.joined(separator: " ")
             let subtitle = row.labels.filter { !$0.isEmpty }.joined(separator: " · ")
             let view = PopupRowView(leading: nil, title: title, subtitle: subtitle, trailing: row.removable ? removeButton(row: index) : nil,
@@ -125,7 +125,7 @@ final class ChromiumHostSuggestionRows: NSView {
             view.translatesAutoresizingMaskIntoConstraints = true
             addSubview(view)
         }
-        setAccessibilityChildren(rowViews.filter { !($0 is ChromiumHostSuggestionSeparator) })
+        setAccessibilityChildren(rowViews.filter { !($0 is PopupSeparatorView) })
     }
 
     private func removeButton(row: Int) -> NSView {
@@ -161,15 +161,5 @@ final class ChromiumHostSuggestionRows: NSView {
     override func layout() {
         super.layout()
         for index in rowViews.indices { rowViews[index].frame = frame(ofRow: index) }
-    }
-}
-
-/// A hairline between groups of rows (Chrome's footer separator).
-private final class ChromiumHostSuggestionSeparator: NSView {
-    override func draw(_ dirtyRect: NSRect) {
-        performWithTheme {
-            Palette.separator.setFill()
-            NSRect(x: 6, y: bounds.midY.rounded(.down), width: max(0, bounds.width - 12), height: 1).fill()
-        }
     }
 }

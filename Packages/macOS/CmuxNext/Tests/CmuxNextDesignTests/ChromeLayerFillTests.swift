@@ -65,4 +65,17 @@ import Testing
         row.setFrameSize(NSSize(width: 300, height: 24))
         #expect(row.highlight.frame == NSRect(x: 4, y: 1, width: 292, height: 22))
     }
+
+    /// A popup's separator is a layer color placed in its middle, inset at each end, and it follows a
+    /// resize without a repaint.
+    @Test func aPopupSeparatorIsALayerColor() {
+        let separator = PopupSeparatorView(frame: NSRect(x: 0, y: 0, width: 200, height: 9))
+        #expect(separator.wantsUpdateLayer)
+        #expect(separator.layerContentsRedrawPolicy == .onSetNeedsDisplay)
+        separator.updateLayer()
+        #expect(separator.line.backgroundColor != nil)
+        #expect(separator.line.frame == NSRect(x: 6, y: 4, width: 188, height: 1))
+        separator.setFrameSize(NSSize(width: 100, height: 9))
+        #expect(separator.line.frame == NSRect(x: 6, y: 4, width: 88, height: 1))
+    }
 }

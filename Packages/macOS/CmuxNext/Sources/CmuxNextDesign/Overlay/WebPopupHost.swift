@@ -292,7 +292,7 @@ final class WebPopupRows: NSView {
         layout.leadingColumn = plain ? 1 : 15
         layout.hoverFills = false
         rows = items.map { item -> (item: WebPopupHost.Item, view: NSView) in
-            guard !item.separator else { return (item, WebPopupSeparator()) }
+            guard !item.separator else { return (item, PopupSeparatorView()) }
             let row = PopupRowView(leading: PopupRowView.checkMark(item.checked), title: item.label,
                                    trailing: item.shortcut.flatMap { $0.isEmpty ? nil : PopupRowView.shortcut($0) },
                                    layout: layout, interactive: !plain)
@@ -341,15 +341,5 @@ final class WebPopupRows: NSView {
     private func scrollToHighlight() {
         guard let highlighted, let row = rows.first(where: { $0.item.id == highlighted })?.view else { return }
         scrollToVisible(row.frame)
-    }
-}
-
-/// A hairline between groups of a page menu's rows.
-private final class WebPopupSeparator: NSView {
-    override func draw(_ dirtyRect: NSRect) {
-        performWithTheme {
-            Palette.separator.setFill()
-            NSRect(x: 6, y: bounds.midY.rounded(.down), width: max(0, bounds.width - 12), height: 1).fill()
-        }
     }
 }
