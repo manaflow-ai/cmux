@@ -3854,6 +3854,10 @@ export function VirtualTranscript({
   const checkOlder = () => {
     const node = ref.current;
     if (!canLoadOlder || !onLoadOlder || !node || node.clientHeight === 0) {
+      clearTimeout(olderRecheck.current);
+      olderRecheck.current = undefined;
+      olderAsk.current++;
+      olderAsking.current = false;
       olderLoadRequested.current = undefined;
       return;
     }
@@ -8482,8 +8486,10 @@ function AcpmuxPane() {
                                                   }
                                                   canLoadOlder={!childRows && snapshot.canLoadOlder}
                                                   historyFrom={childRows ? undefined : snapshot.historyFrom}
-                                                  onLoadOlder={() =>
-                                                    directClient.current?.loadOlder() ?? Promise.resolve()
+                                                  onLoadOlder={
+                                                    !childRows && snapshot.connection === "connected"
+                                                      ? () => directClient.current?.loadOlder() ?? Promise.resolve()
+                                                      : undefined
                                                   }
                                                   openAt={
                                                     !childRows &&

@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 set -euo pipefail
 root="$PWD"
 base_sha=1295f1ce27080bcb4139965eb537bbec770b7eba

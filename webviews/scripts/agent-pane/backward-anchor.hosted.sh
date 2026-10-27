@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 set -euo pipefail
 task_root="$PWD"
 show_frames() {
