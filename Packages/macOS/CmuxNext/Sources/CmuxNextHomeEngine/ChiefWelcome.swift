@@ -1,5 +1,5 @@
 public import CmuxNextDaemon
-import Foundation
+public import Foundation
 
 /// The Chief's welcome (#26053): on the first launch on this Mac, the Chief's own conversation
 /// gets one message from the Chief with the key shortcuts (⌘P first), a few things to ask it and
