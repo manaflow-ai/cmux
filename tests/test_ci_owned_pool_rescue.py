@@ -2714,6 +2714,41 @@ class Sweeper(unittest.TestCase):
         self.assertTrue(target.side)
         self.assertEqual(target.push_branch, "feat-cmux-next")
 
+    def test_the_dev_freshness_slot_label_is_an_owned_pool(self):
+        # cmux-next.yml's freshness slot (vars.CI_DEV_COMPILE_RUNNER): a feed compile queued there gets the
+        # rescue's refusal and queue handling like a side or session job.
+        label = "glaeda-dev-std-xcode-26.6"
+        self.assertEqual(rescue.job_pool({"labels": [label]}), label)
+        self.assertEqual(rescue.job_pool({"labels": ["glaeda-aws-dev-light-xcode-26"]}), "glaeda-aws-dev-light-xcode-26")
+        for labels in (["glaeda-dev"], ["glaeda-dev-std"], ["glaeda-devx-std-xcode-26.6"]):
+            self.assertIsNone(rescue.job_pool({"labels": labels}), labels)
+        lost = unacquired_job(labels=(label,))
+        self.assertTrue(rescue.unacquired(lost))
+        # GitHub reports the runner of a job it cancelled unacquired as "" as well as null (run 40453240553).
+        self.assertTrue(rescue.unacquired({**lost, "runner_name": ""}))
+
+    def test_a_dev_compile_that_started_after_the_watch_read_is_never_cancelled(self):
+        # The watch saw the compile queued on the freshness slot; it started before rescue() cancelled.
+        label = "glaeda-dev-std-xcode-26.6"
+        clock = Clock()
+        started = job("cmux NEXT DEV Release compile", status="in_progress", labels=[label])
+        started["runner_name"] = "mini-1-glaeda"
+        api = FakeAPI(clock, lambda seconds: [started], marker=True)
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, side=True, path=rescue.CMUX_NEXT_WORKFLOW_PATH)
+        result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None)
+        self.assertEqual(result, f"not rescued: a DEV feed compile started on {label}; "
+                                 "a started dev build is never cancelled")
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        # Still queued with no runner: the rescue goes ahead as before.
+        clock = Clock()
+        queued = job("cmux NEXT DEV Release compile", labels=[label])
+        api = FakeAPI(clock, lambda seconds: [queued], marker=True)
+        rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None)
+        self.assertIn("cancel", api.calls)
+        self.assertIsNone(rescue.started_dev_compile([dict(started, labels=["glaeda-side-std-xcode-26.6"])]))
+        self.assertIsNone(rescue.started_dev_compile([dict(started, status="completed")]))
+
     def test_a_finished_run_only_when_it_failed_since_the_last_sweeper(self):
         recent, old = stamp(-10 * 60), stamp(-rescue.SWEEP_FINISHED_SECONDS - 60)
         runs = [listed(1, status="completed", conclusion="success", updated_at=recent),
