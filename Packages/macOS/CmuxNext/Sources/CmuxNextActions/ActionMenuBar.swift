@@ -9,8 +9,8 @@ public import AppKit
 /// an item the bar does not make shares keeps AppKit's search, and so does every undecided key and a click.
 ///
 /// The macOS 26 SDK declares `NSMenu`'s initializers and `performKeyEquivalent(with:)` nonisolated, so their
-/// overrides are too. The bar's state stays on the main actor: the key work runs there, on the main thread
-/// AppKit dispatches keys on, and reads the key-down from the registry (``ActionRegistry/dispatchingInputEvent``),
+/// overrides are too. The bar's key-down state stays on the main actor: the key work runs there, on the main
+/// thread AppKit dispatches keys on, and reads the key-down from the registry (``ActionRegistry/dispatchingInputEvent``),
 /// matched by identity to the one AppKit hands the bar, so no event crosses actors. A key-down that is not the
 /// one being dispatched keeps AppKit's search.
 public final class ActionMenuBar: NSMenu {
@@ -38,27 +38,23 @@ public final class ActionMenuBar: NSMenu {
         }
     }
 
-    private weak var registry: ActionRegistry?
-    /// Whether the key router decided a key-down (the App's `KeyRouter.decided`).
-    private nonisolated let decidedKey: @MainActor (NSEvent) -> Bool
-    /// The key-down the bar last refused: the same event's second pass asks nothing again.
-    private weak var refusedEvent: NSEvent?
+    /// The bar's key-down state, on the main actor. A separate object because a main-actor `NSMenu` subclass is
+    /// not `Sendable` (`NSMenu` is not), so the nonisolated override could not hand `self` to the main actor;
+    /// this object is (a main-actor class), and it holds the bar weakly.
+    private nonisolated let keyDowns = KeyDowns()
 
     public init(registry: ActionRegistry, decidedKey: @escaping @MainActor (NSEvent) -> Bool) {
-        self.registry = registry
-        self.decidedKey = decidedKey
         super.init(title: "")
+        keyDowns.attach(bar: self, registry: registry, decidedKey: decidedKey)
     }
 
     /// A bar with no registry: it refuses no search. `NSMenu`'s designated initializer, written out because Swift's
     /// implicit stub for it would take the class's main-actor isolation, which the nonisolated original forbids.
     public nonisolated override init(title: String) {
-        decidedKey = { _ in false }
         super.init(title: title)
     }
 
     public nonisolated required init(coder: NSCoder) {
-        decidedKey = { _ in false }
         super.init(coder: coder)
     }
 
@@ -67,25 +63,45 @@ public final class ActionMenuBar: NSMenu {
         guard event.type == .keyDown, Thread.isMainThread else { return super.performKeyEquivalent(with: event) }
         // The event is alive for this call, so its identifier names it alone until the call returns.
         let keyDown = ObjectIdentifier(event)
+        let keyDowns = keyDowns
         // main-proof: the guard above returned unless this runs on the main thread.
-        if MainActor.assumeIsolated({ refusesSearch(for: keyDown) }) { return false }
+        if MainActor.assumeIsolated({ keyDowns.refusesSearch(for: keyDown) }) { return false }
         return super.performKeyEquivalent(with: event)
     }
 
-    /// Whether the bar refuses to search for the key-down `keyDown` (it records the refusal; its second pass is
-    /// refused at once), and counts the search AppKit runs otherwise. Only the key-down being dispatched
-    /// (``ActionRegistry/dispatchingInputEvent``) is refused. False without a registry.
-    private func refusesSearch(for keyDown: ObjectIdentifier) -> Bool {
-        if let refusedEvent, ObjectIdentifier(refusedEvent) == keyDown { return true }
-        guard let registry else { return false }
-        if let event = registry.dispatchingInputEvent(), ObjectIdentifier(event) == keyDown, decidedKey(event),
-           let chord = Chord(event), registry.refusesEveryKeyEquivalent(of: Self.items(matching: chord, in: self)) {
-            refusedEvent = event
-            registry.menuTarget.counters.skipped += 1
-            return true
+    /// Which key-downs the bar refuses to search, and the key-equivalent counters.
+    private final class KeyDowns {
+        private weak var bar: NSMenu?
+        private weak var registry: ActionRegistry?
+        /// Whether the key router decided a key-down (the App's `KeyRouter.decided`).
+        private var decidedKey: (@MainActor (NSEvent) -> Bool)?
+        /// The key-down the bar last refused: the same event's second pass asks nothing again.
+        private weak var refusedEvent: NSEvent?
+
+        /// Refuses nothing until ``attach(bar:registry:decidedKey:)``.
+        nonisolated init() {}
+
+        func attach(bar: NSMenu, registry: ActionRegistry, decidedKey: @escaping @MainActor (NSEvent) -> Bool) {
+            self.bar = bar
+            self.registry = registry
+            self.decidedKey = decidedKey
         }
-        if registry.isDispatchingKeyDown() { registry.menuTarget.counters.searches += 1 }
-        return false
+
+        /// Whether the bar refuses to search for the key-down `keyDown` (it records the refusal; its second pass is
+        /// refused at once), and counts the search AppKit runs otherwise. Only the key-down being dispatched
+        /// (``ActionRegistry/dispatchingInputEvent``) is refused. False without a registry.
+        func refusesSearch(for keyDown: ObjectIdentifier) -> Bool {
+            if let refusedEvent, ObjectIdentifier(refusedEvent) == keyDown { return true }
+            guard let registry, let bar, let decidedKey else { return false }
+            if let event = registry.dispatchingInputEvent(), ObjectIdentifier(event) == keyDown, decidedKey(event),
+               let chord = Chord(event), registry.refusesEveryKeyEquivalent(of: ActionMenuBar.items(matching: chord, in: bar)) {
+                refusedEvent = event
+                registry.menuTarget.counters.skipped += 1
+                return true
+            }
+            if registry.isDispatchingKeyDown() { registry.menuTarget.counters.searches += 1 }
+            return false
+        }
     }
 
     /// The items of `menu` and its submenus with `chord` as their key equivalent, read now: a menu built
