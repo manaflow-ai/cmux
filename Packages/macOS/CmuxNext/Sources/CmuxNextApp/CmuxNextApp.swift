@@ -65,9 +65,9 @@ public struct CmuxNextApp {
         // ghostty_init while the process still has one thread: its locale setup may setenv LANG and setlocale
         // (Ghostty's internal_os.ensureLocale, src/os/locale.zig), which must not race another thread's environ read.
         GhosttyRuntime.initializeLibrary()
-        // Pure launch work (action catalog, symbols, displays) overlaps AppKit's start; the registry takes the catalog.
+        // Pure launch work (action catalog, symbols, displays, icons) overlaps AppKit's start; the registry takes the catalog.
         let actionCatalog = ActionCatalogLaunch()
-        LaunchWarmup.start(catalog: actionCatalog)
+        LaunchWarmup().start(catalog: actionCatalog)
         DebugTimings.markLaunch("main.warmup_started")
         // One hang watch for the process: the lanes, the daemon readers and the terminal output lanes.
         let hangWatch = TraceRuntime.shared.hangWatch

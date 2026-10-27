@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextRemoteView
 import CmuxNextCompat
+public import CmuxNextWakeups
 
 #if DEBUG || CMUX_BENCH_HOOKS
 /// One remote tab's page: owns the decode pipeline from a stream source to
@@ -21,8 +22,9 @@ public final class RemoteBrowserPane {
     public var onFirstFrame: (() -> Void)?
     private var awaitsFirstFrame = false
 
-    public convenience init(source: any RemoteViewStreamSource, presenter: RemotePresenterKind = .layerContents) {
-        self.init(source: source, presenter: RemoteFramePresenters().make(presenter))
+    /// `mainWork` is the app's scheduler: the presenter shows frames in its visible class.
+    public convenience init(source: any RemoteViewStreamSource, mainWork: MainWorkScheduler, presenter: RemotePresenterKind = .layerContents) {
+        self.init(source: source, presenter: RemoteFramePresenters().make(presenter, mainWork: mainWork))
     }
 
     /// `presenter` receives every decoded frame (tests pass a recorder).

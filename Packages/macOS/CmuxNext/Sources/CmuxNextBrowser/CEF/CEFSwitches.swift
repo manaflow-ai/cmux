@@ -21,6 +21,10 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Host mode shows `<input type=color>` in cmux (``ChromiumHostChoosers``): the renderer asks the browser
     /// for a chooser (fork API 31's Blink feature), so the fork's handler gets it, not Blink's own popup.
     var embedderColorChooser = false
+    /// Chromium's own spare renderer is off (``spareRendererFeature`` in the one `disable-features`
+    /// entry): the default-off feature `chromiumOneSpareRenderer` while the spare windows' placeholders
+    /// hold a renderer, which is then the one spare (``CEFSpareWindow/keepsChromiumSpare``).
+    var chromiumSpareOff = false
     /// Development builds share one ad hoc identity per tag; the real
     /// keychain would prompt for "Chromium Safe Storage" on every rebuild.
     /// `CMUX_NEXT_BENCH_REAL_KEYCHAIN=1` turns it off in Debug and bench builds of a development
@@ -81,16 +85,6 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// content/browser/renderer_host/render_frame_host_manager.cc asks
     /// `DevToolsAgentHost::WasEverAttachedToAnyFrame` for the whole browser instead.
     static let processReusePerRendererDevTools = "cmux-process-reuse-per-renderer-devtools"
-    /// Chrome keeps one spare renderer (live, no site lock, no document) for the profile that
-    /// last took a new process (`content/browser/renderer_host/spare_render_process_host_manager_impl.cc`
-    /// PrepareForFutureRequests). On desktop it has no destroy timer (StartDestroyTimer gets a
-    /// timeout only with Android's kAndroidWarmUpSpareRendererWithTimeout), and
-    /// kKillSpareRenderOnMemoryPressure is disabled by default: memory pressure only refuses a
-    /// new spare. With this fork switch (manaflow-ai/cef `cp/p13-webui-020`) a profile gets a
-    /// spare only after one of its browser tabs starts an http(s) navigation, so the cmux pages
-    /// profile, extension background pages and the spare windows should never make one. The
-    /// spare keeps Chrome desktop's lifetime. Older forks ignore the switch.
-    static let spareRendererAfterFirstTab = "cmux-spare-renderer-after-first-tab"
     /// The fork's Blink runtime feature that sends `<input type=color>` to the embedder's color chooser
     /// handler (include/cef_cmux.h, `cmux_set_color_chooser_handler`; Android's ColorChooserFactory path).
     static let embedderColorChooserArgument = "enable-blink-features=CmuxEmbedderColorChooser"
@@ -206,10 +200,14 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     }
 
     /// The Chromium `base::Feature`s of the one `disable-features` entry, each once: the idle services
-    /// cmux does not use (``idleServiceOffFeatures``), then the app's off features.
+    /// cmux does not use (``idleServiceOffFeatures``), then the app's off features
+    /// (``disabledChromiumFeatures``), then Chromium's spare renderer while ``chromiumSpareOff``
+    /// (``spareRendererFeature``, p07-memory-113).
     var disabledFeatures: [String] {
         var features: [String] = []
-        for feature in Self.idleServiceOffFeatures + disabledChromiumFeatures where !features.contains(feature) {
+        let spareOff = chromiumSpareOff ? [Self.spareRendererFeature] : []
+        for feature in Self.idleServiceOffFeatures + disabledChromiumFeatures + spareOff
+        where !features.contains(feature) {
             features.append(feature)
         }
         return features
@@ -397,6 +395,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         disabledChromiumFeatures: [String] = [],
         spareAfterFirstTab: Bool = false,
         embedderColorChooser: Bool = false,
+        chromiumSpareOff: Bool = false,
         bundleIdentifier: String?,
         environment: [String: String],
         builtInExtensions: [String] = [],
@@ -433,6 +432,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             disabledChromiumFeatures: disabledChromiumFeatures,
             spareAfterFirstTab: spareAfterFirstTab,
             embedderColorChooser: embedderColorChooser,
+            chromiumSpareOff: chromiumSpareOff,
             useMockKeychain: mockKeychain,
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,
