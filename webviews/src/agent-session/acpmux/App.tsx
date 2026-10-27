@@ -351,7 +351,7 @@ import { ChatHeaderInlineStatus, ChatHeaderStatus } from "./header/ChatHeaderSta
 import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
-import { PullRequestDock } from "./summary/PullRequestDock";
+import { RowPullRequests, pullRequestRow, useTranscriptPullRequests } from "./summary/PullRequestDock";
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
@@ -1613,6 +1613,7 @@ const RowFrame = React.memo(function RowFrame({
   onRowKeyDown,
   onCopyRow,
   copyable,
+  pullRequests,
   referenceScope,
   children,
 }: {
@@ -1649,6 +1650,7 @@ const RowFrame = React.memo(function RowFrame({
   onRowKeyDown: (index: number, event: React.KeyboardEvent<HTMLElement>) => void;
   onCopyRow: (id: string) => Promise<void>;
   copyable: boolean;
+  pullRequests?: React.ContextType<typeof RowPullRequests>;
   /// What the child row draws from, compared instead of `children` (a new element every render).
   contentType: unknown;
   controls?: string;
@@ -1736,7 +1738,9 @@ const RowFrame = React.memo(function RowFrame({
           {...copyTabStop}
         />
       )}
-      <ReferenceScopeContext.Provider value={referenceScope ?? null}>{children}</ReferenceScopeContext.Provider>
+      <ReferenceScopeContext.Provider value={referenceScope ?? null}>
+        <RowPullRequests.Provider value={pullRequests}>{children}</RowPullRequests.Provider>
+      </ReferenceScopeContext.Provider>
     </article>
   );
 }, sameRowFrame);
@@ -2009,6 +2013,7 @@ export function VirtualTranscript({
   githubRepository,
   fallbackRepository,
   sourceRows,
+  pullRequestRows,
   find,
   reveal,
   working = false,
@@ -2081,6 +2086,8 @@ export function VirtualTranscript({
   /// The client's rows, which still hold the work a closed "Worked for" folds away: where a bare
   /// `#N`'s repository is looked for (conversation/bareReferences.ts). Else `rows`.
   sourceRows?: readonly AcpmuxRow[];
+  /// Original producer snapshot: filtered rows lose its O(1) PR revision marker.
+  pullRequestRows?: readonly AcpmuxRow[];
   /// Find in Chat (chatFind.ts): its bar, the query to highlight and the match to bring into view.
   find?: ChatFind;
   /// A row to bring into view (a count on the running line, WorkingFor.tsx); a new `key` asks again.
@@ -2102,6 +2109,8 @@ export function VirtualTranscript({
   showMinimap?: boolean;
 }) {
   const t = useT();
+  const pullRequests = useTranscriptPullRequests(pullRequestRows ?? sourceRows ?? rows, githubRepository);
+  const prRow = pullRequests.length ? pullRequestRow(rows) : undefined;
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.span("vt.renders", 1);
@@ -4077,6 +4086,7 @@ export function VirtualTranscript({
                       onFocus={rowFocus}
                       onRowKeyDown={handleRowKeyDown}
                       copyable={transcriptHasFloatingCopy(row)}
+                      pullRequests={row.id === prRow ? pullRequests : undefined}
                       onCopyRow={copyRow}
                       contentType={Component}
                       controls={controls}
@@ -8716,6 +8726,7 @@ function AcpmuxPane() {
                                                 <VirtualTranscript
                                                   rows={transcriptRows}
                                                   sourceRows={childRows ? undefined : sourceRows}
+                                                  pullRequestRows={childRows ?? snapshot.rows}
                                                   working={snapshot.isWorking}
                                                   // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
                                                   jumpButton={!quick}
@@ -9026,13 +9037,6 @@ function AcpmuxPane() {
   ) : (
     !reviewing && (
       <>
-        <PullRequestDock
-          key={snapshot.sessionId}
-          rows={snapshot.rows}
-          repository={githubRepository ?? undefined}
-          sessionId={snapshot.sessionId}
-          onOpenChanges={inspector.reveal ? () => inspector.reveal!("changes") : undefined}
-        />
         {recapCard.recap && (
           <RecapCard
             recap={recapCard.recap}

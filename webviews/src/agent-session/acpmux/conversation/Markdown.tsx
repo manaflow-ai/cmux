@@ -1,3 +1,4 @@
+import { BlockTail, InlineTail } from "./InlineTail";
 // Ported from the agent-pane reference prototype (src/conversation/Markdown.tsx).
 // A small GFM-subset Markdown renderer for assistant messages. It produces the same
 // DOM shape for every transcript: headings, paragraphs (single newlines are line
@@ -765,6 +766,7 @@ function Block({
   enter = false,
   code = "final",
   tail,
+  trailing,
 }: {
   block: MdBlock;
   opts: InlineOptions;
@@ -776,9 +778,12 @@ function Block({
   code?: "open" | "handoff" | "final" | "plain";
   /** The reply's newest characters, which fade in at the end of this, its last block. */
   tail?: FreshTail;
+  trailing?: ReactNode;
 }): ReactNode {
   const motion = enter ? " cv-enter" : "";
-  const inline = (text: string) => (tail ? renderFresh(text, tail, opts) : renderInline(text, opts));
+  const inline = (text: string) => (
+    <InlineTail trailing={trailing}>{tail ? renderFresh(text, tail, opts) : renderInline(text, opts)}</InlineTail>
+  );
   switch (block.type) {
     case "heading": {
       // h5 and h6 draw as h4, the smallest heading the column has.
@@ -791,7 +796,9 @@ function Block({
       if (!tail && !/\s/.test(link) && isRemoteMedia(link))
         return (
           <p className={`cv-p${motion}`}>
-            <RemoteMedia url={link} alt="" fallback={inline(block.text)} />
+            <InlineTail trailing={trailing}>
+              <RemoteMedia url={link} alt="" fallback={renderInline(block.text, opts)} />
+            </InlineTail>
           </p>
         );
       // Only images (a before/after pair, a screenshot alone on its line): a row of thumbnails, once
@@ -800,7 +807,9 @@ function Block({
       if (images)
         return (
           <p className={`cv-p cv-p--images${motion}`}>
-            <Thumbs items={images} opts={opts} />
+            <InlineTail trailing={trailing}>
+              <Thumbs items={images} opts={opts} />
+            </InlineTail>
           </p>
         );
       // An image path in a sentence stays its chip there; its thumbnail draws under the paragraph,
@@ -818,11 +827,15 @@ function Block({
       );
     }
     case "hr":
-      return <hr className={`cv-hr${motion}`} />;
+      return (
+        <BlockTail trailing={trailing}>
+          <hr className={`cv-hr${motion}`} />
+        </BlockTail>
+      );
     case "blockquote":
       return (
         <blockquote className={`cv-quote${motion}`}>
-          <Blocks blocks={block.children} opts={opts} depth={depth} plain={code === "plain"} />
+          <Blocks blocks={block.children} opts={opts} depth={depth} plain={code === "plain"} trailing={trailing} />
         </blockquote>
       );
     case "list": {
@@ -844,7 +857,13 @@ function Block({
               </span>
               <ItemThumbs text={it.text} opts={opts} streaming={Boolean(tail) && i === block.items.length - 1} />
               {it.children.length > 0 && (
-                <Blocks blocks={it.children} opts={opts} depth={depth + 1} plain={code === "plain"} />
+                <Blocks
+                  blocks={it.children}
+                  opts={opts}
+                  depth={depth + 1}
+                  plain={code === "plain"}
+                  trailing={i === block.items.length - 1 ? trailing : undefined}
+                />
               )}
             </li>
           ))}
@@ -852,21 +871,29 @@ function Block({
       );
     }
     case "table":
-      return <TableBlock table={block} cell={(text) => renderInline(text, opts)} className={motion} />;
+      return (
+        <BlockTail trailing={trailing}>
+          <TableBlock table={block} cell={(text) => renderInline(text, opts)} className={motion} />
+        </BlockTail>
+      );
     case "code": {
-      if (code === "open") return <PlainCode code={block.code} lang={block.lang} open />;
-      if (code === "plain") return <PlainCode code={block.code} lang={block.lang} />;
+      if (code === "open") return <PlainCode code={block.code} lang={block.lang} open actions={trailing} />;
+      if (code === "plain") return <PlainCode code={block.code} lang={block.lang} actions={trailing} />;
       // A diagram draws once its fence closes; a Mermaid source still streaming stays code.
       if (isChart(block.lang, block.code) && !(block.open && block.lang.toLowerCase() === "mermaid"))
-        return <DiagramBlock lang={block.lang} code={block.code} />;
+        return <DiagramBlock lang={block.lang} code={block.code} actions={trailing} />;
       // A page in a closed ```cmux-render fence runs in the render frame; the dev server has none.
       const render = canRender() && !block.open ? renderFence(block.lang, block.code) : undefined;
-      if (render) return <RenderCard call={render} />;
-      if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} />;
-      return <CodeBlock code={block.code} lang={block.lang} />;
+      if (render) return <RenderCard call={render} actions={trailing} />;
+      if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} actions={trailing} />;
+      return <CodeBlock code={block.code} lang={block.lang} actions={trailing} />;
     }
     case "math":
-      return <MathDisplay tex={block.tex} />;
+      return (
+        <BlockTail trailing={trailing}>
+          <MathDisplay tex={block.tex} />
+        </BlockTail>
+      );
     case "footnote": {
       const number = opts.notes?.numbers.get(block.id);
       return (
@@ -895,17 +922,25 @@ function Blocks({
   opts,
   depth,
   plain = false,
+  trailing,
 }: {
   blocks: MdBlock[];
   opts: InlineOptions;
   depth: number;
   plain?: boolean;
+  trailing?: ReactNode;
 }) {
   return (
     <>
       {blocks.map((b, i) => (
         <Fragment key={i}>
-          <Block block={b} opts={opts} depth={depth} code={plain ? "plain" : undefined} />
+          <Block
+            block={b}
+            opts={opts}
+            depth={depth}
+            code={plain ? "plain" : undefined}
+            trailing={i === blocks.length - 1 ? trailing : undefined}
+          />
         </Fragment>
       ))}
     </>
@@ -946,6 +981,7 @@ export type MarkdownProps = InlineOptions & {
   /** Markdown source. */
   children: string;
   className?: string;
+  trailing?: ReactNode;
   /** The reply is streaming: blocks that appear from now on enter with the shared motion. */
   streaming?: boolean;
   /** The newest revealed steps (RevealedMarkdown), which fade in at the end of the last block. */
@@ -974,6 +1010,7 @@ export function Markdown({
   commits,
   thumbnails,
   messageAt,
+  trailing,
 }: MarkdownProps) {
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
@@ -1037,6 +1074,7 @@ export function Markdown({
         enter={streaming && live && !awayBlocks.current.has(entry.key)}
         code={open ? "open" : plainCode ? "plain" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
         tail={index === blocks.length - 1 ? freshTail : undefined}
+        trailing={index === trailingIndex ? trailing : undefined}
       />
     );
   };
@@ -1046,6 +1084,8 @@ export function Markdown({
     .map((entry, index) => ({ entry, index }))
     .filter(({ entry }) => entry.block.type === "footnote")
     .sort((a, b) => noteRank(a.entry.block, opts) - noteRank(b.entry.block, opts));
+  // Notes are displayed in reference order, which may differ from their source order.
+  const trailingIndex = notes.at(-1)?.index ?? blocks.length - 1;
   return (
     <div className={`cv-md selectable ${className}`}>
       {blocks.map((entry, index) => (entry.block.type === "footnote" ? null : draw(entry, index)))}

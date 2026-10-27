@@ -1,220 +1,130 @@
-// A quiet count opens Session Info Changes. Its disclosure keeps PR links, hover cards and
-// persistent dismissal reachable. The shared Changes selector includes ended and dismissed PRs:
-// dismissal hides a shortcut, never a change the session made. Gallery variants retain full bars.
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { useT, type StringKey } from "../i18n";
-import { Icon } from "../icons/Icon";
+// PR shortcuts belong to the message's existing line. Overflow is a portal: opening it never
+// changes the transcript's measured height. Parsing keeps the producer's PR revision cache.
+import { createContext, useContext, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
-import { Close } from "../conversation/icons";
-import { pullRequestStateSince, useHeaderState, type HeaderPullRequest } from "../header/headerState";
+import { useHeaderState } from "../header/headerState";
 import { transcriptPullRequestKey, transcriptPullRequests, type SummaryPullRequest } from "./transcriptPullRequests";
 import { headerStatus, visibleChanges } from "../inspector/ChangesSection";
 import { GitHubMark } from "../conversation/icons";
 import { LinkHoverCard } from "../chips/LinkHoverCard";
 import { useSiteInfo } from "../chips/linkStore";
 import { useHoverCard } from "../chips/useHoverCard";
-import { useEscapeCloses } from "../../../ui/escapeDismiss";
+import { Popover } from "../../../ui/Popover";
+import { usePopoverTrigger } from "../../../ui/popoverTrigger";
 
-const SHOWN = 2;
-export type PullRequestDockMode = "compact" | "none" | "collapsed" | "full";
-const BADGES: Record<string, StringKey> = {
-  open: "header.prBadge.open",
-  draft: "header.prBadge.draft",
-};
+export const RowPullRequests = createContext<readonly SummaryPullRequest[] | undefined>(undefined);
 
-const storageKey = (sessionId: string) => `acpmux.prDock.dismissed.${sessionId}`;
-
-/// Gallery-only variants set this document attribute. The real pane has no attribute and therefore
-/// uses the quiet count line by default.
-function configuredMode(): PullRequestDockMode {
-  const value = typeof document === "undefined" ? undefined : document.documentElement.dataset.prDock;
-  return value === "none" || value === "collapsed" || value === "full" ? value : "compact";
-}
-
-/// The pull request URLs dismissed in this chat; none when the page has no storage.
-function readDismissed(sessionId: string | undefined): string[] {
-  if (!sessionId) return [];
-  try {
-    const value: unknown = JSON.parse(localStorage.getItem(storageKey(sessionId)) ?? "[]");
-    return Array.isArray(value) ? value.filter((url): url is string => typeof url === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeDismissed(sessionId: string | undefined, urls: readonly string[]): void {
-  if (!sessionId) return;
-  try {
-    localStorage.setItem(storageKey(sessionId), JSON.stringify(urls));
-  } catch {
-    // Without storage the bar stays hidden until the page reloads.
-  }
-}
-
-/// A bar's state and title: the live ones when the header follows this pull request. Without
-/// them, "open" is only what the chat last saw, so the bar names no state rather than a stale one.
-function shown(
-  pr: SummaryPullRequest,
-  live: HeaderPullRequest | undefined,
-): { state: string; title: string; labeled: boolean } {
-  if (live?.url === pr.url) return { state: live.state, title: live.title || (pr.title ?? ""), labeled: true };
-  return { state: pr.state, title: pr.title ?? "", labeled: false };
-}
-
-/// Whether `pr` is merged or closed, so it keeps no bar. A merge the chat ran is final; a close it
-/// ran holds until the header reads the pull request again after it (a reopen), as the Changes card
-/// decides (inspector/ChangesSection.tsx rowState). An open one defers to the header's live read.
-function ended(pr: SummaryPullRequest, live: HeaderPullRequest | undefined): boolean {
-  if (pr.state === "merged") return true;
-  const state = live?.url === pr.url ? live.state : undefined;
-  if (pr.state !== "closed") return state === "merged" || state === "closed";
-  const since = state === undefined ? undefined : pullRequestStateSince(pr.url);
-  const reopened = since !== undefined && pr.closedAt !== undefined && since > pr.closedAt;
-  return !(reopened && (state === "open" || state === "draft"));
-}
-
-/// Mount keyed by the chat: dismissals and Show more belong to one chat.
-export function PullRequestDock({
-  rows,
-  sessionId,
-  onOpenChanges,
-  repository,
-}: {
-  rows: readonly AcpmuxRow[];
-  sessionId?: string;
-  onOpenChanges?: () => void;
-  repository?: string;
-}) {
-  const t = useT();
+export function useTranscriptPullRequests(rows: readonly AcpmuxRow[], repository?: string) {
   const { pullRequest: live } = useHeaderState();
-  // Same options and membership selector as Session Info. Retain the parse cache across
-  // streaming chunks with unchanged PR findings; a new verified mention still updates the count.
   const parsed = useRef<{ key: string | symbol; repository?: string; prs: SummaryPullRequest[] }>(undefined);
   const key = transcriptPullRequestKey(rows, true);
-  if (parsed.current?.key !== key || parsed.current?.repository !== repository) {
-    parsed.current = { key, repository, prs: transcriptPullRequests(rows, { folder: repository, replies: true }) };
-  }
+  if (parsed.current?.key !== key || parsed.current?.repository !== repository)
+    parsed.current = {
+      key,
+      repository,
+      prs: transcriptPullRequests(rows, { folder: repository, replies: true }),
+    };
   const all = parsed.current.prs;
-  const changes = visibleChanges(all, headerStatus(live));
-  const [dismissed, setDismissed] = useState(() => readDismissed(sessionId));
-  const [expanded, setExpanded] = useState(false);
-  const list = useRef<HTMLDivElement>(null);
-  const count = useRef<HTMLButtonElement>(null);
-  const disclosure = useRef<HTMLButtonElement>(null);
-  const listId = useId();
-  // The place of the bar just dismissed: focus moves to the bar now there, or the composer.
-  const [refocus, setRefocus] = useState<number>();
-  useEffect(() => {
-    if (refocus === undefined) return;
-    setRefocus(undefined);
-    const buttons = list.current?.querySelectorAll<HTMLElement>(".acpmux-pr-dock__dismiss");
-    const next = buttons?.[Math.min(refocus, buttons.length - 1)];
-    (
-      next ??
-      disclosure.current ??
-      count.current ??
-      document.querySelector<HTMLElement>(".acpmux-composer [contenteditable], .acpmux-composer textarea")
-    )?.focus();
-  }, [refocus]);
-  const mode = configuredMode();
-  const compact = mode === "compact" && !!onOpenChanges;
-  useEscapeCloses(
-    compact && expanded,
-    () => {
-      setExpanded(false);
-      disclosure.current?.focus();
-    },
-    '.ui-popup, [role="dialog"], [role="menu"], [role="listbox"]',
-  );
-  const prs = (compact ? changes : all.filter((pr) => pr.opened && !ended(pr, live)))
-    .filter((pr) => !dismissed.includes(pr.url))
-    .reverse();
-  if ((compact ? changes.length : prs.length) === 0 || mode === "none") return null;
-  const displayMode = mode === "compact" && !compact ? "full" : mode;
-  const visible = compact || displayMode === "collapsed" || expanded ? prs : prs.slice(0, SHOWN);
-  const dismiss = (url: string, index: number) => {
-    const next = [...dismissed, url];
-    setDismissed(next);
-    writeDismissed(sessionId, next);
-    setRefocus(index);
-    if (compact && prs.length === 1) setExpanded(false);
-  };
-  const bars = (
-    <div
-      ref={list}
-      tabIndex={compact ? -1 : undefined}
-      id={listId}
-      className="acpmux-pr-dock__list"
-      hidden={visible.length === 0}
+  return useMemo(() => visibleChanges(all, headerStatus(live)).reverse(), [all, live]);
+}
+
+/// Place the session's links on the latest message, using its existing footer when it has one.
+export function pullRequestRow(rows: readonly AcpmuxRow[]): string | undefined {
+  for (let index = rows.length - 1; index >= 0; index--) {
+    const row = rows[index]!;
+    if (
+      (row.kind === "turnSummary" && row.text) ||
+      row.kind === "assistant" ||
+      (row.kind === "user" && row.incoming?.kind === "message")
+    )
+      return row.id;
+  }
+}
+
+export function PullRequestDock() {
+  const prs = useContext(RowPullRequests);
+  if (!prs?.length) return null;
+  return <PullRequestPills prs={prs} />;
+}
+
+function PullRequestPills({ prs }: { prs: readonly SummaryPullRequest[] }) {
+  const t = useT();
+  const { pullRequest: live } = useHeaderState();
+  const [open, setOpen] = useState(false);
+  const [count, setCount] = useState(Math.min(2, prs.length));
+  const row = useRef<HTMLSpanElement>(null);
+  const measure = useRef<HTMLSpanElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const press = usePopoverTrigger(open, setOpen);
+  const mode = typeof document === "undefined" ? undefined : document.documentElement.dataset.prDock;
+  const limit = mode === "one" ? 1 : 2;
+  useLayoutEffect(() => {
+    const node = row.current;
+    const sizing = measure.current;
+    if (!node || !sizing) return;
+    const fit = () => {
+      const widths = [...sizing.children].map((child) => child.getBoundingClientRect().width);
+      const more = widths[2] ?? 0;
+      const gap = parseFloat(getComputedStyle(node).columnGap) || 0;
+      const two = (widths[0] ?? 0) + (widths[1] ?? 0) + gap + (prs.length > 2 ? more + gap : 0);
+      setCount(prs.length > 1 && limit > 1 && two <= node.clientWidth ? 2 : 1);
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(node);
+    observer.observe(sizing);
+    return () => observer.disconnect();
+  }, [prs, limit]);
+  const visible = Math.min(count, prs.length);
+  const link = (pr: SummaryPullRequest) => (
+    <PullRequestBar
+      key={pr.url}
+      pr={pr}
+      state={live?.url === pr.url ? live.state : pr.state}
+      title={live?.url === pr.url ? live.title || pr.title || "" : pr.title || ""}
     >
-      {visible.map((pr, index) => {
-        const { state, title, labeled } = shown(pr, live);
-        const badge = BADGES[state];
-        return (
-          <div key={pr.url} className="acpmux-pr-dock__chip">
-            <PullRequestBar pr={pr} state={state} title={title}>
-              <Icon name="git.pullrequest" size={13} />
-              <span className="acpmux-pr-dock__number">#{pr.number}</span>
-              <span className="acpmux-pr-dock__repo">{pr.repo.split("/").pop()}</span>
-              {title && <span className="acpmux-pr-dock__title">{title}</span>}
-              {labeled && <span className="acpmux-pr-dock__state">{badge ? t(badge) : state}</span>}
-            </PullRequestBar>
-            <button
-              type="button"
-              className="cv-iconbtn cv-iconbtn--compact acpmux-pr-dock__dismiss"
-              aria-label={t("prDock.dismiss", { number: pr.number })}
-              onClick={() => dismiss(pr.url, index)}
-            >
-              <Close size={12} />
-            </button>
-          </div>
-        );
-      })}
-    </div>
+      <span className="acpmux-pr-dock__number">#{pr.number}</span>
+      <span className="acpmux-pr-dock__repo">{pr.repo.split("/").pop()}</span>
+    </PullRequestBar>
   );
   return (
-    <section className="acpmux-pr-dock" data-mode={displayMode} aria-label={t("prDock.label")}>
-      {compact && (
-        <div className="acpmux-pr-dock__compact">
-          <button
-            ref={count}
-            type="button"
-            className="acpmux-pr-dock__count"
-            aria-label={t(changes.length === 1 ? "prDock.countOne" : "prDock.count", { count: String(changes.length) })}
-            onClick={onOpenChanges}
-          >
-            <Icon name="git.pullrequest" size={13} />
-            <span>
-              {t(changes.length === 1 ? "prDock.countOne" : "prDock.count", { count: String(changes.length) })}
-            </span>
-          </button>
-          {prs.length > 0 && (
-            <button
-              ref={disclosure}
-              type="button"
-              className="acpmux-pr-dock__count acpmux-pr-dock__disclosure"
-              aria-label={t("prDock.label")}
-              aria-expanded={expanded}
-              aria-controls={listId}
-              onClick={() => setExpanded(!expanded)}
-            >
-              <Icon name={expanded ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
-            </button>
-          )}
-        </div>
-      )}
-      {(!compact || expanded) && bars}
-      {displayMode === "full" && prs.length > SHOWN && (
+    <span ref={row} className="acpmux-pr-dock" aria-label={t("prDock.label")}>
+      <span ref={measure} className="acpmux-pr-dock__measure" aria-hidden="true">
+        {prs.slice(0, 2).map((pr) => (
+          <span key={pr.url}>
+            #{pr.number} {pr.repo.split("/").pop()}
+          </span>
+        ))}
+        {prs.length === 1 && <span />}
+        <span>+{prs.length - 1}</span>
+      </span>
+      {prs.slice(0, visible).map(link)}
+      {prs.length > visible && (
         <button
+          ref={trigger}
           type="button"
           className="acpmux-pr-dock__more"
-          aria-expanded={expanded}
-          onClick={() => setExpanded(!expanded)}
+          aria-label={t("prDock.more", { count: prs.length - visible })}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          {...press}
         >
-          {expanded ? t("prDock.less") : t("prDock.more", { count: prs.length - SHOWN })}
+          +{prs.length - visible}
         </button>
       )}
-    </section>
+      <Popover
+        open={open && prs.length > visible}
+        onOpenChange={setOpen}
+        anchor={trigger.current}
+        finalFocus={trigger}
+        label={t("prDock.label")}
+        side="top"
+        className="acpmux-pr-dock__popover"
+      >
+        {prs.slice(visible).map(link)}
+      </Popover>
+    </span>
   );
 }
 

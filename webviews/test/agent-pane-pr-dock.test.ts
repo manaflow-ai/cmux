@@ -10,7 +10,6 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
-import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -159,141 +158,28 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  /// Each bar above the composer: its number, repository, title and state.
-  const bars = (page: import("playwright").Page) =>
-    page.evaluate(() =>
-      [...document.querySelectorAll(".acpmux-pr-dock__bar")].map((bar) => [
-        bar.querySelector(".acpmux-pr-dock__number")?.textContent,
-        bar.querySelector(".acpmux-pr-dock__repo")?.textContent,
-        bar.querySelector(".acpmux-pr-dock__title")?.textContent,
-        bar.getAttribute("data-state"),
-      ]),
-    );
-
-  test("the chat's pull requests show above the composer, newest first", async () => {
+  test("PRs share the message footer and remain available after reload", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
-    await installPaintedFrames(page);
-    await page.goto(url(CHAT));
-    await page.getByText("Four PRs open, the first merged.").waitFor();
-    await page.locator(".acpmux-pr-dock").waitFor({ timeout: 10_000 });
-    expect(await bars(page)).toEqual([
-      ["#44", "uploader", "Log each retry", "open"],
-      ["#43", "uploader", "Document retry", "open"],
-    ]);
-    expect(await page.locator(".acpmux-pr-dock__bar").first().getAttribute("href")).toBe(
-      "https://github.com/acme/uploader/pull/44",
-    );
-    // Each one a chip as wide as its text, its dismiss button inside, and no tooltip (Leo, 2026-10-13).
-    const chip = await page.evaluate(() => {
-      const dock = document.querySelector(".acpmux-pr-dock")!.getBoundingClientRect();
-      const chip = document.querySelector(".acpmux-pr-dock__chip")!;
-      const box = chip.getBoundingClientRect();
-      const x = chip.querySelector(".acpmux-pr-dock__dismiss")!.getBoundingClientRect();
-      return {
-        narrower: box.width < dock.width / 2,
-        inside: x.left >= box.left && x.right <= box.right && x.top >= box.top && x.bottom <= box.bottom,
-        titles: chip.querySelectorAll("[title], [data-tooltip]").length + (chip.hasAttribute("title") ? 1 : 0),
-      };
-    });
-    expect(chip).toEqual({ narrower: true, inside: true, titles: 0 });
-    // The dock takes its own space in the bottom stack (Leo, 2026-10-14: the PR chip sat over the chat):
-    // the transcript runs under the stack (bottomStack.css), and keeps its last line above the dock
-    // when scrolled to the end, at any height.
-    for (const height of [760, 360]) {
-      await page.setViewportSize({ width: 900, height });
-      const overlap = await page.evaluate(async () => {
-        const scroller = document.querySelector(".acpmux-scroll")!;
-        scroller.scrollTop = scroller.scrollHeight;
-        await window.cmuxPaintFrame();
-        await window.cmuxPaintFrame();
-        const dock = document.querySelector(".acpmux-pr-dock")!.getBoundingClientRect();
-        const rows = [...scroller.querySelectorAll(".acpmux-row")].map((row) => row.getBoundingClientRect());
-        const last = Math.max(...rows.map((row) => Math.min(row.bottom, scroller.getBoundingClientRect().bottom)));
-        const stack = document.querySelector(".acpmux-main > .acpmux-dock")!.getBoundingClientRect();
-        return {
-          // The stack holds the dock: nothing of the stack lies above it but the stack's own parts.
-          dockInStack: dock.top >= stack.top - 0.5,
-          lastLine: Math.max(0, Math.round(last - dock.top)),
-        };
-      });
-      expect(overlap).toEqual({ dockInStack: true, lastLine: 0 });
-    }
-    await page.setViewportSize({ width: 900, height: 760 });
-
-    // The merged #41 keeps no bar, even behind Show more.
-    await page.getByRole("button", { name: "Show 1 more" }).click();
-    expect((await bars(page)).map((bar) => bar[0])).toEqual(["#44", "#43", "#42"]);
-
-    await page.getByRole("button", { name: "Dismiss pull request #44" }).click();
-    expect((await bars(page)).map((bar) => bar[0])).toEqual(["#43", "#42"]);
-    // Focus moves to the bar now in its place, not the page.
-    expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe(
-      "Dismiss pull request #43",
-    );
-    // Dismissed for this chat: a reload keeps it hidden.
-    await page.reload();
-    await page.getByText("Four PRs open, the first merged.").waitFor();
-    await page.locator(".acpmux-pr-dock").waitFor({ timeout: 10_000 });
-    expect((await bars(page)).map((bar) => bar[0])).toEqual(["#43", "#42"]);
-    await page.close();
-  });
-  test("the default compact count reveals Session Info Changes and retains PR actions", async () => {
-    const page = await browser!.newPage({ viewport: { width: 1200, height: 900 } });
     try {
       await page.goto(url(CHAT));
       await page.getByText("Four PRs open, the first merged.").waitFor();
-      await page.evaluate(() => {
-        (
-          window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
-        ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 });
-      });
-      const dock = page.locator('.acpmux-pr-dock[data-mode="compact"]');
+      const dock = page.locator(".cv-turn-actions .acpmux-pr-dock");
       await dock.waitFor();
-      expect(await page.evaluate(() => document.documentElement.dataset.prDock)).toBeUndefined();
-      expect(await dock.locator(".acpmux-pr-dock__bar").count()).toBe(0);
-      // Includes the merged PR, exactly as Changes does.
-      expect(await dock.locator(".acpmux-pr-dock__count").first().innerText()).toBe("4 PRs");
-      const panel = page.locator("aside.acpmux-chat-inspector");
-      const toggle = page.locator("button.acpmux-chat-inspector-toggle");
-      if (await panel.isVisible()) await toggle.click();
-      await panel.waitFor({ state: "detached" });
-      await dock.locator(".acpmux-pr-dock__count").first().click();
-      const changes = panel.locator('section[data-section="changes"]');
-      await changes.getByText("Add retry to the uploader", { exact: true }).waitFor();
-      expect(await changes.getAttribute("data-revealed")).not.toBeNull();
-      expect(await changes.innerText()).toContain("Add retry to the uploader");
-      expect(await changes.locator(".acpmux-chat-inspector-section__value").innerText()).toBe("4");
-      await toggle.click();
-      await panel.waitFor({ state: "detached" });
-      const disclosure = dock.locator(".acpmux-pr-dock__disclosure");
-      await disclosure.click();
-      await page.keyboard.press("Escape");
-      expect(await disclosure.getAttribute("aria-expanded")).toBe("false");
-      await page.waitForFunction(() => document.activeElement?.classList.contains("acpmux-pr-dock__disclosure"));
-      await disclosure.click();
-      await page.mouse.click(20, 200);
-      // An inline disclosure stays open while the user reads the chat.
-      expect(await disclosure.getAttribute("aria-expanded")).toBe("true");
-      const link = page.locator(".acpmux-pr-dock__list .acpmux-pr-dock__bar").first();
-      await link.focus();
-      await page.locator(".acpmux-pr-card").waitFor();
-      expect(await page.locator(".acpmux-pr-card").innerText()).toContain("Log each retry");
-      await page.locator(".acpmux-pr-dock__list .acpmux-pr-dock__dismiss").first().click();
-      expect(await page.locator(".acpmux-pr-dock__list .acpmux-pr-dock__bar").count()).toBe(3);
-      expect(await dock.locator(".acpmux-pr-dock__count").first().innerText()).toBe("4 PRs");
-      expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe(
-        "Dismiss pull request #43",
-      );
-      for (let remaining = 3; remaining > 0; remaining--)
-        await dock.locator(".acpmux-pr-dock__dismiss").first().click();
-      expect(await dock.locator(".acpmux-pr-dock__disclosure").count()).toBe(0);
-      expect(await dock.locator(".acpmux-pr-dock__count").first().innerText()).toBe("4 PRs");
-      expect(
-        await dock
-          .locator(".acpmux-pr-dock__count")
-          .first()
-          .evaluate((element) => element === document.activeElement),
-      ).toBe(true);
+      const links = dock.locator(".acpmux-pr-dock__bar");
+      expect(await links.count()).toBe(2);
+      expect(await links.first().innerText()).toContain("#44");
+      expect(await links.first().getAttribute("href")).toBe("https://github.com/acme/uploader/pull/44");
+      expect(await dock.locator(".acpmux-pr-dock__dismiss").count()).toBe(0);
+      await dock.locator(".acpmux-pr-dock__more").click();
+      const popup = page.locator(".acpmux-pr-dock__popover");
+      await popup.waitFor();
+      expect(await popup.locator(".acpmux-pr-dock__bar").count()).toBe(2);
+      expect(await popup.innerText()).toContain("#41");
+      await page.mouse.click(10, 100);
+      await popup.waitFor({ state: "detached" });
+      await page.reload();
+      await dock.waitFor();
+      expect(await links.count()).toBe(2);
     } finally {
       await page.close();
     }
