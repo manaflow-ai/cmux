@@ -2,8 +2,9 @@ import AppKit
 #if DEBUG || CMUX_BLOCKING_CHECKS
 @testable import CmuxNextCompat
 #else
-import CmuxNextCompatAppKit
+import CmuxNextCompat
 #endif
+import CmuxNextCompatAppKit
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Foundation
