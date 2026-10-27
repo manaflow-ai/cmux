@@ -109,7 +109,8 @@
 #          lines like resolve-newest-published, so app and daemon come from this commit)
 #        | resolve-newest-published (nightly: newest verified published tree in the last
 #          CMUX_TUI_TREE_SEARCH_COMMITS commits, default 50, and CMUX_TUI_TREE_MAX_AGE_HOURS,
-#          default 24; never waits; CMUX_TUI_TREE_SAME_PATHS, space-separated
+#          default 24; a hit never waits, and in nightly.yml a miss waits once, up to
+#          CMUX_TUI_TREE_TIP_WAIT_SECONDS (3000), for the tip's active publisher; CMUX_TUI_TREE_SAME_PATHS, space-separated
 #          paths, skips a commit whose copy of any of them differs from the tip's;
 #          no Mac Release compile is required: the nightly compiles the app itself)
 #        | wait (wait for the tree; superseded=true output for a superseded commit)
@@ -1300,6 +1301,63 @@ resolve_newest_published_tree() {
   exit 1
 }
 
+# resolve-newest-published as the nightly runs it: the search above, and on a miss
+# one bounded wait for the publisher of the TIP's own tree, then the search again.
+# A promotion can move nightly-next to a commit whose tree is still being built
+# by a same-key run (nightly-next run 40445128409 missed tree bf6faf9c692f of
+# 5d81874b330a, which owner run 40444370171 was building, and every older commit
+# carried a different nightly.yml). A hit never waits. The wait is
+# CMUX_TUI_TREE_TIP_WAIT_SECONDS: by default 3000 in nightly.yml (inside the
+# resolver job's 75 min) and 0 everywhere else, so request-nightly-next.sh and
+# the media workflow still look once. It runs only while a cmux-tui artifacts
+# run for the tip, or an active run of the same tree, exists; it fails at once
+# when none does (this job holds actions: read, so it starts no publisher), when
+# the publisher ends without publishing, or when the bound is hit.
+resolve_newest_published_or_await_tip() {
+  local wait_seconds rc=0 tip key state sha_file
+  if [[ "${GITHUB_WORKFLOW_REF:-}" == */.github/workflows/nightly.yml@* ]]; then
+    wait_seconds="${CMUX_TUI_TREE_TIP_WAIT_SECONDS:-3000}"
+  else
+    wait_seconds="${CMUX_TUI_TREE_TIP_WAIT_SECONDS:-0}"
+  fi
+  [[ "$wait_seconds" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_TIP_WAIT_SECONDS must be whole seconds" >&2; exit 2; }
+  if (( wait_seconds == 0 )); then resolve_newest_published_tree; return 0; fi
+  sha_file="$(mktemp "${TMPDIR:-/tmp}/cmux-tui-resolve.XXXXXX")"
+  # A subshell with errexit of its own: the search exits on a miss.
+  set +e
+  (set -e; resolve_newest_published_tree) > "$sha_file"
+  rc=$?
+  set -e
+  if (( rc == 0 )); then cat "$sha_file"; rm -f "$sha_file"; return 0; fi
+  rm -f "$sha_file"
+  (( rc == 1 )) || exit "$rc"
+  tip="$(git -C "$repo_root" rev-parse HEAD)"
+  key="$(tree_key HEAD)" || { echo "error: cannot compute the tree key of the tip ${tip:0:12}" >&2; exit 1; }
+  if ! tree_published "$key"; then
+    state="$(artifacts_runs_state "$tip")"
+    if [[ "$state" != active && "$state" != unknown && -z "$(active_publisher_for_key "$key")" ]]; then
+      {
+        echo "error: the tip ${tip:0:12}'s cmux-tui tree $key is not published and no cmux-tui artifacts run is publishing it, so the nightly has nothing to wait for."
+        case "$state" in
+          none) echo "  No cmux-tui artifacts run exists for $tip." ;;
+          *) echo "  Its runs ended without publishing it: ${state#ended }." ;;
+        esac
+        echo "  This job holds actions: read only and starts no publisher. Start one, then re-run this nightly:"
+        echo "    gh workflow run cmux-tui-artifacts.yml --repo ${GITHUB_REPOSITORY:-manaflow-ai/cmux} --ref feat-cmux-next"
+        echo "  (or re-run the failed artifacts run for $tip)."
+      } >&2
+      exit 1
+    fi
+    echo "no older commit can be built; waiting up to ${wait_seconds}s for the publisher of the tip ${tip:0:12}'s tree $key (artifacts runs: $state)" >&2
+    sha_file="$(mktemp "${TMPDIR:-/tmp}/cmux-tui-tip.XXXXXX")"
+    CMUX_TUI_TREE_WAIT_SECONDS="$wait_seconds" CMUX_TUI_TREE_PUBLISHER_SHA="$tip" CMUX_TUI_TREE_DISPATCH="" \
+      wait_for_tree "$key" "$sha_file" ""
+    rm -f "$sha_file"
+  fi
+  echo "the tip's tree $key is published; resolving again" >&2
+  resolve_newest_published_tree
+}
+
 # fetch_pinned <url> <sha256> <destination> <label>
 fetch_pinned() {
   local url="$1" want="$2" dest="$3" label="$4" temp actual
@@ -1496,7 +1554,7 @@ PY
     resolve_tree_commit
     ;;
   resolve-newest-published)
-    resolve_newest_published_tree
+    resolve_newest_published_or_await_tip
     ;;
   resolve-exact)
     resolve_exact_tree

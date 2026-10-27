@@ -92,7 +92,7 @@ ALLOWED: dict[str, str] = {
     'nightly.yml: Continue the newest accepted pending notarization':
         'walks at most 5 recovery candidates once each; the only sleep retries feed reads from files.cmux.com',
     'nightly.yml: Resolve cmux-tui client commit':
-        'the scan reads every loop of a script the step runs; resolve-newest-published never waits; its walk visits at most 50 commits once each and sleeps only to retry a files.cmux.com download',
+        "the scan reads every loop of a script the step runs; its walk visits at most 50 commits once each; only when none resolves it waits for the tip's active publisher (files.cmux.com every 30 s, one run read every 300 s, at most 3000 s)",
     'actions-artifact-prune.yml: Prune':
         'hourly: paces artifact deletes 0.4 s apart (at most 150 a minute) and stops at 50 calls left',
     'ci-cloud-overflow-probe.yml: Probe and switch':
