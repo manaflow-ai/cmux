@@ -86,6 +86,28 @@ struct ErrorSourcesTests {
                                        message: "x", date: Date()).source == "system:com.apple.WebKit")
     }
 
+    /// A page posts the console handler anything (p10-stability-179): two keys that are distinct `NSString`s but
+    /// equal Swift strings trapped the `[String: Any]` cast; now the report reads, and a body with a key or a
+    /// field that is no string is dropped for the page to count.
+    @Test func consoleReportsReadAnyPostedBody() {
+        let body = NSMutableDictionary()
+        body.setObject(NSNumber(value: 1), forKey: NSString(string: "\u{E9}"))
+        body.setObject(NSNumber(value: 2), forKey: NSString(string: "e\u{301}"))
+        body.setObject(NSString(string: "warn"), forKey: NSString(string: "level"))
+        body.setObject(NSString(string: "boom"), forKey: NSString(string: "message"))
+        body.setObject(Date(), forKey: NSString(string: "path"))
+        let report = ConsoleErrorCapture.report(body)
+        #expect(report == ConsoleErrorCapture.Report(level: "warn", message: "boom", stack: ""))
+        #expect(report?.logText == "[warn] boom")
+        #expect(ConsoleErrorCapture.report(["message": "x"] as [String: Any])?.logText == "x")
+        let numberKey = NSMutableDictionary(dictionary: ["message": "x"])
+        numberKey.setObject(NSNull(), forKey: NSNumber(value: 7))
+        #expect(ConsoleErrorCapture.report(numberKey) == nil)
+        #expect(ConsoleErrorCapture.report(["message": Date()] as [String: Any]) == nil)
+        #expect(ConsoleErrorCapture.report(NSNumber(value: true)) == nil)
+        #expect(ConsoleErrorCapture.report(NSArray(array: ["message"])) == nil)
+    }
+
     @Test func jscStackFramesAreFound() {
         #expect(ConsoleErrorCapture.topFrame("load@cmux-page://home/app.js:10:2\nglobal code") == "load@cmux-page://home/app.js:10:2")
         #expect(ConsoleErrorCapture.topFrame("") == nil)

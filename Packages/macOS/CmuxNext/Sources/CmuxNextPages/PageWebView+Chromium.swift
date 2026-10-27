@@ -300,7 +300,7 @@ extension PageWebView {
         case PageInputReadiness.handlerName:
             inputReadiness.receive(body)
         case ConsoleErrorCapture.handlerName:
-            ConsoleErrorCapture(page: descriptor.id).record(body)
+            if !ConsoleErrorCapture(page: descriptor.id).record(body) { router.badMessages += 1 }
         case PageChromiumDocumentScripts.hostDropHandler:
             hostDropped()
         case PageChromiumDocumentScripts.navigateHandler:

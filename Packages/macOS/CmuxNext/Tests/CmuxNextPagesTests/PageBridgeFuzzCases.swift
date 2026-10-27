@@ -1,4 +1,5 @@
 import CmuxFuzzSupport
+import CmuxNextErrorJournal
 import CmuxNextSettings
 import Foundation
 @testable import CmuxNextPages
@@ -152,7 +153,7 @@ enum PageBridgeCase {
         try FuzzRun.check(readiness.badMessages == readinessBefore + (bridged.accepted ? 0 : 1), "the readiness handler counted \(readiness.badMessages - readinessBefore)")
     }
 
-    /// The nonisolated part of ``bodies(_:page:readiness:)``: the JSON reading and the Chromium reply.
+    /// The nonisolated part of ``bodies(_:page:readiness:)``: the JSON reading, the console report and the Chromium reply.
     nonisolated static func bridge(_ body: PageFuzzBody) throws {
         let foundation = body.foundation
         let value = JSONValue(foundation: foundation)
@@ -161,6 +162,10 @@ enum PageBridgeCase {
         if let exact = bridged.exact {
             try FuzzRun.check(value?.compactText == exact.compactText, "\(body) read as \(value?.compactText.prefix(200) ?? "-")")
         }
+        let report = ConsoleErrorCapture.report(foundation)
+        let console = body.consoleReport
+        try FuzzRun.check((report != nil) == console.accepted, "the console handler read \(body) as \(report.map { "\($0)" } ?? "nothing")")
+        try FuzzRun.check(report.map { $0.message == console.message } ?? true, "the console handler read the message \(report?.message.prefix(200) ?? "")")
         let expression = ChromiumPageHostWire.resolveExpression(seq: 3, reply: foundation)
         let prefix = "globalThis.\(ChromiumPageHostBridge.resolveName)?.(3, "
         try FuzzRun.check(expression.hasPrefix(prefix) && expression.hasSuffix(");"), "the reply call \(expression.prefix(200))")

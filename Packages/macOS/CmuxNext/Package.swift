@@ -828,7 +828,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextPagesTests",
             dependencies: ["CmuxNextCompat", "CmuxNextHibernation", "CmuxNextMemory", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextWakeups",
-                           // CmuxFuzzSupport: PageBridgeFuzzTests (p10-stability-179).
+                           // CmuxNextErrorJournal and CmuxFuzzSupport: PageBridgeFuzzTests (p10-stability-179) feeds
+                           // every body to ConsoleErrorCapture.report.
+                           "CmuxNextErrorJournal",
                            .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: uiSwiftSettings
         ),

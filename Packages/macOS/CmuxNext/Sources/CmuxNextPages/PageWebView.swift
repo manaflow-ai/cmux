@@ -343,7 +343,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         noteCensusVisibility(false) // in no window yet (`debug.webui`)
         #endif
         // Console errors, uncaught errors and rejections go to the error journal (`cmux errors`).
-        ConsoleErrorCapture(page: descriptor.id).install(in: configuration.userContentController)
+        ConsoleErrorCapture(page: descriptor.id).install(in: configuration.userContentController) { [weak self] in
+            self?.router.badMessages += 1
+        }
         PagePaintProbe.install(in: configuration.userContentController) { [weak self] in
             self?.notePainted()
         }

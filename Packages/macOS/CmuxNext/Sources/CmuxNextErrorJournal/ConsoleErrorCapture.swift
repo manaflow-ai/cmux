@@ -7,7 +7,7 @@ import OSLog
 /// back into the page; the page script drops all but 20 reports a second.
 ///
 /// ```swift
-/// ConsoleErrorCapture(page: "settings").install(in: configuration.userContentController)
+/// ConsoleErrorCapture(page: "settings").install(in: configuration.userContentController) { badMessages += 1 }
 /// ```
 @MainActor
 public struct ConsoleErrorCapture {
@@ -74,25 +74,63 @@ public struct ConsoleErrorCapture {
     """
 
     /// Adds the script and its message handler to `controller`.
-    public func install(in controller: WKUserContentController) {
+    ///
+    /// - Parameter onBadMessage: Called for each main-frame message ``report(_:)`` drops (the page's own
+    ///   script can post anything to the handler), so the page counts it with its other bad messages.
+    public func install(in controller: WKUserContentController, onBadMessage: @escaping @MainActor () -> Void) {
         controller.addUserScript(WKUserScript(source: Self.script, injectionTime: .atDocumentStart,
                                               forMainFrameOnly: true, in: .page))
-        controller.add(ConsoleErrorReceiver(page: page), contentWorld: .page, name: Self.handlerName)
+        controller.add(ConsoleErrorReceiver(page: page, onBadMessage: onBadMessage), contentWorld: .page,
+                       name: Self.handlerName)
     }
 
-    /// The log line for one report: `[warn] ` for warnings, then the message, then the top
-    /// stack frame as an `at …` line.
     /// Logs one message of ``script`` that reached the host another way than WebKit's handler (a
     /// Chromium page's binding): the same redacted line the WebKit receiver logs.
     ///
     /// - Parameter body: The posted object (`level`, `message`, `stack`).
-    public func record(_ body: Any) {
-        guard let body = body as? [String: Any] else { return }
-        let text = Self.logText(level: body["level"] as? String ?? "error", message: body["message"] as? String ?? "",
-                                stack: body["stack"] as? String ?? "")
-        // Redacted above, so public: the journal must read the text back.
-        Logger(subsystem: Self.subsystem, category: page).error("\(text, privacy: .public)")
+    /// - Returns: False for a body ``report(_:)`` drops; the caller counts it.
+    public func record(_ body: Any) -> Bool {
+        guard let report = Self.report(body) else { return false }
+        // Redacted, so public: the journal must read the text back.
+        Logger(subsystem: Self.subsystem, category: page).error("\(report.logText, privacy: .public)")
+        return true
     }
+
+    /// One posted report; a field the page left out is empty.
+    public nonisolated struct Report: Equatable, Sendable {
+        public var level = ""
+        public var message = ""
+        public var stack = ""
+
+        /// The redacted log line (``ConsoleErrorCapture/logText(level:message:stack:)``); no level is `error`.
+        public var logText: String {
+            ConsoleErrorCapture.logText(level: level.isEmpty ? "error" : level, message: message, stack: stack)
+        }
+    }
+
+    /// The report in a posted body, read key by key from the dictionary the engine hands over (as
+    /// `JSONValue(foundation:)` reads one; this target links system frameworks only). Nil for a body that is
+    /// no dictionary of string keys, or whose `level`, `message` or `stack` is no string; other members are
+    /// never read. Never a `[String: Any]` cast: it traps on two keys that are distinct `NSString`s but equal
+    /// Swift strings (`{"\u{E9}": 1, "e\u{301}": 2}`), which a page can post.
+    public nonisolated static func report(_ body: Any) -> Report? {
+        guard let dictionary = body as? NSDictionary else { return nil }
+        var report = Report()
+        for (key, value) in dictionary {
+            guard let key = key as? String else { return nil }
+            guard ["level", "message", "stack"].contains(key) else { continue }
+            guard let text = value as? String else { return nil }
+            switch key {
+            case "level": report.level = text
+            case "message": report.message = text
+            default: report.stack = text
+            }
+        }
+        return report
+    }
+
+    /// The log line for one report: `[warn] ` for warnings, then the message, then the top
+    /// stack frame as an `at …` line.
 
     public nonisolated static func logText(level: String, message: String, stack: String) -> String {
         let redactor = ErrorRedactor()
@@ -115,19 +153,23 @@ public struct ConsoleErrorCapture {
 }
 
 /// Receives the page's reports and logs them; main-frame reports only.
+@MainActor
 private final class ConsoleErrorReceiver: NSObject, WKScriptMessageHandler {
     let logger: Logger
+    let onBadMessage: @MainActor () -> Void
 
-    init(page: String) {
+    init(page: String, onBadMessage: @escaping @MainActor () -> Void) {
         logger = Logger(subsystem: ConsoleErrorCapture.subsystem, category: page)
+        self.onBadMessage = onBadMessage
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.frameInfo.isMainFrame, let body = message.body as? [String: Any] else { return }
-        let text = ConsoleErrorCapture.logText(level: body["level"] as? String ?? "error",
-                                               message: body["message"] as? String ?? "",
-                                               stack: body["stack"] as? String ?? "")
-        // Redacted above, so public: the journal must read the text back.
-        logger.error("\(text, privacy: .public)")
+        guard message.frameInfo.isMainFrame else { return }
+        guard let report = ConsoleErrorCapture.report(message.body) else {
+            onBadMessage()
+            return
+        }
+        // Redacted, so public: the journal must read the text back.
+        logger.error("\(report.logText, privacy: .public)")
     }
 }

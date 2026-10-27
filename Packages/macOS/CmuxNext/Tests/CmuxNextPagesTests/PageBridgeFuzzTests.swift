@@ -85,7 +85,7 @@ struct PageBridgeFuzzTests {
     }
 
     /// Any body an engine hands over reads as JSON or is refused and counted, through the router, the
-    /// readiness handler and the Chromium reply, never a trap.
+    /// readiness handler, the console error handler and the Chromium reply, never a trap.
     @Test(.timeLimit(.minutes(PageBridgeFuzzTests.timeLimitMinutes)))
     func bodiesNeverTrap() async throws {
         let page = PageBridgeCase.Page()

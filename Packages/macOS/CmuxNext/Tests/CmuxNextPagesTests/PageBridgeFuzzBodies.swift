@@ -19,8 +19,9 @@ nonisolated indirect enum PageFuzzBody {
     /// Members in order; a nil key is a number key (only in an `NSDictionary`).
     case object([(key: String?, value: PageFuzzBody)], ns: Bool)
 
-    /// Keys of a dictionary body: an envelope's own fields among others, and the composed and decomposed é.
-    static let keys = ["t", "id", "op", "params", "a", "\u{E9}", "e\u{301}", "ready", "x"]
+    /// Keys of a dictionary body: an envelope's own fields, a console report's (``ConsoleErrorCapture/report(_:)``)
+    /// among others, and the composed and decomposed é.
+    static let keys = ["t", "id", "op", "params", "a", "\u{E9}", "e\u{301}", "ready", "level", "message", "stack", "x"]
 
     static func random(_ rng: inout FuzzRNG, depth: Int = 3) -> PageFuzzBody {
         switch rng.below(depth > 0 ? 12 : 8) {
@@ -117,6 +118,21 @@ nonisolated indirect enum PageFuzzBody {
             }
             return (true, fixed ? .object(exact) : nil)
         }
+    }
+
+    /// What ``ConsoleErrorCapture/report(_:)`` must give: nil unless the body is a dictionary of string keys whose
+    /// `level`, `message` and `stack` are strings when present; else the report's `message` (one key at most:
+    /// ``object(_:depth:)`` draws distinct keys), whatever its other members hold.
+    var consoleReport: (accepted: Bool, message: String) {
+        guard case .object(let members, let ns) = self else { return (false, "") }
+        var message = ""
+        for member in Self.members(members, ns: ns) {
+            guard let key = member.key else { return (false, "") }
+            guard ["level", "message", "stack"].contains(key) else { continue }
+            guard case .string(let text) = member.value else { return (false, "") }
+            if key == "message" { message = text }
+        }
+        return (true, message)
     }
 
     /// Whether `JSONSerialization` can write the value (`isValidJSONObject` of it in an array).
