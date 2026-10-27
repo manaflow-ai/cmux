@@ -1251,17 +1251,12 @@ impl Hub {
             profile.env.insert(key.into(), value);
         }
         // Whatever supplied the plan (including `sr claude proxy`), the
-        // inner program is frozen before either a VM or Seatbelt runs it.
+        // inner program is frozen before the sandbox runs it.
         plan.program = super::resolve::remote_executable(&plan.program)?;
         super::resolve::refuse_remote_cwd_executable(&plan.program, &session.meta().cwd)?;
-        // A dedicated agent VM (`vmHost`, off macOS): the VM is the sandbox.
-        // Bypass mode stays off (above); the session's permission policy
-        // answers Claude's prompts.
-        let vm_host = self.vm_host().await;
-        if vm_host_unsandboxed(vm_host, cfg!(target_os = "macos")) {
-            self.append(session, "mux", "remote_sandbox", json!({"vmHost": true}));
-            return Ok((plan, std::borrow::Cow::Owned(profile)));
-        }
+        // Every host sandboxes, a Cloud VM included: nothing on the machine (its
+        // `/etc/cmux/vm-kind`, `/srv/team`, config.json's `vmHost`) skips the probe
+        // and canary below, since the agent can write all of them (`vm_host.rs`).
         let (program, args) =
             self.sandboxed_claude_plan(session, &profile, plan.program, plan.args).await?;
         profile.env.insert("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB".into(), "1".into());
@@ -1346,29 +1341,24 @@ impl Hub {
     }
 }
 
-/// Whether a remote chain's Claude Code runs without the Seatbelt sandbox:
-/// only on a `vmHost` machine that is not a Mac (a dedicated agent VM, where
-/// the VM boundary is the sandbox). A Mac always sandboxes.
-pub(crate) fn vm_host_unsandboxed(vm_host: bool, macos: bool) -> bool {
-    vm_host && !macos
-}
-
 /// Whether a new session with no asked policy runs approve-all: only on a
 /// `vmHost` machine that is not a Mac, only for the owner's peer daemon
 /// (`Origin::Peer`, proven by the peer token over ssh), and only while
 /// MDM leaves approve-all allowed (`Hub::approve_all_allowed`); a Web client never.
+/// `Hub::vm_host` is false until an attested source exists (`vm_host.rs`), so
+/// no session starts approve-all this way now (an asked policy is unchanged).
 pub fn vm_host_peer_approves(
     vm_host: bool,
     macos: bool,
     from_peer: bool,
     approve_all_allowed: bool,
 ) -> bool {
-    vm_host_unsandboxed(vm_host, macos) && from_peer && approve_all_allowed
+    vm_host && !macos && from_peer && approve_all_allowed
 }
 
 #[cfg(test)]
 mod vm_host_tests {
-    use super::{vm_host_peer_approves, vm_host_unsandboxed};
+    use super::vm_host_peer_approves;
 
     #[test]
     fn a_nested_agent_parent_credential_never_becomes_remote_login() {
@@ -1408,14 +1398,6 @@ mod vm_host_tests {
             !vm_host_peer_approves(true, false, true, false),
             "never while MDM forces full access off"
         );
-    }
-
-    #[test]
-    fn only_a_vm_host_off_macos_runs_remote_claude_unsandboxed() {
-        assert!(vm_host_unsandboxed(true, false));
-        assert!(!vm_host_unsandboxed(true, true), "a Mac always sandboxes");
-        assert!(!vm_host_unsandboxed(false, false), "off by default");
-        assert!(!vm_host_unsandboxed(false, true));
     }
 }
 
