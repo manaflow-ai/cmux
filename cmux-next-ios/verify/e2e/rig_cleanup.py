@@ -122,9 +122,12 @@ def group_alive(pgid):
     except PermissionError:
         return True
     try:
-        out = subprocess.run(["ps", "-A", "-o", "pgid=,stat="], capture_output=True, text=True, timeout=10).stdout
+        done = subprocess.run(["ps", "-A", "-o", "pgid=,stat="], capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
         return True
+    if done.returncode != 0:
+        return True  # an unreadable process table is not evidence the group is gone
+    out = done.stdout
     return any(f[0] == str(pgid) and not f[1].startswith("Z") for f in (l.split() for l in out.splitlines()) if len(f) == 2)
 
 
