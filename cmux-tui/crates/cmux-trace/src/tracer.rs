@@ -265,7 +265,7 @@ impl Tracer {
         }
     }
 
-    fn full_identity(&self) -> &ProcessIdentity {
+    pub(crate) fn full_identity(&self) -> &ProcessIdentity {
         self.identity.get_or_init(|| {
             let mut identity = self.config.identity;
             (self.config.read_slow_identity)(&mut identity);

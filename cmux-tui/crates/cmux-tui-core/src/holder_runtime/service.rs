@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 use cmux_holder::link::{FrameWatch, HolderLink, LinkEnd, SPAWN_TIMEOUT, TerminalSink};
 use cmux_holder::wire::{Kind, TraceStart};
 use cmux_holder::{Listed, SpawnRequest};
+use cmux_trace::crash_keys::{self, HolderLink as CrashKeyLink};
 
 use super::{HolderSink, HolderTerminal};
 
@@ -254,6 +255,7 @@ impl HolderService {
         let pending: Vec<(u32, u32)> = {
             let mut slot = self.link.lock().recover_poison();
             slot.link = Some(link.clone());
+            crash_keys::set_holder_link(CrashKeyLink::Linked);
             slot.pending_close.iter().map(|(chan, grace_ms)| (*chan, *grace_ms)).collect()
         };
         for (chan, grace_ms) in pending {
@@ -385,7 +387,9 @@ impl HolderService {
 
     /// Stop tracking `chan` (its terminal ended or its surface left).
     pub(crate) fn untrack(&self, chan: u32) {
-        self.live.lock().recover_poison().remove(&chan);
+        if self.live.lock().recover_poison().remove(&chan).is_some() {
+            crash_keys::decrement(crash_keys::Key::TerminalCount);
+        }
         let link = {
             let mut slot = self.link.lock().recover_poison();
             slot.pending_close.remove(&chan);
@@ -420,7 +424,9 @@ impl HolderService {
             service: self.clone(),
             replay: Mutex::new(None),
         });
-        self.live.lock().recover_poison().insert(chan, Arc::downgrade(&terminal));
+        if self.live.lock().recover_poison().insert(chan, Arc::downgrade(&terminal)).is_none() {
+            crash_keys::increment(crash_keys::Key::TerminalCount);
+        }
         terminal
     }
 
@@ -509,15 +515,18 @@ impl HolderService {
                     // take turns for ever. This daemon is on its way out.
                     eprintln!("cmux-tui: another daemon took the terminal holder");
                     service.superseded.store(true, Ordering::Release);
+                    crash_keys::set_holder_link(CrashKeyLink::Superseded);
                     return;
                 }
                 // The holder died: start a new one and hand it every master.
+                crash_keys::set_holder_link(CrashKeyLink::Lost);
                 let _ =
                     std::thread::Builder::new().name("holder-restart".into()).spawn(move || {
                         if let Err(error) = service.link() {
                             // No holder streams their output any more: their
                             // terminals end as lost (the shells may still run).
                             eprintln!("cmux-tui: restart the terminal holder: {error}");
+                            crash_keys::set_holder_link(CrashKeyLink::Failed);
                             service.lose_all();
                         }
                     });

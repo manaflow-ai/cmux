@@ -291,11 +291,14 @@ pub(super) fn handle_request_with_cancellation(
     cancellation: Option<&ConnectionCancellation>,
 ) -> bool {
     let Request { id, cmd } = request;
-    // A panic in the handler names its command (cmux-panic-log crash keys, this thread's own).
+    // A panic in the handler names its command (cmux-panic-log crash keys, this thread's own),
+    // and so does a crash or abort: the process's crash-key page holds it until the handler returns.
+    let method_key = cmux_panic_log::crash_keys::stable_key(cmd.wire_name());
     let _crash_key = cmux_panic_log::crash_keys::scoped_thread(
         cmux_panic_log::crash_keys::Key::ActionId,
-        cmux_panic_log::crash_keys::stable_key(cmd.wire_name()),
+        method_key,
     );
+    let _crash_page_key = cmux_trace::crash_keys::request(method_key);
     let mut span = RequestSpan::open(mux.request_stats(), &cmd, id.as_ref(), arrival);
     if let Command::UrlOpen(terminal_io_wire::UrlOpenParams { terminal_id, url }) = cmd {
         return url_open::start(mux, client, id, terminal_id, url, span.start_async(), writer);
