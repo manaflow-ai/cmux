@@ -117,6 +117,7 @@ const github = {
       // files capped as GitHub caps them.
       compareCommitsWithBasehead: async ({ basehead, per_page = 250, page = 1 }) => {
         const [base, head] = basehead.split('...');
+        if ((scenario.compareThrows || []).includes(basehead)) throw Object.assign(new Error('Bad Gateway'), { status: 502 });
         // G1 asks sha...feat-cmux-next; the scenario states that answer.
         if (base === scenario.sha && head === scenario.sourceHead && base !== head) {
           return { data: { status: scenario.onSource[base] || 'diverged' } };
@@ -773,11 +774,10 @@ def test_a_waiting_ack_job_is_not_read() -> None:
     assert out["calls"]["dispatchStatuses"] == ["cancelled"], out["calls"]
 
 
-def test_a_refused_newest_evicted_request_falls_back_to_the_next_newest() -> None:
-    # Run 950 asked for NEWER (no green compile any more), run 951 for SHA2
-    # between SHA and NEWER; both were evicted.
+def two_evicted() -> tuple[dict, str]:
+    """Run 950 asked for NEWER and run 951 for SHA2, between SHA and NEWER; both were evicted."""
     sha2 = "e" * 40
-    case = with_evicted(NEWER, green=False)
+    case = with_evicted(NEWER)
     case["commits"][0]["parents"] = [{"sha": sha2}]
     case["commits"].insert(1, commit(sha2, [SHA], ["Sources/Two.swift"]))
     case["runs"].append(gate_run(id=9, head_sha=sha2))
@@ -785,9 +785,51 @@ def test_a_refused_newest_evicted_request_falls_back_to_the_next_newest() -> Non
     case["jobs"]["951"] = [{"id": 9510, "name": "promote-nightly-next", "status": "completed", "conclusion": "cancelled"}]
     case["annotations"]["9510"] = [{"annotation_level": "failure", "message": EVICTED}]
     case["dispatchRuns"].append(dict(case["dispatchRuns"][0], id=951, display_title=f"Promote nightly-next to {sha2}"))
+    return case, sha2
+
+
+def test_a_refused_newest_evicted_request_falls_back_to_the_next_newest() -> None:
+    # feat-cmux-next is at SHA2 again (NEWER was dropped), so G1 refuses NEWER.
+    case, sha2 = two_evicted()
+    case["sourceHead"] = sha2
     out = run(case)
     assert out["decision"]["action"] == "promote", out["decision"]
     assert out["decision"]["sha"] == sha2
+    assert any(notice.startswith(f"{NEWER} is refused") for notice in out["notices"]), out["notices"]
+
+
+def test_an_evicted_request_that_cannot_be_ordered_is_a_scan_failure() -> None:
+    case, sha2 = two_evicted()
+    case["compareThrows"] = [f"{NEWER}...{sha2}"]
+    out = run(case)
+    assert out["newest"]["scanFailed"] is True, out
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out["decision"]
+
+
+def diverged_evicted() -> dict:
+    """NEWER branches off MID, so neither SHA nor NEWER contains the other; feat-cmux-next's tip merges both."""
+    tip = "f" * 40
+    case = with_evicted(NEWER)
+    case["commits"][0]["parents"] = [{"sha": MID}]
+    case["commits"].insert(0, commit(tip, [NEWER, SHA], []))
+    case["sourceHead"] = tip
+    return case
+
+
+def test_a_diverged_evicted_request_is_decided_when_the_request_is_refused() -> None:
+    # nightly-next is not an ancestor of SHA, so SHA is refused; NEWER is promoted.
+    case = diverged_evicted()
+    case["rangeStatus"] = "diverged"
+    out = run(case)
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == NEWER, out["decision"]
+    assert out["newest"]["requested"] == SHA and not out["newest"]["scanFailed"]
+    assert any("which diverges from it" in notice for notice in out["notices"]), out["notices"]
+
+
+def test_a_diverged_evicted_request_waits_while_the_request_is_admitted() -> None:
+    out = run(diverged_evicted())
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out["decision"]
+    assert out["notices"] == [], out["notices"]
 
 
 def test_an_uncomparable_evicted_request_is_skipped_not_a_scan_failure() -> None:

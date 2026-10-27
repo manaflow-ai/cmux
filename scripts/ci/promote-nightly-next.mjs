@@ -683,7 +683,10 @@ export async function evictedPromotions({ github, owner, repo, runId, now = () =
 // deciding, read the requests GitHub evicted (evictedPromotions): a newer
 // evicted commit that contains this request's commit is decided before this
 // request's own, through the same decide() guard, and a refused one falls back
-// to the next newest. It shares this request's debounce. An error reading them
+// to the next newest. It shares this request's debounce. An evicted commit that
+// diverges from this request's (neither contains the other) is decided only
+// when this request's own commit is refused, newest request first, so the
+// evicting request can still move nightly-next to it. An error reading them
 // leaves a warning and decides without them; an evicted commit that cannot be
 // compared is skipped. The scan runs once: a request evicted while this one
 // decides was evicted by a newer arrival, which waits behind this job and
@@ -698,8 +701,10 @@ async function evictedCandidates({ github, core, owner, repo, sha, runId, now })
   } catch (error) {
     core?.warning?.(`Could not read the promotion requests cancelled in the promote queue (${error.status || error.message}); deciding without them.`);
   }
-  // Commits that contain the request's commit, newest first.
+  // Commits that contain the request's commit, newest first, and commits that
+  // diverge from it, in the order GitHub lists their runs (newest first).
   const containing = [];
+  const diverged = [];
   for (const request of evicted) {
     if (request.sha === sha || containing.some((other) => other.sha === request.sha)) continue;
     let status;
@@ -709,6 +714,7 @@ async function evictedCandidates({ github, core, owner, repo, sha, runId, now })
       core?.notice?.(`Skipping the evicted request for ${request.sha} (run ${request.runId}): it cannot be compared with ${sha} (${error.status || error.message}).`);
       continue;
     }
+    if (status === 'diverged' && !diverged.includes(request.sha)) diverged.push(request.sha);
     if (status !== 'ahead') continue;
     let at = containing.length;
     for (let i = 0; i < containing.length; i += 1) {
@@ -717,7 +723,7 @@ async function evictedCandidates({ github, core, owner, repo, sha, runId, now })
     }
     containing.splice(at, 0, request);
   }
-  return containing.map((request) => request.sha);
+  return { containing: containing.map((request) => request.sha), diverged };
 }
 
 export async function decideNewest({ github, core, owner, repo, sha, runId, ...rest }) {
@@ -728,12 +734,20 @@ export async function decideNewest({ github, core, owner, repo, sha, runId, ...r
     core?.warning?.(`Could not order the other nightly-next promotion requests (${error.status || error.message}); deciding ${sha} without them.`);
     return { decision: await decide({ github, core, owner, repo, sha, ...rest }), requested: sha, scanFailed: true };
   }
-  let decision = null;
-  for (const target of [...candidates, sha]) {
-    if (target !== sha) core?.notice?.(`An evicted request targets ${target}, which contains ${sha}; deciding ${target}.`);
-    decision = await decide({ github, core, owner, repo, sha: target, ...rest });
-    if (decision.action !== 'refuse' || target === sha) break;
-    core?.notice?.(`${target} is refused (${decision.reason}); trying the next commit.`);
+  for (const target of candidates.containing) {
+    core?.notice?.(`An evicted request targets ${target}, which contains ${sha}; deciding ${target}.`);
+    const attempt = await decide({ github, core, owner, repo, sha: target, ...rest });
+    if (attempt.action !== 'refuse') return { decision: attempt, requested: sha, scanFailed: false };
+    core?.notice?.(`${target} is refused (${attempt.reason}); trying the next commit.`);
+  }
+  const decision = await decide({ github, core, owner, repo, sha, ...rest });
+  if (decision.action === 'refuse') {
+    for (const target of candidates.diverged) {
+      core?.notice?.(`${sha} is refused; an evicted request targets ${target}, which diverges from it; deciding ${target}.`);
+      const attempt = await decide({ github, core, owner, repo, sha: target, ...rest });
+      if (attempt.action !== 'refuse') return { decision: attempt, requested: sha, scanFailed: false };
+      core?.notice?.(`${target} is refused (${attempt.reason}).`);
+    }
   }
   return { decision, requested: sha, scanFailed: false };
 }
