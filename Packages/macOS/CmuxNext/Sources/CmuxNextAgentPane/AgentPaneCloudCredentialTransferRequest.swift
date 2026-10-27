@@ -3,7 +3,17 @@ import Foundation
 /// A real click asks the App to transfer its signed-in provider credential to this exact Cloud
 /// chat's machine. The App revalidates all three values against the pane and current account.
 public nonisolated struct AgentPaneCloudCredentialTransferRequest: Equatable, Sendable {
-    public enum Provider: String, Sendable { case claude, codex }
+    public enum Provider: String, Sendable {
+        case claude, codex
+
+        /// Match the web agentKey convention for named harness profiles, including scoped IDs.
+        public init?(harnessID: String?) {
+            guard let name = harnessID?.split(separator: "/", omittingEmptySubsequences: false).last,
+                  let family = name.split(whereSeparator: { $0 == "-" || $0 == "_" || $0.isWhitespace }).first
+            else { return nil }
+            self.init(rawValue: family.lowercased())
+        }
+    }
     public let provider: Provider
     public let machineID: String
     public let sessionID: String

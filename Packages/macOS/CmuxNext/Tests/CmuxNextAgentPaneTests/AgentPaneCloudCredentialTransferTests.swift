@@ -8,6 +8,20 @@ struct AgentPaneCloudCredentialTransferTests {
         AgentPaneRequest(body: ["method": AgentPaneCloudCredentialTransferRequest.method, "params": params])
     }
 
+    @Test func mapsNamedProfilesWithoutAcceptingOtherProviders() {
+        typealias Provider = AgentPaneCloudCredentialTransferRequest.Provider
+        for id in ["claude", "claude-sr2", "Claude_work", "providers/claude-personal"] {
+            #expect(Provider(harnessID: id) == .claude)
+            #expect(Provider(harnessID: id) != .codex)
+        }
+        for id in ["codex", "codex-work", "Codex_personal", "providers/codex-team"] {
+            #expect(Provider(harnessID: id) == .codex)
+        }
+        for id: String? in [nil, "", "opencode", "claudelike", "my-claude", "codex/"] {
+            #expect(Provider(harnessID: id) == nil)
+        }
+    }
+
     @Test func decodesOnlyAProviderAndExactCloudChatScope() throws {
         let params: [String: Any] = ["provider": "claude", "machineID": "vm-123", "sessionId": "session-1", "retryPromptId": "retry-1"]
         let decoded = Self.request(params)
