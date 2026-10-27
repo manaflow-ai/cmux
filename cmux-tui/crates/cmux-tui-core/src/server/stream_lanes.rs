@@ -17,6 +17,12 @@
 //! method whose schema entry carries `crosses_stream_ok` (with its reason)
 //! is exempt.
 //!
+//! A closed stream takes no new item, but its sequence still runs what it
+//! held: its lane stays, marked closing, until that ran. The barrier still
+//! fences on it, and its id opens again only after it drained, so a stream
+//! id names one FIFO at a time. A closing lane leaves at the next open,
+//! close or barrier that finds its sequence idle.
+//!
 //! [`StreamLanes`] has no lock of its own: it lives in the connection's
 //! scheduler state (`ConnectionSurfaceState`), so a stream post and a
 //! control arrival are ordered by that one lock.
@@ -33,7 +39,8 @@ use crate::SurfaceId;
 pub(crate) enum StreamOpenError {
     /// Stream 0 is the connection's control stream.
     ControlStream,
-    /// The id names an open stream (`stream_in_use`).
+    /// The id names an open stream, or a closed one that still runs the
+    /// items it held (`stream_in_use`).
     InUse,
 }
 
@@ -47,6 +54,8 @@ pub(crate) enum StreamPostError {
     Full,
     /// The pool shut down.
     ShutDown,
+    /// No worker of the stream's priority runs and none could start.
+    NoWorker,
 }
 
 impl From<PostError> for StreamPostError {
@@ -54,6 +63,7 @@ impl From<PostError> for StreamPostError {
         match error {
             PostError::Full => Self::Full,
             PostError::ShutDown => Self::ShutDown,
+            PostError::NoWorker => Self::NoWorker,
         }
     }
 }
@@ -64,6 +74,7 @@ impl std::fmt::Display for StreamPostError {
             Self::UnknownStream => "no open stream has this id",
             Self::Full => "stream queue is full; item was not delivered",
             Self::ShutDown => "sequenced pool shut down",
+            Self::NoWorker => "could not start a sequenced pool worker",
         })
     }
 }
@@ -73,6 +84,8 @@ impl std::error::Error for StreamPostError {}
 struct StreamLane {
     surface: SurfaceId,
     sequence: Sequence,
+    /// Closed: no new item; it leaves once its sequence is idle.
+    closing: bool,
 }
 
 /// The open streams of one connection, by stream id.
@@ -93,18 +106,40 @@ impl StreamLanes {
         if stream == 0 {
             return Err(StreamOpenError::ControlStream);
         }
+        self.prune_drained();
         if self.streams.contains_key(&stream) {
             return Err(StreamOpenError::InUse);
         }
-        self.streams.insert(stream, StreamLane { surface, sequence: pool.sequence(priority) });
+        self.streams.insert(
+            stream,
+            StreamLane { surface, sequence: pool.sequence(priority), closing: false },
+        );
         Ok(())
     }
 
     /// Closes stream `stream`: no new item is queued on it, and the items it
-    /// holds still run in order (a control command fenced on it is
-    /// released after them). False when no open stream has the id.
+    /// holds still run in order (a control command fenced on it, or arriving
+    /// before they ran, is released after them). False when no open stream
+    /// has the id.
     pub(crate) fn close(&mut self, stream: u16) -> bool {
-        self.streams.remove(&stream).is_some()
+        let closed = match self.streams.get_mut(&stream) {
+            Some(lane) if !lane.closing => {
+                lane.closing = true;
+                true
+            }
+            _ => false,
+        };
+        self.prune_drained();
+        closed
+    }
+
+    /// Drops the closing lanes whose sequence ran everything it held.
+    fn prune_drained(&mut self) {
+        self.streams.retain(|_, lane| !lane.closing || !lane.sequence.is_idle());
+    }
+
+    fn open_lane(&self, stream: u16) -> Option<&StreamLane> {
+        self.streams.get(&stream).filter(|lane| !lane.closing)
     }
 
     /// Queues `item` on stream `stream` behind its earlier items.
@@ -112,7 +147,7 @@ impl StreamLanes {
     where
         F: FnOnce() + Send + 'static,
     {
-        let lane = self.streams.get(&stream).ok_or(StreamPostError::UnknownStream)?;
+        let lane = self.open_lane(stream).ok_or(StreamPostError::UnknownStream)?;
         lane.sequence.post(item).map_err(StreamPostError::from)
     }
 
@@ -122,13 +157,13 @@ impl StreamLanes {
         expect(dead_code, reason = "INPUT frames (p05-ipc-078) route by the stream's surface")
     )]
     pub(crate) fn surface(&self, stream: u16) -> Option<SurfaceId> {
-        self.streams.get(&stream).map(|lane| lane.surface)
+        self.open_lane(stream).map(|lane| lane.surface)
     }
 
     /// Queued plus running items of stream `stream`.
     #[cfg(test)]
     pub(crate) fn depth(&self, stream: u16) -> Option<usize> {
-        self.streams.get(&stream).map(|lane| lane.sequence.depth())
+        self.open_lane(stream).map(|lane| lane.sequence.depth())
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -136,13 +171,19 @@ impl StreamLanes {
     }
 
     /// The stream barrier for a control command on `surface`: `then` runs
-    /// once every open stream of `surface` ran the items it holds now.
-    /// [`Fenced::Drained`] hands `then` back when none holds an item, and
-    /// the command goes on at once.
-    pub(crate) fn barrier<F>(&self, pool: &SequencedPool, surface: SurfaceId, then: F) -> Fenced<F>
+    /// once every stream of `surface`, open or closing, ran the items it
+    /// holds now. [`Fenced::Drained`] hands `then` back when none holds an
+    /// item, and the command goes on at once.
+    pub(crate) fn barrier<F>(
+        &mut self,
+        pool: &SequencedPool,
+        surface: SurfaceId,
+        then: F,
+    ) -> Fenced<F>
     where
         F: FnOnce() + Send + 'static,
     {
+        self.prune_drained();
         let sequences: Vec<&Sequence> = self
             .streams
             .values()
