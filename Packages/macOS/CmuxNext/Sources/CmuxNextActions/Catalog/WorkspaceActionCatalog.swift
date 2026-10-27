@@ -371,7 +371,7 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "workspaceGroup.toggleArchive",
                 title: String(localized: "action.workspaceGroup.toggleArchive", defaultValue: "Archive/Unarchive Group", bundle: .module),
-                keywords: ["group", "archive", "unarchive", "dim", "done"], category: .workspace, symbol: "archivebox",
+                keywords: ["group", "archive", "unarchive", "dim", "done"], category: .workspace, symbol: "archivebox.circle",
                 surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group toggle-archive"
             ),
             ActionDescriptor(
@@ -445,6 +445,6 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 keywords: ["current work", "tasks"], category: .workspace, symbol: "sparkle.magnifyingglass",
                 surfaces: [.palette], targets: [.workspace], cliName: "workspace find-work"
             ),
-        ] + classicImportActions()
+        ] + classicImportActions() + sessionTransferActions()
     }
 }

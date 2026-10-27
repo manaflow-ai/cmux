@@ -43,11 +43,11 @@ spec.loader.exec_module(linux_inputs)
 
 CHIEF = "Build the OptChat Chief (cmux-next)"
 MOBILE = "Build the cmux-next iPhone host (cmux-mobile-host)"
-WEB_DOWNLOAD = "Download the web bundles built on Linux (cmux-next)"
+WEB_DOWNLOAD = "Download the web bundles built beside the app (cmux-next)"
 WEB_BUILD = "Build the web bundles (cmux-next)"
 RELEASE = "Build nightly app (Release)"
 BUNDLE = "Bundle the OptChat Chief and the iPhone host"
-NOTICES_DOWNLOAD = "Download the third-party notices generated on Linux (cmux-next)"
+NOTICES_DOWNLOAD = "Download the third-party notices generated beside the app (cmux-next)"
 NOTICES = "Generate third-party notices (cmux-next)"
 STOP = "Stop the helper builds still running"
 CEF = "Fetch the Chromium engine"

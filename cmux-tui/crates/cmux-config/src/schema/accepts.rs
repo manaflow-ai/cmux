@@ -195,7 +195,8 @@ fn is_accepted(kind: &Kind, value: &Value, domains: &Domains) -> bool {
 }
 
 /// The events a sound rule may name (Swift `NotificationSoundEvent`).
-pub(crate) const SOUND_RULE_EVENTS: [&str; 5] = ["finished", "needsInput", "error", "bell", "message"];
+pub(crate) const SOUND_RULE_EVENTS: [&str; 5] =
+    ["finished", "needsInput", "error", "bell", "message"];
 
 /// Swift `NotificationSoundRule.accepts`: a sound name, or an object of an
 /// optional string `sound`, an optional `volume` from 0 to 1, and optional
@@ -209,9 +210,9 @@ fn is_sound_rule(value: &Value) -> bool {
         "sound" => member.is_string(),
         "volume" => member.as_f64().is_some_and(|x| x.is_finite() && (0.0..=1.0).contains(&x)),
         "events" => member.as_object().is_some_and(|events| {
-            events
-                .iter()
-                .all(|(name, sound)| SOUND_RULE_EVENTS.contains(&name.as_str()) && sound.is_string())
+            events.iter().all(|(name, sound)| {
+                SOUND_RULE_EVENTS.contains(&name.as_str()) && sound.is_string()
+            })
         }),
         _ => false,
     })
