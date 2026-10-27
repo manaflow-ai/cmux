@@ -316,9 +316,75 @@ pub(super) fn writable_mount_aliases(roots: &[&PathBuf], mountinfo: &str) -> Vec
     aliases.into_iter().collect()
 }
 
+// Red-first interface: the fix replaces the legacy checks with mount-ID pieces.
+#[cfg(test)]
+fn guarded_aliases(trees: &[(&Path, u64, bool)], mountinfo: &str) -> Vec<String> {
+    trees
+        .iter()
+        .flat_map(|(path, _, writable)| {
+            if *writable {
+                writable_mount_aliases(&[&path.to_path_buf()], mountinfo)
+            } else {
+                mount_aliases(&[path.to_path_buf()], mountinfo)
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+fn resolved_mount_id(_path: &Path) -> Result<u64, String> {
+    Err("mount-ID resolution not implemented".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const ROOT: &str = "1 0 8:1 / / rw - ext4 root rw\n";
+
+    #[test]
+    fn regression_hidden_mount_cannot_disguise_containing_mount() {
+        let info = format!(
+            "{ROOT}2 1 0:42 / /mnt/meta/hooks rw - tmpfs tmpfs rw\n3 1 8:1 /home/u/repo/.git /mnt/meta rw - ext4 root rw\n"
+        );
+        let reasons = guarded_aliases(&[(Path::new("/mnt/meta/hooks"), 3, true)], &info);
+        assert!(reasons.iter().any(|r| r.contains("/home/u/repo/.git/hooks")), "{reasons:?}");
+    }
+
+    #[test]
+    fn regression_overlay_exports_writable_subtree() {
+        let info = format!(
+            "{ROOT}2 1 0:42 / /home/u/victim/.git/hooks rw - overlay overlay upperdir=/home/u/work/cache\n"
+        );
+        let reasons = guarded_aliases(&[(Path::new("/home/u/work"), 1, true)], &info);
+        assert!(reasons.iter().any(|r| r.contains("overlay layer")), "{reasons:?}");
+    }
+
+    #[test]
+    fn regression_protected_descendant_filesystem_is_guarded() {
+        let info = format!(
+            "{ROOT}2 1 0:42 / /home/u/.ssh/keys rw - tmpfs tmpfs rw\n3 1 0:42 / /mnt/leak rw - tmpfs tmpfs rw\n"
+        );
+        let reasons = guarded_aliases(&[(Path::new("/home/u/.ssh"), 1, false)], &info);
+        assert!(reasons.iter().any(|r| r.contains("/mnt/leak")), "{reasons:?}");
+    }
+
+    #[test]
+    fn regression_outside_autofs_is_refused() {
+        let info = format!("{ROOT}2 1 0:42 / /home/u/victim/.git rw - autofs map rw\n");
+        let reasons = guarded_aliases(&[(Path::new("/home/u/work"), 1, true)], &info);
+        assert!(reasons.iter().any(|r| r.contains("autofs")), "{reasons:?}");
+    }
+
+    #[test]
+    fn real_statx_resolves_root_mount_id() {
+        let id = resolved_mount_id(Path::new("/")).unwrap();
+        let info = fs::read_to_string("/proc/self/mountinfo").unwrap();
+        assert!(
+            info.lines()
+                .any(|line| line.split_whitespace().next() == Some(id.to_string().as_str()))
+        );
+    }
 
     #[test]
     fn writable_roots_inside_aliased_mounts_are_refused() {
