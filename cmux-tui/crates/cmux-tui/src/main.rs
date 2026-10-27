@@ -134,7 +134,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Context;
 use cmux_tui_core::resource::TerminalPublicId;
-use cmux_tui_core::{Mux, ProviderWorkspaceAuthority, SurfaceOptions};
+use cmux_tui_core::{Mux, ProviderWorkspaceAuthority, SurfaceOptions, echo_thread::ECHO_PATH_QOS};
 #[cfg(unix)]
 use cmux_tui_machine_protocol::BearerToken;
 use machine::{
@@ -2081,7 +2081,7 @@ fn run_relay(args: Args) -> anyhow::Result<()> {
         crossterm::terminal::enable_raw_mode()?;
     }
 
-    let input = std::thread::Builder::new().name("relay-input".into()).spawn(move || {
+    let input = cmux_threads::spawn("relay-input", ECHO_PATH_QOS, move || {
         let result = io::copy(&mut io::stdin().lock(), &mut writer);
         let _ = writer.shutdown(Shutdown::Write);
         result

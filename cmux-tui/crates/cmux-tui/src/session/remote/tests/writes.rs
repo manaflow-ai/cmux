@@ -541,3 +541,27 @@ fn latency_histogram_reports_fixed_bucket_percentiles() {
     assert_eq!(snapshot.p99, Some(Duration::from_millis(25)));
     assert_eq!(snapshot.histogram.iter().map(|bucket| bucket.samples).sum::<u64>(), 5);
 }
+
+/// p04-input-084: the interactive writer carries the person's keys to the
+/// remote session, so it is an echo path thread.
+#[test]
+fn the_interactive_writer_is_an_echo_path_thread() {
+    let session = test_session(Box::new(SilentWriter));
+    // The thread registers as its body starts.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let rows = loop {
+        let rows: Vec<_> = cmux_threads::snapshot()
+            .into_iter()
+            .filter(|row| row.name == "remote-input-writer")
+            .map(|row| row.declared)
+            .collect();
+        if !rows.is_empty() || Instant::now() >= deadline {
+            break rows;
+        }
+        std::thread::yield_now();
+    };
+    assert!(!rows.is_empty(), "remote-input-writer is registered while it runs");
+    let echo = cmux_tui_core::echo_thread::ECHO_PATH_QOS;
+    assert!(rows.iter().all(|qos| *qos == echo), "{rows:?}");
+    drop(session);
+}

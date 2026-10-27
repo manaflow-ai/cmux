@@ -720,6 +720,7 @@ name = "cmux-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-threads",
  "core-foundation",
  "core-foundation-sys",
  "notify",

@@ -28,6 +28,51 @@ fn holder_link_reader_is_input_critical() {
     assert_eq!(cmux_holder::link::LINK_READER_QOS, ThreadType::InputCritical.qos());
 }
 
+/// The declared class of every registered row named `name`, waiting up to
+/// 5 s for the first one: a spawned thread registers as its body starts.
+fn declared_rows(name: &str) -> Vec<ThreadQos> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let rows: Vec<ThreadQos> = cmux_threads::snapshot()
+            .into_iter()
+            .filter(|row| row.name == name)
+            .map(|row| row.declared)
+            .collect();
+        if !rows.is_empty() || std::time::Instant::now() >= deadline {
+            return rows;
+        }
+        std::thread::yield_now();
+    }
+}
+
+fn assert_declared(name: &str, qos: ThreadQos) {
+    let rows = declared_rows(name);
+    assert!(!rows.is_empty(), "{name} is registered while it runs");
+    assert!(rows.iter().all(|declared| *declared == qos), "{name}: {rows:?}");
+}
+
+/// cmux-config sits below this crate and names its watch thread's class
+/// itself; it must be the Utility class (p04-input-084).
+#[test]
+fn config_watch_thread_is_utility() {
+    assert_eq!(cmux_config::watch::WATCH_THREAD_QOS, ThreadType::Utility.qos());
+    let directory = std::env::temp_dir().join(format!("cmux-qos-config-{}", std::process::id()));
+    let watcher = cmux_config::Watcher::start(vec![directory.join("cmux-next.json")], || {})
+        .expect("the config watch starts");
+    assert_declared("cmux-config-watch", ThreadType::Utility.qos());
+    drop(watcher);
+}
+
+/// The command history worker is an upkeep thread: declared at the upkeep
+/// class, each store or expiry pass lowered to utility (p04-input-084).
+#[test]
+fn command_history_worker_is_an_upkeep_thread() {
+    let mux = crate::Mux::new_for_test("qos-command-history", crate::SurfaceOptions::default());
+    mux.set_terminal_command_history(false, None).expect("the switch is stored");
+    assert_declared("terminal-command-history", crate::request_qos::UPKEEP_THREAD_QOS);
+    mux.shutdown();
+}
+
 /// The echo path threads (`echo_thread::spawn`) declare the InputCritical
 /// class.
 #[test]

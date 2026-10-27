@@ -232,10 +232,16 @@ impl Mux {
         let (sender, receiver) =
             std::sync::mpsc::sync_channel::<CommandHistoryMessage>(MAX_QUEUED_COMMANDS);
         let mux = Arc::downgrade(self);
-        std::thread::Builder::new()
-            .name("terminal-command-history".into())
-            .spawn(move || Worker { mux, checkpoint_pending }.run(receiver, deadline))
-            .ok()?;
+        // An upkeep thread (p04-input-084): each store or expiry pass runs at
+        // utility (`Worker::pass`) and a client's delete at the declared class.
+        cmux_threads::spawn(
+            "terminal-command-history",
+            crate::request_qos::UPKEEP_THREAD_QOS,
+            move || {
+                Worker { mux, checkpoint_pending }.run(receiver, deadline);
+            },
+        )
+        .ok()?;
         *slot = Some(sender.clone());
         Some(sender)
     }
@@ -349,6 +355,9 @@ impl Worker {
     ) -> Option<u64> {
         let mux = self.mux.upgrade()?;
         let now = unix_epoch_ms().ok()?;
+        // Utility with `daemonRequestQos` on; the registry lock raises it
+        // while a request waits for it.
+        let _pass = mux.request_qos().enter_upkeep_pass();
         let mut registry = mux.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let next = match work(&mut registry, now) {
             Ok(expiry) => {

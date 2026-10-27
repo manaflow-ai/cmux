@@ -31,6 +31,16 @@
 //! reader (mux-conn) and the surface request dispatcher
 //! (mux-control-dispatch) serve automation clients too, so they stay below
 //! InputCritical until the client's class is known (p02-threads task 224).
+//! The terminal resource stream writer (mux-resource-terminal-attach) and
+//! the cmux-tui client's key writers (remote-input-writer, relay-input) are
+//! InputCritical too (p04-input-084). Watchers and best-effort writers are
+//! Utility: sqlite-wal-sync, mux-session-journal-fanout, mux-inventory-watch,
+//! terminal-host-record-mirror and cmux-config-watch (cmux-config's
+//! `watch::WATCH_THREAD_QOS`, kept equal by a test here). Upkeep threads that
+//! hold the workspace registry a request waits for (mux-project-sources,
+//! terminal-command-history, mux-output-store-writer) start at
+//! `request_qos::UPKEEP_THREAD_QOS` and run each pass at utility, so the
+//! lock can raise them.
 
 pub use cmux_threads::QosChange;
 use cmux_threads::ThreadQos;

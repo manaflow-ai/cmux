@@ -28,9 +28,10 @@ pub(crate) fn start(mux: &Arc<Mux>) {
     }
     let Some(layout) = Layout::current() else { return };
     let weak = Arc::downgrade(mux);
-    let spawned = std::thread::Builder::new()
-        .name("mux-project-sources".into())
-        .spawn(move || run(&weak, &layout));
+    // An upkeep thread (p04-input-084): each import pass runs at utility
+    // (`import_changed`), raised while it holds the registry a request waits for.
+    let qos = crate::request_qos::UPKEEP_THREAD_QOS;
+    let spawned = cmux_threads::spawn("mux-project-sources", qos, move || run(&weak, &layout));
     if let Err(error) = spawned {
         note(&format!("project sources thread did not start: {error}"));
     }
@@ -136,6 +137,7 @@ fn import_changed(
     imported: &mut HashMap<&'static str, Vec<Observation>>,
 ) -> bool {
     let Some(mux) = mux.upgrade() else { return false };
+    let _pass = mux.request_qos().enter_upkeep_pass();
     let changed: Vec<SourceScan> = project_sources::scan_all(layout)
         .into_iter()
         .filter(|scan| imported.get(scan.source) != Some(&scan.entries))

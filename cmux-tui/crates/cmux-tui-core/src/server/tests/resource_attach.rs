@@ -239,6 +239,16 @@ fn terminal_resource_attach_acknowledges_before_styled_snapshot_and_cancels() {
         item["item"]["render"]["rows"].as_array().unwrap().len(),
         item["item"]["render"]["size"]["rows"].as_u64().unwrap() as usize
     );
+    // p04-input-084: the stream worker that sent the snapshot is an echo
+    // path thread.
+    let workers: Vec<_> = cmux_threads::snapshot()
+        .into_iter()
+        .filter(|row| row.name == "mux-resource-terminal-attach")
+        .map(|row| row.declared)
+        .collect();
+    assert!(!workers.is_empty(), "the attach worker is registered while it runs");
+    let echo = crate::echo_thread::ECHO_PATH_QOS;
+    assert!(workers.iter().all(|qos| *qos == echo), "{workers:?}");
 
     let resize = resource_request(
         "terminal-attach-resize",

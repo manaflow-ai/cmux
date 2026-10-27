@@ -431,8 +431,13 @@ pub(super) fn start_terminal_resource_attach(
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
-    let spawn =
-        std::thread::Builder::new().name("mux-resource-terminal-attach".into()).spawn(move || {
+    // The terminal's frames to its client: the echo path class from the
+    // start (p04-input-084). Blocking stays allowed: the worker waits for its
+    // commit and detaches under the mux locks when the stream ends.
+    let spawn = cmux_threads::spawn(
+        "mux-resource-terminal-attach",
+        crate::echo_thread::ECHO_PATH_QOS,
+        move || {
             if waits::recv(&worker_committed).is_err() {
                 return;
             }
@@ -495,7 +500,8 @@ pub(super) fn start_terminal_resource_attach(
                 &start.common,
                 "closed",
             );
-        });
+        },
+    );
     if let Err(error) = spawn {
         let end = resource_stream_end(
             &stream_id,
