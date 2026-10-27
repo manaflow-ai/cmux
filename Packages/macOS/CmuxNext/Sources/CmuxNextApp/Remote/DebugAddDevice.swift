@@ -2,20 +2,17 @@
 import CmuxNextSettings
 import CmuxNextServer
 
-/// `debug.add_device {computers?, network?, off?}` (captures): Add Device opens on a fixture listing
+/// `debug.add_device {computers?, network?}` (captures): Add Device opens on a fixture listing
 /// instead of `cmux device list`, so a capture shows the network and ~/.ssh/config rows without the
 /// capture machine's own tailnet. `computers`: `[{name, address?, os?, mine?, ssh?}]` (`ssh`: a
-/// ~/.ssh/config host); `network`: `"none"` for no Tailscale. `off: true` reads the real list again.
+/// ~/.ssh/config host); `network`: `"none"` for no Tailscale. The fixture stays for the rest of the
+/// app's run, which a capture starts fresh.
 @MainActor
 enum DebugAddDevice {
     /// The listing Add Device shows while set (``AddDeviceServices/app(_:)``).
     static var listing: DeviceListing?
 
     static func show(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
-        if params["off"]?.boolValue == true {
-            listing = nil
-            return .object(["off": .bool(true)])
-        }
         let rows = params["computers"]?.arrayValue ?? [
             .object(["name": .string("studio"), "os": .string("macOS"), "mine": .bool(true)]),
             .object(["name": .string("build-box"), "os": .string("linux")]),
