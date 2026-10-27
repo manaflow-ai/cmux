@@ -68,7 +68,7 @@ struct StartupStallTag: Equatable {
 
     /// The reading this tag holds.
     var reading: StartupTaskTag.Reading {
-        StartupTaskTag.Reading(packedTask: task, phase: StartupTaskLog.Phase(rawValue: Int(state >> 1)) ?? .complete, inMain: state & 1 == 1)
+        StartupTaskTag.Reading(packedTask: task, phase: StartupTaskLog.Phase(rawValue: Int(truncatingIfNeeded: state >> 1)) ?? .complete, inMain: state & 1 == 1)
     }
 
     /// `startup_phase` (``StartupTaskTag/Reading/stallPhase``) and, when a task ran, `startup_task`;
