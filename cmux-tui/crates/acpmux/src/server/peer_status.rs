@@ -198,7 +198,7 @@ fn ram_total() -> Option<u64> {
 
 #[cfg(target_os = "linux")]
 fn ram_total() -> Option<u64> {
-    let text = std::fs::read_to_string("/proc/meminfo").ok()?;
+    let text = cmux_blocking::fs::read_to_string("/proc/meminfo").ok()?;
     let kb: u64 = text
         .lines()
         .find_map(|l| l.strip_prefix("MemTotal:"))?
@@ -245,7 +245,7 @@ fn swap() -> Option<(u64, u64)> {
 
 #[cfg(target_os = "linux")]
 fn swap() -> Option<(u64, u64)> {
-    let text = std::fs::read_to_string("/proc/meminfo").ok()?;
+    let text = cmux_blocking::fs::read_to_string("/proc/meminfo").ok()?;
     let kb = |key: &str| -> Option<u64> {
         text.lines().find_map(|l| l.strip_prefix(key))?.split_whitespace().next()?.parse().ok()
     };

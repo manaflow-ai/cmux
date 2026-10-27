@@ -48,7 +48,9 @@ fn bind(
     writer: &MessageWriter,
     stream: u16,
 ) -> (ViewOut, AttachLifecycle) {
-    let outbound = writer.start_client_stream(ClientStreamId(stream)).expect("stream id");
+    let outbound = writer
+        .start_client_stream(ClientStreamId(stream), &mux.control_clients.attach_stream_admission)
+        .expect("stream id");
     let lifecycle = AttachLifecycle::default();
     let out = ViewOut::bind(pump, mux, client, surface, writer, &outbound, &lifecycle, false);
     (out, lifecycle)

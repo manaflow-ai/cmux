@@ -15,6 +15,7 @@ use super::BudgetedText;
 use super::RenderService;
 use super::VtStateMessage;
 use super::api_revision_wire;
+use super::attach_streams::AttachStreamAdmission;
 use super::attach_streams::AttachStreamError;
 use super::attach_streams::ClientStreamId;
 use super::conversation_tabs_wire;
@@ -131,8 +132,13 @@ pub(super) trait MessageSink: Send + Sync {
         true
     }
     /// Takes `stream`'s client-minted id on this connection until its
-    /// terminal is queued (attach-streams-v1).
-    fn claim_client_stream(&self, _stream: &OutboundStream) -> Result<(), AttachStreamError> {
+    /// terminal is queued (attach-streams-v1), within the connection's and
+    /// `admission`'s daemon-wide caps.
+    fn claim_client_stream(
+        &self,
+        _stream: &OutboundStream,
+        _admission: &Arc<AttachStreamAdmission>,
+    ) -> Result<(), AttachStreamError> {
         Err(AttachStreamError::Unsupported)
     }
     /// The open stream holding client-minted `id` on this connection.
@@ -407,8 +413,9 @@ impl MessageWriter {
     }
 
     /// The first half of [`Self::send_stream_backpressured`]: `value` as
-    /// the text it sends. An echo thread watches this half as its frame's
-    /// work, not the hand-off that waits for room.
+    /// the text it sends on `stream` (tagged with its client-minted id, if
+    /// any). An echo thread watches this half as its frame's work, not the
+    /// hand-off that waits for room.
     pub(super) fn encode<T: Serialize + ?Sized>(
         &self,
         value: &T,

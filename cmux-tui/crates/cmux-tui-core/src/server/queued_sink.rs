@@ -7,6 +7,7 @@ use super::super::MessageSink;
 use super::super::OutboundStream;
 use super::super::RENDER_ATTACH_MAX_BYTES;
 use super::super::RoomWaker;
+use super::super::attach_streams::AttachStreamAdmission;
 use super::super::attach_streams::AttachStreamError;
 use super::super::attach_streams::ClientStreamId;
 use super::BoundedOutbound;
@@ -234,8 +235,12 @@ impl MessageSink for QueuedSink {
         self.outbound.has_backpressure_room(stream)
     }
 
-    fn claim_client_stream(&self, stream: &OutboundStream) -> Result<(), AttachStreamError> {
-        self.outbound.claim_client_stream(stream)
+    fn claim_client_stream(
+        &self,
+        stream: &OutboundStream,
+        admission: &Arc<AttachStreamAdmission>,
+    ) -> Result<(), AttachStreamError> {
+        self.outbound.claim_client_stream(stream, admission)
     }
 
     fn client_stream(&self, id: ClientStreamId) -> Option<OutboundStream> {

@@ -28,6 +28,7 @@ use super::OUTBOUND_CONTROL_BYTE_RESERVE;
 use super::OUTBOUND_CONTROL_RESERVE;
 use super::OutboundStream;
 use super::RoomWaker;
+use super::attach_streams::AttachStreamAdmission;
 use super::attach_streams::AttachStreamError;
 use super::attach_streams::ClientStreamId;
 use super::attach_streams::ClientStreams;
@@ -334,8 +335,9 @@ impl BoundedOutbound {
     pub(super) fn claim_client_stream(
         &self,
         stream: &OutboundStream,
+        admission: &Arc<AttachStreamAdmission>,
     ) -> Result<(), AttachStreamError> {
-        self.state.lock().recover_poison().client_streams.claim(stream)
+        self.state.lock().recover_poison().client_streams.claim(stream, admission)
     }
 
     pub(super) fn client_stream(&self, id: ClientStreamId) -> Option<OutboundStream> {

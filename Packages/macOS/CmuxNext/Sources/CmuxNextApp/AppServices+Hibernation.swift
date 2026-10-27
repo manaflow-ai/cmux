@@ -152,10 +152,12 @@ extension MemoryHistograms {
     /// (absent, never a measured 0) until its discard path records too.
     static let hibernationKinds = [ContentKind.browser, .agentPage].map(\.rawValue)
 
-    /// The counted kinds: ``hibernationKinds``, and overlay pages while a feature releases them (their planner,
-    /// ``OverlayPageDiscards``, records each).
-    static func discardKinds(overlayPages: Bool) -> [String] {
+    /// The counted kinds: ``hibernationKinds``, overlay pages while a feature releases them (their planner,
+    /// ``OverlayPageDiscards``, records each), and sidebar sections while `memoryDiscardSidebarSections` does
+    /// (``SidebarSectionDiscards``).
+    static func discardKinds(overlayPages: Bool, sidebarSections: Bool = false) -> [String] {
         hibernationKinds + (overlayPages ? [ContentKind.overlayPage.rawValue] : [])
+            + (sidebarSections ? [ContentKind.sidebarSection.rawValue] : [])
     }
 
     /// Counts each page `hibernation` hibernates and each agent page `agentPages` releases as a
