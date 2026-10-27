@@ -29,6 +29,8 @@ impl Assembled {
     fn as_json(&self) -> Value {
         let mut value = self.meta.clone();
         let object = value.as_object_mut().expect("meta is an object");
+        assert!(!object.contains_key("data"), "the meta carries no base64 data");
+        assert!(!object.contains_key("pending"), "the meta carries no base64 pending");
         let data_len = object.remove("data_len").and_then(|len| len.as_u64()).unwrap() as usize;
         let pending_len = object.remove("pending_len").map_or(0, |len| len.as_u64().unwrap());
         assert_eq!(self.raw.len(), data_len + pending_len as usize, "raw is data then pending");
@@ -55,8 +57,8 @@ fn event_len(payload: &[u8]) -> Option<usize> {
 }
 
 /// Reassembles the events of `frames` the way a reader does: a SNAPSHOT
-/// continues with SNAPSHOT_MORE at the same aux, a REPLAY with REPLAY chunks
-/// whose aux is the offset plus their start, until the meta's length.
+/// continues with SNAPSHOT_MORE and a REPLAY with REPLAY chunks, each at the
+/// same aux, until the meta's length.
 fn assemble(frames: &[Frame]) -> Vec<Assembled> {
     let mut events = Vec::new();
     let mut open: Option<(FrameKind, u64, Vec<u8>)> = None;
@@ -74,7 +76,7 @@ fn assemble(frames: &[Frame]) -> Vec<Assembled> {
                 (FrameKind::Snapshot, offset, payload)
             }
             Some((kind, offset, payload)) => {
-                assert_eq!((header.kind(), aux), (kind, offset + payload.len() as u64));
+                assert_eq!((header.kind(), aux), (kind, offset), "a chunk keeps the cut offset");
                 (kind, offset, payload)
             }
         };
@@ -95,6 +97,12 @@ fn assemble(frames: &[Frame]) -> Vec<Assembled> {
     }
     assert!(open.is_none(), "an event was left unfinished");
     events
+}
+
+/// The meta JSON of one whole bulk payload.
+fn meta_of(payload: &[u8]) -> Value {
+    let meta_len = u32::from_le_bytes(payload[..BULK_META_LEN_BYTES].try_into().unwrap()) as usize;
+    serde_json::from_slice(&payload[BULK_META_LEN_BYTES..BULK_META_LEN_BYTES + meta_len]).unwrap()
 }
 
 fn event_raw_len(payload: &[u8]) -> usize {
@@ -258,8 +266,7 @@ fn snapshot_frames_round_trip_equals_the_json_path_on_five_fixtures() {
 }
 
 /// The `vt-state` replay of each fixture as one REPLAY frame equals its JSON
-/// line, pending sequence included, with every chunk's aux at the offset of
-/// its first payload byte.
+/// line, pending sequence included, with every chunk's aux at the cut offset.
 #[test]
 fn snapshot_frames_vt_state_replay_round_trips_on_five_fixtures() {
     let render = RenderService::new();
@@ -285,7 +292,12 @@ fn snapshot_frames_vt_state_replay_round_trips_on_five_fixtures() {
         let line = render.serialize_vt_state(&message).unwrap();
         let json: Value = serde_json::from_str(&line).unwrap();
         let frame = message.replay_frame(STREAM, offset).unwrap();
-        assert!(!frame.payload().windows(4).any(|w| w == b"data\":\""), "{name}: no base64 data");
+        let meta = meta_of(frame.payload());
+        assert!(meta.get("data").is_none(), "{name}: no base64 data in the meta");
+        assert!(meta.get("pending").is_none(), "{name}: no base64 pending in the meta");
+        assert_eq!(meta["data_len"], json!(message.replay.len()), "{name}: data is raw");
+        let raw = [&message.replay[..], &message.pending_sequence[..]].concat();
+        assert!(frame.payload().ends_with(&raw), "{name}: replay then pending, raw");
         for chunk_bytes in [64, cmux_ipc::lane_writer::BULK_FRAME_MAX] {
             let events = assemble(&over_the_wire(vec![frame.clone()], chunk_bytes));
             assert_eq!(events.len(), 1, "{name}");
@@ -304,11 +316,10 @@ fn snapshot_frames_carry_data_raw_after_the_meta() {
     let meta = json!({"event": "snapshot", "phase": "history", "offset": 9});
     let frame = SnapshotEvent::new(9, meta, data.as_slice()).into_frame(STREAM).unwrap();
     let payload = frame.payload();
-    let meta_len = u32::from_le_bytes(payload[..4].try_into().unwrap()) as usize;
-    let meta: Value = serde_json::from_slice(&payload[4..4 + meta_len]).unwrap();
+    let meta = meta_of(payload);
     assert_eq!(meta["data_len"], 256);
     assert!(meta.get("data").is_none());
-    assert_eq!(&payload[4 + meta_len..], data.as_slice());
+    assert_eq!(&payload[payload.len() - data.len()..], data.as_slice());
     assert_eq!(frame.header().aux(), cmux_ipc::Aux::Offset(9));
 }
 

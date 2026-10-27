@@ -11,8 +11,9 @@
 //! lengths: `data_len`, then `pending_len` when raw continues with the
 //! replay's pending sequence. The connection's writer cuts a long frame at
 //! BULK_FRAME_MAX (a SNAPSHOT continues as SNAPSHOT_MORE with the same aux;
-//! REPLAY chunks advance their aux by their start), so the reader takes the
-//! offset from the first frame and knows from the meta where the event ends.
+//! every REPLAY chunk keeps the cut's offset, since its payload bytes are not
+//! PTY bytes), so the reader takes the offset from the first frame and knows
+//! from the meta where the event ends.
 //! A history chunk's raw bytes are its raw DEFLATE, as its `data` was. The
 //! bytes are copied once into the payload and never base64-encoded, as
 //! Chrome moves large bytes as a `mojo_base::BigBuffer`

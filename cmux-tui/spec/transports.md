@@ -229,8 +229,9 @@ history chunk's raw DEFLATE, the GHOSTSNP READY prefix, the Kitty replay
 stream, the VT replay and its pending sequence. aux is the PTY offset of the
 READY or of the replay cut. A writer cuts a long event into chunks: a SNAPSHOT
 continues as SNAPSHOT_MORE frames with the same aux; a REPLAY continues as
-REPLAY frames whose aux is the first offset plus the chunk's start in the
-payload. The reader takes the offset from the first frame, appends chunks
+REPLAY frames with the same aux, because its payload bytes (the prefix, the
+meta and the synthesized VT replay) are not PTY bytes. The next OUTPUT starts
+at that same offset. The reader takes the offset from the first frame, appends chunks
 until it holds `4 + meta_len + data_len + pending_len` bytes, and then has the
 whole event. A frame that would pass the 32 MiB payload limit is not built;
 that event goes as its JSON line.
