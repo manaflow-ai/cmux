@@ -4,8 +4,10 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextHangReports
+import CmuxNextTrace
 import CmuxNextWakeups
 
 /// Where the main-thread watchdog's findings go (moved out of `AppDelegate`): each hang still
@@ -31,8 +33,17 @@ enum WatchdogReporting {
             work: services.work, mainWork: services.mainWork,
             metricsFolder: TraceBlackBoxFileSteps.appDirectory(bundleID: Bundle.main.bundleIdentifier),
             daemonPID: { [weak services] in services?.daemon.identity?.pid },
-            wireSchema: .written(serverAcceptsSchema3: services.features.isEnabled(.hangReportsSchema3)))
+            wireSchema: .written(serverAcceptsSchema3: services.features.isEnabled(.hangReportsSchema3)),
+            features: { [features = FeatureFlagsPage.report(services.features, tunables: TunableStore.shared)] in
+                HangReport.FeatureState(features.fieldState)
+            })
         let collector = hangReports.collector
+        // The drain queue is a hang-watched lane for the process's life (Compat cannot see the watch). Set before
+        // the sink: both are drain-queue jobs in call order, so the replay below runs inside the watch.
+        if services.blocking.isCompiledIn {
+            let drain = HangWatchedLane("blocking.drain", deadline: BlockingDetector.drainHangDeadline, on: TraceRuntime.shared.hangWatch)
+            services.blocking.watchDrain { job in drain.run(job) }
+        }
         // Replays the sites the detector recorded before this point (BlockingDetector.install).
         services.blocking.install(sink: BlockingReportSink(collector: collector, nonFatal: .init(
             consented: { reporter.isStarted },

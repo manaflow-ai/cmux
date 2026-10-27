@@ -178,6 +178,7 @@ class BrowserRestoredSession {
         guard !isStepping else { return true }
         isStepping = true
         let title = tab.state.title
+        // main-hop-allow: the person's Back or Forward: currentScrollY and show are the page's main-actor async script calls, with the session's checks between them; the task only runs them
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer { isStepping = false }
@@ -279,6 +280,7 @@ class BrowserRestoredSession {
           return true;
         })(\(y))
         """
+        // main-hop-allow: evaluate is the page's main-actor async script call (the scroll runs in the page); the task only sends it, and nobody reads its answer
         Task { @MainActor [weak self] in _ = try? await self?.tab?.evaluate(script, world: .isolated, gesture: .cmux) }
     }
 

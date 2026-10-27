@@ -89,6 +89,7 @@ final class PageFloatingOverlays {
     /// card.
     func sync() {
         guard !cards.isEmpty, let page else { return }
+        // visibility-walk-allow: the cards are child windows placed over the page AppKit shows; a node would place them a turn after the page
         guard let window = page.window, !page.isHiddenOrHasHiddenAncestor else {
             for index in cards.indices { dismiss(index) }
             return

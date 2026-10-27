@@ -66,7 +66,7 @@ final class LoadErrorView: ChromeFrameView {
             titleLabel.stringValue = Strings.loadFailedTitle
             messageLabel.stringValue = error.message
         }
-        retryButton.isHidden = isCertificateInterstitial
+        retryButton.isHidden = isCertificateInterstitial || !error.retryable
         backButton.isHidden = !isCertificateInterstitial
         showsDetails = false
         applyDetails()
@@ -74,6 +74,7 @@ final class LoadErrorView: ChromeFrameView {
         updateColors()
     }
 
+    // visibility-walk-allow: four color stores (a layer color, three text colors) in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateColors()

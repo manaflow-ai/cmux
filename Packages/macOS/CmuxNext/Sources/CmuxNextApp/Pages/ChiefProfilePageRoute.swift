@@ -2,6 +2,7 @@ import CmuxNextDaemon
 import CmuxNextHomeEngine
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 
 /// `cmux.chief.profile.*` of the home-channels page -> this build's Chief owner, with the person's
 /// gesture confirmed on the app's trusted connection (ChiefProfilePageRelay). Thin: route only.
@@ -10,8 +11,14 @@ final class ChiefProfilePageRoute: PageProvider {
     nonisolated static let prefix = "cmux.chief.profile."
     private let relay: ChiefProfilePageRelay
 
-    init(owner: ChiefConversationOwner) {
-        relay = .shared(for: owner)
+    /// The route of `owner`'s relay, which the page host keeps (one per owner, shared by Home and
+    /// Settings): its page stream closes ``PageRelayIdleClose/delay`` after the last call.
+    init(owner: ChiefConversationOwner, channels: PageRelayChannels, deadlines: MainDeadlineScheduler) {
+        relay = channels.channel(for: PageRelayChannels.Key(service: ObjectIdentifier(owner), page: ChiefProfilePageRelay.page)) {
+            // A close tears down what nobody uses: background class, behind input and visible work.
+            ChiefProfilePageRelay(owner: owner, idle: MainDeadline(owner: "ChiefProfilePageRelay.idleClose", workClass: .background,
+                                                                   scheduler: deadlines))
+        }
     }
 
     func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {

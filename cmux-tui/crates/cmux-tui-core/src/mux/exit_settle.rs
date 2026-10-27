@@ -11,9 +11,10 @@
 //! re-classifies an unsettled receipt at startup against the recorded
 //! shutdown window, with the same result.
 
+use cmux_threads::sync::{Condvar, Mutex};
 use std::collections::BTreeMap;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
+use std::sync::{Arc, OnceLock, Weak};
 use std::time::Duration;
 
 use super::Mux;

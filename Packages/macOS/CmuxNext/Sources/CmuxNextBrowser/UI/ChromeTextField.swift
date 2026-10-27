@@ -32,6 +32,7 @@ class ChromeTextField: NSTextField {
         applyPlaceholder()
     }
 
+    // visibility-walk-allow: a text color, the placeholder and the open editor's colors in the theme scope, no layout; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

@@ -111,6 +111,7 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
         isHighlighted = true
     }
 
+    // local-monitor-allow: a drag is delivered unbuffered until its mouse-up (p06-scheduler.md section E, FrameInputCoalescer); each move only offsets the pinned buttons
     override func mouseDragged(with event: NSEvent) {
         guard var press else { return super.mouseDragged(with: event) }
         let dx = event.locationInWindow.x - press.start.x
@@ -151,11 +152,13 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
         }
     }
 
+    // visibility-walk-allow: hover is a hit test: a view hidden or shown under a still pointer gets no exit or enter, so PointerHover reads the pointer again (input state, no view work)
     override func viewDidHide() {
         super.viewDidHide()
         hover?.refresh()
     }
 
+    // visibility-walk-allow: hover is a hit test: a view hidden or shown under a still pointer gets no exit or enter, so PointerHover reads the pointer again (input state, no view work)
     override func viewDidUnhide() {
         super.viewDidUnhide()
         hover?.refresh()
@@ -173,6 +176,7 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
         hover?.refresh()
     }
 
+    // visibility-walk-allow: the hover fill is one layer color store in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateFill()

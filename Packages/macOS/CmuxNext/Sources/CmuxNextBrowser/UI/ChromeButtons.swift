@@ -24,8 +24,14 @@ final class ChromeIconButton: NSButton {
     }
     /// A menu for right-click and long-press (Back / Forward entries).
     var menuProvider: (() -> NSMenu?)?
-    private let holdTimer = DemandTimer(owner: "ChromeIconButton.hold")
-    private var showedHoldMenu = false
+    /// The long press's deadline: a press still held when it fires shows the menu. With none, a press is a click.
+    var longPressDeadline: (any LongPressDeadline)?
+    /// Shows the long press's menu under the button (tests record it instead).
+    var presentMenu: @MainActor (NSMenu, ChromeIconButton) -> Void = { menu, button in button.popUpUnder(menu) }
+    /// True from a press that may become a long press until its release or its menu.
+    private(set) var isHoldingForMenu = false
+    /// How long a press is held before it shows the menu instead of clicking.
+    static let holdDelay: Duration = .milliseconds(400)
 
     init(icon: IconName, label: String, action: Selector?, target: AnyObject?, toolbar: Bool = false, toolTip: Bool = true) {
         isToolbar = toolbar
@@ -174,11 +180,13 @@ final class ChromeIconButton: NSButton {
 
     // A button hidden under a still pointer (collapsed, its tab parked)
     // gets no exit event: hover follows the pointer and the frame instead.
+    // visibility-walk-allow: hover is a hit test: a view hidden or shown under a still pointer gets no exit or enter, so PointerHover reads the pointer again (input state, no view work)
     override func viewDidHide() {
         super.viewDidHide()
         hover?.refresh()
     }
 
+    // visibility-walk-allow: hover is a hit test: a view hidden or shown under a still pointer gets no exit or enter, so PointerHover reads the pointer again (input state, no view work)
     override func viewDidUnhide() {
         super.viewDidUnhide()
         hover?.refresh()
@@ -198,29 +206,57 @@ final class ChromeIconButton: NSButton {
     }
 
     /// A press held for 0.4 s shows the menu under the button instead of
-    /// clicking (long-press Back and Forward).
+    /// clicking (long-press Back and Forward). The release or the deadline
+    /// decides, and nothing holds the run loop meanwhile: Chrome's
+    /// ToolbarButton posts its drop-down menu as a delayed task on press
+    /// (chrome/browser/ui/views/toolbar/toolbar_button.cc), as
+    /// `TitlebarBandButton` does.
     override func mouseDown(with event: NSEvent) {
-        showedHoldMenu = false
-        if menuProvider != nil, isEnabled {
-            holdTimer.scheduleOnMain(after: .milliseconds(400)) { [weak self] in self?.showHoldMenu() }
-        }
-        super.mouseDown(with: event)
-        holdTimer.cancel()
+        guard menuProvider != nil, isEnabled, let longPressDeadline, window != nil else { return super.mouseDown(with: event) }
+        isHoldingForMenu = true
+        isHighlighted = true
+        longPressDeadline.schedule(after: Self.holdDelay) { [weak self] in self?.longPressDeadlinePassed() }
     }
 
-    override func sendAction(_ action: Selector?, to target: Any?) -> Bool {
-        guard !showedHoldMenu else { return false }
-        return super.sendAction(action, to: target)
+    /// Held through the deadline: the menu instead of the click. With no menu now (no entries) the press
+    /// stays a click on its release.
+    private func longPressDeadlinePassed() {
+        guard isHoldingForMenu, isEnabled, let menu = menuProvider?() else { return }
+        endHold()
+        presentMenu(menu, self)
     }
 
-    private func showHoldMenu() {
-        guard let menu = menuProvider?() else { return }
-        showedHoldMenu = true
+    /// The hold's drags move nothing; the pressed look follows the pointer in and out, as a tracked press.
+    override func mouseDragged(with event: NSEvent) {
+        guard isHoldingForMenu else { return super.mouseDragged(with: event) }
+        isHighlighted = isInside(event)
+    }
+
+    /// Released before the menu showed: a click when the pointer is still over the button.
+    override func mouseUp(with event: NSEvent) {
+        guard isHoldingForMenu else { return super.mouseUp(with: event) }
+        endHold()
+        if isEnabled, isInside(event) { sendAction(action, to: target) }
+    }
+
+    private func endHold() {
+        isHoldingForMenu = false
+        isHighlighted = false
+        longPressDeadline?.cancel()
+    }
+
+    private func isInside(_ event: NSEvent) -> Bool {
+        bounds.contains(convert(event.locationInWindow, from: nil))
+    }
+
+    /// The menu under the button, with the pressed look while it is open.
+    private func popUpUnder(_ menu: NSMenu) {
         isMenuOpen = true
         menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(for: menu, in: self, gap: 2), in: self)
         isMenuOpen = false
     }
 
+    // visibility-walk-allow: the hover fill is one layer color store in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateFill()
@@ -228,6 +264,8 @@ final class ChromeIconButton: NSButton {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // Out of the window, the hold's mouse-up never comes here.
+        if window == nil, isHoldingForMenu { endHold() }
         hover?.refresh()
         updateFill()
     }
@@ -307,16 +345,19 @@ class ChromeTextButton: NSButton {
         return NSSize(width: ceil(size.width) + BrowserMetrics.overlayPadding * 2, height: controlHeight)
     }
 
+    // visibility-walk-allow: hover is a hit test: a view hidden or shown under a still pointer gets no exit or enter, so PointerHover reads the pointer again (input state, no view work)
     override func viewDidHide() {
         super.viewDidHide()
         hover?.refresh()
     }
 
+    // visibility-walk-allow: hover is a hit test: a view hidden or shown under a still pointer gets no exit or enter, so PointerHover reads the pointer again (input state, no view work)
     override func viewDidUnhide() {
         super.viewDidUnhide()
         hover?.refresh()
     }
 
+    // visibility-walk-allow: one layer color and the button's short title in the theme scope; a fixed-size overlay button, no layout; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateFill()

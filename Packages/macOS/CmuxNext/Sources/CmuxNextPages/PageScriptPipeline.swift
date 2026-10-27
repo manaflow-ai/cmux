@@ -148,6 +148,7 @@ final class PageScriptPipeline {
         }
         if isIdle, envelope.fits(Self.inlineBudget) {
             // main-actor-ok: bounded by inlineBudget; larger envelopes render off the main actor.
+            // MQ12 held queue: the router holds envelopes while the page is hidden (PageRouter+Hold.swift).
             evaluate(PageRouter.receiveScript(envelope))
             return
         }
@@ -239,6 +240,7 @@ final class PageScriptPipeline {
             guard JSONValue.array(run.envelopes).fits(Self.inlineBudget) else { return startDrain() }
             head = end
             // main-actor-ok: bounded by inlineBudget; larger runs render off the main actor.
+            // MQ12 held queue: as above.
             evaluate(PageRouter.receiveManyScript(run.envelopes))
             compact()
         }
@@ -283,6 +285,7 @@ final class PageScriptPipeline {
                     return
                 }
                 inFlightDrops = []
+                // MQ12 held queue: as above.
                 evaluate(script)
             } else if case .gate(let gate) = queue[head] {
                 head += 1

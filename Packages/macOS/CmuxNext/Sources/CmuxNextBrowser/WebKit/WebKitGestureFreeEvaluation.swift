@@ -107,6 +107,7 @@ package struct WebKitGestureFreeEvaluation {
     /// Fire and forget: a script whose answer nobody reads (a clear, an exit); an engine without a
     /// gesture-free path runs nothing.
     package func run(_ script: String, in world: WKContentWorld) {
+        // main-hop-allow: the send is a main-thread-only WKWebView call whose script runs in the web content process; the task only sends it, and nobody reads its answer
         Task { _ = try? await evaluate(script, in: world) }
     }
 

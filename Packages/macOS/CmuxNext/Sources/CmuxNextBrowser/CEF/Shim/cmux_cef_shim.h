@@ -209,7 +209,40 @@ typedef enum {
   // cmux_shim_set_cursor_events(1): s1 = the text, UTF-8; "" hides it.
   // Chromium shows no tooltip of its own then.
   CMUX_SHIM_TOOLTIP = 57,
+  // A page opened a <select> popup, only after cmux_shim_set_popup_menus(1):
+  // a = the popup's token; s1 = JSON {"x", "y", "width", "height": the
+  // <select>'s rect in the page view's DIPs from its top left; "fontSize":
+  // the items' size in points; "selected": the selected item's index, -1 for
+  // none; "rightAligned"; "items": [{"label", "toolTip", "type" (0 option,
+  // 1 checkable option, 2 group label, 3 separator, 4 submenu), "enabled",
+  // "checked", "rtl", "directionOverride"}]}. The page has at most one open
+  // popup. Answer it once with cmux_shim_browser_popup_menu_reply.
+  CMUX_SHIM_POPUP_MENU = 58,
+  // Chromium closed popup a (the token) before cmux answered it (the page
+  // removed or closed the <select>, navigated, was hidden or closed): close
+  // its menu with no answer (Chrome's PopupMenuRunner.Hide).
+  CMUX_SHIM_POPUP_MENU_HIDE = 59,
+  // A field's autofill, password or <datalist> suggestions, which the app
+  // draws (only after cmux_shim_set_suggestion_events(1); fork API 31's
+  // suggestion handler, tasks p01-process-172 and 061): request =
+  // cmux_shim_suggestion_event_t, a = the rows' token (0 for ANNOUNCE).
+  // SHOW: s1 = JSON {"x","y","width","height" (the field in the page view's
+  // DIP, top left origin), "rtl", "selected" (-1 none), "rows":[{"kind" (0
+  // entry, 1 separator, 2 title, 3 footer), "type" (Chromium's
+  // autofill::SuggestionType), "main", "minor", "label" (one line per label
+  // line), "voice_over", "selectable", "acceptable", "loading"}]}: it shows
+  // the rows or replaces the shown ones and their token. SELECT: b = the row
+  // a key selected, -1 none. HIDE: the token's rows close. ANNOUNCE: s1 =
+  // what VoiceOver reads.
+  CMUX_SHIM_SUGGESTIONS = 60,
 } cmux_shim_event_kind_t;
+
+typedef enum {
+  CMUX_SHIM_SUGGESTIONS_SHOW = 0,
+  CMUX_SHIM_SUGGESTIONS_SELECT = 1,
+  CMUX_SHIM_SUGGESTIONS_HIDE = 2,
+  CMUX_SHIM_SUGGESTIONS_ANNOUNCE = 3,
+} cmux_shim_suggestion_event_t;
 
 typedef enum {
   CMUX_SHIM_DEVTOOLS_SHOW = 1,        // open, or focus the open DevTools
@@ -449,6 +482,29 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_over(int browser_id, int x, i
                                                         int modifiers);
 CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_leave(int browser_id);
 CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_drop(int browser_id, int x, int y, int modifiers);
+// Suggestions as data (fork API 31, task p01-process-172): a field's
+// autofill, password and <datalist> suggestions come as CMUX_SHIM_SUGGESTIONS
+// events for every browser, new ones included, while enabled is 1, and
+// Chromium's popup shows them again after 0. The field keeps Chrome's keys
+// (arrows, Page Up and Down select; Return and Tab accept; Shift+Delete
+// removes; Escape dismisses). Nothing changes with a fork below API 31. Any
+// time, also before cmux_shim_initialize.
+CMUX_SHIM_EXPORT void cmux_shim_set_suggestion_events(int enabled);
+// The app's answer for the shown rows of token: SHOWN once they are on screen
+// (Chrome takes an ACCEPT only 500 ms after it), SELECT the row under the
+// pointer (-1 none: Chrome previews the row's values), ACCEPT a clicked row,
+// REMOVE an autocomplete row's delete button, DISMISS a click outside. index
+// is ignored for SHOWN and DISMISS. Returns 0 for a token that is not shown,
+// an index outside the rows, or a refused ACCEPT or REMOVE (the fork's
+// cmux_browser_suggestion_action).
+typedef enum {
+  CMUX_SHIM_SUGGESTION_SHOWN = 0,
+  CMUX_SHIM_SUGGESTION_SELECT = 1,
+  CMUX_SHIM_SUGGESTION_ACCEPT = 2,
+  CMUX_SHIM_SUGGESTION_REMOVE = 3,
+  CMUX_SHIM_SUGGESTION_DISMISS = 4,
+} cmux_shim_suggestion_action_t;
+CMUX_SHIM_EXPORT int cmux_shim_browser_suggestion_action(int browser_id, int64_t token, int action, int index);
 // Fork API 31 (p01-process task 227): Chromium's own windows for these would
 // open in the helper-app browser process, which has no visible window, so the
 // app shows its own UI from data and answers by token. Each returns 0 when
@@ -1227,6 +1283,19 @@ CMUX_SHIM_EXPORT int cmux_shim_ext_load_later_supported(void);
 // cmux_shim_initialize. Returns 1 when the load started, 0 for an
 // off-the-record key, an empty path or a fork without the call (no reply).
 CMUX_SHIM_EXPORT int cmux_shim_ext_load_command_line(const char* profile_cache_path, int reply, const char* path);
+// <select> popups (fork API 31's cmux_browser_set_popup_menu_handler, task
+// p01-process-171). 1: every browser's popups, now and later, come to the
+// host as CMUX_SHIM_POPUP_MENU, and Chromium shows no NSMenu of its own (the
+// Chromium Host, which is never the active app: cmux shows the menu). 0 (the
+// default): Chromium shows its own menu. Nothing changes without the fork
+// call. UI thread.
+CMUX_SHIM_EXPORT void cmux_shim_set_popup_menus(int enabled);
+// Answers a CMUX_SHIM_POPUP_MENU of browser_id once: index = the chosen
+// item, -1 when the menu closed with no choice (the page gets a change event
+// for a choice, as with Chrome's menu). An item the page cannot take (a
+// group label, a separator, a disabled option) closes the popup as -1 does.
+// An answered or hidden token does nothing. UI thread.
+CMUX_SHIM_EXPORT void cmux_shim_browser_popup_menu_reply(int browser_id, int64_t token, int index);
 
 // Chromium tracing through stock CEF (include/cef_trace.h, CEFShim/src/shim_tracing.mm; task
 // p09-observability-050). These are not cmux_shim_* exports, so the Chromium Host wire does not

@@ -38,8 +38,8 @@ final class SystemPasswordPasteboard: PasswordPasteboard {
 
 /// Puts a password on the pasteboard the way password managers do: marked concealed and
 /// transient (nspasteboard.org types, so clipboard managers skip it) and cleared after
-/// ``clearAfter`` unless something else was copied meanwhile. The deadline is a
-/// ``DemandTimer`` on an injected clock, so tests run it without waiting.
+/// ``clearAfter`` unless something else was copied meanwhile. The deadline is a `background`
+/// ``MainDeadline`` on the injected scheduler: nobody watches the clear happen.
 @MainActor
 final class ConcealedPasteboard {
     static let concealedType = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
@@ -48,16 +48,16 @@ final class ConcealedPasteboard {
     static let defaultClearAfter: Duration = .seconds(90)
 
     private let pasteboard: any PasswordPasteboard
-    private let clearTimer: DemandTimer
+    private let clearTimer: MainDeadline
     let clearAfter: Duration
     /// Runs after each deadline, cleared or not (tests await it).
     var onDeadline: (@MainActor () -> Void)?
 
-    init(pasteboard: (any PasswordPasteboard)? = nil, clock: any Clock<Duration> = ContinuousClock(),
+    init(pasteboard: (any PasswordPasteboard)? = nil, deadlines: MainDeadlineScheduler,
          clearAfter: Duration = ConcealedPasteboard.defaultClearAfter) {
         self.pasteboard = pasteboard ?? SystemPasswordPasteboard()
         self.clearAfter = clearAfter
-        clearTimer = DemandTimer(owner: "App.passwords.clearPasteboard", clock: clock)
+        clearTimer = MainDeadline(owner: "App.passwords.clearPasteboard", workClass: .background, scheduler: deadlines)
     }
 
     func write(_ secret: SecretBytes) {
@@ -66,7 +66,7 @@ final class ConcealedPasteboard {
         let text = unsafe secret.withUnsafeBytes { unsafe String(decoding: $0, as: UTF8.self) }
         pasteboard.write(text, markers: [Self.concealedType, Self.transientType])
         let written = pasteboard.changeCount
-        clearTimer.scheduleOnMain(after: clearAfter) { [weak self] in
+        clearTimer.schedule(after: clearAfter) { [weak self] in
             self?.clear(ifStill: written)
             self?.onDeadline?()
         }

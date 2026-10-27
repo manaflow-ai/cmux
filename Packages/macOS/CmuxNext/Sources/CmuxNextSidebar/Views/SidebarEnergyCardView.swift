@@ -71,6 +71,7 @@ final class SidebarEnergyCardView: NSView, HoverCardTextReporting {
         turnOff.needsDisplay = true
     }
 
+    // visibility-walk-allow: sets the labels' text colors and invalidates the button only (no layout)
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

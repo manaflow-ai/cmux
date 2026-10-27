@@ -105,11 +105,17 @@ extension AppServices {
         // Host mode only: drags onto a page as Chrome's own drop (p01-process-050).
         chromiumRuntime.source.takesHostDrags = features.isEnabled(.chromiumHostDragIn)
         chromiumRuntime.source.fencesHostResizes = features.isEnabled(.chromiumHostResizeFence) // p01-process-052
+        // Host mode only: <select> popups as cmux menus (p01-process-060).
+        chromiumRuntime.source.drawsHostPopupMenus = features.isEnabled(.chromiumHostPopupMenus)
+        chromiumRuntime.source.drawsHostSuggestions = features.isEnabled(.chromiumHostSuggestions) // p01-process-061
+        // Host mode only: page file choosers in cmux's picker, the files sent as paths (p01-process-064).
+        chromiumRuntime.source.hostFileDialogs = features.isEnabled(.chromiumHostFileDialogs) ? ChromiumFileDialogPanels(openPanel: openPanel) : nil
         // Restored pages start Chromium by their origin, the visible one after the first frame (p08-startup-040).
         let launchOrder = features.isEnabled(.cefLaunchOrigin) ? launchStartup : nil
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source, launch: launchOrder,
                                   make: { [signInCallbacks, contextMenus, inputTap, crashKeys, launchStartup, launchOrder, pointerFrames = dragFrameInput,
-                                           chromiumFeatures = features.enabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting),
+                                           chromiumFeatures = features.enabledChromiumFeatures,
+                                           disabledChromiumFeatures = features.disabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting),
                                            attachedPages = features.isEnabled(.cefAttachedPages), memoryCoordinator,
                                            everyPage = Self.hostsEveryPage(features)] stores, deadlines, source in
                                       // Chromium's start as launch marks (p08-startup-044); its first page paint counts until startup_complete.
@@ -118,7 +124,8 @@ extension AppServices {
                                       return CEFEngine(source: source, stores: stores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared,
                                                        contextMenus: contextMenus, waitDeadlines: deadlines, input: inputTap, crashKeys: crashKeys,
                                                        launchMarks: launchMarks, pumpInput: pumpInput, pointerFrames: pointerFrames,
-                                                       chromiumFeatures: chromiumFeatures, prefetchWork: prefetchWork,
+                                                       chromiumFeatures: chromiumFeatures, disabledChromiumFeatures: disabledChromiumFeatures,
+                                                       prefetchWork: prefetchWork,
                                                        launch: launchOrder).usingLayerHostingByDefault(layerHosting).usingAttachedPages(attachedPages)
                                           .hostingEveryPage(everyPage).votingMemoryPressure(of: memoryCoordinator).mergingEvents(on: mergeWork)
                                   },

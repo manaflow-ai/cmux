@@ -73,6 +73,7 @@ final class FindBarView: NSView {
         let text = pill.query
         let caseSensitive = pill.matchCase
         model.setQuery(text)
+        // main-hop-allow: the person's find keystroke; find is BrowserTab's main-actor async engine call (the search runs in the page's process); this task only starts it and shows its answer
         findTask = Task { [weak self] in
             let result: BrowserFindResult
             if let updating = tab as? any BrowserFindUpdating {

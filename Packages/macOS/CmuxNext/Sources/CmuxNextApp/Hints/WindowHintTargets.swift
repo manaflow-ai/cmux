@@ -3,9 +3,6 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import WebKit
 import CmuxNextWakeups
-import class CmuxSafeConcurrency.OnceContinuation
-import enum CmuxSafeConcurrency.OnceContinuationError
-import func CmuxSafeConcurrency.withOnceContinuation
 #if DEBUG || CMUX_BENCH_HOOKS
 import CmuxNextControl
 import CmuxNextOracle
@@ -16,7 +13,7 @@ import CmuxNextOracle
 /// whose role a person clicks (buttons, rows, tabs, links, fields, menus).
 /// A web view's tree lives in its page process, so first-party pages (New
 /// Tab, agent chat, Settings) are asked instead: the link hint script lists
-/// their clickable elements (``pageTargets(of:clip:)``). Chromium pages keep
+/// their clickable elements (``pageTargets(of:clip:deadlines:done:)``). Chromium pages keep
 /// their own link hints.
 @MainActor
 enum WindowHintTargets {
@@ -62,6 +59,7 @@ enum WindowHintTargets {
         while let next = stack.popLast(), visited < 5000, found.count < limit {
             visited += 1
             if let view = next as? NSView {
+                // visibility-walk-allow: hint mode's accessibility walk (R-vis keeps hit-test and accessibility uses): a hidden view's controls are not clickable
                 guard !view.isHiddenOrHasHiddenAncestor, view.alphaValue > 0.01, !isRemote(view) else { continue }
             }
             guard let element = next as? NSAccessibilityProtocol, !element.isAccessibilityHidden() else { continue }
@@ -98,26 +96,29 @@ enum WindowHintTargets {
 
     /// The clickable elements of `pages`, in window coordinates and page
     /// order, from the link hint script (isolated from the page's own
-    /// scripts). Pages that have not answered by ``pageDeadline`` are left out.
-    static func pageTargets(of pages: [WKWebView], clip: CGRect) async -> [Target] {
-        guard !pages.isEmpty else { return [] }
-        let collection = PageCollection(count: pages.count)
-        // A collection dropped unfinished ends the wait abandoned: no page answered in time.
-        return (try? await withOnceContinuation { (continuation: OnceContinuation<[Target], OnceContinuationError>) in
-            collection.continuation = continuation
-            for (index, page) in pages.enumerated() {
-                // task-owner: one page's answer; the collection resumes once, at the deadline at the latest.
-                Task { @MainActor in
-                    // No user gesture: listing a page's links must not hand it the person's activation.
-                    let value = try? await WebKitGestureFreeEvaluation(webView: page).evaluate(LinkHintSession.collectScript, in: .defaultClient)
-                    collection.answer(index, targets(value?.stringValue ?? "[]", in: page, clip: clip))
-                }
+    /// scripts), handed to `done` once. Pages that have not answered by ``pageDeadline`` are left out.
+    ///
+    /// - Parameters:
+    ///   - pages: The shown web views (``Found/pages``).
+    ///   - clip: The content's window rect.
+    ///   - deadlines: The app's one deadline scheduler: the person waits for the labels, so the deadline is a
+    ///     `userBlocking` ``MainDeadline``.
+    ///   - done: The targets of the pages that answered; called once, unless the query is cancelled first.
+    /// - Returns: The query; ``PageCollection/cancel()`` drops its answer.
+    @discardableResult
+    static func pageTargets(of pages: [WKWebView], clip: CGRect, deadlines: MainDeadlineScheduler,
+                            done: @escaping @MainActor ([Target]) -> Void) -> PageCollection {
+        let query = PageCollection(count: pages.count, within: pageDeadline, deadlines: deadlines, done: done)
+        for (index, page) in pages.enumerated() {
+            // task-owner: one page's answer; the query answers once, at its deadline at the latest.
+            // main-hop-allow: WKWebView's gesture-free evaluation is main-actor async; the task only starts the page's script for the person's Cmd-J and hands its answer to the query, which the userBlocking deadline bounds
+            Task { @MainActor in
+                // No user gesture: listing a page's links must not hand it the person's activation.
+                let value = try? await WebKitGestureFreeEvaluation(webView: page).evaluate(LinkHintSession.collectScript, in: .defaultClient)
+                query.answer(index, targets(value?.stringValue ?? "[]", in: page, clip: clip))
             }
-            // The deadline; resuming twice is guarded by the collection, which cancels it on finish.
-            collection.deadline.scheduleOnMain(after: pageDeadline) {
-                collection.finish()
-            }
-        }) ?? []
+        }
+        return query
     }
 
     /// One page's script result (CSS pixels from its viewport's top left)
@@ -160,26 +161,51 @@ enum WindowHintTargets {
     }
 }
 
-/// The pages' answers for ``WindowHintTargets/pageTargets(of:clip:)``,
-/// kept in page order, and the one resume of its continuation.
+/// The pages' answers for ``WindowHintTargets/pageTargets(of:clip:deadlines:done:)``,
+/// kept in page order, and the one call of its `done`.
 @MainActor
-private final class PageCollection {
-    var continuation: OnceContinuation<[WindowHintTargets.Target], OnceContinuationError>?
-    let deadline = DemandTimer(owner: "WindowHintTargets.pageDeadline")
+final class PageCollection {
+    /// Ends the wait for pages that have not answered (``WindowHintTargets/pageDeadline``): the person waits
+    /// for the labels, so it runs as `userBlocking` work.
+    private let deadline: MainDeadline
+    private var done: (@MainActor ([WindowHintTargets.Target]) -> Void)?
     private var answers: [[WindowHintTargets.Target]?]
 
-    init(count: Int) { answers = Array(repeating: nil, count: count) }
+    /// - Parameters:
+    ///   - count: How many pages answer (``answer(_:_:)``); none answers at once.
+    ///   - within: How long the pages may take; the answers so far go to `done` then.
+    ///   - deadlines: The app's one deadline scheduler.
+    ///   - done: The answers in page order, called once unless ``cancel()`` comes first.
+    init(count: Int, within: Duration, deadlines: MainDeadlineScheduler,
+         done: @escaping @MainActor ([WindowHintTargets.Target]) -> Void) {
+        answers = Array(repeating: nil, count: count)
+        deadline = MainDeadline(owner: "WindowHintTargets.pageDeadline", workClass: .userBlocking, scheduler: deadlines)
+        self.done = done
+        guard count > 0 else {
+            finish()
+            return
+        }
+        // Answering twice is guarded here: finish cancels the deadline and drops `done`.
+        deadline.schedule(after: within) { [weak self] in self?.finish() }
+    }
 
     func answer(_ index: Int, _ targets: [WindowHintTargets.Target]) {
         answers[index] = targets
         if answers.allSatisfy({ $0 != nil }) { finish() }
     }
 
+    /// Hands the answers so far to `done`, once.
     func finish() {
         deadline.cancel()
-        guard let continuation else { return }
-        self.continuation = nil
-        continuation.resume(returning: answers.compactMap { $0 }.flatMap { $0 })
+        guard let done else { return }
+        self.done = nil
+        done(answers.compactMap { $0 }.flatMap { $0 })
+    }
+
+    /// Drops the query: `done` is not called and the deadline goes.
+    func cancel() {
+        deadline.cancel()
+        done = nil
     }
 }
 
@@ -205,9 +231,9 @@ final class PageElement: Equatable {
     func click(menu: Bool) {
         guard let webView else { return }
         if !menu { webView.window?.makeFirstResponder(webView) }
-        // task-owner: fire-and-forget page click; nothing waits on it.
-        Task { _ = try? await webView.callAsyncJavaScript(Self.clickScript, arguments: ["x": x, "y": y, "menu": menu],
-                                                          in: nil, contentWorld: .defaultClient) }
+        // Fire and forget: the page clicks in its own process; nothing waits on the answer.
+        webView.callAsyncJavaScript(Self.clickScript, arguments: ["x": x, "y": y, "menu": menu], in: nil, in: .defaultClient,
+                                    completionHandler: nil)
     }
 
     private static let clickScript = """

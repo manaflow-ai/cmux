@@ -245,7 +245,7 @@ struct PageCensusState {
     var parked = false
     /// When the page was last hidden; nil while it shows.
     var hiddenSince: Date?
-    /// Native pushes (``PageWebView/evaluateInPage(_:)``) while hidden: one integer add each.
+    /// Native pushes (``PageNativePushes``) while hidden: one integer add each.
     var pushesWhileHidden = 0
     /// Tells the page's host that ``PageWebView/closeEngine()`` ran (``WebUIHost/engineCloses``).
     var engineClosed: (@MainActor () -> Void)?
