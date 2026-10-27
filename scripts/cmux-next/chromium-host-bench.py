@@ -142,7 +142,10 @@ chromiumHostWidgets on and two test extensions, then the autofill and password r
 p01-process-061): the field's suggestions in cmux's list (`debug.cef` `host_suggestions`) with feature
 chromiumHostSuggestions on, then the page dialog rows (chromium_host_native_ui_dialogs.py, p01-process-064): file
 picker, certificate error, beforeunload and renderer hang, each answered by cmux while the host is never frontmost
-and shows no window, with feature chromiumHostFileDialogs on, then the chooser rows (chromium_host_native_ui_choosers.py,
+and shows no window, with feature chromiumHostFileDialogs on, the permission rows (p01-process-062, feature
+chromiumPermissionPromptsFromData): camera, microphone, location and notifications on a page served from 127.0.0.1.
+Each is asked in cmux's prompt bar and answered Block through `debug.browser.prompts`, the page hears the refusal,
+and the app's child processes show no window, then the chooser rows (chromium_host_native_ui_choosers.py,
 p01-process-228): color, device chooser, screen share, external protocol, Web Share (skipped until p01-process-228c), video
 and document picture-in-picture, with feature chromiumHostChoosers on, then the fullscreen and lock rows
 (chromium_host_native_ui_locks.py, p01-process-229): HTML fullscreen, pointer lock and keyboard lock held by cmux
@@ -427,6 +430,28 @@ def main_display_hz():
     cg.CGDisplayModeGetRefreshRate.argtypes = [ctypes.c_void_p]
     mode = cg.CGDisplayCopyDisplayMode(cg.CGMainDisplayID())
     return round(cg.CGDisplayModeGetRefreshRate(mode), 2) if mode else None
+
+
+def child_windows_on_screen(root):
+    """The on-screen windows with alpha > 0 of every process below `root` (the Chromium Host, its helpers, the
+    in-process helpers), each with its pid; None when a process's windows cannot be read."""
+    pids, frontier = [], [root]
+    while frontier:
+        parent = frontier.pop()
+        try:
+            listed = subprocess.run(["/usr/bin/pgrep", "-P", str(parent)], capture_output=True, text=True, timeout=10).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        children = [int(pid) for pid in listed.split() if pid.isdigit()]
+        pids += children
+        frontier += children
+    found = []
+    for pid in pids:
+        windows = on_screen_windows(pid)
+        if windows is None:
+            return None
+        found += [{**window, "pid": pid} for window in windows if (window.get("alpha") or 0) > 0]
+    return found
 
 
 def on_screen_windows(pid):
@@ -758,6 +783,7 @@ def main():
         open(native, "w").write(chromium_host_native_ui.PAGE)
         url = pathlib.Path(native).as_uri()
         env.update(chromium_host_native_ui.launch_env(chromium_host_native_ui.write_extensions(opts.out)))
+        permission_url = chromium_host_native_ui.serve_permission_page()
         env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_native_ui_dialogs.FEATURES,
                                                              chromium_host_native_ui_choosers.FEATURES,
                                                              chromium_host_native_ui_locks.FEATURES]))
@@ -802,7 +828,9 @@ def main():
             RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(
                 rpc, wait, lambda script: page_eval(rpc, script, None), url,
                 rows_to_run=[row for row in opts.native_ui if row in chromium_host_native_ui.ROWS], front=front_pid,
-                app_pid=app.process.pid if app.process else None, right_click=page_right_click(rpc))
+                app_pid=app.process.pid if app.process else None, right_click=page_right_click(rpc),
+                permission_url=permission_url,
+                host_windows=(lambda: child_windows_on_screen(app.process.pid)) if app.process else None)
             dialog_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_dialogs.ROWS]
             if dialog_rows:
                 dialogs, dialogs_ok = chromium_host_native_ui_dialogs.run(
@@ -1917,8 +1945,7 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
     native("file_picker", lambda: rpc("debug.mouse", click_point("f")))
     rows["not_forwarded"] = {"ime": "no NSTextInputClient in ChromiumHostPageView; windowed Ime* are DCHECK(false) in CEF (slice 2)",
                              "find": "the prototype page has no find; --find runs it on a host-backed Chromium tab",
-                             "drag": "drag and drop is not forwarded (slice 4)",
-                             "permission_prompt": "needs a page that asks (camera/location), not in the probe"}
+                             "drag": "drag and drop is not forwarded (slice 4)"}
     return rows
 
 

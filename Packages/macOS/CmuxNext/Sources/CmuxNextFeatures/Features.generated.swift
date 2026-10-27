@@ -367,6 +367,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Every permission a Chromium page asks for (camera, microphone, clipboard, MIDI and the rest) is asked in the tab's prompt bar instead of Chromium's hidden bubble, and macOS camera and microphone access is asked in cmux's name.
+    public static let chromiumPermissionPromptsFromData = Feature(
+        index: 20,
+        name: "chromiumPermissionPromptsFromData",
+        owner: "PL-cefhost",
+        description: "Every permission a Chromium page asks for (camera, microphone, clipboard, MIDI and the rest) is asked in the tab's prompt bar instead of Chromium's hidden bubble, and macOS camera and microphone access is asked in cmux's name.",
+        kind: .labs,
+        process: .chromium,
+        chromiumFeature: "CmuxPermissionPromptsFromData",
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Chromium keeps its spare renderer only for a profile whose browser tab opened a web page, so Home with no browser tab and cmux pages start no spare renderer.
     public static let chromiumSpareAfterFirstTab = Feature(
         index: 21,
@@ -2377,6 +2394,7 @@ nonisolated extension Feature {
         .chromiumHostResizeFence,
         .chromiumHostSuggestions,
         .chromiumHostWidgets,
+        .chromiumPermissionPromptsFromData,
         .chromiumSpareAfterFirstTab,
         .chromiumTabVisibility,
         .cmuxPageRendererSharing,
@@ -2516,6 +2534,7 @@ nonisolated extension Feature {
         .chromiumHostResizeFence,
         .chromiumHostSuggestions,
         .chromiumHostWidgets,
+        .chromiumPermissionPromptsFromData,
         .chromiumSpareAfterFirstTab,
         .chromiumTabVisibility,
         .cmuxPageRendererSharing,
