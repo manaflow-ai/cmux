@@ -173,6 +173,14 @@ class OwnedVerify(unittest.TestCase):
         self.assertTrue(step["continue-on-error"])
         self.assertIn("github.run_attempt == 1", step["if"])
         self.assertIn("vars.CI_PR_POOL_OWNED == '1'", step["if"])
+        # Only where ci-owned-pool-rescue watches: a stuck owned job elsewhere would never fall back.
+        for name in ("route-token", "owned"):
+            guard = next(s for s in job["steps"] if s.get("id") == name)["if"]
+            with self.subTest(step=name):
+                self.assertIn("github.event_name == 'push' && github.ref_name == 'nightly-next'", guard)
+                self.assertIn("startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, 'glaeda-trusted-')", guard)
+                self.assertIn("startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER, 'glaeda-runner-')", guard)
+                self.assertNotIn("||", guard)
         self.assertIn("e2e_runner_pool.py", step["run"])
         # Only an owned label is ever offered; anything else leaves the Blacksmith pick.
         self.assertIn('glaeda-*)', step["run"])
