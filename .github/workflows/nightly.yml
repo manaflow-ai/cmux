@@ -676,6 +676,8 @@ jobs:
             const { owner, repo } = context.repo;
             const decision = await guard.decide({
               github, core, owner, repo,
+              // This job checks an approval, so it needs G3 and G4.
+              requireApproval: true,
               sha: (process.env.REQUESTED_SHA || '').trim(),
               surfaceText: fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/.github/release-surface.txt`, 'utf8'),
               verifyTrain: guard.trainVerifier(`${process.env.GITHUB_WORKSPACE}/scripts/ci/nightly_next_train.py`, { cwd: process.env.GITHUB_WORKSPACE }),

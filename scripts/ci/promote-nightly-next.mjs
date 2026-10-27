@@ -16,16 +16,23 @@
 //       FUCKING USE MORE LINUX FIX THE FUCKING BUILDS". The cost: a tip that
 //       does not compile is promoted and its nightly fails, where G2 refused it
 //       up front;
-//   G3  the files changed from the current nightly-next to the SHA. If none
+//   G3  only with requireApproval (off by default since 2026-10-27): the
+//       files changed from the current nightly-next to the SHA. If none
 //       matches the release surface the promotion goes ahead ("promote");
 //       otherwise it needs a release approver ("needs-ack");
-//   G4  for "needs-ack", the landers of every commit in the range (all parents,
-//       from the compare API) that touches the surface: the push actor
+//   G4  only with requireApproval: for "needs-ack", the landers of every
+//       commit in the range (all parents, from the compare API) that touches
+//       the surface: the push actor
 //       (repository activity, compare before...after of each push), the
 //       PR author and merger, and the commit author and committer. With the
 //       policy line `@require_non_lander_approver on` the approval must come
 //       from someone who is not a lander (ackDecision()); off, any approval in
 //       the approval environment counts.
+//   Approval is retired: nightly.yml's approval jobs never run and
+//   promote-nightly-next moves a "needs-ack" decision like a "promote" one.
+//   So without requireApproval, G3 and G4 are skipped ("skipped: no approval
+//   needed"): G4 reads every commit of the range, and on a long range that
+//   alone could run the 10-minute promote job out of time.
 // A train commit (nightly-next-train.yml; docs/ci/nightly-next-train.md) is
 // checked by G1'/G2' in place of G1/G2:
 //   G1' its second parent is on feat-cmux-next, and its tree is that parent
@@ -44,6 +51,7 @@ export const TARGET = 'nightly-next';
 export const GATE_WORKFLOW = '.github/workflows/cmux-next.yml';
 export const GATE_JOB = 'cmux-next Release compile (Xcode 26)';
 export const ACK_ENVIRONMENT = 'release-surface-ack';
+export const G3_G4_SKIPPED = 'skipped: no approval needed';
 const BOT_LOGINS = new Set(['web-flow', 'github-actions[bot]', 'GitHub']);
 const MAX_ACTIVITY_PAGES = 20;
 
@@ -444,7 +452,7 @@ async function landersOf(github, owner, repo, commit, actors) {
 export async function decide({
   github, owner, repo, sha, surfaceText, core, sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   debounce = false, minIntervalHours = 0, admissionAttempts = 6, admissionDelayMs = 5000, now = () => Date.now(),
-  verifyTrain = null, requireReleaseCompile = false,
+  verifyTrain = null, requireReleaseCompile = false, requireApproval = false,
 }) {
   if (!/^[0-9a-f]{40}$/.test(sha)) return refuse(`promote_nightly_next_sha must be 40 lowercase hex characters, got ${sha}`);
 
@@ -543,6 +551,11 @@ export async function decide({
     policy = parsePolicy(surfaceText);
   } catch (error) {
     return refuse(error.message);
+  }
+  if (!requireApproval) {
+    return {
+      action: 'promote', reason: `G3 and G4 ${G3_G4_SKIPPED}`, sha, current, surfaceFiles: [], landers: [], gates: { G3: G3_G4_SKIPPED, G4: G3_G4_SKIPPED },
+    };
   }
   const matches = surfaceMatcher(parseSurface(surfaceText));
   if (!current) {
@@ -847,6 +860,9 @@ export function summary(decision) {
     `- current nightly-next: \`${decision.current || 'none'}\``,
     `- reason: ${decision.reason}`,
   ];
+  if (decision.gates) {
+    lines.push(...Object.entries(decision.gates).map(([gate, result]) => `- ${gate}: ${result}`));
+  }
   if (decision.surfaceFiles?.length) {
     lines.push('- release surface files changed:', ...decision.surfaceFiles.map((file) => `  - \`${file}\``));
   }
