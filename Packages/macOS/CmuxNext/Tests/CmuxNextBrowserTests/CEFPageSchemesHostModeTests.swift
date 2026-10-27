@@ -1,4 +1,5 @@
 @testable import CmuxNextBrowser
+import Darwin
 import Foundation
 import Testing
 
@@ -91,6 +92,28 @@ import Testing
         #expect(PageSchemeHostSpy.answers.last == .init(token: 8, status: 500, mime: "text/plain", length: 0))
     }
 
+    /// An answer still being made when its host ends never reaches the next host: that host's tokens
+    /// count from 1 again, so the old answer would end another page's request with this page's file.
+    @Test func anAnswerMadeForAnEndedHostNeverReachesTheNextHost() async throws {
+        let (runtime, host) = try await Self.hostRuntime()
+        let (pane, _) = HostRepliesHarness.pane(runtime, profile: .default)
+        let tab = HostRepliesHarness.tab(in: pane)
+        let pending = PendingPageResource()
+        tab.pageResources = { _ in await pending.response() }
+        runtime.state = .ready
+
+        runtime.answerPageResource(token: 1, url: "cmux-page://cmux.diff/__patch/a", tab: tab)
+        try await pending.untilAsked()
+        runtime.hostEnded(BrowserProcessExit(reason: .killed, code: Int(SIGKILL), engine: .cef))
+        guard case .success = await host.attached() else { throw BrowserTabError.closed }
+        runtime.shim = try CEFShimLibrary.resolving(PageSchemeHostSpy.symbol)
+        runtime.state = .ready
+        pending.answer(CEFPageResponse(status: 200, mimeType: "text/x-diff", body: Data([1, 2, 3])))
+        for _ in 0..<10 { await CEFReplyWaitersTests.afterQueuedWork() }
+
+        #expect(PageSchemeHostSpy.answers.isEmpty, "the ended host's answer reached the next host: \(PageSchemeHostSpy.answers)")
+    }
+
     @Test func theBodyLimitIsTheWires() {
         let small = CEFPageResponse(status: 200, mimeType: "text/html", body: Data([1, 2, 3]))
         #expect(small.fittingHostWire == small)
@@ -117,6 +140,28 @@ import Testing
             await CEFReplyWaitersTests.afterQueuedWork()
         }
         try #require(PageSchemeHostSpy.answers.count == count)
+    }
+}
+
+/// A page's dynamic file the test answers when it chooses (``answer(_:)``), after its request was made.
+@MainActor final class PendingPageResource {
+    private var waiting: CheckedContinuation<CEFPageResponse, Never>?
+
+    func response() async -> CEFPageResponse {
+        await withCheckedContinuation { waiting = $0 }
+    }
+
+    /// Lets queued work run until the page's request waits for its answer.
+    func untilAsked() async throws {
+        for _ in 0..<100 where waiting == nil {
+            await CEFReplyWaitersTests.afterQueuedWork()
+        }
+        try #require(waiting != nil)
+    }
+
+    func answer(_ response: CEFPageResponse) {
+        waiting?.resume(returning: response)
+        waiting = nil
     }
 }
 
