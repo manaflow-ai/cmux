@@ -338,9 +338,14 @@ impl DirectRelays {
         let target = payload.get("targetId").and_then(Value::as_str);
         match (name, target) {
             ("tab.relay.direct", Some(target_id)) => {
+                // The app's JSON numbers are doubles: an integral 7.0 is browser 7.
                 let browser = payload
                     .get("browser")
-                    .and_then(Value::as_i64)
+                    .and_then(|browser| {
+                        browser.as_i64().or_else(|| {
+                            browser.as_f64().filter(|f| f.fract() == 0.0).map(|f| f as i64)
+                        })
+                    })
                     .and_then(|browser| i32::try_from(browser).ok());
                 let link = payload.get("link").and_then(Value::as_str);
                 self.prepared(target_id, browser, link);
