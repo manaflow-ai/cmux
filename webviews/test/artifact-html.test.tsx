@@ -18,7 +18,10 @@ test("offline artifacts use the sandbox in dev and built gallery frame routes on
       ["/frame.html", false],
       ["/index.html?entry=agent-pane.artifact-panel", false],
     ] as const) {
-      Object.defineProperty(globalThis, "location", { configurable: true, value: new URL(path, "https://gallery.test") });
+      Object.defineProperty(globalThis, "location", {
+        configurable: true,
+        value: new URL(path, "https://gallery.test"),
+      });
       expect(artifactGallery()).toBe(expected);
     }
   } finally {
