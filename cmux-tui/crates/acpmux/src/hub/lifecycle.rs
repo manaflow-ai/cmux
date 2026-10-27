@@ -627,7 +627,7 @@ impl Hub {
                 Ok((_, reported))
                     if reported_off.load(Ordering::SeqCst) || (reported && off.off()) =>
                 {
-                    self.stop_full_access_agent(session).await;
+                    self.stop_full_access_agent(session, true).await;
                     return Err(super::start_mode::full_access_off());
                 }
                 // A harness whose own settings started it in full access: capped like a cold
