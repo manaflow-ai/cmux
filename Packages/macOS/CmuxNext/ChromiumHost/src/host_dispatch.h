@@ -52,7 +52,12 @@
 //                                              holds its App Nap activity while a page is
 //                                              shown (host_page_activity.h, task
 //                                              p14-energy-128)
-//   kOpBrowserAccessibilityToken                the generated case; for a browser cmux
+//   kOpProviderLink                             the browser host's provider socket and the
+//                                              relay credential (host_provider_link.h, task
+//                                              p01-process-233): the host dials its own link
+//                                              and relays the raw DevTools of the pages the
+//                                              browser host attaches, never through cmux
+//   kOpBrowserAccessibilityToken               the generated case; for a browser cmux
 //                                              minted whose creation has not come, held
 //                                              and run once its AFTER_CREATED went out
 //                                              (task 049) and after the ack of the op whose
@@ -103,6 +108,7 @@
 #include "host_energy_saver.h"
 #include "host_mirror.h"
 #include "host_page_activity.h"
+#include "host_provider_link.h"
 #include "host_resize.h"
 #include "host_text_input.h"
 #include "host_wheel_ack.h"
@@ -315,6 +321,15 @@ class HostContext {
   // kEnergySaverHelloName); nullptr takes kOpEnergySaver and changes nothing.
   void SetEnergySaver(EnergySaverFn energy_saver) { energy_saver_ = energy_saver; }
 
+  // The provider link (browser_host_main.mm, before Attach, which then lists
+  // kProviderLinkHelloName; task p01-process-233): kOpProviderLink goes to
+  // `connect`, and the raw DevTools of a page the link relays go to `relays`,
+  // not to cmux (host_provider_link.h). Without it kOpProviderLink changes nothing.
+  void SetProviderLink(AgentRelays* relays, std::function<void(const ProviderLinkConfig&)> connect) {
+    agent_relays_ = relays;
+    connect_provider_link_ = std::move(connect);
+  }
+
   // What the shown page count holds (browser_host_main.mm, before Attach):
   // the count goes to it after each kOpBrowserSetPageVisibility, at each
   // browser's close and once initialize returned; nullptr holds nothing.
@@ -369,6 +384,10 @@ class HostContext {
   bool HandlePageResize(const control::Message& message);
   // kOpEnergySaver: false for a malformed op.
   bool HandleEnergySaver(const control::Message& message);
+  // kOpProviderLink: false for a malformed op.
+  bool HandleProviderLink(const control::Message& message);
+  // cmux's kOpDevtoolsWatchEvents with a provider link: false for a malformed op.
+  bool HandleDevToolsWatch(const control::Message& message);
   // Keeps `token`'s size for the next op that opens its view (view_sizes_).
   void RememberViewSize(uint64_t token, int32_t width, int32_t height);
   // Watches `chromium_id`'s text input in the fork: its result (0 refused).
@@ -468,6 +487,9 @@ class HostContext {
   SetWheelAckHandlerFn set_wheel_ack_handler_ = nullptr;
   WheelAcks wheel_acks_;
   EnergySaverFn energy_saver_ = nullptr;
+  // The provider link's relays and its dial (SetProviderLink); nullptr: no link.
+  AgentRelays* agent_relays_ = nullptr;
+  std::function<void(const ProviderLinkConfig&)> connect_provider_link_;
   // Text input watches of minted ids whose creation has not come, by the
   // minted id: the watch tokens Bind arms and answers. Bounded with
   // pending_binds_ (AwaitsCreation).

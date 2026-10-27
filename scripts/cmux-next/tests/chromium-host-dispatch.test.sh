@@ -12,6 +12,10 @@
 #                           alone and through the dispatcher (task p01-process-052)
 #   host_wheel_ack_test.cpp the wheel acks, alone and through the dispatcher
 #                           (task p01-process-234)
+#   host_provider_link_test.cpp  agent CDP straight from the browser host:
+#                           the relays alone, through the dispatcher, and the
+#                           link's transport against a fake browser host
+#                           (host_provider_link.{h,mm}, task p01-process-233)
 #   host_mirror_test.cpp    the dispatcher and the real remote shim
 #                           (ChromiumHost/client, built as a shared library
 #                           from the committed client/generated/remote_shim.inc)
@@ -61,7 +65,8 @@ mkdir -p "$work/src/generated"
 cp "$host"/src/*.h "$host"/src/*.mm "$host"/src/*.cc "$work/src/"
 cp "$gen/Packages/macOS/CmuxNext/ChromiumHost/src/generated/host_dispatch.inc" "$work/src/generated/"
 
-flags=(-std=c++20 -Wall -Wextra -Werror -pthread -I"$work/src" -I"$shim_header")
+# host_provider_link.h reads DevTools ids with the shim's scanner (CEFShim/src/devtools_message_id.h).
+flags=(-std=c++20 -Wall -Wextra -Werror -pthread -I"$work/src" -I"$shim_header" -I"$root/Packages/macOS/CmuxNext/CEFShim/src")
 for src in host_dispatch.mm host_mirror.mm host_text_input.mm; do
   "${cxx[@]}" "${flags[@]}" -fsyntax-only -x c++ "$work/src/$src"
 done
@@ -93,6 +98,9 @@ sources=("$work/src/host_dispatch.mm" "$work/src/host_mirror.mm" "$work/src/host
 "${cxx[@]}" "${flags[@]}" -O1 -o "$work/host_wheel_ack_test" "$host/tests/host_wheel_ack_test.cpp" \
   -x c++ "${sources[@]}" -x none "$work/src/chromium_host_control.cc"
 "$work/host_wheel_ack_test"
+"${cxx[@]}" "${flags[@]}" -O1 -o "$work/host_provider_link_test" "$host/tests/host_provider_link_test.cpp" \
+  -x c++ "${sources[@]}" "$work/src/host_provider_link.mm" -x none "$work/src/chromium_host_control.cc"
+"$work/host_provider_link_test"
 
 # The remote shim, as remote-shim-abi.test.sh builds it (from the committed generated client).
 client_flags=(-std=c++20 -Wall -Wextra -Werror -O1 -pthread -I"$shim_header" -I"$root/Packages/macOS/CmuxNext/CEFShim/src"

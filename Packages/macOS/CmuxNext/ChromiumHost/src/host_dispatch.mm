@@ -134,6 +134,7 @@ void HostContext::Attach() {
   // Not an export: the host acks every wheel of a gesture (OnWheelAck), so cmux asks the page nothing.
   if (set_wheel_ack_handler_) exports.push_back(kWheelAcksHelloName);
   if (energy_saver_) exports.push_back(kEnergySaverHelloName);
+  if (agent_relays_) exports.push_back(kProviderLinkHelloName);
   TlvWriter hello;
   hello.Str(kWireID);
   hello.StrList(exports.data(), static_cast<int>(exports.size()));
@@ -198,7 +199,8 @@ void HostContext::Handle(control::Message& message) {
     case State::kPreinit:
       if (message.op == kOpInitialize) {
         if (!HandleInitialize(message)) Bad("a malformed initialize");
-      } else if (IsMirrorOp(message.op) || message.op == kOpPageResize || message.op == kOpEnergySaver) {
+      } else if (IsMirrorOp(message.op) || message.op == kOpPageResize || message.op == kOpEnergySaver ||
+                 message.op == kOpProviderLink) {
         waiting_.push_back(std::move(message));  // CEF state: read once initialize returned
       } else {
         Dispatch(message);  // a preinit op: the remote shim sends nothing else before initialize
@@ -241,6 +243,14 @@ void HostContext::Handle(control::Message& message) {
       }
       if (message.op == kOpEnergySaver) {
         if (!HandleEnergySaver(message)) Bad("a malformed energy saver");
+        return;
+      }
+      if (message.op == kOpProviderLink) {
+        if (!HandleProviderLink(message)) Bad("a malformed provider link");
+        return;
+      }
+      if (message.op == kOpDevtoolsWatchEvents && agent_relays_) {
+        if (!HandleDevToolsWatch(message)) Bad("a malformed devtools watch");
         return;
       }
       if (IsMirrorOp(message.op)) return Watch(message.op, message.fields);
@@ -330,6 +340,30 @@ bool HostContext::HandleEnergySaver(const control::Message& message) {
     reply.I32(result);
     Reply(message.token, reply);
   }
+  return true;
+}
+
+// Dials (or ends) the host's own provider link; a host built without one
+// takes the op and changes nothing. Applied after initialize: the relays it
+// carries send to Chromium.
+bool HostContext::HandleProviderLink(const control::Message& message) {
+  const std::optional<ProviderLinkConfig> config = DecodeProviderLink(message.fields);
+  if (!config) return false;
+  if (connect_provider_link_) connect_provider_link_(*config);
+  if (message.token != 0) Ack(message.token);
+  return true;
+}
+
+// The page's watch is cmux's or the link's: Chromium keeps it on while
+// either wants it (AgentRelays::CmuxWatch), so a relay's events never stop
+// because cmux stopped watching, and cmux's never start because of a relay.
+bool HostContext::HandleDevToolsWatch(const control::Message& message) {
+  TlvReader r(message.fields);
+  const int32_t client = r.I32();
+  const int32_t enabled = r.I32();
+  if (!r.ok() || !r.AtEnd()) return false;
+  cmux_shim_devtools_watch_events(Browser(client), agent_relays_->CmuxWatch(client, enabled != 0));
+  Ack(message.token);
   return true;
 }
 
@@ -667,6 +701,11 @@ void HostContext::ForwardEvent(int kind, int browser_id, int request, int64_t a,
     return;
   }
   int32_t client = ClientOf(browser_id);
+  // A relayed page's raw DevTools go on the provider link, off cmux's main thread.
+  if (kind == CMUX_SHIM_DEVTOOLS_EVENT && agent_relays_ && s1 && agent_relays_->TakeDevToolsMessage(client, s1)) {
+    return;
+  }
+  if (kind == CMUX_SHIM_BEFORE_CLOSE && agent_relays_) agent_relays_->BrowserClosed(client);
   int32_t out_request = request;
   MirrorEvent mirror_event{kind, request, client, a, b, std::nullopt};
   auto pending = request != 0 ? pending_binds_.find(BindKey(kind, request)) : pending_binds_.end();
