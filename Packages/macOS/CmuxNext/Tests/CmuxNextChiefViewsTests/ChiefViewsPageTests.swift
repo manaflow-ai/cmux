@@ -227,8 +227,9 @@ struct ChiefViewsPageTests {
 
     private static let work = MainWorkScheduler(budget: MainFrameBudget())
 
-    /// The rows the provider's host reads, observed.
-    @MainActor @Observable private final class Rows {
+    /// The rows the provider's host reads, observed. Fileprivate, not private: the
+    /// `@Observable` macro adds its conformance in an extension at file scope.
+    @MainActor @Observable fileprivate final class Rows {
         var agents: [ChiefViewsAgent] = []
     }
 
