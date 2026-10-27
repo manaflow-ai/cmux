@@ -1070,7 +1070,11 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
-      - name: Clear stale git locks (self-hosted reused workspace)
+      # Steps repeated byte for byte across jobs are written once (a YAML anchor, `&name`) and
+      # reused (`*name`): GitHub refuses a workflow file over 512,000 bytes before any job starts.
+      # Edit the anchored copy; every alias follows it. tests/test_nightly_workflow_size.py keeps the limit.
+      - &clear-stale-git-locks-self-hos
+        name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
           ws="${GITHUB_WORKSPACE:-$PWD}"
@@ -1268,14 +1272,7 @@ jobs:
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
     steps:
-      - name: Clear stale git locks (self-hosted reused workspace)
-        shell: bash
-        run: |
-          ws="${GITHUB_WORKSPACE:-$PWD}"
-          rm -f "$ws/.git/index.lock" 2>/dev/null || true
-          if [ -d "$ws/.git/modules" ]; then
-            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
-          fi
+      - *clear-stale-git-locks-self-hos
 
       - name: Checkout cache ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1488,7 +1485,8 @@ jobs:
         if: inputs.nightly_next_unsigned_run != ''
         run: echo 'The unsigned-resume app job restores the original helper and source artifacts; no compilation.'
 
-      - name: Clear stale git locks (self-hosted reused workspace)
+      - &clear-stale-git-locks-self-hos-2
+        name: Clear stale git locks (self-hosted reused workspace)
         if: inputs.nightly_next_unsigned_run == ''
         shell: bash
         run: |
@@ -1796,15 +1794,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Clear stale git locks (self-hosted reused workspace)
-        if: inputs.nightly_next_unsigned_run == ''
-        shell: bash
-        run: |
-          ws="${GITHUB_WORKSPACE:-$PWD}"
-          rm -f "$ws/.git/index.lock" 2>/dev/null || true
-          if [ -d "$ws/.git/modules" ]; then
-            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
-          fi
+      - *clear-stale-git-locks-self-hos-2
 
       - name: Checkout build ref
         if: inputs.nightly_next_unsigned_run == '' && (runner.environment != 'self-hosted' || needs.decide.outputs.track != 'nightly-next')
@@ -2865,7 +2855,8 @@ jobs:
       # cmux-tui-artifacts.yml lets a running build finish and a newer push
       # replaces only the pending run, so under steady pushes the tip's tree may
       # never publish (run 37464320457 failed after 45 min waiting for it).
-      - name: Wait through GitHub API rate limits in this job's gh calls
+      - &wait-through-github-api-rate-l
+        name: Wait through GitHub API rate limits in this job's gh calls
         # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
         # reset (at most an hour per job, each wait logged) when a call is refused for the rate
         # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
@@ -3010,7 +3001,8 @@ jobs:
           fi
           if [ "$count" -gt 0 ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
 
-      - name: Clear stale git locks (self-hosted reused workspace)
+      - &clear-stale-git-locks-self-hos-3
+        name: Clear stale git locks (self-hosted reused workspace)
         if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
         shell: bash
         run: |
@@ -3036,11 +3028,7 @@ jobs:
           submodules: false
 
 
-      - name: Wait through GitHub API rate limits in this job's gh calls
-        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
-        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
-        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
-        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+      - *wait-through-github-api-rate-l
 
       - name: Initialize cmux-next notices submodule
         if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (github.ref_name == 'nightly-next') }}
@@ -3099,7 +3087,8 @@ jobs:
           exit 0
 
 
-      - name: Download unsigned nightly app
+      - &download-unsigned-nightly-app
+        name: Download unsigned nightly app
         if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (steps.signing-inputs-parallel.outputs.app_ok != 'true') }}
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -3107,7 +3096,8 @@ jobs:
           path: nightly-inputs/app
 
 
-      - name: Download SSH daemon assets
+      - &download-ssh-daemon-assets
+        name: Download SSH daemon assets
         if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (steps.signing-inputs-parallel.outputs.daemon_ok != 'true') }}
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -3115,7 +3105,8 @@ jobs:
           path: remote-daemon-assets
 
 
-      - name: Download universal Ghostty CLI helper
+      - &download-universal-ghostty-cli
+        name: Download universal Ghostty CLI helper
         if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (steps.signing-inputs-parallel.outputs.helper_ok != 'true') }}
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -3135,7 +3126,8 @@ jobs:
           path: nightly-inputs/license-trees
 
 
-      - name: Restore unsigned nightly products
+      - &restore-unsigned-nightly-produ
+        name: Restore unsigned nightly products
         if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
         run: |
           set -euo pipefail
@@ -3158,7 +3150,8 @@ jobs:
       # original; "Finish the browser-data import proof" waits for it before
       # the prepared app is uploaded. The FIFO write blocks until that step
       # reads it, so the status is never lost and nothing polls.
-      - name: Prove the browser-data import is compiled out (cx-f58x notary test)
+      - &prove-the-browser-data-import
+        name: Prove the browser-data import is compiled out (cx-f58x notary test)
         if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.notary_test_browser_data == 'true')) }}
         run: |
           set -euo pipefail
@@ -3255,7 +3248,8 @@ jobs:
           ./scripts/cmux-next/check-daemon-capabilities.sh --static-only --binary "$app/Contents/Resources/bin/cmux-tui"
 
 
-      - name: Run bundled Ghostty theme picker helper regression
+      - &run-bundled-ghostty-theme-pick
+        name: Run bundled Ghostty theme picker helper regression
         if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
         run: |
           set -euo pipefail
@@ -3280,7 +3274,8 @@ jobs:
       # are built with -Di18n=false, so no shipped Mach-O may define a libintl
       # symbol unless the channel release carries gettext-0.24.tar.gz and
       # COPYING.LIB (the prune step keeps those names, they carry no build number).
-      - name: Verify shipped libintl has its source
+      - &verify-shipped-libintl-has-its
+        name: Verify shipped libintl has its source
         if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -3350,7 +3345,8 @@ jobs:
             ./scripts/verify-diff-sidecar-artifact.sh "$APP/Contents/Resources/bin/cmux-diff-sidecar" --archs "$NIGHTLY_VARIANT"
           fi
 
-      - name: Package prepared app for signing
+      - &package-prepared-app-for-signi
+        name: Package prepared app for signing
         if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
         run: |
           set -euo pipefail
@@ -3359,7 +3355,8 @@ jobs:
 
       # nightly-sign.yml (run from main) reads this annotation of this job
       # through the checks API and refuses a tarball with another sha256.
-      - name: Record prepared app digest
+      - &record-prepared-app-digest
+        name: Record prepared app digest
         if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
         env:
           PREPARED_APP_ARTIFACT: cmux-${{ needs.decide.outputs.channel }}-prepared-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
@@ -3370,7 +3367,8 @@ jobs:
           [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || { echo "no sha256 for the prepared app" >&2; exit 1; }
           echo "::notice title=nightly-prepared-app::variant=${NIGHTLY_VARIANT} artifact=${PREPARED_APP_ARTIFACT} sha256=${digest} publish=${NIGHTLY_SHOULD_PUBLISH} fast=${NIGHTLY_FAST_BUILD}"
 
-      - name: Finish the browser-data import proof
+      - &finish-the-browser-data-import
+        name: Finish the browser-data import proof
         if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.notary_test_browser_data == 'true')) }}
         run: |
           set -euo pipefail
@@ -3386,7 +3384,8 @@ jobs:
             *) echo "the browser-data import proof failed (status $status)" >&2; exit 1 ;;
           esac
 
-      - name: Upload prepared app for signing
+      - &upload-prepared-app-for-signin
+        name: Upload prepared app for signing
         if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -3442,18 +3441,7 @@ jobs:
           fi
           if [ "$count" -gt 0 ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
 
-      - name: Clear stale git locks (self-hosted reused workspace)
-        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
-        shell: bash
-        run: |
-          # Self-hosted macOS runners reuse the workspace. A job cancelled or
-          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
-          # fails every later submodule checkout (e.g. ghostty). Clear them first.
-          ws="${GITHUB_WORKSPACE:-$PWD}"
-          rm -f "$ws/.git/index.lock" 2>/dev/null || true
-          if [ -d "$ws/.git/modules" ]; then
-            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
-          fi
+      - *clear-stale-git-locks-self-hos-3
 
 
       - name: Checkout build ref
@@ -3468,11 +3456,7 @@ jobs:
           submodules: false
 
 
-      - name: Wait through GitHub API rate limits in this job's gh calls
-        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
-        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
-        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
-        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+      - *wait-through-github-api-rate-l
 
       - name: Initialize cmux-next notices submodule
         if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (github.ref_name == 'nightly-next') }}
@@ -3531,28 +3515,13 @@ jobs:
           exit 0
 
 
-      - name: Download unsigned nightly app
-        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (steps.signing-inputs-parallel.outputs.app_ok != 'true') }}
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: cmux-nightly-unsigned-app
-          path: nightly-inputs/app
+      - *download-unsigned-nightly-app
 
 
-      - name: Download SSH daemon assets
-        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (steps.signing-inputs-parallel.outputs.daemon_ok != 'true') }}
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: cmux-nightly-remote-daemon
-          path: remote-daemon-assets
+      - *download-ssh-daemon-assets
 
 
-      - name: Download universal Ghostty CLI helper
-        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (steps.signing-inputs-parallel.outputs.helper_ok != 'true') }}
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: cmux-nightly-ghostty-cli-helper
-          path: nightly-inputs/ghostty
+      - *download-universal-ghostty-cli
 
 
       # Blocking, like the step that builds it: a nightly-next app always
@@ -3567,13 +3536,7 @@ jobs:
           path: nightly-inputs/license-trees
 
 
-      - name: Restore unsigned nightly products
-        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
-        run: |
-          set -euo pipefail
-          products="build-universal/Build/Products/Release"
-          mkdir -p "$products"
-          tar -C "$products" -xzf nightly-inputs/app/cmux-nightly-unsigned.tar.gz
+      - *restore-unsigned-nightly-produ
 
       # The cx-f58x browser-data scan runs here, on the per-run hosted lane,
       # before anything is injected or signed. In build-nightly-app it took
@@ -3590,27 +3553,7 @@ jobs:
       # original; "Finish the browser-data import proof" waits for it before
       # the prepared app is uploaded. The FIFO write blocks until that step
       # reads it, so the status is never lost and nothing polls.
-      - name: Prove the browser-data import is compiled out (cx-f58x notary test)
-        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.notary_test_browser_data == 'true')) }}
-        run: |
-          set -euo pipefail
-          state="$RUNNER_TEMP/browser-data-proof"
-          rm -rf "$state"
-          mkdir -p "$state/snapshot"
-          # clonefile(2) is instant on APFS; ditto is the copy elsewhere.
-          app="build-universal/Build/Products/Release/cmux.app"
-          if ! cp -cR "$app" "$state/snapshot/cmux.app" 2>"$state/clone.err"; then
-            echo "cp -c failed ($(head -c 200 "$state/clone.err")); copying with ditto"
-            rm -rf "$state/snapshot/cmux.app"
-            ditto "$app" "$state/snapshot/cmux.app"
-          fi
-          mkfifo "$state/status.fifo"
-          (
-            status=0
-            scripts/ci/check-browser-data-import-absent.sh "$state/snapshot/cmux.app" || status=$?
-            echo "$status" >"$state/status.fifo"
-          ) >"$state/proof.log" 2>&1 </dev/null &
-          echo "browser-data import proof started on a clone of the bundle (PID $!)"
+      - *prove-the-browser-data-import
 
 
       - name: Inject universal Ghostty CLI helper
@@ -3687,12 +3630,7 @@ jobs:
           ./scripts/cmux-next/check-daemon-capabilities.sh --static-only --binary "$app/Contents/Resources/bin/cmux-tui"
 
 
-      - name: Run bundled Ghostty theme picker helper regression
-        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
-        run: |
-          set -euo pipefail
-          CMUX_APP_PATH="build-universal/Build/Products/Release/cmux.app" \
-            ./tests/test_bundled_ghostty_theme_picker_helper.sh
+      - *run-bundled-ghostty-theme-pick
 
 
       - name: Thin bundle to the variant architecture
@@ -3712,17 +3650,7 @@ jobs:
       # are built with -Di18n=false, so no shipped Mach-O may define a libintl
       # symbol unless the channel release carries gettext-0.24.tar.gz and
       # COPYING.LIB (the prune step keeps those names, they carry no build number).
-      - name: Verify shipped libintl has its source
-        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          args=(build-universal/Build/Products/Release/cmux.app)
-          if [ -n "${CHANNEL_RELEASE_TAG:-}" ]; then
-            args+=(--release-repo "$GITHUB_REPOSITORY" --release-tag "$CHANNEL_RELEASE_TAG")
-          fi
-          python3 scripts/verify_app_libintl.py "${args[@]}"
+      - *verify-shipped-libintl-has-its
 
 
       - name: Verify nightly binary architectures
@@ -3782,51 +3710,15 @@ jobs:
             ./scripts/verify-diff-sidecar-artifact.sh "$APP/Contents/Resources/bin/cmux-diff-sidecar" --archs "$NIGHTLY_VARIANT"
           fi
 
-      - name: Package prepared app for signing
-        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
-        run: |
-          set -euo pipefail
-          mkdir -p prepared-app-handoff
-          tar -C build-universal/Build/Products/Release -czf prepared-app-handoff/cmux-prepared-app.tar.gz cmux.app
+      - *package-prepared-app-for-signi
 
       # nightly-sign.yml (run from main) reads this annotation of this job
       # through the checks API and refuses a tarball with another sha256.
-      - name: Record prepared app digest
-        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
-        env:
-          PREPARED_APP_ARTIFACT: cmux-${{ needs.decide.outputs.channel }}-prepared-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
-          NIGHTLY_SHOULD_PUBLISH: ${{ needs.decide.outputs.should_publish }}
-        run: |
-          set -euo pipefail
-          digest="$(shasum -a 256 prepared-app-handoff/cmux-prepared-app.tar.gz | awk '{print $1}')"
-          [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || { echo "no sha256 for the prepared app" >&2; exit 1; }
-          echo "::notice title=nightly-prepared-app::variant=${NIGHTLY_VARIANT} artifact=${PREPARED_APP_ARTIFACT} sha256=${digest} publish=${NIGHTLY_SHOULD_PUBLISH} fast=${NIGHTLY_FAST_BUILD}"
+      - *record-prepared-app-digest
 
-      - name: Finish the browser-data import proof
-        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.notary_test_browser_data == 'true')) }}
-        run: |
-          set -euo pipefail
-          state="$RUNNER_TEMP/browser-data-proof"
-          [ -p "$state/status.fifo" ] || { echo "the browser-data import proof was never started" >&2; exit 1; }
-          status=""
-          read -r status <"$state/status.fifo" || true
-          cat "$state/proof.log"
-          rm -rf "$state"
-          case "$status" in
-            0) ;;
-            "") echo "the browser-data import proof ended without a status" >&2; exit 1 ;;
-            *) echo "the browser-data import proof failed (status $status)" >&2; exit 1 ;;
-          esac
+      - *finish-the-browser-data-import
 
-      - name: Upload prepared app for signing
-        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cmux-${{ needs.decide.outputs.channel }}-prepared-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
-          path: prepared-app-handoff/cmux-prepared-app.tar.gz
-          compression-level: 0
-          if-no-files-found: error
-          retention-days: 3
+      - *upload-prepared-app-for-signin
 
 
   prepare-nightly-variant:
@@ -4080,7 +3972,8 @@ jobs:
           name: cmux-${{ needs.decide.outputs.channel }}-prepared-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: prepared-app
 
-      - name: Download SSH daemon assets
+      - &download-ssh-daemon-assets-2
+        name: Download SSH daemon assets
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-nightly-remote-daemon
@@ -4109,7 +4002,8 @@ jobs:
       # no npm on PATH, so `npm install --global create-dmg` failed with
       # "npm: command not found" and turned nightly red. setup-node makes the job
       # self-sufficient on any runner instead of assuming a preinstalled npm.
-      - name: Set up Node
+      - &set-up-node
+        name: Set up Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "22.23.4"
@@ -4901,11 +4795,7 @@ jobs:
           name: cmux-${{ needs.decide.outputs.channel }}-signed-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: signed-app-handoff
 
-      - name: Download SSH daemon assets
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: cmux-nightly-remote-daemon
-          path: remote-daemon-assets
+      - *download-ssh-daemon-assets-2
 
       - name: Restore signed app
         run: |
@@ -5108,16 +4998,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Wait through GitHub API rate limits in this job's gh calls
-        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
-        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
-        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
-        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+      - *wait-through-github-api-rate-l
 
       # The Blacksmith macOS label whose queue is moving, for the macOS jobs after this one
       # (scripts/ci/nightly_sign_runner.py). Signing stays on Blacksmith; a stale
       # vars.MACOS_RUNNER_26 naming a label with no runners no longer strands them.
-      - name: Pick the Blacksmith macOS label with a moving queue
+      - &pick-the-blacksmith-macos-labe
+        name: Pick the Blacksmith macOS label with a moving queue
         id: sign-runner
         continue-on-error: true
         timeout-minutes: 2
@@ -5203,11 +5090,7 @@ jobs:
       # notarize-nightly-dmg.sh runs the bundle notice check after Apple
       # accepts, and that check reads ghostty-next/build.zig.zon. Without the
       # submodule, run 38669958906 skipped five accepted builds.
-      - name: Wait through GitHub API rate limits in this job's gh calls
-        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
-        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
-        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
-        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+      - *wait-through-github-api-rate-l
 
       - name: Initialize cmux-next notices submodule
         if: github.ref_name == 'nightly-next'
@@ -5225,10 +5108,7 @@ jobs:
 
       # The DMG around the stapled app is built with the same create-dmg as
       # build-sign-notarize-nightly.
-      - name: Set up Node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: "22.23.4"
+      - *set-up-node
 
       - name: Install create-dmg
         run: |
@@ -5585,7 +5465,8 @@ jobs:
       # read the build's own source tree still run from the publish ref:
       # verify_remote_daemon_release.py, fetch-release-notes-span.sh,
       # release-notes.py, check_ghostty_vt_notices.py, ghostty_source_archive.py.
-      - name: Checkout publication tooling at the workflow commit
+      - &checkout-publication-tooling-a
+        name: Checkout publication tooling at the workflow commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -5593,7 +5474,8 @@ jobs:
           path: .publish-tooling
           sparse-checkout: scripts
 
-      - name: Wait through GitHub API rate limits in this job's gh calls
+      - &wait-through-github-api-rate-l-2
+        name: Wait through GitHub API rate limits in this job's gh calls
         # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
         # reset (at most an hour per job, each wait logged) when a call is refused for the rate
         # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
@@ -6298,18 +6180,14 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.publish-nightly.outputs.build_sha }}
 
-      - name: Checkout publication tooling at the workflow commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ github.sha }}
-          path: .publish-tooling
-          sparse-checkout: scripts
+      - *checkout-publication-tooling-a
 
-      - name: Wait through GitHub API rate limits in this job's gh calls
+      - &wait-through-github-api-rate-l-3
+        name: Wait through GitHub API rate limits in this job's gh calls
         run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --install
 
-      - name: Download nightly variant artifacts
+      - &download-nightly-variant-artif
+        name: Download nightly variant artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: ${{ needs.publish-nightly.outputs.variant_pattern }}
@@ -6330,7 +6208,8 @@ jobs:
           name: cmux-nightly-remote-daemon
           path: nightly-out
 
-      - name: Download the published feed
+      - &download-the-published-feed
+        name: Download the published feed
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: nightly-next-github-${{ github.run_id }}-${{ github.run_attempt }}
@@ -6470,29 +6349,13 @@ jobs:
       NIGHTLY_BUILD: ${{ needs.publish-nightly.outputs.build }}
       PUBLISH_TOOLING: ${{ github.workspace }}/.publish-tooling/scripts
     steps:
-      - name: Checkout publication tooling at the workflow commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ github.sha }}
-          path: .publish-tooling
-          sparse-checkout: scripts
+      - *checkout-publication-tooling-a
 
-      - name: Wait through GitHub API rate limits in this job's gh calls
-        run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --install
+      - *wait-through-github-api-rate-l-3
 
-      - name: Download nightly variant artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          pattern: ${{ needs.publish-nightly.outputs.variant_pattern }}
-          path: nightly-out
-          merge-multiple: true
+      - *download-nightly-variant-artif
 
-      - name: Download the published feed
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: nightly-next-github-${{ github.run_id }}-${{ github.run_attempt }}
-          path: next-github
+      - *download-the-published-feed
 
       - name: Take the published feed
         run: |
@@ -6624,19 +6487,9 @@ jobs:
       BUILD: ${{ needs.publish-nightly.outputs.build }}
       BUILD_SHA: ${{ needs.publish-nightly.outputs.build_sha }}
     steps:
-      - name: Checkout publication tooling at the workflow commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ github.sha }}
-          path: .publish-tooling
-          sparse-checkout: scripts
+      - *checkout-publication-tooling-a
 
-      - name: Wait through GitHub API rate limits in this job's gh calls
-        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
-        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
-        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
-        run: if [ -f .publish-tooling/scripts/ci/gh_budget_wait.sh ]; then bash .publish-tooling/scripts/ci/gh_budget_wait.sh --install; fi
+      - *wait-through-github-api-rate-l-2
 
       - name: Find the attempt that compiled the published build
         id: producer
@@ -6727,23 +6580,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Wait through GitHub API rate limits in this job's gh calls
-        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
-        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
-        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
-        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+      - *wait-through-github-api-rate-l
 
       # The Blacksmith macOS label whose queue is moving, for the macOS jobs after this one
       # (scripts/ci/nightly_sign_runner.py). Signing stays on Blacksmith; a stale
       # vars.MACOS_RUNNER_26 naming a label with no runners no longer strands them.
-      - name: Pick the Blacksmith macOS label with a moving queue
-        id: sign-runner
-        continue-on-error: true
-        timeout-minutes: 2
-        env:
-          SNAPSHOT_TOKEN: ${{ github.token }}
-          CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
-        run: python3 scripts/ci/nightly_sign_runner.py
+      - *pick-the-blacksmith-macos-labe
 
       - name: Compare the cmux NEXT feed with the old feed
         id: target
@@ -7031,11 +6873,7 @@ jobs:
           persist-credentials: false
 
       # Checked again here: another run may have moved the old feed meanwhile.
-      - name: Wait through GitHub API rate limits in this job's gh calls
-        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
-        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
-        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
-        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+      - *wait-through-github-api-rate-l
 
       - name: Skip a build the old feed already has
         id: order
@@ -7627,11 +7465,7 @@ jobs:
       # build was signed and verified. A continued submission skipped here is
       # not retired: its artifacts expire (3 days), and the target and signing
       # jobs skip a build the old feed already has.
-      - name: Wait through GitHub API rate limits in this job's gh calls
-        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
-        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
-        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
-        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+      - *wait-through-github-api-rate-l
 
       - name: Skip a build the old feed already has
         id: order
@@ -8024,11 +7858,7 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
 
-      - name: Wait through GitHub API rate limits in this job's gh calls
-        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
-        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
-        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
-        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+      - *wait-through-github-api-rate-l
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -8266,11 +8096,7 @@ jobs:
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           persist-credentials: false
           sparse-checkout: scripts
-      - name: Wait through GitHub API rate limits in this job's gh calls
-        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
-        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
-        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
-        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+      - *wait-through-github-api-rate-l
 
       - name: Fetch the published span
         run: ./scripts/cmux-next/fetch-release-notes-span.sh origin "$HEAD_SHA" nightly-next "$PUBLISHED_SHA"
@@ -8315,7 +8141,8 @@ jobs:
       PUBLISHED_SHA: ${{ needs.decide.outputs.published_sha }}
       CONTENT_PUBLIC_KEY: AnrDI4vqN4lFGX2IpzeWPZsa/Hk7yQMkVIKppFwAst4=
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - &checkout-step
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           persist-credentials: false
@@ -8324,11 +8151,7 @@ jobs:
       # The span starts at the newest build whose signed notes were published (its "head"), not at
       # the last published app: a build whose notes failed to publish then loses no highlight to
       # the next one (2026-10-12: 3821558930001 had no notes and its highlights were never shown).
-      - name: Wait through GitHub API rate limits in this job's gh calls
-        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
-        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
-        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
-        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+      - *wait-through-github-api-rate-l
 
       - name: Start the span at the newest published notes
         id: span
@@ -8438,17 +8261,11 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
-          persist-credentials: false
-      - name: Wait through GitHub API rate limits in this job's gh calls
-        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
-        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
-        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
-        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+      - *checkout-step
+      - *wait-through-github-api-rate-l
 
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      - &download-artifact-step
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: release-notes
           path: notes
@@ -8535,16 +8352,9 @@ jobs:
           sparse-checkout: |
             scripts
             .github/actions/pr-media-publish
-      - name: Wait through GitHub API rate limits in this job's gh calls
-        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
-        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
-        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
-        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+      - *wait-through-github-api-rate-l
 
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: release-notes
-          path: notes
+      - *download-artifact-step
       - name: Install ffmpeg
         timeout-minutes: 6
         env:

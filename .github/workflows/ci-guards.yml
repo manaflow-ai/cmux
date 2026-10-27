@@ -1486,6 +1486,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_release_notes_fetch.py
 
+      - name: Validate nightly.yml stays under GitHub's 512,000-byte workflow limit
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_workflow_size.py
+
       - name: Validate the nightly cmux-tui resolver (newest published tree, no wait)
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_cmux_tui_resolve.py
