@@ -132,6 +132,8 @@ final class CEFHostStart {
         case .success(let exports): hostExports = exports
         case .failure(let error): return .failure(error)
         }
+        // From the hello on, the host's end is a crash of its pages (ChromiumHostExitReporting).
+        (supervisor as? any ChromiumHostExitReporting)?.hostSaidHello()
         // The host checked its fence inbox in before its hello; the look-up is off the main thread.
         if fencesResizes, let name = attachment.resizeFence {
             let channel = ChromiumHostResizeFenceChannel(name: name)

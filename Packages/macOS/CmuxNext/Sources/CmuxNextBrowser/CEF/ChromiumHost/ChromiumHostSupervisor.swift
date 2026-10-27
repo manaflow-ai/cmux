@@ -13,8 +13,9 @@ import Darwin
 /// - Exit: each host's end is watched off the main thread (a kqueue `NOTE_EXIT` process source, then
 ///   `waitid(WNOWAIT)`, on `com.cmuxterm.chromium-host.supervisor`, utility). The pid stays a zombie until the
 ///   supervisor reaps it on the main thread, so a kill never reaches a reused pid.
-/// - End: the ``observeHostEnds(_:)`` observers run first; then, unless cmux is quitting, ``onHostEnded`` gets the
-///   crash state the host's pages show (``ChromiumHostExit/pageExit``: nothing for a clean exit). The next
+/// - End: the ``observeHostEnds(_:)`` observers run first; then, when the host said hello (``hostSaidHello()``) and
+///   cmux is not quitting, ``onHostEnded`` gets the crash state the host's pages show (``ChromiumHostExit/pageExit``:
+///   nothing for a clean exit). A host that ends before its hello is a failed start, not a page crash. The next
 ///   ``attachment()`` starts a new host, as Chrome's `BrowserGpuChannelHostFactory` establishes a new channel after
 ///   the GPU process died (content/browser/gpu/browser_gpu_channel_host_factory.cc). A host that could not start
 ///   (``ChromiumHostExit/startFailure``) is not started again: a new one would fail the same way.
@@ -35,6 +36,8 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     private struct Host {
         let pid: pid_t
         let generation: UInt64
+        /// The attach that took its wire got its hello: its end is a crash of its pages.
+        var saidHello = false
     }
 
     private let spawner: any ChromiumHostSpawning
@@ -75,6 +78,12 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
         return spawned.attachment
     }
 
+    /// The running host said hello to the attach that took its wire (`CEFHostStart`): its end is reported from now on.
+    /// Nothing when it already ended.
+    public func hostSaidHello() {
+        host?.saidHello = true
+    }
+
     public func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {
         endObservers.append(ended)
     }
@@ -92,11 +101,11 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
         spawner.reap(ended.pid)
         exits.append(exit.description)
         // A superseded host's end was handled when it was superseded.
-        guard host?.generation == ended.generation else { return }
+        guard let current = host, current.generation == ended.generation else { return }
         host = nil
         if let failure = exit.startFailure { startFailure = failure }
         endObservers.forEach { $0() }
-        guard !isQuitting(), let pageExit = exit.pageExit else { return }
+        guard current.saidHello, !isQuitting(), let pageExit = exit.pageExit else { return }
         onHostEnded?(pageExit)
     }
 

@@ -3,7 +3,10 @@
 
 Launches one tagged Debug cmux-next app with `browserHost.helper` and `browserResize.layerHostingEveryPage` (the
 bench-only feature `cefLayerHostingEveryPage`'s local override: every page window hosts from fork API 26, without the
-Track A calls the shipping feature `cefLayerHosting` needs) on, and measures the same probe page twice:
+Track A calls the shipping feature `cefLayerHosting` needs) on, and measures the same probe page twice. Chromium tabs
+stay in cmux (`browserHost.tabs` off) except with `--modes profiles`, which needs them in the host and so runs in a
+launch without the in-process rows (inproc, --baseline, --stress); an in-process row of a launch whose tabs run in the
+host says not_run (its numbers would be the host's):
 
   inproc   a normal Chromium tab (`openBrowser.chromium`): the browser process is the cmux app, its pump runs on
            cmux's main thread, the page's pixels are layer hosted (fork API >= 26) and its input goes to the page
@@ -109,9 +112,10 @@ Per mode:
            with a second display (cmux20-bench has an external one), frames until both are the new display's after
            the window moves there and back, counted from the move (pass: rate within 2 frames, scale within 1, the
            1x to 2x move reported as `scale_up`) (chromium_host_display.py).
-  profiles `--modes profiles` (task 080): two browser profiles made with the app's CLI, a Chromium tab of each; pass
-           when the backend is the host, both load, exactly one Chromium Host serves both and their localStorage is
-           apart (chromium_host_profiles.py).
+  profiles `--modes profiles` (task 080), with `browserHost.tabs` on (every Chromium tab in the supervisor's
+           host): two browser profiles made with the app's CLI, a Chromium tab of each; pass when the backend is the
+           host, both load, the supervisor's one host (`debug.cef` host_supervisor) serves both and their localStorage
+           is apart (chromium_host_profiles.py).
 
   swipe    `--modes swipe` (task 234), on an input host (real HID events): a two-finger trackpad swipe
            (pointer-probe.swift swipe, through NSApp's event dispatch like a hand's) over a Chromium tab of the app's
@@ -199,6 +203,9 @@ def parse(argv=None):
     args = parser.parse_args(argv)
     if args.native_ui is not None and args.find:
         parser.error("--native-ui and --find each run instead of the modes: pick one")
+    if "profiles" in args.modes.split(",") and ("inproc" in args.modes.split(",") or args.baseline or args.stress):
+        parser.error("--modes profiles runs every Chromium tab in the host: run it in a launch of its own, without "
+                     "inproc, --baseline or --stress (they measure in-process tabs)")
     if args.native_ui is not None:
         try:
             args.native_ui = chromium_host_native_ui.rows_named(
@@ -355,6 +362,20 @@ addEventListener("wheel", e => { if (e.ctrlKey) __mouse.push({type: "pinch-wheel
 </script>""".replace("TIP", MOUSE_TOOLTIP)
 
 TUNABLES = {"version": 1, "values": {"browserHost.helper": True, "browserResize.layerHostingEveryPage": True}}
+
+
+def launch_tunables(modes):
+    """TUNABLES for a run of `modes`: Chromium tabs move to the host (`browserHost.tabs`, feature chromiumHostTabs)
+    only for the profiles row, so every other row's Chromium tab stays in process."""
+    values = dict(TUNABLES["values"], **{"browserHost.tabs": "profiles" in modes})
+    return {**TUNABLES, "values": values}
+
+
+def tabs_in_host(rpc):
+    """Why this launch's Chromium tabs cannot be measured as in-process tabs (they run in the Chromium Host,
+    `debug.cef` backend `host`), or None when they run in cmux."""
+    backend = (rpc("debug.cef") or {}).get("backend")
+    return f"the Chromium backend is {backend!r}: Chromium tabs run in the Chromium Host" if backend == "host" else None
 RESULT = {"build": "Debug", "modes": {}, "notes": []}
 
 
@@ -690,7 +711,7 @@ def padded(values, expected):
 def main():
     os.makedirs(opts.out, exist_ok=True)
     tunables = os.path.join(opts.out, "debug-tunables.json")
-    json.dump(TUNABLES, open(tunables, "w"))
+    json.dump(launch_tunables(opts.modes.split(",")), open(tunables, "w"))
     probe = os.path.join(opts.out, "probe.html")
     open(probe, "w").write(PAGE)
     url = pathlib.Path(probe).as_uri()
@@ -939,6 +960,10 @@ def open_inproc_probe(rpc, url, name):
 
 def run_inproc(rpc, url):
     """The in-process rows; returns the probe's tab id, or None."""
+    not_in_process = tabs_in_host(rpc)
+    if not_in_process:
+        RESULT["modes"]["inproc"] = {"not_run": not_in_process}
+        return None
     page, click_point, tab = open_inproc_probe(rpc, url, "light")
     if not page:
         RESULT["modes"]["inproc"] = {"error": click_point}
@@ -1087,6 +1112,9 @@ TABS_IDLE = 10  # p01-process.md done check 12: idle wakes with 10 Chromium tabs
 
 def tabs10_wakes(rpc, url):
     """Idle wakes with the probe and 9 more in-process Chromium tabs, in the three scenarios; the 9 are closed after."""
+    not_in_process = tabs_in_host(rpc)
+    if not_in_process:
+        return {"not_run": not_in_process}
     before = {tab.get("id") for tab in topology_tabs(rpc)}
     for _ in range(TABS_IDLE - 1):
         rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True, "origin": "script"}, timeout=120)

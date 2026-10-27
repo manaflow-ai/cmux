@@ -96,12 +96,14 @@ extension AppServices {
 // above, never by launch wiring, and wired as it is built.
 extension AppServices {
     /// The one Chromium Host's supervisor when Chromium tabs run in it (`cefHelperHost` with its Debug Settings
-    /// override, Debug builds only: ``BrowserHostTunables/backend(hostEnabled:)``); nil keeps Chromium in this process.
+    /// override, and `chromiumHostTabs`; Debug builds only: ``BrowserHostTunables/backend(hostEnabled:)``); nil keeps
+    /// Chromium tabs in this process, beside the `debug.chromium_host` prototype.
     static func chromiumHostSupervisor(work: BackgroundWork, mainWork: MainWorkScheduler,
                                        features: FeatureList) -> (any ChromiumHostSupervising)? {
         #if DEBUG || CMUX_BENCH_HOOKS
         let hostSwitch = AppControl.chromiumHostSwitch(in: features, tunables: TunableStore.shared)
-        guard BrowserHostTunables.backend(hostEnabled: hostSwitch.isEnabled) == .host else { return nil }
+        let hostTabs = hostSwitch.isEnabled && features.isEnabled(.chromiumHostTabs)
+        guard BrowserHostTunables.backend(hostEnabled: hostTabs) == .host else { return nil }
         return ChromiumHostSupervisor(work: work, mainWork: mainWork, fencesResizes: features.isEnabled(.chromiumHostResizeFence))
         #else
         return nil

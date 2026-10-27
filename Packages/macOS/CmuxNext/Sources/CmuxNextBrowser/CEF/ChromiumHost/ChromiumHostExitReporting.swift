@@ -11,4 +11,8 @@ public protocol ChromiumHostExitReporting: ChromiumHostSupervising {
     /// Runs on the main thread each time a host that said hello ends while cmux is not quitting,
     /// with the crash state its pages show. A clean exit (status 0) reports nothing.
     var onHostEnded: (@MainActor (BrowserProcessExit) -> Void)? { get set }
+
+    /// The host whose wire ``ChromiumHostSupervising/attachment()`` handed out said hello (`CEFHostStart`, on the main
+    /// thread): from now on its end reaches ``onHostEnded``. A host that ends before this never does: it did not start.
+    func hostSaidHello()
 }
