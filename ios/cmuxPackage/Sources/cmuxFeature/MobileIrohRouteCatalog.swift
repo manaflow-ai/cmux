@@ -8,14 +8,20 @@ import Foundation
 /// Local projection of the permission-filtered team directory into attach routes.
 public actor MobileIrohRouteCatalog {
     static let preferredRoutePriority = -10_000
+    private let authenticatedScopeID: @Sendable () async -> String?
+    private var owner: String?
     private var activeScope: UInt64?
     private var routesByMacDeviceID: [String: [String: [CmxAttachRoute]]] = [:]
     private var liveMacs: [MobileDiscoveredIrohMac] = []
-    public init() {}
+    /// Reads the same live account/team identity that authorizes discovery.
+    public init(authenticatedScopeID: @escaping @Sendable () async -> String?) {
+        self.authenticatedScopeID = authenticatedScopeID
+    }
 
-    func activate(scope: UInt64) {
-        guard activeScope != scope else { return }
+    func activate(scope: UInt64, owner: String?) {
+        guard activeScope.map({ scope > $0 }) ?? true else { return }
         activeScope = scope
+        self.owner = owner
         routesByMacDeviceID.removeAll()
         liveMacs.removeAll()
     }
@@ -56,7 +62,8 @@ public actor MobileIrohRouteCatalog {
         preferredTag: String,
         compatibleWith policy: MobileMacBuildCompatibilityPolicy? = nil,
         limit: Int? = nil
-    ) -> [MobileDiscoveredIrohMac] {
+    ) async -> [MobileDiscoveredIrohMac] {
+        guard await isCurrentScope() else { return [] }
         guard let limit else {
             return liveMacs
                 .filter {
@@ -121,7 +128,8 @@ public actor MobileIrohRouteCatalog {
     public func routes(
         forKnownMacDeviceID macDeviceID: String,
         instanceTag: String?
-    ) -> [CmxAttachRoute] {
+    ) async -> [CmxAttachRoute] {
+        guard await isCurrentScope() else { return [] }
         guard let routesByTag = routesByMacDeviceID[cmxCanonicalDeviceID(macDeviceID)] else {
             return []
         }
@@ -136,10 +144,21 @@ public actor MobileIrohRouteCatalog {
         return routesByTag.values.first ?? []
     }
 
+    /// The auth observer updates asynchronously. Fence every read so a caller
+    /// in a new account or team cannot consume the previous owner's snapshot
+    /// while that observer catches up. Recheck the generation after suspension
+    /// so another projection cannot borrow the captured owner's validation.
+    private func isCurrentScope() async -> Bool {
+        guard let generation = activeScope, let owner else { return false }
+        let currentOwner = await authenticatedScopeID()
+        return currentOwner == owner && activeScope == generation
+    }
+
     /// Clears this exact lifecycle scope, ignoring stale teardown callbacks.
     func deactivate(scope: UInt64) {
         guard activeScope == scope else { return }
         activeScope = nil
+        owner = nil
         routesByMacDeviceID.removeAll(keepingCapacity: false)
         liveMacs.removeAll(keepingCapacity: false)
     }
@@ -147,6 +166,7 @@ public actor MobileIrohRouteCatalog {
     /// Clears every scope during explicit local sign-out teardown.
     func clear() {
         activeScope = nil
+        owner = nil
         routesByMacDeviceID.removeAll(keepingCapacity: false)
         liveMacs.removeAll(keepingCapacity: false)
     }

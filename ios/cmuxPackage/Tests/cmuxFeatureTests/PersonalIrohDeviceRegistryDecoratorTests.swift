@@ -9,15 +9,16 @@ import Testing
 @MainActor
 @Suite("personal Iroh device registry")
 struct PersonalIrohDeviceRegistryDecoratorTests {
-    @Test("a new account cannot read the previous account before discovery updates")
-    func accountSwitchFencesRegistryReads() async throws {
+    @Test("a new account or team cannot read the previous scope before discovery updates",
+          arguments: ["account-b:team-b", "account-a:team-b"])
+    func accountSwitchFencesRegistryReads(nextScope: String) async throws {
         let fixture = RegistryScopeFixture()
         let provider = makeProvider(fixture)
         let registry = makeRegistry(provider)
         #expect((await provider.discoverLiveMacs()).map(\.deviceID) == ["mac-a"])
         #expect(try await devices(registry).map(\.deviceId) == ["mac-a"])
 
-        await fixture.set(scope: "account-b:team-b", directory: directory(macID: "mac-b"))
+        await fixture.set(scope: nextScope, directory: directory(macID: "mac-b"))
         #expect(try await devices(registry).isEmpty)
         #expect(await registry.freshRoutes(forMacDeviceID: "mac-a", instanceTag: "default") == nil)
 
@@ -53,7 +54,7 @@ struct PersonalIrohDeviceRegistryDecoratorTests {
     }
 
     @Test("a discovery suspended across an account switch cannot expose the old Mac")
-    func mismatchedDiscoveryClearsCatalogBeforeRegistryRead() async throws {
+    func mismatchedDiscoveryHidesPreviousScope() async throws {
         let fixture = RegistryScopeFixture()
         let provider = makeProvider(fixture)
         let registry = makeRegistry(provider)

@@ -19,7 +19,7 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
 {
     /// Exposed so the scene injects the SAME catalog the provider fills as
     /// `personalIrohRouteCatalog` (known-Mac route lookups read it).
-    public let routeCatalog = MobileIrohRouteCatalog()
+    public let routeCatalog: MobileIrohRouteCatalog
 
     private let preferredTag: String
     private let compatibilityPolicy: MobileMacBuildCompatibilityPolicy?
@@ -51,45 +51,29 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
         runtimeObservation = Task { [weak self] in
             for await _ in await irx.changes() {
                 guard let self, !Task.isCancelled else { return }
-                let projectionGeneration = self.scope
                 let owner = await irx.directoryScopeID()
                 let directory = await irx.currentDirectory()
-                let currentOwner = await irx.directoryScopeID()
-                guard let owner, owner == currentOwner else {
-                    // A session transition can invalidate the snapshot between
-                    // the two runtime reads. If no newer projection won while
-                    // we were suspended, remove the old account's candidates
-                    // before the shell asks the registry adapter for a list.
-                    await self.clearCatalogIfUnchanged(since: projectionGeneration)
-                    continue
-                }
+                guard owner == (await irx.directoryScopeID()) else { continue }
                 guard await applyDirectory(directory, owner: owner) else { continue }
                 for observer in observers.values { observer.yield(()) }
             }
         }
     }
 
-    /// Clear a discarded projection without erasing a newer directory that was
-    /// installed while the runtime read was suspended.
-    private func clearCatalogIfUnchanged(since generation: UInt64) async {
-        guard scope == generation else { return }
-        await routeCatalog.clear()
-    }
-
     /// Applies directory snapshots through one monotonic projection path. An
     /// older async observation can never replace a newer revision.
     @discardableResult
-    private func applyDirectory(_ directory: V2Directory?, owner: String) async -> Bool {
+    private func applyDirectory(_ directory: V2Directory?, owner: String?) async -> Bool {
         let ownerChanged = observedScope != owner
         if ownerChanged {
             observedScope = owner
             lastAppliedDirectoryRevision = nil
         }
-        guard let directory else {
+        guard let owner, let directory else {
             guard ownerChanged || lastAppliedDirectoryRevision != nil else { return false }
             scope &+= 1
             lastAppliedDirectoryRevision = nil
-            await routeCatalog.activate(scope: scope)
+            await routeCatalog.activate(scope: scope, owner: owner)
             return true
         }
         guard lastAppliedDirectoryRevision.map({ directory.revision >= $0 }) ?? true else {
@@ -99,7 +83,7 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
         lastAppliedDirectoryRevision = directory.revision
         scope &+= 1
         let generation = scope
-        await routeCatalog.activate(scope: generation)
+        await routeCatalog.activate(scope: generation, owner: owner)
         guard observedScope == owner, lastAppliedDirectoryRevision == directory.revision else { return false }
         return await routeCatalog.replace(with: directory, scope: generation)
     }
@@ -120,7 +104,9 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
         self.invalidateSnapshot = invalidateSnapshot
         self.revokeBinding = revokeBinding
         self.authenticatedAccountID = authenticatedAccountID
-        self.authenticatedScopeID = authenticatedScopeID ?? authenticatedAccountID
+        let scopeID = authenticatedScopeID ?? authenticatedAccountID
+        self.authenticatedScopeID = scopeID
+        self.routeCatalog = MobileIrohRouteCatalog(authenticatedScopeID: scopeID)
     }
 
     public convenience init(
@@ -143,16 +129,8 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
     // MARK: - MobileIrohMacDiscovering
 
     public func discoverLiveMacs() async -> [MobileDiscoveredIrohMac] {
-        let projectionGeneration = scope
         let owner = await authenticatedScopeID()
-        guard let discovery = await discover() else {
-            await clearCatalogIfUnchanged(since: projectionGeneration)
-            return []
-        }
-        guard owner == (await authenticatedScopeID()) else {
-            await clearCatalogIfUnchanged(since: projectionGeneration)
-            return []
-        }
+        guard let discovery = await discover(), owner == (await authenticatedScopeID()) else { return [] }
         guard let owner else { return [] }
         _ = await applyDirectory(discovery, owner: owner)
         return await routeCatalog.liveMacCandidates(
