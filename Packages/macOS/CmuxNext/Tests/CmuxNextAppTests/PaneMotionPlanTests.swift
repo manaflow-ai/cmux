@@ -5,7 +5,8 @@ import Foundation
 import Testing
 
 /// `PaneMotionPlan` (plans/cmux-next/chrome-parity/p03-rendering.md R2, task 021): one structural
-/// change as rest values only. Every fixture builds both geometries with `ScreenGeometry.compute`, as
+/// change as rest values only. The split fixtures that check a pane growing in pin `arrival: .grow` (the
+/// Debug choice); the default fade is SplitFadeMotionTests'. Every fixture builds both geometries with `ScreenGeometry.compute`, as
 /// `ScreenContentView.reconcile` does, and checks the plan against them: what changed is listed with
 /// its rest rects and token, what did not is absent.
 @MainActor
@@ -48,7 +49,7 @@ struct PaneMotionPlanTests {
 
     @Test func splitRightGrowsTheNewPaneFromTheOldEdge() throws {
         let before = Self.splits(.leaf("p1")), after = Self.splits(Self.side(.leaf("p1"), .leaf("p2")))
-        let plan = PaneMotionPlan.build(from: before, to: after)
+        let plan = PaneMotionPlan.build(from: before, to: after, arrival: .grow)
         #expect(plan.kind == .split)
         let old = try #require(before.panes["p1"]), kept = try #require(after.panes["p1"]), target = try #require(after.panes["p2"])
 
@@ -78,7 +79,7 @@ struct PaneMotionPlanTests {
 
     @Test func splitDownGrowsTheNewPaneFromTheOldBottomEdge() throws {
         let before = Self.splits(.leaf("p1")), after = Self.splits(Self.stacked(.leaf("p1"), .leaf("p2")))
-        let plan = PaneMotionPlan.build(from: before, to: after)
+        let plan = PaneMotionPlan.build(from: before, to: after, arrival: .grow)
         #expect(plan.kind == .split)
         let old = try #require(before.panes["p1"]), kept = try #require(after.panes["p1"]), target = try #require(after.panes["p2"])
         let added = try #require(plan.panes["p2"])
@@ -342,7 +343,7 @@ struct PaneMotionPlanTests {
         let before = Self.splits(Self.side(.leaf("p1"), .leaf("p2")))
         let after = Self.splits(.split("s", axis: .horizontal, ratio: 1.0 / 3, a: .leaf("p1"),
                                        b: .split("t", axis: .horizontal, ratio: 0.5, a: .leaf("new"), b: .leaf("p2"))))
-        let plan = PaneMotionPlan.build(from: before, to: after)
+        let plan = PaneMotionPlan.build(from: before, to: after, arrival: .grow)
         #expect(plan.kind == .split)
         let old = try #require(before.panes["p2"]), kept = try #require(after.panes["p2"])
         let handle = try #require(after.dividers.first { $0.id == "t" })
@@ -356,7 +357,7 @@ struct PaneMotionPlanTests {
     /// edge, and the new divider is in place.
     @Test func aHandoffLandsTheAddedPaneAndSlidesTheGiverIn() throws {
         let before = Self.splits(.leaf("p1")), after = Self.splits(Self.side(.leaf("p1"), .leaf("p2")))
-        let plan = PaneMotionPlan.build(from: before, to: after, handoff: "p1")
+        let plan = PaneMotionPlan.build(from: before, to: after, handoff: "p1", arrival: .grow)
         #expect(plan.kind == .split)
         let target = try #require(after.panes["p2"]), kept = try #require(after.panes["p1"])
         let added = try #require(plan.panes["p2"])
@@ -378,13 +379,13 @@ struct PaneMotionPlanTests {
         let one = Self.splits(.leaf("p1"))
         let two = Self.splits(Self.side(.leaf("p1"), .leaf("p2")))
         let three = Self.splits(Self.side(.leaf("p1"), Self.side(.leaf("p2"), .leaf("p3"), id: "t")))
-        let first = PaneMotionPlan.build(from: one, to: two)
+        let first = PaneMotionPlan.build(from: one, to: two, arrival: .grow)
 
         // The daemon's echo of the split: the same geometry, so nothing to retarget.
         #expect(PaneMotionPlan.build(from: two, to: two).isEmpty)
 
         // A second split before the first lands: only what it moves, from the first's rest.
-        let next = PaneMotionPlan.build(from: two, to: three)
+        let next = PaneMotionPlan.build(from: two, to: three, arrival: .grow)
         #expect(next.kind == .split)
         #expect(Set(next.panes.keys) == ["p2", "p3"])
         #expect(next.panes["p2"]?.from == first.panes["p2"]?.to)
@@ -406,7 +407,7 @@ struct PaneMotionPlanTests {
         let before = Self.splits(.leaf("p1")), after = Self.splits(Self.side(.leaf("p1"), .leaf("p2")))
         let shape = PaneMotionPlan.ChromeShape(padding: 6, cornerRadius: 10, ringCornerRadius: 12)
         let plan = PaneMotionPlan.build(from: before, to: after, shape: shape,
-                                        bands: ["p1": PaneMotionPlan.ChromeBands(header: 28, footer: 0)])
+                                        bands: ["p1": PaneMotionPlan.ChromeBands(header: 28, footer: 0)], arrival: .grow)
         let chrome = try #require(plan.panes["p1"]?.chrome)
         let fromSize = try #require(before.panes["p1"]).size, toSize = try #require(after.panes["p1"]).size
         for (frames, size) in [(chrome.from, fromSize), (chrome.to, toSize)] {

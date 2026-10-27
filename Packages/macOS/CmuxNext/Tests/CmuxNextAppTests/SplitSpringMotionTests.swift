@@ -11,7 +11,9 @@ import Testing
 /// new one"; plans/cmux-next/split-spring-animation/DESIGN.md). The split and the even sizing of
 /// its chain show in the key's frame, so every pane and divider of the chain moves on one spring
 /// from the first frame to rest; the daemon's reply, ~100 ms in, changes nothing on screen. Frames
-/// step at a fixed 120 Hz dt, so every assertion is about frame N, not wall time.
+/// step at a fixed 120 Hz dt, so every assertion is about frame N, not wall time. Since 2026-10-27 a
+/// split fades its new pane in by default (SplitFadeMotionTests); these tests pin the Debug choice
+/// `motion.split.arrival` = grow, which keeps this spring.
 @MainActor
 struct SplitSpringMotionTests {
     final class Panes: LayoutPaneContentProvider {
@@ -30,13 +32,16 @@ struct SplitSpringMotionTests {
         var intents: [LayoutIntent] = []
         var holds: [Bool] = []
 
-        init(_ tree: SplitNode, reduceMotion: Bool = false) {
+        /// `arrival`: how the split's new pane comes in; nil keeps the app's default (``SplitArrival/fade``). The
+        /// spring tests of this suite pin `.grow`, the Debug choice that keeps the split spring.
+        init(_ tree: SplitNode, reduceMotion: Bool = false, arrival: SplitArrival? = nil) {
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(tree))], activeScreenID: "s",
                                 focusedPane: tree.panes.first)
             model.splitSizingOverride = .even
             root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             // Pins the pane springs on (or off): the shared settings stay untouched.
             root.context.reduceMotionOverride = reduceMotion
+            if let arrival { root.context.splitArrival = { arrival } }
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)
             window.contentView = root
@@ -83,7 +88,7 @@ struct SplitSpringMotionTests {
     // MARK: One motion
 
     @Test func anEvenSplitMovesEveryPaneOfItsChainFromTheKeysFirstFrame() throws {
-        let screen = Screen(Self.pair)
+        let screen = Screen(Self.pair, arrival: .grow)
         let before = try #require(screen.rect("p1"))
         _ = Self.splitPair(screen)
         screen.step()
@@ -98,7 +103,7 @@ struct SplitSpringMotionTests {
     /// The user's repro: the daemon's reply lands ~100 ms (12 frames) into the spring and sends
     /// the sizing. Nothing on screen may change course then: no new target, no second motion.
     @Test func theRepliesSizingLandingMidSpringChangesNothingOnScreen() throws {
-        let screen = Screen(Self.pair)
+        let screen = Screen(Self.pair, arrival: .grow)
         let sizing = Self.splitPair(screen)
         var rows: [String] = []
         func record(_ frame: Int) {
@@ -127,7 +132,7 @@ struct SplitSpringMotionTests {
     }
 
     @Test func theSizingGoesToTheDaemonOnlyOnceTheSplitLanded() throws {
-        let screen = Screen(Self.pair)
+        let screen = Screen(Self.pair, arrival: .grow)
         let sizing = Self.splitPair(screen)
         #expect(screen.intents.isEmpty, "a ratio intent went before the daemon made the split")
         screen.model.commitSplitSizing(sizing)
@@ -139,7 +144,7 @@ struct SplitSpringMotionTests {
     }
 
     @Test func aRefusedSplitTakesItsSizingBack() throws {
-        let screen = Screen(Self.pair)
+        let screen = Screen(Self.pair, arrival: .grow)
         let half = try #require(screen.target("p1"))
         let sizing = Self.splitPair(screen)
         for _ in 1...4 { screen.step() }
@@ -159,7 +164,7 @@ struct SplitSpringMotionTests {
     /// overshoot, and at rest at exactly its target within 0.75 s.
     @Test(arguments: [SplitAxis.horizontal, .vertical])
     func aSplitRunsOnTheSplitSpringWithoutOvershootAndLandsExactly(axis: SplitAxis) throws {
-        let screen = Screen(.leaf("p1"))
+        let screen = Screen(.leaf("p1"), arrival: .grow)
         screen.show(.split("v", axis: axis, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))
         let target = try #require(screen.target("p2"))
         let extent: (CGRect) -> CGFloat = { axis == .horizontal ? $0.width : $0.height }
@@ -181,7 +186,7 @@ struct SplitSpringMotionTests {
     /// edge never moves and the right one never leaves a hole (the panes and dividers fill the
     /// container); every pane starts in frame 1 and they land together.
     @Test func everyFrameOfAnEvenSplitTilesTheRow() throws {
-        let screen = Screen(Self.pair)
+        let screen = Screen(Self.pair, arrival: .grow)
         _ = Self.splitPair(screen)
         let order = Self.chain
         let targets = try order.map { try #require(screen.target($0)) }
@@ -211,7 +216,7 @@ struct SplitSpringMotionTests {
 
     /// A second Cmd-D while the first still moves carries on from what shows, with its velocity.
     @Test func aSplitDuringASplitKeepsTheMotionsVelocity() throws {
-        let screen = Screen(.leaf("p1"))
+        let screen = Screen(.leaf("p1"), arrival: .grow)
         screen.show(.split("v", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))
         for _ in 1...4 { screen.step() }
         let shown = try #require(screen.rect("p1"))
@@ -229,7 +234,7 @@ struct SplitSpringMotionTests {
     }
 
     @Test func reduceMotionShowsTheEvenSplitInOneFrame() throws {
-        let screen = Screen(Self.pair, reduceMotion: true)
+        let screen = Screen(Self.pair, reduceMotion: true, arrival: .grow)
         _ = Self.splitPair(screen)
         for pane in Self.chain {
             #expect(screen.rect(pane) == screen.target(pane), "\(pane) animates under Reduce Motion")
@@ -265,7 +270,7 @@ struct SplitSpringMotionTests {
     /// A split's terminals resize at the start (Lawrence 2026-10-23): the layout holds no grid while the chain
     /// springs; each resized pane hears its final size at the start (PaneMotionFinalSizeTests).
     @Test func aSplitHoldsNoTerminalGrid() throws {
-        let screen = Screen(Self.pair)
+        let screen = Screen(Self.pair, arrival: .grow)
         _ = Self.splitPair(screen)
         for _ in 1...240 {
             #expect(!screen.root.holdsTerminalGrids, "the split holds the grids")
@@ -279,7 +284,7 @@ struct SplitSpringMotionTests {
     /// the row, no grid is held (each press hands its panes their newest final size), the row lands even within the split spring's settle time after the last press,
     /// and no frame takes the main thread past a 120 Hz frame (8.3 ms).
     @Test func fiveRapidSplitsAreOneMotion() throws {
-        let screen = Screen(.leaf("p1"))
+        let screen = Screen(.leaf("p1"), arrival: .grow)
         let pressEvery = Int((0.1 / Self.dt).rounded())
         let clock = ContinuousClock()
         var slowest = Duration.zero, frames = 0, lastPress = 0
@@ -329,7 +334,7 @@ struct SplitSpringMotionTests {
             .split("g1", axis: .vertical, ratio: 1.0 / 3, a: row("a", ["p1", "p2", "p3"]),
                    b: .split("g2", axis: .vertical, ratio: 0.5, a: middle, b: row("c", ["p7", "p8", "p9"])))
         }
-        let screen = Screen(grid(row("b", ["p4", "p5", "p6"])))
+        let screen = Screen(grid(row("b", ["p4", "p5", "p6"])), arrival: .grow)
         let split = SplitNode.split("b1", axis: .horizontal, ratio: 1.0 / 3, a: .leaf("p4"),
                                     b: .split("b2", axis: .horizontal, ratio: 0.5,
                                               a: .split("b3", axis: .horizontal, ratio: 0.5, a: .leaf("p5"), b: .leaf("p10")),

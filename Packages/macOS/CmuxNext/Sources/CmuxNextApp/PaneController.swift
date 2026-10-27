@@ -57,6 +57,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private(set) var isSuspended = false
     /// Its slice of the launch window's build behind the picture showed it, or the build ended (p08-startup-060).
     var launchReleased = false
+    /// A split's fade waits for this pane's first content (`whenFirstContentDrawn`): it starts that content's frame wait.
+    var contentShownWait: (@MainActor (TabContent) -> Void)?
     var waitsForLaunchEnd = false // the launch held its content; its afterStartup post is on order (PaneSelectionPresenter)
     /// This pane in the visibility tree (p06-scheduler.md B), under its workspace's node: hidden while
     /// suspended. Not ``isVisible``, which is the layout's viewport presence.
@@ -486,6 +488,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if view.stripView.window != nil { BenchSpans.measure("switch.strip") { view.stripView.syncFromModel() } } // strip + content: one transaction (L4)
         DebugTabSwitch.mark(self, "stripSync")
         BenchSpans.measure("switch.view") { _ = view.show(content?.view) }
+        if let content, let waiting = contentShownWait {
+            contentShownWait = nil
+            waiting(content)
+        }
         // A browser tab (its page made or not yet) shows its page's picture from the last quit over it (p08-startup-043).
         switch content {
         case .browser?, nil: if let key { services.cache.showLaunchPicture(key, in: view, hold: services.launchImageHold, reveal: services.launchReveal) }

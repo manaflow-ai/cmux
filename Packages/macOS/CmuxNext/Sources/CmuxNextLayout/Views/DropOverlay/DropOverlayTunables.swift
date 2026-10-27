@@ -134,6 +134,11 @@ public nonisolated enum LayoutTunables {
         "motion.pane.variant", .springs, "Pane close and expand",
         help: "Compare current pane close/expand movement with a faster crisp preset or a small soft landing bump. Enable Pane Animations first. Content resizes live on every frame (Hold content size in pane motion keeps it at the larger size instead); Reduce Motion still snaps.",
         default: .standard, code: "LayoutTunables.paneMotionVariant")
+    /// How a split's new pane comes in (``SplitArrival``): read in each change turn.
+    public static let splitArrival = Tunable<SplitArrival>.choice(
+        "motion.split.arrival", .springs, "New split pane",
+        help: "Fade in: the split lays out once at its final sizes and only the new pane fades in. Grow from the edge: the new pane grows in from its neighbour's edge while the panes beside it spring to their new sizes. Enable Pane Animations first; Reduce Motion shows the split in one frame either way.",
+        default: .fade, code: "LayoutTunables.splitArrival")
     // @intent live resize (Lawrence 2026-10-23): on every frame of a split, close, column or zoom each
     // terminal and page shows its content at exactly that frame's size, no frozen content, no
     // snapshot and no resize once at landing. Off by default; on brings back Leo's 2026-10-20 hold
@@ -169,7 +174,7 @@ public nonisolated enum LayoutTunables {
 
     public static var all: [TunableDescriptor] {
         [prototypeModel.descriptor, prototypeDockEdge.descriptor, prototypeOrientation.descriptor, prototypeDockMode.descriptor,
-         paneMotionVariant.descriptor, holdsContentInMotion.descriptor, motionRenderServer.descriptor] + MainPaneLayout.all + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, dropZoneHysteresis, newColumnDropWidth, inactivePaneDimming,
+         paneMotionVariant.descriptor, splitArrival.descriptor, holdsContentInMotion.descriptor, motionRenderServer.descriptor] + MainPaneLayout.all + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, dropZoneHysteresis, newColumnDropWidth, inactivePaneDimming,
                                    minimumContentWidth, minimumContentHeight, focusRingAlpha, focusGlowAlpha, focusGlowRadiusFactor].map(\.descriptor)
     }
 }

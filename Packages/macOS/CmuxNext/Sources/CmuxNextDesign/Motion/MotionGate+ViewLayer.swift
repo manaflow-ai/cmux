@@ -51,6 +51,22 @@ extension MotionGate {
         CATransaction.commit()
     }
 
+    /// Fades `layers`, shown in `view`, in: from opacity 0 to the opacity each one holds now (its model value,
+    /// already at rest), over `token`'s duration on the fade curve, all from one begin time. Core Animation runs
+    /// it on the render server (an additive opacity animation per layer): the main thread writes nothing per
+    /// frame, and hit tests, layout and the next change read the rest opacity at once. With fades off (the master
+    /// switch, the category, speed off) or a view on no live display, the layers show their opacity in this frame
+    /// and `completion` runs now; Reduce Motion caps the fade at a crossfade (``MotionPolicy/duration(_:)``).
+    ///
+    /// Chrome's model: a new view's `ui::Layer` opacity animation runs in the compositor while the view already
+    /// has its bounds (ui/compositor/layer_animator.h); nothing is laid out again for it.
+    public func fadeIn(_ token: MotionFade, layers: [CALayer], in view: NSView, completion: RenderSpring.Completion? = nil) {
+        let seconds = canAnimate(in: view) ? duration(token) : 0
+        let moves = layers.map { RenderSpring.Move($0, .opacity, from: 0, to: CGFloat($0.opacity)) }
+        let styles = moves.map { _ -> RenderSpring.Style in seconds > 0 ? .timed(seconds) : .snap }
+        Self.run(moves, styles: styles, trace: "render.\(token.rawValue)", completion: completion)
+    }
+
     /// Runs `moves` in `styles` and marks motion in flight (``MotionActivity``) for the longest change that
     /// runs: a spring-token crossfade with movement off counts its crossfade, not the spring's 0.
     private static func run(_ moves: [RenderSpring.Move], styles: [RenderSpring.Style], trace: String,

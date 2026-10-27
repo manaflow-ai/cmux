@@ -191,8 +191,13 @@ nonisolated struct PaneMotionPlan: Hashable, Sendable {
     var covered: Set<PaneID> = []
     /// A zoom out: the panes that come back in place under the pane springing back.
     var uncovered: Set<PaneID> = []
+    /// A split with ``SplitArrival/fade``: the pane that fades in at its rest (the added pane, or a handoff's
+    /// giver). Every pane and divider of such a change is set at its rest: no frame moves.
+    var fadesIn: Set<PaneID> = []
 
-    var isEmpty: Bool { panes.isEmpty && dividers.isEmpty && camera.isEmpty && covered.isEmpty && uncovered.isEmpty }
+    var isEmpty: Bool {
+        panes.isEmpty && dividers.isEmpty && camera.isEmpty && covered.isEmpty && uncovered.isEmpty && fadesIn.isEmpty
+    }
 }
 
 @MainActor
@@ -205,7 +210,8 @@ extension PaneMotionPlan {
     /// `structural`: the layout's structure changed (`ScreenLayout.hasSameStructure`); `inFlight`:
     /// panes still moved when it landed. Like the CPU path, a structural change that is not a split,
     /// close or zoom springs only in flight; otherwise its items are set at rest. `handoff`: the pane
-    /// that hands what it shows to the pane this split adds (`LayoutModel.pendingContentHandoff`).
+    /// that hands what it shows to the pane this split adds (`LayoutModel.pendingContentHandoff`). `arrival`: how a
+    /// split's new pane comes in (``SplitArrival``; the app's default fades it in, ``fadesIn``).
     ///
     /// One pass over each geometry's panes and dividers comparing rects; the plan holds only what
     /// changed. On the main actor because the split seed comes from `PaneArrival`, as the CPU path's does.
@@ -213,6 +219,7 @@ extension PaneMotionPlan {
                       to next: ScreenGeometry, camera toCamera: Camera = Camera(),
                       structural: Bool = true, inFlight: Bool = false,
                       zoom: ZoomChange? = nil, handoff giver: PaneID? = nil, variant: PaneMotionVariant = .standard,
+                      arrival splitArrival: SplitArrival = .fade,
                       shape: ChromeShape = ChromeShape(), bands: [PaneID: ChromeBands] = [:],
                       includesRowEdges: Bool = true) -> PaneMotionPlan {
         let before = Side(geometry: previous, camera: fromCamera), after = Side(geometry: next, camera: toCamera)
@@ -238,8 +245,15 @@ extension PaneMotionPlan {
         case .none where added.isEmpty && removesAny && !next.panes.isEmpty: .close
         case .none: .move
         }
+        // A split's new pane fades in at its rest (`ScreenContentView.reconcile`, ``SplitArrival/fade``): the plan
+        // sets the whole change at rest and names the pane that fades; a new dock column still grows in.
+        let fadesIn = SplitFades.fading(arrivals, handoff: slide?.giver, arrival: splitArrival)
+        if !fadesIn.isEmpty {
+            arrivals = arrivals.filter { $0.value.source != .split }
+            if slide != nil { (arrivals, slide) = ([:], nil) }
+        }
         // `ScreenContentView.reconcile`'s `animateFrames`: what it does not carry snaps.
-        let springs = !structural || kind != .move || inFlight
+        let springs = fadesIn.isEmpty && (!structural || kind != .move || inFlight)
         let frameToken: MotionSpring = switch kind {
         case .split: variant.splitSpring
         case .close: variant.closeSpring
@@ -250,11 +264,12 @@ extension PaneMotionPlan {
         case .none: nil
         }
         // A split's new dividers start on the edge of a pane beside them; a handoff's are in place.
-        let seedsDividers = kind == .split && slide == nil
+        let seedsDividers = kind == .split && slide == nil && fadesIn.isEmpty
         var beside: [Beside] = []
         // `PaneArrival` gives strip rects where they show in `next` at the old scroll offset.
         let arrivalShift = next.viewShift(offset: fromCamera.stripOffset)
         var plan = PaneMotionPlan(kind: kind)
+        plan.fadesIn = fadesIn
 
         // Panes.
         for (pane, to) in next.panes {

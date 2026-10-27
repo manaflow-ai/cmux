@@ -156,6 +156,19 @@ extension PaneController: LaunchWindowPane {
         services.presentation.setNeedsShowSelected(self)
     }
 
+    /// The first frame of the content this pane shows, or of the first content it will show: a terminal's first
+    /// presented surface, a page's first paint (each content's `createTabFirstFrame`), native content at its commit. A
+    /// split's new pane fades in from it (`SplitArrival.fade`). Returns what cancels the wait.
+    func whenFirstContentDrawn(_ drawn: @escaping @MainActor () -> Void) -> (@MainActor () -> Void)? {
+        if let content = currentContent { return content.createTabFirstFrame.wait { _ in drawn() } }
+        var cancelFrame: (@MainActor () -> Void)?
+        contentShownWait = { content in cancelFrame = content.createTabFirstFrame.wait { _ in drawn() } }
+        return { [weak self] in
+            self?.contentShownWait = nil
+            cancelFrame?()
+        }
+    }
+
     /// A terminal's first frame after its first content is applied; a page's first contentful paint, an agent's or
     /// internal page's first paint (each content's `createTabFirstFrame`); native content at its commit.
     func whenLaunchContentDrawn(_ drawn: @escaping @MainActor () -> Void) -> (@MainActor () -> Void)? {

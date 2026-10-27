@@ -493,6 +493,14 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         services.paneMounts.changed()
     }
 
+    func whenPaneContentDrawn(_ pane: LayoutPaneID, _ drawn: @escaping @MainActor () -> Void) -> (@MainActor () -> Void)? {
+        guard let controller = panes[pane] else {
+            drawn()
+            return nil
+        }
+        return controller.whenFirstContentDrawn(drawn)
+    }
+
     func panePresenceDidChange(_ pane: LayoutPaneID, presence: PanePresence) {
         let surfacePresence: SurfacePresence = switch presence {
         case .visible: .visible

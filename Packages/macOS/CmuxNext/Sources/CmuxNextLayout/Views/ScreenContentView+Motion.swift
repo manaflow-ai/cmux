@@ -39,6 +39,7 @@ extension ScreenContentView {
         if taken.contains(.splitClose) { leadsFrame = false }
         let led = leadIfPending(policy: policy)
         if led || held != nil { applyPresentation(force: held?.force ?? false) }
+        beginSplitFades()
         guard !taken.isEmpty else { return needsFrames }
         return needsFrames && (hasMotion || reportScrollOnSettle || canvasState.camera.isMoving)
     }

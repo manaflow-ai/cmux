@@ -13,6 +13,15 @@ struct PaneArrival: Equatable {
     var seed: CGRect
     /// How far the shared edge (and the divider on it) starts from its target.
     var edgeOffset: CGVector
+    /// Where the pane's room came from: a pane beside it gave it up (a split, ``of(target:previous:next:)``),
+    /// or it opened a docked column from its screen edge (``docking(_:target:from:to:)``). Only a split's new
+    /// pane fades in at its rest (``SplitArrival/fade``).
+    var source: Source = .split
+
+    enum Source: Equatable {
+        case split
+        case dock
+    }
 
     /// The arrival of a pane whose frame will be `target`, given every pane's
     /// frame before (`previous`) and after (`next`) the change; nil when no
@@ -103,19 +112,19 @@ struct PaneArrival: Equatable {
               new.fixedPanes.allSatisfy({ $0 == pane || new.dockFrame(containing: $0)?.column != entry.column }) else { return nil }
         if target.maxX <= new.clipMinX + 1 {
             return PaneArrival(seed: CGRect(x: target.minX, y: target.minY, width: 0, height: target.height),
-                               edgeOffset: CGVector(dx: -target.width, dy: 0))
+                               edgeOffset: CGVector(dx: -target.width, dy: 0), source: .dock)
         }
         if target.minX >= new.clipMaxX - 1 {
             return PaneArrival(seed: CGRect(x: target.maxX, y: target.minY, width: 0, height: target.height),
-                               edgeOffset: CGVector(dx: target.width, dy: 0))
+                               edgeOffset: CGVector(dx: target.width, dy: 0), source: .dock)
         }
         if target.maxY <= new.clipMinY + 1 {
             return PaneArrival(seed: CGRect(x: target.minX, y: target.minY, width: target.width, height: 0),
-                               edgeOffset: CGVector(dx: 0, dy: -target.height))
+                               edgeOffset: CGVector(dx: 0, dy: -target.height), source: .dock)
         }
         if target.minY >= new.clipMaxY - 1 {
             return PaneArrival(seed: CGRect(x: target.minX, y: target.maxY, width: target.width, height: 0),
-                               edgeOffset: CGVector(dx: 0, dy: target.height))
+                               edgeOffset: CGVector(dx: 0, dy: target.height), source: .dock)
         }
         return nil
     }

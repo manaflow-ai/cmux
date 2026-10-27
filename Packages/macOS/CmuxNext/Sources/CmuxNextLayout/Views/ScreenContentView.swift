@@ -66,6 +66,8 @@ final class ScreenContentView: NSView {
         }
     }
     var motionState: ScreenPaneMotionState
+    /// Split panes fading in at their rest (``SplitArrival/fade``, `ScreenContentView+SplitFade.swift`).
+    var splitFades = SplitFades()
     /// A divider released with this pointer velocity (pt/s along its axis): the next layout's
     /// spring starts from it (`SplitMotion.seed`).
     var releasedDivider: (kind: DividerHandleView.Kind, velocity: CGFloat, time: CFTimeInterval)?
@@ -296,6 +298,14 @@ final class ScreenContentView: NSView {
                 (arrivals, handoff) = (played.arrivals, (giver, played.slide))
             }
         }
+        // A split's new pane fades in at its rest (``SplitArrival/fade``): this pass lays the split out once, at its
+        // final layout, and no display frame moves a pane. A handoff's pane with the new content (the giver) fades
+        // in the same way instead of sliding in; a new dock column still grows from its screen edge.
+        let fading = SplitFades.fading(arrivals, handoff: handoff?.pane, arrival: context.splitArrival())
+        if !fading.isEmpty {
+            arrivals = arrivals.filter { $0.value.source != .split }
+            if handoff != nil { (arrivals, handoff) = ([:], nil) }
+        }
         let departing = (zooming ? animate : splits) && structural && arrivals.isEmpty
             && PaneArrival.departing(paneFrames.keys, to: baseGeometry.panes.keys)
         // An unzoom: the other panes come back in place under the zoomed one, which springs back to its slot.
@@ -307,7 +317,7 @@ final class ScreenContentView: NSView {
         // split moves the tab into the new pane ~75 ms in) keeps springing from where it shows,
         // with its velocity, instead of snapping to the end (hq-1d: Cmd-D measured 4 frames).
         let wasMoving = hasMotion, targetsBefore = (panes: panePlacement.rests, dividers: dividerPlacement.rests) // M1, M4
-        let inFlight = splits && structural && arrivals.isEmpty && !departing
+        let inFlight = splits && structural && arrivals.isEmpty && !departing && fading.isEmpty
             && paneFrames.values.contains { $0.rect != $0.targetRect }
         motionState.retarget(structural: structural, inFlight: inFlight, departing: departing, zooming: zooming, splitting: !arrivals.isEmpty, hasFrames: paneFrames.values.contains { $0.rect != $0.targetRect })
         // An animated width or ratio change (a preset, an equalize) is carried too: its camera may re-anchor (M8).
@@ -315,7 +325,7 @@ final class ScreenContentView: NSView {
         (panePlacement.carried, dividerPlacement.carried) = ([:], [:])
         // A release seeds only the layout it made (`releasedDivider` from this gesture, not a stale one).
         if let released = releasedDivider, CACurrentMediaTime() - released.time > 0.5 { releasedDivider = nil }
-        let animateFrames = animate && (!structural || carried || inFlight) && (releasedDivider == nil || splits)
+        let animateFrames = animate && fading.isEmpty && (!structural || carried || inFlight) && (releasedDivider == nil || splits)
         if structural, !inFlight { (arriving, newDockColumns) = (Set(arrivals.keys), PaneArrival.newDocks(arrivals, from: before, to: baseGeometry)) }
 
         // Panes. A new pane's sliver rides its neighbour's edge as it showed before this change.
@@ -338,6 +348,7 @@ final class ScreenContentView: NSView {
                 zoomMotion.leave(pane)
                 continue
             }
+            splitFades.cancel(pane)
             // A pane that moved to another screen belongs to that screen now.
             if !context.livePanes.contains(pane) { context.release(pane) }
         }
@@ -401,6 +412,9 @@ final class ScreenContentView: NSView {
         // drag step, an equalize) moves only the panes whose frames changed, and every per-pane input (frame,
         // alpha, clip range, covers, divider clips) is compared in the pass (`applyPresentation`).
         applyPresentation(force: structural)
+        // The fade starts once the turn placed the panes and their chrome (``beginSplitFades()``).
+        splitFades.pending.formUnion(fading)
+        if motionTurnDepth == 0 { beginSplitFades() }
         let moving = animate && hasMotion
         if !moving { releaseCovered() }
         if !(moving && holdsGrids) { holdsGrids = false }
@@ -435,6 +449,7 @@ final class ScreenContentView: NSView {
         // A drag on a screen that goes away gets no release either.
         endDrag()
         holdsGrids = false
+        splitFades.cancelAll()
         for pane in paneFrames.keys where !context.livePanes.contains(pane) {
             context.release(pane)
         }
