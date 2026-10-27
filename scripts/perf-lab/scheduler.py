@@ -16,6 +16,8 @@ tools/perf/core/bot_platforms.py). The rules (p12-perf-process.md 3.1-3.3, 3.5, 
   When the build queue is over EVERY_SECOND_QUEUE, every 2nd batch is cut as `skipped` (no build) and folds into
   the next one. A batch whose tip build failed, or did not come within BUILD_TIMEOUT, is `failed` and folds too.
 - T0 of each story runs only on its shard-map owner. An owner that is down or missing is a gap, never a move.
+- A story whose needs the round's commit lacks (`lacks`, capabilities.py, task 211) is a not-measurable gap of
+  that round, never a job.
 - T1 runs every T1_INTERVAL per shard (longer for a shard whose T1 stories do not fit in it, so the host keeps
   idle time), one story per job, so a T0 waits for at most one T1 story. A shard's next T1 round starts only after
   its previous one is dispatched. A T1/T2 story whose build failed is a gap. T2 and A/A run once per lab day
@@ -469,17 +471,20 @@ def lab_day_start(now: datetime) -> datetime:
 def plan(state: State, now: datetime, hosts: Sequence[Host], builds: Builds, branch_log: Sequence[str], *,
          stories: Sequence[StorySpec], shard_map: ShardMap, pinpoint: Sequence[PinpointWork] = (),
          skip: Callable[[str, Host], bool] | None = None, arms: Sequence[FeatureArm] = (),
-         reference: str | None = None, lanes: Sequence[Lane] = ()) -> Plan:
-    """The jobs to start now, the builds to request and the new state. No I/O; `now` is the only clock."""
+         reference: str | None = None, lanes: Sequence[Lane] = (),
+         lacks: Callable[[str, str], Sequence[str]] | None = None) -> Plan:
+    """The jobs to start now, the builds to request and the new state. No I/O but the hooks'; `now` is the only
+    clock. `lacks(story, sha)` names the story's needs a commit lacks (capabilities.StoryNeeds, task 211): such a
+    story is a gap of that round, never a job, so a build that cannot measure it is never judged on it."""
     if now.tzinfo is None:
         raise SchedulerError(f"plan: now ({now.isoformat()}) has no UTC offset")
     return _Planner(state, now, hosts, builds, branch_log, stories, shard_map, pinpoint, skip, arms, reference,
-                    lanes).run()
+                    lanes, lacks).run()
 
 
 class _Planner:
     def __init__(self, state, now, hosts, builds, branch_log, stories, shard_map, pinpoint, skip, arms, reference,
-                 lanes=()):
+                 lanes=(), lacks=None):
         self.state = state
         self.now = now
         self.hosts = sorted(hosts, key=lambda h: h.name)
@@ -489,6 +494,7 @@ class _Planner:
         self.shard_map = shard_map
         self.pinpoint = tuple(pinpoint)
         self.skip = skip or (lambda story, host: False)
+        self.lacks = lacks or (lambda story, sha: ())
         self.arms = tuple(arms)
         self.reference = reference
         self.lanes = tuple(lanes)
@@ -606,11 +612,24 @@ class _Planner:
     def _runnable(self, item: Item, host: Host) -> tuple[str, ...]:
         kept = []
         for story in item.stories:
-            if self.skip(story, host):
+            lacked = self._lacked(story, item.sha) if item.sha else ()
+            if lacked:
+                self.gaps.append(Gap(item.tier, item.round, story, item.key,
+                                     f"not-measurable: {item.sha[:12]} lacks {', '.join(lacked)}"))
+            elif self.skip(story, host):
                 self.skipped.append(Skip(story, host.name, item.round))
             else:
                 kept.append(story)
         return tuple(kept)
+
+    def _lacked(self, story: str, sha: str) -> tuple[str, ...]:
+        """The hook's answer; a hook that cannot answer (an unknown commit, a git failure) is a plan problem, and the
+        story is planned as it was before the hook."""
+        try:
+            return tuple(self.lacks(story, sha))
+        except Exception as error:  # the hook's error types are its own; this is the typed boundary
+            self.problems.append(f"capabilities of {sha[:12]} for {story}: {type(error).__name__}: {error}")
+            return ()
 
     def _seconds(self, story_ids: Iterable[str], passes: int = 1) -> int:
         return passes * sum(self.stories[s].seconds for s in story_ids if s in self.stories)
@@ -1019,14 +1038,16 @@ class Driver:
     and returns what it could not. The state is saved only after submit returns, so a crash inside it leaves the
     previous state and the next tick plans the same work with the same job ids (labd skips an id the controller
     already has). `expectations(now)` (expectations.active_at) gives each plan its skip hook and adds the problems
-    of the expectations file to the plan's."""
+    of the expectations file to the plan's; `lacks` is plan()'s capability hook (capabilities.StoryNeeds)."""
 
     def __init__(self, state_path: Path | str, *, ls_remote: Callable[[], str | None],
                  first_parent: Callable[[str | None, str], tuple[str, ...] | None],
                  stories: Sequence[StorySpec], shard_map: ShardMap,
                  clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
-                 expectations: Callable[[datetime], object] | None = None) -> None:
+                 expectations: Callable[[datetime], object] | None = None,
+                 lacks: Callable[[str, str], Sequence[str]] | None = None) -> None:
         self.path = Path(state_path)
+        self.lacks = lacks
         self.ls_remote = ls_remote
         self.first_parent = first_parent
         self.stories = tuple(stories)
@@ -1049,6 +1070,7 @@ class Driver:
              **inputs) -> Plan:
         self._refresh()
         now = self.clock()
+        inputs.setdefault("lacks", self.lacks)
         if self.expectations is None:
             result = plan(self.state, now, hosts, builds, self.log, stories=self.stories, shard_map=self.shard_map,
                           **inputs)

@@ -9,6 +9,8 @@ use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
 
+pub mod hang_watch;
+pub use hang_watch::spawn_blocking;
 mod lock;
 #[cfg(unix)]
 mod open_file_limit;
@@ -136,6 +138,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // home with the process umask; narrow it before reading any of them.
     crate::config::private_state_dir(&home())?;
     install_panic_log();
+    // Before the hub's threads start, so each one registers; hangs go beside the panic log.
+    hang_watch::init(&home());
     #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
     poll_watch_lab::install();
     // Before the store, the sockets and any agent: launchd's soft limit is 256.
@@ -545,7 +549,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             usize::MAX
         }
     };
-    // After the agents: their model streams go through the router.
+    // After the agents: their model streams go through the router. Waits for the router's exit:
+    // a WILL_BLOCK item, unwatched.
     let _ = tokio::task::spawn_blocking(move || release_router(kept == 0)).await;
     let _ = tokio::fs::remove_file(home().join("daemon.pid")).await;
     for file in [local_app_file, peer_file].into_iter().flatten() {
@@ -874,14 +879,22 @@ pub async fn wait_for_exit() -> bool {
 
 /// Connect to the daemon, starting one if needed.
 pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
+    connect_as(autostart, crate::client::ClientCaller::of_process()).await
+}
+
+/// [`connect`] for `caller` instead of this process's own session.
+pub async fn connect_as(
+    autostart: bool,
+    caller: crate::client::ClientCaller,
+) -> Result<Arc<Client>> {
     let path = socket_path();
-    if let Ok(c) = Client::connect(&path).await {
+    if let Ok(c) = Client::connect_as(&path, caller.clone()).await {
         return Ok(c);
     }
     if !autostart {
         return Err(anyhow!("no acpmux daemon at {} (run `acpmux daemon`)", path.display()));
     }
-    start_and_connect(&path, || Client::connect(&path)).await
+    start_and_connect(&path, || Client::connect_as(&path, caller.clone())).await
 }
 
 /// A connected socket to the daemon, starting one if needed, for a client

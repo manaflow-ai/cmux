@@ -7,6 +7,7 @@ extension DispatchSemaphore {
     /// - Parameters:
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingWait(fileID: StaticString = #fileID, line: UInt = #line) {
         blockingCall(.syncWait, fileID: fileID, line: line) { wait() }
@@ -20,6 +21,7 @@ extension DispatchSemaphore {
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
     /// - Returns: Whether the semaphore was signaled before `timeout`.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable @discardableResult
     public func blockingWait(timeout: DispatchTime, fileID: StaticString = #fileID, line: UInt = #line) -> DispatchTimeoutResult {
         return blockingCall(.syncWait, fileID: fileID, line: line) { wait(timeout: timeout) }
