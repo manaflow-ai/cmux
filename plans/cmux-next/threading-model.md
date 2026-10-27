@@ -462,7 +462,7 @@ one map from a role to a `ThreadQos`; `ECHO_PATH_QOS`, `REQUEST_THREAD_QOS` and 
 cmux-holder's `link::LINK_READER_QOS` is set outside the map (cmux-holder does not depend on cmux-tui-core), and
 `thread_qos_tests.rs` keeps it equal to `ThreadType::InputCritical.qos()`. A thread that does not start through `cmux_threads::spawn` calls `thread_qos::set` as the first statement of its body.
 Registered today: the echo threads, the connection readers, the accept loops (`mux-server`, `mux-ws-server`), the
-request threads (`mux-seq-input`, `mux-seq-control`, `mux-surface-control`, `mux-ws-conn`, blocking disallowed), the writers
+request threads (`mux-seq-input`, `mux-seq-control`, `mux-ws-conn`, blocking disallowed), the writers
 `mux-ws-out` and `mux-events-out` (all user-initiated, p02-threads-211), the `work` workers and the request
 watchdog, the `mux-terminal-work` workers (user-initiated), and the journal and storage threads, `mux-output-store-writer` and `journal-hook-stdin` included (p02-threads-212); [Daemon threads](#daemon-threads-cmux-tui) gives every other thread its target. The journal writer
 runs at user-initiated while a request waits for one of its receipts or for lane space and, with `daemonRequestQos`

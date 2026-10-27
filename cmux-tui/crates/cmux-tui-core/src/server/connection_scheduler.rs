@@ -17,7 +17,7 @@
 //! Request threads (the WebSocket connection thread) start through
 //! [`spawn_request_thread`]: UserInitiated, blocking disallowed (p02-threads
 //! task 211); the pool's control workers run the same way. A request task
-//! runs at its connection's class (connection_qos.rs, task 224). A
+//! then rests at its connection's class (connection_qos.rs, task 224). A
 //! clear-history request runs as a `Mux::work` item at its cause's
 //! priority, blocking disallowed (task 230).
 //!
@@ -79,12 +79,21 @@ pub(super) const REQUEST_THREAD_QOS: ThreadQos = ThreadType::Interactive.qos();
 /// under it is a `server.blocking` site (recorded by default; panics under
 /// `CMUX_DAEMON_BLOCKING=panic` in Debug), and its work moves to
 /// `cmux_threads::work`.
+///
+/// The thread is registered with the release hang watch for its life; each
+/// request it runs is one scope at its class deadline
+/// (server/request_hang_watch.rs).
 pub(super) fn spawn_request_thread<F, T>(name: &str, f: F) -> std::io::Result<JoinHandle<T>>
 where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
     cmux_threads::spawn(name, REQUEST_THREAD_QOS, move || {
+        let thread = std::thread::current();
+        let _hang_watch = cmux_hang_watch::register_thread(
+            cmux_hang_watch::ThreadKind::Control,
+            thread.name().unwrap_or("mux-request"),
+        );
         cmux_threads::disallow_blocking();
         f()
     })
@@ -196,7 +205,7 @@ pub(super) struct ConnectionSurfaceScheduler {
     pub(super) connection_permit: Mutex<Option<ConnectionPermit>>,
     pub(super) creations: terminal_create::ConnectionCreations,
     /// The connection's client class, set by its registry record; its
-    /// request tasks run at it (connection_qos.rs).
+    /// request tasks rest at it (connection_qos.rs).
     pub(super) class: Arc<ConnectionClassCell>,
 }
 
@@ -751,8 +760,8 @@ fn run_clear_history(
     };
     // A work item at the priority of the request it serves (its cause), as
     // Chrome posts a task at its caller's priority; it runs the request as a
-    // request thread does, blocking disallowed (task 230). It waits on the
-    // terminal and its PTY, so it is system-lane work.
+    // request thread does, blocking disallowed. It waits on the terminal and
+    // its PTY, so it is system-lane work (task 230).
     let priority = pending.cause.work_priority();
     let mut clear = ClearWork {
         reply: pending.reply_writer(writer),
@@ -763,8 +772,8 @@ fn run_clear_history(
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let posted = mux.work.post(priority, Lane::System, Shutdown::SkipOnShutdown, move || {
-        // Drop the mux-wide permit before the barrier ends and wakes the
-        // next request queued behind it.
+        // Drop the mux-wide permit before the barrier ends and wakes the next
+        // request queued behind it.
         let _active = clear.active.take();
         let _worker_permit = worker_permit;
         let Some(pending) = clear.pending.take() else { return };
@@ -775,7 +784,8 @@ fn run_clear_history(
             }
         });
     });
-    // Refused (shutdown began): the dropped item answered the request.
+    // Refused (shutdown began): the dropped item answered the request, and
+    // the connection closes.
     posted.is_ok()
 }
 
