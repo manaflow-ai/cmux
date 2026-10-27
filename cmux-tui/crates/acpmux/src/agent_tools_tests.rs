@@ -36,6 +36,7 @@ fn memory_inputs(bin: &std::path::Path, cmux_json: Option<&str>) -> super::Input
         secrets: false,
         offers: false,
         subsessions: false,
+        daemon_tools: false,
         displays: None,
     }
 }

@@ -83,6 +83,9 @@ pub struct Conn {
     caller: std::sync::OnceLock<String>,
     /// The session a first unix `initialize` named with a token that did not prove it.
     pub(super) unproven_caller: std::sync::OnceLock<String>,
+    /// The agent tool server this connection is (`agent_mcp.rs`): set by a
+    /// first unix `initialize` that proved its caller; every later line is MCP.
+    agent_tools: std::sync::OnceLock<crate::subsession_mcp::DaemonTools>,
     /// The peers this connection leased (`hub/peer_lease.rs`); None once it
     /// closed, so a lease that settles after the close ends at once.
     peer_leases: StdMutex<Option<Vec<crate::hub::PeerLease>>>,
@@ -207,36 +210,6 @@ impl Conn {
         matches!(self.origin, Origin::Local | Origin::LocalApp)
     }
 
-    /// The person binding (`hub/person.rs`), in order before the request
-    /// runs. A `personKey` in any request is stripped and never read. A
-    /// local connection whose FIRST request is `initialize` is challenged;
-    /// its SECOND request, `_acpmux/person_prove`, makes it the person when
-    /// the proof matches its own nonce and id. Nothing else ever does.
-    fn bind_person(&self, hub: &Hub, m: &str, params: &mut Option<Value>) {
-        let _ = params.as_mut().and_then(crate::hub::person::take_key);
-        // Stripped from every request; read from a first unix `initialize` only (person.rs (a)).
-        let caller = params.as_mut().and_then(crate::hub::person::take_caller);
-        let n = self.requests.fetch_add(1, Ordering::SeqCst) + 1;
-        if n == 1 && m == method::INITIALIZE && self.challengeable() {
-            self.challenged.store(true, Ordering::SeqCst);
-        }
-        let first_local = n == 1 && m == method::INITIALIZE && self.origin == Origin::Local;
-        if let Some((id, token)) = caller.filter(|_| first_local) {
-            let proven = hub.proven_caller((id.clone(), token)).is_some();
-            let _ = if proven { &self.caller } else { &self.unproven_caller }.set(id);
-        }
-        if n == 2 && m == method::MUX_PERSON_PROVE && self.challenged.load(Ordering::SeqCst) {
-            let proof = params.as_ref().and_then(|p| p.get("proof")).and_then(Value::as_str);
-            let transport = match self.origin {
-                Origin::LocalApp => crate::hub::person::TRANSPORT_APP,
-                _ => crate::hub::person::TRANSPORT_UNIX,
-            };
-            if proof.is_some_and(|p| hub.person.proves(transport, &self.nonce, &self.id, p)) {
-                self.person.store(true, Ordering::SeqCst);
-            }
-        }
-    }
-
     /// Hold `lease` until this connection closes; ended now if it already did.
     pub(super) fn hold_peer_lease(&self, hub: &Hub, lease: crate::hub::PeerLease) {
         let mut leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
@@ -264,6 +237,10 @@ impl Conn {
 
     fn send(&self, msg: &Message) {
         let control = matches!(msg, Message::Response { .. });
+        // An agent tool server speaks MCP: no daemon notification reaches it (`agent_mcp.rs`).
+        if !control && self.agent_tools().is_some() {
+            return;
+        }
         let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
         let msg = masked.as_ref().unwrap_or(msg);
         // No message larger than one frame (`rpc::MAX_MESSAGE_BYTES`): a reply goes as its error,
@@ -302,6 +279,9 @@ impl Conn {
     /// [`Conn::send`] of a notification line already made (one shared by every raw-text
     /// connection, `HubEvent::update_line`).
     fn send_line(&self, line: String) {
+        if self.agent_tools().is_some() {
+            return;
+        }
         enqueue_outbound(
             &self.out,
             line,
@@ -1090,6 +1070,7 @@ async fn serve_connection_from(
         holds_calls: std::sync::atomic::AtomicU32::new(0),
         caller: std::sync::OnceLock::new(),
         unproven_caller: std::sync::OnceLock::new(),
+        agent_tools: std::sync::OnceLock::new(),
         peer_leases: StdMutex::new(Some(Vec::new())),
         ephemeral: StdMutex::new(Some(Vec::new())),
         media: crate::hub::media_handles::Handles::default(),
@@ -1107,7 +1088,12 @@ async fn serve_connection_from(
         move |method: String, params| {
             let hub = hub.clone();
             let conn = conn.clone();
-            async move { handle_notification(&hub, &conn, &method, params).await }
+            // An agent tool server's notifications are MCP (`agent_mcp.rs`): nothing to do.
+            async move {
+                if conn.agent_tools().is_none() {
+                    handle_notification(&hub, &conn, &method, params).await
+                }
+            }
         }
     };
     let notification_worker =
@@ -1146,7 +1132,10 @@ async fn serve_connection_from(
                 };
                 // In order, before the request is spawned: a later request
                 // on this connection sees the person decided.
-                conn.bind_person(&hub, &m, &mut params);
+                if let Err(refused) = conn.bind_person(&hub, &m, &mut params) {
+                    conn.send(&Message::err(id, refused));
+                    continue;
+                }
                 // From the dispatch to the reply queued, on every path out of the task.
                 let slice = crate::trace_layer::RequestSlice::begin(&conn.id, &id, &m);
                 // A panic in the request names its method (cmux-panic-log crash keys):
@@ -1159,8 +1148,14 @@ async fn serve_connection_from(
                     method_key,
                     async move {
                         let _slot = slot;
-                        let result =
-                            chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
+                        let params = params.unwrap_or(Value::Null);
+                        let result = match conn.agent_tools() {
+                            // Boxed: the tool calls hold a whole `chats::route` of their own.
+                            Some(tools) => {
+                                Box::pin(agent_mcp::handle(&hub, &conn, tools, &m, params)).await
+                            }
+                            None => chats::route(&hub, &conn, &m, params).await,
+                        };
                         conn.send(&match result {
                             Ok(v) => Message::ok(id, v),
                             Err(e) => Message::err(id, e),
@@ -1426,8 +1421,10 @@ fn mux_meta(params: &Value) -> Option<&Value> {
     params.get("_meta").and_then(|m| m.get("acpmux"))
 }
 
+mod agent_mcp;
 mod agent_messages;
 mod app_reply;
+mod bind_person;
 mod clock_text;
 pub(crate) use clock_text::iso;
 mod change_kind;
