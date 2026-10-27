@@ -1,3 +1,4 @@
+import AppKit
 public import CmuxNextActions
 public import CmuxNextAgentActivity
 import CmuxNextApps
@@ -44,16 +45,19 @@ public final class ChiefSidebar {
         public var chiefHost: () -> String?
         public var tab: (_ session: String, _ host: String) -> String?
         public var reveal: (_ tab: String) -> Bool
+        public var openBeside: ((String, String) -> Bool)?
         public var openWorkspace: (_ session: String, _ host: String) throws -> ActionWork
 
         public init(conversation: @escaping () -> String?, chiefHost: @escaping () -> String?,
                     tab: @escaping (String, String) -> String?, reveal: @escaping (String) -> Bool,
-                    openWorkspace: @escaping (String, String) throws -> ActionWork) {
+                    openWorkspace: @escaping (String, String) throws -> ActionWork,
+                    openBeside: ((String, String) -> Bool)? = nil) {
             self.conversation = conversation
             self.chiefHost = chiefHost
             self.tab = tab
             self.reveal = reveal
             self.openWorkspace = openWorkspace
+            self.openBeside = openBeside
         }
     }
 
@@ -176,7 +180,11 @@ public final class ChiefSidebar {
     /// workspace on it in the Chief home's acpmux, shown once it is made.
     private func openSubagent(_ session: String, registry: ActionRegistry) {
         guard let host, let chiefHost = host.chiefHost() else { return }
-        if let shown = host.tab(session, chiefHost), host.reveal(shown) { return }
+        if !NSEvent.modifierFlags.contains(.command), let open = host.openBeside {
+            if !open(session, chiefHost) { registry.refuse(ChiefToolStrings.noSubagent) }
+            return
+        }
+        if host.openBeside == nil, let shown = host.tab(session, chiefHost), host.reveal(shown) { return }
         guard !opening.contains(session) else { return }
         let work: ActionWork
         do {

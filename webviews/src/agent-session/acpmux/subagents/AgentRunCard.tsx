@@ -1,3 +1,4 @@
+import { subagentName, type SubagentClick } from "./subagentNavigation";
 // An agent a shell call started (`codex exec …`, `acpmux run …`; subagentFold.ts `reduceRun`) where
 // it started in the transcript, as a sub-session's card (AgentCard.tsx): its harness's mark, the
 // first line of what it was asked, its state (the working spinner while it
@@ -34,20 +35,24 @@ export function AgentRunCard({ agent }: { agent: Subagent }) {
   // The acpmux session it made: the sub-session acpmux recorded, or the one the session list has
   // by its name.
   const chat = useSenderChat(agent.session ?? "", agent.child).sessionId;
-  const openChat = (agent.child ?? agent.session) && chat && subsessions ? () => subsessions.open(chat) : undefined;
+  const openChat =
+    (agent.child ?? agent.session) && chat && subsessions
+      ? (event?: SubagentClick) => subsessions.open(chat, event)
+      : undefined;
   const openRun = pane ?? nav;
   return (
     <AgentCard
-      name={agent.name}
+      name={subagentName(agent)}
       harness={agent.harness}
       sessionId={chat}
+      identity={agent.id}
       // The model and the machine on the line under the name, which keeps the head's room for the
       // name at a narrow width.
       doing={[agent.kind, agent.host].filter(Boolean).join(" · ") || undefined}
       state={cardState(agent)}
       time={formatDuration(elapsed(agent, now))}
       stateLabel={stopped(agent.state) ? t(STATE_LABEL[agent.state]) : undefined}
-      onOpen={openChat ?? (openRun ? () => openRun(agent.id) : undefined)}
+      onOpen={openChat ?? (openRun ? (event) => openRun(agent.id, event) : undefined)}
       openLabel={openChat ? undefined : t("bgTask.showOutput")}
     >
       {agent.result && !running(agent) && <Cut text={agent.result} />}

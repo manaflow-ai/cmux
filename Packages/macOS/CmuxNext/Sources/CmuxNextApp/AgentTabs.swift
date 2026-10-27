@@ -46,6 +46,8 @@ final class AgentTabStore {
     var openInMainPane: @MainActor (_ chat: String, _ focus: Bool, _ open: (PaneID, DaemonService) throws -> AgentTabPending,
                                     _ created: (@MainActor (String) -> Void)?, _ finished: (@MainActor (Bool) -> Void)?) -> Bool? = { _, _, _, _, _ in nil }
     /// Every agent tab the trees list, with its record.
+    var subagentTabsBeside: @MainActor (String) -> [(key: String, record: AgentSessionRef)] = { _ in [] }
+    var isBeside: @MainActor (_ chat: String, _ tab: String) -> Bool = { _, _ in false }
     var listTabs: @MainActor () -> [(key: String, record: AgentSessionRef)] = { [] }
     /// Creates the store tab with idempotency key `key` (AppServices: `new-conversation-tab` on
     /// the pane's daemon), in a new split of the pane with `split`. Returns it and the daemon event sequence read after the reply (nil

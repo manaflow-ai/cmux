@@ -1,3 +1,4 @@
+import type { OpenSubagent } from "./subagentNavigation";
 // The chats this chat's agent started with the cmux-subsessions `start_session` tool (acpmux
 // `startedBy`, hub/subsessions.rs), as the pane follows them: each one's name among its parent's
 // (`shortName`), its live state (working, waiting on the person, failed, done), whether it has news,
@@ -272,7 +273,7 @@ export class SubsessionStore {
 /// gallery stage, a test), a card draws its name without its state and without a link.
 export type Subsessions = {
   store: SubsessionStore;
-  open(sessionId: string): void;
+  open: OpenSubagent;
   /// Opens the chat that sent this one a message (its received line's chip): any listed chat, not
   /// only this chat's family; `open` when absent.
   openSender?(sessionId: string): void;

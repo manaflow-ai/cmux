@@ -21,6 +21,7 @@ public struct AgentPaneHeaderHooks {
     public var openTab: @MainActor (String, AgentForkDestination) -> Bool
     /// Shows subagent `agent` of session `session` in an agent pane right of the chat
     /// (``AgentSubagentPanes``), focused with `focus`; false when no pane opened.
+    public var openSubagentWorkspace: (@MainActor (String, String) -> Bool)?
     public var openSubagent: @MainActor (_ session: String, _ agent: String, _ focus: Bool) -> Bool
     /// Opens `viewer` (a background process's read-only terminal) in a tab beside the chat; false
     /// when no tab opened.
@@ -170,13 +171,13 @@ extension AgentPaneModel {
             return AgentPaneReply.success(state)
         case .sideChat(let fork):
             return await AgentPaneSideChat.open(fork, in: self)
-        case .subagentPane(let agent, let focus):
+        case .subagentPane(let agent, let focus, let workspace):
             // The chat's own subagent, in a pane of its own; not from a New Tab page. A refusal
             // answers `opened: false`, and the page shows the subagent in this pane instead.
             guard let sessionId, newTab == nil, let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.subagentPane")
             }
-            return AgentPaneReply.success(["opened": header.openSubagent(sessionId, agent, focus)])
+            return AgentPaneReply.success(["opened": workspace ? (header.openSubagentWorkspace?(sessionId, agent) ?? false) : header.openSubagent(sessionId, agent, focus)])
         case .processTerminal(let call):
             return AgentPaneProcessViewer.open(call, in: self)
         case .chatTab(let chat, let destination):
@@ -188,8 +189,8 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.openTab")
             }
             return AgentPaneReply.success()
-        case .offerOpen(let session, let sender):
-            return AgentPaneOfferOpen.respond(session, sender: sender, in: self)
+        case .offerOpen(let session, let sender, let workspace):
+            return AgentPaneOfferOpen.respond(session, sender: sender, workspace: workspace, in: self)
         case .asksOpen(let session):
             return AgentPaneAskOpen.respond(session, in: self)
         case .asksAnswer(let ask):

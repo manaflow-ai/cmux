@@ -8,10 +8,10 @@ import CmuxNextDaemon
 extension AgentTabStore {
     /// Opens acpmux session `session` (a fork of chat tab `provisional`, or a started Continue in…)
     /// at `destination`, then gives its composer the keyboard. False when no tab opened.
-    func openFork(_ session: String, at destination: AgentForkDestination, beside provisional: String) -> Bool {
+    func openFork(_ session: String, at destination: AgentForkDestination, beside provisional: String, reveal: String? = nil) -> Bool {
         let open: (PaneID, DaemonService) throws -> AgentTabPending = { [weak self] pane, daemon in
             guard let self else { throw CancellationError() }
-            return try self.open(in: pane, of: daemon, session: session)
+            return try self.open(in: pane, of: daemon, session: session, host: daemon.isLocal ? lookup(resolve(provisional))?.record.host : nil)
         }
         let opened = OpenedFork()
         let move: ActionID? = switch destination {
@@ -25,6 +25,7 @@ extension AgentTabStore {
         return openBeside(provisional, split: destination.splitDirection != nil, direction: destination.splitDirection ?? "right",
                           open: open, created: { [weak self] key in
             opened.key = key
+            if let reveal { self?.revealTurn(reveal, in: key) }
             if let move { _ = self?.actionRegistry?.perform(move, invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .user)) }
         }, finished: { [weak self] _ in
             if let key = opened.key { self?.focusForkComposer(key) }

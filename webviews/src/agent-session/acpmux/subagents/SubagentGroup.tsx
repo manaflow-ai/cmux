@@ -1,3 +1,4 @@
+import { subagentName, subagentTitle, type OpenSubagent } from "./subagentNavigation";
 // A batch of subagents inline in the transcript, after the ChatGPT and T3 Code apps: one line with
 // their avatars, "4 subagents", how many are working or done, the time since the first started,
 // and a chevron; opened, a bordered list with a row per subagent (SUBAGENT_ROW rows below it).
@@ -23,7 +24,7 @@ export const SubagentNavContext = createContext<((id: string | undefined) => voi
 /// Shows a subagent in a pane of its own right of the chat, or in this pane when none opens
 /// (App.tsx, subagentPanes.ts). A group's subagent line uses it; the child view's pill goes back
 /// in place.
-export const SubagentPaneContext = createContext<((id: string) => void) | undefined>(undefined);
+export const SubagentPaneContext = createContext<OpenSubagent | undefined>(undefined);
 
 /// Stops a running subagent (App.tsx, direct.ts `stopSubagent`), settling with Claude's answer;
 /// absent where the harness cannot.
@@ -185,7 +186,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
       <Avatar agent={agent} />
       <span className="cv-subagent__text">
         <span className="cv-subagent__name">
-          {agent.name}
+          {subagentName(agent)}
           {agent.kind && agent.kind !== agent.name && <span className="cv-subagent__kind">{agent.kind}</span>}
         </span>
         <span className="cv-subagent__state">{state}</span>
@@ -204,8 +205,9 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
       className="cv-subagent"
       data-edge={row.status}
       data-agent-tone={tones?.get(agent.id)}
-      aria-label={t("subagents.open", { name: agent.name })}
-      onClick={() => open(agent.id)}
+      title={subagentTitle(agent)}
+      aria-label={`${t("subagents.open", { name: subagentName(agent) })} · ${agent.id}`}
+      onClick={(event) => open(agent.id, event)}
     >
       {content}
       <Icon name="disclosure.collapsed" size={12} />

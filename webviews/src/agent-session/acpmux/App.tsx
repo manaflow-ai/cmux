@@ -1,3 +1,5 @@
+import { useSubagentList } from "./subagents/SubagentListPanel";
+import { openChildSession, type SubagentClick } from "./subagents/subagentNavigation";
 import React, {
   lazy,
   memo,
@@ -1325,7 +1327,8 @@ const EditedFilesRow = memo(
 );
 
 /// Opens a chat started from an offer (`chat.offer.open`): beside this one, else here.
-const openOfferChat = (sessionId: string) => void callNative("chat.offer.open", { sessionId }).catch(() => undefined);
+const openOfferChat = (sessionId: string, event?: SubagentClick) =>
+  void openChildSession(callNative, sessionId, event).catch(() => undefined);
 /// Opens the chat that sent this one a message, from its received line's chip: any chat the daemon
 /// lists, this Mac's or a peer's, beside this one or in the tab that shows it (`sender`).
 const openSenderChat = (sessionId: string) =>
@@ -5842,10 +5845,12 @@ function AcpmuxPane() {
   const backgroundHint = !quick && canBackground && snapshot.isWorking ? runInBackground : undefined;
   /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`), or in
   /// this pane when this is a subagent's pane or the host opens none.
-  const showSubagent = useCallback((id: string, focus = true) => {
-    if (subagentPane.current) return setSubagentView(id);
-    void openSubagentPane(callNative, id, focus).then((opened) => {
-      if (!opened && focus) setSubagentView(id);
+  const showSubagent = useCallback((id: string, intent: boolean | SubagentClick = true) => {
+    const focus = typeof intent === "boolean" ? intent : true;
+    const workspace = typeof intent !== "boolean" && intent.metaKey;
+    if (subagentPane.current && !workspace) return setSubagentView(id);
+    void openSubagentPane(callNative, id, focus, workspace).then((opened) => {
+      if (!opened && focus && !workspace) setSubagentView(id);
     });
   }, []);
   const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
@@ -6297,6 +6302,18 @@ function AcpmuxPane() {
   const opensSideChat = useRef(false);
   const archiveChatRef = useRef<(() => void) | undefined>(undefined);
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
+  const allSubagents = useSubagentList(
+    shownSessionId,
+    {
+      agents: chatAgents,
+      waiting: waitingAgents,
+      onOpen: showSubagent,
+      onOpenSession: openOfferChat,
+      sessions: childSessions,
+      subsessions: chatSubsessions.rows,
+    },
+    artifact,
+  );
   const trayNode =
     !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0) ? (
       <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
@@ -6317,6 +6334,7 @@ function AcpmuxPane() {
               backgroundTaskOutput !== undefined
             }
             onOpenSession={openOfferChat}
+            onShowAll={allSubagents.show}
             stop={stopSubagent}
             stopProcess={stopProcess}
             placement={trayPlacement}
@@ -7552,11 +7570,15 @@ function AcpmuxPane() {
           },
           // Open a started offer or a sub-session: the app shows its tab or opens it beside this
           // chat (AgentPaneOfferOpen); a host without that opens it as a side chat; else here.
-          "chat.offer.open": async ({ sessionId, sender }) => {
+          "chat.offer.open": async ({ sessionId, sender, workspace }) => {
             const id = String(sessionId);
             try {
               // `sender`: a message's sender, any listed chat (AgentPaneOfferOpen).
-              await postNative("chat.offer.open", { sessionId: id, ...(sender === true && { sender: true }) });
+              await postNative("chat.offer.open", {
+                sessionId: id,
+                ...(sender === true && { sender: true }),
+                ...(workspace === true && { workspace: true }),
+              });
             } catch (error) {
               // The app refused a session outside this chat's family: nothing opens, not even here.
               if (error instanceof NativeError && error.code === "chat.offer.refused") return;
@@ -9922,7 +9944,8 @@ function AcpmuxPane() {
           summaryPanel}
         {/* Beside the chat view only: New Tab, Harnesses and a replay have no session header. */}
         {!harnessesOpen && !showNewTab && !(replaying && replaying === snapshot.sessionId) && inspector.panel}
-        {artifact && (
+        {allSubagents.panel}
+        {artifact && !allSubagents.panel && (
           <ArtifactPanel
             key={artifact.opened}
             artifact={artifact}

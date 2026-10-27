@@ -11,7 +11,7 @@
 // (Leo 2026-10-21 on a tray line that showed a raw shell line: "is that a command or a
 // subagent?"), and a line that opens something ends in a chevron. A line with nothing to open is
 // a disabled button with no hover at all (subagents.css).
-import type { ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { Tooltip } from "../../../ui/Tooltip";
 import { waveProps } from "../../../ui/wave";
@@ -69,7 +69,7 @@ export function AgentLine({
   kind?: string;
   /// A trailing chevron when a click opens it (the tray's lines).
   chevron?: boolean;
-  onOpen?: () => void;
+  onOpen?: (event: MouseEvent<HTMLButtonElement>) => void;
   /// Drawn after the line, outside its button (a running subagent's stop button).
   after?: ReactNode;
   /// The hover card's content (its name, its state, its task); replaces `title`.
@@ -94,7 +94,7 @@ export function AgentLine({
       aria-expanded={expanded}
       aria-label={label}
       /* tooltip-allow: the line shows the name; the task appears nowhere else */
-      title={card ? undefined : title}
+      title={title}
       disabled={!onOpen}
       onClick={onOpen}
     >

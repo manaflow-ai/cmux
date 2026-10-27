@@ -1,3 +1,4 @@
+import { subagentName, type OpenSubagent, type SubagentClick } from "../subagents/subagentNavigation";
 // The Inspector's Subagents, as Claude Code desktop's session panel lists them: what runs is named,
 // one row each, and what ended is one row. The harness's own subagents and the chats its agent
 // started (ChildSessionRows.tsx; a Cloud VM's or another machine's included) share the list. Each
@@ -83,7 +84,7 @@ type Line = {
   depth: number;
   /// When it ended (or, for a chat, was made): the ended list's order.
   at: number;
-  open?: () => void;
+  open?: (event?: SubagentClick) => void;
 };
 
 const live = (status: SubagentStatus) => status === "running" || status === "waiting";
@@ -138,10 +139,10 @@ export function SubagentsSection({
   agents: readonly Subagent[];
   waiting: ReadonlySet<string>;
   /// Shows a subagent (App.tsx `showSubagent`); without it a subagent's line opens nothing.
-  onOpen?: (id: string) => void;
+  onOpen?: OpenSubagent;
   /// The chats the agent started, and how one opens.
   sessions?: readonly StartedSession[];
-  onOpenSession?: (sessionId: string) => void;
+  onOpenSession?: OpenSubagent;
 }) {
   const t = useT();
   const now = useNow(agents.some(running));
@@ -153,7 +154,7 @@ export function SubagentsSection({
       key: `agent:${agent.id}`,
       identity: agent.id,
       agent,
-      name: agent.name,
+      name: subagentName(agent),
       detail: live(status) ? (agent.action ?? agent.kind) : agent.kind,
       status,
       state: subagentStateText(t, agent, waiting),
@@ -163,7 +164,7 @@ export function SubagentsSection({
       icon: "agent.session",
       depth,
       at: agent.endedAt ?? agent.startedAt,
-      open: onOpen && (() => onOpen(agent.id)),
+      open: onOpen && ((event) => onOpen(agent.id, event)),
     };
   };
   const sessionLine = (child: StartedSession): Line => ({
@@ -175,7 +176,7 @@ export function SubagentsSection({
     icon: "agent.chat",
     depth: 0,
     at: child.createdAt ?? 0,
-    open: onOpenSession && (() => onOpenSession(child.sessionId)),
+    open: onOpenSession && ((event) => onOpenSession(child.sessionId, event)),
   });
   // The chats waiting on the person lead, then the running subagents in the tray's order (oldest
   // first, a nested one under its parent; among siblings a waiting one first, so it never leaves its
@@ -203,6 +204,8 @@ export function SubagentsSection({
     <li key={item.key}>
       <AgentLine
         name={item.name}
+        title={item.identity}
+        label={`${item.name} · ${item.identity}`}
         detail={item.detail}
         status={item.status}
         state={item.state}
@@ -215,6 +218,7 @@ export function SubagentsSection({
         card={
           <span className="acpmux-agent-card">
             <span className="acpmux-agent-card__name">{item.name}</span>
+            <span>{item.identity}</span>
             <span className="acpmux-agent-card__state" data-status={item.status}>
               {[item.state, item.time, item.status === "running" || item.status === "waiting" ? item.detail : undefined]
                 .filter(Boolean)

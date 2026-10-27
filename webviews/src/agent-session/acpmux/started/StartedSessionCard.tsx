@@ -1,3 +1,4 @@
+import type { OpenSubagent } from "../subagents/subagentNavigation";
 // The chats a turn's agent started, as one card at the end of that turn, after its reply (Claude
 // Code desktop's Changes card): a compact row for each, its title over a status line that leads
 // with the status (glyph and word in its colour) and then names its pull request, `· repo #N`, and
@@ -12,13 +13,7 @@ import { useSessionHover } from "./SessionHoverCard";
 import "./startedSessions.css";
 
 /// The chats started in one turn, oldest first, as one card.
-export function StartedSessionCards({
-  started,
-  onOpen,
-}: {
-  started: readonly StartedSession[];
-  onOpen(sessionId: string): void;
-}) {
+export function StartedSessionCards({ started, onOpen }: { started: readonly StartedSession[]; onOpen: OpenSubagent }) {
   return (
     <div className="acpmux-started">
       {started.map((child) => (
@@ -28,14 +23,16 @@ export function StartedSessionCards({
   );
 }
 
-export function StartedSessionCard({ child, onOpen }: { child: StartedSession; onOpen(sessionId: string): void }) {
+export function StartedSessionCard({ child, onOpen }: { child: StartedSession; onOpen: OpenSubagent }) {
   const status = sessionStatus(child.state, child.unread, child.pullRequests);
   return (
     <button
       type="button"
       className="acpmux-started-row"
       data-state={child.state}
-      onClick={() => onOpen(child.sessionId)}
+      title={child.sessionId}
+      aria-label={`${child.title} · ${child.sessionId}`}
+      onClick={(event) => onOpen(child.sessionId, event)}
     >
       <span className="acpmux-started-text">
         <span className="acpmux-started-title">{child.title}</span>
@@ -64,7 +61,7 @@ export function StartedSessionChip({
 }: {
   mention: SessionMention;
   text: string;
-  onOpen(sessionId: string): void;
+  onOpen: OpenSubagent;
 }) {
   const { trigger, card } = useSessionHover(mention.sessionId);
   return (
@@ -74,7 +71,7 @@ export function StartedSessionChip({
         type="button"
         className="acpmux-started-chip"
         data-state={mention.state}
-        onClick={() => onOpen(mention.sessionId)}
+        onClick={(event) => onOpen(mention.sessionId, event)}
       >
         {text}
       </button>

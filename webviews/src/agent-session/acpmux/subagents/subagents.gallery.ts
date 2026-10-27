@@ -494,7 +494,7 @@ export default agentPaneEntry({
       native: { "chat.subagentPane": { opened: true } },
       play: async (ctx) => {
         await openGroup(2)(ctx);
-        await ctx.click({ role: "button", name: "Open Read b" });
+        await ctx.click({ role: "button", name: `Open Read b · ${CODEX_B.id}` });
         const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: PaneCall[] }).cmuxGalleryLog;
         await ctx.waitFor(() =>
           log.some((call) => call.method === "chat.subagentPane" && call.params?.subagent === CODEX_B.id),

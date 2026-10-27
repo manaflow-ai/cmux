@@ -282,6 +282,29 @@ export default agentPaneEntry({
   // The panel's looks (trayPanel.experiment.ts), on the two- and 118-agent panels.
   experiment: { definition: trayPanelLook, script: panelScript },
   variants: {
+    "readable-task": {
+      note: "A transport id stays in hover and VoiceOver; the task title labels the row. A click requests the right pane.",
+      native: { "chat.subagentPane": { opened: true } },
+      snapshot: chat(
+        [
+          user("Review the pane routing", 2),
+          group(
+            [
+              agent("01a15779/toolu_example", 1.8, "running", {
+                id: "01a15779/toolu_example",
+                task: "Review pane placement",
+              }),
+            ],
+            1.8,
+          ),
+        ],
+        { isWorking: true },
+      ),
+      play: async (ctx) => {
+        await trayLines(1)(ctx);
+        await ctx.click({ selector: ".acpmux-running-tray .acpmux-agent-line__button" });
+      },
+    },
     "panel-two": {
       note: 'Leo\'s panel with two chats running and three ended (2026-10-25: "this section, the whatever background tasks ... it\'s kind of wack"): the header pinned on top, running first, then the latest that ended; a chat\'s raw shell doing line reads "Running sed -i …", never "cd /Users/… && sed -i …".',
       play: async (ctx) => {

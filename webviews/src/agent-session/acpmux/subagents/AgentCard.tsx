@@ -1,7 +1,7 @@
 // A sub-session as the transcript's cards draw it (conversation/SubsessionCallCard.tsx): its
 // harness's mark, name, model, state (the working spinner, never a dot), what its turn does now, and
 // "Open chat". The caller reads its state live (subsessions.ts) and adds a prompt or a reply below.
-import type { ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { useAgentAvatar } from "../agentAvatar";
 import { Spinner } from "../conversation/icons";
@@ -16,6 +16,7 @@ export type AgentCardProps = {
   harness?: string;
   /// Its acpmux session, whose own avatar (Set Avatar…, agentAvatar.ts) replaces the mark.
   sessionId?: string;
+  identity?: string;
   model?: string;
   /// Undefined while the session list does not have it (a gallery, an archived chat).
   state?: SubsessionState;
@@ -29,7 +30,7 @@ export type AgentCardProps = {
   time?: string;
   /// Its state's word when the state's own is not it (a run that was stopped).
   stateLabel?: string;
-  onOpen?: () => void;
+  onOpen?: (event: MouseEvent<HTMLButtonElement>) => void;
   /// The open button's word: "Open chat" when absent.
   openLabel?: string;
   children?: ReactNode;
@@ -39,6 +40,7 @@ export function AgentCard({
   name,
   harness,
   sessionId,
+  identity = sessionId,
   model,
   state,
   doing,
@@ -80,7 +82,8 @@ export function AgentCard({
           <button
             type="button"
             className="cv-agent-card__open"
-            aria-label={t("subagents.open", { name })}
+            title={identity}
+            aria-label={`${t("subagents.open", { name })}${identity ? ` · ${identity}` : ""}`}
             onClick={onOpen}
           >
             {openLabel ?? t("subsession.openChat")}

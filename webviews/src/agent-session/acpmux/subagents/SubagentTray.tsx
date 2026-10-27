@@ -1,3 +1,4 @@
+import { subagentName, subagentTitle, type OpenSubagent } from "./subagentNavigation";
 // The tray of running work at the foot of the chat (runningTray.ts): a part of the bottom stack
 // right above the composer (bottomStack.css), so it never scrolls away with history and the
 // transcript keeps its last row above it. It is the one place running background work shows, in a
@@ -73,6 +74,7 @@ export const SubagentTray = memo(function SubagentTray({
   canOpenTerminal = false,
   canReadTail = false,
   onOpenSession,
+  onShowAll,
   stop,
   stopProcess,
   placement = "tray",
@@ -86,7 +88,7 @@ export const SubagentTray = memo(function SubagentTray({
   /// The subagents waiting on the user (summary/SubagentStatusList.tsx `waitingSubagents`).
   waiting: ReadonlySet<string>;
   /// Shows a subagent (App.tsx `showSubagent`).
-  onOpen: (id: string) => void;
+  onOpen: OpenSubagent;
   /// Opens a command's terminal, or what shows it where none opens (App.tsx).
   onOpenCommand?: (command: BackgroundCommand) => void;
   /// The local process registry can replay this chat's output in a terminal.
@@ -94,7 +96,8 @@ export const SubagentTray = memo(function SubagentTray({
   /// A connected local process source is available for the expanded tail.
   canReadTail?: boolean;
   /// Opens a chat the agent started (App.tsx `openOfferChat`).
-  onOpenSession?: (sessionId: string) => void;
+  onOpenSession?: OpenSubagent;
+  onShowAll?: () => void;
   /// Stops a running subagent, where the harness can.
   stop?: (id: string) => Promise<unknown>;
   /// Stops a registry process (`_acpmux/process/kill`).
@@ -152,7 +155,7 @@ export const SubagentTray = memo(function SubagentTray({
       type="button"
       className="acpmux-summary-row acpmux-summary-link acpmux-running-tray__finished"
       aria-expanded={showFinished}
-      onClick={() => setShowFinished(!showFinished)}
+      onClick={onShowAll ?? (() => setShowFinished(!showFinished))}
     >
       <span className="acpmux-summary-text">
         {showFinished ? t("summary.showFewer") : t("summary.viewAll", { n: finished.length })}
@@ -201,7 +204,7 @@ export const SubagentTray = memo(function SubagentTray({
     if (item.kind === "agent")
       return (
         <AgentLine
-          name={item.agent.name}
+          name={subagentName(item.agent)}
           detail={
             item.agent.state !== "running"
               ? item.agent.kind
@@ -214,11 +217,11 @@ export const SubagentTray = memo(function SubagentTray({
           state={t(subagentStatusLabel(item.agent, waiting))}
           time={formatDuration(elapsed(item.agent, now))}
           depth={item.depth}
-          title={item.agent.task}
-          label={t("subagents.open", { name: item.agent.name })}
+          title={subagentTitle(item.agent)}
+          label={`${t("subagents.open", { name: subagentName(item.agent) })} · ${item.agent.id}`}
           kind={t("tray.kind.subagent")}
           chevron
-          onOpen={() => onOpen(item.agent.id)}
+          onOpen={(event) => onOpen(item.agent.id, event)}
           after={
             stop &&
             item.agent.state === "running" &&
@@ -292,7 +295,7 @@ export const SubagentTray = memo(function SubagentTray({
         icon="agent.chat"
         status={SESSION_STATUS[item.session.state]}
         state={t(STATUS_LABEL[SESSION_STATUS[item.session.state]])}
-        onOpen={onOpenSession && (() => onOpenSession(item.session.sessionId))}
+        onOpen={onOpenSession && ((event) => onOpenSession(item.session.sessionId, event))}
       />
     );
   }

@@ -1,3 +1,4 @@
+import { type OpenSubagent } from "../subagents/subagentNavigation";
 // The chats this chat's agent started (acpmux `spawnedBy`, started/startedSessions.ts), a chat on a
 // Cloud VM or another machine included (that machine's daemon lists its children with the chat's
 // attachment), as rows under Subagents after the harness's own subagents: the summary card's list
@@ -53,13 +54,7 @@ export function orderedSessions(sessions: readonly StartedSession[]): StartedSes
   );
 }
 
-export function ChildSessionRows({
-  sessions,
-  onOpen,
-}: {
-  sessions: readonly StartedSession[];
-  onOpen?: (sessionId: string) => void;
-}) {
+export function ChildSessionRows({ sessions, onOpen }: { sessions: readonly StartedSession[]; onOpen?: OpenSubagent }) {
   const t = useT();
   return (
     <>
@@ -72,8 +67,10 @@ export function ChildSessionRows({
               type="button"
               className="acpmux-summary-row acpmux-summary-link acpmux-summary-agent acpmux-summary-session"
               data-status={status}
+              title={child.sessionId}
+              aria-label={`${child.title} · ${child.sessionId}`}
               disabled={!onOpen}
-              onClick={() => onOpen?.(child.sessionId)}
+              onClick={(event) => onOpen?.(child.sessionId, event)}
             >
               <span className="acpmux-lineage__icon" data-state={status}>
                 <Icon name="agent.chat" size={ROW_ICON} row />

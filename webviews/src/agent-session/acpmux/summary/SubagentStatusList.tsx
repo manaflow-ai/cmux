@@ -1,3 +1,4 @@
+import { subagentName, subagentTitle, type OpenSubagent } from "../subagents/subagentNavigation";
 // The summary card's Subagents section (SummaryCard.tsx): every subagent of the chat, nested ones
 // indented under the agent that spawned them, with its live state (running, waiting on the user,
 // done, failed) and its time. A row shows that subagent (`onOpen`): its pane when it has one. Its
@@ -151,10 +152,10 @@ export function SubagentStatusList({
   /// The chat's sub-sessions, after its subagents (subagents/subsessions.ts `subsessionRows`).
   subsessions?: readonly SubsessionRow[];
   /// Opens a sub-session's or a started chat's chat beside this one.
-  onOpenSession?: (sessionId: string) => void;
+  onOpenSession?: OpenSubagent;
   /// The subagent this pane shows, if any.
   current?: string;
-  onOpen?: (id: string) => void;
+  onOpen?: OpenSubagent;
   /// The switch for opening new subagents in panes of their own (subagents/subagentPanes.ts).
   autoOpen?: { on: boolean; set: (on: boolean) => void };
   /// Opens the card's Subagents tab; the title is a button only with it.
@@ -193,7 +194,7 @@ export function SubagentStatusList({
             <li key={agent.id}>
               {/* The tray's own line (subagents/AgentLine.tsx): a subagent reads the same here and above the composer. */}
               <AgentLine
-                name={agent.name}
+                name={subagentName(agent)}
                 detail={agent.kind}
                 mark={agent.harness}
                 status={status}
@@ -203,8 +204,9 @@ export function SubagentStatusList({
                 iconSize={ROW_ICON}
                 depth={depth}
                 current={agent.id === current}
-                title={agent.task}
-                onOpen={onOpen ? () => onOpen(agent.id) : undefined}
+                title={subagentTitle(agent)}
+                label={`${subagentName(agent)} · ${agent.id}`}
+                onOpen={onOpen ? (event) => onOpen(agent.id, event) : undefined}
               />
             </li>
           );
@@ -233,7 +235,7 @@ export function SubagentStatusList({
 
 /// A sub-session's row: its name (and what it does now while it works, or what it waits on the
 /// person for), its unread dot, how many messages wait for it, and its state.
-function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOpen?: (sessionId: string) => void }) {
+function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOpen?: OpenSubagent }) {
   const t = useT();
   // While acpmux retries its failed turn, it works again (subagents/retryState.ts ``sessionRetry``).
   const phase = sessionRetry(session);
@@ -248,9 +250,10 @@ function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOp
       style={session.depth > 0 ? { paddingLeft: 8 + session.depth * 14 } : undefined}
       data-status={status}
       /* tooltip-allow: the row shows the name; what a working one does may be cut */
-      title={line}
+      title={[line, session.sessionId].filter(Boolean).join("\n")}
+      aria-label={`${session.name} · ${session.sessionId}`}
       disabled={!onOpen}
-      onClick={() => onOpen?.(session.sessionId)}
+      onClick={(event) => onOpen?.(session.sessionId, event)}
     >
       <span className="acpmux-lineage__icon" data-state={status}>
         <Icon name="agent.session" size={ROW_ICON} row />

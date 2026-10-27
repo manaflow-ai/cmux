@@ -1,3 +1,4 @@
+import { subagentName, subagentTitle, type OpenSubagent } from "./subagentNavigation";
 // The agents pill (after Codex's phone app): while any of the chat's subagents runs, a small pill
 // right above the composer says how many run ("2 agents"). It opens a list of every subagent of
 // the chat split into Active (running, or waiting on the user) and Completed, each with a dot in
@@ -52,7 +53,7 @@ export const AgentsPill = memo(function AgentsPill({
   /// The subagents waiting on the user (summary/SubagentStatusList.tsx `waitingSubagents`).
   waiting: ReadonlySet<string>;
   tones: ReadonlyMap<string, number>;
-  onOpen: (id: string) => void;
+  onOpen: OpenSubagent;
 }) {
   const t = useT();
   const { open, setOpen, button, popover, toggle } = usePopover();
@@ -106,16 +107,18 @@ export const AgentsPill = memo(function AgentsPill({
                         data-depth={depth > 0 ? Math.min(depth, 3) : undefined}
                         data-agent-tone={tones.get(agent.id)}
                         data-status={status}
-                        onClick={() => {
+                        title={subagentTitle(agent)}
+                        aria-label={`${subagentName(agent)} · ${agent.id}`}
+                        onClick={(event) => {
                           // Focus goes back to the pill, not to the page, as the row goes.
                           setOpen(false);
                           button.current?.focus();
-                          onOpen(agent.id);
+                          onOpen(agent.id, event);
                         }}
                       >
                         <span className="acpmux-agents-list__dot" aria-hidden="true" />
                         <span className="acpmux-agents-list__text">
-                          <span className="acpmux-agents-list__name">{agent.name}</span>
+                          <span className="acpmux-agents-list__name">{subagentName(agent)}</span>
                           <span className="acpmux-agents-list__state">{state}</span>
                         </span>
                         <span className="acpmux-agents-list__time">{formatDuration(elapsed(agent, now))}</span>

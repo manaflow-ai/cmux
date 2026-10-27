@@ -86,7 +86,7 @@ function SessionCard({
       slot={live ? live.slot === true : fallback?.slot === true}
       doing={doing}
       queued={live?.queued}
-      onOpen={sessionId && open ? () => open(sessionId) : undefined}
+      onOpen={sessionId && open ? (event) => open(sessionId, event) : undefined}
     >
       {children}
     </AgentCard>

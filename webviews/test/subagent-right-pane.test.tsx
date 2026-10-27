@@ -64,6 +64,9 @@ const agent = {
   startedAt: Date.now(),
 };
 const waiting = new Set<string>();
+const { useSubagentList } = await import("../src/agent-session/acpmux/subagents/SubagentListPanel");
+const { openSubagentPane } = await import("../src/agent-session/acpmux/subagents/subagentPanes");
+const { openChildSession } = await import("../src/agent-session/acpmux/subagents/subagentNavigation");
 type Open = (id: string, event?: { metaKey: boolean }) => void;
 const surfaces: [string, (open: Open) => ReactNode][] = [
   [
@@ -98,31 +101,82 @@ for (const [name, surface] of surfaces) {
     expect(button.getAttribute("aria-label")).toContain(agent.id);
   });
   test(`${name}: ordinary and Cmd-click preserve destination intent`, async () => {
-    const calls: [string, boolean][] = [];
-    await act(async () => root.render(surface((id, event) => calls.push([id, event?.metaKey ?? false]))));
+    const calls: [string, Record<string, unknown>][] = [];
+    const call = async (method: string, params: Record<string, unknown>) => {
+      calls.push([method, params]);
+      return { opened: true };
+    };
+    await act(async () =>
+      root.render(
+        surface((id, event) => {
+          void openSubagentPane(call, id, true, event?.metaKey);
+        }),
+      ),
+    );
     const button = host.querySelector<HTMLButtonElement>("button")!;
     await act(async () => button.click());
     await act(async () => button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, metaKey: true })));
     expect(calls).toEqual([
-      [agent.id, false],
-      [agent.id, true],
+      ["chat.subagentPane", { subagent: agent.id, focus: true }],
+      ["chat.subagentPane", { subagent: agent.id, focus: true, workspace: true }],
     ]);
   });
 }
 test("child-session row preserves Cmd-click and exposes identity", async () => {
-  const calls: boolean[] = [];
+  const calls: Record<string, unknown>[] = [];
+  const call = async (_method: string, params: Record<string, unknown>) => {
+    calls.push(params);
+  };
   await act(async () =>
     root.render(
       <ul>
         <ChildSessionRows
           sessions={[{ sessionId: "child-1", title: "Review tests", state: "idle" }]}
-          onOpen={(_id, event?: { metaKey: boolean }) => calls.push(event?.metaKey ?? false)}
+          onOpen={(_id, event?: { metaKey: boolean }) => void openChildSession(call, _id, event)}
         />
       </ul>,
     ),
   );
   const button = host.querySelector<HTMLButtonElement>("button")!;
   await act(async () => button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, metaKey: true })));
-  expect(calls).toEqual([true]);
+  expect(calls).toEqual([{ sessionId: "child-1", workspace: true }]);
   expect(button.title).toContain("child-1");
+});
+
+test("View all requests the full list in the companion pane", async () => {
+  const calls: string[] = [];
+  const finished = Array.from({ length: 7 }, (_, i) => ({
+    kind: "agent" as const,
+    id: String(i),
+    depth: 0,
+    agent: { ...agent, id: String(i), state: "completed", endedAt: Date.now() },
+  }));
+  function ViewAll() {
+    const list = useSubagentList("parent", {
+      agents: finished.map((row) => row.agent),
+      waiting,
+      onOpen: (id) => calls.push(id),
+    });
+    return (
+      <>
+        <SubagentTray
+          items={[]}
+          finished={finished}
+          working={false}
+          waiting={waiting}
+          onOpen={() => {}}
+          onShowAll={list.show}
+        />
+        {list.panel}
+      </>
+    );
+  }
+  await act(async () => root.render(<ViewAll />));
+  const more = host.querySelector<HTMLButtonElement>(".acpmux-running-tray__finished")!;
+  await act(async () => more.click());
+  const pane = host.querySelector("aside.acpmux-artifact")!;
+  expect(pane.querySelectorAll("li").length).toBe(7);
+  await act(async () => pane.querySelector<HTMLButtonElement>("li button")!.click());
+  expect(calls).toEqual(["0"]);
+  expect(host.querySelectorAll("li[data-finished]").length).toBe(3);
 });
