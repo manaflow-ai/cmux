@@ -3210,13 +3210,20 @@ jobs:
       # Each isolated step below runs when its suites' target is selected and
       # the build succeeded, even after a failed test step, so one red step
       # does not hide the others.
+      # One test at a time. This target checks main-thread machinery: some
+      # tests hold the main thread on purpose (the watchdog's stall and CPU
+      # tests, slow action spans, ControlLaneTests' stalls), and others check
+      # that a request answers within its own deadline. Run together, a 2 to
+      # 5 s main-thread hold made every main-actor request running beside it
+      # answer `timeout` (ActionRunCreatedTests, ActionBatchTests and
+      # BrowserTabMirrorTests failed on every run of the tip, job 122086769190).
       - name: Run control package tests and callback regressions
         if: ${{ (!cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextControlTests') || contains(env.SWIFT_TARGETS, 'CmuxNextAppTests'))) && steps.reuse.outputs.hit != 'true' }}
         timeout-minutes: 20
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter 'CmuxNextControlTests' --skip CLISurfaceParityTests
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter 'CmuxNextControlTests' --skip CLISurfaceParityTests
 
       # The CLI parity tests assert routing, not scheduler throughput. Concurrent
       # app/catalog setup can occupy the main actor longer than their real request
