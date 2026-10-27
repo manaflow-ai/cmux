@@ -42118,127 +42118,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installed %@ · %@ available. This update includes compatibility fixes."
+            "value": "Installed %@ · %@ available · Compatibility fixes."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "المثبت %@ · يتوفر %@. يتضمن هذا التحديث إصلاحات للتوافق."
+            "value": "المثبت %@ · يتوفر %@ · إصلاحات التوافق."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Instalirano %@ · %@ dostupno. Ovo ažuriranje uključuje ispravke kompatibilnosti."
+            "value": "Instalirano %@ · %@ dostupno · Ispravke kompatibilnosti."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installeret %@ · %@ er tilgængelig. Opdateringen indeholder kompatibilitetsrettelser."
+            "value": "Installeret %@ · %@ klar · Kompatibilitetsrettelser."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installiert %@ · %@ verfügbar. Dieses Update enthält Kompatibilitätskorrekturen."
+            "value": "Installiert %@ · %@ verfügbar · Kompatibilitätsfixes."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Instalado %@ · %@ disponible. Esta actualización incluye correcciones de compatibilidad."
+            "value": "Instalado %@ · %@ disponible · Compatibilidad."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installé %@ · %@ disponible. Cette mise à jour inclut des correctifs de compatibilité."
+            "value": "Installé %@ · %@ dispo · Correctifs de compatibilité."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installato %@ · %@ disponibile. Questo aggiornamento include correzioni di compatibilità."
+            "value": "Installato %@ · %@ disponibile · Fix compatibilità."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "インストール済み %@ · %@ が利用可能です。この更新には互換性の修正が含まれます。"
+            "value": "インストール済み %@ · %@ 利用可 · 互換性修正。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បានដំឡើង %@ · មាន %@។ បច្ចុប្បន្នភាពនេះរួមមានការជួសជុលភាពឆបគ្នា។"
+            "value": "បានដំឡើង %@ · មាន %@ · ជួសជុលភាពឆបគ្នា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "설치됨 %@ · %@ 사용 가능. 이 업데이트에는 호환성 수정이 포함되어 있습니다."
+            "value": "설치됨 %@ · %@ 사용 가능 · 호환성 수정."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installert %@ · %@ er tilgjengelig. Oppdateringen inneholder kompatibilitetsfikser."
+            "value": "Installert %@ · %@ klar · Kompatibilitetsfikser."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zainstalowano %@ · dostępne %@. Ta aktualizacja zawiera poprawki zgodności."
+            "value": "Zainstalowano %@ · dostępne %@ · Poprawki zgodności."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Instalado %@ · %@ disponível. Esta atualização inclui correções de compatibilidade."
+            "value": "Instalado %@ · %@ disponível · Compatibilidade."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Установлено %@ · доступно %@. Обновление содержит исправления совместимости."
+            "value": "Установлено %@ · доступно %@ · Исправления совместимости."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ติดตั้งแล้ว %@ · มี %@ การอัปเดตนี้มีการแก้ไขความเข้ากันได้"
+            "value": "ติดตั้งแล้ว %@ · มี %@ · แก้ไขความเข้ากันได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yüklü %@ · %@ kullanılabilir. Bu güncelleme uyumluluk düzeltmeleri içerir."
+            "value": "Yüklü %@ · %@ hazır · Uyumluluk düzeltmeleri."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Встановлено %@ · доступно %@. Це оновлення містить виправлення сумісності."
+            "value": "Встановлено %@ · %@ доступно · Сумісність."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đã cài %@ · có %@. Bản cập nhật này sửa lỗi tương thích."
+            "value": "Đã cài %@ · có %@ · Sửa tương thích."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已安装 %@ · 可用 %@。此更新包含兼容性修复。"
+            "value": "已安装 %@ · 可用 %@ · 兼容性修复。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已安裝 %@ · 可用 %@。此更新包含相容性修正。"
+            "value": "已安裝 %@ · 可用 %@ · 相容性修正。"
           }
         }
       }
@@ -42345,7 +42345,7 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ uygulamasını güncellemek için aşağıdaki komutu çalıştırın."
+            "value": "Güncellemek için aşağıdaki komutu çalıştırın."
           }
         },
         "uk": {
