@@ -1,0 +1,231 @@
+{
+  "version": 1,
+  "build": "4050816581101",
+  "notes": "notes/4050816581101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 26070,
+      "title": "cmux NEXT: Sounds settings get a page home; No Fade menu rows move into Options (swift test base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26185,
+      "title": "guards-from-base: a guard that answers without reading the payload is not a crash",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26083,
+      "title": "cmux NEXT: actionable harness update cards in Settings > Harnesses",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26176,
+      "title": "acpmux: a fenced line to a hosted agent: held by the daemon until its host ends or its request is answered, a host's end watched from the first fence of its incarnation, and a hosted cut runs one bounded try at a time (#23322 a3 fence, transport part 2; reviews 82, 83, 85 and 87)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26095,
+      "title": "cmux NIGHTLY: listen for release pushes on the old feed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26034,
+      "title": "acpmux: under MDM's forced off, what already runs in full access ends (#23322 b1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26178,
+      "title": "fix(sdk): enable the Windows feature required by WSAIoctl",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26177,
+      "title": "test(owned-pool-sources): read the other branch at a fresh tip, and tell a fast-checks snapshot's branch by its files",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25480,
+      "title": "cmux NEXT: the native side of a Sandboxed send (sandbox.run, sandbox.state)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26113,
+      "title": "feat(diff): serve remote chat changes in full viewer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25920,
+      "title": "cmux NEXT: the never-reload follow-ups (prewarm, lease race, stale probe, agent chats)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26163,
+      "title": "nightly-next: read each published feed back and fail loudly when Nightly is offered nothing new",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26137,
+      "title": "cx-ros2k5: live starter prompts in empty Chief chats",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26100,
+      "title": "cmux NEXT layout: cut back only a column's rounding, not a column past the strip's edge",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26144,
+      "title": "acpmux: a host adoption after a restart parses only the log records it folds (163,616 -> 508 lines)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25804,
+      "title": "acpmux: a write fence for one message to a direct agent: settled once its stdin has it, cut while queued, and a cut of one being written stops the writer and ends the agent by an identity it proves (#23322 a3 fence, transport part 1; reviews 81, 82 and 87)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25946,
+      "title": "acpmux: the person's own daemon refuses shutdown from a test runner or an unstable path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25263,
+      "title": "cloud enroll-machine: ssh from this Mac through the app's tunnel, and an acpmux peer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26157,
+      "title": "Agent chat: keep the running line with the resized transcript",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/26157/after-chromium-resize.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 26147,
+      "title": "ci(nightly-next): the browser-data proof scans the cmux-tui client again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26160,
+      "title": "cmux NEXT: CloudVmHost is a value the store holds, not a static namespace (Convention base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26171,
+      "title": "ci(nightly-next): a re-run of a signing job takes the other Blacksmith macOS 26 size",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26156,
+      "title": "acpmux: each chat settings save has its own temp file",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26123,
+      "title": "cmux NEXT: defer Computer Use permission prompts until setup",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26067,
+      "title": "CI_NEXT_JOB_REUSE: key swift test, Release compile and generated files by the full tree",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26141,
+      "title": "cloud: the secret delivery protocol and receiver for .cmux/machine.toml",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26128,
+      "title": "fix: keep source chat alive when Fork to Codex fails",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26097,
+      "title": "nightly: poke the release push after the old NIGHTLY feed is written",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25638,
+      "title": "Agent chat: header tools sit on the tab strip, with no box or line behind them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26088,
+      "title": "fix: stop streaming from recapturing a parked transcript reader",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26117,
+      "title": "cmux NEXT markdown: show an inline Edit affordance",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25800,
+      "title": "feat(next): tighten session rail gutter",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26131,
+      "title": "acpmux: a peer counts an enrolled Mac's signed one-time Allow (peer-route approvals 1/3)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26129,
+      "title": "acpmux: relay a send whose target nobody here resolves (sendRelay)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26135,
+      "title": "fix(agent-chat): keep mouse wheel travel monotonic in WebKit",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/26135/after-webkit.mp4",
+      "source": "manual",
+      "note": "4 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 25462,
+      "title": "cli: cmux run --sandboxed cancels at its deadline and prints a retry for a lost answer",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
