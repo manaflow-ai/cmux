@@ -29,6 +29,19 @@ extension AgentPaneTransport {
         }
     }
 
+    func finishTrustBeforeReplay(socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async {
+        while self.socket === socket, !socket.isClosed {
+            flushPendingTrust()
+            guard !pendingHost.isEmpty else { return }
+            let host = pendingHost.removeFirst()
+            guard host.connection == current else {
+                host.reply?.resume(returning: .staleConnection)
+                continue
+            }
+            await sendHost(host, socket: socket, ids: ids)
+        }
+    }
+
     private func trustRequest(_ folder: String, ids: AcpmuxRequestIds) -> (id: Int, frame: String)? {
         let id = ids.hostID()
         let request: [String: Any] = [
@@ -86,8 +99,11 @@ extension AgentPaneTransport {
                 Task { @MainActor in self?.hostAnswered(requestID, connection: connection, error: success ? nil : .methodRefused) }
             }
             if let error = socket.send(host.frame) {
+                if !pendingTrustFolders.contains(host.folder) { pendingTrustFolders.append(host.folder) }
                 ids.cancel(requestID)
                 hostAnswered(requestID, connection: connection, error: error)
+                // Overflow is a failed connection too: don't spin retrying it or replay before trust.
+                if self.socket === socket { close(connection: connection) }
             }
         }
     }
