@@ -91,9 +91,14 @@ private final class PagePerfReceiver: NSObject, WKScriptMessageHandler {
 }
 
 extension HistogramID.Page {
-    /// The histogram page of the page with descriptor id `pageID`, from the static list; a page the list
-    /// does not name is ``other``.
-    nonisolated init(pageID: String) {
+    /// The histogram page of the page with descriptor id `pageID` shown as `surface`, from the static
+    /// list: a page shown as the Home surface is ``home`` (Home's web view is the channels page, in the
+    /// dock and as a tab), and a page the list does not name is ``other``.
+    nonisolated init(pageID: String, surface: SurfaceKind? = nil) {
+        if surface == .home {
+            self = .home
+            return
+        }
         switch pageID {
         case "cmux.history": self = .history
         case "cmux.apps": self = .apps
@@ -121,28 +126,21 @@ extension HistogramID.Page {
     }
 }
 
-/// Records one page view's reports: each interaction into `webview.inp.<page>` and each long frame into
-/// `webview.loaf_ms.<page>`, with a ring instant each (the duration in us), and one
-/// `webview.js_errors.<page>` sample per document, its error count, when the document ends. Chrome
-/// records its page load metrics per page the same way, once the page ends
-/// (components/page_load_metrics/browser/page_load_tracker.cc).
+/// Records one page view's reports, each in the turn it arrives: each interaction into
+/// `webview.inp.<page>`, each long frame into `webview.loaf_ms.<page>`, with a ring instant each (the
+/// duration in us), and a report's non-zero script error count as one `webview.js_errors.<page>` sample,
+/// so the histogram's sum is the page's errors. Nothing waits for the document to end: a page closed
+/// or still open at quit has reported its errors already (the bootstrap reports an error at once).
 nonisolated struct PagePerfRecorder: Sendable {
     /// Where the samples and instants go (tests pass a recorder on their own runtime).
-    let metrics: Metrics
-    /// The current document's page and errors; nil until it painted or reported an error.
-    private(set) var document: (page: HistogramID.Page, errors: Int64)?
+    let metrics: CmuxNextMetrics.Metrics
 
-    init(metrics: Metrics = Metrics()) {
+    init(metrics: CmuxNextMetrics.Metrics = CmuxNextMetrics.Metrics()) {
         self.metrics = metrics
     }
 
-    /// The current document painted as `page` (again when a claimed spare shows its page).
-    mutating func documentPainted(_ page: HistogramID.Page) {
-        document = (page, document?.errors ?? 0)
-    }
-
-    /// Records `report`, which the current document sent as `page`.
-    mutating func record(_ report: PagePerfReport, page: HistogramID.Page) {
+    /// Records `report`, which the page's top document sent as `page`.
+    func record(_ report: PagePerfReport, page: HistogramID.Page) {
         let index = page.traceIndex
         for milliseconds in report.interactions {
             metrics.record(.webviewINP(page), milliseconds)
@@ -152,16 +150,9 @@ nonisolated struct PagePerfRecorder: Sendable {
             metrics.record(.webviewLoAF(page), milliseconds)
             metrics.runtime.event(.webviewLoAF, arg0: index, arg1: UInt64(milliseconds) * 1_000)
         }
-        guard report.errors > 0 else { return }
-        document = (page, (document?.errors ?? 0) + report.errors)
-    }
-
-    /// The current document ended (a reload, a crash, a navigation, a rebind or the page's close): its
-    /// error count is one sample.
-    mutating func documentEnded() {
-        guard let ended = document else { return }
-        document = nil
-        metrics.record(.webviewJSErrors(ended.page), ended.errors)
+        if report.errors > 0 {
+            metrics.record(.webviewJSErrors(page), report.errors)
+        }
     }
 }
 
@@ -173,6 +164,6 @@ extension PageWebView {
             logger.error("page \(self.descriptor.id, privacy: .public) perf report refused")
             return
         }
-        perf.record(report, page: HistogramID.Page(pageID: descriptor.id))
+        perf.record(report, page: HistogramID.Page(pageID: descriptor.id, surface: themeSurface))
     }
 }

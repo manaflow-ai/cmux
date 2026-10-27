@@ -104,6 +104,7 @@ extension PageWebView {
         router.end()
         webKitPieces?.bridge.uninstall()
         userContent.removeScriptMessageHandler(forName: PagePaintProbe.handlerName, contentWorld: .page)
+        userContent.removeScriptMessageHandler(forName: WebTheme.perfHandlerName, contentWorld: .page)
         resumeLoadWaiters()
         traceOpenEnd(.closedBeforePaint)
     }

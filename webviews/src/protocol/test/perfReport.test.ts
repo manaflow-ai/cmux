@@ -5,9 +5,11 @@ import { runInThisContext } from "node:vm";
 import { readWebThemeBootstrap } from "../../../dev-server/galleryHost";
 import {
   parsePerfReport,
+  PERF_ERROR_REPORT_INTERVAL_MS,
   PERF_EVENT_THRESHOLD_MS,
   PERF_REPORT_CAPACITY,
   PERF_REPORT_HANDLER,
+  PERF_SEEN_INTERACTIONS,
   type PerfReport,
 } from "../perfReport";
 
@@ -35,8 +37,10 @@ function page(supported: string[]) {
       observers.set(options.type, { take: this.take, options });
     }
   }
+  const clock = { now: 0 };
   const window = Object.assign(new Events(), {
     PerformanceObserver: FakeObserver,
+    performance: { now: () => clock.now },
     webkit: { messageHandlers: { [PERF_REPORT_HANDLER]: { postMessage: (body: unknown) => posted.push(body) } } },
   });
   const document = Object.assign(new Events(), { documentElement: null, visibilityState: "visible" });
@@ -49,6 +53,7 @@ function page(supported: string[]) {
   return {
     posted,
     observers,
+    clock,
     window,
     document,
     entries(type: string, list: Entry[]) {
@@ -87,18 +92,54 @@ describe("theme bootstrap field data", () => {
     expect(p.reports()).toEqual([{ v: 1, inp: [64, 248], loaf: [], errors: 0 }]);
   });
 
-  test("long frames and errors report when the page hides and when it ends", () => {
+  test("an interaction whose entries straddle a slow report is one sample", () => {
+    const p = page(["event"]);
+    p.entries("event", [{ duration: 260, interactionId: 5 }]);
+    p.entries("event", [{ duration: 40, interactionId: 5 }]); // the keyup of the same key press
+    p.entries("event", [{ duration: 300, interactionId: 5 }]); // longer, but its sample is already poor
+    p.window.dispatch("pagehide");
+    expect(p.reports()).toEqual([{ v: 1, inp: [260], loaf: [], errors: 0 }]);
+  });
+
+  test("the interactions it recognizes across reports are bounded", () => {
+    const p = page(["event"]);
+    const ids = Array.from({ length: PERF_SEEN_INTERACTIONS + 1 }, (_, i) => i + 1);
+    for (const id of ids) p.entries("event", [{ duration: 20, interactionId: id }]);
+    p.window.dispatch("pagehide");
+    const counted = p.reports().reduce((sum, report) => sum + report.inp.length, 0);
+    expect(counted).toBe(ids.length);
+    p.entries("event", [{ duration: 30, interactionId: ids.at(-1)! }]); // recent: still one sample
+    p.entries("event", [{ duration: 30, interactionId: 1 }]); // forgotten: counts as new
+    p.window.dispatch("pagehide");
+    expect(p.reports().at(-1)).toEqual({ v: 1, inp: [30], loaf: [], errors: 0 });
+  });
+
+  test("long frames report when the page hides and when it ends", () => {
     const p = page(["event", "long-animation-frame", "longtask"]);
     expect(p.observers.has("longtask")).toBe(false);
     p.entries("long-animation-frame", [{ duration: 80.4 }, { duration: 120.6 }]);
-    p.window.dispatch("error");
-    p.window.dispatch("unhandledrejection");
     p.document.dispatch("visibilitychange"); // still visible: no report
     expect(p.posted).toEqual([]);
     p.document.visibilityState = "hidden";
     p.document.dispatch("visibilitychange");
-    expect(p.reports()).toEqual([{ v: 1, inp: [], loaf: [80, 121], errors: 2 }]);
+    expect(p.reports()).toEqual([{ v: 1, inp: [], loaf: [80, 121], errors: 0 }]);
     p.window.dispatch("pagehide"); // nothing new: no empty report
+    expect(p.posted.length).toBe(1);
+  });
+
+  test("a script error reports at once, and a storm at most once an interval", () => {
+    const p = page(["long-animation-frame"]);
+    p.entries("long-animation-frame", [{ duration: 70 }]);
+    p.window.dispatch("error");
+    expect(p.reports()).toEqual([{ v: 1, inp: [], loaf: [70], errors: 1 }]);
+    p.clock.now = PERF_ERROR_REPORT_INTERVAL_MS - 1;
+    p.window.dispatch("unhandledrejection");
+    p.window.dispatch("error");
+    expect(p.posted.length).toBe(1);
+    p.clock.now = PERF_ERROR_REPORT_INTERVAL_MS;
+    p.window.dispatch("error");
+    expect(p.reports().at(-1)).toEqual({ v: 1, inp: [], loaf: [], errors: 3 });
+    p.clock.now += 10;
     p.window.dispatch("error");
     p.window.dispatch("pagehide");
     expect(p.reports().at(-1)).toEqual({ v: 1, inp: [], loaf: [], errors: 1 });

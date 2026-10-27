@@ -9,9 +9,9 @@ import Foundation
 import Testing
 
 /// A page's field data (p09-observability task 114): the theme bootstrap's `cmuxPagePerf` reports become
-/// `webview.inp.<page>` and `webview.loaf_ms.<page>` samples with a ring instant each, and one
-/// `webview.js_errors.<page>` sample per document; a report from another document or with a planted URL
-/// records nothing. Each test records into its own store and runtime.
+/// `webview.inp.<page>` and `webview.loaf_ms.<page>` samples with a ring instant each, and each report's
+/// non-zero error count is one `webview.js_errors.<page>` sample, recorded when it arrives; a report from
+/// another document or with a planted URL records nothing. Each test records into its own store and runtime.
 @MainActor
 struct PagePerfReportTests {
     /// The ring records a test runtime writes, in order.
@@ -31,7 +31,7 @@ struct PagePerfReportTests {
         let log = RecordLog()
         let runtime: TraceRuntime
         let store: MetricsStore
-        var recorder: PagePerfRecorder
+        let recorder: PagePerfRecorder
 
         init() {
             runtime = log.runtime()
@@ -39,11 +39,11 @@ struct PagePerfReportTests {
             let profile = MetricsProfile(appVersion: "1.0", buildNumber: "1", channel: "test", osVersion: "26.0",
                                          hardwareClass: "Mac16,10", bootSessionUUID: Array(0 ..< 16),
                                          buildUUID: Array(16 ..< 32), buildDay: MetricsProfile.Day(year: 2026, month: 10, day: 27))
-            let page = HistogramID.Page.settings
+            let pages: [HistogramID.Page] = [.settings, .home]
             store = MetricsStore(role: .app, profile: profile, pid: 4242,
-                                 catalog: [.webviewINP(page), .webviewLoAF(page), .webviewJSErrors(page)])
+                                 catalog: pages.flatMap { page -> [HistogramID] in [.webviewINP(page), .webviewLoAF(page), .webviewJSErrors(page)] })
             #expect(store.attach(to: runtime))
-            recorder = PagePerfRecorder(metrics: Metrics(runtime: runtime))
+            recorder = PagePerfRecorder(metrics: CmuxNextMetrics.Metrics(runtime: runtime))
         }
 
         func histogram(_ id: HistogramID) -> MetricsDelta.Histogram? {
@@ -64,7 +64,7 @@ struct PagePerfReportTests {
     }
 
     @Test func aFakeBridgeMessageGivesHistogramsAndRingInstants() throws {
-        var rig = Rig()
+        let rig = Rig()
         let report = try #require(PagePerfReport(Self.message(Self.body(inp: [64, 248], loaf: [80])), from: .settings))
         rig.recorder.record(report, page: .settings)
         let inp = try #require(rig.histogram(.webviewINP(.settings)))
@@ -78,7 +78,7 @@ struct PagePerfReportTests {
                                          SignpostName.webviewLoAF.rawValue])
         #expect(instants.map(\.arg0) == Array(repeating: HistogramID.Page.settings.traceIndex, count: 3))
         #expect(instants.map(\.arg1) == [64_000, 248_000, 80_000], "the duration in us")
-        #expect(rig.histogram(.webviewJSErrors(.settings)) == nil, "errors count when the document ends")
+        #expect(rig.histogram(.webviewJSErrors(.settings)) == nil, "a report with no error adds no error sample")
     }
 
     @Test func aPlantedURLIsRefused() {
@@ -105,20 +105,18 @@ struct PagePerfReportTests {
             == PagePerfReport(interactions: [20], longFrames: [52], errors: 2))
     }
 
-    @Test func scriptErrorsAreOneSamplePerDocument() throws {
-        var rig = Rig()
-        rig.recorder.documentEnded() // a document that never painted or reported: no sample
-        #expect(rig.histogram(.webviewJSErrors(.settings)) == nil)
-        rig.recorder.documentPainted(.settings)
+    @Test func scriptErrorsCountInTheTurnTheirReportArrives() throws {
+        let rig = Rig()
         rig.recorder.record(PagePerfReport(interactions: [], longFrames: [], errors: 2), page: .settings)
-        rig.recorder.record(PagePerfReport(interactions: [], longFrames: [], errors: 3), page: .settings)
-        rig.recorder.documentEnded()
-        rig.recorder.documentEnded() // the close after the reload's end: the document ended once
-        rig.recorder.documentPainted(.settings)
-        rig.recorder.documentEnded() // a clean document is a 0 sample
+        let first = try #require(rig.histogram(.webviewJSErrors(.settings)), "no wait for the document to end")
+        #expect(first.count == 1)
+        #expect(first.sum == 2)
+        // The page closed (its routes ended), then its pagehide report still arrives: its errors count.
+        rig.recorder.record(PagePerfReport(interactions: [40], longFrames: [], errors: 3), page: .settings)
+        rig.recorder.record(PagePerfReport(interactions: [], longFrames: [70], errors: 0), page: .settings)
         let errors = try #require(rig.histogram(.webviewJSErrors(.settings)))
-        #expect(errors.count == 2)
-        #expect(errors.sum == 5)
+        #expect(errors.count == 2, "a report without errors adds no sample")
+        #expect(errors.sum == 5, "the sum is the page's errors")
     }
 
     @Test func pageIDsComeFromTheStaticList() {
@@ -128,6 +126,17 @@ struct PagePerfReportTests {
         #expect(HistogramID.Page(pageID: "cmux.icon-picker") == .iconPicker)
         #expect(HistogramID.Page(pageID: "https://example.com/") == .other)
         #expect(HistogramID.Page(pageID: "cmux.stats") == .other)
+    }
+
+    @Test func thePageShownAsTheHomeSurfaceIsHome() throws {
+        #expect(HistogramID.Page(pageID: "cmux.home-channels", surface: .home) == .home)
+        #expect(HistogramID.Page(pageID: "cmux.home-channels") == .homeChannels)
+        #expect(HistogramID.Page(pageID: "cmux.diff", surface: .diff) == .diff)
+        let rig = Rig()
+        rig.recorder.record(PagePerfReport(interactions: [120], longFrames: [], errors: 0),
+                            page: HistogramID.Page(pageID: "cmux.home-channels", surface: .home))
+        #expect(rig.histogram(.webviewINP(.home))?.count == 1)
+        #expect(HistogramID.webviewINP(.home).name == "webview.inp.home")
     }
 
     @Test func theBootstrapPostsToTheHandlerBothEnginesListen() {

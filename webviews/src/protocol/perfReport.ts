@@ -17,6 +17,12 @@ export const PERF_REPORT_MAXIMUM_SAMPLES = 2 * PERF_REPORT_CAPACITY;
 /** An interaction this long or longer makes the page report at once (web vitals' poor INP). */
 export const PERF_SLOW_INTERACTION_MS = 200;
 
+/** A script error reports at once unless one did within this many ms (an error storm rides the next report). */
+export const PERF_ERROR_REPORT_INTERVAL_MS = 1000;
+
+/** The recent interactions whose later Event Timing entries the page still recognizes across reports. */
+export const PERF_SEEN_INTERACTIONS = 2 * PERF_REPORT_CAPACITY;
+
 /** The Event Timing threshold the page observes with (the smallest the API takes). */
 export const PERF_EVENT_THRESHOLD_MS = 16;
 

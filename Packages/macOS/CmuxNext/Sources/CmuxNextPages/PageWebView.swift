@@ -3,7 +3,6 @@ public import CmuxNextDesign
 public import CmuxNextSettings
 import CmuxNextCompat
 import CmuxNextHibernation
-import CmuxNextMetrics
 import Observation
 import os
 import CmuxNextErrorJournal
@@ -342,7 +341,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             self?.popupHost?.hide()
             // A reload, a crash, a navigation or a rebind: the document's own reasons end with it.
             self?.keepReasons.documentEnded()
-            self?.perf.documentEnded()
         }
         router.keepAlive = { [weak self] reason, on in self?.keepReasons.setFromPage(reason, on: on) }
         router.titleBarDoubleClick = { [weak self] in self?.performTitleBarDoubleClick() }
@@ -372,7 +370,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     func notePainted() {
         removeStandIn()
         traceMark(.pagePainted)
-        perf.documentPainted(HistogramID.Page(pageID: descriptor.id))
         paintedUptime = ProcessInfo.processInfo.systemUptime
         traceOpenEnd(showsChromium ? .paintedInChromium : .paintedInWebKit)
         let waiters = paintWaiters
@@ -503,7 +500,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Where the `webui.open` slices go (``PageTraceSink``).
     let trace: any PageTraceSink
     /// The page's field data: its `webview.*` histograms and ring instants (``PagePerfReport``).
-    var perf: PagePerfRecorder
+    let perf: PagePerfRecorder
     /// The agent chat open this page shows (its stages go there, ``traceMark(_:)``); nil for every other page and
     /// for one made with no open (a prewarmed page gets the open that adopts it).
     public var chatOpen: ChatOpenStages?

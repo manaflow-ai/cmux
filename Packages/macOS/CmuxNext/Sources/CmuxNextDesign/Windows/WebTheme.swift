@@ -331,13 +331,17 @@ public nonisolated struct WebTheme: Equatable, Sendable {
       // as Chrome's web vitals, an interaction is the longest Event Timing entry of its interactionId
       // (third_party/blink/renderer/core/timing/responsiveness_metrics.cc), and a long frame is a
       // long-animation-frame entry (animation_frame_timing_monitor.cc), a longtask where WebKit has none.
-      // A report goes out when the page hides or ends, after a 200 ms interaction (a poor INP) and when
-      // a list holds perfReportCapacity entries; no timer.
-      var perf = { inp: [], loaf: [], errors: 0, interactions: {} };
+      // A report goes out when the page hides or ends, after a 200 ms interaction (a poor INP), when a list
+      // holds perfReportCapacity entries, and on a script error (at most once a second, so a storm posts
+      // little); no timer. perfSeen outlives a report: an interaction's later entries never add a second
+      // sample, and one longer than the reported entry is dropped, since that sample is already poor.
+      var perf = { inp: [], loaf: [], errors: 0 };
+      var perfBatch = 0, perfSeen = {}, perfSeenOrder = [], perfErrorAt = -1e9;
       function perfFlush() {
         if (!perf.inp.length && !perf.loaf.length && !perf.errors) return;
         var report = { v: 1, inp: perf.inp, loaf: perf.loaf, errors: perf.errors };
-        perf = { inp: [], loaf: [], errors: 0, interactions: {} };
+        perf = { inp: [], loaf: [], errors: 0 };
+        perfBatch += 1;
         var handlers = window.webkit && window.webkit.messageHandlers;
         if (!handlers || !handlers.cmuxPagePerf) return;
         try { handlers.cmuxPagePerf.postMessage(report); } catch (e) {}
@@ -357,11 +361,13 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         entries.forEach(function (entry) {
           if (!entry.interactionId) return;
           var ms = Math.round(entry.duration);
-          var at = perf.interactions[entry.interactionId];
-          if (at === undefined) {
-            perf.interactions[entry.interactionId] = perf.inp.length;
+          var seen = perfSeen[entry.interactionId];
+          if (!seen) {
+            perfSeen[entry.interactionId] = { batch: perfBatch, at: perf.inp.length };
+            perfSeenOrder.push(entry.interactionId);
+            if (perfSeenOrder.length > 64) delete perfSeen[perfSeenOrder.shift()];
             perf.inp.push(ms);
-          } else if (ms > perf.inp[at]) perf.inp[at] = ms;
+          } else if (seen.batch === perfBatch && ms > perf.inp[seen.at]) perf.inp[seen.at] = ms;
           if (ms >= 200) slow = true;
           if (perfFull()) perfFlush();
         });
@@ -375,8 +381,15 @@ public nonisolated struct WebTheme: Equatable, Sendable {
       }
       if (!perfObserve('long-animation-frame', {}, perfFrames)) perfObserve('longtask', {}, perfFrames);
       // Bubbling listeners: a resource that fails to load fires no error on window, a script error does.
-      window.addEventListener('error', function () { perf.errors += 1; });
-      window.addEventListener('unhandledrejection', function () { perf.errors += 1; });
+      function perfError() {
+        perf.errors += 1;
+        var now = window.performance ? window.performance.now() : 0;
+        if (now - perfErrorAt < 1000) return;
+        perfErrorAt = now;
+        perfFlush();
+      }
+      window.addEventListener('error', perfError);
+      window.addEventListener('unhandledrejection', perfError);
       document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') perfFlush(); });
       window.addEventListener('pagehide', perfFlush);
     })();
