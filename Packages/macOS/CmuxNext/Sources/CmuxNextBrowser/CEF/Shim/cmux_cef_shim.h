@@ -248,12 +248,22 @@ typedef enum {
   CMUX_SHIM_COLOR_CHOOSER = 61,
   CMUX_SHIM_DEVICE_CHOOSER = 62,
   CMUX_SHIM_DESKTOP_MEDIA = 63,
+  // A frame other than a browser's main frame gained or lost its renderer
+  // (CefFrameHandler::OnFrameAttached and OnFrameDetached): browser_id;
+  // request = the frame's renderer client id (its render process host id, the
+  // renderer's --renderer-client-id); a = 1 attached, 0 detached; s1 = the
+  // frame's identifier (CefFrame::GetIdentifier). A renderer's
+  // death detaches its frames too (WebContentsObserver::RenderFrameDeleted),
+  // before or after the app sees the process end. The app names the pages a
+  // renderer's crash leaves a sad frame in from it (Chrome's
+  // DiscardPageWithCrashedSubframePolicy reads the dead process's frame nodes).
+  CMUX_SHIM_SUBFRAME_RENDERER = 64,
   // Host mode only: one call of the fork's lock handler, pushed by the
   // Chromium Host while cmux's remote shim has a lock handler
   // (cmux_shim_set_lock_handler, task p01-process-229): request =
   // cmux_shim_lock_event_t, a = its detail. The remote shim calls cmux's
   // lock fn with them; cmux's event fn never sees this kind.
-  CMUX_SHIM_LOCK = 64,
+  CMUX_SHIM_LOCK = 65,
 } cmux_shim_event_kind_t;
 
 typedef enum {
