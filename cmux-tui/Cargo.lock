@@ -16,6 +16,7 @@ dependencies = [
  "cmux-codex-acp",
  "cmux-features",
  "cmux-git",
+ "cmux-hang-watch",
  "cmux-link",
  "cmux-local-auth",
  "cmux-lock-rank",
@@ -1195,6 +1196,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-trace",
  "libc",
+ "tokio",
 ]
 
 [[package]]

@@ -28,7 +28,8 @@
 //! The watcher parks with `std::thread::park`, the parker std builds on a futex (Linux), a
 //! `ulock` (macOS) or a keyed event (Windows): the Condvar-style park of section 3E without a mutex.
 //!
-//! std and libc only: the holder links it.
+//! std and libc only: the holder links it. The optional `tokio` feature adds `tokio::instrument`
+//! and `tokio::block_in_place` for the crates that run tokio runtimes.
 
 use std::cell::Cell;
 use std::fmt::Write as _;
@@ -48,6 +49,7 @@ mod frame_walk;
 #[cfg(target_os = "macos")]
 pub mod sample_macos;
 mod stack;
+pub mod tokio;
 
 pub use stack::{Stack, StackFrame, StackImage};
 
@@ -277,6 +279,9 @@ pub struct Stats {
     pub sink_errors: u64,
     /// Hangs whose stack sample failed (macOS; the record goes out without a stack).
     pub sample_errors: u64,
+    /// `runtime.busy_ms`: time the watched tokio workers ran between an unpark and the next park,
+    /// summed over every instrumented runtime ([`tokio::WorkerHooks`]). Report triggers read it here.
+    pub runtime_busy_ms: u64,
     /// The watcher is parked with no timer.
     pub parked: bool,
 }
@@ -456,6 +461,7 @@ struct Shared {
     overflow: AtomicU64,
     sink_errors: AtomicU64,
     sample_errors: AtomicU64,
+    runtime_busy_ns: AtomicU64,
 }
 
 impl Shared {
@@ -730,6 +736,7 @@ impl Shared {
             overflow: self.overflow.load(Ordering::Relaxed),
             sink_errors: self.sink_errors.load(Ordering::Relaxed),
             sample_errors: self.sample_errors.load(Ordering::Relaxed),
+            runtime_busy_ms: self.runtime_busy_ns.load(Ordering::Relaxed) / 1_000_000,
             parked: self.watcher.load(Ordering::Relaxed) == PARKED,
         }
     }
@@ -778,6 +785,7 @@ impl HangWatch {
                 overflow: AtomicU64::new(0),
                 sink_errors: AtomicU64::new(0),
                 sample_errors: AtomicU64::new(0),
+                runtime_busy_ns: AtomicU64::new(0),
             }),
             watcher: None,
         }
@@ -894,6 +902,18 @@ impl<'a> Guard<'a> {
     pub fn invalidate_active(&self) {
         if let Some(registered) = &self.registered {
             registered.slot.invalidate();
+        }
+    }
+
+    /// Now on the watch's clock; None on an inert guard.
+    pub(crate) fn now_ns(&self) -> Option<u64> {
+        self.registered.as_ref().map(|registered| registered.shared.clock.now_ns())
+    }
+
+    /// Adds `ns` to the watch's [`Stats::runtime_busy_ms`].
+    pub(crate) fn add_runtime_busy(&self, ns: u64) {
+        if let Some(registered) = &self.registered {
+            registered.shared.runtime_busy_ns.fetch_add(ns, Ordering::Relaxed);
         }
     }
 }

@@ -35,6 +35,8 @@ const CLIENT_VERSION_HEADER: &str = "x-cmux-client-version";
 const UPLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// One ranged attachment read (at most 4 MiB).
 const RANGE_TIMEOUT: Duration = Duration::from_secs(60);
+/// The backend runtime's thread name, and its threads' in hang records.
+const CLOUD_IO_THREAD: &str = "mux-cloud-io";
 pub(crate) struct RemoteCloudBackend {
     runtime: tokio::runtime::Runtime,
     http: reqwest::Client,
@@ -48,11 +50,9 @@ impl RemoteCloudBackend {
         // reqwest's rustls-no-provider build and tokio-tungstenite's rustls
         // need the workspace's ring provider installed once per process.
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1)
-            .thread_name("mux-cloud-io")
-            .enable_all()
-            .build()?;
+        let mut builder = tokio::runtime::Builder::new_multi_thread();
+        builder.worker_threads(1).thread_name(CLOUD_IO_THREAD).enable_all();
+        let runtime = cmux_hang_watch::tokio::instrument(&mut builder, CLOUD_IO_THREAD).build()?;
         let http = reqwest::Client::builder()
             .timeout(REQUEST_TIMEOUT)
             .connect_timeout(CONNECT_TIMEOUT)

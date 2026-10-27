@@ -145,7 +145,9 @@ fn help_text() -> String {
 }
 
 fn tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
-    Ok(tokio::runtime::Builder::new_multi_thread().enable_all().build()?)
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+    builder.enable_all();
+    Ok(cmux_hang_watch::tokio::instrument(&mut builder, "cmux-link-tokio").build()?)
 }
 
 /// `cmux link <action> ...`.

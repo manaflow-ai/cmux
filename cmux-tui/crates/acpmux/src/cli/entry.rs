@@ -51,10 +51,27 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if let Some(home) = invocation.home.clone() {
         crate::config::set_home_override(home);
     }
+    if runs_daemon(&args) {
+        start_hang_watch();
+    }
     let mut runtime = tokio::runtime::Builder::new_multi_thread();
     runtime.enable_all();
+    cmux_hang_watch::tokio::instrument(&mut runtime, RUNTIME_NAME);
     let poll_watch = DaemonPollWatch::instrument(&args, &mut runtime);
     runtime.build()?.block_on(async_main(args, invocation, poll_watch))
+}
+
+/// The runtime's threads in hang records (`acpmux-tokio-<n>`).
+const RUNTIME_NAME: &str = "acpmux-tokio";
+
+/// The daemon's release hang watch (cmux-hang-watch, Chrome's `base::HangWatcher`):
+/// `$ACPMUX_HOME/hangs-<pid>.jsonl`, beside `panics.jsonl`. It starts before the
+/// runtime, whose threads register when they start; other commands start none,
+/// so their runtime's hooks stay inert.
+fn start_hang_watch() {
+    if let Err(error) = cmux_hang_watch::init(crate::config::home()) {
+        eprintln!("acpmux: {error}");
+    }
 }
 
 /// Lab builds only (cmux-tui/lab/stability.env): the daemon's poll watch
@@ -96,7 +113,6 @@ impl DaemonPollWatch {
 /// `args` (without the program name) run `daemon run`, the way
 /// `async_main` reads them: past the global flags, `daemon` alone means
 /// `daemon run`.
-#[cfg(all(tokio_unstable, feature = "cmux-stability"))]
 fn runs_daemon(args: &[OsString]) -> bool {
     let mut words = args.iter().skip_while(|arg| is_global_flag(arg));
     words.next().is_some_and(|arg| arg == "daemon") && words.next().is_none_or(|arg| arg == "run")
@@ -311,7 +327,7 @@ fn is_global_flag(arg: &OsString) -> bool {
     arg == "--json" || arg == "--suppress-reads"
 }
 
-#[cfg(all(test, tokio_unstable, feature = "cmux-stability"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -320,7 +336,7 @@ mod tests {
     }
 
     #[test]
-    fn only_daemon_run_gets_the_poll_watch() {
+    fn only_daemon_run_gets_the_hang_and_poll_watch() {
         assert!(runs_daemon(&args(&["daemon", "run", "--memory"])));
         assert!(runs_daemon(&args(&["daemon"])));
         assert!(runs_daemon(&args(&["--json", "daemon", "run"])));

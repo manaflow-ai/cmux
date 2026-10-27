@@ -41,7 +41,7 @@ pub(crate) fn apply(cmd: &mut tokio::process::Command, session: Option<&str>) {
         .is_ok_and(|h| h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread);
     let path = std::path::Path::new(&socket);
     let minted = if multi_thread {
-        tokio::task::block_in_place(|| mint(path, session))
+        cmux_hang_watch::tokio::block_in_place(|| mint(path, session))
     } else {
         mint(path, session)
     };

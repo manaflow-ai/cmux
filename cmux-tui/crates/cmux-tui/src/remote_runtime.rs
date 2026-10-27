@@ -211,6 +211,7 @@ fn remote_runtime_worker_count() -> usize {
 fn build_remote_runtime(thread_name: &str) -> anyhow::Result<tokio::runtime::Runtime> {
     let mut builder = tokio::runtime::Builder::new_multi_thread();
     builder.worker_threads(remote_runtime_worker_count()).thread_name(thread_name).enable_all();
+    cmux_hang_watch::tokio::instrument(&mut builder, thread_name);
     crate::owner_start::poll_watch_lab::instrument(&mut builder);
     builder.build().context("could not start remote Tokio runtime")
 }

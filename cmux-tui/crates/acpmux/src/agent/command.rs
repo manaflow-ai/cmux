@@ -311,7 +311,7 @@ fn resolved_profile_env(
     let multi_thread = tokio::runtime::Handle::try_current()
         .is_ok_and(|h| h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread);
     let result = if multi_thread {
-        tokio::task::block_in_place(|| resolve(&mut env))
+        cmux_hang_watch::tokio::block_in_place(|| resolve(&mut env))
     } else {
         resolve(&mut env)
     };

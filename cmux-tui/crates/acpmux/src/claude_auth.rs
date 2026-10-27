@@ -247,7 +247,7 @@ pub fn explain(session_id: &str, original: &str) -> Option<String> {
     };
     let multi_thread = tokio::runtime::Handle::try_current()
         .is_ok_and(|h| h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread);
-    Some(if multi_thread { tokio::task::block_in_place(work) } else { work() })
+    Some(if multi_thread { cmux_hang_watch::tokio::block_in_place(work) } else { work() })
 }
 
 fn list(items: &[String]) -> String {

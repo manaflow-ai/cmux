@@ -5,11 +5,20 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Release hang watch for cmux's Rust processes (p09-observability section 3E): per-thread deadline slots, nesting scopes, one parked watcher thread; std and libc only"
+description = "Release hang watch for cmux's Rust processes (p09-observability section 3E): per-thread deadline slots, nesting scopes, one parked watcher thread; std and libc only (tokio behind the `tokio` feature)"
 
 [lints]
 workspace = true
 
+[features]
+default = []
+# `tokio::instrument` and `tokio::block_in_place` (task 118). The holder builds without it.
+tokio = ["dep:tokio"]
+
 [dependencies]
 cmux-trace.workspace = true
 libc.workspace = true
+tokio = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread"] }

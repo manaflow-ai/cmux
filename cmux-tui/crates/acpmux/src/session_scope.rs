@@ -139,7 +139,7 @@ fn can_scope(
     let probe = || probe(runner, properties, env);
     let multi_thread = tokio::runtime::Handle::try_current()
         .is_ok_and(|h| h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread);
-    let ok = if multi_thread { tokio::task::block_in_place(probe) } else { probe() };
+    let ok = if multi_thread { cmux_hang_watch::tokio::block_in_place(probe) } else { probe() };
     answers.lock().unwrap_or_else(|e| e.into_inner()).insert(key, (ok, Instant::now()));
     ok
 }

@@ -31,6 +31,8 @@ cmux-stability = ["cmux-blocking/cmux-stability"]
 
 [dependencies]
 cmux-blocking.workspace = true
+# The daemon's release hang watch and its tokio worker hooks (p09-observability 118).
+cmux-hang-watch = { workspace = true, features = ["tokio"] }
 cmux-lock-rank.workspace = true
 # Memory pressure and the consumer registry (`src/memory.rs`); a leaf crate, no tokio.
 cmux-memory.workspace = true
