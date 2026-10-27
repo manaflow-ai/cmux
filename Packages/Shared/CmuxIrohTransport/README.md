@@ -24,6 +24,13 @@ Run the package behavior tests without launching either app:
 swift test --package-path Packages/Shared/CmuxIrohTransport
 ```
 
+The protocol, policy, cache and runtime logic also builds and tests on Linux
+(`scripts/cmux-next/linux/swift-shared.sh --only CmuxIrohTransport`). With
+`CMUX_SWIFTPM_TARGET_LINUX=1` the manifest drops iroh-ffi, which ships only an
+Apple xcframework, and takes CryptoKit's API from swift-crypto. The QUIC
+endpoint, Keychain and dns_sd files compile only where their framework exists;
+on Linux their stand-ins fail closed (no endpoint binds, no Keychain, no mDNS).
+
 An admitted Mac connection gives one supervisor ownership of its control and
 application-lane tasks. Injecting those operations keeps the lifetime policy
 testable without an endpoint or app process:

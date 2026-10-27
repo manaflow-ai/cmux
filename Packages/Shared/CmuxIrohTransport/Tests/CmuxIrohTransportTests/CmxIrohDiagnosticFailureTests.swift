@@ -1,5 +1,7 @@
 import CMUXMobileCore
+#if canImport(IrohLib)
 import IrohLib
+#endif
 import Testing
 
 @testable import CmuxIrohTransport
@@ -38,6 +40,7 @@ import Testing
         )
     }
 
+    #if canImport(IrohLib)
     @Test(arguments: [
         ("ConnectionLost(TimedOut)", DiagnosticFailureKind.transportIdleTimedOut),
         ("timed out", DiagnosticFailureKind.timedOut),
@@ -115,8 +118,10 @@ import Testing
                 == expected
         )
     }
+    #endif
 }
 
+#if canImport(IrohLib)
 private final class TestIrohError: IrohError, @unchecked Sendable {
     private let testMessage: String
 
@@ -134,3 +139,4 @@ private final class TestIrohError: IrohError, @unchecked Sendable {
         testMessage
     }
 }
+#endif

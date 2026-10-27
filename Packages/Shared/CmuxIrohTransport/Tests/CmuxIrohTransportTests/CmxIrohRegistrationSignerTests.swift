@@ -1,7 +1,10 @@
 import CMUXMobileCore
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
-import IrohLib
 import Testing
 @testable import CmuxIrohTransport
 
@@ -10,8 +13,10 @@ struct CmxIrohRegistrationSignerTests {
     @Test("signed transcript binds exact endpoint challenge and payload")
     func signedTranscript() throws {
         let secret = Data((0..<32).map(UInt8.init))
-        let endpoint = try SecretKey.fromBytes(bytes: secret).public()
-        let endpointID = endpoint.toBytes().hex
+        let endpointKey = try CmxIrohEndpointSigningKey(secretKeyBytes: secret).publicKeyBytes
+        let endpointID = endpointKey.hex
+        // Iroh's EndpointID of this seed: IrohLib derives it on Apple builds,
+        // swift-crypto on Linux, so both must give the same RFC 8032 key.
         #expect(endpointID == "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8")
         let identity = try CmxIrohIdentityMaterial(
             secretKey: CmxIrohSecretKey(bytes: secret),
@@ -59,7 +64,8 @@ struct CmxIrohRegistrationSignerTests {
             "cmux/iroh/device-registration/v1\n\(canonicalChallengeID)\n\(nonce)\n\(prepared.payloadSHA256)".utf8
         )
         let signature = try #require(Data(base64URL: request.signature))
-        try endpoint.verify(message: transcript, signature: Signature.fromBytes(bytes: signature))
+        let verifier = try Curve25519.Signing.PublicKey(rawRepresentation: endpointKey)
+        #expect(verifier.isValidSignature(signature, for: transcript))
         #expect(request.payload == prepared.encodedPayload)
         #expect(request.challengeId == canonicalChallengeID)
         #expect(prepared.challengeRequest.endpointId == endpointID)
@@ -131,7 +137,7 @@ struct CmxIrohRegistrationSignerTests {
     @Test("noncanonical challenge nonce is rejected")
     func malformedChallengeFails() throws {
         let secret = Data(repeating: 4, count: 32)
-        let endpointID = try SecretKey.fromBytes(bytes: secret).public().toBytes().hex
+        let endpointID = try CmxIrohEndpointSigningKey(secretKeyBytes: secret).publicKeyBytes.hex
         let identity = try CmxIrohIdentityMaterial(
             secretKey: CmxIrohSecretKey(bytes: secret),
             generation: 1

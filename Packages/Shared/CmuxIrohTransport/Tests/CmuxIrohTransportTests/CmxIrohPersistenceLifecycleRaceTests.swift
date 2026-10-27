@@ -56,17 +56,16 @@ struct CmxIrohPersistenceLifecycleRaceTests {
         let expectation = try fixture.expectation()
         let store = TestControllableSecureCredentialStore()
         let cache = CmxIrohHostPolicyCache(secureStore: store)
+        // The fixture holds a signing key, which swift-crypto (Linux) does not
+        // mark Sendable: the task captures only the signed policy and the clock.
+        let policy = try fixture.policy()
+        let now = fixture.now
         await store.suspendNextWrite()
         let save = Task {
-            try await cache.save(
-                fixture.policy(),
-                for: expectation,
-                now: fixture.now
-            )
+            try await cache.save(policy, for: expectation, now: now)
         }
         await store.waitUntilWriteIsSuspended()
         await store.suspendNextDeleteAll()
-        let now = fixture.now
 
         let deactivate = Task { try await cache.deactivate() }
         #expect(

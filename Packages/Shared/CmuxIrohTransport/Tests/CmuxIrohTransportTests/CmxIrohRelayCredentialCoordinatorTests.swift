@@ -539,14 +539,19 @@ final class TestRelayClock: CmxIrohRelayClock, @unchecked Sendable {
 
     func sleep(until deadline: Date) async throws {
         lock.withLock { sleepDeadlines.append(deadline) }
-        continuation.yield(.sleep(deadline))
         let id = UUID()
         try await withTaskCancellationHandler {
-            try Task.checkCancellation()
+            guard !Task.isCancelled else {
+                continuation.yield(.sleep(deadline))
+                throw CancellationError()
+            }
             try await withCheckedThrowingContinuation { sleeper in
                 lock.withLock {
                     sleepers[id] = sleeper
                 }
+                // Announced once registered: a test that advances on this
+                // event must find the sleeper, or it never wakes.
+                continuation.yield(.sleep(deadline))
                 if Task.isCancelled {
                     cancelSleep(id: id)
                 }

@@ -1,5 +1,9 @@
 import CmuxSafeConcurrency
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 public import Foundation
 
 /// Reconciles stable Iroh identity with reinstall and account-switch policy.

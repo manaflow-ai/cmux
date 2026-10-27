@@ -1,10 +1,13 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
-import IrohLib
 
 /// Builds the two-leg registration proof using the Iroh EndpointID key.
 public struct CmxIrohRegistrationSigner: Sendable {
-    private let signingKey: SecretKey
+    private let signingKey: CmxIrohEndpointSigningKey
     private let endpointID: String
 
     /// Creates a signer and proves the supplied secret derives the endpoint.
@@ -12,8 +15,8 @@ public struct CmxIrohRegistrationSigner: Sendable {
     /// - Throws: ``CmxIrohRegistrationError/endpointIdentityMismatch`` when
     ///   route identity and signing identity differ.
     public init(identity: CmxIrohIdentityMaterial, endpointID: String) throws {
-        let signingKey = try SecretKey.fromBytes(bytes: identity.secretKey.bytes)
-        let derivedID = Self.hex(signingKey.public().toBytes())
+        let signingKey = try CmxIrohEndpointSigningKey(secretKeyBytes: identity.secretKey.bytes)
+        let derivedID = Self.hex(signingKey.publicKeyBytes)
         guard derivedID == endpointID else {
             throw CmxIrohRegistrationError.endpointIdentityMismatch
         }
@@ -63,7 +66,7 @@ public struct CmxIrohRegistrationSigner: Sendable {
         let transcript = Data(
             "cmux/iroh/device-registration/v1\n\(challengeID)\n\(challenge.nonce)\n\(prepared.payloadSHA256)".utf8
         )
-        let signature = signingKey.sign(message: transcript).toBytes()
+        let signature = try signingKey.signature(for: transcript)
         return CmxIrohRegisterRequest(
             challengeID: challengeID,
             nonce: challenge.nonce,
@@ -92,7 +95,7 @@ public struct CmxIrohRegistrationSigner: Sendable {
         let transcript = Data(
             "cmux/iroh/binding-request/v1\n\(bindingID.lowercased())\n\(method)\n\(path)\n\(timestamp)\n\(bodySHA256)".utf8
         )
-        return Self.base64URL(signingKey.sign(message: transcript).toBytes())
+        return try Self.base64URL(signingKey.signature(for: transcript))
     }
 
     private static func base64URL(_ data: Data) -> String {

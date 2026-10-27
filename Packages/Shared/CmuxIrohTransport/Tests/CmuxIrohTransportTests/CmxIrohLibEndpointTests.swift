@@ -1,5 +1,10 @@
+#if canImport(IrohLib)
 import CMUXMobileCore
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 import IrohLib
 import Testing
@@ -464,3 +469,4 @@ struct CmxIrohLibEndpointTests {
         return (endpoint, driver.addr())
     }
 }
+#endif

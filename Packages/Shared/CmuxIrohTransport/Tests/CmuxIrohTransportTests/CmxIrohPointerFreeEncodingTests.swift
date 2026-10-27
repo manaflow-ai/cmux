@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(Security)
 import Security
+#endif
 import Testing
 @testable import CmuxIrohTransport
 
@@ -87,6 +89,20 @@ struct CmxIrohPointerFreeEncodingTests {
     }
 
     @Test
+    func systemRandomBytesFillTheRequestedCount() throws {
+        let generator = CmxIrohSystemRandomByteGenerator()
+        let first = try generator.randomBytes(count: 32)
+        let second = try generator.randomBytes(count: 32)
+        #expect(first.count == 32)
+        #expect(second.count == 32)
+        #expect(first != second)
+        #expect(throws: CmxIrohOfflinePairingSessionError.randomnessUnavailable) {
+            try generator.randomBytes(count: 0)
+        }
+    }
+
+    #if canImport(Security)
+    @Test
     func secRandomBytesFillsTheRequestedCount() {
         let first = CmxIrohSystemRandomByteGenerator.secRandomBytes(count: 32)
         let second = CmxIrohSystemRandomByteGenerator.secRandomBytes(count: 32)
@@ -95,4 +111,5 @@ struct CmxIrohPointerFreeEncodingTests {
         #expect(second.bytes.count == 32)
         #expect(first.bytes != second.bytes)
     }
+    #endif
 }

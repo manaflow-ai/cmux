@@ -1,6 +1,15 @@
+#if canImport(IrohLib)
 import CMUXMobileCore
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 import Testing
 @testable import CmuxIrohTransport
@@ -601,3 +610,4 @@ struct CmxIrohPrivatePathTransportGateTests {
         POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
     }
 }
+#endif

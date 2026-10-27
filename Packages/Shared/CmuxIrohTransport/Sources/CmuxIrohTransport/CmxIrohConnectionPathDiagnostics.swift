@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 public import CMUXMobileCore
 import Foundation
 public import IrohLib
@@ -115,3 +116,4 @@ public final class CmxIrohConnectionPathDiagnostics: Sendable {
         }
     }
 }
+#endif

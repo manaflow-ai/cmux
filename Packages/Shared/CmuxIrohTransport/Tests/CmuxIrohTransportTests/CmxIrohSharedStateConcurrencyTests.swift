@@ -1,3 +1,4 @@
+#if canImport(dnssd)
 import Dispatch
 import Foundation
 import Testing
@@ -96,3 +97,4 @@ struct CmxIrohSharedStateConcurrencyTests {
         )
     }
 }
+#endif

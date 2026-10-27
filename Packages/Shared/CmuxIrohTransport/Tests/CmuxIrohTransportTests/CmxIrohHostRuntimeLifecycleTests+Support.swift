@@ -19,16 +19,15 @@ final class HostRegistrationRenewalClock: CmxIrohRelayClock, @unchecked Sendable
 
     func sleep(until deadline: Date) async throws {
         let id = UUID()
-        let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
-            deadlines.append(deadline)
-            defer { sleepWaiters.removeAll() }
-            return sleepWaiters
-        }
-        for waiter in waiters { waiter.resume() }
         try await withTaskCancellationHandler {
-            try Task.checkCancellation()
+            guard !Task.isCancelled else {
+                record(deadline, sleeper: nil, id: id)
+                throw CancellationError()
+            }
             try await withCheckedThrowingContinuation { continuation in
-                lock.withLock { sleepers[id] = continuation }
+                // The deadline is observable only once the sleeper is
+                // registered: a test that advances on it must wake it.
+                record(deadline, sleeper: continuation, id: id)
                 if Task.isCancelled { cancel(id: id) }
             }
         } onCancel: {
@@ -70,6 +69,20 @@ final class HostRegistrationRenewalClock: CmxIrohRelayClock, @unchecked Sendable
 
     func observedCancellationCount() -> Int {
         lock.withLock { cancellationCount }
+    }
+
+    private func record(
+        _ deadline: Date,
+        sleeper: CheckedContinuation<Void, any Error>?,
+        id: UUID
+    ) {
+        let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            if let sleeper { sleepers[id] = sleeper }
+            deadlines.append(deadline)
+            defer { sleepWaiters.removeAll() }
+            return sleepWaiters
+        }
+        for waiter in waiters { waiter.resume() }
     }
 
     private func cancel(id: UUID) {

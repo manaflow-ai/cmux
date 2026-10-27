@@ -1,6 +1,5 @@
 public import CMUXMobileCore
 import Foundation
-import IrohLib
 
 /// Stable Iroh identity material for one signed-in account and app instance.
 public struct CmxIrohIdentityMaterial: Equatable, Sendable {
@@ -30,9 +29,9 @@ public struct CmxIrohIdentityMaterial: Equatable, Sendable {
     /// the app target) because this package owns the IrohLib dependency;
     /// app-target code importing IrohLib directly is not linked against it.
     public var peerIdentity: CmxIrohPeerIdentity? {
-        guard let endpoint = try? SecretKey.fromBytes(bytes: secretKey.bytes).public()
+        guard let endpoint = try? CmxIrohEndpointSigningKey(secretKeyBytes: secretKey.bytes)
         else { return nil }
-        let endpointID = endpoint.toBytes()
+        let endpointID = endpoint.publicKeyBytes
             .map { String(format: "%02x", $0) }
             .joined()
         return try? CmxIrohPeerIdentity(endpointID: endpointID)

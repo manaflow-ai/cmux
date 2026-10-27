@@ -1,11 +1,14 @@
 import CMUXMobileCore
+#if canImport(IrohLib)
 import IrohLib
+#endif
 import Testing
 
 @testable import CmuxIrohTransport
 
 @Suite
 struct CmxIrohConnectionDiagnosticRecorderTests {
+    #if canImport(IrohLib)
     @Test
     func mapsIrohPathEventsToRedactedKinds() {
         let events = [
@@ -74,6 +77,7 @@ struct CmxIrohConnectionDiagnosticRecorderTests {
             CmxIrohConnectionPathEvent(kind: .lagged, pathKind: .unknown),
         ])
     }
+    #endif
 
     @Test
     func mapsPathEventsAndClampsApplicationErrorCode() async {

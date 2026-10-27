@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import Testing
 @testable import CmuxIrohTransport
 
@@ -301,6 +304,10 @@ extension CmxIrohTrustBrokerClientTests {
         }
     }
 
+    // swift-corelibs-foundation traps when a URLProtocol reports a redirect
+    // (URLSessionTask.swift: "doesn't currently handle redirects directly"),
+    // so this URLProtocol-driven check runs only with Apple's Foundation.
+    #if !canImport(FoundationNetworking)
     @Test
     func redirectsNeverForwardBrokerCredentials() async throws {
         for destination in [
@@ -323,6 +330,7 @@ extension CmxIrohTrustBrokerClientTests {
             #expect(BrokerRedirectURLProtocol.capturedDestinationRequests().isEmpty)
         }
     }
+    #endif
 
     private func makeNetworkClient(
         transport: any CmxIrohHTTPTransport

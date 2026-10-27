@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 
 /// One eligible local-interface address and its subnet mask.
@@ -93,11 +97,11 @@ public struct CmxIrohSystemLANInterfaceSnapshotProvider: CmxIrohLANInterfaceSnap
             // SAFETY: ifa_next is the next node of the live list or nil.
             cursor = unsafe current.ifa_next
             let flags = Int32(bitPattern: current.ifa_flags)
-            guard flags & IFF_UP != 0,
-                  flags & IFF_RUNNING != 0,
-                  flags & IFF_MULTICAST != 0,
-                  flags & IFF_LOOPBACK == 0,
-                  flags & IFF_POINTOPOINT == 0 else { continue }
+            guard flags & Int32(IFF_UP) != 0,
+                  flags & Int32(IFF_RUNNING) != 0,
+                  flags & Int32(IFF_MULTICAST) != 0,
+                  flags & Int32(IFF_LOOPBACK) == 0,
+                  flags & Int32(IFF_POINTOPOINT) == 0 else { continue }
             // SAFETY: ifa_addr and ifa_netmask are nil or sockaddrs inside the live list;
             // they are only read below, before the defer frees the list.
             guard let addressPointer = unsafe current.ifa_addr,
@@ -143,15 +147,31 @@ public struct CmxIrohSystemLANInterfaceSnapshotProvider: CmxIrohLANInterfaceSnap
         return false
     }
 
+    /// The byte length of a sockaddr from getifaddrs: BSD stores it in `sa_len`;
+    /// Linux has no such field, so it follows from the family.
+    private static func socketLength(_ pointer: UnsafePointer<sockaddr>) -> socklen_t {
+        #if canImport(Darwin)
+        // SAFETY: `pointer` is a live sockaddr (see numericAddress); sa_len is its first byte.
+        return unsafe socklen_t(pointer.pointee.sa_len)
+        #else
+        // SAFETY: `pointer` is a live sockaddr (see numericAddress); sa_family is its first field.
+        switch unsafe Int32(pointer.pointee.sa_family) {
+        case AF_INET: return socklen_t(MemoryLayout<sockaddr_in>.size)
+        case AF_INET6: return socklen_t(MemoryLayout<sockaddr_in6>.size)
+        default: return socklen_t(MemoryLayout<sockaddr>.size)
+        }
+        #endif
+    }
+
     /// The numeric host text of a sockaddr from getifaddrs; the caller keeps its list alive.
     private static func numericAddress(_ pointer: UnsafePointer<sockaddr>) -> String? {
         var host = [CChar](repeating: 0, count: Int(clamping: NI_MAXHOST))
-        // SAFETY: `pointer` is a live sockaddr whose sa_len bytes are readable (the caller
-        // holds the getifaddrs list); getnameinfo writes at most host.count bytes, the
-        // size passed, NUL included, and nothing for the absent service buffer.
+        // SAFETY: `pointer` is a live sockaddr whose socketLength bytes are readable (the
+        // caller holds the getifaddrs list); getnameinfo writes at most host.count bytes,
+        // the size passed, NUL included, and nothing for the absent service buffer.
         let result = unsafe getnameinfo(
             pointer,
-            socklen_t(pointer.pointee.sa_len),
+            unsafe socketLength(pointer),
             &host,
             socklen_t(host.count),
             nil,

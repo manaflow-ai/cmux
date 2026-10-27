@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 import CMUXMobileCore
 import Foundation
 import IrohLib
@@ -193,3 +194,4 @@ private extension Data {
         map { String(format: "%02x", $0) }.joined()
     }
 }
+#endif

@@ -1,5 +1,5 @@
+import CmuxSafeConcurrency
 public import Foundation
-import os
 
 /// Bounds for one client-side reconnect retry ladder.
 public struct CmxIrohReconnectBackoffConfiguration: Equatable, Sendable {
@@ -46,7 +46,7 @@ public final class CmxIrohReconnectBackoff: Sendable {
     }
 
     private let configuration: CmxIrohReconnectBackoffConfiguration
-    private let state: OSAllocatedUnfairLock<State>
+    private let state: Mutex<State>
 
     /// Creates a ladder at its floor.
     ///
@@ -58,9 +58,7 @@ public final class CmxIrohReconnectBackoff: Sendable {
         seed: UInt64 = UInt64.random(in: .min ... .max)
     ) {
         self.configuration = configuration
-        state = OSAllocatedUnfairLock(
-            initialState: State(previousDelay: nil, rngState: seed)
-        )
+        state = Mutex(State(previousDelay: nil, rngState: seed))
     }
 
     /// Returns the next retry delay after a failure.

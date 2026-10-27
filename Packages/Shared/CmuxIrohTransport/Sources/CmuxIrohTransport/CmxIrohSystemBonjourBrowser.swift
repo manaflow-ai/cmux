@@ -1,3 +1,4 @@
+#if canImport(dnssd)
 import Dispatch
 import dnssd
 import Foundation
@@ -357,3 +358,4 @@ public actor CmxIrohSystemBonjourBrowser: CmxIrohBonjourBrowsing {
         if observers.isEmpty { stopOperations() }
     }
 }
+#endif

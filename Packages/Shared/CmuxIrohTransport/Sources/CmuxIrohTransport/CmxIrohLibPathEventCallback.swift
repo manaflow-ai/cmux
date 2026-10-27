@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 import IrohLib
 
 /// Bridges Iroh's individual path watcher into a redacted async stream.
@@ -23,3 +24,4 @@ final class CmxIrohLibPathEventCallback: PathEventCallback, Sendable {
         ))
     }
 }
+#endif

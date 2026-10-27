@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 /// A numeric IP address in network byte order, parsed by `inet_pton` and
 /// printed by `inet_ntop`. Every IP text conversion in the module goes through

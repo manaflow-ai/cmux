@@ -1,3 +1,4 @@
+#if canImport(dnssd)
 import CmuxSafeConcurrency
 import Dispatch
 import dnssd
@@ -388,3 +389,4 @@ final class CmxIrohBonjourSystemDNSService: CmxIrohBonjourDNSService {
         )
     }
 }
+#endif
