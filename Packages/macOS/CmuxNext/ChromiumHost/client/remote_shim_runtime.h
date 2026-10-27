@@ -134,6 +134,14 @@ typedef int (*cmux_remote_fence_send_fn)(unsigned int channel, unsigned int fenc
 // Mach message of host_resize.h (SendFence), which sends nothing where there is no Mach; the
 // tests pass their own to drive the fenced path on Linux.
 CMUX_REMOTE_EXPORT void cmux_remote_shim_set_fence_sender(cmux_remote_fence_send_fn send);
+// Main thread. The browser host's provider link for the Chromium Host (kOpProviderLink,
+// ChromiumHost/src/host_provider_link.h, task p01-process-233): its socket (NULL or "" ends the
+// link), the relay credential derived from the daemon-minted secret, the link id cmux names the
+// host by, and the pids the socket's peer may be. Kept for every host of the session, as the
+// Energy Saver is. 1 when the attached host takes it (its HELLO listed cmux_host_provider_link)
+// and it went out; 0 otherwise (no host yet: the next attach sends it).
+CMUX_REMOTE_EXPORT int cmux_remote_shim_set_provider_link(const char* socket, const char* credential,
+                                                          const char* link_id, int host_pid, int listener_pid);
 
 }  // extern "C"
 

@@ -19,6 +19,7 @@
 #include "cmux_cef_shim.h"
 #include "cmux_page_path.h"
 #include "host_energy_saver.h"
+#include "host_provider_link.h"
 #include "host_resize.h"
 #include "remote_shim_mirror.h"
 #include "remote_shim_runtime.h"
@@ -222,6 +223,7 @@ bool SendFenceRight(uint32_t channel, uint32_t fence, uint64_t seq) {
 // or kEnergySaverHelloName; nullptr for an op every host takes.
 const char* OptionalExportName(uint16_t op) {
   if (op == cmux_host::kOpEnergySaver) return cmux_host::kEnergySaverHelloName;
+  if (op == cmux_host::kOpProviderLink) return cmux_host::kProviderLinkHelloName;
   for (const OptionalExport& entry : kOptionalExports) {
     if (entry.op == op && op != 0) return entry.name;
   }
@@ -274,6 +276,8 @@ class Runtime {
     // A host starts with the saver off and applies this once initialize returned; it waits for
     // the HELLO, which says whether the host has the saver.
     if (energy_saver_ && energy_saver_->enabled) Route(EnergySaverMessage(*energy_saver_), std::nullopt);
+    // The browser host's provider link (task p01-process-233), as the saver: kept for every host.
+    if (provider_link_ && provider_link_->socket) Route(ProviderLinkMessage(*provider_link_), std::nullopt);
     Flush();
     return 1;
   }
@@ -384,6 +388,20 @@ class Runtime {
   // here, as an optional op the host lacks). 1 when the attached host has the saver and the op
   // went out; 0 otherwise, as the in-process shim answers on a fork without the call. Before the
   // HELLO the op waits for it and the answer is 0: whether the host applies it is not known yet.
+  // cmux_remote_shim_set_provider_link: kept for every host of the session, posted to the attached
+  // one, which takes it only when its HELLO listed kProviderLinkHelloName (otherwise refused here,
+  // as an optional op the host lacks). 1 when the attached host takes it and the op went out.
+  int SetProviderLink(const cmux_host::ProviderLinkConfig& config) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    provider_link_ = config;
+    if (link_ != Link::kAttached) return 0;
+    const bool known = hello_;
+    TlvWriter args;
+    cmux_host::WriteProviderLink(config, &args);
+    const bool sent = Post(cmux_host::kOpProviderLink, 0, args);
+    return known && sent && HostHasExport(cmux_host::kProviderLinkHelloName) ? 1 : 0;
+  }
+
   int SetEnergySaver(int enabled, const char* exempt_scheme) {
     CMUX_REMOTE_ASSERT_MAIN();
     cmux_host::EnergySaver saver;
@@ -507,6 +525,12 @@ class Runtime {
     TlvWriter args;
     cmux_host::WriteEnergySaver(saver, &args);
     return MakeMessage(cmux_host::kOpEnergySaver, 0, args.Take());
+  }
+
+  static Message ProviderLinkMessage(const cmux_host::ProviderLinkConfig& config) {
+    TlvWriter args;
+    cmux_host::WriteProviderLink(config, &args);
+    return MakeMessage(cmux_host::kOpProviderLink, 0, args.Take());
   }
 
   // A post waiting for the first attach or for the host's HELLO.
@@ -777,6 +801,8 @@ class Runtime {
   std::unordered_set<std::string> host_exports_;
   // The app's last Energy Saver state (cmux_shim_set_energy_saver), for the whole session.
   std::optional<cmux_host::EnergySaver> energy_saver_;
+  // The browser host's provider link (cmux_remote_shim_set_provider_link), for the whole session.
+  std::optional<cmux_host::ProviderLinkConfig> provider_link_;
   std::unordered_map<uint16_t, void*> policies_;
   uint32_t token_ = 0;
   // The token of the latest PostForReply or answered PostPreinit (0: that call sent nothing).
@@ -910,6 +936,18 @@ void cmux_remote_shim_set_fence_sender(cmux_remote_fence_send_fn send) {
 
 uint32_t cmux_remote_shim_order_input(uint32_t* ctl_seq) {
   return R().OrderInput(ctl_seq);
+}
+
+int cmux_remote_shim_set_provider_link(const char* socket, const char* credential, const char* link_id, int host_pid,
+                                       int listener_pid) {
+  cmux_host::ProviderLinkConfig config;
+  if (socket != nullptr && *socket != '\0') config.socket = socket;
+  if (credential != nullptr) config.credential = credential;
+  if (link_id != nullptr) config.link_id = link_id;
+  config.host_pid = host_pid;
+  config.listener_pid = listener_pid;
+  if (config.socket && (config.credential.empty() || config.link_id.empty())) return 0;
+  return R().SetProviderLink(config);
 }
 
 // --- local exports (chromium-host-ops.json class local) --------------------------------------
