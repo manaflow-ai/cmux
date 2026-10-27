@@ -9,6 +9,8 @@ public import Foundation
 /// `system:<subsystem>` for frameworks logging in-process (WebKit, AppKit).
 public struct OSLogErrorSource: ErrorHarvestSource {
     public let id: String
+    /// The unified log has no change signal on disk.
+    public var announcesChanges: Bool { false }
     private let processID: Int32
     private let launchDate: Date
     private let reader: any OSLogReading
@@ -39,18 +41,25 @@ public struct OSLogErrorSource: ErrorHarvestSource {
         let entries = try reader.entries(since: start, matching: Self.errorsAndFaults)
         var events: [ErrorEvent] = []
         var newest: Date?
+        var more = false
         for entry in entries where entry.date > start {
             guard entry.level == .error || entry.level == .fault else { continue }
             newest = max(newest ?? entry.date, entry.date)
             events.append(Self.event(subsystem: entry.subsystem, category: entry.category,
                                      isFault: entry.level == .fault, message: entry.message, date: entry.date))
-            if events.count >= 5000 { break }
+            if events.count >= Self.maxEvents {
+                more = true
+                break
+            }
         }
         // A harvest with nothing newer keeps the saved milliseconds as they were: the cursor's value never
         // goes through a Double conversion (`7:1e300` trapped in Int64(_:)).
         let ms = newest.map(Self.milliseconds) ?? saved ?? Self.milliseconds(launchDate)
-        return ErrorHarvest(events: events, cursor: "\(processID):\(ms)")
+        return ErrorHarvest(events: events, cursor: "\(processID):\(ms)", more: more)
     }
+
+    /// One harvest keeps at most this many entries; the rest waits for the next one (``ErrorHarvest/more``).
+    static let maxEvents = 5000
 
     /// The milliseconds since 1970 a saved cursor (`<pid>:<ms>`, as ``collect(after:)`` writes it) names, or nil
     /// when it is another launch's or damaged (`cursors.json` is a file: no whole number, a fraction, `nan`,

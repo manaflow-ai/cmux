@@ -334,7 +334,8 @@ final class CloudService {
                                           deadlines: local.deadlines, appEvents: local.appEvents, work: work)
         case .legacy:
             guard let hub, let binary else { return nil }
-            let link = CloudMachineLink(machineID: machine.id, api: api, hub: hub, paths: paths, binary: binary, deviceName: Self.deviceName)
+            let link = CloudMachineLink(machineID: machine.id, api: api, hub: hub, paths: paths, binary: binary, deviceName: Self.deviceName,
+                                        mainWork: mainWork)
             session = CloudMachineSession(machine: machine, link: link, mainWork: mainWork, deadlines: machines.local.deadlines,
                                           appEvents: machines.local.appEvents, work: work)
         }

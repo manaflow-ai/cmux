@@ -1,4 +1,3 @@
-public import CoreGraphics
 public import Foundation
 
 /// What the App's `TabDragSession` is dragging. Ids are the daemon's raw ids
