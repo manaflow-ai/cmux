@@ -288,6 +288,8 @@
   /* The existing rail origin is at most 52px in; keep another 12px clear at the far edge. */
   min-width: min(240px, calc(100vw - 64px));
   max-width: min(360px, calc(100vw - 64px));
+  isolation: isolate;
+  will-change: transform;
   box-sizing: border-box;
   /* The edge is an inset shadow one device pixel wide (--cmux-hairline, #20713); appearance.borders
      none clears it through --acpmux-minimap-rim. Glass, as the chat's other hover cards (the link
@@ -400,6 +402,17 @@
 }
 .acpmux-minimap__reply strong {
   font-weight: 600;
+}
+.acpmux-minimap__reply code {
+  font-family: var(--font-mono);
+  font-size: inherit;
+}
+.acpmux-minimap__full-token {
+  position: absolute;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  pointer-events: none;
 }
 .acpmux-minimap__item {
   padding-left: 14px;

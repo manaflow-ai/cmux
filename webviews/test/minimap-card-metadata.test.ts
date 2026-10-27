@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { minimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 
 const row = (partial: Partial<AcpmuxRow> & Pick<AcpmuxRow, "id" | "kind" | "at">): AcpmuxRow => ({
   version: 1,
@@ -97,4 +98,39 @@ test("streaming reuses metadata without reading old tool items, and a dropped su
   expect(committed.turns[0]).toBe(turn);
   expect(turn.metadata).toBe(metadata);
   expect(turn.metadata?.failure).toBeUndefined();
+});
+
+test("production turnView wrappers keep metadata without re-reading earlier tool diffs", () => {
+  let reads = 0;
+  const tool = { id: "edit", title: "Edit", status: "completed", kind: "edit" };
+  Object.defineProperty(tool, "diffs", {
+    get: () => {
+      reads += 1;
+      return [{ path: "a.ts", newText: "next" }];
+    },
+  });
+  const activity = row({ id: "activity", kind: "activity", at: 2, items: [{ kind: "tool", text: "Edit", tool }] });
+  let raw = [
+    row({ id: "user-1", kind: "user", at: 1, text: "Review" }),
+    activity,
+    row({ id: "reply", kind: "assistant", at: 3, text: "Visible answer. ".repeat(40), streaming: true }),
+  ];
+  const options = { working: true, liveRuns: true };
+  let shaped = turnView(raw, new Set(), options);
+  const wrapper = shaped.find((item) => item.kind === "activity")!;
+  expect(wrapper).toBeDefined();
+  expect(wrapper).not.toBe(activity);
+  let committed = minimapTurns(shaped, "production");
+  const metadata = committed.turns[0]!.metadata;
+  expect(metadata?.fileCount).toBe(1);
+  for (let token = 0; token < 20; token += 1) {
+    raw = [...raw.slice(0, -1), { ...raw.at(-1)!, text: `${raw.at(-1)!.text} more`, version: token + 2 }];
+    const next = turnView(raw, new Set(), options);
+    expect(next.find((item) => item.kind === "activity")).not.toBe(shaped.find((item) => item.kind === "activity"));
+    const before = reads;
+    committed = minimapTurns(next, "production", committed);
+    expect(reads).toBe(before);
+    expect(committed.turns[0]!.metadata).toBe(metadata);
+    shaped = next;
+  }
 });

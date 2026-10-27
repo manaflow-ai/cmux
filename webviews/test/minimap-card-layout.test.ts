@@ -51,7 +51,7 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
           row(
             `reply-${index}`,
             "assistant",
-            "**Ready to ship**\n\n- Canary first\n- Then the fleet\n\nSee https://github.com/manaflow-ai/cmux/pull/25794",
+            "**Ready to ship** `0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef`\n\n- Canary first\n- Then the fleet\n\nSee https://github.com/manaflow-ai/cmux/pull/25794",
           ),
           row(`summary-${index}`, "turnSummary", undefined, {
             status: "failed",
@@ -66,6 +66,10 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
       const card = page.locator(".acpmux-minimap__card");
       await card.waitFor({ state: "visible" });
       expect(await card.locator("strong").textContent()).toBe("Ready to ship");
+      const token = card.locator("code [title]");
+      expect(await token.getAttribute("title")).toBe("0123456789abcdef".repeat(4));
+      expect(await token.locator("[aria-hidden]").textContent()).toBe("0123456789abcdef0…f0123456789abcdef");
+      expect(await token.locator(".acpmux-minimap__full-token").textContent()).toBe("0123456789abcdef".repeat(4));
       expect(await card.locator(".acpmux-minimap__item").count()).toBeGreaterThan(0);
       expect(await card.locator(".acpmux-minimap__failure").textContent()).toContain("reconnect and try again");
       expect(await card.locator("[data-meta=pr]").getAttribute("href")).toBe(
@@ -95,6 +99,12 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
       expect(bounds.gap).toBeGreaterThanOrEqual(4);
       expect(bounds.width).toBeLessThanOrEqual(360);
       expect(bounds.bookmarkInside).toBe(true);
+      await page.locator(".acpmux-scroll").evaluate((node) => {
+        node.scrollTop = 200;
+      });
+      await card.locator("[data-meta=pr]").focus();
+      await page.keyboard.press("Home");
+      expect(await page.locator(".acpmux-scroll").evaluate((node) => node.scrollTop)).toBe(0);
       await card.locator(".acpmux-minimap__bookmark").click();
       await page.waitForFunction(
         () => document.querySelector(".acpmux-minimap__bookmark")?.getAttribute("aria-pressed") === "true",

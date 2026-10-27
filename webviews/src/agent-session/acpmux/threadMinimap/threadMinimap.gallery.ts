@@ -76,7 +76,7 @@ const rows = rowsOf(all);
 const cardRows = [
   user("Summarize the current rollout and compare it with the previous release", 18),
   assistant(
-    "**Ready to ship**\n\nThe rollout is staged by workspace.\n\n- Canary first\n- Then the full fleet\n\nSee [PR #25794](https://github.com/manaflow-ai/cmux/pull/25794) for the edge fix.",
+    "**Ready to ship** `0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef`\n\nThe rollout is staged by workspace.\n\n- Canary first\n- Then the full fleet\n\nSee [PR #25794](https://github.com/manaflow-ai/cmux/pull/25794) for the edge fix.",
     17.8,
   ),
   summary(17.6, { durationMs: 92_000, toolCount: 4 }),

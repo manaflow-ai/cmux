@@ -30,6 +30,20 @@ const linkLabel = (href: string) => {
 const timeLabel = (at: number) =>
   new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(at));
 
+// Only bounded preview spans pass here. Preserve both ends of hashes, paths and URLs; the full
+// token stays available to hover and assistive technology instead of taking over the whole card.
+const previewText = (value: string) =>
+  value.split(/(\S{40,})/).map((token, index) =>
+    token.length >= 40 && /[/.\\]|^[a-f\d]+$/i.test(token) ? (
+      <span key={index} title={token}>
+        <span aria-hidden="true">{middleEllipsis(token)}</span>
+        <span className="acpmux-minimap__full-token">{token}</span>
+      </span>
+    ) : (
+      token
+    ),
+  );
+
 /// How far a key scrolls the transcript while focus is in it: a line, most of a page, or to an end.
 function keyScroll(key: string, scroller: HTMLElement): number | undefined {
   const page = scroller.clientHeight * 0.875;
@@ -42,8 +56,8 @@ function keyScroll(key: string, scroller: HTMLElement): number | undefined {
   return undefined;
 }
 
-/// A scrolling key on the card's bookmark (its one stop) scrolls the transcript, as it did when the
-/// card drew inside it. The scroller gets a copy first, so its own key listeners run as for a key in
+/// A scrolling key on any card control scrolls the transcript, as when the card drew inside it.
+/// The scroller gets a copy first, so its own key listeners run as for a key in
 /// it (the scroll counts as the reader's, a jump in flight ends).
 function forwardScrollKey(scroller: HTMLElement, event: React.KeyboardEvent): void {
   if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
@@ -108,6 +122,7 @@ export const PreviewCard = React.forwardRef<
     [ref],
   );
   const at = layer ? origin : { x: 0, y: 0 };
+  const scrollKey = layer ? (event: React.KeyboardEvent) => forwardScrollKey(scroller!, event) : undefined;
   const card = (
     <div
       ref={own}
@@ -130,7 +145,7 @@ export const PreviewCard = React.forwardRef<
               aria-label={t(bookmark.marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
               title={t(bookmark.marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
               onClick={bookmark.toggle}
-              onKeyDown={layer ? (event) => forwardScrollKey(scroller!, event) : undefined}
+              onKeyDown={scrollKey}
             >
               <BookmarkIcon filled={bookmark.marked} />
             </button>
@@ -168,6 +183,7 @@ export const PreviewCard = React.forwardRef<
               rel="noreferrer"
               target="_blank"
               title={href}
+              onKeyDown={scrollKey}
             >
               {middleEllipsis(linkLabel(href))}
             </a>
@@ -185,7 +201,13 @@ export const PreviewCard = React.forwardRef<
           {reply.map((block, blockIndex) => (
             <p key={blockIndex} className={block.kind === "item" ? "acpmux-minimap__item" : undefined}>
               {block.spans.map((span, spanIndex) =>
-                span.bold ? <strong key={spanIndex}>{span.text}</strong> : span.text,
+                span.code ? (
+                  <code key={spanIndex}>{previewText(span.text)}</code>
+                ) : span.bold ? (
+                  <strong key={spanIndex}>{previewText(span.text)}</strong>
+                ) : (
+                  <React.Fragment key={spanIndex}>{previewText(span.text)}</React.Fragment>
+                ),
               )}
             </p>
           ))}
