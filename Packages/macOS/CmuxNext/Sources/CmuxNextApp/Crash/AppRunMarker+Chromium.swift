@@ -1,5 +1,6 @@
 import CmuxNextBrowser
 import CmuxNextCrashReporting
+import Foundation
 
 extension AppRunMarker {
     /// Chromium resets every signal action when `CefInitialize` runs, and
@@ -17,5 +18,17 @@ extension AppRunMarker {
         }
         engine.onReady = reinstall
         engine.onStartFailed = reinstall
+    }
+}
+
+extension ChromiumFatalLog {
+    /// The log of the previous app run that ran `CefInitialize` in process (p09-observability-084), read for its
+    /// crash event at this launch (``CrashReporter/previousRunEvidence(marker:bundleID:home:now:)``). `storage` is
+    /// the app's Chromium storage, as `CEFRuntime` picks it.
+    nonisolated static func app(previous run: PreviousRun, endedUncleanly: Bool, launched now: Date,
+                                storage: CEFProfileStorage = .forApplication(bundleIdentifier: Bundle.main.bundleIdentifier))
+        -> ChromiumFatalLog? {
+        app(pid: run.pid, launched: run.launched, endedUncleanly: endedUncleanly, now: now,
+            logFile: storage.logFile, previousLogFile: storage.previousLogFile)
     }
 }

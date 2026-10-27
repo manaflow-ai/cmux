@@ -163,6 +163,101 @@ struct TerminalAttachmentStreamTests {
         }
     }
 
+    /// Red before the fix (a view that reattached while the connection reconnected opened a connection of its
+    /// own to the endpoint of the lost epoch): the view waits for the connection's next epoch and streams on it.
+    @Test func aViewThatReattachesWhileTheConnectionReconnectsStreamsOnTheNextEpoch() async throws {
+        let stats = DaemonWireStats()
+        let daemon = try StreamWireDaemon(.init(outputBytes: [1: 10, 2: 10]))
+        defer { daemon.stop() }
+        let connection = try await Self.connect(daemon, stats: stats)
+        let lost = try await Self.attach(1, on: connection)
+        daemon.dropConnections()
+        guard case .connectionLost? = await Self.closeReason(of: lost) else {
+            Issue.record("a view whose connection dropped must end with connectionLost")
+            return
+        }
+        let again = try await Self.attach(2, on: connection)
+        #expect(again.stream != nil)
+        #expect(await Self.firstOutput(of: again)?.allSatisfy { $0 == UInt8(ascii: "c") } == true)
+        #expect(stats.snapshot().connectionsOpened[.terminalAttach, default: 0] == 0)
+        #expect(daemon.connections == 2, "the first epoch and the reconnect, no connection of the view's own")
+        again.detachNow()
+        await connection.close()
+    }
+
+    /// A view attached before the connection's first connect waits for it instead of failing `notConnected`.
+    @Test func aViewAttachedBeforeTheFirstConnectWaitsForIt() async throws {
+        let stats = DaemonWireStats()
+        let daemon = try StreamWireDaemon(.init(outputBytes: [1: 10]))
+        defer { daemon.stop() }
+        let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: daemon.path, wireStats: stats),
+                                          configuration: Self.configuration())
+        let early = Task { try await Self.attach(1, on: connection) }
+        _ = try await connection.start()
+        let view = try await early.value
+        #expect(view.stream != nil)
+        #expect(await Self.firstOutput(of: view) != nil)
+        #expect(stats.snapshot().connectionsOpened[.terminalAttach, default: 0] == 0)
+        view.detachNow()
+        await connection.close()
+    }
+
+    /// Red before the fix (the history counted toward the stream's overflow bound, so the view lost its stream
+    /// before it could read, and every reattach got the same burst): the history and images the daemon sends
+    /// after a READY never end the stream, however far past the high water they reach before the view reads.
+    @Test func aHistoryBurstPastTheHighWaterNeverOverflowsTheStream() async throws {
+        let history = 12 << 20
+        let daemon = try StreamWireDaemon(.init(outputBytes: [1: 1000], historyBytes: [1: history]))
+        defer { daemon.stop() }
+        let connection = try await Self.connect(daemon)
+        let view = try await Self.attach(1, on: connection)
+        // One round trip behind the burst: every history chunk is in the view's queue before it reads one.
+        _ = try await connection.request(IdentifyRequest(), timeout: .seconds(5))
+        var sawReady = false
+        var historyRead = 0
+        var closed: TerminalChannelCloseReason?
+        reading: for await event in view.events {
+            switch event {
+            case .snapshot(let frame) where frame.phase == .ready: sawReady = true
+            case .snapshot(let frame) where frame.phase == .history: historyRead += frame.data.count
+            case .output: break reading
+            case .closed(let reason):
+                closed = reason
+                break reading
+            default: break
+            }
+        }
+        #expect(closed == nil)
+        #expect(sawReady)
+        #expect(historyRead == history)
+        #expect(!daemon.requests.contains { $0.cmd == CancelStreamRequest.command })
+        view.detachNow()
+        await connection.close()
+    }
+
+    /// Red before the fix (the `cancel-stream` reply was dropped, so the id stayed taken until the connection
+    /// closed): an attach that timed out and that the daemon refused before it took the id frees the id at the
+    /// `ended` reply of its `cancel-stream`.
+    @Test func anAttachThatTimedOutAndWasNeverOpenedFreesItsID() async throws {
+        let daemon = try StreamWireDaemon(.init(failures: [9: .beforeClaimAfterTheDeadline]))
+        defer { daemon.stop() }
+        let connection = try await Self.connect(daemon)
+        guard case .stream(let carrier) = try await TerminalStreamCarrier.route(for: connection) else {
+            Issue.record("a streaming connection to a daemon that offers the grant carries streams")
+            return
+        }
+        await #expect(throws: DaemonError.self) {
+            _ = try await TerminalAttachment.attachStream(
+                on: carrier, target: .init(surface: SurfaceID(rawValue: 9)), size: Self.size, claimGeometry: false,
+                snapshotVersion: nil, localHistory: false, images: false, createIntent: 0, timeout: .milliseconds(50))
+        }
+        // The cancel-stream went out at the timeout; its reply rides ahead of this round trip's.
+        _ = try await connection.request(IdentifyRequest(), timeout: .seconds(5))
+        #expect(carrier.transport.attachStreamCount == 0)
+        #expect(daemon.requests.filter { $0.cmd == CancelStreamRequest.command }.map(\.stream) == [1])
+        await connection.close()
+    }
+
     /// The flag off, or a daemon that does not offer the grant, keeps each view on a connection of its own.
     @Test(arguments: [(false, true), (true, false)])
     func withoutTheGrantAViewOpensItsOwnConnection(streams: Bool, offered: Bool) async throws {

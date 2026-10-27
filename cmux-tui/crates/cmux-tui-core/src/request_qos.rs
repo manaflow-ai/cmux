@@ -87,11 +87,45 @@ impl RequestQos {
     /// pass as a [`WorkQos`], so a ranked lock the pass holds (a terminal
     /// slot a PTY reader waits for, the workspace registry a request waits
     /// for) raises it to `LOCK_HOLDER_QOS` until it is released
-    /// (`crate::lock_rank`). A thread declared utility is never raised.
+    /// (`crate::lock_rank`), as it raises a thread declared utility.
     pub(crate) fn enter_upkeep_pass(self) -> Option<WorkQos> {
         self.enter_class(UPKEEP_PASS_QOS)
     }
+
+    /// Starts one-shot thread `name` to finish the request running on the
+    /// calling thread (an agent call, a Chief query, a URL open: its reply
+    /// waits on the thread). It starts at [`REQUEST_HELPER_QOS`], the
+    /// dispatcher's class, never at the class it would inherit (the echo
+    /// class of a person's reader), and with the feature on runs at the
+    /// class of the request's cause, as Chromium posts a task with the
+    /// priority of the work it serves (base/task/task_traits.h). `stack`
+    /// is its stack size in bytes, `None` for the platform default.
+    pub(crate) fn spawn_helper<F, T>(
+        self,
+        name: &str,
+        stack: Option<usize>,
+        f: F,
+    ) -> std::io::Result<std::thread::JoinHandle<T>>
+    where
+        F: FnOnce() -> T + Send + 'static,
+        T: Send + 'static,
+    {
+        let class = if self.enabled { EventCause::current().request_qos() } else { None };
+        let body = move || {
+            let _class = class.map(WorkQos::enter);
+            f()
+        };
+        match stack {
+            Some(bytes) => cmux_threads::spawn_with_stack(name, REQUEST_HELPER_QOS, bytes, body),
+            None => cmux_threads::spawn(name, REQUEST_HELPER_QOS, body),
+        }
+    }
 }
+
+/// The class a request's one-shot helper thread starts at
+/// ([`RequestQos::spawn_helper`]): the request dispatcher's.
+pub(crate) const REQUEST_HELPER_QOS: cmux_threads::ThreadQos =
+    crate::thread_qos::ThreadType::Interactive.qos();
 
 /// The class a daemon upkeep thread is started at
 /// ([`RequestQos::enter_upkeep_pass`]).

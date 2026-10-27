@@ -23,8 +23,8 @@ extension LineTransport {
         state.withLock { $0.attachStreams.bind(handle, sink) }
     }
 
-    /// Drops the handle's later items; its id stays taken until its `stream-end`. True when the stream was
-    /// still open, so a `cancel-stream` is due.
+    /// Drops the handle's later items; its id stays taken until its `stream-end` or its `cancel-stream` reply.
+    /// True when it was not cancelled yet, so a `cancel-stream` is due.
     func cancelAttachStream(_ handle: AttachStreamHandle) -> Bool {
         state.withLock { $0.attachStreams.cancel(handle) }
     }

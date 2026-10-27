@@ -106,7 +106,7 @@ extension PageWebView {
 
     /// Starts the document at ``route`` in the engine ``engineDecision`` picked; a Chromium page is made with `origin`.
     func startDocument(_ start: PageFirstShowStart, origin: PageChromiumOrigin) {
-        traceOpenRequested(.newView, constructedSince: start.requested)
+        traceOpenRequested(isPooled ? .spare : .newView, constructedSince: start.requested)
         if engineDecision.engine == .cef, let hosting = start.chromium {
             startChromium(hosting: hosting, origin: origin)
         } else {
