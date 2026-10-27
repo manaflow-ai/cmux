@@ -948,8 +948,9 @@ def unacquired(job: Mapping[str, Any]) -> bool:
 CANCELLED_BY = re.compile(r"\bThe run was cancell?ed by @([A-Za-z0-9-]+(?:\[bot\])?)")
 
 
-# Annotation reads per look: GitHub writes the "canceled by" line on some of a cancelled run's jobs.
-CANCELLED_BY_READS = 3
+# Annotation reads per look: GitHub writes the "canceled by" line on some of a cancelled run's jobs, so each is read
+# until one names the canceller; a run with more cancelled jobs than this, none read naming one, is unknown.
+CANCELLED_BY_READS = 30
 # rescue() logs CANCEL_SENT once the cancel it means to follow with a re-run went out, and CANCEL_SETTLED when it is
 # done with that cancel either way (re-ran, or left it: a moved head, someone else's re-run, an error). Both are
 # in the rescue job's own log, which outlives the job: a run with CANCEL_SENT and no CANCEL_SETTLED is one whose
@@ -982,8 +983,8 @@ def cancel_marks(lines: Any) -> dict[tuple[int, int], str]:
 
 def canceller(api: GitHub, jobs: Sequence[Mapping[str, Any]], sleep: Callable[[float], None],
               log: Callable[[str], None]) -> str | None:
-    """Who cancelled the run, as GitHub's annotation on one of its cancelled jobs says ("" when none says;
-    None when the annotations could not be read). Jobs no runner acquired first."""
+    """Who cancelled the run, as GitHub's annotation on one of its cancelled jobs says ("" when none of them says;
+    None when the annotations could not be read, or not all of them). Jobs no runner acquired first."""
     cancelled = sorted((job for job in jobs if job.get("conclusion") == "cancelled" and job.get("id")),
                        key=lambda job: not unacquired(job))
     for job in cancelled[:CANCELLED_BY_READS]:
@@ -996,6 +997,9 @@ def canceller(api: GitHub, jobs: Sequence[Mapping[str, Any]], sleep: Callable[[f
             found = CANCELLED_BY.search(str(note.get("message") or ""))
             if found:
                 return found.group(1)
+    if len(cancelled) > CANCELLED_BY_READS:
+        log(f"{len(cancelled)} cancelled jobs, and none of the first {CANCELLED_BY_READS} names who cancelled the run")
+        return None
     return ""
 
 
@@ -1766,13 +1770,14 @@ class GitHub:
         request = urllib.request.Request(f"{API}/repos/{self.repo}/actions/jobs/{job_id}/logs",
                                          headers=dict(self.read_headers))
         def scan(response: Any) -> dict[tuple[int, int], str] | None:
-            """None unless the whole log was read: a length GitHub stated and got, or a chunked transfer (whose
-            early end http.client raises). Lines are read JOB_LOG_LINE_BYTES at a time; a longer one is skipped
-            (a mark is a short line of its own)."""
+            """None unless the whole log was read: a Content-Length the response states, and exactly that many bytes.
+            A chunked or unsized transfer is not judged (http.client's readline() swallows a chunked one's early
+            end). Lines are read JOB_LOG_LINE_BYTES at a time; a longer one is skipped (a mark is a short line of
+            its own)."""
             headers = getattr(response, "headers", None) or {}
             stated = headers.get("Content-Length")
-            chunked = "chunked" in str(headers.get("Transfer-Encoding") or "").lower()
-            if stated is None and not chunked:
+            if stated is None or "chunked" in str(headers.get("Transfer-Encoding") or "").lower() or \
+                    str(headers.get("Content-Encoding") or "identity").lower() != "identity":
                 return None
             read_bytes, lines, partial = 0, [], False
             while True:
@@ -1786,7 +1791,7 @@ class GitHub:
                 if not partial and (whole or len(raw) < JOB_LOG_LINE_BYTES):
                     lines.append(raw.decode("utf-8", "replace"))
                 partial = not whole
-            if stated is not None and read_bytes != int(stated):
+            if read_bytes != int(stated):
                 return None
             return cancel_marks(lines)
         try:
