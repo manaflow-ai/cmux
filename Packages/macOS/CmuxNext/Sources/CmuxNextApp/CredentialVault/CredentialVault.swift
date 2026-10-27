@@ -1,0 +1,300 @@
+import CmuxNextCompat
+import Foundation
+
+/// The Chief vault (cmux issue 26412): credentials the person hands cmux (API keys, tokens) that
+/// agents use by name without seeing them. One owner: this store. A value lives only in the login
+/// Keychain (``CredentialVaultSecretStoring``); the folder holds names, scopes and use times
+/// (`vault.json`) and the audit log (`vault-audit.jsonl`), never a value.
+///
+/// Every call blocks on the Keychain or the disk: callers run them off the main actor
+/// (`CredentialVaultControl` runs them on the async lane).
+nonisolated final class CredentialVault: Sendable {
+    /// Who may resolve a secret: the person's own terminals and CLI, and agents (agent sessions
+    /// and Chief turns). A caller names itself (`caller`, as for `action.run`); the vault's
+    /// boundary against other programs is the Keychain item, which only this app reads.
+    enum Consumer: String, CaseIterable, Codable, Sendable {
+        case user
+        case agents
+    }
+
+    /// One secret's record (no value).
+    struct Entry: Codable, Equatable, Sendable {
+        var scope: [Consumer]
+        var note: String?
+        var createdMs: Int64
+        var updatedMs: Int64
+        var lastUsedMs: Int64?
+        var lastUsedBy: String?
+        var uses: Int
+
+        enum CodingKeys: String, CodingKey {
+            case scope, note, uses
+            case createdMs = "created_ms", updatedMs = "updated_ms", lastUsedMs = "last_used_ms", lastUsedBy = "last_used_by"
+        }
+    }
+
+    /// Who asks, from the request's `caller` (see ``Consumer``).
+    struct Caller: Equatable, Sendable {
+        var consumer: Consumer
+        /// "agent session X", "Chief", "terminal X", "you": the audit log's words, no secret.
+        var label: String
+    }
+
+    /// One audit line: what was asked, by whom, and the outcome. Never a value.
+    struct AuditRecord: Codable, Equatable, Sendable {
+        var atMs: Int64
+        var event: String
+        var names: [String]
+        var by: String
+        var consumer: Consumer
+        var command: String?
+        var outcome: String
+
+        enum CodingKeys: String, CodingKey {
+            case event, names, by, consumer, command, outcome
+            case atMs = "at_ms"
+        }
+    }
+
+    enum Failure: Error, Equatable, Sendable {
+        case invalidName(String)
+        case invalidValue(String)
+        case invalidNote
+        case emptyScope
+        case missing([String])
+        case denied([String], Consumer)
+        case agentsMayNotWrite
+        case keychain(Int32)
+        case index(String)
+    }
+
+    /// `[A-Za-z_][A-Za-z0-9_]*`, at most 128: a name is also the default env variable it fills.
+    static func isValidName(_ name: String) -> Bool {
+        guard (1...128).contains(name.utf8.count), let first = name.unicodeScalars.first else { return false }
+        let letter: (Unicode.Scalar) -> Bool = { ("a"..."z").contains($0) || ("A"..."Z").contains($0) || $0 == "_" }
+        return letter(first) && name.unicodeScalars.allSatisfy { letter($0) || ("0"..."9").contains($0) }
+    }
+
+    static let maxValueBytes = 64 * 1024
+    static let maxNoteCharacters = 200
+    /// The audit log keeps at least this many of its newest lines; it is cut back when twice as long.
+    static let auditKeep = 1000
+
+    private let secrets: any CredentialVaultSecretStoring
+    private let folder: URL
+    private let now: @Sendable () -> Date
+    /// Serializes every read-modify-write of the index and the audit log.
+    private let lock = Mutex(())
+
+    init(secrets: any CredentialVaultSecretStoring, folder: URL, now: @escaping @Sendable () -> Date = Date.init) {
+        self.secrets = secrets
+        self.folder = folder
+        self.now = now
+    }
+
+    /// The app's vault: `<Application Support>/<bundle id>/CredentialVault`, Keychain service `<bundle id>.credential-vault`
+    /// (a tagged build has its own, as its accounts keys do).
+    static func forApplication(bundleID: String?) -> CredentialVault {
+        let bundle = bundleID.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(filePath: NSTemporaryDirectory())
+        return CredentialVault(secrets: KeychainCredentialVaultSecrets(service: "\(bundle).credential-vault"),
+                               folder: support.appending(path: bundle).appending(path: "CredentialVault", directoryHint: .isDirectory))
+    }
+
+    var indexURL: URL { folder.appending(path: "vault.json") }
+    var auditURL: URL { folder.appending(path: "vault-audit.jsonl") }
+
+    // MARK: Reads
+
+    /// Every secret's record by name.
+    func list() throws -> [String: Entry] {
+        try lock.withLock { _ in try readIndex() }
+    }
+
+    /// The newest `limit` audit lines, oldest first.
+    func audit(limit: Int) throws -> [AuditRecord] {
+        try lock.withLock { _ in
+            guard let data = try? Data(contentsOf: auditURL) else { return [] }
+            let lines = data.split(separator: UInt8(ascii: "\n")).suffix(max(0, limit))
+            return lines.compactMap { try? JSONDecoder().decode(AuditRecord.self, from: Data($0)) }
+        }
+    }
+
+    // MARK: Writes (the person only)
+
+    /// Stores `value` under `name` (replacing one there); true when it replaced one. `scope` nil
+    /// keeps a replaced secret's scope (new: every consumer); `note` nil keeps its note.
+    @discardableResult
+    func set(_ name: String, value: String, scope: [Consumer]?, note: String?, by caller: Caller, event: String = "set") throws -> Bool {
+        guard caller.consumer == .user else { throw Failure.agentsMayNotWrite }
+        guard Self.isValidName(name) else { throw Failure.invalidName(name) }
+        guard !value.isEmpty, value.utf8.count <= Self.maxValueBytes, !value.contains("\0") else { throw Failure.invalidValue(name) }
+        if let note, note.count > Self.maxNoteCharacters { throw Failure.invalidNote }
+        if let scope, scope.isEmpty { throw Failure.emptyScope }
+        return try lock.withLock { _ in
+            var index = try readIndex()
+            let at = millis()
+            let old = index[name]
+            try secrets.save(value, for: name)
+            index[name] = Entry(scope: Self.ordered(scope ?? old?.scope ?? Consumer.allCases),
+                                note: (note ?? old?.note).flatMap { $0.isEmpty ? nil : $0 },
+                                createdMs: old?.createdMs ?? at, updatedMs: at, lastUsedMs: old?.lastUsedMs,
+                                lastUsedBy: old?.lastUsedBy, uses: old?.uses ?? 0)
+            try writeIndex(index)
+            appendAudit(AuditRecord(atMs: at, event: event, names: [name], by: caller.label, consumer: caller.consumer,
+                                    command: nil, outcome: old == nil ? "stored" : "replaced"))
+            return old != nil
+        }
+    }
+
+    /// Changes who may use `name`.
+    func setScope(_ name: String, scope: [Consumer], by caller: Caller) throws {
+        guard caller.consumer == .user else { throw Failure.agentsMayNotWrite }
+        guard !scope.isEmpty else { throw Failure.emptyScope }
+        try lock.withLock { _ in
+            var index = try readIndex()
+            guard var entry = index[name] else { throw Failure.missing([name]) }
+            entry.scope = Self.ordered(scope)
+            entry.updatedMs = millis()
+            index[name] = entry
+            try writeIndex(index)
+            appendAudit(AuditRecord(atMs: entry.updatedMs, event: "scope", names: [name], by: caller.label, consumer: caller.consumer,
+                                    command: nil, outcome: entry.scope.map(\.rawValue).joined(separator: ",")))
+        }
+    }
+
+    /// Removes `name` from the Keychain and the index; false when there was none.
+    @discardableResult
+    func remove(_ name: String, by caller: Caller) throws -> Bool {
+        guard caller.consumer == .user else { throw Failure.agentsMayNotWrite }
+        return try lock.withLock { _ in
+            var index = try readIndex()
+            try secrets.delete(name)
+            let existed = index.removeValue(forKey: name) != nil
+            try writeIndex(index)
+            appendAudit(AuditRecord(atMs: millis(), event: "remove", names: [name], by: caller.label, consumer: caller.consumer,
+                                    command: nil, outcome: existed ? "removed" : "absent"))
+            return existed
+        }
+    }
+
+    // MARK: Use
+
+    /// The values of `names` for `caller`, all or none: every name must exist and allow the
+    /// caller's consumer. Each grant or refusal is one audit line naming `command`.
+    func resolve(_ names: [String], for caller: Caller, command: String?) throws -> [String: String] {
+        var seen = Set<String>()
+        let names = names.filter { seen.insert($0).inserted }
+        if let bad = names.first(where: { !Self.isValidName($0) }) { throw Failure.invalidName(bad) }
+        return try lock.withLock { _ in
+            var index = try readIndex()
+            let at = millis()
+            let record = { (outcome: String) in
+                self.appendAudit(AuditRecord(atMs: at, event: "use", names: names, by: caller.label, consumer: caller.consumer,
+                                             command: command.map(Self.commandSummary), outcome: outcome))
+            }
+            let missing = names.filter { index[$0] == nil }
+            guard missing.isEmpty else {
+                record("missing")
+                throw Failure.missing(missing)
+            }
+            let denied = names.filter { !(index[$0]?.scope.contains(caller.consumer) ?? false) }
+            guard denied.isEmpty else {
+                record("denied")
+                throw Failure.denied(denied, caller.consumer)
+            }
+            var values: [String: String] = [:]
+            for name in names {
+                guard let value = try secrets.value(for: name) else {
+                    record("missing")
+                    throw Failure.missing([name])
+                }
+                values[name] = value
+                index[name]?.lastUsedMs = at
+                index[name]?.lastUsedBy = caller.label
+                index[name]?.uses += 1
+            }
+            try writeIndex(index)
+            record("granted")
+            return values
+        }
+    }
+
+    // MARK: Files
+
+    private func millis() -> Int64 { Int64((now().timeIntervalSince1970 * 1000).rounded()) }
+
+    private static func ordered(_ scope: [Consumer]) -> [Consumer] {
+        Consumer.allCases.filter(scope.contains)
+    }
+
+    /// The program a `vault exec` runs, for the audit log: its first word without a folder, at most
+    /// 80 characters. Its arguments may hold anything, so they are never logged.
+    static func commandSummary(_ command: String) -> String {
+        let first = command.split(separator: " ", maxSplits: 1).first.map(String.init) ?? command
+        return String((first as NSString).lastPathComponent.prefix(80))
+    }
+
+    private struct IndexFile: Codable {
+        var version = 1
+        var secrets: [String: Entry]
+    }
+
+    /// No file is an empty vault; a file that is there but unreadable is an error, so a write
+    /// never drops the names it listed.
+    private func readIndex() throws -> [String: Entry] {
+        let data: Data
+        do {
+            data = try Data(contentsOf: indexURL)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            return [:]
+        }
+        do {
+            let file = try JSONDecoder().decode(IndexFile.self, from: data)
+            guard file.secrets.keys.allSatisfy(Self.isValidName) else { throw Failure.index(indexURL.path) }
+            return file.secrets
+        } catch {
+            throw Failure.index(indexURL.path)
+        }
+    }
+
+    private func writeIndex(_ secrets: [String: Entry]) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        do {
+            try ensureFolder()
+            try encoder.encode(IndexFile(secrets: secrets)).write(to: indexURL, options: [.atomic])
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: indexURL.path)
+        } catch {
+            throw Failure.index(indexURL.path)
+        }
+    }
+
+    private func ensureFolder() throws {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    }
+
+    /// Appends one line (owner-only file); a log that grew past twice ``auditKeep`` is cut back to
+    /// its newest ``auditKeep`` lines. An audit write that fails does not undo the work it records.
+    private func appendAudit(_ record: AuditRecord) {
+        guard var line = try? JSONEncoder().encode(record) else { return }
+        line.append(UInt8(ascii: "\n"))
+        try? ensureFolder()
+        let manager = FileManager.default
+        if !manager.fileExists(atPath: auditURL.path) {
+            manager.createFile(atPath: auditURL.path, contents: nil, attributes: [.posixPermissions: 0o600])
+        }
+        guard let handle = try? FileHandle(forWritingTo: auditURL) else { return }
+        defer { try? handle.close() }
+        guard (try? handle.seekToEnd()) != nil, (try? handle.write(contentsOf: line)) != nil else { return }
+        guard let size = try? handle.offset(), size > 256 * Self.auditKeep,
+              let data = try? Data(contentsOf: auditURL) else { return }
+        let lines = data.split(separator: UInt8(ascii: "\n"))
+        guard lines.count > 2 * Self.auditKeep else { return }
+        var kept = Data(lines.suffix(Self.auditKeep).joined(separator: [UInt8(ascii: "\n")]))
+        kept.append(UInt8(ascii: "\n"))
+        try? kept.write(to: auditURL, options: [.atomic])
+        try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: auditURL.path)
+    }
+}

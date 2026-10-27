@@ -127,6 +127,7 @@ fn the_shipped_skill_installs_once_and_a_user_copy_is_kept() {
         written,
         vec![
             "chief-auth-escalation".to_owned(),
+            "chief-vault".to_owned(),
             "cmux-adoption".to_owned(),
             "cmux-setup".to_owned(),
             "paid-plans".to_owned()

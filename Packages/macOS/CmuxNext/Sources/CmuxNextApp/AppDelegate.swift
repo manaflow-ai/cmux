@@ -372,6 +372,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
                 control.registerCloudMethods(services)
                 control.registerAccountsMethods(services)
+                control.registerCredentialVaultMethods(services)
                 control.registerBillingMethods(services)
                 control.registerRemoteMethods(services)
                 control.registerMobileMethods(services)

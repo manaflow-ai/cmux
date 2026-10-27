@@ -28,7 +28,15 @@ enum DebugDialog {
     /// link's new tab (any page or app can open the link).
     static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier, CloudPresenter.credentialRecoveryIdentifier, CloudPresenter.codexDeviceCodeIdentifier,
                                         CloudWorkspaceSetupWizard.credentialDialogIdentifier, DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier, ExternalLinkGate.sshDialogIdentifier,
-                                        SessionLinkGate.dialogIdentifier]
+                                        SessionLinkGate.dialogIdentifier, CredentialVaultEntrySheet.identifier]
+
+    /// Text fields whose value a report never shows (a password, a vault secret): their ids per dialog.
+    static func secureFields(_ spec: CmuxDialogSpec) -> Set<String> {
+        Set(spec.fields.compactMap { field in
+            if case .text(let id, _, _, _, true) = field { return id }
+            return nil
+        })
+    }
 
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
         let center = CmuxDialogCenter.shared
@@ -90,9 +98,10 @@ enum DebugDialog {
 
     private static func report(_ record: CmuxDialogCenter.Record, view: CmuxDialogView?) -> JSONValue {
         var values: [String: JSONValue] = [:]
+        let secure = secureFields(record.spec)
         for (field, value) in record.values {
             switch value {
-            case .text(let text): values[field] = .string(text)
+            case .text(let text): values[field] = secure.contains(field) ? .string(text.isEmpty ? "" : "<hidden>") : .string(text)
             case .bool(let on): values[field] = .bool(on)
             }
         }

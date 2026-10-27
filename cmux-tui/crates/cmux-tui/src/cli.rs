@@ -33,6 +33,8 @@ mod chief_target;
 mod cloud_machines;
 #[cfg(unix)]
 mod cloud_secret;
+#[cfg(unix)]
+mod vault;
 mod code_mode;
 #[cfg(unix)]
 mod coderouter;
@@ -355,6 +357,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| vault::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
