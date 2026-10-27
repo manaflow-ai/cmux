@@ -16,8 +16,11 @@ shared Sentry project (CrashReportingPolicy.swift: release `cmux-next@<version>+
 - New top signatures: the --top unhandled (crash) issues first seen inside the window, most events first, each
   with the release Sentry saw it in first.
 - With --db, each new top signature is one alert group in the lab store (state `new`, one sheriff_history row by
-  actor perf-lab-stability), so the sheriff loop (sheriff.py) triages it like a perf group. The creation row's
-  reason starts `stability sentry:<id>:`, which keys the group: a signature gets one group, ever.
+  actor perf-lab-stability), so the sheriff loop (sheriff.py) triages it like a perf group. Its field_signatures
+  row (store migration 4) keys the group, so a signature gets one group, ever, and marks it a field group: Pinpoint
+  never bisects it and the perf SLO leaves it out. Each run also reads every open field group's last release from
+  Sentry and stores the newer cmux NEXT releases with sessions that did not crash with it; the sheriff's `fixed`
+  needs sheriff.FIELD_CLEAN_RELEASES of them.
 - With --sync-issues, each group links the one GitHub issue of its Sentry issue: stability_issues.py's issue
   (it keeps exactly one per Sentry id and edits it, never files a second), or the issue the Sentry issue already
   links or an other-owner entry claims. Then each sheriff state change is posted once to that issue, with the
@@ -63,7 +66,7 @@ MAX_PAGES = 10
 DEFAULT_TOP = 10
 ACTOR = "perf-lab-stability"
 SIGNATURE_KEY = "stability sentry:"
-SIGNATURE_REASON = re.compile(r"^stability sentry:(\d+):")
+SOURCE = "sentry"
 # A field signature has no commit range; -1..-1 overlaps no waterfall range, so no perf alert joins its group.
 NO_COMMIT_RANGE = -1
 SESSION_FIELDS = ("sum(session)", "count_unique(user)", "crash_free_rate(session)", "crash_free_rate(user)")
@@ -93,6 +96,7 @@ health = _load("perf_lab_stability_health", CMUX_NEXT_SCRIPTS / "stability-healt
 issues_mod = _load("perf_lab_stability_issues", CMUX_NEXT_SCRIPTS / "stability_issues.py")
 store_mod = _load("perf_lab_store", HERE / "store.py")
 alerts = _load("perf_lab_alerts", HERE / "alerts.py")
+sheriff_mod = _load("perf_lab_sheriff", HERE / "sheriff.py")
 
 Fetch = Callable[[str, list[tuple[str, str]]], tuple[Any, dict[str, str]]]
 
@@ -241,17 +245,18 @@ def _instant(text: object) -> datetime | None:
 
 @dataclass(frozen=True)
 class Signature:
-    """One new top crash signature: a Sentry issue (normalized by stability-health.py) and its first release."""
+    """One new top crash signature: a Sentry issue (normalized by stability-health.py), its first and last release."""
 
     issue: Mapping[str, Any]
     first_release: str | None
+    last_release: str | None = None
 
     @property
     def sentry_id(self) -> str:
         return str(self.issue["id"])
 
     def reason(self) -> str:
-        """The creation row's reason; its prefix keys the group (SIGNATURE_REASON)."""
+        """The creation row's reason."""
         title = " ".join(str(self.issue.get("title") or "").split())[:120]
         return (f"{SIGNATURE_KEY}{self.sentry_id}: new top crash signature {self.issue.get('short_id') or '-'} "
                 f"{title} (first release {self.first_release or 'unknown'}, {self.issue.get('events', 0)} events, "
@@ -287,19 +292,23 @@ def new_top_issues(fetch: Fetch, scope: Scope, *, top: int, now: datetime,
     return sorted(found, key=lambda issue: -issue["events"])[:top]
 
 
-def first_release(fetch: Fetch, scope: Scope, sentry_id: str) -> str | None:
-    """The release Sentry first saw the issue in, in this environment; None when it is not a cmux NEXT release."""
+def issue_releases(fetch: Fetch, scope: Scope, sentry_id: str) -> tuple[str | None, str | None]:
+    """The releases Sentry first and last saw the issue in, in this environment; None when not a cmux NEXT release."""
     path = f"/organizations/{scope.org}/issues/{sentry_id}/"
     data, _ = fetch(path, [("environment", scope.env)])
+
+    def version(key: str) -> str | None:
+        release = data.get(key) or {}
+        name = release.get("version") if isinstance(release, dict) else None
+        return name if isinstance(name, str) and RELEASE.match(name) else None
+
     with health.response_shape(path):
-        release = data.get("firstRelease") or {}
-        version = release.get("version") if isinstance(release, dict) else None
-    return version if isinstance(version, str) and RELEASE.match(version) else None
+        return version("firstRelease"), version("lastRelease")
 
 
 def fetch_signatures(fetch: Fetch, scope: Scope, *, top: int, now: datetime,
                      owners: Sequence[Mapping[str, Any]] = ()) -> list[Signature]:
-    return [Signature(issue, first_release(fetch, scope, issue["id"]))
+    return [Signature(issue, *issue_releases(fetch, scope, issue["id"]))
             for issue in new_top_issues(fetch, scope, top=top, now=now, owners=owners)]
 
 
@@ -353,22 +362,16 @@ def render_text(result: Mapping[str, Any]) -> str:
 
 
 def signature_groups(store) -> dict[str, int]:
-    """Sentry id -> its alert group, from the creation rows this command wrote."""
-    rows = store._db.execute(
-        "SELECT group_id, reason FROM sheriff_history WHERE actor = ? AND from_state IS NULL AND reason LIKE ?",
-        (ACTOR, f"{SIGNATURE_KEY}%")).fetchall()
-    found: dict[str, int] = {}
-    for row in rows:
-        match = SIGNATURE_REASON.match(row["reason"] or "")
-        if match:
-            found.setdefault(match.group(1), row["group_id"])
-    return found
+    """Sentry id -> its alert group (field_signatures)."""
+    return {row["signature"]: row["group_id"] for row in store._db.execute(
+        "SELECT signature, group_id FROM field_signatures WHERE source = ?", (SOURCE,))}
 
 
 @dataclass
 class GroupReport:
     created: dict[str, int] = field(default_factory=dict)
     existing: dict[str, int] = field(default_factory=dict)
+    judged: dict[str, dict[str, object]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         return dict(self.__dict__)
@@ -378,8 +381,8 @@ class GroupReport:
 
 
 def record_groups(store, signatures: Sequence[Signature]) -> GroupReport:
-    """One alert group per new top signature that has none. The read and the inserts share one write transaction,
-    so two runs never make two groups for one signature."""
+    """One alert group per new top signature that has none, keyed by its field_signatures row (UNIQUE), in one write
+    transaction with the read, so two runs never make two groups for one signature."""
     out = GroupReport()
 
     def write() -> None:
@@ -392,6 +395,8 @@ def record_groups(store, signatures: Sequence[Signature]) -> GroupReport:
             group_id = store._db.execute(
                 "INSERT INTO alert_groups (state, start_pos, end_pos, created_at, updated_at) VALUES ('new', ?, ?, ?, ?)",
                 (NO_COMMIT_RANGE, NO_COMMIT_RANGE, now, now)).lastrowid
+            store._db.execute("INSERT INTO field_signatures (group_id, source, signature) VALUES (?, ?, ?)",
+                              (group_id, SOURCE, signature.sentry_id))
             store._db.execute(
                 "INSERT INTO sheriff_history (group_id, from_state, to_state, actor, reason, at) "
                 "VALUES (?, NULL, 'new', ?, ?, ?)", (group_id, ACTOR, signature.reason(), now))
@@ -402,6 +407,43 @@ def record_groups(store, signatures: Sequence[Signature]) -> GroupReport:
     return out
 
 
+def clean_releases(rows: Sequence[ReleaseRow], last_release: str | None) -> list[str]:
+    """The cmux NEXT releases with sessions built after `last_release`, newest first: each ran without the signature."""
+    match = RELEASE.match(last_release or "")
+    if match is None:
+        return []
+    last_build = int(match.group("build"))
+    return [row.release for row in rows if row.rates.sessions > 0 and row.build > last_build]
+
+
+def judge_groups(store, fetch: Fetch, scope: Scope, rows: Sequence[ReleaseRow], signatures: Sequence[Signature],
+                 out: GroupReport) -> None:
+    """Stores each open field group's last release and the releases since that ran clean (sheriff.field_recovery
+    judges `fixed` on them). A signature of this run reuses its read; any other open group costs one issue read."""
+    marks = ",".join("?" * len(sheriff_mod.TERMINAL))
+    groups = store._db.execute(
+        f"""SELECT f.group_id, f.signature FROM field_signatures f JOIN alert_groups g ON g.id = f.group_id
+            WHERE f.source = ? AND g.state NOT IN ({marks}) ORDER BY f.group_id""",
+        (SOURCE, *sorted(sheriff_mod.TERMINAL))).fetchall()
+    read = {signature.sentry_id: signature.last_release for signature in signatures}
+    evidence: list[tuple[int, str, str | None, list[str]]] = []
+    for group in groups:
+        sentry_id = group["signature"]
+        last = read[sentry_id] if sentry_id in read else issue_releases(fetch, scope, sentry_id)[1]
+        evidence.append((group["group_id"], sentry_id, last, clean_releases(rows, last)))
+
+    def write() -> None:
+        now = store._now()
+        for group_id, _, last, clean in evidence:
+            store._db.execute("UPDATE field_signatures SET last_release = ?, clean_releases_json = ?, checked_at = ? "
+                              "WHERE group_id = ?", (last, json.dumps(clean), now, group_id))
+
+    store._write(write)
+    for group_id, sentry_id, last, clean in evidence:
+        out.judged[sentry_id] = {"group": group_id, "last_release": last, "clean_releases": clean,
+                                 "recovered": len(clean) >= sheriff_mod.FIELD_CLEAN_RELEASES}
+
+
 # --- GitHub issues ------------------------------------------------------------------------------------------------
 
 
@@ -410,20 +452,25 @@ def health_entries(signatures: Sequence[Signature]) -> list[dict[str, Any]]:
 
 
 def issue_numbers(issues: Sequence[Any], entries: Sequence[Mapping[str, Any]]) -> dict[str, int]:
-    """Sentry id -> the one GitHub issue that tracks it: the stability issue whose state links it (the lowest number,
-    as stability_issues.py keeps), else the issue the Sentry issue links, else the other owner's issue."""
+    """Sentry id -> the one GitHub issue that tracks it, decided in stability_issues.plan_sentry's order: the stability
+    issue whose state links it (the lowest number), else the other owner's issue, else the stability issue its
+    annotations name, else the first issue they name. A signature issue not filed yet (a deferred write) has none."""
+    stability_numbers = {issue.number for issue in issues_mod.index_issues(list(issues))[0].values()}
     linked: dict[str, int] = {}
     for issue in sorted(issues, key=lambda item: item.number):
         for sentry_id in (issues_mod.read_state(issue.body) or {}).get("sentry") or {}:
             linked.setdefault(str(sentry_id), issue.number)
     for entry in entries:
-        sentry_id = str(entry["id"])
+        sentry_id = str(entry["id"]).strip()
         if sentry_id in linked:
             continue
-        if entry.get("github"):
-            linked[sentry_id] = int(entry["github"][0])
-        elif entry.get("owner") and isinstance(entry["owner"].get("github_issue"), int):
-            linked[sentry_id] = entry["owner"]["github_issue"]
+        owner = entry.get("owner")
+        named = [int(number) for number in entry.get("github") or ()]
+        if owner:
+            if isinstance(owner.get("github_issue"), int):
+                linked[sentry_id] = owner["github_issue"]
+        elif named:
+            linked[sentry_id] = next((number for number in named if number in stability_numbers), named[0])
     return linked
 
 
@@ -452,8 +499,8 @@ def sync_issues(store, signatures: Sequence[Signature], groups: Mapping[str, int
     tracked, notes = issues_mod.plan_sentry(listed, report_doc)
     outcome = issues_mod.apply(tracked, github, max_writes, dry_run)
     out.applied, out.deferred, out.notes = outcome.applied, outcome.deferred, notes + outcome.notes
-    if not dry_run and any(item.startswith("create ") for item in outcome.applied):
-        listed = github.list_issues(issues_mod.LABEL)  # the numbers of the issues just created
+    if not dry_run and outcome.applied:
+        listed = github.list_issues(issues_mod.LABEL)  # the bodies just written, and the numbers just created
     numbers = issue_numbers(listed, entries)
     for sentry_id, group_id in groups.items():
         if sentry_id in numbers:
@@ -466,20 +513,21 @@ def sync_issues(store, signatures: Sequence[Signature], groups: Mapping[str, int
 
 
 def post_state_changes(store, comments, *, changed_since: datetime) -> int:
-    """One comment per sheriff_history row of each linked stability group that changed since `changed_since`, posted
-    once: which rows an issue has is read back from its comments (alerts.STATE_MARKER). An issue with none yet gets
-    the group's current state. Every move updates the group, so a run per window posts every move."""
+    """One comment per sheriff_history row of each linked field group that changed since `changed_since`, posted
+    once: which of the group's own rows an issue has is read back from its comments (alerts.STATE_MARKER; groups that
+    share one issue interleave their rows there). An issue with none of the group's rows yet gets its current state.
+    Every move updates the group, so a run per window posts every move."""
     groups = store._db.execute(
-        """SELECT DISTINCT g.id, g.issue_number FROM alert_groups g JOIN sheriff_history h ON h.group_id = g.id
-           WHERE g.issue_number IS NOT NULL AND g.updated_at >= ? AND h.actor = ? AND h.from_state IS NULL
-             AND h.reason LIKE ? ORDER BY g.id""",
-        (store_mod._stamp(changed_since), ACTOR, f"{SIGNATURE_KEY}%")).fetchall()
+        """SELECT g.id, g.issue_number FROM alert_groups g JOIN field_signatures f ON f.group_id = g.id
+           WHERE g.issue_number IS NOT NULL AND g.updated_at >= ? ORDER BY g.id""",
+        (store_mod._stamp(changed_since),)).fetchall()
     posted_count = 0
     for group in groups:
         history = store._db.execute("SELECT * FROM sheriff_history WHERE group_id = ? ORDER BY id",
                                     (group["id"],)).fetchall()
-        posted = [int(m) for body in comments.issue_comment_bodies(group["issue_number"])
-                  for m in alerts.STATE_MARKER.findall(body)]
+        own = {row["id"] for row in history}
+        posted = [marker for body in comments.issue_comment_bodies(group["issue_number"])
+                  for marker in map(int, alerts.STATE_MARKER.findall(body)) if marker in own]
         pending = [row for row in history if row["id"] > max(posted)] if posted else history[-1:]
         for change in pending:
             comments.comment(group["issue_number"], alerts.render_state_comment(change))
@@ -545,6 +593,7 @@ def stability_command(args: argparse.Namespace, *, environ: Mapping[str, str], f
                 store = _open_store(Path(args.db), Path(scratch) if args.dry_run else None, clock)
                 try:
                     groups = record_groups(store, signatures)
+                    judge_groups(store, sentry, scope, rows, signatures, groups)
                     result["groups"] = {"dry_run": args.dry_run, **groups.to_dict()}
                     if args.sync_issues:
                         client = github or issues_mod.GhCli(args.repo)

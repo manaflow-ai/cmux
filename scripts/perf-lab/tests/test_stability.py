@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import dataclasses
 import importlib.util
 import io
 import json
@@ -66,8 +67,9 @@ def sentry_issue(sentry_id, *, short, title, events, users, first_seen, github=(
 class FakeSentry:
     """Answers the paths stability.py reads; records every request."""
 
-    def __init__(self, issues, first_releases, *, groups=RELEASE_GROUPS, totals=None):
+    def __init__(self, issues, first_releases, *, groups=RELEASE_GROUPS, totals=None, last_releases=None):
         self.issues, self.first_releases, self.groups = issues, first_releases, groups
+        self.last_releases = first_releases if last_releases is None else last_releases
         self.totals = totals or {"sum(session)": 5000, "count_unique(user)": 380,
                                  "crash_free_rate(session)": 0.998, "crash_free_rate(user)": 0.9842}
         self.requests: list[tuple[str, list[tuple[str, str]]]] = []
@@ -84,8 +86,9 @@ class FakeSentry:
         prefix = f"/organizations/{ORG}/issues/"
         if path.startswith(prefix):
             sentry_id = path[len(prefix):].strip("/")
-            version = self.first_releases.get(sentry_id)
-            return {"id": sentry_id, "firstRelease": {"version": version} if version else None}, {}
+            first, last = self.first_releases.get(sentry_id), self.last_releases.get(sentry_id)
+            return {"id": sentry_id, "firstRelease": {"version": first} if first else None,
+                    "lastRelease": {"version": last} if last else None}, {}
         raise AssertionError(f"unexpected path {path}")
 
 
@@ -112,7 +115,9 @@ class FakeIssues:
 
     def list_issues(self, label):
         self.lists += 1
-        return [issue for issue in self.issues.values() if label in issue.labels]
+        # Copies, as each gh read is: a later edit never changes what an earlier read returned.
+        return [dataclasses.replace(issue, labels=list(issue.labels)) for issue in self.issues.values()
+                if label in issue.labels]
 
     def existing_labels(self):
         return {name for issue in self.issues.values() for name in issue.labels}
@@ -371,6 +376,80 @@ class GroupTests(unittest.TestCase):
         perf_group = store._write(lambda: alerts._group_for(store._db, store._now(), series, 0, 50, report))
         self.assertNotIn(perf_group, created)
 
+    def test_fixed_needs_newer_releases_that_ran_without_the_signature(self):
+        run_command(["--db", str(self.lab.path)], fetch=FakeSentry(ISSUES, FIRST_RELEASES))
+        store = self.lab.open()
+        self.addCleanup(store.close)
+        group_id = stability.signature_groups(store)["101"]
+        actor = sheriff.Sheriff(store, session="sheriff-1", lead_session=None, clock=lambda: NOW)
+        actor.set_state(group_id, "triaged")
+        actor.set_state(group_id, "assigned", reason="crash owner: tabs")  # a crash has nothing to bisect
+        recovery = actor.recovery(group_id)
+        self.assertFalse(recovery.recovered)
+        self.assertEqual(recovery.field.clean_releases, ("cmux-next@1.0.0-nightly.901+2026102701",))
+        with self.assertRaises(sheriff.NotRecovered) as refused:
+            actor.set_state(group_id, "fixed", reason="fix landed")
+        self.assertIn("1 of 3 releases with sessions after cmux-next@1.0.0-nightly.900", str(refused.exception))
+        # Three newer Nightlies ran with sessions; Sentry last saw 101 in .900. The fix sticks.
+        newer = [release_group(f"cmux-next@1.0.0-nightly.{n}+20261028{n - 900:02d}", 500, 50, 1.0, 1.0)
+                 for n in (902, 903)]
+        code, out, err = run_command(["--json", "--db", str(self.lab.path)],
+                                     fetch=FakeSentry(ISSUES, FIRST_RELEASES, groups=RELEASE_GROUPS + newer))
+        self.assertEqual(code, 0, err)
+        judged = json.loads(out)["groups"]["judged"]["101"]
+        self.assertEqual((judged["group"], judged["recovered"], len(judged["clean_releases"])), (group_id, True, 3))
+        self.assertEqual(actor.set_state(group_id, "fixed", reason="fix landed").to_state, "fixed")
+
+    def test_a_signature_seen_again_is_not_fixed(self):
+        newer = [release_group(f"cmux-next@1.0.0-nightly.{n}+20261028{n - 900:02d}", 500, 50, 1.0, 1.0)
+                 for n in (902, 903, 904)]
+        last = {**FIRST_RELEASES, "101": "cmux-next@1.0.0-nightly.903+2026102803"}
+        run_command(["--db", str(self.lab.path)],
+                    fetch=FakeSentry(ISSUES, FIRST_RELEASES, groups=RELEASE_GROUPS + newer, last_releases=last))
+        store = self.lab.open()
+        self.addCleanup(store.close)
+        recovery = sheriff.Sheriff(store, session=None, lead_session=None, clock=lambda: NOW).recovery(
+            stability.signature_groups(store)["101"])
+        self.assertFalse(recovery.recovered)
+        self.assertEqual(recovery.field.clean_releases, ("cmux-next@1.0.0-nightly.904+2026102804",))
+
+    def test_open_groups_off_the_top_list_are_still_judged_and_closed_ones_are_not(self):
+        run_command(["--db", str(self.lab.path)], fetch=FakeSentry(ISSUES, FIRST_RELEASES))
+        store = self.lab.open()
+        self.addCleanup(store.close)
+        groups = stability.signature_groups(store)
+        sheriff.Sheriff(store, session="sheriff-1", lead_session=None, clock=lambda: NOW).set_state(
+            groups["102"], "invalid", reason="symbolication noise")
+        sentry = FakeSentry([], FIRST_RELEASES)  # neither is a new top signature this week
+        code, out, err = run_command(["--json", "--db", str(self.lab.path)], fetch=sentry)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(sorted(json.loads(out)["groups"]["judged"]), ["101"])
+        details = [path for path, _ in sentry.requests if path.startswith(f"/organizations/{ORG}/issues/1")]
+        self.assertEqual(details, [f"/organizations/{ORG}/issues/101/"])
+
+    def test_field_groups_are_left_out_of_the_perf_slo(self):
+        run_command(["--db", str(self.lab.path)], fetch=FakeSentry(ISSUES, FIRST_RELEASES))
+        store = self.lab.open()
+        self.addCleanup(store.close)
+        later = NOW + timedelta(days=2)
+        actor = sheriff.Sheriff(store, session=None, lead_session=None, clock=lambda: later)
+        report = actor.slo(NOW - timedelta(days=1))
+        self.assertEqual((report["groups"], report["stale"], report["pass"]), (0, [], True))
+        listed = {g.id: g.signature for g in actor.groups(["new"])}
+        self.assertEqual(sorted(listed.values()), ["sentry:101", "sentry:102"])
+
+    def test_a_perf_group_cannot_skip_the_bisect(self):
+        store = self.lab.open()
+        self.addCleanup(store.close)
+        series = alerts.SeriesInfo(1, "sk1:x", "cmd-t", "commit_ms", "chromium", "m6/24gb/120hz", 26, "bench",
+                                   "ms", "lower")
+        perf_group = store._write(lambda: alerts._group_for(store._db, store._now(), series, 0, 50,
+                                                            alerts.DetectReport()))
+        actor = sheriff.Sheriff(store, session="sheriff-1", lead_session=None, clock=lambda: NOW)
+        actor.set_state(perf_group, "triaged")
+        with self.assertRaises(sheriff.IllegalTransition):
+            actor.set_state(perf_group, "assigned", reason="owner")
+
     def test_dry_run_leaves_the_store_alone(self):
         code, out, err = run_command(["--json", "--dry-run", "--db", str(self.lab.path)],
                                      fetch=FakeSentry(ISSUES, FIRST_RELEASES))
@@ -393,8 +472,8 @@ class IssueTests(unittest.TestCase):
         self.lab = TempStore()
         self.addCleanup(self.lab.cleanup)
 
-    def sync(self, github, comments, issues=ISSUES, clock=lambda: NOW):
-        code, out, err = run_command(["--json", "--db", str(self.lab.path), "--sync-issues"],
+    def sync(self, github, comments, issues=ISSUES, clock=lambda: NOW, extra=()):
+        code, out, err = run_command(["--json", "--db", str(self.lab.path), "--sync-issues", *extra],
                                      fetch=FakeSentry(issues, FIRST_RELEASES), github=github, comments=comments,
                                      clock=clock)
         self.assertEqual(code, 0, err)
@@ -458,6 +537,69 @@ class IssueTests(unittest.TestCase):
         self.assertEqual(self.issue_of("102")[0], 77)
         self.assertEqual(result["issues"]["linked"], {"102": 77})
         self.assertEqual(len(comments.bodies[77]), 1)
+
+    def move(self, group_id, state, at, reason=None):
+        store = self.lab.open(clock=lambda: at)
+        try:
+            sheriff.Sheriff(store, session="sheriff-1", lead_session=None, clock=lambda: at).set_state(
+                group_id, state, reason=reason)
+        finally:
+            store.close()
+
+    def test_groups_sharing_an_issue_post_every_move(self):
+        shared = [dict(issue, annotations=[{"url": "https://github.com/manaflow-ai/cmux/issues/77"}])
+                  for issue in ISSUES[:2]]
+        github, comments = FakeIssues(), FakeComments()
+        result = self.sync(github, comments, shared)
+        self.assertEqual(result["issues"]["linked"], {"101": 77, "102": 77})
+        first, second = sorted([self.issue_of("101")[1], self.issue_of("102")[1]])
+        self.assertEqual(len(comments.bodies[77]), 2)
+        # The later group moves first, so its row is older than the earlier group's: rows interleave on #77.
+        self.move(second, "triaged", NOW + timedelta(minutes=5))
+        self.move(first, "triaged", NOW + timedelta(minutes=6))
+        later = lambda: NOW + timedelta(minutes=10)  # noqa: E731
+        self.sync(github, comments, shared, clock=later)
+        self.sync(github, comments, shared, clock=later)
+        markers = [int(m) for body in comments.bodies[77] for m in alerts.STATE_MARKER.findall(body)]
+        self.assertEqual(sorted(markers), [1, 2, 3, 4])
+        self.assertEqual(len(markers), len(set(markers)))
+
+    def test_another_groups_higher_marker_does_not_hide_the_first_comment(self):
+        linked = [sentry_issue("102", short="CMUXTERM-MACOS-1B", title="SIGABRT in DaemonClient.send", events=90,
+                               users=30, first_seen="2026-10-27T03:00:00Z", github=(77,))]
+        comments = FakeComments()
+        comments.bodies[77] = ["State new by perf-lab-alerts\n\n<!-- perf-lab-alerts state-change=999 -->"]
+        self.sync(FakeIssues(), comments, linked)
+        self.assertEqual(len(comments.bodies[77]), 2)
+        self.assertIn("state-change=1 -->", comments.bodies[77][1])
+
+    def test_annotation_naming_a_stability_issue_links_that_issue(self):
+        github = FakeIssues()
+        report_doc = {"schema": issues_mod.HEALTH_SCHEMA, "env": "nightly-next", "days": 3, "top_issues": [
+            stability.health.normalize_issue(ISSUES[0], [])]}
+        issues_mod.apply(issues_mod.plan_sentry([], report_doc)[0], github, 60, False)
+        (stability_issue,) = github.issues
+        joined = [sentry_issue("102", short="CMUXTERM-MACOS-1B", title="SIGABRT in DaemonClient.send", events=90,
+                               users=30, first_seen="2026-10-27T03:00:00Z", github=(77, stability_issue))]
+        comments = FakeComments()
+        result = self.sync(github, comments, joined)
+        self.assertEqual(result["issues"]["linked"], {"102": stability_issue})
+        self.assertEqual(self.issue_of("102")[0], stability_issue)
+        state = issues_mod.read_state(github.issues[stability_issue].body)
+        self.assertIn("102", state["sentry"])  # stability_issues.py keeps the signature on that same issue
+        self.assertNotIn(77, comments.bodies)
+
+    def test_an_other_owner_claim_wins_over_the_annotation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            owners = Path(directory) / "owners.json"
+            owners.write_text(json.dumps({"owners": [{"owner": "ghostty", "eta": "2026-11-01", "github_issue": 900,
+                                                      "sentry_issues": ["CMUXTERM-MACOS-1B"]}]}))
+            claimed = [sentry_issue("102", short="CMUXTERM-MACOS-1B", title="SIGABRT in DaemonClient.send",
+                                    events=90, users=30, first_seen="2026-10-27T03:00:00Z", github=(77,))]
+            github = FakeIssues()
+            result = self.sync(github, FakeComments(), claimed, extra=("--owners", str(owners)))
+        self.assertEqual(result["issues"]["linked"], {"102": 900})
+        self.assertEqual(github.writes, [])
 
     def test_existing_stability_issue_is_reused(self):
         github = FakeIssues()
