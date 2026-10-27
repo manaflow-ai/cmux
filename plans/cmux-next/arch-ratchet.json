@@ -723,6 +723,12 @@
       "row": "observer_sites",
       "allow": 4,
       "why": "p14-energy-120: SuspendWatch (CmuxNextEnergy) is the app's one sleep, wake and display sleep adapter the task asks for: it subscribes once per app to NSWorkspace willSleep, didWake, screensDidSleep and screensDidWake through the app's workspace AppEvents fan-out (recipe R-notif; the display notices share AppVisibilitySource's NotificationCenter observer there), the four sites counted, and publishes them to every keepalive owner through EnergyPolicy instead of each owner observing them. Chrome's PowerMonitor is the same single suspend and resume source (base/power_monitor/power_monitor.h). Made only with the sleepWakeKeepalives feature on; FeedService's own sleep notices move onto it once that feature ships."
+    },
+    {
+      "date": "2026-10-27",
+      "row": "observer_sites",
+      "allow": 2,
+      "why": "p14-energy-055b (fixer): chrome hover tracking areas now hear the pointer only in the active app (.activeInActiveApp), so no exit arrives once cmux resigns active and a lit hover (a toast's hold, a tab or reveal) stayed. PointerHover's KeyWindowObserver, the one app-wide hover adapter that already took the key notices, subscribes once per app to NSApplication didResignActive and didBecomeActive through AppEvents (recipe R-notif), the two sites counted. It refreshes only the windows with a hovering target and calls only the hover owners that hold a deactivation watch while their hover shows (ChromeHover, HoverReveal, the tab strip, the saved groups bar), instead of each owner observing the notice. The fan-out already observes both names for TooltipPresenter, HoverCardCoordinator and the others, so the app gains no NotificationCenter observer."
     }
   ],
   "observer_wrappers": [

@@ -19,6 +19,8 @@ public final class SavedGroupsBarView: NSView {
     private(set) var chips: [TabGroupID: TabGroupChipCell] = [:]
     private var order: [TabGroupID] = []
     private(set) var hovered: TabGroupID?
+    /// While a chip hovers (`setHovered`).
+    private var deactivationWatch: HoverDeactivationWatch?
     /// The bar's hover moves (feature `pointerFrameHover`, `hoverFrameInput`).
     private lazy var hoverMoves = PointerFrameHover(owner: "SavedGroupsBarView.hover", view: self) { [weak self] point in
         self?.hover(atWindowPoint: point)
@@ -193,6 +195,12 @@ public final class SavedGroupsBarView: NSView {
         if let hovered { chips[hovered]?.isHovered = false }
         hovered = id
         if let id { chips[id]?.isHovered = true }
+        // The bar's `.activeForHover` area hears no exit while another app is active: cmux resigning active ends the hover.
+        if id == nil {
+            deactivationWatch = nil
+        } else if deactivationWatch == nil {
+            deactivationWatch = PointerHover.clearOnDeactivation { [weak self] in self?.setHovered(nil) }
+        }
     }
 
     /// The windows' frame-aligned pointer input (feature `pointerFrameHover`): a frame interval's first move

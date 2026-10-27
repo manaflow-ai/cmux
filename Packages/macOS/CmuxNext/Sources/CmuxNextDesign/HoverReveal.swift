@@ -95,6 +95,10 @@ public final class HoverReveal {
     /// owning their alpha (`watchFocus(in:)`).
     private var focusViews: [ObjectIdentifier: Weak] = [:]
     private let probe: HoverRevealProbe
+    /// The region tracks the pointer while another app is active too (`.activeAlways`).
+    private let hoversWhileInactive: Bool
+    /// While the pointer is inside: cmux resigning active ends it (no exit arrives then).
+    private var deactivationWatch: HoverDeactivationWatch?
     /// Bumped when the window goes away, so older holds no longer count.
     fileprivate var generation = 0
 
@@ -110,6 +114,7 @@ public final class HoverReveal {
     ///   `setPointerInside`; focus and window tracking still apply.
     public init(region: NSView, tracking: NSTrackingArea.Options = .activeForHover, tracksPointer: Bool = true) {
         self.region = region
+        hoversWhileInactive = tracking.tracksWhileInactive
         probe = HoverRevealProbe(tracking: tracking, tracksPointer: tracksPointer)
         let key = ObjectIdentifier(region)
         if let other = Self.regionOwners[key]?.value, other !== self {
@@ -231,6 +236,7 @@ public final class HoverReveal {
     private func update(_ change: (inout HoverRevealState) -> Void) {
         let old = state
         change(&state)
+        if state.pointerInside != old.pointerInside { watchDeactivation() }
         if state != old { onStateChange?(state) }
         guard state.isRevealed != old.isRevealed else { return }
         let alpha: CGFloat = state.isRevealed ? 1 : restAlpha
@@ -239,6 +245,16 @@ public final class HoverReveal {
             for view in targets { view.animator().alphaValue = alpha }
         }
         onChange?(state.isRevealed)
+    }
+
+    /// The region's `.activeForHover` tracking (or a caller's `setPointerInside`) hears no exit while
+    /// another app is active: cmux resigning active ends the pointer inside.
+    private func watchDeactivation() {
+        guard state.pointerInside, !hoversWhileInactive else {
+            deactivationWatch = nil
+            return
+        }
+        deactivationWatch = PointerHover.clearOnDeactivation { [weak self] in self?.setPointerInside(false) }
     }
 
     private static func conflict(_ message: String) {

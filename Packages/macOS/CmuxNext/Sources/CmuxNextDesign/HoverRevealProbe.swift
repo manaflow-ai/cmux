@@ -62,10 +62,12 @@ final class HoverRevealProbe: NSView {
     }
 
     /// Sets "inside" from the pointer's position now. A window that is not
-    /// shown cannot be under the pointer.
+    /// shown cannot be under the pointer, and an `.activeForHover` region
+    /// takes no pointer while another app is active.
     private func readPointer() {
         guard tracksPointer, let window, let owner else { return }
-        let inside = window.isVisible && bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
+        let tracksNow = trackingOptions.tracksWhileInactive || PointerHover.appShowsHover
+        let inside = window.isVisible && tracksNow && bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
         if inside != owner.state.pointerInside { owner.setPointerInside(inside) }
     }
 

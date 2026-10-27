@@ -8,7 +8,8 @@ final class PermissionAppTile: NSView, NSDraggingSource {
     private let appURL: URL
     /// The app's icon, read off the main thread by the App (cmux's own when it has none yet).
     private let appIcon: NSImage
-    private lazy var hover = ChromeHover(self)
+    // wakeup-allow: bounded only while the permission card shows over System Settings with cmux in the background
+    private lazy var hover = ChromeHover(self, tracking: .activeAlways)
 
     init(appURL: URL, icon: NSImage?) {
         self.appURL = appURL

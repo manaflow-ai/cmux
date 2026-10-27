@@ -245,7 +245,8 @@ public final class PaneToolbarView: NSView {
         host.addTrackingArea(area)
         corner = area
         cornerHost = host
-        reveal.setPointerInside(rect.contains(host.convert(window.mouseLocationOutsideOfEventStream, from: nil)))
+        // While another app is active the area hears no exit: no pointer reads inside then.
+        reveal.setPointerInside(PointerHover.appShowsHover && rect.contains(host.convert(window.mouseLocationOutsideOfEventStream, from: nil)))
     }
 
     // The tab bar's is this view's only tracking area (the reveal's probe and "…"'s hover own theirs).

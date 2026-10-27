@@ -140,6 +140,15 @@ extension TabStripView {
         hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
     }
 
+    /// cmux resigned active while the pointer was in the strip (`TabStripRevealController`): the
+    /// strip's `.activeForHover` area hears no exit then, so its hover ends here. Mouse closing mode
+    /// keeps its own exit watch, which hears the leave while cmux is inactive (`TabClosingModeWatch`).
+    func endHoverOnDeactivation() {
+        buttonReveal.pointerInStrip = false
+        clearHover()
+        newTabButton.isHovered = false
+    }
+
     /// An exit, or the strip moved away under a still pointer (`geometryDidChange`).
     func pointerLeft() {
         buttonReveal.pointerInStrip = false

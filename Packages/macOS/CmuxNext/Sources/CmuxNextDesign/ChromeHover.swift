@@ -36,13 +36,19 @@ public final class ChromeHover {
     private var tracking: NSTrackingArea?
     /// The pointer hover that sets `state.hovering` (`followPointer`).
     public private(set) var pointer: PointerHover?
+    /// While a hover set from the view's own enter and exit shows: cmux resigning active ends it.
+    private var deactivationWatch: HoverDeactivationWatch?
     public var state = State() {
-        didSet { if state != oldValue { refresh() } }
+        didSet {
+            if state.hovering != oldValue.hovering { watchDeactivation() }
+            if state != oldValue { refresh() }
+        }
     }
 
     /// - Parameter tracking: `.activeForHover` for window chrome (hover shows
     ///   in a background window of the active app, as in the sidebar),
-    ///   `.activeInKeyWindow` for sheets and onboarding.
+    ///   `.activeInKeyWindow` for sheets and onboarding, `.activeAlways` only
+    ///   for a panel that floats over another app with cmux in the background.
     public init(_ view: NSView, outset: NSSize = .zero, cornerRadius: CGFloat = Metrics.itemCornerRadius, behindContent: Bool = false,
                 tracking: NSTrackingArea.Options = .activeForHover) {
         self.view = view
@@ -141,7 +147,8 @@ public final class ChromeHover {
         guard let view, pointer == nil else { return }
         if let tracking { view.removeTrackingArea(tracking) }
         tracking = nil
-        let pointer = PointerHover(view, requiresKeyWindow: trackingOptions.contains(.activeInKeyWindow))
+        let pointer = PointerHover(view, requiresKeyWindow: trackingOptions.contains(.activeInKeyWindow),
+                                   hoversWhileInactive: hoversWhileInactive)
         pointer.isHoverable = isHoverable
         pointer.onChange = { [weak self] hovering in
             guard let self else { return }
@@ -160,6 +167,19 @@ public final class ChromeHover {
         let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, trackingOptions, .inVisibleRect], owner: view)
         view.addTrackingArea(area)
         tracking = area
+    }
+
+    /// The hover shows while another app is active too (`.activeAlways`, a panel over that app).
+    private var hoversWhileInactive: Bool { trackingOptions.tracksWhileInactive }
+
+    /// A hover the view sets from its own enter and exit: its area hears no exit while another app
+    /// is active, so cmux resigning active ends it (`followPointer`'s `PointerHover` clears itself).
+    private func watchDeactivation() {
+        guard state.hovering, pointer == nil, !hoversWhileInactive else {
+            deactivationWatch = nil
+            return
+        }
+        deactivationWatch = PointerHover.clearOnDeactivation { [weak self] in self?.state.hovering = false }
     }
 
     /// Applies the state's colors, fading the fill when `animated`; pass

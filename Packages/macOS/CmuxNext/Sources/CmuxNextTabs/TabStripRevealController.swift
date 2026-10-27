@@ -16,6 +16,8 @@ final class TabStripRevealController {
     /// outlives the strip it fades.
     let hover: HoverReveal
     private var hold: HoverReveal.Hold?
+    /// While the pointer is in the strip: cmux resigning active ends the strip's hover.
+    private(set) var deactivationWatch: HoverDeactivationWatch?
     private var observation: Task<Void, Never>?
 
     init(strip: TabStripView) {
@@ -60,7 +62,14 @@ final class TabStripRevealController {
     /// Maps the strip's inputs onto the reveal: the pointer, and a hold for
     /// an open strip menu or VoiceOver focus.
     func sync(_ state: TabStripButtonReveal, from old: TabStripButtonReveal) {
-        if state.pointerInStrip != old.pointerInStrip { hover.setPointerInside(state.pointerInStrip) }
+        if state.pointerInStrip != old.pointerInStrip {
+            hover.setPointerInside(state.pointerInStrip)
+            // The strip's `.activeForHover` area hears no exit while another app is active.
+            deactivationWatch = nil
+            if state.pointerInStrip {
+                deactivationWatch = PointerHover.clearOnDeactivation { [weak self] in self?.strip?.endHoverOnDeactivation() }
+            }
+        }
         let holds = state.menuOpen || state.accessibilityFocused
         if holds, hold == nil {
             hold = hover.hold()

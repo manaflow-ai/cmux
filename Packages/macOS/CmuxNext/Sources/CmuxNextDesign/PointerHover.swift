@@ -13,7 +13,13 @@ import CmuxNextWakeups
 /// - every geometry or visibility change, reported by the view that owns the
 ///   geometry (`PointerHover.refresh(in:)`: a sidebar layout pass, a toast
 ///   relayout, a strip scrollbar update),
-/// - every key-window change, and every `debug.mouse` pointer (DEBUG).
+/// - every key-window change, every activation or deactivation of cmux, and
+///   every `debug.mouse` pointer (DEBUG).
+///
+/// Hover follows the tracking area's scope: an `.activeForHover` target does
+/// not hover while another app is active (its area hears no exit then, so
+/// cmux resigning active clears it); a `hoversWhileInactive` target (a panel
+/// that floats over another app) does.
 ///
 /// The layout's divider hover (`ScreenDividers`) reads the same pointer: the enter or exit's own
 /// point while one is handled, the window's cursor sample otherwise.
@@ -32,22 +38,28 @@ public final class PointerHover: NSObject {
     /// page windows): the topmost check treats them as the view's window.
     public var passThroughWindows: () -> Set<Int> = { [] }
     public let requiresKeyWindow: Bool
+    /// The target hovers while another app is active too (a panel over System Settings).
+    public let hoversWhileInactive: Bool
 
     private weak var view: NSView?
     private var area: NSTrackingArea?
 
     /// - Parameter requiresKeyWindow: false for window chrome (hover shows in
     ///   a background window of the active app, as in the sidebar), true for sheets.
-    public init(_ view: NSView, requiresKeyWindow: Bool = false, onChange: ((Bool) -> Void)? = nil) {
+    /// - Parameter hoversWhileInactive: true only for a view in a panel that
+    ///   floats over another app with cmux in the background.
+    public init(_ view: NSView, requiresKeyWindow: Bool = false, hoversWhileInactive: Bool = false, onChange: ((Bool) -> Void)? = nil) {
         self.view = view
         self.requiresKeyWindow = requiresKeyWindow
+        self.hoversWhileInactive = hoversWhileInactive
         self.onChange = onChange
         super.init()
         // `.inVisibleRect` follows the view's visible rect, so the area never
         // needs replacing; the view's own `updateTrackingAreas` leaves it alone
         // (it removes only areas it owns).
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, requiresKeyWindow ? .activeInKeyWindow : .activeForHover, .inVisibleRect],
-                                  owner: self)
+        // wakeup-allow: bounded only a hoversWhileInactive target, in a panel that floats over another app, tracks while inactive
+        let scope: NSTrackingArea.Options = requiresKeyWindow ? .activeInKeyWindow : hoversWhileInactive ? .activeAlways : .activeForHover
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, scope, .inVisibleRect], owner: self)
         view.addTrackingArea(area)
         self.area = area
         Self.index.insert(self)
@@ -96,11 +108,11 @@ public final class PointerHover: NSObject {
 
     /// The window the index files this target under (nil: no window when last seen), and the
     /// target's creation order (refreshes run targets in it).
-    fileprivate var indexedWindow: ObjectIdentifier?
-    fileprivate var order: UInt64 = 0
+    var indexedWindow: ObjectIdentifier?
+    var order: UInt64 = 0
     /// The view's window; nil while that window deallocates (its teardown moves the view out, and
     /// a weak reference to it aborts the runtime: "Cannot form weak reference to instance").
-    fileprivate var viewWindow: NSWindow? {
+    var viewWindow: NSWindow? {
         guard let window = view?.window, !window.isBeingDeallocated else { return nil }
         return window
     }
@@ -109,7 +121,7 @@ public final class PointerHover: NSObject {
         // visibility-walk-allow: the hover hit test: a view hidden under the pointer must not hover (AppKit's own
         // hit test skips hidden views the same way)
         guard let view, let window = view.window, !view.isHiddenOrHasHiddenAncestor, isHoverable(),
-              let pointer = Self.pointer(in: window, requireKey: requiresKeyWindow, event: event) else { return false }
+              let pointer = Self.pointer(in: window, requireKey: requiresKeyWindow, event: event, whileInactive: hoversWhileInactive) else { return false }
         let local = view.convert(pointer, from: nil)
         let rect = (region?(view) ?? view.bounds).intersection(view.visibleRect)
         guard !rect.isNull, rect.contains(local) else { return false }
@@ -158,8 +170,8 @@ public final class PointerHover: NSObject {
     #endif
 
     /// The pointer in `window`'s coordinates; nil when the window is not
-    /// shown (or, with `requireKey`, not key). `debug.mouse`'s synthesized
-    /// pointer wins in DEBUG builds.
+    /// shown (or, with `requireKey`, not key), or while another app is active
+    /// (`appShowsHover`). `debug.mouse`'s synthesized pointer wins in DEBUG builds.
     public static func pointer(in window: NSWindow, requireKey: Bool = false) -> NSPoint? {
         pointer(in: window, requireKey: requireKey, event: nil)
     }
@@ -168,12 +180,12 @@ public final class PointerHover: NSObject {
     /// the handler of an enter or exit passes its event. Outside an event (a layout pass, a scroll,
     /// a hide under a still pointer) there is none, and the window's own cursor sample is read, as
     /// Chromium's `Widget::SynthesizeMouseMoveEvent` replays the last mouse location after a layout
-    /// change.
-    public static func pointer(in window: NSWindow, requireKey: Bool, event: NSEvent?) -> NSPoint? {
+    /// change. `whileInactive` reads it while another app is active too (a panel over that app).
+    public static func pointer(in window: NSWindow, requireKey: Bool, event: NSEvent?, whileInactive: Bool = false) -> NSPoint? {
         #if DEBUG
         if let synthetic = debugPointer(in: window) { return synthetic }
         #endif
-        guard window.isVisible, !requireKey || window.isKeyWindow else { return nil }
+        guard window.isVisible, !requireKey || window.isKeyWindow, whileInactive || appShowsHover else { return nil }
         if let event, event.window === window { return event.locationInWindow }
         // global-input-allow: no event (a layout, scroll or hide under a still pointer); the window's own cursor sample.
         return window.mouseLocationOutsideOfEventStream
@@ -200,7 +212,7 @@ public final class PointerHover: NSObject {
 
     // MARK: The owner
 
-    private static let index = TargetIndex()
+    private static let index = PointerHoverTargetIndex()
     private static var refreshing = false
     private static var pending: [NSWindow] = []
     private static var keyObserver: KeyWindowObserver?
@@ -244,124 +256,47 @@ public final class PointerHover: NSObject {
     /// A key-window change: every target is filed under its window again (a view that moved
     /// straight from one window to another is found), then `window` refreshes. O(all targets),
     /// once per key change.
-    fileprivate static func keyChanged(_ window: NSWindow?) {
+    private static func keyChanged(_ window: NSWindow?) {
         index.placeAll()
         refresh(in: window)
     }
 
-    /// Becoming or resigning key changes whether key-window targets hover.
+    /// cmux activated or resigned active: the targets that hover now are recomputed (a deactivation
+    /// clears every `.activeForHover` one, which hears no exit while another app is active), then the
+    /// key window (an activation hovers what is under the pointer there).
+    private static func activityChanged(_ keyWindow: NSWindow?) {
+        for window in index.hoveringWindows() { refresh(in: window) }
+        refresh(in: keyWindow)
+    }
+
+    /// Whether `.activeForHover` hover shows now: cmux is the active app (as of its last activity
+    /// notice), or the launch never activates it (`CMUX_NEXT_NO_ACTIVATE`).
+    public static var appShowsHover: Bool {
+        WindowPlacement.noActivate || keyObserver?.isAppActive != false
+    }
+
+    /// Calls `clear` in the turn cmux resigns active, for a hover owner that tracks its own enter and
+    /// exit with an `.activeForHover` area: that area hears no exit while another app is active. Keep
+    /// the watch while the hover shows and drop it when the hover ends. Nil in a launch that never
+    /// activates (its areas track always).
+    public static func clearOnDeactivation(_ clear: @escaping @MainActor () -> Void) -> HoverDeactivationWatch? {
+        guard !WindowPlacement.noActivate else { return nil }
+        installKeyObserversIfNeeded()
+        return keyObserver?.watchDeactivation(clear)
+    }
+
+    /// Observes key-window and activity changes on `events`, replacing the observer installed before;
+    /// nil drops it, and the next target installs the app's own (tests pass their own center).
+    static func observe(_ events: AppEvents?, keyWindow: @escaping @MainActor () -> NSWindow? = { NSApp?.keyWindow }) {
+        keyObserver = events.map { events in
+            KeyWindowObserver(events: events, keyWindow: keyWindow, changed: { keyChanged($0) }, activityChanged: { activityChanged($0) })
+        }
+    }
+
+    /// Becoming or resigning key changes whether key-window targets hover; activating or resigning
+    /// active changes whether `.activeForHover` targets do.
     private static func installKeyObserversIfNeeded() {
         guard keyObserver == nil else { return }
-        keyObserver = KeyWindowObserver(events: AppEvents(center: .default), keyWindow: { NSApp?.keyWindow }) { keyChanged($0) }
-    }
-}
-
-/// `PointerHover`'s targets filed by window (cx-8w027.10 item c): a refresh reads one window's
-/// targets, the targets without a window and the targets that hover now. A target is filed under
-/// the window its view is in when the index last saw it: at a refresh that visits it, at its own
-/// enter, exit or `refresh()`, and at every key-window change. A refresh files each visited target
-/// again, so a view that left the window moves to `unplaced`, one that came in from `unplaced` is
-/// filed under its window, and one found in another window refreshes that window too.
-@MainActor
-private final class TargetIndex {
-    private struct Weak {
-        weak var value: PointerHover?
-    }
-
-    private struct Bucket {
-        weak var window: NSWindow?
-        var targets: [ObjectIdentifier: Weak] = [:]
-    }
-
-    private var buckets: [ObjectIdentifier: Bucket] = [:]
-    /// Targets whose view had no window when last seen.
-    private var unplaced: [ObjectIdentifier: Weak] = [:]
-    /// Targets that hover now (a handful).
-    private var hovering: [ObjectIdentifier: Weak] = [:]
-    private var nextOrder: UInt64 = 0
-
-    func insert(_ target: PointerHover) {
-        nextOrder &+= 1
-        target.order = nextOrder
-        target.indexedWindow = nil
-        unplaced[ObjectIdentifier(target)] = Weak(value: target)
-        place(target)
-    }
-
-    func noteHovering(_ target: PointerHover, _ hovers: Bool) {
-        hovering[ObjectIdentifier(target)] = hovers ? Weak(value: target) : nil
-    }
-
-    /// Files `target` under the window its view is in now; returns that window when the target
-    /// moved into it.
-    @discardableResult
-    func place(_ target: PointerHover) -> NSWindow? {
-        let key = ObjectIdentifier(target)
-        let window = target.viewWindow
-        let now = window.map(ObjectIdentifier.init)
-        let filed = now.map { buckets[$0]?.window === window && buckets[$0]?.targets[key] != nil } ?? (unplaced[key] != nil)
-        guard now != target.indexedWindow || !filed else { return nil }
-        if let old = target.indexedWindow {
-            buckets[old]?.targets[key] = nil
-            if buckets[old]?.targets.isEmpty == true { buckets[old] = nil }
-        }
-        unplaced[key] = nil
-        target.indexedWindow = now
-        guard let window, let now else {
-            unplaced[key] = Weak(value: target)
-            return nil
-        }
-        // A window identifier reused by a new window: the old window's targets go back to `unplaced`.
-        if let bucket = buckets[now], bucket.window !== window { dropBucket(now) }
-        if buckets[now] == nil { buckets[now] = Bucket(window: window) }
-        buckets[now]?.targets[key] = Weak(value: target)
-        return window
-    }
-
-    /// Every target filed under its window again; freed targets and closed windows drop out.
-    func placeAll() {
-        for (key, bucket) in buckets where bucket.window == nil { dropBucket(key) }
-        let all = buckets.values.flatMap { $0.targets.values.compactMap(\.value) } + unplaced.values.compactMap(\.value)
-        for (key, bucket) in buckets { buckets[key]?.targets = bucket.targets.filter { $0.value.value != nil } }
-        unplaced = unplaced.filter { $0.value.value != nil }
-        for target in all { place(target) }
-    }
-
-    /// The targets a refresh of `window` reads, in creation order with the hovering ones first
-    /// (a hover that ends runs before one that starts), each filed again; and the other windows
-    /// a visited target was found in. Freed targets drop out.
-    func candidates(in window: NSWindow) -> (targets: [PointerHover], moved: [NSWindow]) {
-        let key = ObjectIdentifier(window)
-        if let bucket = buckets[key], bucket.window !== window { dropBucket(key) }
-        var found: [ObjectIdentifier: PointerHover] = [:]
-        for (id, entry) in buckets[key]?.targets ?? [:] {
-            if let target = entry.value { found[id] = target } else { buckets[key]?.targets[id] = nil }
-        }
-        for (id, entry) in unplaced {
-            if let target = entry.value { found[id] = target } else { unplaced[id] = nil }
-        }
-        for (id, entry) in hovering {
-            if let target = entry.value { found[id] = target } else { hovering[id] = nil }
-        }
-        var moved: [NSWindow] = []
-        for target in found.values {
-            if let other = place(target), other !== window, !moved.contains(where: { $0 === other }) { moved.append(other) }
-        }
-        // One integer per target: a tuple compare goes through the runtime's tuple metadata on
-        // every comparison, half of a Cmd-Tab's main-thread time with a few thousand targets.
-        let targets = found.values.map { (key: ($0.isHovering ? 0 : 1 << 63) | $0.order, target: $0) }
-            .sorted { $0.key < $1.key }.map(\.target)
-        return (targets, moved)
-    }
-
-    /// Drops the bucket under `key` (its window closed, or a new window reuses the identifier):
-    /// its live targets go back to `unplaced`, to be filed again where their views are.
-    private func dropBucket(_ key: ObjectIdentifier) {
-        guard let bucket = buckets.removeValue(forKey: key) else { return }
-        for (id, entry) in bucket.targets {
-            guard let target = entry.value else { continue }
-            target.indexedWindow = nil
-            unplaced[id] = entry
-        }
+        observe(AppEvents(center: .default))
     }
 }
