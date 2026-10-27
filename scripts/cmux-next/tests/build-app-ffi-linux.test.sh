@@ -5,6 +5,9 @@
 #    declares (CEFShim, CmuxNextMallocZone) is a global the .a defines;
 #  - the .a has no other globals: Rust and std symbols stay local, like the
 #    macOS slices;
+#  - the exports list keeps cmux_ffi_take_panic and cmux_ffi_panic_count
+#    (p10-stability-152), and a pin with the guard crate ships its header
+#    as CCmuxFfiGuardFFI and keeps both global in the .a;
 #  - each of the four modules has its pinned crate header and the link line,
 #    and Sources/CCmuxAppFFILinux/module.modulemap imports and links from C
 #    with only the -L that Package.swift's Linux mode passes: the libraries
@@ -20,6 +23,13 @@ pkg="$root/Packages/macOS/CmuxNext"
 out="$pkg/.build-linux/ffi"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 [[ "$(uname -s)" == Linux ]] || { echo "skip: Linux only"; exit 0; }
+# The panic ring's readers (cmux-ffi-guard) are C ABI the library keeps
+# global, on macOS and Linux alike.
+guard_symbols=(cmux_ffi_panic_count cmux_ffi_take_panic)
+exports="$(bash "$root/scripts/cmux-next/build-app-ffi.sh" --exports)"
+for symbol in "${guard_symbols[@]}"; do
+  grep -Fxq "$symbol" <<<"$exports" || fail "build-app-ffi.sh does not export $symbol"
+done
 [[ "${1:-}" == --no-build ]] || bash "$root/scripts/cmux-next/build-app-ffi.sh" --linux
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -59,6 +69,18 @@ for entry in cmux-rd-ffi/include/cmux_rd_ffi.h:CCmuxRdFFI \
   grep -q "extern module $module \"" "$pkg/Sources/CCmuxAppFFILinux/module.modulemap" \
     || fail "CCmuxAppFFILinux does not name $module"
 done
+# A pin from p10-stability-152 on has the guard crate: its header ships as a
+# module and the .a keeps the ring's readers global.
+guard_header=cmux-ffi-guard/include/cmux_ffi_guard.h
+if git -C "$root" cat-file -e "$sha:cmux-tui/crates/$guard_header" 2>/dev/null; then
+  dir="$out/headers/CCmuxFfiGuardFFI"
+  cmp -s <(crates_at_pin "$guard_header") "$dir/cmux_ffi_guard.h" \
+    || fail "CCmuxFfiGuardFFI header is not the pinned $guard_header"
+  grep -q 'link "cmux_app_ffi"' "$dir/module.modulemap" || fail "CCmuxFfiGuardFFI module map has no link line"
+  for symbol in "${guard_symbols[@]}"; do
+    grep -Fxq "$symbol" "$tmp/defined" || fail "the .a does not keep $symbol global"
+  done
+fi
 
 # A module map cannot carry a search path: once Package.swift declares the
 # target (002), it must pass the -L the link below uses.

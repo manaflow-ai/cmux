@@ -9,9 +9,11 @@
 # imports do not change. Published by app-ffi-release.yml and
 # pinned in Packages/macOS/CmuxNext/Package.swift.
 #
-# Usage: build-app-ffi.sh [--linux]
-#   --linux  The same library and module maps for the Linux SwiftPM tier,
-#            built from the pinned source sha: see lib/app-ffi-linux.sh.
+# Usage: build-app-ffi.sh [--linux | --exports]
+#   --linux    The same library and module maps for the Linux SwiftPM tier,
+#              built from the pinned source sha: see lib/app-ffi-linux.sh.
+#   --exports  Print the C ABI symbols the library keeps global (from this
+#              checkout's headers) and build nothing.
 # Environment:
 #   CMUX_APP_FFI_ARCHS  macOS architectures, arm64 and/or x86_64 (default: host)
 #   CMUX_APP_FFI_OUT    output directory (default: cmux-tui/target/cmux-app-ffi)
@@ -24,10 +26,12 @@ REPAIR_URL="https://github.com/manaflow-ai/cmuxterm-hq/blob/main/REPAIR.md"
 trap 'echo "error: app FFI build failed; see $REPAIR_URL" >&2' ERR
 
 linux=0
+exports_only=0
 case "${1:-}" in
   "") ;;
   --linux) linux=1 ;;
-  *) echo "usage: $0 [--linux]" >&2; exit 2 ;;
+  --exports) exports_only=1 ;;
+  *) echo "usage: $0 [--linux | --exports]" >&2; exit 2 ;;
 esac
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -40,6 +44,10 @@ header_entries() {
     "$crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h:CCmuxLayoutReducerFFI" \
     "$crates/cmux-palette-ranker/include/cmux_palette_ranker.h:CCmuxPaletteRankerFFI" \
     "$crates/cmux-app-ffi/include/cmux_motion_ffi.h:CCmuxMotionFFI"
+  # The panic ring every export records into (cmux_ffi_take_panic). A Linux
+  # pin older than the guard crate has no header.
+  local guard="$crates/cmux-ffi-guard/include/cmux_ffi_guard.h"
+  [[ ! -f "$guard" ]] || printf '%s\n' "$guard:CCmuxFfiGuardFFI"
 }
 
 # One folder per module: SwiftPM merges every binary target's Headers into
@@ -64,6 +72,11 @@ c_abi_symbols() {
     grep -oE '\bcmux_[a-z0-9_]+\(' "${entry%%:*}" | tr -d '(' | sort -u
   done < <(header_entries) | sort -u
 }
+
+if ((exports_only)); then
+  c_abi_symbols
+  exit 0
+fi
 
 if ((linux)); then
   # shellcheck source-path=SCRIPTDIR source=lib/app-ffi-linux.sh

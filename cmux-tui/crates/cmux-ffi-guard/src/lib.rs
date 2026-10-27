@@ -268,18 +268,19 @@ pub mod testing {
     use std::cell::{Cell, RefCell};
 
     thread_local! {
-        static ARMED: Cell<bool> = const { Cell::new(false) };
+        static ARMED: Cell<u32> = const { Cell::new(0) };
         static LAST: RefCell<Option<String>> = const { RefCell::new(None) };
     }
 
     /// The next [`ffi_boundary`](crate::ffi_boundary) on this thread panics
     /// before its body.
     pub fn panic_in_next_boundary() {
-        ARMED.with(|armed| armed.set(true));
+        ARMED.with(|armed| armed.set(1));
     }
 
     pub(crate) fn fire(name: &str) {
-        if ARMED.with(Cell::take) {
+        let armed = ARMED.with(|armed| armed.replace(armed.get().saturating_sub(1)));
+        if armed > 0 {
             // An unwind without the panic hook: the armed boundary stays
             // quiet and records this message like any panic.
             std::panic::resume_unwind(Box::new(format!("cmux-ffi-guard test panic in {name}")));
@@ -306,11 +307,22 @@ pub mod testing {
     /// process ring got the same record). Parallel tests do not see each
     /// other's panics.
     pub fn panic_through<R>(export: impl FnOnce() -> R) -> (R, Option<String>) {
+        let (result, _, name) = panic_through_boundaries(1, export);
+        (result, name)
+    }
+
+    /// [`panic_through`] with the next `count` boundaries armed, for an
+    /// export whose recovery runs in a boundary of its own. Also returns how
+    /// many armed boundaries did not run.
+    pub fn panic_through_boundaries<R>(
+        count: u32,
+        export: impl FnOnce() -> R,
+    ) -> (R, u32, Option<String>) {
         LAST.with(|last| last.borrow_mut().take());
-        panic_in_next_boundary();
+        ARMED.with(|armed| armed.set(count));
         let result = export();
-        ARMED.with(Cell::take);
-        (result, LAST.with(|last| last.borrow_mut().take()))
+        let unfired = ARMED.with(Cell::take);
+        (result, unfired, LAST.with(|last| last.borrow_mut().take()))
     }
 
     /// The names of the `extern "C" fn` items in `source` whose body has

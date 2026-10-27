@@ -2,7 +2,7 @@
 //! the documented error value and is recorded under the export's name, the
 //! process keeps running (p10-stability-152).
 
-use cmux_ffi_guard::testing::{panic_through, unguarded_exports};
+use cmux_ffi_guard::testing::{panic_through, panic_through_boundaries, unguarded_exports};
 use cmux_layout_reducer_ffi::focus::{
     CmuxFocusEvent, CmuxFocusStr, cmux_focus_changes_view, cmux_focus_current, cmux_focus_free,
     cmux_focus_import_json, cmux_focus_new, cmux_focus_send,
@@ -109,6 +109,31 @@ fn a_focus_panic_answers_the_recovered_state() {
     let (code, name) =
         panic_through(|| unsafe { cmux_focus_import_json(focus, b"{}".as_ptr(), 2) });
     assert_eq!((code, name.as_deref()), (ERR_INVALID, Some("cmux_focus_import_json")));
+    // SAFETY: freed once.
+    unsafe { cmux_focus_free(focus) };
+}
+
+#[test]
+fn a_focus_panic_in_the_recovery_answers_the_failed_reply() {
+    let focus = cmux_focus_new();
+    let event = empty_event();
+    // The reduction's boundary and then the recovery's both panic.
+    // SAFETY: a live handle and a readable event.
+    let (reply, unfired, name) = panic_through_boundaries(2, || unsafe {
+        cmux_focus_send(focus, &event, std::ptr::null(), 0)
+    });
+    assert_eq!(unfired, 0, "both armed boundaries ran inside the export");
+    recorded("cmux_focus_send", name);
+    assert!(!reply.is_null());
+    // SAFETY: the reply belongs to the live handle until its next call.
+    let reply = unsafe { &*reply };
+    // The failed reply, not the recovered one (`changed` 1).
+    assert_eq!((reply.ok, reply.changed, reply.effect_count), (0, 0, 0));
+    // SAFETY: a live handle.
+    let current = unsafe { cmux_focus_current(focus) };
+    assert!(!current.is_null());
+    // SAFETY: as above.
+    assert_eq!(unsafe { (*current).ok }, 1, "the machine still answers after both panics");
     // SAFETY: freed once.
     unsafe { cmux_focus_free(focus) };
 }

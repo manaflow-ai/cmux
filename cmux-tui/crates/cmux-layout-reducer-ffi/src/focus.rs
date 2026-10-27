@@ -843,7 +843,7 @@ pub unsafe extern "C" fn cmux_focus_send(
         })
     })
     // SAFETY: a panic comes only after the null check, from a live handle.
-    .unwrap_or_else(|| unsafe { recover(focus) })
+    .unwrap_or_else(|| unsafe { recover("cmux_focus_send", focus) })
 }
 
 /// Reports the shown workspace's topology. A topology equal to the current
@@ -878,18 +878,24 @@ pub unsafe extern "C" fn cmux_focus_set_topology(
         })
     })
     // SAFETY: a panic comes only after the null check, from a live handle.
-    .unwrap_or_else(|| unsafe { recover(focus) })
+    .unwrap_or_else(|| unsafe { recover("cmux_focus_set_topology", focus) })
 }
 
-/// The reply after a reduction panicked part way ([`Focus::recover`]); null
-/// for a null handle.
+/// The reply after the export `name`'s reduction panicked part way
+/// ([`Focus::recover`]), itself in the boundary: when the recovery panics
+/// too, the failed reply ([`Focus::fail`] only writes fields). Null for a
+/// null handle.
 ///
 /// # Safety
 ///
 /// `focus` is null or a live handle used by one thread, borrowed nowhere else.
-unsafe fn recover(focus: *mut Focus) -> *const CmuxFocusReply {
-    // SAFETY: guaranteed by the caller.
-    unsafe { focus.as_mut() }.map_or(std::ptr::null(), |focus| focus.recover())
+unsafe fn recover(name: &'static str, focus: *mut Focus) -> *const CmuxFocusReply {
+    ffi_boundary(name, None, || {
+        // SAFETY: guaranteed by the caller.
+        Some(unsafe { focus.as_mut() }.map_or(std::ptr::null(), |focus| focus.recover()))
+    })
+    // SAFETY: guaranteed by the caller; the recovery's borrow has ended.
+    .unwrap_or_else(|| unsafe { focus.as_mut() }.map_or(std::ptr::null(), |focus| focus.fail()))
 }
 
 /// The current state as a reply (`changed` 1, no effects).
