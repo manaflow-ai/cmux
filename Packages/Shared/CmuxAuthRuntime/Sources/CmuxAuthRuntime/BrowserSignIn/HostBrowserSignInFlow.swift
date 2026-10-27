@@ -517,10 +517,11 @@ public final class HostBrowserSignInFlow {
             activeAttemptTimeoutTask = nil
             return
         }
-        let timeout = browserAttemptTimeout
+        let timeout = Duration.seconds(browserAttemptTimeout)
         let clock = self.clock
         activeAttemptTimeoutTask = Task { @MainActor [weak self] in
-            try? await clock.sleep(for: .seconds(timeout))
+            // wakeup-allow: deadline the attempt's one timeout; replaced or cancelled with the attempt
+            try? await clock.sleep(for: timeout, tolerance: timeout.authWakeLeeway)
             guard !Task.isCancelled, let self, self.activeAttemptID == attemptID else { return }
             self.log.log("auth.browser.attempt.timeout id=\(attemptID)")
             self.lastFailure = .timedOut
@@ -540,10 +541,11 @@ public final class HostBrowserSignInFlow {
             slowSignInHintTask = nil
             return
         }
-        let threshold = slowSignInThreshold
+        let threshold = Duration.seconds(slowSignInThreshold)
         let clock = self.clock
         slowSignInHintTask = Task { @MainActor [weak self] in
-            try? await clock.sleep(for: .seconds(threshold))
+            // wakeup-allow: deadline the attempt's one slow-popup hint; replaced or cancelled with the attempt
+            try? await clock.sleep(for: threshold, tolerance: threshold.authWakeLeeway)
             guard !Task.isCancelled, let self, self.activeAttemptID == attemptID else { return }
             self.log.log("auth.browser.attempt.slow id=\(attemptID)")
             self.signInIsSlow = true
@@ -626,6 +628,7 @@ public final class HostBrowserSignInFlow {
         var rateLimitRetries = 0
         var ownedRateLimitEpoch: UInt64?
         defer { endRateLimitWait(ownedRateLimitEpoch) }
+        // wakeup-allow: bounded only a 429 goes around again, at most AuthRateLimit.maximumRetries times
         while true {
             do {
                 log.log("auth.callback.coordinator.complete.begin attempt=\(attemptID.map(String.init) ?? "external") retry=\(rateLimitRetries)")
@@ -662,7 +665,10 @@ public final class HostBrowserSignInFlow {
                     ownedRateLimitEpoch = rateLimitEpoch
                     let clock = self.clock
                     let epoch = rateLimitEpoch
-                    let wait = Task<Void, Never> { _ = try? await clock.sleep(for: delay) }
+                    let wait = Task<Void, Never> {
+                        // wakeup-allow: backoff the server's Retry-After or a jittered doubling, after a 429
+                        _ = try? await clock.sleep(for: delay, tolerance: delay.authWakeLeeway)
+                    }
                     rateLimitWaits[epoch] = wait
                     await wait.value
                     rateLimitWaits[epoch] = nil

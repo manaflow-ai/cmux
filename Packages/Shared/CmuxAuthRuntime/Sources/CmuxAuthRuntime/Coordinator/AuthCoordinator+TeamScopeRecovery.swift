@@ -48,11 +48,13 @@ extension AuthCoordinator {
         let clock = self.clock
         let task = Task { @MainActor [weak self] in
             var attempt = 0
+            // wakeup-allow: backoff each pass follows a failed team fetch; ends when the teams load or the session ends
             while true {
                 do {
                     let delay = self?.teamScopeRecoveryWait(afterAttempt: attempt)
                         ?? Self.teamScopeRecoveryDelay(afterAttempt: attempt)
-                    try await clock.sleep(for: delay, tolerance: nil)
+                    // wakeup-allow: backoff 2 s doubling to 60 s, or the 429 wait, after a failed team fetch
+                    try await clock.sleep(for: delay, tolerance: delay.authWakeLeeway)
                 } catch {
                     return
                 }
