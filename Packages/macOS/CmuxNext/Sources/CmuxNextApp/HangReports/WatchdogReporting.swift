@@ -41,7 +41,8 @@ enum WatchdogReporting {
                                                            daemon: services.environment.daemonFeatureHello)] in
                 HangReport.FeatureState(features.fieldState)
             },
-            blockingSites: { [blocking = services.blocking] in blocking.mainThreadRead })
+            blockingSites: { [blocking = services.blocking] in blocking.mainThreadRead },
+            blackboxConsent: { [crashReporting = services.crashReporting] in crashReporting.hangReportsDecided($0) })
         let collector = hangReports.collector
         if let collector { services.crashReporting.attachHangReports(collector) }
         // The drain queue is a hang-watched lane for the process's life (Compat cannot see the watch). Set before
