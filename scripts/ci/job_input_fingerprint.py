@@ -63,7 +63,6 @@ sys.path.insert(0, str(HERE))
 import cmux_next_route as route  # noqa: E402
 
 VERSION = 4  # 2 keyed only full trees in actions/cache; 3 keyed input lists. No key of either may match.
-PRODUCT_VERSION = 3  # The DEV and nightly product keys did not change with VERSION 4.
 WORKFLOW = ".github/workflows/cmux-next.yml"
 MAC_TOOLCHAIN = ("xcode", "macos", "macos_build", "arch", "pool")
 # Keyed when given; not every runner image sets ImageOS/ImageVersion.
@@ -339,7 +338,7 @@ def fingerprint(root: str, rev: str, job: str, extra: list[str], base_rev: str |
     try:
         commit = git(root, "rev-parse", "--verify", f"{rev}^{{commit}}")
         workflow = git(root, "rev-parse", "--verify", f"{rev}:{spec.workflow}")
-        value: dict = {"version": PRODUCT_VERSION if spec.product else VERSION, "job": job, "workflow": workflow,
+        value: dict = {"version": VERSION, "job": job, "workflow": workflow,
                        "toolchain": {name: values[name] for name in spec.required + OPTIONAL if name in values},
                        "flags": {name: values[name] for name in spec.flags}}
         if spec.product:

@@ -12,7 +12,6 @@ before and after one change.
 
 from __future__ import annotations
 
-import importlib.util
 import os
 import re
 import subprocess
@@ -406,15 +405,6 @@ class MacJobInputs(unittest.TestCase):
                 key, stderr = self.run_job(job)
                 self.assertTrue(key, stderr[-2000:])
                 self.assertIn(f"tree {tree}", stderr)
-
-    def test_only_job_pass_keys_moved_to_version_4(self):
-        # The DEV and nightly product records must keep matching; only the job-pass keys moved.
-        spec = importlib.util.spec_from_file_location("job_input_fingerprint", SCRIPT)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        self.assertEqual((module.VERSION, module.PRODUCT_VERSION), (4, 3))
-        source = SCRIPT.read_text()
-        self.assertIn('"version": PRODUCT_VERSION if spec.product else VERSION', source)
 
     def test_a_change_to_any_listed_input_changes_the_key(self):
         for job in MAC_JOBS:
