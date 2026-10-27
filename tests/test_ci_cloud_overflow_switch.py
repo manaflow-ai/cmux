@@ -157,6 +157,8 @@ class FailoverTests(unittest.TestCase):
         values, problems = switch.failover_values(PIN, json.dumps({"CI_TRUSTED_RUNNER": "blacksmith-16vcpu-ubuntu-2404"}))
         self.assertEqual(values["CI_TRUSTED_RUNNER"], "blacksmith-2vcpu-ubuntu-2404")
         self.assertEqual(len(problems), 1)
+        values, problems = switch.failover_values(PIN, json.dumps({"CI_TRUSTED_RUNNER": "glaeda-std-xcode-26.6"}))
+        self.assertEqual((values["CI_TRUSTED_RUNNER"], len(problems)), ("blacksmith-2vcpu-ubuntu-2404", 1))
         values, problems = switch.failover_values(PIN, json.dumps({"CI_TRUSTED_RUNNER": "blacksmith-4vcpu-ubuntu-2404"}))
         self.assertEqual((values["CI_TRUSTED_RUNNER"], problems), ("blacksmith-4vcpu-ubuntu-2404", []))
 
@@ -370,6 +372,21 @@ class MainTests(unittest.TestCase):
         self.assertEqual(switch.away_from_probe({"CI_TRUSTED_RUNNER": "blacksmith-2vcpu-ubuntu-2404"},
                                                 "blacksmith-2vcpu-ubuntu-2404"),
                          {"CI_TRUSTED_RUNNER": "blacksmith-4vcpu-ubuntu-2404"})
+        # An override naming the probed label is moved off it too.
+        self.assertEqual(switch.away_from_probe({"CI_TRUSTED_RUNNER": "blacksmith-4vcpu-ubuntu-2404",
+                                                 "LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"},
+                                                "blacksmith-4vcpu-ubuntu-2404"),
+                         {"CI_TRUSTED_RUNNER": "blacksmith-2vcpu-ubuntu-2404",
+                          "LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404"})
+
+    def test_a_legacy_record_without_the_switch_token_fails_loudly(self) -> None:
+        record = {"since": ago(60), "probe": "blacksmith-4vcpu-ubuntu-2404", "changed": {
+            "LINUX_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404", "after": "ubuntu-24.04"}}}
+        env = {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(record), "VAR_LINUX_RUNNER": "ubuntu-24.04",
+               "VAR_CMUX_CI_XCODE_APP_PR": PIN}
+        code, _, summary = run_main(env, FakeActions(probe_job(0)), None)
+        self.assertEqual(code, 1)
+        self.assertIn("LINUX_RUNNER -> blacksmith-16vcpu-ubuntu-2404", summary)
 
     def test_healthy_with_no_record_writes_nothing(self) -> None:
         writer = FakeSwitch()

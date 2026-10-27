@@ -211,8 +211,7 @@ def failover_values(xcode_app_pr: str | None, overrides: str | None) -> tuple[di
                     # No job runs on GitHub-hosted Ubuntu (Leo, 2026-10-27).
                     problems.append(f"{OVERRIDES_VARIABLE} points {name} at {value.strip()}, GitHub-hosted "
                                     "Ubuntu; ignored")
-                elif name == TRUSTED_VARIABLE and cloud_label(value.strip()) \
-                        and value.strip() not in TRUSTED_BLACKSMITH_LABELS:
+                elif name == TRUSTED_VARIABLE and value.strip() not in TRUSTED_BLACKSMITH_LABELS:
                     problems.append(f"{OVERRIDES_VARIABLE} points {name} at {value.strip()}, which its readers do "
                                     "not accept; ignored")
                 elif cloud_label(value.strip()) and not (name in LINUX_VARIABLES and linux_cloud_label(value.strip())):
@@ -306,12 +305,17 @@ def plan_resume(record: Mapping[str, Any], current: Mapping[str, str | None]) ->
     return resumes
 
 
+# Where each Linux variable may go, in order, when its failover is the stalled label.
+LINUX_FAILOVER_CHAIN = {LINUX_VARIABLE: (LINUX_FAILOVER, ALTERNATE_FAILOVERS[LINUX_FAILOVER]),
+                        TRUSTED_VARIABLE: (TRUSTED_FAILOVER, ALTERNATE_FAILOVERS[TRUSTED_FAILOVER])}
+
+
 def away_from_probe(failover: Mapping[str, str], probe: str) -> dict[str, str]:
-    """A Linux failover never names the label whose stall triggered it."""
+    """A Linux failover, an override included, never names the label whose stall triggered it."""
     values = dict(failover)
     for name in LINUX_VARIABLES:
-        if values.get(name) == probe and probe in ALTERNATE_FAILOVERS:
-            values[name] = ALTERNATE_FAILOVERS[probe]
+        if values.get(name) == probe:
+            values[name] = next(label for label in LINUX_FAILOVER_CHAIN[name] if label != probe)
     return values
 
 
@@ -685,7 +689,12 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                 if args.dry_run:
                     for item in moves:
                         log(f"- {item.name}: would move from GitHub-hosted Ubuntu to {item.value} (dry run)")
-                elif switch is not None:
+                elif switch is None:
+                    log("::error title=Cloud overflow switch::no switch token (GLAEDA_ROUTE_APP_ID); Linux "
+                        "overflow stays on GitHub-hosted Ubuntu. Move it by hand: " + "; ".join(
+                            f"{item.name} -> {item.value}" for item in moves) + f", and update {RECORD_VARIABLE}")
+                    code = 1
+                else:
                     # The record first, as for a new switch: a failure halfway still knows the way back.
                     switch.set_variable(RECORD_VARIABLE, json.dumps(migrated, sort_keys=True))
                     for item in moves:
