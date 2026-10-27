@@ -36,7 +36,7 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 ## Catalog counts
 
 - `window`: 109
-- `workspace`: 170
+- `workspace`: 171
 - `pane`: 86
 - `screen`: 65
 - `tab`: 105
@@ -51,7 +51,7 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 
 ## Counts (1219 actions)
 
-Palette 1169, CLI verbs 699, right-click 573, MCP tools 617.
+Palette 1169, CLI verbs 700, right-click 572, MCP tools 618.
 
 ## Menus
 
@@ -154,7 +154,7 @@ Palette 1169, CLI verbs 699, right-click 573, MCP tools 617.
 
 **duplicateOfDefault** (5): `newTab.default`, `newTab.afterCurrent`, `newTab.horizontal`, `newTab.submit`, `cloudMachineLink`
 
-**minimalMenu** (2): `space.setDefaults`, `browserProfile.clearSpaceDefault`
+**minimalMenu** (3): `space.setDefaults`, `space.clearDefaults`, `browserProfile.clearSpaceDefault`
 
 **pointerMenuTrim** (10): `copyWorkspaceSSHError`, `revealWorkspaceInFinder`, `palette.copyWorkspaceID`, `palette.copyWorkspaceIDAndRef`, `palette.copyWorkspaceLink`, `palette.openWorkspacePullRequests`, `workspace.copyPath`, `workspace.showResources`, `workspace.setRemoteLocalhost`, `workspace.setTint`
 

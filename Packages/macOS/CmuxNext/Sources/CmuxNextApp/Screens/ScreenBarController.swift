@@ -149,7 +149,7 @@ final class ScreenBarController {
             view.restoreDetachedGroup(start.groupID)
         case .toggleGroupCollapsed, .moveGroup, .addToGroup, .removeFromGroup, .group, .createGroup:
             handleGroup(intent)
-        case .moveToNewSplit, .moveToNewColumn, .reorderTabs, .toggleAudioMute:
+        case .moveToNewSplit, .moveToNewColumn, .reorderTabs, .toggleAudioMute, .toggleZoom:
             break
         }
     }
