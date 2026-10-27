@@ -50,7 +50,9 @@ import Darwin
 /// compositor and IO threads with `base::HangWatcher` (base/threading/hang_watcher.h): the renderer thread
 /// registers in the process's ``HangWatch`` on its first frame, named `ghostty-renderer` with the surface's trace
 /// id as the subject, each frame's begin and end open and close a 500 ms scope on it, and the surface's destroy
-/// event frees the slot. A frame drawn on the main thread (a display pass) is the main-thread watchdog's.
+/// event frees the slot, also while the renderer thread opens a frame (that frame is then never reported). A frame
+/// drawn on the main thread (a display pass) is the main-thread watchdog's. The frames wake no monitor
+/// (``HangWatch/begin(_:deadline:)``'s lease): a focused terminal whose cursor blinks adds no hang-watch wakeup.
 @MainActor
 public final class GhosttyTraceHook {
     /// `ghostty_trace_hook_cb`.

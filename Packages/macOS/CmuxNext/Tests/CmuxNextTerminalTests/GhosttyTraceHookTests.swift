@@ -392,6 +392,25 @@ struct GhosttyTraceHookTests {
         #expect(next.slot == HangWatch.Registration(packed: slot).slot, "the destroy event freed the renderer's slot")
     }
 
+    /// p09-observability-120: a renderer's frames (a blinking cursor's, at idle) never wake the parked hang monitor:
+    /// its slot's timer lease covers them, moved at most once per 500 ms budget.
+    @Test func rendererFramesWakeNoParkedMonitor() async throws {
+        let trace = TraceRuntime(role: .app)
+        let watch = HangWatch()
+        watch.attachMonitor(wake: {}, leaseTimer: { _, _ in })
+        let rig = Rig(trace: trace, probe: TypingLatencyProbe(path: nil, trace: trace), hangWatch: watch)
+        rig.hook.refreshDemand()
+        let renderer = try #require(rig.renderer)
+        await Self.onRendererThread {
+            for seq: UInt64 in 1...100 {
+                renderer(.frameBegin, seq: seq)
+                renderer(.frameEnd, seq: seq)
+            }
+        }
+        #expect(watch.wakeRequests == 0)
+        #expect(watch.leaseRenewals >= 1, "the renderer's slot took its timer lease")
+    }
+
     /// p09-observability-120: a frame drawn on the main thread (a display pass) registers nothing: the main-thread
     /// watchdog watches it.
     @Test func aMainThreadFrameRegistersNoRenderer() {

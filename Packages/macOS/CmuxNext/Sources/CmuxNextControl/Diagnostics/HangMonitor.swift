@@ -257,7 +257,10 @@ extension MainThreadWatchdog {
 
     /// ``attach(hangWatch:crashKeys:trace:)`` with the whole source (tests add their hook).
     func attach(_ source: HangMonitor.Source) {
-        guard alarm.isAvailable, source.watch.attachMonitor(wake: { [alarm] in alarm.wake() }) else { return }
+        guard alarm.isAvailable,
+              source.watch.attachMonitor(wake: { [alarm] in alarm.wake() },
+                                         leaseTimer: { [alarm] slot, nanos in alarm.armLease(slot: slot, afterNanos: nanos) })
+        else { return }
         hangWatchSink.withLock { $0 = source }
         hangWatchAttached.store(true, ordering: .releasing)
         alarm.wake() // the thread picks it up now, not at its next wake

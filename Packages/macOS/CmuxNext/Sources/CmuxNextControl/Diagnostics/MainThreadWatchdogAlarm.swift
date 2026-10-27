@@ -5,7 +5,9 @@ import Darwin
 /// one user event that `stop()`, a scheduled task's start and a hang-watch scope trigger. A scope
 /// triggers it only when the hang monitor would see it more than one minimum deadline late: the
 /// first open after the monitor parks, one trigger (`HangWatch` `requestScan`). The monitor's own
-/// scans need no timer of their own: they bound the wait's timeout (`HangMonitor.service()`).
+/// scans need no timer of their own: they bound the wait's timeout (`HangMonitor.service()`). A slot
+/// whose frames would otherwise trigger it at idle (a Ghostty renderer's) keeps one timer of its own
+/// instead, which its thread moves later while frames keep ending (``armLease(slot:afterNanos:)``).
 ///
 /// A main-thread turn shorter than the timer wakes no other thread: an idle app's occasional
 /// wakes cost the watchdog nothing (plans/cmux-next/idle-wakeups.md). A turn that outlasts it
@@ -22,6 +24,8 @@ final class MainThreadWatchdogAlarm: Sendable {
     // every conversion here fits; `truncatingIfNeeded:` says so without a trap path.
     private static let timerIdent: UInt = 1
     private static let stopIdent: UInt = 2
+    /// Hang-watch slot `n`'s lease timer is this plus `n` (``armLease(slot:afterNanos:)``).
+    private static let leaseIdentBase: UInt = 0x1_0000
 
     init() {
         descriptor = kqueue()
@@ -47,6 +51,15 @@ final class MainThreadWatchdogAlarm: Sendable {
     func disarm() {
         guard descriptor >= 0 else { return }
         submit(ident: Self.timerIdent, filter: EVFILT_TIMER, flags: EV_DELETE)
+    }
+
+    /// Sets hang-watch slot `slot`'s one-shot timer to fire `nanos` from now, in place of its earlier one:
+    /// the lease of a slot whose scopes never trigger the user event (`HangWatch.begin`, a Ghostty renderer's
+    /// frames). It runs on that slot's thread, and its fire ends a wait as the user event does.
+    func armLease(slot: Int, afterNanos nanos: UInt64) {
+        guard descriptor >= 0, slot >= 0 else { return }
+        submit(ident: Self.leaseIdentBase + UInt(truncatingIfNeeded: slot), filter: EVFILT_TIMER, flags: EV_ADD | EV_ONESHOT,
+               fflags: UInt32(truncatingIfNeeded: NOTE_NSECONDS), data: Int(clamping: nanos))
     }
 
     /// Ends a wait now, or the next one if none runs (`stop()`, a scheduled task's start:

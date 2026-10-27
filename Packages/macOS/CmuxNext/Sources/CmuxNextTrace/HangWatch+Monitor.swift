@@ -18,6 +18,10 @@ import CmuxNextCompat
 /// - A scope whose deadline would be seen more than one period late (the monitor is parked, or sleeps to
 ///   a later deadline) moves the plan to its deadline and calls the monitor's wake: the first open after a
 ///   park, one wake each.
+/// - A ``begin(_:deadline:)`` scope wakes nobody and needs no period: its slot's kernel timer (its lease) fires
+///   one budget past the scope's deadline at the latest, the plan is no later than that timer, and each open
+///   that would outlive the timer moves it later. A thread that draws a frame now and then (a blinking cursor)
+///   adds no monitor wakeup; one stuck in a frame is scanned when its timer fires.
 ///
 /// A scan publishes `.max` as the plan before it reads the slots, so a scope that opens during the scan
 /// sees it and wakes the monitor, and the scan's own plan never hides that scope.
@@ -60,10 +64,17 @@ extension HangWatch {
     /// Connects the one monitor: from now on a scope that needs an earlier scan calls `wake` (on its own
     /// thread; it must return at once, as a kqueue user-event trigger does). The monitor starts parked.
     ///
+    /// - Parameters:
+    ///   - wake: Ends the monitor's wait now.
+    ///   - leaseTimer: Sets the one-shot kernel timer of slot `index` to fire `afterNanos` from now, in place of
+    ///     the slot's earlier one, and to end the monitor's wait when it fires (a kqueue `EVFILT_TIMER` that the
+    ///     index names). It wakes nobody and must return at once. ``begin(_:deadline:)`` scopes use it instead
+    ///     of `wake`; nil: they call `wake` as other scopes do.
     /// - Returns: false when a monitor is connected already (this one is not).
     @discardableResult
-    public func attachMonitor(wake: @escaping @Sendable () -> Void) -> Bool {
-        let box = Unmanaged.passRetained(WakeBox(wake))
+    public func attachMonitor(wake: @escaping @Sendable () -> Void,
+                              leaseTimer: (@Sendable (_ index: Int, _ afterNanos: UInt64) -> Void)? = nil) -> Bool {
+        let box = Unmanaged.passRetained(WakeBox(wake, leaseTimer: leaseTimer))
         let address = UInt64(truncatingIfNeeded: UInt(bitPattern: box.toOpaque()))
         guard wakeBox.compareExchange(expected: 0, desired: address, ordering: .acquiringAndReleasing).exchanged else {
             box.release()
@@ -107,12 +118,15 @@ extension HangWatch {
         var earliest = UInt64.max
         var overdue: [Overdue] = []
         for index in 0..<min(claimedEnd.load(ordering: .acquiring), Self.capacity) {
-            guard let slot = slot(at: index) else { continue }
+            // A free slot (or one a registration is resetting) holds no scope, whatever its deadline word says.
+            guard let slot = slot(at: index),
+                  Self.word(slot, Self.stateWord).load(ordering: .sequentiallyConsistent) & Self.kindMask != 0 else { continue }
             let word = Self.word(slot, Self.deadlineWord)
             let current = word.load(ordering: .sequentiallyConsistent)
             let seen = slot + Self.seenWord
             if seen.pointee != current {
-                changed = true
+                // A leased slot's timer wakes the monitor for its scopes (``begin(_:deadline:)``): no scan period.
+                if Self.word(slot, Self.leaseWord).load(ordering: .relaxed) == 0 { changed = true }
                 seen.pointee = current
             }
             guard let due = nextTierDue(current) else { continue }
@@ -184,5 +198,19 @@ extension HangWatch {
     public func isStillOpen(_ overdue: Overdue) -> Bool {
         guard let slot = slot(at: overdue.slot) else { return false }
         return Self.word(slot, Self.deadlineWord).load(ordering: .acquiring) == overdue.marked
+    }
+}
+
+extension HangWatch {
+    /// The monitor's wake, retained once (``attachMonitor(wake:leaseTimer:)``).
+    final class WakeBox: Sendable {
+        let wake: @Sendable () -> Void
+        /// Sets slot `index`'s kernel timer `afterNanos` from now (``attachMonitor(wake:leaseTimer:)``).
+        let leaseTimer: (@Sendable (_ index: Int, _ afterNanos: UInt64) -> Void)?
+
+        init(_ wake: @escaping @Sendable () -> Void, leaseTimer: (@Sendable (_ index: Int, _ afterNanos: UInt64) -> Void)?) {
+            self.wake = wake
+            self.leaseTimer = leaseTimer
+        }
     }
 }
