@@ -105,10 +105,14 @@ extension CloudMachineRepoTests {
         guard case .unreachable = unreachable.0 else { Issue.record("three failed reads in a row end the wait"); return }
         // Cancelled during a read after two failed ones: still running, not unreachable.
         let cancelling = Script([.failure(Timeout()), .failure(Timeout())])
-        let cancelled = await withRepo.waitForRun(on: CloudMachineBootstrap.Machine(write: { _, _, _ in }, exec: { command in
-            if cancelling.commands.count == 2 { withUnsafeCurrentTask { $0?.cancel() }; throw Timeout() }
-            return try await cancelling.machine.exec(command)
-        }))
+        let bootstrap = withRepo
+        // Its own task: the cancel must not reach this test's task.
+        let cancelled = await Task {
+            await bootstrap.waitForRun(on: CloudMachineBootstrap.Machine(write: { _, _, _ in }, exec: { command in
+                if cancelling.commands.count == 2 { withUnsafeCurrentTask { $0?.cancel() }; throw Timeout() }
+                return try await cancelling.machine.exec(command)
+            }))
+        }.value
         #expect(cancelled == .stillRunning)
         let bounded = await run(withRepo, [.success(Self.answer(Self.status("running"), lock: "held"))], bound: .zero)
         #expect(bounded == (Run.stillRunning, 1))
@@ -244,7 +248,8 @@ extension CloudMachineRepoTests {
         let machine = CloudMachineBootstrap.Machine(write: { _, _, _ in }, exec: { command in
             // The start goes out, then the flow is cancelled (a Retry) before it comes back.
             if command.contains("echo started") { withUnsafeCurrentTask { $0?.cancel() } }
-            else if !command.contains("mkdir -p") { others.fire() }
+            // The started bootstrap's wait reads on: only an apply would be another command.
+            else if !command.contains("mkdir -p"), command != CloudMachineBootstrap.waitCommand { others.fire() }
             return CloudExecResult(exitCode: 0, stdout: "started\n", stderr: "")
         })
         await Task { @MainActor in await CloudCreationFlow.startBootstrap(creation, on: machine) }.value
