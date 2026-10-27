@@ -69,6 +69,8 @@ test("session metadata names the harness and child relationship without guessing
   const unrelated = resolveSenderIdentity({ name: "codex-reviewer" }, undefined, "parent");
   expect(unrelated).toEqual({ name: "codex-reviewer", known: false });
   expect(resolveSenderIdentity({ name: "pr-row" }, entry, "elsewhere").relation).toBeUndefined();
+  // A name lookup may find an existing chat, but cannot prove that chat authored this message.
+  expect(resolveSenderIdentity({ name: "pr-row" }, entry, "parent").relation).toBeUndefined();
 });
 
 test("a peer session leaving the list cannot leave its harness or machine on another sender", () => {
