@@ -8,6 +8,12 @@ struct CloudCodexBrokerAdapterTests {
         var values: [String: [String: Data]] = [:]
         var live = true
         var removals = 0
+        var cancelledRemoval = false
+        var removalObserver: (Int, CheckedContinuation<Void, Never>)?
+        func waitForRemovals(_ count: Int) async {
+            if removals >= count { return }
+            await withCheckedContinuation { removalObserver = (count, $0) }
+        }
         var removalGate: CloudCodexBrokerTests.Gate?
         func blockNextRemoval(_ gate: CloudCodexBrokerTests.Gate) { removalGate = gate }
         var pausedChecks = 0
@@ -29,7 +35,11 @@ struct CloudCodexBrokerAdapterTests {
         func write(_ machine: String, _ path: String, _ data: Data) { values[machine, default: [:]][path] = data }
         func remove(_ machine: String, _ path: String) async {
             if let gate = removalGate { removalGate = nil; await gate.pause() }
+            cancelledRemoval = cancelledRemoval || Task.isCancelled
             removals += 1; values[machine]?[path] = nil
+            if let (count, observer) = removalObserver, removals >= count {
+                removalObserver = nil; observer.resume()
+            }
         }
         func commit(_ machine: String, _ a: String, _ b: String, _ c: String, _ d: String) {
             values[machine, default: [:]][b] = values[machine]?[a]
@@ -306,6 +316,7 @@ done
         let adapter = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
         try await adapter.run(machineID: "one", scope: scope, confirmed: true) { _ in true }
         try await adapter.run(machineID: "two", scope: scope, confirmed: true) { _ in true }
+        let removalsBefore = await files.removals
         let gate = CloudCodexBrokerTests.Gate()
         await files.blockNextRemoval(gate)
         let clock = ContinuousClock()
@@ -318,6 +329,8 @@ done
         let remaining = [one, two]
         #expect(remaining.compactMap { $0 }.count == 1)
         await gate.open()
+        await files.waitForRemovals(removalsBefore + 4)
+        #expect(await !files.cancelledRemoval)
     }
 
     @Test func newTransferPreservesOtherMachinesPendingCleanup() async throws {
