@@ -15,8 +15,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from nightly_workflow_text import nightly_text
+
 ROOT = Path(__file__).resolve().parents[1]
-NIGHTLY = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
+NIGHTLY = nightly_text()
 SCRIPT = ROOT / "scripts/ci/tip_appcast_linux.py"
 
 spec = importlib.util.spec_from_file_location("tip_appcast_linux", SCRIPT)
