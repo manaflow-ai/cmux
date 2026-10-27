@@ -64,7 +64,7 @@ import Testing
         )
         #expect(category == .listenerNotRunning(host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort))
         #expect(category.analyticsReason == "listener_not_running")
-        #expect(category.message.lowercased().contains("cmux"))
+        #expect(category.message.contains("100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"))
         #expect(category.guidance != nil)
     }
 
