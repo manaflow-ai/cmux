@@ -1,0 +1,491 @@
+{
+  "version": 1,
+  "build": "4055612617201",
+  "notes": "notes/4055612617201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 26273,
+      "title": "fix(cmux-next): Home starter chips draw no stock tooltip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26241,
+      "title": "acpmux: under an MDM off, a family answer checked under the old bound is written or cut before the push returns (#23322 a3 fence, answers)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26262,
+      "title": "test(cmux-next): ParkedWorkspacePageTabTests skips without the same-tree cmux-tui",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26272,
+      "title": "test(cmux-next control): snapshot publisher tests observe a private notification center",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26289,
+      "title": "cmux NEXT tests: the Chief pet popover offers every character, Mochi included",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26138,
+      "title": "cmux NEXT: hide App Store and What's New by default",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26283,
+      "title": "Localize Cloud credential recovery confirmations",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26287,
+      "title": "cloud-setup: collapse Codex account binding checks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26271,
+      "title": "ci(nightly-next): release signer identity stamp and app notarization scripts, unused",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26175,
+      "title": "cloud: bridge owner-VM Codex access grants",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26237,
+      "title": "ci(nightly-next): dispatched and re-run builds take the owned-Mac pick too",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26278,
+      "title": "acpmux: prompt_uploads test fixture names no literal state root",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26263,
+      "title": "fix(cmux-next): profile link menu keeps every icon in one 16 pt square",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26234,
+      "title": "acpmux: macOS clippy red on base (manual_is_multiple_of in daemon.rs, needless_return in remote_sandbox.rs)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26282,
+      "title": "test(optchat-chief): reply_to_report fires the outbox timer while it waits for a send",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26201,
+      "title": "cmux-next: Allow on a peer-route chat's prompt goes out signed by this Mac's approver key (peer-route approvals 4/5)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26255,
+      "title": "cmux-tui: agent chat notices page the session list and stop reconnecting every second (idle acpmux 63% -> 0%)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26240,
+      "title": "webviews: constant title for the accent-glass invariant test",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26252,
+      "title": "test(cmux-next control): router tests that check no deadline ride out a loaded main actor; deadline suites run serially (swift test base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26217,
+      "title": "cmux NEXT Cloud: the app updates every older Cloud machine, not only one that lacks a capability",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26266,
+      "title": "pair-e2e: keep why the Mac app did not answer on its control socket",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26055,
+      "title": "acpmux: a left host's log read is kept only when the host records could be read (#23322, review 69)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26270,
+      "title": "Agent chat: align folded thoughts with compact tool rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26261,
+      "title": "cmux-tui spec: git.diff's file object carries blob_fingerprint",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26265,
+      "title": "fix(webviews): regenerate upload protocol method catalog",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26251,
+      "title": "ci(nightly-next): the build picker may offer glaeda's nightly slot first",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26233,
+      "title": "ci(nightly-next): release signer scripts, unused",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26242,
+      "title": "fix(next): use document window for preview card styles",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26231,
+      "title": "acpmux send --attach: show upload progress, retry a dropped link, resume a killed sender's upload",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26132,
+      "title": "[cx-ecv6xp] Make pane types and commands discoverable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26248,
+      "title": "ci-target-graph: a test's .claude/.codex path is a home dir, not a repo read",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25985,
+      "title": "acpmux: one blank-id rule and one MDM read per operation in the full-access bound (#23322 follow-up)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26253,
+      "title": "ci(nightly-next): the Ghostty helper takes the picker's owned or Blacksmith label",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26179,
+      "title": "web: record a new Cloud machine's vm-kind at create, so vmHost defaults on",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26227,
+      "title": "acpmux: fail closed: no guest-writable vm-kind or vmHost turns off the remote sandbox",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25906,
+      "title": "ci: every job that can start acpmux gets its own home; tests never use ~/.acpmux",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26191,
+      "title": "cloud-setup: typed private-pipe Codex holder transport",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26229,
+      "title": "fix(migrations): apply CONCURRENTLY migrations outside a transaction (web and cmux-next DB)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26052,
+      "title": "acpmux: under MDM's off, a full-access report counts before it is applied (#23322, review 69)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26197,
+      "title": "cmux NEXT: the draft write times out, a click during the self-quit wait installs, and the quit's draft map is bounded",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26225,
+      "title": "cmux-next media: shallow tour checkout; deepen only the two commits for the merge base",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26249,
+      "title": "fix(webviews): use type scale and format settings sources",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26221,
+      "title": "Agent pane relay: let the pane send _acpmux/retry (a failed subagent's, sub-session's or turn's Retry)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26243,
+      "title": "cmux-next-ios-sim.sh pair-e2e: check out the Ghostty submodules and GhosttyKit before reload.sh",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26239,
+      "title": "ci(nightly-next): a fresh or stalled-out sign pick is its own re-run alternate (fix-forward of #26171)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25704,
+      "title": "cmux-next: no window background change when switching apps",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26193,
+      "title": "cloud deliver-secrets: .cmux/machine.toml's secrets, from this Mac's Keychain over the daemon link",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26223,
+      "title": "Cloud attach-endpoint: report vmKind (owner only for the caller's own personal VM)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26207,
+      "title": "cmux NEXT update queue: a held peer logs held with the daemon's reason and until",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26198,
+      "title": "acpmux: a peer counts an enrolled Mac's signed group Allow once (peer-route approvals 3/5)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25939,
+      "title": "Add Machine checklist: a \"Keep it up to date\" row for enroll's update step",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26226,
+      "title": "cmux-next daemon tests: wait for a computed marker in the keep-layout restart test",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25822,
+      "title": "acpmux enroll: an update step that keeps a machine's daemon current",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26146,
+      "title": "cmux NEXT: the commit-boundary audit knows cmux's own after-commit observers (swift test base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25498,
+      "title": "cmux NEXT composer: the rest of the sandbox UI tests (split from #25483)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26048,
+      "title": "ci(nightly-next): the app build takes the dedicated builder first, then owned, then Blacksmith",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26218,
+      "title": "cloud apply-machine-config: a CLI verb, an MCP tool and a row in the machine's Tools menu",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24472,
+      "title": "Agent chat: a video's Open in tab and Expand each take their own click",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26213,
+      "title": "cmux-next tests: ClassicUpgradeSimulation waits on events, not the clock",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25486,
+      "title": "cloud new-machine --repo OWNER/NAME[@REF]: clone onto the machine with the GitHub access it has",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26112,
+      "title": "feat(agent-chat): make Session status copyable and Esc-dismissible",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26126,
+      "title": "cmux-next: polish the side diff panel",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26115,
+      "title": "fix(agent-chat): keep reconnecting state neutral",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24262,
+      "title": "Agent pane: a chat's last frame stays until its live page is ready, instead of going dark",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25483,
+      "title": "cmux NEXT composer: Run as Sandboxed in the environment picker, and the Run's receipt in the chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26199,
+      "title": "cmux NEXT Inspector: Environment lists the chat's project, never scratch or touched folders",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26142,
+      "title": "cloud-setup: keep Codex refresh credentials in one local holder",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26139,
+      "title": "Cloud: confirmed owner-only provider credential transfer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26161,
+      "title": "fix(cmux-next): keep live loading cover through chat draw hold",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26210,
+      "title": "nightly: move 14 more publish run blocks into scripts/ci/nightly-steps (12 KB more headroom)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25685,
+      "title": "acpmux: under an MDM off, family messages are written or cut before the push returns (#23322 a3 fence, part 4 of 5)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26206,
+      "title": "Agent pane: let the relay pass _acpmux/peer_snapshot so a down peer's chat paints from the copy",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25497,
+      "title": "cmux NEXT agent pane: the rest of the sandbox data tests (split from #25482)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26205,
+      "title": "cmux NEXT tests: UpdateRelaunchMomentTests compiles again (Swift 6 Sendable in #expect)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26168,
+      "title": "runs: create a sandboxed Run, behind a per-deployment allowlist",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24519,
+      "title": "cmux NEXT: keep Claude New Tab controls in one quiet row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26167,
+      "title": "runs: the sandbox launcher's lifecycle and output-tail tests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26189,
+      "title": "cx-r9ffsp: acpmux translate Claude control cancellations",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26187,
+      "title": "cmux NEXT: CloudMachineSecrets is constructible (Convention base red, the lint's own autofix)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26054,
+      "title": "acpmux: under MDM's off, a left host is judged by what its log says it reported (#23322 b2)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
