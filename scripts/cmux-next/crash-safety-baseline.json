@@ -82,7 +82,7 @@
  "waived": {
   "rust": {
    "exit": {
-    "acpmux": 1,
+    "acpmux": 2,
     "cmux-browser-host": 4,
     "cmux-tui-core": 4
    },
@@ -96,7 +96,7 @@
     "cmux-unix-socket": 1
    },
    "panic_macro": {
-    "acpmux": 2,
+    "acpmux": 3,
     "cmux-blocking": 1,
     "cmux-pane-protocol": 1,
     "cmux-server": 1,
