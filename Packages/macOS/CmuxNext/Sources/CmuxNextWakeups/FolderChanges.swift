@@ -1,9 +1,9 @@
 public import Foundation
 
 /// Changes to the contents of some folders as an `AsyncStream`: one element per burst of
-/// file-system events, never a poll (plans/cmux-next/idle-wakeups.md). A folder that does not
-/// exist yet is watched through its nearest existing parent (a stand-in) and is watched itself
-/// once made.
+/// file-system events, never a poll (plans/cmux-next/idle-wakeups.md): vnode sources on Darwin,
+/// inotify on Linux. A folder that does not exist yet is watched through its nearest existing
+/// parent (a stand-in) and is watched itself once made.
 ///
 /// A stand-in's own changes are not the folder's: a missing `Backgrounds` folder is watched
 /// through the app's Application Support folder, where the app writes its own files on every
@@ -66,12 +66,16 @@ public struct FolderChanges: Sendable {
         return stream
     }
 
-    /// Watches the nearest existing folder of each of `targets`.
+    /// Watches the nearest existing folder of each of `targets`: a vnode source per folder on Darwin, one
+    /// inotify descriptor for all of them on Linux (FolderWatch+Inotify.swift).
     private static func arm(_ targets: [String]) -> FolderWatch {
         let paths = Set(targets.map(nearestExistingFolder(of:)))
+        #if os(Linux)
+        return FolderWatch.inotify(paths)
+        #else
         let (events, continuation) = AsyncStream<FolderWatch.Event>.makeStream(bufferingPolicy: .bufferingNewest(8))
         // DispatchSource for file watching: no Foundation async equivalent (idle-wakeups.md).
-        let sources = paths.compactMap { folder -> (any DispatchSourceFileSystemObject)? in
+        let sources = paths.compactMap { folder -> (any DispatchSourceProtocol)? in
             let fd = open(folder, O_EVTONLY)
             guard fd >= 0 else { return nil }
             let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete, .link],
@@ -83,6 +87,7 @@ public struct FolderChanges: Sendable {
             return source
         }
         return FolderWatch(paths: paths, events: events, sources: sources, finish: { continuation.finish() })
+        #endif
     }
 }
 

@@ -123,7 +123,8 @@
       "CmuxNextRemoteLocalhost",
       "CmuxNextServerHelper",
       "CmuxNextCLIInstall",
-      "CZlib"
+      "CZlib",
+      "CCmuxNextLinux"
     ],
     "testTargets": [
       "CmuxNextActionsTests",
@@ -184,6 +185,9 @@
       ],
       "CmuxNextCodeRouter": [
         "Crypto"
+      ],
+      "CmuxNextCompat": [
+        "CCmuxNextLinux"
       ],
       "CmuxNextDaemon": [
         "CZlib",

@@ -1,10 +1,15 @@
+#if canImport(Darwin)
 public import Darwin
+#elseif canImport(Glibc)
+public import Glibc
+#endif
 import Foundation
 
 /// CPU time, CPU energy and wakeups of one process (`proc_pid_rusage`,
 /// `RUSAGE_INFO_V6`), for `debug.wakeups`, `debug.energy`, the busy watchdog
 /// and the idle benchmark. Cumulative since the process started: callers
-/// diff two samples for rates.
+/// diff two samples for rates. Linux reads `/proc` instead
+/// (ProcessUsage+Linux.swift).
 public struct ProcessUsage: Sendable, Equatable {
     public var pid: pid_t
     public var parent: pid_t
@@ -47,6 +52,7 @@ public struct ProcessUsage: Sendable, Equatable {
         self.uptimeNanos = uptimeNanos
     }
 
+    #if canImport(Darwin)
     /// Samples `pid`; nil when it is gone or not ours. Blocking syscalls: call it off the main actor.
     public static func sample(_ pid: pid_t) -> ProcessUsage? {
         guard let info = rusage(pid) else { return nil }
@@ -77,6 +83,7 @@ public struct ProcessUsage: Sendable, Equatable {
         }
         return status == 0 ? info : nil
     }
+    #endif
 
     /// CPU share of one core between two samples of the same process (1.0 = 100%).
     public func cpuShare(since earlier: ProcessUsage) -> Double {
@@ -85,6 +92,7 @@ public struct ProcessUsage: Sendable, Equatable {
         return Double(cpuNanos - earlier.cpuNanos) / wall
     }
 
+    #if canImport(Darwin)
     public static func path(of pid: pid_t) -> String? {
         var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
         let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
@@ -147,6 +155,7 @@ public struct ProcessUsage: Sendable, Equatable {
         guard base.denom != 0 else { return ticks }
         return ticks.multipliedReportingOverflow(by: UInt64(base.numer)).partialValue / UInt64(base.denom)
     }
+    #endif
 }
 
 // MARK: - Renderers per tab (p14-energy-124)

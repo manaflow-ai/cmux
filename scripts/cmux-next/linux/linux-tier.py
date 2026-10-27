@@ -8,13 +8,14 @@ the Linux scripts read, and copies `ffi` and the lists the manifest uses into th
 lines. The manifest reads no file: SwiftPM keys its manifest cache on the manifest text, so every tier change
 is a manifest change.
 
-  targets             the tier's source targets that exist, in wave order, then CZlib when a target needs it
+  targets             the tier's source targets that exist, in wave order, then CZlib and CCmuxNextLinux when a
+                      target needs them
   testTargets         the test targets whose every in-package dependency is a tier target
   products            the library products whose every target is a tier target
   pathDependencies    the local packages (repository paths) the kept targets use, excluded packages left out
   remoteDependencies  the remote package identities the kept targets use, swift-crypto when one needs Crypto
   linuxDependencies   per kept target, the Linux stand-ins its imports need: Crypto for CryptoKit (swift-crypto),
-                      CZlib for Compression
+                      CZlib for Compression, CCmuxNextLinux for the Linux system interfaces Glibc does not import
   blockedEdges        per kept target, the dependencies the Linux mode drops: an in-package target outside the
                       tier or a product of an excluded package (a compile error there is the Linux work queue)
   absent              tier names with no target yet (the `new` targets until their tasks land them)
@@ -55,8 +56,14 @@ STAND_INS = (
                 r"import\s+(?:CryptoKit|Crypto)\b", re.M), "Crypto"),
     (re.compile(r"^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:public|package|internal|private|fileprivate)\s+)?"
                 r"import\s+(?:Compression|CZlib)\b", re.M), "CZlib"),
+    (re.compile(r"^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:public|package|internal|private|fileprivate)\s+)?"
+                r"import\s+CCmuxNextLinux\b", re.M), "CCmuxNextLinux"),
 )
 ZLIB_TARGET = "CZlib"
+# The Linux system interfaces Glibc does not import (epoll, eventfd, timerfd, struct ucred; p15-oracle-126).
+LINUX_SHIM_TARGET = "CCmuxNextLinux"
+# The stand-ins that are system-library targets of this package (the rest are swift-crypto's Crypto).
+SYSTEM_TARGETS = (ZLIB_TARGET, LINUX_SHIM_TARGET)
 CRYPTO_PACKAGE = "swift-crypto"
 
 
@@ -105,7 +112,7 @@ def build(tier: dict, manifest: dict, graph) -> dict:
     local = {name.lower(): path for name, path in graph.local_packages(manifest).items()}
     remote = remote_identities(manifest)
     declared = {target["name"]: target for target in manifest["targets"]}
-    platform = {ffi["target"]: f"Sources/{ffi['target']}", ZLIB_TARGET: f"Sources/{ZLIB_TARGET}"}
+    platform = {ffi["target"]: f"Sources/{ffi['target']}"} | {name: f"Sources/{name}" for name in SYSTEM_TARGETS}
 
     wanted = [name for wave in tier["waves"] for name in wave] + tier["new"]
     duplicates = sorted({name for name in wanted if wanted.count(name) > 1})
@@ -164,11 +171,12 @@ def build(tier: dict, manifest: dict, graph) -> dict:
         needed = stand_ins(directory(name))
         if needed:
             linux[name] = needed
-    targets = [name for name in present if name != ZLIB_TARGET]
-    if any(ZLIB_TARGET in needed for needed in linux.values()):
-        if not (PACKAGE / platform[ZLIB_TARGET]).is_dir():
-            raise SystemExit(f"a tier target imports Compression but {platform[ZLIB_TARGET]} is missing")
-        targets.append(ZLIB_TARGET)
+    targets = [name for name in present if name not in SYSTEM_TARGETS]
+    for system in SYSTEM_TARGETS:
+        if any(system in needed for needed in linux.values()):
+            if not (PACKAGE / platform[system]).is_dir():
+                raise SystemExit(f"a tier target needs {system} but {platform[system]} is missing")
+            targets.append(system)
     remote_used = sorted(packages & remote)
     if any("Crypto" in needed for needed in linux.values()):
         remote_used = sorted(set(remote_used) | {CRYPTO_PACKAGE})

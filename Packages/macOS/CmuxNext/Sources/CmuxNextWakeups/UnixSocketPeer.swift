@@ -1,20 +1,33 @@
+#if canImport(Darwin)
 import Darwin
-public import Foundation
 import Security
+#elseif os(Linux)
+import CmuxNextCompat
+public import Glibc
+#endif
+public import Foundation
 
 /// The process at the other end of a connected unix socket, read on that very descriptor
 /// (cx-fcaq, cx-l2ai). A caller that sends a secret checks the connection it writes on, never
 /// a probe connection: a same-uid process could take the socket path between the two.
 ///
+/// Darwin:
 /// - `uid`: `LOCAL_PEERCRED`;
 /// - `pid` and `executablePath`: `LOCAL_PEERPID`, then `proc_pidpath` with symlinks resolved;
 /// - the code-signing checks use the peer's audit token (`LOCAL_PEERTOKEN`), not its pid, so a
 ///   reused pid cannot stand in for it.
+///
+/// Linux (as Chromium reads a peer, `SO_PEERCRED` in ipc/unix_domain_socket_util.cc):
+/// - `uid` and `pid`: `SO_PEERCRED`, taken by the kernel at connect;
+/// - `executablePath`: `/proc/<pid>/exe`, kept only while the peer's `SO_PEERPIDFD` (Linux 6.5) says
+///   that process still runs, so a reused pid cannot stand in for it; older kernels read the path alone;
+/// - no code signature exists, so ``satisfies(_:)`` and ``signed(team:identifier:)`` are false.
 public nonisolated struct UnixSocketPeer: Sendable {
     public let pid: pid_t
     public let uid: uid_t
     /// The peer executable's path, symlinks resolved.
     public let executablePath: String
+    #if canImport(Darwin)
     private let auditToken: Data
 
     /// `LOCAL_PEERTOKEN` (sys/un.h).
@@ -40,6 +53,48 @@ public nonisolated struct UnixSocketPeer: Sendable {
         executablePath = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
         auditToken = withUnsafeBytes(of: &token) { Data($0) }
     }
+    #elseif os(Linux)
+    /// `SO_PEERPIDFD` (Linux 6.5, asm-generic/socket.h); an older kernel refuses it (ENOPROTOOPT).
+    private static let peerPidfdOption: Int32 = 77
+
+    /// Nil when any of the peer's facts cannot be read, or the peer exited while they were read.
+    public init?(descriptor: Int32) {
+        // struct ucred { pid_t pid; uid_t uid; gid_t gid; } (socket(7)), three 32-bit words; glibc declares the
+        // struct only under _GNU_SOURCE, which its Swift module is built without.
+        var credentials: [UInt32] = [0, 0, 0]
+        var size = socklen_t(credentials.count * MemoryLayout<UInt32>.size)
+        // SAFETY: getsockopt writes at most `size` bytes, the array's 12, into `credentials`, live for the call.
+        guard unsafe getsockopt(descriptor, SOL_SOCKET, SO_PEERCRED, &credentials, &size) == 0,
+              size == socklen_t(credentials.count * MemoryLayout<UInt32>.size) else { return nil }
+        let pid = pid_t(bitPattern: credentials[0])
+        guard pid > 1 else { return nil }
+        let process = Self.peerProcess(descriptor)
+        defer { if process >= 0 { close(process) } }
+        // The path first, then the liveness: a peer still running after the read had not given its pid away.
+        guard let link = try? FileManager.checked.destinationOfSymbolicLink(atPath: "/proc/\(pid)/exe"),
+              process < 0 || !Self.hasExited(process) else { return nil }
+        self.pid = pid
+        uid = credentials[1]
+        executablePath = URL(fileURLWithPath: link).resolvingSymlinksInPath().path
+    }
+
+    /// The peer's pidfd (`SO_PEERPIDFD`), or -1 on a kernel without it.
+    private static func peerProcess(_ descriptor: Int32) -> Int32 {
+        var process: Int32 = -1
+        var size = socklen_t(MemoryLayout<Int32>.size)
+        // SAFETY: getsockopt writes at most `size` bytes, one Int32, into `process`, a local live for the call.
+        guard unsafe getsockopt(descriptor, SOL_SOCKET, peerPidfdOption, &process, &size) == 0 else { return -1 }
+        return process
+    }
+
+    /// Whether the process `pidfd` names has exited: a pidfd turns readable at its exit (pidfd_open(2)).
+    private static func hasExited(_ pidfd: Int32) -> Bool {
+        var entry = pollfd(fd: pidfd, events: Int16(truncatingIfNeeded: POLLIN), revents: 0)
+        // SAFETY: poll reads and writes one pollfd, the count given, in `entry`, a local live for the call;
+        // the 0 timeout returns at once.
+        return unsafe poll(&entry, 1, 0) != 0
+    }
+    #endif
 
     /// Whether the peer runs `executable` (symlinks resolved on both sides).
     public func runs(_ executable: URL) -> Bool {
@@ -47,7 +102,9 @@ public nonisolated struct UnixSocketPeer: Sendable {
     }
 
     /// Whether the peer's code, named by its audit token, satisfies the code requirement `text`.
+    /// Always false on Linux, where no code signature exists.
     public func satisfies(_ text: String) -> Bool {
+        #if canImport(Darwin)
         var code: SecCode?
         guard SecCodeCopyGuestWithAttributes(nil, [kSecGuestAttributeAudit: auditToken] as CFDictionary, [], &code)
                 == errSecSuccess, let code else { return false }
@@ -56,6 +113,9 @@ public nonisolated struct UnixSocketPeer: Sendable {
             return false
         }
         return SecCodeCheckValidity(code, [], requirement) == errSecSuccess
+        #else
+        false
+        #endif
     }
 
     /// Apple-anchored and signed by `team`, with exactly `identifier` when one is given.

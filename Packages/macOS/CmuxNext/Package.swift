@@ -2428,7 +2428,9 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
         let ffi: FFI
         let generated: Generated
 
-        var zlibTarget: String { "CZlib" }
+        /// The stand-ins that are system-library targets here: zlib, and the Linux system interfaces Glibc does
+        /// not import (epoll, eventfd, timerfd, struct ucred; p15-oracle-126).
+        var systemTargets: [String] { ["CZlib", "CCmuxNextLinux"] }
         var cryptoPackage: String { "swift-crypto" }
 
         /// SwiftPM's identity of a package location: its last path component without `.git`, lowercased.
@@ -2437,7 +2439,8 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
             return (last.hasSuffix(".git") ? String(last.dropLast(4)) : last).lowercased()
         }
 
-        /// The Linux-only targets the tier lists: the FFI module map in place of the xcframework, and zlib.
+        /// The Linux-only targets the tier lists: the FFI module map in place of the xcframework, and the
+        /// system-library stand-ins.
         func linuxTargets(packageDirectory: String) -> [Target] {
             var targets: [Target] = []
             if generated.targets.contains(ffi.target) {
@@ -2451,8 +2454,8 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
                     ]
                 ))
             }
-            if generated.targets.contains(zlibTarget) {
-                targets.append(Target.systemLibrary(name: zlibTarget, path: "Sources/" + zlibTarget))
+            for name in systemTargets where generated.targets.contains(name) {
+                targets.append(Target.systemLibrary(name: name, path: "Sources/" + name))
             }
             return targets
         }
@@ -2476,7 +2479,7 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
         /// The stand-ins a target's imports need on Linux (linux-tier.py reads them from its sources).
         func standIns(of target: String) -> [Target.Dependency] {
             (generated.linuxDependencies[target] ?? []).map { name in
-                name == zlibTarget ? .target(name: name) : .product(name: name, package: cryptoPackage)
+                systemTargets.contains(name) ? .target(name: name) : .product(name: name, package: cryptoPackage)
             }
         }
 
@@ -2557,6 +2560,7 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
                 "CmuxNextServerHelper",
                 "CmuxNextCLIInstall",
                 "CZlib",
+                "CCmuxNextLinux",
             ],
             testTargets: [
                 "CmuxNextActionsTests",
@@ -2603,6 +2607,7 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
                 "CmuxNextChromiumRuntimeTests": ["Crypto"],
                 "CmuxNextCloud": ["Crypto"],
                 "CmuxNextCodeRouter": ["Crypto"],
+                "CmuxNextCompat": ["CCmuxNextLinux"],
                 "CmuxNextDaemon": ["CZlib", "Crypto"],
                 "CmuxNextDaemonTests": ["Crypto"],
                 "CmuxNextDesignTokens": ["Crypto"],

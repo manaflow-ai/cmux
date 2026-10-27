@@ -82,6 +82,7 @@ DUMP = {
 
 SOURCES = {
     "Core/Hash.swift": "internal import CryptoKit\n",
+    "Core/Wait.swift": "#if canImport(Darwin)\nimport Darwin\n#elseif os(Linux)\nimport CCmuxNextLinux\n#endif\n",
     "Uses/Zip.swift": "@preconcurrency import Compression\n",
     "Blocked/B.swift": "import Foundation\n",
     "AppUI/V.swift": "import SwiftUI\n",
@@ -103,6 +104,7 @@ class LinuxTierTests(unittest.TestCase):
         (package / "Tests/CoreTests").mkdir(parents=True)
         (package / "Tests/AppUITests").mkdir(parents=True)
         (package / "Sources/CZlib").mkdir(parents=True)
+        (package / "Sources/CCmuxNextLinux").mkdir(parents=True)
         self.saved = (lt.ROOT, lt.PACKAGE, lt.TIER, lt.MANIFEST)
         lt.ROOT, lt.PACKAGE, lt.TIER, lt.MANIFEST = (Path(self.temp.name), package, package / "linux-tier.json",
                                                      package / "Package.swift")
@@ -121,8 +123,18 @@ class LinuxTierTests(unittest.TestCase):
     def generated(self, tier=TIER, dump=DUMP):
         return lt.build(json.loads(json.dumps(tier)), dump, graph)
 
-    def test_keeps_tier_targets_in_wave_order_with_ffi_and_zlib(self):
-        self.assertEqual(self.generated()["targets"], ["Core", "CCmuxAppFFILinux", "Uses", "Blocked", "CZlib"])
+    def test_keeps_tier_targets_in_wave_order_with_ffi_and_the_system_stand_ins(self):
+        self.assertEqual(self.generated()["targets"],
+                         ["Core", "CCmuxAppFFILinux", "Uses", "Blocked", "CZlib", "CCmuxNextLinux"])
+
+    def test_a_system_stand_in_nobody_imports_is_not_a_target(self):
+        (lt.PACKAGE / "Sources/Core/Wait.swift").unlink()
+        self.assertNotIn("CCmuxNextLinux", self.generated()["targets"])
+
+    def test_a_missing_system_stand_in_folder_is_refused(self):
+        (lt.PACKAGE / "Sources/CCmuxNextLinux").rmdir()
+        with self.assertRaises(SystemExit):
+            self.generated()
 
     def test_test_target_kept_only_when_all_its_targets_are_in_the_tier(self):
         self.assertEqual(self.generated()["testTargets"], ["CoreTests"])
@@ -136,7 +148,8 @@ class LinuxTierTests(unittest.TestCase):
         self.assertEqual(generated["remoteDependencies"], ["swift-atomics", "swift-crypto"])
 
     def test_stand_ins_follow_imports(self):
-        self.assertEqual(self.generated()["linuxDependencies"], {"Core": ["Crypto"], "Uses": ["CZlib"]})
+        self.assertEqual(self.generated()["linuxDependencies"],
+                         {"Core": ["CCmuxNextLinux", "Crypto"], "Uses": ["CZlib"]})
 
     def test_dropped_edges_are_listed_and_ffi_is_not_one(self):
         self.assertEqual(self.generated()["blockedEdges"], {"Blocked": ["AppUI", "Sparkle (Sparkle)"]})
@@ -175,7 +188,7 @@ class LinuxTierTests(unittest.TestCase):
         self.assertIn('        generated: LinuxTier.Generated(\n            targets: [\n                "Core",\n'
                       '                "CCmuxAppFFILinux",\n', literal)
         self.assertIn('            testTargets: ["CoreTests"],\n', literal)
-        self.assertIn('            linuxDependencies: [\n                "Core": ["Crypto"],\n', literal)
+        self.assertIn('            linuxDependencies: [\n                "Core": ["CCmuxNextLinux", "Crypto"],\n', literal)
         self.assertNotIn("blockedEdges", literal)
         text = lt.MANIFEST.read_text(encoding="utf-8")
         self.assertTrue(text.startswith("// swift-tools-version: 6.2\nlet before = 1\n" + lt.BEGIN))
@@ -321,7 +334,7 @@ class SwiftManifestTests(unittest.TestCase):
                     shown = f"{key[0]} ({graph.dependency_name(dependency)[1]})"
                 if shown not in blocked:
                     expected.append(key)
-            expected += [(s,) if s == lt.ZLIB_TARGET else (s, lt.CRYPTO_PACKAGE)
+            expected += [(s,) if s in lt.SYSTEM_TARGETS else (s, lt.CRYPTO_PACKAGE)
                          for s in self.generated["linuxDependencies"].get(name, [])]
             self.assertEqual([dependency_key(d) for d in target["dependencies"]], expected, name)
 
