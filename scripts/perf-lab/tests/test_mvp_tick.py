@@ -52,11 +52,14 @@ def report(*, refresh_ms=8.33, macos="26.1", raw_frames=True) -> dict:
 
 
 class FakeRepo:
-    def __init__(self, shas, live=()):
-        self.shas, self.live, self.fetched = list(shas), set(live), []
+    def __init__(self, shas, live=(), fetch_timeouts=0):
+        self.shas, self.live, self.fetched, self.fetch_timeouts = list(shas), set(live), [], fetch_timeouts
 
     def fetch(self, branch):
         self.fetched.append(branch)
+        if self.fetch_timeouts:
+            self.fetch_timeouts -= 1
+            raise subprocess.TimeoutExpired(["git", "fetch"], 300)
         return True
 
     def first_parent(self, ref, depth):
@@ -69,12 +72,17 @@ class FakeRepo:
 class FakeFleet:
     """`cmux-ci run` that prints the controller's step lines and ends with `code`; `artifact` copies a report."""
 
-    def __init__(self, codes=(0,), reports=None, worker="cmux20-bench"):
+    def __init__(self, codes=(0,), reports=None, worker="cmux20-bench", unreachable=0, artifact_timeouts=0):
         self.codes, self.reports, self.worker = list(codes), list(reports or [report()]), worker
         self.argvs, self.steps = [], 0
+        self.unreachable, self.artifact_timeouts = unreachable, artifact_timeouts
 
     def run_step(self, argv, log):
         self.argvs.append(list(argv))
+        if self.unreachable:  # the controller is down: the client prints no step line
+            self.unreachable -= 1
+            log.write_text("cmux-ci: http://100.89.225.106:18765: connection refused\n")
+            return 1
         key = argv[argv.index("--key") + 1]
         step = f"{abs(hash(key)) % 16 ** 12:012x}"
         code = self.codes.pop(0) if self.codes else 0
@@ -83,6 +91,9 @@ class FakeFleet:
         return code
 
     def artifact(self, step_id, dest):
+        if self.artifact_timeouts:
+            self.artifact_timeouts -= 1
+            raise subprocess.TimeoutExpired(["cmux-ci", "artifact"], 600)
         body = self.reports.pop(0) if self.reports else report()
         dest.write_text(json.dumps(body))
         return subprocess.CompletedProcess([], 0, "", "")
@@ -112,11 +123,12 @@ class TickTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def seams(self, *, published=lambda sha: True, version=lambda sha: 4, local_live=None):
+    def seams(self, *, published=lambda sha: True, version=lambda sha: 4, local_live=None, ingest_results=None):
+        extra = {"ingest_results": ingest_results} if ingest_results else {}
         return mvp.Seams(repo=self.repo, fleet=self.fleet, published=published, measure_version=version,
                          commit_positions=lambda config: POSITIONS.get, pool_host=lambda worker: POOL_HOST,
                          now=self.clock.now, sleep=self.clock.sleep,
-                         local_live=local_live or self.dir / "no-such" / "SCHEDULER_LIVE")
+                         local_live=local_live or self.dir / "no-such" / "SCHEDULER_LIVE", **extra)
 
     def stored_rows(self):
         with sqlite3.connect(self.config.db) as db:
@@ -178,6 +190,81 @@ class TickTest(unittest.TestCase):
         states = [mvp.tick(self.config, self.seams()) for _ in range(3)]
         self.assertEqual([s["state"] for s in states], [mvp.FAILED, mvp.FAILED, mvp.STORED])
         self.assertEqual([s["sha"] for s in states], [TIP, TIP, PARENT])
+
+    def test_fleet_errors_do_not_count_against_the_tip(self):
+        self.fleet = FakeFleet(codes=(0,), unreachable=2)
+        record = mvp.loop(self.config, self.seams(), ticks=3)
+        ticks = mvp.load_state(self.config.state_dir)["ticks"]
+        self.assertEqual([t["state"] for t in ticks], [mvp.FLEET_ERROR, mvp.FLEET_ERROR, mvp.STORED])
+        self.assertEqual([t["sha"] for t in ticks], [TIP, TIP, TIP])  # no step ran, so the tip is not given up
+        self.assertEqual(mvp.failures(mvp.load_state(self.config.state_dir), TIP), 0)
+        self.assertEqual(self.clock.slept, [mvp.IDLE_SECONDS, mvp.IDLE_SECONDS])
+        self.assertEqual(record["state"], mvp.STORED)
+
+    def test_a_failed_step_counts_but_a_yield_does_not(self):
+        self.fleet = FakeFleet(codes=(75, 1, 1, 0))
+        states = [mvp.tick(self.config, self.seams()) for _ in range(4)]
+        self.assertEqual([s["state"] for s in states], [mvp.YIELDED, mvp.FAILED, mvp.FAILED, mvp.STORED])
+        self.assertEqual([s["sha"] for s in states], [TIP, TIP, TIP, PARENT])
+
+    def test_the_idle_reason_names_given_up_commits(self):
+        state = {"ticks": [{"sha": sha, "state": mvp.FAILED} for sha in (TIP, TIP)]}
+        sha, why = mvp.candidate(self.config, self.seams(published=lambda sha: False), state)
+        self.assertIsNone(sha)
+        self.assertIn("1 failed 2 times", why)
+        self.assertIn("other 2 have no published cmux-tui tree", why)
+
+    def test_a_git_timeout_is_an_idle_tick_and_the_loop_goes_on(self):
+        self.repo = FakeRepo([TIP, PARENT, OLD], fetch_timeouts=1)
+        record = mvp.loop(self.config, self.seams(), ticks=2)
+        ticks = mvp.load_state(self.config.state_dir)["ticks"]
+        self.assertEqual([t["state"] for t in ticks], [mvp.IDLE, mvp.STORED])
+        self.assertIn("TimeoutExpired", ticks[0]["reason"])
+        self.assertEqual(self.clock.slept, [mvp.IDLE_SECONDS])
+        self.assertEqual(record["state"], mvp.STORED)
+
+    def test_a_git_timeout_keeps_the_pending_step(self):
+        self.config.state_dir.mkdir(parents=True)
+        state = mvp.load_state(self.config.state_dir)
+        state.update(seq=3, pending={"sha": PARENT, "key": "perf-lab-mvp-3-bbbbbbbbbbbb", "seq": 3,
+                                     "submitted_at": "2026-10-26T11:00:00.000000Z"})
+        mvp.save_state(self.config.state_dir, state)
+        self.repo = FakeRepo([TIP], fetch_timeouts=1)
+        self.assertEqual(mvp.tick(self.config, self.seams())["state"], mvp.IDLE)
+        self.assertEqual(mvp.load_state(self.config.state_dir)["pending"]["key"], "perf-lab-mvp-3-bbbbbbbbbbbb")
+        self.assertEqual(mvp.tick(self.config, self.seams())["state"], mvp.STORED)
+        self.assertEqual(self.fleet.argvs[0][self.fleet.argvs[0].index("--key") + 1], "perf-lab-mvp-3-bbbbbbbbbbbb")
+
+    def test_a_measure_version_timeout_keeps_the_step_pending(self):
+        def version(sha):
+            raise subprocess.TimeoutExpired(["git", "cat-file"], 60)
+        record = mvp.tick(self.config, self.seams(version=version))
+        self.assertEqual(record["state"], mvp.FLEET_ERROR)
+        self.assertEqual(self.fleet.argvs, [])
+        self.assertEqual(mvp.load_state(self.config.state_dir)["pending"]["key"], record["key"])
+
+    def test_a_locked_lab_db_is_unrecorded_and_the_loop_goes_on(self):
+        calls = []
+
+        def ingest_results(config, seams, results_dir):
+            calls.append(results_dir)
+            if len(calls) == 1:
+                raise sqlite3.OperationalError("database is locked")
+            return mvp._ingest(config, seams, results_dir)
+
+        self.fleet = FakeFleet(codes=(0, 0), reports=[report(), report()])
+        record = mvp.loop(self.config, self.seams(ingest_results=ingest_results), ticks=2)
+        ticks = mvp.load_state(self.config.state_dir)["ticks"]
+        self.assertEqual([t["state"] for t in ticks], [mvp.UNRECORDED, mvp.STORED])
+        self.assertIn("database is locked", ticks[0]["reason"])
+        self.assertEqual(record["state"], mvp.STORED)
+
+    def test_an_artifact_timeout_is_unrecorded_and_the_loop_goes_on(self):
+        self.fleet = FakeFleet(codes=(0, 0), reports=[report()], artifact_timeouts=1)
+        mvp.loop(self.config, self.seams(), ticks=2)
+        ticks = mvp.load_state(self.config.state_dir)["ticks"]
+        self.assertEqual([t["state"] for t in ticks], [mvp.UNRECORDED, mvp.STORED])
+        self.assertIn("TimeoutExpired", ticks[0]["reason"])
 
     def test_a_yield_exit_is_yielded_and_the_loop_waits(self):
         self.fleet = FakeFleet(codes=(75, 0))
@@ -263,6 +350,28 @@ class ConvertTest(unittest.TestCase):
     def test_the_pool_host_class_round_trips_through_ingest(self):
         host = mvp.host_block(report(), POOL_HOST)
         self.assertEqual(ingest._store_host(host, "cmux20-bench").host_class, "apple-m6/16gb/120hz")
+
+    def test_display_jitter_keeps_the_nominal_host_class(self):
+        for refresh_ms, hz in ((8.33, 120), (8.37, 120), (8.40, 120), (8.6, 120), (16.67, 60), (16.9, 60)):
+            with self.subTest(refresh_ms=refresh_ms):
+                host = mvp.host_block(report(refresh_ms=refresh_ms), POOL_HOST)
+                self.assertEqual((host.display_hz, host.host_class), (hz, f"apple-m6/16gb/{hz}hz"))
+        self.assertEqual(mvp.host_block(report(refresh_ms=8.40), POOL_HOST).fingerprint,
+                         mvp.host_block(report(refresh_ms=8.33), POOL_HOST).fingerprint)
+
+    def test_a_stored_tick_at_8_40_ms_lands_in_the_120hz_class(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = mvp.Config(db=Path(tmp) / "lab.sqlite3", state_dir=Path(tmp) / "state")
+            clock = Clock()
+            seams = mvp.Seams(repo=FakeRepo([TIP]), fleet=FakeFleet(reports=[report(refresh_ms=8.40)]),
+                              published=lambda sha: True, measure_version=lambda sha: 4,
+                              commit_positions=lambda config: POSITIONS.get, pool_host=lambda worker: POOL_HOST,
+                              now=clock.now, sleep=clock.sleep, local_live=Path(tmp) / "no-such")
+            self.assertEqual(mvp.tick(config, seams)["host_class"], "apple-m6/16gb/120hz")
+
+    def test_a_display_slower_than_60hz_is_refused(self):
+        with self.assertRaises(mvp.TickError):
+            mvp.host_block(report(refresh_ms=20.0), POOL_HOST)
 
     def test_no_macos_is_refused(self):
         with self.assertRaises(mvp.TickError):

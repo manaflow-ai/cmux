@@ -17,11 +17,13 @@ other programs bench baselines. Each tick:
 
 The next tick starts when the step ends, so the worker measures back to back, as a Chrome perf tester runs
 continuously on the newest built revision (docs/speed/perf_waterfall.md). A tip that did not move is measured again:
-another run of one commit is more samples of that point. A commit that failed FAILED_LIMIT times is not tried again.
+another run of one commit is more samples of that point. A commit whose step ran and failed FAILED_LIMIT times is
+not tried again; a tick that started no step (a fleet error) counts against no commit and waits IDLE_SECONDS. A git,
+fleet client or lab DB error is a recorded idle, fleet-error or unrecorded tick, never the end of the loop.
 
 The converted rows are keyed by sha and host class like any lab row. The host class is the pool's chip and memory
-(pool.json) with the Hz the step's display really ticked at (report.json `display.refresh_ms`), so a run that fell
-back to a 60 Hz display lands in a 60 Hz series. The fingerprint is this tick's own (`perf-lab-mvp`, worker, chip,
+(pool.json) with the nominal rate the step's display held (report.json `display.refresh_ms` through host_env.hz_for,
+the lab's own 120/60 rule), so a run that fell back to a 60 Hz display lands in a 60 Hz series. The fingerprint is this tick's own (`perf-lab-mvp`, worker, chip,
 macOS, Hz, memory): report.json names no macOS build. Its measure_version is the measured split-spring.sh's
 SPLIT_SPRING_MEASURE_VERSION. Features are unknown (the bench at the tip writes no snapshot), so they are empty.
 
@@ -38,6 +40,7 @@ import importlib.util
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import time
@@ -103,8 +106,11 @@ BACKGROUND_NICE = 10
 STEP_ID = re.compile(r"cmux-ci: step ([0-9a-f]{12,}) ")
 SHA = re.compile(r"^[0-9a-f]{40}$")
 
-# What a tick ended as. Only `stored` ticks count for --require.
+# What a tick ended as. Only `stored` ticks count for --require. `failed` is a step that ran and failed (or a commit
+# with no measure version) and counts against its commit; `fleet-error` is a tick that started no step (the client
+# could not run, the controller refused or was unreachable, the checkout could not be read) and counts against nothing.
 STORED, FAILED, YIELDED, UNRECORDED, IDLE, STOPPED = "stored", "failed", "yielded", "unrecorded", "idle", "stopped"
+FLEET_ERROR = "fleet-error"
 
 
 class TickError(RuntimeError):
@@ -118,6 +124,11 @@ def _cron():
 
 def _motion():
     return _sibling("motion_bench_report", CMUX_NEXT / "motion_bench_report.py")
+
+
+def _host_env():
+    """scripts/perf-lab/host_env.py (hz_for: the lab's one rule from a measured frame interval to a nominal rate)."""
+    return _sibling("perf_lab_host_env", HERE / "host_env.py")
 
 
 def _now() -> datetime:
@@ -152,13 +163,17 @@ class PoolHost:
 
 
 def measured_hz(report: dict) -> int:
-    """The Hz the step's display ticked at: report.json `display.refresh_ms` (split-spring.sh's virtual display, or
-    the real main display after VDISPLAY-FALLBACK)."""
+    """The nominal rate (120 or 60) the step's display held: report.json `display.refresh_ms` (split-spring.sh's
+    virtual display, or the real main display after VDISPLAY-FALLBACK) classified by host_env.hz_for, the rule every
+    lab row's host class uses, so display jitter never splits a series."""
     display = report.get("display")
     refresh = display.get("refresh_ms") if isinstance(display, dict) else None
-    if isinstance(refresh, bool) or not isinstance(refresh, (int, float)) or not 2 <= refresh <= 50:
+    if isinstance(refresh, bool) or not isinstance(refresh, (int, float)) or not refresh > 0:
         raise TickError(f"the report names no measured display refresh (display {display!r})")
-    return int(round(1000 / refresh))
+    hz = _host_env().hz_for(refresh)
+    if hz is None:
+        raise TickError(f"the display ticked at {refresh} ms, slower than 60 Hz; no lab host class holds it")
+    return hz
 
 
 def host_block(report: dict, pool_host: PoolHost) -> "perf_result.Host":
@@ -270,6 +285,7 @@ class Seams:
     now: Callable[[], datetime] = _now
     sleep: Callable[[float], None] = time.sleep
     local_live: Path = ROOT / LIVE_FILE
+    ingest_results: Callable[[Config, "Seams", Path], "ingest.IngestReport"] = field(default_factory=lambda: _ingest)
 
 
 def load_state(state_dir: Path) -> dict:
@@ -306,6 +322,7 @@ def scheduler_live(config: Config, seams: Seams) -> str | None:
 
 
 def failures(state: dict, sha: str) -> int:
+    """The ticks that failed for `sha` itself; a fleet error started no step, so it says nothing about the commit."""
     return sum(1 for tick in state["ticks"] if tick.get("sha") == sha and tick.get("state") == FAILED)
 
 
@@ -314,12 +331,15 @@ def candidate(config: Config, seams: Seams, state: dict) -> tuple[str | None, st
     shas = seams.repo.first_parent(config.mainline, CANDIDATE_DEPTH)
     if not shas:
         return None, f"{config.mainline} has no commits in this checkout (fetch failed?)"
+    given_up = 0
     for sha in shas:
         if failures(state, sha) >= FAILED_LIMIT:
+            given_up += 1
             continue
         if seams.published(sha):
             return sha, ""
-    return None, f"none of the newest {len(shas)} commits of {config.mainline} has a published cmux-tui tree"
+    return None, (f"of the newest {len(shas)} commits of {config.mainline}, {given_up} failed {FAILED_LIMIT} times "
+                  f"and the other {len(shas) - given_up} have no published cmux-tui tree")
 
 
 def step_argv(config: Config, sha: str, key: str) -> list[str]:
@@ -359,8 +379,9 @@ def _record(tick: dict, report: dict, *, sha: str, measure_version: int, config:
     results_dir.mkdir(exist_ok=True)
     try:
         perf_result.write_ndjson(results_dir, results, repo_root=ROOT)
-        stored = _ingest(config, seams, results_dir)
-    except (perf_result.ResultError, ingest.IngestError, store.StoreError, OSError) as error:
+        stored = seams.ingest_results(config, seams, results_dir)
+    except (perf_result.ResultError, ingest.IngestError, store.StoreError, sqlite3.Error, OSError,
+            subprocess.SubprocessError) as error:  # a locked lab DB or a slow commit lookup: unrecorded, the loop goes on
         tick.update(state=UNRECORDED, reason=f"{type(error).__name__}: {error}")
         return
     tick.update(added_runs=stored.added_runs, added_results=stored.added_results,
@@ -375,26 +396,36 @@ def tick(config: Config, seams: Seams) -> dict:
     """One tick; returns its record (also appended to the state's ticks unless it is `stopped`)."""
     config.state_dir.mkdir(parents=True, exist_ok=True)
     state = load_state(config.state_dir)
-    live = scheduler_live(config, seams)
-    if live:
-        return {"state": STOPPED, "reason": f"the scheduler is live ({live})"}
     pending = state.get("pending")
+    try:
+        live = scheduler_live(config, seams)
+        if live:
+            return {"state": STOPPED, "reason": f"the scheduler is live ({live})"}
+        sha, why = (pending["sha"], "") if pending else candidate(config, seams, state)
+    except subprocess.SubprocessError as error:  # a fetch or a probe timed out: ask again next tick
+        sha, why = None, f"git: {type(error).__name__}: {error}"
+    if sha is None:
+        record = {"state": IDLE, "reason": why, "at": _stamp(seams.now())}
+        state["ticks"].append(record)
+        save_state(config.state_dir, state)  # a pending step stays pending: the next tick reattaches by its key
+        return record
     if pending:
-        sha, key, seq, submitted = pending["sha"], pending["key"], pending["seq"], pending["submitted_at"]
+        key, seq, submitted = pending["key"], pending["seq"], pending["submitted_at"]
     else:
-        sha, why = candidate(config, seams, state)
-        if sha is None:
-            record = {"state": IDLE, "reason": why, "at": _stamp(seams.now())}
-            state["ticks"].append(record)
-            save_state(config.state_dir, state)
-            return record
         state["seq"] += 1
         seq, submitted = state["seq"], _stamp(seams.now())
         key = f"perf-lab-mvp-{seq}-{sha[:12]}"
         state["pending"] = {"sha": sha, "key": key, "seq": seq, "submitted_at": submitted}
         save_state(config.state_dir, state)  # before the submit: a restart reattaches by this key
     record = {"seq": seq, "sha": sha, "key": key, "worker": config.worker, "submitted_at": submitted}
-    version = seams.measure_version(sha)
+    try:
+        version = seams.measure_version(sha)
+    except subprocess.SubprocessError as error:  # nothing was submitted: the step stays pending under its key
+        record.update(state=FLEET_ERROR, reason=f"{SCRIPT} at {sha[:12]} could not be read ({type(error).__name__}: "
+                                                f"{error})", ended_at=_stamp(seams.now()))
+        state["ticks"].append(record)
+        save_state(config.state_dir, state)
+        return record
     if version is None:
         record.update(state=FAILED, reason=f"{SCRIPT} at {sha[:12]} has no SPLIT_SPRING_MEASURE_VERSION")
     else:
@@ -407,10 +438,13 @@ def tick(config: Config, seams: Seams) -> dict:
         found = STEP_ID.search(text)
         cron = _cron()
         record.update(exit=code, step_id=found.group(1) if found else None, ran_on=cron.step_worker(text))
+        tail = "\n".join(text.splitlines()[-20:])[-2000:]
         if code in cron.STEP_YIELD_EXITS:
             record.update(state=YIELDED, reason=cron.STEP_YIELD_EXITS[code])
-        elif code != 0 or not record["step_id"]:
-            record.update(state=FAILED, reason="\n".join(text.splitlines()[-20:])[-2000:])
+        elif not record["step_id"]:  # no step started: the client or the controller failed, not the commit
+            record.update(state=FLEET_ERROR, reason=tail)
+        elif code != 0:
+            record.update(state=FAILED, reason=tail)
         else:
             _collect(record, sha=sha, version=version, config=config, seams=seams, tick_dir=tick_dir)
     record["ended_at"] = _stamp(seams.now())
@@ -422,7 +456,11 @@ def tick(config: Config, seams: Seams) -> dict:
 
 def _collect(record: dict, *, sha: str, version: int, config: Config, seams: Seams, tick_dir: Path) -> None:
     dest = tick_dir / "report.json"
-    got = seams.fleet.artifact(record["step_id"], dest)
+    try:
+        got = seams.fleet.artifact(record["step_id"], dest)
+    except (OSError, subprocess.SubprocessError) as error:
+        record.update(state=UNRECORDED, reason=f"cmux-ci artifact: {type(error).__name__}: {error}")
+        return
     if got.returncode != 0:
         record.update(state=UNRECORDED, reason=f"cmux-ci artifact: {(got.stderr or got.stdout or '')[-500:]}")
         return
@@ -445,7 +483,7 @@ def loop(config: Config, seams: Seams, *, ticks: int | None = None) -> dict:
         done += 1
         if ticks is not None and done >= ticks:
             return record
-        if record["state"] in (IDLE, YIELDED) or (record["state"] == FAILED and not record.get("step_id")):
+        if record["state"] in (IDLE, YIELDED, FLEET_ERROR):
             seams.sleep(IDLE_SECONDS)  # nothing ran: a fleet error or no candidate, so ask again later
 
 

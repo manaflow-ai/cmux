@@ -20,8 +20,11 @@ other programs bench baselines (p12-perf-process.md 5, hours 6 to 12). Each tick
    as waterfall runs. The rows are keyed by sha and host class.
 
 The next tick starts when the step ends. A tip that did not move is measured again, which adds
-samples to that commit. A commit whose step failed twice is skipped. No controller or workflow
-changes.
+samples to that commit. A commit whose step ran and failed twice is skipped. A tick that started
+no step (the client could not run, or the controller refused or was not reachable) is a
+`fleet-error`: it counts against no commit, and the loop waits 5 minutes. A git, client or lab
+database error is a recorded tick with its reason; the loop does not stop. No controller or
+workflow changes.
 
 ## Run it on cmux-lawrence
 
@@ -49,8 +52,10 @@ running continues; cancel it with `cmux-ci cancel STEP_ID` (the ID is in `mvp-st
 
 ## What the converted rows know
 
-- **Host class.** Chip and memory come from `pool.json`. The Hz is the rate the step's display ticked
-  at (`display.refresh_ms`), so a run that fell back to a 60 Hz display goes into a 60 Hz series.
+- **Host class.** Chip and memory come from `pool.json`. The Hz is 120 or 60: the lab's rule
+  (`host_env.hz_for`) applied to the measured interval (`display.refresh_ms`). Display jitter does not
+  change the series, and a run that fell back to a 60 Hz display goes into a 60 Hz series. A display
+  slower than 60 Hz is not recorded.
 - **Fingerprint.** It is the tick's own, because `report.json` names no macOS build.
 - **Features.** They are empty, because the bench at the tip writes no features snapshot.
 - **measure_version.** It is the measured `split-spring.sh`'s `SPLIT_SPRING_MEASURE_VERSION`.
