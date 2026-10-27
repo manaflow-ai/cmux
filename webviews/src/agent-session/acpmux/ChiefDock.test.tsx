@@ -100,6 +100,17 @@ const tabStops = (dock: HTMLElement) =>
     (button) => !button.disabled && !button.closest("[inert]"),
   );
 
+test("a remote session card puts the session name before its secondary machine", async () => {
+  const dock = await render(
+    [chat("remote", { name: "gcp-codex-lane-10/pr-row", peer: "gcp-codex-lane-10", harness: "codex" })],
+    true,
+  );
+  const identity = dock.querySelector(".acpmux-sender");
+  expect(identity?.querySelector(".acpmux-sender__name")?.textContent).toBe("pr-row");
+  expect(identity?.querySelector(".acpmux-sender__host")?.textContent).toBe("gcp-codex-lane-10");
+  expect(identity?.textContent).toBe("pr-rowgcp-codex-lane-10");
+});
+
 const label = (button: Element) => button.getAttribute("aria-label");
 
 test("folded, the cards behind the mascot take no Tab stop", async () => {
