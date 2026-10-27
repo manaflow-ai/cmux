@@ -40,5 +40,9 @@ struct CloudCredentialRecoveryTests {
         let value = try #require(reply["value"] as? [String: Any])
         #expect(value["cloudMachineID"] as? String == "provider-vm-1")
         #expect(value["sessionId"] as? String == "chat-1")
+        #expect(value["cloudCredentialRecoveryAvailable"] as? Bool == false)
+        host.cloudCredentialRecoveryAvailable = true
+        let enabled = AgentPaneReply.handshake(try await host.handshake(sessionId: nil))
+        #expect((enabled["value"] as? [String: Any])?["cloudCredentialRecoveryAvailable"] as? Bool == true)
     }
 }
