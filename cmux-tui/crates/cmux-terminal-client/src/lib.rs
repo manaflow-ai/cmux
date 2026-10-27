@@ -1511,7 +1511,7 @@ unsafe fn connect_terminal_client(
             return std::ptr::null_mut();
         }
     };
-    let runtime = match Runtime::new() {
+    let runtime = match client_runtime() {
         Ok(runtime) => runtime,
         Err(error) => {
             copy_utf8(&error.to_string(), error_buffer, error_capacity);
@@ -2131,6 +2131,17 @@ pub unsafe extern "C" fn cmux_terminal_client_has_exited(
     client.state.lock().unwrap().exited
 }
 
+/// A client's runtime: it carries the terminal stream the person types into
+/// and watches.
+fn client_runtime() -> std::io::Result<Runtime> {
+    cmux_threads::tokio::builder(
+        "cmux-terminal-client",
+        cmux_threads::ThreadQos::UserInitiated,
+        cmux_threads::tokio::Flavor::MultiThread,
+    )
+    .build()
+}
+
 /// Keep the diagnostics snapshot current across carrier generations.
 fn spawn_diagnostics(
     runtime: &Runtime,
@@ -2535,7 +2546,7 @@ unsafe fn connect_route_from_ffi(
     }
     // SAFETY: null is permitted; otherwise the caller guarantees a live handle.
     let wireguard = unsafe { wireguard.as_ref() }.map(|net| net.net.clone());
-    let runtime = match Runtime::new() {
+    let runtime = match client_runtime() {
         Ok(runtime) => runtime,
         Err(error) => return fail(error.to_string()),
     };
@@ -2606,11 +2617,13 @@ pub unsafe extern "C" fn cmux_wireguard_net_start(
         Ok(parsed) => parsed,
         Err(error) => return fail(format!("wireguard config: {error}")),
     };
-    let runtime = match tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(1)
-        .enable_all()
-        .thread_name("cmux-wireguard")
-        .build()
+    let runtime = match cmux_threads::tokio::builder(
+        "cmux-wireguard",
+        cmux_threads::ThreadQos::UserInitiated,
+        cmux_threads::tokio::Flavor::MultiThread,
+    )
+    .worker_threads(1)
+    .build()
     {
         Ok(runtime) => runtime,
         Err(error) => return fail(error.to_string()),

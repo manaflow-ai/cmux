@@ -167,7 +167,9 @@ final class GhosttyActionMailbox {
         let current = order.allSatisfy(\.waitsWhileHidden) ? node() : nil
         if let client, client.visibleOnly === current { return client }
         client?.deactivate()
-        let made = FrameClient(owner: owner, isAnimation: false, visibleOnly: current, scheduler: scheduler) { [weak self] _ in
+        // Motion rate: the pointer's visibility and the title follow input.
+        // frame-client: a surface's latest-wins Ghostty actions once a frame (view and model state, on main)
+        let made = FrameClient(owner: owner, isAnimation: false, rate: .motion, visibleOnly: current, scheduler: scheduler) { [weak self] _ in
             self?.tick() ?? false
         }
         client = made
