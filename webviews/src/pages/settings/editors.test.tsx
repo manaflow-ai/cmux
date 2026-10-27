@@ -254,7 +254,10 @@ describe("editors", () => {
     const field = row().querySelector<HTMLInputElement>("input.number")!;
     await changeValue(field, "45");
     await fire(field, "keydown", { key: "Enter" });
-    expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key, value: "moderate" }, { key, value: 45 }]);
+    expect(ops(page.provider, "cmux.settings.set")).toEqual([
+      { key, value: "moderate" },
+      { key, value: 45 },
+    ]);
     expect(select().value).toBe("__custom__");
     await click(row().querySelector("[data-reset]")!);
     expect(ops(page.provider, "cmux.settings.reset")).toEqual([{ key }, { key }]);
