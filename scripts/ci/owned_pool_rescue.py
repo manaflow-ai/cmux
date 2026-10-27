@@ -951,6 +951,12 @@ CANCELLED_BY = re.compile(r"\bThe run was cancell?ed by @([A-Za-z0-9-]+(?:\[bot\
 # Annotation reads per look: GitHub writes the "canceled by" line on some of a cancelled run's jobs, so each is read
 # until one names the canceller; a run with more cancelled jobs than this, none read naming one, is unknown.
 CANCELLED_BY_READS = 30
+# Pages of 100 annotations read per job; a job with more is unknown (GitHub keeps at most 50 per step and 10 steps' worth).
+ANNOTATION_PAGES = 5
+
+
+class AnnotationsCapped(Exception):
+    """A job's annotations were not all read (GitHub.annotations()); not a read error, so read() does not retry it."""
 # rescue() logs CANCEL_SENT once the cancel it means to follow with a re-run went out, and CANCEL_SETTLED when it is
 # done with that cancel either way (re-ran, or left it: a moved head, someone else's re-run, an error). Both are
 # in the rescue job's own log, which outlives the job: a run with CANCEL_SENT and no CANCEL_SETTLED is one whose
@@ -990,7 +996,7 @@ def canceller(api: GitHub, jobs: Sequence[Mapping[str, Any]], sleep: Callable[[f
     for job in cancelled[:CANCELLED_BY_READS]:
         try:
             notes = read(lambda: api.annotations(int(job["id"])), sleep, log)
-        except READ_ERRORS as error:
+        except (*READ_ERRORS, AnnotationsCapped) as error:
             log(f"could not read who cancelled the run ({error})")
             return None
         for note in notes:
@@ -1809,8 +1815,15 @@ class GitHub:
 
     def annotations(self, job_id: int) -> list[Mapping[str, Any]]:
         """The annotations of a job's check run (GitHub's "The run was canceled by @actor." among them)."""
-        data = self.request("GET", f"/check-runs/{job_id}/annotations?per_page=50")
-        return [note for note in data or [] if isinstance(note, Mapping)]
+        notes: list[Mapping[str, Any]] = []
+        for page in range(1, ANNOTATION_PAGES + 1):
+            data = self.request("GET", f"/check-runs/{job_id}/annotations?per_page=100&page={page}")
+            batch = [note for note in data or [] if isinstance(note, Mapping)]
+            notes += batch
+            if len(batch) < 100:
+                return notes
+        # Not all read: the canceller's line may be past them, so the caller must not read "none says" (canceller()).
+        raise AnnotationsCapped(f"job {job_id} has over {100 * ANNOTATION_PAGES} annotations")
 
     def workflow_file(self, path: str, ref: str) -> str | None:
         """The text of `path` at commit `ref`, or None when it is not there."""
