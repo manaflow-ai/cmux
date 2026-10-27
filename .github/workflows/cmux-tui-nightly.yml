@@ -106,7 +106,7 @@ jobs:
       # benchmark mini cmux11s, which nightlies must never reach (a153,
       # 2026-10-20). See docs/ci-runners.md.
       macos_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-side-light-xcode-26.6' }}
-      macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+      macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || 'blacksmith-6vcpu-macos-15' }}
       linux_runner: ubuntu-24.04
       linux_arm64_runner: ubuntu-24.04-arm
       windows_runner: windows-2025
