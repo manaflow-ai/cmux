@@ -2836,7 +2836,10 @@ export function VirtualTranscript({
   // Selecting at the old offset with the new layout removed the visible rows for a prepend,
   // then the placement effect mounted fresh copies: details flashed and lost DOM identity.
   const projectedTop =
-    !sessionSwitched && !following && previousLayout.current && previousLayout.current !== layout
+    // `following` is React state and may still be true for the frame after a wheel. The ref is
+    // updated synchronously by queueScroll, so a prepend that lands before the pacer's RAF still
+    // selects the rows at the corrected anchor instead of remounting the old viewport.
+    !sessionSwitched && !followingRef.current && previousLayout.current && previousLayout.current !== layout
       ? preserveScrollAnchorTop({
           oldLayout: previousLayout.current,
           newLayout: layout,
