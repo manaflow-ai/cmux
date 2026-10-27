@@ -22,6 +22,7 @@ extension AgentPaneView {
         // A page that does not show never takes the keyboard by itself: a tab parked hidden behind the
         // focused pane's shown tab counts as that pane's content, so the focus model saw no change and
         // typing went into the hidden page (its composer mounting as a New Tab ask turned into the chat).
+        // visibility-walk-allow: the responder change AppKit is asked for here reads AppKit's own view state, as a hit test does; once per page focus ask
         if asking.isHiddenOrHasHiddenAncestor { return true }
         guard let focusedPane = focusedPane(), let shown = pane(asking) else { return false }
         return shown != focusedPane
