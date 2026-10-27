@@ -14,6 +14,8 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     let endpoint: AgentSessionAttachClient.EndpointProvider
     /// `.observe` opens the remote session as a read-only viewer with no mutation fallback.
     var mode: AgentSessionAttachClient.Mode = .attach
+    /// Present only for a Cloud VM resolved by the native machine registry.
+    var cloudMachineID: String?
     /// The machine's daemon answers the folder trust question (`agent-session-trust-v1`).
     var servesTrust = false
     /// The machine's daemon says whether a keyed acpmux restart loses nothing
@@ -83,6 +85,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         if session != nil { handshake.sessionMustExist = true }
         // The composer's machine chip names the chat's machine, not this Mac (cx-k21v).
         handshake.machineName = machine
+        handshake.cloudMachineID = cloudMachineID
         return handshake
     }
 
