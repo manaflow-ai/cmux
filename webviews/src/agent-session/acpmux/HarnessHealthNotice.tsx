@@ -107,7 +107,12 @@ export function HarnessHealthNotice({
   const t = useT();
   const [dismissed, setDismissed] = useState<string>();
   const [progress, setProgress] = useState<Progress>();
-  const signedOut = health && health.auth === "signedOut" && health.login ? health.login : undefined;
+  // Unknown health is common when Codex keeps its login in the OS keychain. A
+  // chat started in that state otherwise waits until its first prompt to find
+  // out that the harness needs a login. If acpmux knows the login command,
+  // surface the same one-click recovery before the prompt instead.
+  const signedOut =
+    health && (health.auth === "signedOut" || health.auth === "unknown") && health.login ? health.login : undefined;
   const update =
     health &&
     health.outdated &&

@@ -158,7 +158,7 @@ test("an outdated agent CLI draws no line: the model chip offers its update; Ski
   expect(notice(container)).toBeNull();
 });
 
-test("nothing shows for an update that needs sudo, a current CLI, or sign-in the daemon cannot tell", async () => {
+test("nothing shows for an update that needs sudo, a current CLI, or sign-in without a recovery command", async () => {
   const container = installDom();
   await render(container, {
     ...outdated,
@@ -167,7 +167,11 @@ test("nothing shows for an update that needs sudo, a current CLI, or sign-in the
   expect(notice(container)).toBeNull();
   await render(container, { ...outdated, outdated: false });
   expect(notice(container)).toBeNull();
-  await render(container, { id: "codex", auth: "unknown", login: "codex login" });
+  const opened = await render(container, { id: "codex", auth: "unknown", login: "codex login" });
+  expect(notice(container)?.dataset.harnessNotice).toBe("signedOut");
+  await press(container, "login");
+  expect(opened).toEqual([{ kind: "terminal", text: "codex login", cwd: "/work", run: true }]);
+  await press(container, "dismiss");
   expect(notice(container)).toBeNull();
   await render(container, { ...signedOut, login: null });
   expect(notice(container)).toBeNull();

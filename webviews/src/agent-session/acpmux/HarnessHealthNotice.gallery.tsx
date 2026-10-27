@@ -125,6 +125,7 @@ const dismiss: Play = async (ctx) => {
 };
 
 const signedOut: HarnessHealth = { id: "codex", auth: "signedOut", login: "codex login" };
+const unknownWithRecovery: HarnessHealth = { id: "codex", auth: "unknown", login: "codex login" };
 const outdated: HarnessHealth = {
   id: "codex",
   auth: "signedIn",
@@ -169,6 +170,11 @@ export default componentEntry<Props>({
     "signed-out": {
       note: "A signed-out Codex CLI says so inline and offers Log In in the chat's folder.",
       props: { health: signedOut },
+      play: runLogin,
+    },
+    "unknown-with-recovery": {
+      note: "When the daemon cannot inspect a keychain login, offer the known sign-in command before the first prompt.",
+      props: { health: unknownWithRecovery },
       play: runLogin,
     },
     outdated: {
