@@ -1142,6 +1142,12 @@ jobs:
             echo "::warning::another run wrote the tip feed first; reading it again (attempt $attempt)"
             (( attempt < 5 )) || { echo "the tip feed kept changing under build $TIP_BUILD" >&2; exit 1; }
           done
+          # Release push, now that written=true: the presence worker re-reads
+          # the public tip feed and tells connected NEXT DEV apps at once. No
+          # secret (it only reads an allowlisted public appcast); a failure
+          # never fails the step, and the worker's minute cron catches up.
+          curl -fsS -X POST --max-time 10 --retry 3 "https://presence.cmux.dev/releases/v1/poke?feed=tip" \
+            || echo "::warning::release poke failed; the minute cron will catch up"
           {
             echo "### cmux NEXT DEV tip $TIP_BUILD"
             echo "feat-cmux-next $SOURCE_SHA, feed $TIP_BASE_URL/$TIP_APPCAST"
