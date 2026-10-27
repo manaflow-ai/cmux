@@ -11,6 +11,7 @@ use cmux_ipc::{
     PriorityHint, StreamLane,
 };
 use serde_json::json;
+use std::io::Read;
 
 /// A payload of exactly `len` bytes (a JSON string of `len - 2` letters).
 fn payload(service: &RenderService, len: usize) -> Arc<BudgetedText> {

@@ -18,7 +18,7 @@ use super::super::sys::{self, HostStream};
 use super::super::*;
 use super::clipboard_read::*;
 use super::codec::*;
-use super::host_shared::HostShared;
+use super::host_shared::{HostLoop, HostShared};
 use super::host_state::*;
 
 mod stdio;
@@ -467,7 +467,10 @@ pub(crate) fn serve_client_with_snapshot_timeout(
         // peer waiting for a reply forever.
         let mut end = ClientEnd { frames: frames.clone(), detached: false, armed: true };
         let control = ClientControl::new(frames.clone());
+        let hang_watch = HostLoop::ClientInput.register();
         while let Ok(Some(frame)) = read_frame(command_stream, MAX_FRAME_PAYLOAD) {
+            // One hang-watch scope per frame, after its read.
+            let _item = HostLoop::ClientInput.watch(&hang_watch);
             if frames.ended.load(Ordering::Acquire) || !frames.frame_is_valid(&frame) {
                 break;
             }
@@ -493,7 +496,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
             end.armed = false;
         }
     };
-    let client_input = "terminal-host-client-input";
+    let client_input = HostLoop::ClientInput.thread_name();
     crate::echo_thread::spawn_host_stream_reader(client_input, command_stream, serve_input)?;
     client_setup.disarm();
 
@@ -602,7 +605,7 @@ impl ClientFrames {
                     return FrameStep::Close;
                 }
                 let bracketed = ctx.host.term.lock().recover_poison().mode(2004, false);
-                let mut writer = ctx.host.writer.lock().recover_poison();
+                let mut writer = ctx.host.pty_writer();
                 if bracketed {
                     let _ = writer.write_all(b"\x1b[200~");
                 }
@@ -661,6 +664,8 @@ impl ClientFrames {
                     && let Ok(delay) = delay.parse::<u64>()
                     && delay > 0
                 {
+                    // The injected late receipt is a wait, not a hang.
+                    cmux_hang_watch::invalidate_active();
                     // wakeup-allow: fixture integration failure-injection seam, only with CMUX_TUI_TEST_TERMINATE_ACK_DELAY_MS set; bounded at 5 s
                     thread::sleep(Duration::from_millis(delay.min(5_000)));
                 }

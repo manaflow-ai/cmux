@@ -76,7 +76,7 @@ public nonisolated struct ActionCompletion: Sendable {
     @discardableResult
     public func start<T: Sendable>(_ work: @escaping @Sendable () async -> T) -> Task<T, Never> {
         let scope = scope, locals = locals
-        return Task(priority: priority.taskPriority) {
+        return Task(priority: priority.taskPriority) { @concurrent in
             await ActionRunScope.$current.withValueAwaiting(scope) { () async -> T in
                 guard let locals else { return await work() }
                 return await locals.bindAwaiting { await work() }
