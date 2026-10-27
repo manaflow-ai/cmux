@@ -1107,6 +1107,7 @@ mod tests {
 
 #[cfg(test)]
 mod notification_tests {
+    include!("supervisor/review_tests.rs");
     use super::*;
     use crate::{
         hub::remote_sandbox::PROFILE,
@@ -1205,6 +1206,9 @@ mod notification_tests {
         static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
         let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         let fixture = Fixture::new();
+        if case == 210 {
+            fs::remove_dir_all(fixture.0.join(".git")).unwrap();
+        }
         if case == 200 {
             let fifo = CString::new(fixture.0.join("fifo").to_str().unwrap()).unwrap();
             assert_eq!(unsafe { mkfifo(fifo.as_ptr(), 0o600) }, 0);
@@ -1373,6 +1377,9 @@ mod notification_tests {
     /// Finite syscall cases; SIGALRM bounds blocking opens and the race worker.
     unsafe fn child_case(case: u8, paths: &[CString]) -> i32 {
         unsafe {
+            if case >= 210 {
+                return review_case(case);
+            }
             if case == 1 {
                 return 0;
             }

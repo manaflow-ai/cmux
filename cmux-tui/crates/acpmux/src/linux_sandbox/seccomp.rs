@@ -616,6 +616,19 @@ mod tests {
     }
 
     #[test]
+    fn review_creators_notify_on_both_architectures() {
+        let program = super::filter(true).unwrap();
+        #[allow(unused_mut)]
+        let mut numbers = vec![SYS_mkdirat, SYS_mknodat, SYS_symlinkat];
+        #[cfg(target_arch = "x86_64")]
+        numbers.extend([SYS_mkdir, SYS_mknod, SYS_symlink]);
+        for nr in numbers {
+            assert_eq!(evaluate(&program, ARCH, nr as u32, [0; 6]), SECCOMP_RET_USER_NOTIF);
+        }
+        assert_eq!(evaluate(&program, ARCH, SYS_linkat as u32, [0; 6]), EPERM_ACTION);
+    }
+
+    #[test]
     fn socket_domains_protocols_and_socketpair_types() {
         let filter = deny_filter().unwrap();
         for (domain, protocol, expected) in [
