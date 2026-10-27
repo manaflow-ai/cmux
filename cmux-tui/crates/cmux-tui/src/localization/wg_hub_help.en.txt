@@ -21,3 +21,8 @@ Prints one JSON line `{"event":"hub-ready","socket":...,"routes":[...]}` when
 listening (it also names `"control"` with --control). Only literal IP targets
 inside AllowedIPs are dialed; other targets get SOCKS reply 0x02, names 0x08.
 Exits on SIGTERM or SIGINT and removes its sockets.
+
+       cmux wg dial --hub PATH HOST PORT
+
+`wg dial` carries one TCP stream to HOST:PORT through a running hub on stdin and
+stdout, for an ssh ProxyCommand. HOST must be an address inside the hub's AllowedIPs.
