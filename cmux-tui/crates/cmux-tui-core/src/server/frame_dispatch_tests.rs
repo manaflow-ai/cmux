@@ -80,6 +80,15 @@ impl Client {
 
     /// [`Client::granted`] that also declares `capabilities`.
     pub(in crate::server) fn granted_with(label: &str, capabilities: &[&str]) -> Client {
+        Client::granted_with_frames(label, capabilities, RequestFrames::default)
+    }
+
+    /// [`Client::granted_with`] served by the lane `frames` makes.
+    pub(in crate::server) fn granted_with_frames(
+        label: &str,
+        capabilities: &[&str],
+        frames: impl FnOnce() -> RequestFrames + Send + 'static,
+    ) -> Client {
         let mux =
             Mux::new_for_test(format!("frame-dispatch-{label}"), crate::SurfaceOptions::default());
         let (socket, server) = UnixStream::pair().unwrap();
@@ -93,7 +102,7 @@ impl Client {
                 None,
                 ClientTransport::Unix,
                 &admission::LocalAdmission,
-                &mut RequestFrames::default(),
+                &mut frames(),
             )
         });
         let read_half = socket.try_clone().unwrap();
@@ -126,7 +135,7 @@ impl Client {
     }
 
     /// The connection's client (a fresh test mux has no other Unix client).
-    fn client_id(&self) -> u64 {
+    pub(in crate::server) fn client_id(&self) -> u64 {
         let state = self.mux.control_clients.state.lock().unwrap();
         let mut unix = state
             .clients

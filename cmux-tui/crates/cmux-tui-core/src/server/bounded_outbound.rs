@@ -333,6 +333,24 @@ impl BoundedOutbound {
         Ok(())
     }
 
+    /// Ends `stream` now: closes it, drops its unwritten items, and queues
+    /// `text` in the control FIFO, in one step. Unlike `push_terminal`, it
+    /// queues `text` when the stream queued its own terminal already.
+    pub(super) fn push_stream_end(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        let mut state = self.state.lock().recover_poison();
+        stream.close();
+        stream.terminal_enqueued.store(true, Ordering::Release);
+        Self::purge_stream_locked(&mut state, stream.id);
+        Self::push_control_locked(&mut state, text)?;
+        drop(state);
+        self.changed.notify_one();
+        Ok(())
+    }
+
     /// Gracefully closes a stream after every item already admitted for it.
     ///
     /// Overflow and cancellation use `push_terminal`, which intentionally
@@ -816,6 +834,14 @@ impl MessageSink for QueuedSink {
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
         self.outbound.push_ordered_terminal(text, stream)
+    }
+
+    fn send_stream_end(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        self.outbound.push_stream_end(text, stream)
     }
 
     fn is_open(&self) -> bool {

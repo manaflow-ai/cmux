@@ -12,12 +12,19 @@
 //! sequence; later items follow them there. A failed reply ends the stream
 //! first: `stream-end{attach_failed}`, then the opener's error reply.
 //!
-//! A stream that holds its cap and gets one more item ends alone: one
-//! `input-failed` reports the INPUT bytes it will never write, and
-//! `stream-end{overflow}` is its last item; it also answers the requests
-//! queued on the stream (none ran, their ids are free). A request sent on
-//! the stream after its end is answered `stream_ended`. The connection and its other streams go on. Only a frame
-//! naming a stream that was never announced is a bad message.
+//! A Pending stream that holds its cap and gets one more item overflows and
+//! ends alone; the opener's answer ends it. Its handler may be building the
+//! view already, so the view and the stream end in one step at the answer:
+//! one `input-failed` reports the INPUT bytes it will never write,
+//! `stream-end{overflow}` closes the view (its unwritten items are dropped,
+//! nothing of it follows) and answers the requests sent on the stream (none
+//! ran, their ids are free), then the opener gets the ERROR `stream_ended`
+//! instead of its reply. A request sent on the stream after its end is
+//! answered `stream_ended`. The connection and its other streams go on.
+//! Only a frame naming a stream that was never announced is a bad message.
+//!
+//! The caps are a Pending stream's only: a bound stream's INPUT goes to its
+//! PTY's writer as it comes (a bounded terminal input sink is p05-ipc-157).
 //!
 //! Chrome: an associated endpoint is usable as soon as it is sent, and the
 //! router queues the messages of an endpoint that has no client bound yet,
@@ -40,19 +47,18 @@ use super::frame_dispatch::{CallRefusal, FrameCall};
 use super::line_connection::{ConnectionBadMessage, FrameConnection};
 use super::{
     CONNECTION_SURFACE_QUEUE_CAPACITY, ConnectionSurfaceScheduler, MessageWriter, OutboundStream,
-    Request, RequestArrival, get_surface, handle_request_with_cancellation, lock_caller_scope,
-    send_bad_request, send_request_error,
+    Request, RequestArrival, detach_committed_attach, get_surface,
+    handle_request_with_cancellation, lock_caller_scope, send_bad_request, send_request_error,
 };
 use crate::event_cause::EventCause;
 use crate::mux::mux_work::Sequence;
 use crate::panic_free::RecoverPoison;
 use crate::{Mux, SurfaceId};
 
-/// INPUT bytes a stream holds that have not reached its PTY.
+/// INPUT bytes a Pending stream holds.
 pub(super) const STREAM_INPUT_CAPACITY: usize = 1 << 20;
 
-/// Requests a stream holds that have not run: the connection control
-/// sequence's cap.
+/// Requests a Pending stream holds: the connection control sequence's cap.
 pub(super) const STREAM_REQUEST_CAPACITY: usize = CONNECTION_SURFACE_QUEUE_CAPACITY;
 
 /// The methods whose REQUEST on stream S announces S.
@@ -89,6 +95,22 @@ fn input_failed_json(stream: u16, reason: &str, bytes: usize) -> Value {
     json!({"event": "input-failed", "stream": stream, "reason": reason, "bytes": bytes})
 }
 
+/// The ERROR of a request on a stream that ended, and of an opener whose
+/// stream ended before its answer.
+pub(super) fn stream_ended_reply() -> Value {
+    json!({"ok": false, "error": "the stream has ended", "error_code": "stream_ended"})
+}
+
+/// Told what a connection's streams do, so a test orders the reader and
+/// an opener's handler without timing.
+#[cfg(test)]
+pub(super) trait StreamProbe: Send + Sync {
+    /// An opener's handler named its stream's surface ([`StreamEndpoint::target`]).
+    fn targeted(&self);
+    /// The reader queued or refused one item on a stream.
+    fn posted(&self);
+}
+
 /// A request on a stream: its body (checked to name its header's method),
 /// the frame it answers, and where its span and events start.
 struct StreamRequest {
@@ -103,7 +125,7 @@ enum StreamItem {
     Request(StreamRequest),
 }
 
-/// What a stream holds that has not run, counted against its caps.
+/// What a Pending stream holds, counted against its caps.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct Held {
     input_bytes: usize,
@@ -128,21 +150,32 @@ impl Held {
         *self = Held { input_bytes, requests };
         true
     }
+}
 
-    fn remove(&mut self, cost: Held) {
-        self.input_bytes = self.input_bytes.saturating_sub(cost.input_bytes);
-        self.requests = self.requests.saturating_sub(cost.requests);
-    }
+/// Answers every request in `items` by the coming `stream-end` and returns
+/// the INPUT bytes among them.
+fn refused(items: impl IntoIterator<Item = StreamItem>) -> usize {
+    items.into_iter().fold(0, |input_bytes, item| match item {
+        StreamItem::Input { bytes, .. } => input_bytes + bytes.len(),
+        StreamItem::Request(request) => {
+            request.call.abandon();
+            input_bytes
+        }
+    })
 }
 
 enum EndpointState {
     /// Its opener has not been answered: items queue here.
     Pending { surface: Option<SurfaceId>, items: VecDeque<StreamItem>, held: Held },
+    /// It overflowed while its opener was in flight; the opener's answer
+    /// ends it. Later items are refused into the same end.
+    Overflowed { surface: Option<SurfaceId>, input_bytes: usize },
     /// Its opener succeeded: items run in order on `sequence`.
-    Bound { surface: SurfaceId, sequence: Arc<Sequence>, held: Held },
-    /// It overflowed or its opener failed; its `stream-end` is queued or
-    /// will be the last thing its sequence runs.
-    Ended,
+    Bound { surface: SurfaceId, sequence: Arc<Sequence> },
+    /// Its `stream-end` is queued, or its view detached. A request is
+    /// answered `stream_ended` after the stream's earlier items: on
+    /// `after`, the sequence of a stream that was bound.
+    Ended { after: Option<Arc<Sequence>> },
 }
 
 /// One client-minted stream of a connection, from its opener on.
@@ -155,20 +188,24 @@ pub(super) struct StreamEndpoint {
     writer: MessageWriter,
     /// Its requests end with the connection's cancellation.
     scheduler: Arc<ConnectionSurfaceScheduler>,
-    /// Lock carve-out: held only to queue, count or hand over one item and
-    /// to change state, never while an item runs or a message is sent, so
-    /// the reader never waits behind a PTY write (the same rule as
-    /// `mux_work::Sequence`'s queue lock).
+    /// Lock carve-out: held to queue, count or hand over items, to change
+    /// state and to queue the messages that change sends (a push onto the
+    /// connection's outbound queue, which never waits), so no answer comes
+    /// between them; never while an item runs, so the reader never waits
+    /// behind a PTY write (the same rule as `mux_work::Sequence`'s queue
+    /// lock).
     state: Mutex<EndpointState>,
     /// The outbound stream of the view its opener attached: once it closes
     /// (the view detached or overflowed) the stream ended and its id is
     /// free.
     view: OnceLock<OutboundStream>,
+    #[cfg(test)]
+    probe: Option<Arc<dyn StreamProbe>>,
 }
 
 impl StreamEndpoint {
-    fn new(stream: u16, connection: &FrameConnection<'_>) -> Arc<StreamEndpoint> {
-        Arc::new(StreamEndpoint {
+    fn new(stream: u16, connection: &FrameConnection<'_>) -> StreamEndpoint {
+        StreamEndpoint {
             stream,
             client: connection.client,
             mux: Arc::downgrade(connection.mux),
@@ -180,16 +217,18 @@ impl StreamEndpoint {
                 held: Held::default(),
             }),
             view: OnceLock::new(),
-        })
+            #[cfg(test)]
+            probe: None,
+        }
     }
 
     /// Whether the stream's id is in use: its opener is pending, or its view
     /// is still attached. Asked only for a new opener on the id.
     fn is_live(&self) -> bool {
         let surface = match &*self.state.lock().recover_poison() {
-            EndpointState::Pending { .. } => return true,
+            EndpointState::Pending { .. } | EndpointState::Overflowed { .. } => return true,
             EndpointState::Bound { surface, .. } => *surface,
-            EndpointState::Ended => return false,
+            EndpointState::Ended { .. } => return false,
         };
         let (Some(view), Some(mux)) = (self.view.get(), self.mux.upgrade()) else { return false };
         view.is_open()
@@ -210,125 +249,161 @@ impl StreamEndpoint {
     }
 
     /// The opener's handler found the surface the stream carries items to.
-    /// False when the stream already ended (it overflowed while its opener
-    /// waited): the opener fails instead of attaching a view no stream
-    /// carries.
+    /// False when the stream already overflowed: the opener fails instead
+    /// of attaching a view no stream carries.
     pub(super) fn target(&self, surface: SurfaceId) -> bool {
-        match &mut *self.state.lock().recover_poison() {
+        let targeted = match &mut *self.state.lock().recover_poison() {
             EndpointState::Pending { surface: target, .. } => {
                 *target = Some(surface);
                 true
             }
             EndpointState::Bound { .. } => true,
-            EndpointState::Ended => false,
+            EndpointState::Overflowed { .. } | EndpointState::Ended { .. } => false,
+        };
+        #[cfg(test)]
+        if let Some(probe) = &self.probe {
+            probe.targeted();
         }
+        targeted
     }
 
-    /// The opener's reply is queued and it succeeded: the queued items run
-    /// in order on the stream's sequence, and later items follow them.
-    pub(super) fn opened(self: &Arc<Self>) {
-        let Some(mux) = self.mux.upgrade() else { return };
+    /// The opener succeeded: `send` queues its reply and the stream binds
+    /// in one step under the state lock, so the queued items run in order
+    /// on the stream's sequence after the reply and later items follow
+    /// them. `None` when the stream overflowed first: it ended with its
+    /// view, and the opener is answered [`stream_ended_reply`] instead.
+    pub(super) fn bind_with(
+        self: &Arc<Self>,
+        send: impl FnOnce() -> std::io::Result<()>,
+    ) -> Option<std::io::Result<()>> {
         let mut state = self.state.lock().recover_poison();
-        let EndpointState::Pending { surface, items, held } = &mut *state else { return };
-        let (target, items, held) = (*surface, std::mem::take(items), *held);
-        let Some(surface) = target else {
+        match std::mem::replace(&mut *state, EndpointState::Ended { after: None }) {
+            EndpointState::Pending { surface: Some(surface), items, .. } => {
+                let sent = send();
+                if let (Ok(()), Some(mux)) = (&sent, self.mux.upgrade()) {
+                    let sequence = Arc::new(Sequence::default());
+                    *state = EndpointState::Bound { surface, sequence: sequence.clone() };
+                    for item in items {
+                        self.run_on(&mux, &sequence, surface, item);
+                    }
+                }
+                Some(sent)
+            }
             // An opener that succeeded without naming its surface (it
             // cannot happen for `attach-surface`): nothing to carry to.
-            *state = EndpointState::Ended;
-            drop(state);
-            self.end(StreamEnd::AttachFailed, items);
-            return;
-        };
-        let sequence = Arc::new(Sequence::default());
-        *state = EndpointState::Bound { surface, sequence: sequence.clone(), held };
-        // Handed over before the lock is released: an item the reader posts
-        // once it sees Bound runs after these.
-        for item in items {
-            self.run_on(&mux, &sequence, surface, item);
+            EndpointState::Pending { surface: None, items, .. } => {
+                self.send_end(StreamEnd::AttachFailed, refused(items), None);
+                None
+            }
+            EndpointState::Overflowed { surface, input_bytes } => {
+                let view = self.view.get();
+                self.send_end(StreamEnd::Overflow, input_bytes, view);
+                drop(state);
+                if let (Some(view), Some(surface), Some(mux)) = (view, surface, self.mux.upgrade())
+                {
+                    detach_committed_attach(&mux, self.client, surface, view.id);
+                }
+                None
+            }
+            // A call has one answer, so its stream is still Pending or
+            // Overflowed here.
+            answered @ (EndpointState::Bound { .. } | EndpointState::Ended { .. }) => {
+                *state = answered;
+                drop(state);
+                Some(send())
+            }
         }
     }
 
-    /// The opener failed; called before its error reply is queued, so
-    /// `stream-end{attach_failed}` comes first.
+    /// The opener failed and rolled back its view; called before its error
+    /// reply is queued, so `stream-end` comes first. A view it started is
+    /// closed by the end too.
     pub(super) fn open_failed(&self) {
         let mut state = self.state.lock().recover_poison();
-        let EndpointState::Pending { items, .. } = &mut *state else { return };
-        let items = std::mem::take(items);
-        *state = EndpointState::Ended;
-        drop(state);
-        self.end(StreamEnd::AttachFailed, items);
+        let (end, input_bytes) =
+            match std::mem::replace(&mut *state, EndpointState::Ended { after: None }) {
+                EndpointState::Pending { items, .. } => (StreamEnd::AttachFailed, refused(items)),
+                EndpointState::Overflowed { input_bytes, .. } => (StreamEnd::Overflow, input_bytes),
+                answered @ (EndpointState::Bound { .. } | EndpointState::Ended { .. }) => {
+                    *state = answered;
+                    return;
+                }
+            };
+        self.send_end(end, input_bytes, self.view.get());
     }
 
     fn post(self: &Arc<Self>, item: StreamItem) {
+        self.queue(item);
+        #[cfg(test)]
+        if let Some(probe) = &self.probe {
+            probe.posted();
+        }
+    }
+
+    fn queue(self: &Arc<Self>, item: StreamItem) {
         let cost = Held::of(&item);
         let mut state = self.state.lock().recover_poison();
         match &mut *state {
-            EndpointState::Pending { items, held, .. } => {
+            EndpointState::Pending { surface, items, held } => {
                 if held.try_add(cost) {
                     items.push_back(item);
                     return;
                 }
-                let queued = std::mem::take(items);
-                *state = EndpointState::Ended;
-                drop(state);
-                self.end(StreamEnd::Overflow, queued.into_iter().chain([item]));
+                let surface = *surface;
+                let input_bytes = refused(std::mem::take(items).into_iter().chain([item]));
+                *state = EndpointState::Overflowed { surface, input_bytes };
             }
-            EndpointState::Bound { .. } if self.view_closed() => {
+            EndpointState::Overflowed { input_bytes, .. } => *input_bytes += refused([item]),
+            EndpointState::Bound { sequence, .. } if self.view_closed() => {
                 // The view detached: its `detached` was its last item.
-                *state = EndpointState::Ended;
+                let after = Some(sequence.clone());
+                *state = EndpointState::Ended { after: after.clone() };
                 drop(state);
-                self.refuse_ended(item);
+                self.refuse_ended(after, item);
             }
-            EndpointState::Bound { surface, sequence, held } => {
+            EndpointState::Bound { surface, sequence } => {
                 let (surface, sequence) = (*surface, sequence.clone());
-                let admitted = held.try_add(cost);
-                if !admitted {
-                    *state = EndpointState::Ended;
-                }
                 drop(state);
-                let Some(mux) = self.mux.upgrade() else { return };
-                if admitted {
+                if let Some(mux) = self.mux.upgrade() {
                     self.run_on(&mux, &sequence, surface, item);
-                } else {
-                    // Items admitted before it still run; the end runs after
-                    // them, so `stream-end` is the stream's last item.
-                    let endpoint = self.clone();
-                    let _ = mux.post_mux_work_sequenced(
-                        &sequence,
-                        Priority::UserBlocking,
-                        Lane::System,
-                        move |_| endpoint.end(StreamEnd::Overflow, [item]),
-                    );
                 }
             }
-            EndpointState::Ended => {
+            EndpointState::Ended { after } => {
+                let after = after.clone();
                 drop(state);
-                self.refuse_ended(item);
+                self.refuse_ended(after, item);
             }
         }
     }
 
     /// An item for a stream whose end the client has or will read before
-    /// this answer: INPUT is dropped, a request answered.
-    fn refuse_ended(&self, item: StreamItem) {
-        if let StreamItem::Request(request) = item {
-            self.refuse(request, "stream_ended", "the stream has ended");
-        }
+    /// this answer: INPUT is dropped, a request answered after the items
+    /// sent on the stream before it (on `after`, its sequence).
+    fn refuse_ended(self: &Arc<Self>, after: Option<Arc<Sequence>>, item: StreamItem) {
+        let StreamItem::Request(request) = item else { return };
+        let (Some(sequence), Some(mux)) = (after, self.mux.upgrade()) else {
+            self.refuse(request);
+            return;
+        };
+        let endpoint = self.clone();
+        // Refused only when the daemon shuts down, which closes the
+        // connection: nobody reads an answer then.
+        let _ = mux.post_mux_work_sequenced(
+            &sequence,
+            Priority::UserBlocking,
+            Lane::System,
+            move |_| endpoint.refuse(request),
+        );
     }
 
     /// Reports the refused INPUT bytes in one `input-failed`, then queues
     /// `stream-end`, which answers every refused request: none ran, and
     /// their ids are free again. One message, not one reply per request, so
     /// ending a full stream never floods the control queue (Mojo drops the
-    /// pending responders of a closed endpoint the same way).
-    fn end(&self, end: StreamEnd, refused: impl IntoIterator<Item = StreamItem>) {
-        let mut input_bytes = 0usize;
-        for item in refused {
-            match item {
-                StreamItem::Input { bytes, .. } => input_bytes += bytes.len(),
-                StreamItem::Request(request) => request.call.abandon(),
-            }
-        }
+    /// pending responders of a closed endpoint the same way). With the
+    /// stream's `view`, `stream-end` closes it and drops its unwritten
+    /// items: nothing of the view follows the end.
+    fn send_end(&self, end: StreamEnd, input_bytes: usize, view: Option<&OutboundStream>) {
         if input_bytes > 0 {
             let _ = self.writer.send_control(&input_failed_json(
                 self.stream,
@@ -336,12 +411,15 @@ impl StreamEndpoint {
                 input_bytes,
             ));
         }
-        let _ = self.writer.send_control(&stream_end_json(self.stream, end));
+        let stream_end = stream_end_json(self.stream, end);
+        let _ = match view {
+            Some(view) => self.writer.send_stream_end(&stream_end, view),
+            None => self.writer.send_control(&stream_end),
+        };
     }
 
-    fn refuse(&self, request: StreamRequest, code: &str, error: &str) {
-        let writer = self.writer.replying_to(request.call);
-        let _ = writer.send_reply(&json!({"ok": false, "error": error, "error_code": code}));
+    fn refuse(&self, request: StreamRequest) {
+        let _ = self.writer.replying_to(request.call).send_reply(&stream_ended_reply());
     }
 
     fn run_on(
@@ -363,19 +441,16 @@ impl StreamEndpoint {
     }
 
     fn run(&self, mux: &Weak<Mux>, surface: SurfaceId, item: StreamItem) {
-        let cost = Held::of(&item);
-        if self.writer.is_open() {
-            match item {
-                StreamItem::Input { bytes, flow } => self.write_input(mux, surface, &bytes, flow),
-                StreamItem::Request(request) => {
-                    if let Some(mux) = mux.upgrade() {
-                        self.run_request(&mux, request);
-                    }
+        if !self.writer.is_open() {
+            return;
+        }
+        match item {
+            StreamItem::Input { bytes, flow } => self.write_input(mux, surface, &bytes, flow),
+            StreamItem::Request(request) => {
+                if let Some(mux) = mux.upgrade() {
+                    self.run_request(&mux, request);
                 }
             }
-        }
-        if let EndpointState::Bound { held, .. } = &mut *self.state.lock().recover_poison() {
-            held.remove(cost);
         }
     }
 
@@ -452,6 +527,9 @@ pub(super) enum RequestLane {
 #[derive(Default)]
 pub(super) struct ClientStreams {
     endpoints: HashMap<u16, Arc<StreamEndpoint>>,
+    /// Told when an opener targets a stream and when an item is posted.
+    #[cfg(test)]
+    pub(super) probe: Option<Arc<dyn StreamProbe>>,
 }
 
 impl ClientStreams {
@@ -498,6 +576,9 @@ impl ClientStreams {
         connection: &FrameConnection<'_>,
     ) -> Arc<StreamEndpoint> {
         let endpoint = StreamEndpoint::new(stream, connection);
+        #[cfg(test)]
+        let endpoint = StreamEndpoint { probe: self.probe.clone(), ..endpoint };
+        let endpoint = Arc::new(endpoint);
         self.endpoints.insert(stream, endpoint.clone());
         endpoint
     }

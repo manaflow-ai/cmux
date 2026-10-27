@@ -96,22 +96,21 @@ impl FrameCall {
 
     /// Queues its reply with `send`. An opener that failed ends its stream
     /// first, so `stream-end` precedes the error; one that succeeded binds
-    /// its stream after, so the items queued on it follow the reply.
+    /// its stream with the reply, so the items queued on it follow the
+    /// reply. An opener whose stream ended before its answer sends
+    /// `refuse` instead (server/pending_streams.rs).
     pub(super) fn send_reply_with(
         &self,
         ok: bool,
         send: impl FnOnce() -> std::io::Result<()>,
+        refuse: impl FnOnce() -> std::io::Result<()>,
     ) -> std::io::Result<()> {
         let Some(stream) = &self.opens else { return send() };
         if !ok {
             stream.open_failed();
             return send();
         }
-        let sent = send();
-        if sent.is_ok() {
-            stream.opened();
-        }
-        sent
+        stream.bind_with(send).unwrap_or_else(refuse)
     }
 
     /// Whether its reply was sent (its id is free again).
@@ -245,6 +244,17 @@ impl Default for RequestFrames {
             sweep_at: SWEEP_MIN,
             streams: ClientStreams::default(),
         }
+    }
+}
+
+#[cfg(test)]
+impl RequestFrames {
+    /// A lane whose streams tell `probe` when an opener targets one and
+    /// when an item is posted.
+    pub(super) fn with_stream_probe(probe: Arc<dyn super::pending_streams::StreamProbe>) -> Self {
+        let mut frames = RequestFrames::default();
+        frames.streams.probe = Some(probe);
+        frames
     }
 }
 

@@ -7,13 +7,19 @@
 //! with a `wait-for`, so the opener is still queued while the reader takes
 //! the stream's frames: the stream is Pending for certain, not by timing.
 
+use std::sync::{Arc, mpsc};
+use std::time::Duration;
+
+use crate::panic_free::RecoverPoison;
 use crate::surface::PtyInputCapture;
 use cmux_ipc::{Aux, CallAux, CallFlags, FrameHeader, FrameKind, Message};
+use cmux_threads::sync::Mutex;
 use serde_json::{Value, json};
 
-use super::{STREAM_INPUT_CAPACITY, STREAM_REQUEST_CAPACITY};
+use super::{STREAM_INPUT_CAPACITY, STREAM_REQUEST_CAPACITY, StreamProbe};
 use crate::server::VIEW_ATTACHMENT_LEASE_CAPABILITY;
 use crate::server::frame_dispatch::CallRefusal;
+use crate::server::frame_dispatch::RequestFrames;
 use crate::server::frame_dispatch::tests::{Client, cancel, method, request};
 use crate::server::line_connection::{ConnectionBadMessage, ConnectionEnd};
 
@@ -257,10 +263,11 @@ fn stream_pending_overflow_ends_only_its_stream() {
         13,
         &json!({"cmd": "send", "surface": surface, "text": "never-written"}),
     ));
-    // Exactly the cap is held; one byte more ends stream 7.
+    // Exactly the cap is held; one byte more overflows stream 7.
     client.send(&input(7, 0, &vec![b'z'; STREAM_INPUT_CAPACITY]));
     client.send(&input(7, 0, b"z"));
-    // After its end, stream 7 is still an announced id: dropped, not bad.
+    // After its overflow, stream 7 is still an announced id: refused into
+    // its end, not bad.
     client.send(&input(7, 0, b"late"));
     client.send(&input(8, 0, b"kilo-8\r"));
     client.send(&stream_request(8, 14, &fence(surface)));
@@ -271,7 +278,7 @@ fn stream_pending_overflow_ends_only_its_stream() {
     let failed = position(&seen, |seen| is_event(seen, "input-failed", 7));
     let Seen::Event(event) = &seen[failed] else { unreachable!() };
     assert_eq!(event["reason"], json!("overflow"), "{event}");
-    assert_eq!(event["bytes"], json!(STREAM_INPUT_CAPACITY + 1), "one report for every byte");
+    assert_eq!(event["bytes"], json!(STREAM_INPUT_CAPACITY + 1 + 4), "one report for every byte");
     assert_eq!(seen.iter().filter(|seen| is_event(seen, "input-failed", 7)).count(), 1);
     let end = position(&seen, |seen| is_event(seen, "stream-end", 7));
     let Seen::Event(event) = &seen[end] else { unreachable!() };
@@ -404,5 +411,119 @@ fn stream_pending_a_detached_view_frees_its_stream_id() {
     let (kind, stream, body) = answer(&seen, 14);
     assert_eq!((kind, stream), (FrameKind::Reply, 7), "{body}");
     assert_eq!(written(&capture), "reopened-7\r");
+    assert_eq!(client.finish(), ConnectionEnd::PeerClosed);
+}
+
+const PROBE_WAIT: Duration = Duration::from_secs(10);
+
+/// Holds the first opener's handler in `target` until the test lets it go,
+/// and tells the test each item the reader posts.
+struct HoldFirstTarget {
+    targeted: mpsc::Sender<()>,
+    release: Mutex<Option<mpsc::Receiver<()>>>,
+    posted: mpsc::Sender<()>,
+}
+
+impl StreamProbe for HoldFirstTarget {
+    fn targeted(&self) {
+        let Some(release) = self.release.lock().recover_poison().take() else { return };
+        let _ = self.targeted.send(());
+        let _ = release.recv_timeout(PROBE_WAIT);
+    }
+
+    fn posted(&self) {
+        let _ = self.posted.send(());
+    }
+}
+
+fn is_surface_event(seen: &Seen, surface: u64) -> bool {
+    matches!(seen, Seen::Event(value) if value["surface"] == surface)
+}
+
+#[test]
+fn stream_pending_an_overflow_after_target_ends_the_view_and_fails_the_opener() {
+    let (targeted_tx, targeted) = mpsc::channel();
+    let (release, release_rx) = mpsc::channel();
+    let (posted_tx, posted) = mpsc::channel();
+    let probe = Arc::new(HoldFirstTarget {
+        targeted: targeted_tx,
+        release: Mutex::new(Some(release_rx)),
+        posted: posted_tx,
+    });
+    let mut client = Client::granted_with_frames(
+        "pending-overflow-after-target",
+        &[VIEW_ATTACHMENT_LEASE_CAPABILITY],
+        move || RequestFrames::with_stream_probe(probe),
+    );
+    let terminal = client.mux.new_workspace(None, Some((80, 24))).unwrap();
+    let capture = terminal.capture_pty_input_for_test();
+    let surface = terminal.id;
+    client.send(&stream_request(7, 10, &attach(surface)));
+    // The opener's handler named its surface; the stream overflows before
+    // the handler attaches the view and replies.
+    targeted.recv_timeout(PROBE_WAIT).expect("the opener targets its stream");
+    client.send(&input(7, 0, &vec![b'z'; STREAM_INPUT_CAPACITY]));
+    client.send(&input(7, 0, b"z"));
+    for _ in 0..2 {
+        posted.recv_timeout(PROBE_WAIT).expect("the reader posts the INPUT");
+    }
+    release.send(()).unwrap();
+
+    let seen = until_answer(&mut client, 10);
+    let failed = position(&seen, |seen| is_event(seen, "input-failed", 7));
+    let Seen::Event(event) = &seen[failed] else { unreachable!() };
+    assert_eq!(event["reason"], json!("overflow"), "{event}");
+    assert_eq!(event["bytes"], json!(STREAM_INPUT_CAPACITY + 1), "{event}");
+    let end = position(&seen, |seen| is_event(seen, "stream-end", 7));
+    let Seen::Event(event) = &seen[end] else { unreachable!() };
+    assert_eq!(event["reason"], json!("overflow"), "{event}");
+    assert!(failed < end, "{seen:?}");
+    // The opener is answered ERROR, not OK, and nothing of its view comes
+    // after the stream's end.
+    let (kind, stream, body) = answer(&seen, 10);
+    assert_eq!((kind, stream), (FrameKind::Error, 7), "{body}");
+    assert_eq!(body["error_code"], json!("stream_ended"), "{body}");
+    assert!(!seen[end..].iter().any(|seen| is_surface_event(seen, surface)), "{seen:?}");
+    // The view is detached before the opener's answer.
+    let views = client.mux.control_clients.surface_view_streams(client.client_id(), surface);
+    assert!(views.is_none_or(|(_, views)| views.is_empty()), "the ended stream's view stays");
+    assert_eq!(written(&capture), "");
+
+    // The id is free: a new opener on 7 attaches and carries its INPUT.
+    client.send(&stream_request(7, 11, &attach(surface)));
+    client.send(&input(7, 0, b"after-7\r"));
+    client.send(&stream_request(7, 12, &fence(surface)));
+    let seen = until_answer(&mut client, 12);
+    let (kind, stream, body) = answer(&seen, 11);
+    assert_eq!((kind, stream), (FrameKind::Reply, 7), "{body}");
+    assert!(!seen.iter().any(|seen| is_event(seen, "stream-end", 7)), "{seen:?}");
+    assert_eq!(written(&capture), "after-7\r");
+    assert_eq!(client.mux.ipc_stats().snapshot().bad_message, 0);
+    assert_eq!(client.finish(), ConnectionEnd::PeerClosed);
+}
+
+#[test]
+fn stream_pending_a_bound_stream_carries_input_past_the_pending_cap() {
+    let (mut client, surface, capture) = terminal_client("pending-bound-uncapped");
+    client.send(&stream_request(7, 10, &attach(surface)));
+    let seen = until_answer(&mut client, 10);
+    let (kind, stream, body) = answer(&seen, 10);
+    assert_eq!((kind, stream), (FrameKind::Reply, 7), "{body}");
+
+    // The caps hold only while the opener waits: a bound stream's INPUT
+    // goes to its PTY as it comes.
+    client.send(&input(7, 0, &vec![b'y'; STREAM_INPUT_CAPACITY]));
+    client.send(&input(7, 0, b"y"));
+    client.send(&stream_request(7, 11, &fence(surface)));
+    let seen = until_answer(&mut client, 11);
+    let (kind, stream, body) = answer(&seen, 11);
+    assert_eq!((kind, stream), (FrameKind::Reply, 7), "{body}");
+    assert!(
+        !seen
+            .iter()
+            .any(|seen| is_event(seen, "stream-end", 7) || is_event(seen, "input-failed", 7)),
+        "{seen:?}"
+    );
+    assert_eq!(capture.written().len(), STREAM_INPUT_CAPACITY + 1);
     assert_eq!(client.finish(), ConnectionEnd::PeerClosed);
 }

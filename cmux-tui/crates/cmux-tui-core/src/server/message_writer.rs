@@ -17,6 +17,7 @@ use super::VtStateMessage;
 use super::api_revision_wire;
 use super::conversation_tabs_wire;
 use super::frame_dispatch::FrameCall;
+use super::pending_streams::stream_ended_reply;
 use crate::AttachFrame;
 use crate::SurfaceId;
 use crate::mux::ResourceWaitWake;
@@ -129,6 +130,17 @@ pub(super) trait MessageSink: Send + Sync {
         text: Arc<BudgetedText>,
         stream: &OutboundStream,
     ) -> std::io::Result<()>;
+    /// Ends `stream` now: closes it, drops its unwritten items, and queues
+    /// `text` in the control FIFO, even when the stream queued its own
+    /// terminal item already (the end of the client stream it carries).
+    fn send_stream_end(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        stream.close();
+        self.send_control(text)
+    }
     fn set_write_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
         Ok(())
     }
@@ -222,30 +234,56 @@ impl MessageWriter {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
         let ok = reply.get("ok") != Some(&Value::Bool(false));
-        let result = self.render_service.serialize_control(reply).and_then(|text| {
-            self.send_framed_reply(
-                self.project_api_revision(self.project_conversation_tabs(text)?)?,
-                ok,
-            )
-        });
+        let result = self.reply_text(reply).and_then(|text| self.send_framed_reply(text, ok));
         if result.is_err() {
             self.close();
         }
         result
     }
 
+    /// A reply's text as the client reads it.
+    fn reply_text(&self, reply: &Value) -> std::io::Result<Arc<BudgetedText>> {
+        let text = self.render_service.serialize_control(reply)?;
+        self.project_api_revision(self.project_conversation_tabs(text)?)
+    }
+
     /// `text`, projected already, as the framed request's reply, if this
     /// writer answers one that has none yet; else as a control line.
     fn send_framed_reply(&self, text: Arc<BudgetedText>, ok: bool) -> std::io::Result<()> {
-        match self.reply.as_ref().filter(|call| call.claim_reply()) {
-            Some(call) => {
-                let header = call.reply_header(ok, text.len()).map_err(|bad| {
-                    std::io::Error::new(std::io::ErrorKind::InvalidData, bad.to_string())
-                })?;
-                call.send_reply_with(ok, || self.sink.send_frame(header, text))
-            }
-            None => self.sink.send_control(text),
+        let Some(call) = self.reply.as_ref().filter(|call| call.claim_reply()) else {
+            return self.sink.send_control(text);
+        };
+        let frame = |ok: bool, text: Arc<BudgetedText>| {
+            let header = call.reply_header(ok, text.len()).map_err(|bad| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, bad.to_string())
+            })?;
+            self.sink.send_frame(header, text)
+        };
+        call.send_reply_with(
+            ok,
+            || frame(ok, text),
+            || frame(false, self.reply_text(&stream_ended_reply())?),
+        )
+    }
+
+    /// Ends `stream`, the view of a client stream: `end` is its last item
+    /// and nothing it queued before is written after it.
+    pub(super) fn send_stream_end<T: Serialize + ?Sized>(
+        &self,
+        end: &T,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
+        let result = self
+            .render_service
+            .serialize_control(end)
+            .and_then(|text| self.sink.send_stream_end(text, stream));
+        if result.is_err() {
+            self.close();
+        }
+        result
     }
 
     /// A bulk stream: snapshots, replays and output nobody is typing into.
