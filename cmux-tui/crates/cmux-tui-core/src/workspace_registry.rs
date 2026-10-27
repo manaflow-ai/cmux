@@ -305,9 +305,11 @@ impl ResourceEffectPepper {
         key_block[..RESOURCE_EFFECT_PEPPER_BYTES].copy_from_slice(self.0.as_ref());
         let mut inner_pad = [0x36_u8; BLOCK_BYTES];
         let mut outer_pad = [0x5c_u8; BLOCK_BYTES];
-        for index in 0..BLOCK_BYTES {
-            inner_pad[index] ^= key_block[index];
-            outer_pad[index] ^= key_block[index];
+        for ((inner, outer), key) in
+            inner_pad.iter_mut().zip(outer_pad.iter_mut()).zip(key_block.iter())
+        {
+            *inner ^= key;
+            *outer ^= key;
         }
 
         let mut inner = Sha256::new();
@@ -335,13 +337,7 @@ fn update_sha256_part(hasher: &mut Sha256, value: &[u8]) {
 }
 
 fn hex_sha256(digest: [u8; 32]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut encoded = String::with_capacity(64);
-    for byte in digest {
-        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    encoded
+    hex_bytes(&digest)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -838,9 +834,8 @@ fn pending_session_reset_kind(rest: &str) -> Option<PendingSessionResetKind> {
 }
 
 fn is_canonical_reset_uuid_v4(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    bytes.len() == 36
-        && bytes[8] == b'-'
+    let Ok(bytes) = <&[u8; 36]>::try_from(value.as_bytes()) else { return false };
+    bytes[8] == b'-'
         && bytes[13] == b'-'
         && bytes[18] == b'-'
         && bytes[23] == b'-'
@@ -892,10 +887,11 @@ fn pending_session_reset_dirs(
         let Some(file_name) = file_name.to_str() else {
             continue;
         };
-        if !file_name.starts_with(&prefix) || !file_name.ends_with(suffix) {
+        let Some(rest) =
+            file_name.strip_prefix(prefix.as_str()).and_then(|rest| rest.strip_suffix(suffix))
+        else {
             continue;
-        }
-        let rest = &file_name[prefix.len()..file_name.len() - suffix.len()];
+        };
         let Some(kind) = pending_session_reset_kind(rest) else {
             continue;
         };
@@ -1099,7 +1095,7 @@ fn reset_confirmation_snapshot(
     }
     let digest = hash.finalize();
     Ok(ResetConfirmationSnapshot {
-        confirm_reset: digest[..12].iter().map(|byte| format!("{byte:02x}")).collect(),
+        confirm_reset: digest.iter().take(12).map(|byte| format!("{byte:02x}")).collect(),
         session_fingerprint,
         terminal_host_fingerprint,
         pending_reset_dir_fingerprints,
@@ -1140,11 +1136,11 @@ fn reset_path_token(path: &Path) -> String {
 }
 
 fn hex_bytes(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
+    use std::fmt::Write as _;
     let mut encoded = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
-        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+        // Writing to a String cannot fail.
+        let _ = write!(encoded, "{byte:02x}");
     }
     encoded
 }
@@ -1755,7 +1751,7 @@ fn reset_child_file_content_sha256(
             break;
         }
         budget.add_file_bytes(display_path, read as u64)?;
-        hash.update(&buffer[..read]);
+        hash.update(buffer.get(..read).context("read returned more bytes than its buffer holds")?);
     }
     let current = reset_child_stat(parent_fd, name, display_path)?;
     if reset_stat_metadata_fingerprint(&current) != reset_stat_metadata_fingerprint(expected) {
@@ -2317,7 +2313,7 @@ fn reset_file_content_sha256(
             break;
         }
         budget.add_file_bytes(path, read as u64)?;
-        hash.update(&buffer[..read]);
+        hash.update(buffer.get(..read).context("read returned more bytes than its buffer holds")?);
     }
     let current = fs::symlink_metadata(path)
         .with_context(|| format!("inspect reset file {}", path.display()))?;
@@ -4661,11 +4657,12 @@ fn validate_terminal(terminal: &RegistryTerminal) -> anyhow::Result<()> {
 }
 
 fn validate_terminal_identity(label: &str, value: &str) -> anyhow::Result<()> {
-    if value.len() != 32
-        || !value.bytes().all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-        || value.as_bytes()[12] != b'4'
-        || !matches!(value.as_bytes()[16], b'8'..=b'b')
-    {
+    let canonical = <&[u8; 32]>::try_from(value.as_bytes()).is_ok_and(|bytes| {
+        bytes.iter().all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+            && bytes[12] == b'4'
+            && matches!(bytes[16], b'8'..=b'b')
+    });
+    if !canonical {
         anyhow::bail!("{label} must be a 32-character lowercase UUIDv4 hex value");
     }
     Ok(())
@@ -5351,6 +5348,12 @@ fn session_storage_component(session: &str) -> String {
     format!("{readable}-{hash:016x}")
 }
 
+/// A random v4 UUID. Code that can answer a randomness failure calls
+/// [`try_new_uuid_v4`].
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: getrandom fails only when the OS CSPRNG is gone; Chrome's base/rand_util_posix.cc CHECKs the same read"
+)]
 pub(crate) fn new_uuid_v4() -> String {
     try_new_uuid_v4().expect("operating system randomness unavailable")
 }

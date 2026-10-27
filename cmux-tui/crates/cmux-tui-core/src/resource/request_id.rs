@@ -22,6 +22,11 @@ impl RequestId {
         Ok(Self(value))
     }
 
+    /// The id a refusal names when the request carried no usable id.
+    pub fn invalid() -> Self {
+        Self("invalid".to_owned())
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
     }

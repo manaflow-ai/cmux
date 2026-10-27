@@ -78,6 +78,7 @@ use crate::browser::{BrowserAttachUpdate, BrowserFrameUpdate};
 use crate::journal_kernel::JournalDocument;
 use crate::model::{Screen, State};
 use crate::mux::ClientSizingIdentity;
+use crate::panic_free::JsonFields;
 use crate::platform::{self, transport};
 #[cfg(test)]
 use crate::resource::BrowserPublicId;
@@ -2502,7 +2503,7 @@ fn node_json(
                 "b": node_json(b, active_pane, split_ids),
             });
             if let Some(public_id) = split_ids.get(id) {
-                value["split_id"] = json!(public_id);
+                value.insert("split_id", json!(public_id));
             }
             value
         }
@@ -2613,9 +2614,9 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
     let notifications = mux.tree_decorations();
     let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
     let (registry_id, generation) = mux.registry_identity();
-    workspaces["registry_id"] = json!(registry_id);
-    workspaces["generation"] = json!(generation);
-    workspaces["terminal_revision"] = json!(mux.terminal_registry_revision()?);
+    workspaces.insert("registry_id", json!(registry_id));
+    workspaces.insert("generation", json!(generation));
+    workspaces.insert("terminal_revision", json!(mux.terminal_registry_revision()?));
     Ok(workspaces)
 }
 

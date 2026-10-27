@@ -32,6 +32,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use base64::Engine;
 use serde_json::{Map, Value, json};
 
+use crate::panic_free::JsonFields;
 use crate::resource::{
     NotificationPublicId, RequestEnvelope, RequestId, ResourceError, ResourceOperation,
     ResponseEnvelope, Selector, TerminalPublicId, WireDecimal, WorkspacePublicId,
@@ -167,7 +168,7 @@ pub(crate) fn malformed_resource_response(message: &str, error: ResourceError) -
     let id = raw_id
         .and_then(Value::as_str)
         .and_then(|id| RequestId::parse(id).ok())
-        .unwrap_or_else(|| RequestId::parse("invalid").expect("static request id"));
+        .unwrap_or_else(RequestId::invalid);
     // A v1-style numeric id (a line client that numbers its requests): the
     // refusal names the id, and the response carries it as sent, so the
     // client gets its answer instead of waiting for it (cx-rhf2).
@@ -185,10 +186,14 @@ pub(crate) fn malformed_resource_response(message: &str, error: ResourceError) -
         .and_then(|value| value.get("operation").cloned())
         .and_then(|operation| serde_json::from_value(operation).ok())
         .map_or(error.clone(), |operation| validate_operation_error(operation, error));
+    #[allow(
+        clippy::expect_used,
+        reason = "INVARIANT: a failure envelope is strings, a bool and serde_json Values, which always encode"
+    )]
     let mut response = serde_json::to_value(ResponseEnvelope::failure(id, error))
         .expect("resource failure envelopes are serializable");
     if let Some(numeric_id) = numeric_id {
-        response["id"] = numeric_id;
+        response.insert("id", numeric_id);
     }
     response
 }
@@ -196,8 +201,9 @@ pub(crate) fn malformed_resource_response(message: &str, error: ResourceError) -
 impl ParsedResourceRequest {
     /// The durable mutation of this catalog-validated request, caused by its actor.
     pub(crate) fn mutation(&self) -> anyhow::Result<crate::WorkspaceMutation> {
-        let key = self.envelope.idempotency_key.clone();
-        let key = key.expect("catalog-validated mutations have an idempotency key");
+        let key = self.envelope.idempotency_key.clone().ok_or_else(|| {
+            anyhow::anyhow!("{} has no idempotency key", self.envelope.operation.wire_name())
+        })?;
         crate::WorkspaceMutation::new(key, "resource-api", self.actor.clone())
     }
 }
@@ -283,7 +289,7 @@ fn dispatch_resource_request(
             ResourceOperation::SessionPing => {
                 ensure_session_route(mux, &request.selectors)?;
                 let snapshot = public_session_snapshot(mux)?;
-                Ok(json!({"alive":true,"cursor":snapshot["cursor"]}))
+                Ok(json!({"alive":true,"cursor":snapshot.field("cursor")}))
             }
             ResourceOperation::TerminalList => list_resources(mux, &request.selectors, "terminals"),
             // A conversation tab's content is not a browser (`conversation-tabs-v1`).
@@ -306,20 +312,24 @@ fn dispatch_resource_request(
                 let limit =
                     request.fields.get("limit").and_then(Value::as_u64).unwrap_or(100) as usize;
                 let snapshot = public_session_snapshot(mux)?;
-                Ok(Value::Array(
-                    snapshot["notifications"]
-                        .as_array()
-                        .expect("public snapshot notifications are an array")
-                        .iter()
-                        .take(limit)
-                        .cloned()
-                        .collect(),
-                ))
+                let notifications =
+                    snapshot.field("notifications").as_array().ok_or_else(|| {
+                        ResourceError::operation_failed(
+                            "session.snapshot",
+                            "public snapshot collection is malformed",
+                            json!({"collection":"notifications"}),
+                        )
+                    })?;
+                Ok(Value::Array(notifications.iter().take(limit).cloned().collect()))
             }
             ResourceOperation::NotificationCreate => create_notification(mux, request),
             ResourceOperation::NotificationAck => ack_notifications(mux, request),
             ResourceOperation::NotificationClear => clear_notifications(mux, request),
-            _ => unreachable!("operation_owner classifies snapshot operations exhaustively"),
+            other => Err(ResourceError::operation_failed(
+                operation_name(other),
+                "internal error: the snapshot owner does not serve this operation",
+                json!({"code":"internal"}),
+            )),
         },
         OperationOwner::Connection => Err(ResourceError::operation_failed(
             operation_name(operation),
@@ -343,7 +353,8 @@ fn list_resources(
 ) -> Result<Value, ResourceError> {
     let path = resolve_list_scope(mux, selectors)?;
     let snapshot = public_session_snapshot(mux)?;
-    let values = snapshot[collection]
+    let values = snapshot
+        .field(collection)
         .as_array()
         .ok_or_else(|| {
             ResourceError::operation_failed(
@@ -450,20 +461,22 @@ fn get_resource(
         ResourceTarget::Machine | ResourceTarget::Session => None,
     }
     .ok_or_else(|| ResourceError::not_found(collection, "<resolved>"))?;
-    public_session_snapshot(mux)?[collection]
+    public_session_snapshot(mux)?
+        .field(collection)
         .as_array()
-        .and_then(|values| values.iter().find(|value| value["id"] == public_id))
+        .and_then(|values| values.iter().find(|value| value.field("id") == &public_id))
         .cloned()
         .ok_or_else(|| ResourceError::not_found(collection.trim_end_matches('s'), &public_id))
 }
 
 fn create_notification(mux: &Mux, request: ParsedResourceRequest) -> Result<Value, ResourceError> {
     let operation = "notification.create";
-    let idempotency_key = request
-        .envelope
-        .idempotency_key
-        .as_deref()
-        .expect("validated mutations have an idempotency key");
+    let idempotency_key = request.envelope.idempotency_key.as_deref().ok_or_else(|| {
+        ResourceError::validation_invalid(
+            Some("idempotency_key"),
+            "notification.create requires an idempotency key",
+        )
+    })?;
     let fingerprint = json!({
         "operation": operation,
         "selectors": request.selectors,
@@ -483,15 +496,7 @@ fn create_notification(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
     }
 
     ensure_session_route(mux, &request.selectors)?;
-    let terminal_id = request
-        .fields
-        .get("terminal_id")
-        .map(|value| {
-            TerminalPublicId::parse(
-                value.as_str().expect("catalog resource-id validation").to_string(),
-            )
-        })
-        .transpose()?;
+    let terminal_id = notification_terminal(&request.fields)?;
     if let Some(terminal_id) = &terminal_id
         && mux.resource_surface_for_terminal(terminal_id).is_none()
     {
@@ -778,15 +783,7 @@ fn ack_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Value,
 
 fn clear_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Value, ResourceError> {
     ensure_session_route(mux, &request.selectors)?;
-    let terminal_id = request
-        .fields
-        .get("terminal_id")
-        .map(|value| {
-            TerminalPublicId::parse(
-                value.as_str().expect("catalog resource-id validation").to_string(),
-            )
-        })
-        .transpose()?;
+    let terminal_id = notification_terminal(&request.fields)?;
     let workspace_id = notification_workspace(mux, &request.fields)?;
     let scope = match (&terminal_id, &workspace_id) {
         (Some(_), Some(_)) => {
@@ -821,6 +818,16 @@ fn clear_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
 
 /// The `workspace_id` field of a notification create or clear: a workspace of
 /// this session, else `selector.not_found`.
+fn notification_terminal(
+    fields: &Map<String, Value>,
+) -> Result<Option<TerminalPublicId>, ResourceError> {
+    let Some(value) = fields.get("terminal_id") else { return Ok(None) };
+    let terminal = value
+        .as_str()
+        .ok_or_else(|| validation_error("terminal_id must be a string", json!({})))?;
+    TerminalPublicId::parse(terminal.to_string()).map(Some)
+}
+
 fn notification_workspace(
     mux: &Mux,
     fields: &Map<String, Value>,
