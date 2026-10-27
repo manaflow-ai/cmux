@@ -124,6 +124,10 @@ final class BrowserHibernation {
     /// The clock hidden, grace and backoff times are read from (tests set it, as for
     /// `AgentPageHibernation.now`). The probe's own deadlines stay on the wall clock.
     var now: () -> ContinuousClock.Instant = { .now }
+    /// How long a hidden page has to answer the probe or say whether its `beforeunload` asks
+    /// (a seam: tests that do not check a silent page set it longer, so a starved test machine is not
+    /// a page that did not answer).
+    var pageDeadline: Duration = .seconds(2)
     /// Wakes with a picture whose page could show no stand-in (`debug.surfaces`).
     var uncoveredWakes = 0
     private let lowPower: LowPowerMode
@@ -504,8 +508,9 @@ final class BrowserHibernation {
     private func freeze(_ key: String) {
         guard let cache, let tab = cache.browsers[key]?.tab, let page = freezer(tab),
               let generation = cache.lifecycle.record(key)?.generation, freezeProbing.insert(key).inserted else { return }
+        let limit = pageDeadline
         Task { @MainActor [weak self] in
-            let probe = await Self.probe(tab)
+            let probe = await Self.probe(tab, within: limit)
             guard let self, let cache = self.cache else { return }
             self.freezeProbing.remove(key)
             guard cache.browsers[key]?.tab === tab, cache.lifecycle.record(key)?.generation == generation,
@@ -604,6 +609,7 @@ final class BrowserHibernation {
         let tab = entry.tab
         // The probe and the history capture run script: a frozen page runs none.
         thaw(key)
+        let limit = pageDeadline
         Task { @MainActor [weak self] in
             // The person's Hibernate Tab asks the page nothing (only a form result keeps it).
             var exemption: HibernationPlanner.Exemption?
@@ -611,7 +617,7 @@ final class BrowserHibernation {
             if user {
                 exemption = source.showsFormSubmission ? .formSubmission : nil
             } else {
-                let probe = await Self.probe(tab)
+                let probe = await Self.probe(tab, within: limit)
                 // The freeze probe counts the misses (it runs beside this one and refreezes the
                 // page); this one records an answer only.
                 let doubted = probe.answered ? self?.probeHistory.record(probe, for: key) ?? false : self?.probeHistory.doubted(key) ?? true
@@ -729,7 +735,7 @@ final class BrowserHibernation {
     /// its handlers once per hidden period; a page that asked, or could not be asked, stays.
     private func asksBeforeUnload(_ key: String, _ tab: any BrowserTab) async -> Bool {
         if askedBeforeUnload.contains(key) { return true }
-        let asks = (try? await ControlDeadline.shared.run(method: "hibernation.beforeunload", deadline: .now + .seconds(2)) { @MainActor in
+        let asks = (try? await ControlDeadline.shared.run(method: "hibernation.beforeunload", deadline: .now + pageDeadline) { @MainActor in
             try await tab.asksBeforeUnload()
         }) ?? true
         if asks { askedBeforeUnload.insert(key) }
@@ -740,9 +746,9 @@ final class BrowserHibernation {
 
     /// Asks hidden page `tab` what it does (`PageProbe`). Runs no page code: whether a `beforeunload`
     /// handler would ask is learned only right before a discard (`asksBeforeUnload`).
-    static func probe(_ tab: any BrowserTab) async -> PageProbe {
+    static func probe(_ tab: any BrowserTab, within limit: Duration = .seconds(2)) async -> PageProbe {
         do {
-            let (value, busy) = try await ControlDeadline.shared.run(method: "hibernation.probe", deadline: .now + .seconds(2)) { @MainActor in
+            let (value, busy) = try await ControlDeadline.shared.run(method: "hibernation.probe", deadline: .now + limit) { @MainActor in
                 (try await tab.evaluate(BrowserPageBusy.fieldProbeScript, world: .isolated, gesture: .cmux), try await tab.pageBusy())
             }
             guard case .string(let json) = value, let data = json.data(using: .utf8),

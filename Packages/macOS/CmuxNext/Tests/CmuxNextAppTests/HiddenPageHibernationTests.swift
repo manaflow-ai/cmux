@@ -360,6 +360,10 @@ import Testing
             window.isReleasedWhenClosed = false
             window.orderFrontRegardless()
             hibernation.now = { [weak self] in .now + (self?.skipped ?? .zero) }
+            // No test here checks a page that does not answer (UnansweredPageProbeTests does): a probe
+            // starved past its 2 s by a full parallel run would keep the page as `unanswered`, and
+            // nothing would ask it again.
+            hibernation.pageDeadline = .seconds(120)
         }
 
         /// A loaded WebKit page showing `body`, titled `name`.
