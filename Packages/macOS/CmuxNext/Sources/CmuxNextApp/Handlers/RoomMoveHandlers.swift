@@ -33,7 +33,7 @@ enum RoomMoveHandlers {
                 throw ActionFailure.invalidTarget(RoomStrings.roomArgumentRequired)
             }
             let (workspace, _) = try context.workspace(invocation)
-            duplicate(workspace, into: room.id, context)
+            duplicate(workspace, into: room.id, invocation, context)
         }
         bind("workspaceGroup.moveToSpace") { invocation in
             guard let room = try context.optionalRoom(invocation["space"]) else {
@@ -59,23 +59,23 @@ enum RoomMoveHandlers {
     /// per terminal tab of `workspace`, each in that tab's directory. A
     /// duplicate never shares a running terminal. It is shown in the active
     /// window, which switches to `room`.
-    private static func duplicate(_ workspace: WorkspaceModel, into room: ProfileID, _ context: AppActionContext) {
+    private static func duplicate(_ workspace: WorkspaceModel, into room: ProfileID, _ invocation: ActionInvocation,
+                                  _ context: AppActionContext) {
         let windows = context.services.windows
         let directories = terminalDirectories(of: workspace)
         let target = windows.targetWindow(preferring: windows.active?.state.id)
         let spawn = WorkspaceSpawn(cwd: directories.first ?? nil, name: workspace.displayName, profile: room)
         let daemon = daemon(of: workspace, context)
-        context.services.registry.track(Task {
-            do {
-                let id = try await windows.createWorkspace(spawn, on: daemon, into: target)
-                guard let connection = daemon.connection, directories.count > 1 else { return nil }
-                for cwd in directories.dropFirst() {
-                    _ = try await connection.createTerminal(in: WorkspaceKey(rawValue: id), cwd: cwd ?? nil)
-                }
-                return nil
-            } catch {
-                return ActionWorkFailure("workspace.duplicateToSpace", error)
+        // The create and each terminal after it are awaited off main, in order; the run's result is one task on main.
+        context.registry.trackWork(owner: "RoomMoveHandlers.duplicate", on: context.services.mainWork) {
+            let id = try await windows.createWorkspace(spawn, on: daemon, into: target)
+            guard let connection = await daemon.connection, directories.count > 1 else { return }
+            for cwd in directories.dropFirst() {
+                _ = try await connection.createTerminal(in: WorkspaceKey(rawValue: id), cwd: cwd ?? nil)
             }
-        })
+        } then: { result in
+            guard case .failure(let error) = result else { return nil }
+            return ActionWorkFailure("workspace.duplicateToSpace", error)
+        }
     }
 }

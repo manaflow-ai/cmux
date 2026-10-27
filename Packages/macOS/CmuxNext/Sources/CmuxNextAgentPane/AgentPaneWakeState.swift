@@ -18,6 +18,9 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
     /// The transcript rested at its latest message. With neither this nor ``scrollAnchor`` its
     /// place is unknown (never shown, or a subagent's view was open): the kept anchor stands.
     public var atLatest: Bool?
+    /// A model, mode or harness pick started a chat behind the page that no prompt went to yet
+    /// (`harnessSwitch.holdsDeferred`): only this page knows that chat, so the host keeps the page.
+    public var pendingChat: Bool?
 
     public nonisolated struct Attachment: Codable, Sendable, Equatable {
         public var id: String
@@ -44,12 +47,13 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
     }
 
     public init(attachments: [Attachment]? = nil, shell: Bool? = nil, shellText: String? = nil,
-                scrollAnchor: AgentPaneScrollAnchor? = nil, atLatest: Bool? = nil) {
+                scrollAnchor: AgentPaneScrollAnchor? = nil, atLatest: Bool? = nil, pendingChat: Bool? = nil) {
         self.attachments = attachments
         self.shell = shell
         self.shellText = shellText
         self.scrollAnchor = scrollAnchor
         self.atLatest = atLatest
+        self.pendingChat = pendingChat
     }
 
     /// Nothing to hand back.

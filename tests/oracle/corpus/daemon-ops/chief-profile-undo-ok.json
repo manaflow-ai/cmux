@@ -90,6 +90,30 @@
         "settled"
       ],
       "note": "after one rename, undo makes the record equal to its revision before it, as a new revision"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "chief.profile.undo",
+        "params": {
+          "chief": "$step:fx-chief#/value/id"
+        },
+        "idempotencyKey": "chief-profile-undo-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

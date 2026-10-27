@@ -15,7 +15,7 @@ struct ChatScrollRestoreTests {
 
     /// A page's call on a provider given `anchors` by init, as each agent pane's is (nil keeps no places).
     static func call(_ method: String, _ params: [String: JSONValue], anchors: AgentPaneScrollAnchors?) async throws -> JSONValue {
-        let provider = AgentPageProvider(chatStores: AgentPaneChatStores(scrollAnchors: anchors, draftAttachments: nil)) { _ in nil }
+        let provider = AgentPageProvider(chatStores: AgentPaneChatStores(scrollAnchors: anchors, draftAttachments: nil), mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
         return try await provider.call(AgentPageOps.namespace + method, params: .object(params), context: context)
     }
 

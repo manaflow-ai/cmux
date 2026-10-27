@@ -302,6 +302,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(ext_set_pinned, "cmux_ext_set_pinned");
   CMUX_BIND(ext_open_options, "cmux_ext_open_options");
   CMUX_BIND(ext_load_unpacked, "cmux_ext_load_unpacked");
+  CMUX_BIND(ext_load_command_line_async, "cmux_ext_load_command_line_async");
   CMUX_BIND(ext_commands, "cmux_ext_commands");
   CMUX_BIND(ext_command_run, "cmux_ext_command_run");
   CMUX_BIND(tab_move_to_window, "cmux_tab_move_to_window");
@@ -315,6 +316,8 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(browser_set_resize_sync, "cmux_browser_set_resize_sync");
   CMUX_BIND(browser_set_resize_fence, "cmux_browser_set_resize_fence");
   CMUX_BIND(browser_set_embedder_visibility, "cmux_browser_set_embedder_visibility");
+  CMUX_BIND(browser_attach_view, "cmux_browser_attach_view");
+  CMUX_BIND(tab_set_visibility, "cmux_tab_set_visibility");
   CMUX_BIND(set_new_tab_page_url, "cmux_set_new_tab_page_url");
   CMUX_BIND(set_install_prompt_handler, "cmux_set_install_prompt_handler");
   CMUX_BIND(install_prompt_reply, "cmux_install_prompt_reply");
@@ -367,13 +370,20 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(browser_exit_keyboard_lock, "cmux_browser_exit_keyboard_lock");
   CMUX_BIND(browser_send_locked_mouse_move, "cmux_browser_send_locked_mouse_move");
   CMUX_BIND(browser_set_page_display, "cmux_browser_set_page_display");
+  CMUX_BIND(browser_set_page_visibility, "cmux_browser_set_page_visibility");
   CMUX_BIND(tab_entry_page_state, "cmux_tab_entry_page_state");
   CMUX_BIND(tab_page_state_watch, "cmux_tab_page_state_watch");
   CMUX_BIND(tab_restore_entries, "cmux_tab_restore_entries");
+  CMUX_BIND(browser_drag_target_watch, "cmux_browser_drag_target_watch");
+  CMUX_BIND(browser_set_popup_menu_handler, "cmux_browser_set_popup_menu_handler");
+  CMUX_BIND(browser_popup_menu_reply, "cmux_browser_popup_menu_reply");
+  CMUX_BIND(browser_set_suggestion_handler, "cmux_browser_set_suggestion_handler");
+  CMUX_BIND(browser_suggestion_action, "cmux_browser_suggestion_action");
   CMUX_BIND(tab_renderer_state, "cmux_tab_renderer_state");
   CMUX_BIND(set_on_schedule_delayed, "cmux_set_on_schedule_delayed");
   CMUX_BIND(set_energy_saver, "cmux_cef_set_energy_saver");
   CMUX_BIND(browser_renderer_pid, "cmux_cef_browser_renderer_pid");
+  CMUX_BIND(memory_pressure_vote, "cmux_memory_pressure_vote");
 #undef CMUX_BIND
 }
 
@@ -554,6 +564,15 @@ int cmux_shim_set_energy_saver(int enabled, const char* exempt_scheme) {
   }
   fork_api().set_energy_saver(enabled != 0, exempt_scheme);
   return 1;
+}
+
+// The fork checks the level and the UI thread; a vote during quit would reach
+// an aggregator that CefShutdown is about to destroy.
+int cmux_shim_memory_pressure_vote(int level) {
+  if (!fork_api().memory_pressure_vote || stopping()) {
+    return 0;
+  }
+  return fork_api().memory_pressure_vote(level);
 }
 
 void cmux_shim_shutdown(void) {

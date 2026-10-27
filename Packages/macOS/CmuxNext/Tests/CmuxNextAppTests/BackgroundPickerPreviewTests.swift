@@ -11,6 +11,9 @@ import Testing
 /// Change Background… (cx-t2x.4): the picker previews a work in the window as the pointer rests on
 /// it, writes nothing until a click, and leaving the picker restores the plain glass default.
 @MainActor @Suite(.serialized) struct BackgroundPickerPreviewTests {
+    /// Where the terminal setting hears app notices: held for the whole test (its AppEvents hold it weakly).
+    private let center = NotificationCenter()
+
     static let gesture = PageCallContext(page: "cmux.settings", userGesture: true)
     static let backgroundKey = "appearance.background"
     static let work = "van-gogh-starry-night"
@@ -37,7 +40,7 @@ import Testing
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let scope = ThemeScope(level: .room)
-        let terminal = TerminalThemeSetting(backdropScope: scope)
+        let terminal = TerminalThemeSetting.testing(backdropScope: scope, center: center)
         terminal.reload = {}
         terminal.follow(settings)
         return Harness(settings: settings, terminal: terminal, scope: scope, page: SettingsPageProvider(settings: settings), url: url)

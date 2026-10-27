@@ -3,6 +3,7 @@ import CmuxNextCompat
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
 import CmuxNextSettings
+@testable import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -139,9 +140,12 @@ struct PagePreloadClaimTests {
         let (view, page, sent) = try await loadedPreload(in: window, host: host, hosting: hosting)
         defer { host.close(view) }
 
-        // The budget's deadline fires on the next task turn; the document never answers.
-        view.claimState.clock = PageTestClock.immediate
+        // The document never answers; the budget's deadline is visible work the rig runs when it fires it.
         view.bindClaim(routes: [], route: "/settings/agents")
+        #expect(view.claimState.deadline.isScheduled && view.claimState.deadline.workClass == .visible)
+        await Task.yield()
+        #expect(view.lastClaim == nil, "the claim ended before its deadline")
+        base.pageDeadlines.fire()
         await Self.settle { view.lastClaim != nil }
         #expect(sent.claims.count == 1)
         #expect(view.lastClaim?.path == .timedOut)

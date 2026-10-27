@@ -42,13 +42,14 @@ struct PageLazinessTests {
 
     /// A few main-actor turns: the page's own first tasks (its ui-scale observation) run.
     private func settle() async {
-        for _ in 0..<5 { await PagePreloadPageTests.nextTurn() }
+        let work = MainWorkScheduler(budget: MainFrameBudget())
+        for _ in 0..<5 { await work.apply(.background, owner: "PageLazinessTests.settle") { () -> Void in } }
     }
 
     private func makeHost(_ hosting: FakeChromiumHosting?, lazy: Bool = true) -> WebUIHost {
         WebUIHost(chromium: hosting, openPanel: nil,
                   memory: QuietMemoryRegistry(),
-                  clock: PageTestClock.never, startsPagesAtFirstShow: lazy)
+                  deadlines: LifecycleDeadlineRig.never, startsPagesAtFirstShow: lazy)
     }
 
     @Test func aWebKitPageStartsNoDocumentBeforeItsFirstShow() async throws {

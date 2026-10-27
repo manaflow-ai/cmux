@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "terminalSizingPerApp",
+  "owner": "PL-conn",
+  "description": "Terminal sizing counts one participant per app connection: all of an app's views of one terminal are leases of one participant (its latest active view sets its size), and disconnecting that participant ends only that terminal's views, not the app's connection.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "daemon",
+  "params": [],
+  "stories": ["pane-stress", "new-surfaces-stress"],
+  "sticky": false,
+  "runtimeMutable": false
+}

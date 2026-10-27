@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextFilesUI
 import CmuxNextHibernation
 import CmuxNextPages
+import CmuxNextWakeups
 
 extension InternalPageID {
     /// Open Find as Pane: the right sidebar's Find section in a tab.
@@ -16,13 +17,15 @@ extension InternalPageID {
 @MainActor
 final class FindPaneService: InternalPageProvider {
     private weak var services: AppServices?
+    private let mainWork: MainWorkScheduler
     private var views: [String: FindSectionView] = [:]
     private var roots: [String: URL] = [:]
     /// The folder each ``open(folder:focus:)`` asked for, for the tab it opened.
     private let opens = PageOpenRequests<URL>()
 
-    init(services: AppServices?) {
+    init(services: AppServices?, mainWork: MainWorkScheduler) {
         self.services = services
+        self.mainWork = mainWork
     }
 
     var page: InternalPageID { .findPane }
@@ -51,7 +54,7 @@ final class FindPaneService: InternalPageProvider {
         let folder = roots[key] ?? asked ?? opens.running ?? FileManager.default.homeDirectoryForCurrentUser
         roots[key] = folder
         let effects = services?.fileExplorers.effects ?? NullFileExplorerEffects()
-        let view = FindSectionView(model: FindSectionModel(), rootFolder: { [weak self] in
+        let view = FindSectionView(model: FindSectionModel(), mainWork: mainWork, rootFolder: { [weak self] in
             self?.roots[key] ?? folder
         }, effects: effects)
         views[key] = view

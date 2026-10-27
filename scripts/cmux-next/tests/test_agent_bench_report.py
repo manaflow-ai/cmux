@@ -339,6 +339,29 @@ class AgentStreamTests(StoryMatch):
         opts = stream_bench.parse(["--app", "/x.app", "--story", "agent-stream-webkit", "--engine", "webkit"])
         self.assertEqual((opts.story, opts.engine, opts.session), ("agent-stream-webkit", "webkit", "light"))
 
+    def test_a_variant_page_gets_its_own_builds_shared_library(self):
+        """A variant pane that imports cmux-page://cmux.shared/ loads it from its own build's pages/_shared."""
+        with tempfile.TemporaryDirectory() as tmp:
+            build = Path(tmp) / "after"
+            pane, shared = build / "agent-pane", build / "pages" / "_shared"
+            pane.mkdir(parents=True)
+            (pane / "index.html").write_text('<script type="module" src="cmux-page://cmux.shared/react-A1.js"></script>')
+            old = Path(tmp) / "before"
+            old.mkdir()
+            (old / "index.html").write_text('<script type="module" src="pane.js"></script>')
+            with redirect_stderr(io.StringIO()) as err, self.assertRaises(SystemExit):
+                stream_bench.parse(["--app", "/x.app", "--variant", f"after={pane}"])
+            self.assertIn("--variant-shared after=", err.getvalue())
+            shared.mkdir(parents=True)
+            opts = stream_bench.parse(["--app", "/x.app", "--variant", f"after={pane}", "--variant", f"before={old}"])
+            self.assertEqual(opts.shared, {"after": str(shared), "before": None})
+            given = Path(tmp) / "elsewhere"
+            opts = stream_bench.parse(["--app", "/x.app", "--variant", f"after={pane}", "--variant-shared", f"after={given}"])
+            self.assertEqual(opts.shared, {"after": str(given)})
+            with redirect_stderr(io.StringIO()) as err, self.assertRaises(SystemExit):
+                stream_bench.parse(["--app", "/x.app", "--variant", f"after={pane}", "--variant-shared", f"x={given}"])
+            self.assertIn("names no --variant", err.getvalue())
+
 
 class HomeTests(StoryMatch):
     def test_split_raw_frames_keeps_the_report_keys(self):

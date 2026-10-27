@@ -2,8 +2,9 @@
 /// it once with ``forProcess()`` and passes it to what installs the sink (the app's hang reports wiring),
 /// the `debug.blocking` control method and the Debug menu.
 ///
-/// In Debug and bench-checks builds (Nightly to come) it refers to the detector's process-wide table (see
-/// ``blockingCall(_:fileID:line:_:)``); in Release it reads as empty and its calls do nothing.
+/// In Debug, bench-checks and nightly-next builds (`-DCMUX_BLOCKING_CHECKS`) it refers to the detector's
+/// process-wide table (see ``blockingCall(_:fileID:line:_:)``); in Release it reads as empty and its calls do
+/// nothing, and no detector code is in the app (`scripts/measure/blocking-checks.sh --app APP --expect release`).
 ///
 /// ```swift
 /// let blocking = BlockingDetector.forProcess()      // AppServices (the composition root) only
@@ -22,18 +23,20 @@ public struct BlockingDetector: Sendable {
     #endif
 
     /// The process's detector. Call it once, in the composition root (AppServices), and pass the value on;
-    /// no other code makes one (P1, plans/cmux-next/PATTERNS.md).
+    /// no other code makes one (P1, plans/cmux-next/PATTERNS.md). It also installs the detector as the shared
+    /// packages' blocking-call hook (``SharedThreadingBridge``), once per process, in every build.
     ///
     /// - Returns: The handle to this process's detector.
     public static func forProcess() -> BlockingDetector {
+        SharedThreadingBridge.installForProcess()
         #if DEBUG || CMUX_BLOCKING_CHECKS
-        BlockingDetector(table: .shared)
+        return BlockingDetector(table: .shared)
         #else
-        BlockingDetector()
+        return BlockingDetector()
         #endif
     }
 
-    /// Whether this build has the detector (Debug and bench-checks builds; Nightly to come).
+    /// Whether this build has the detector (Debug, bench-checks and nightly-next builds).
     public var isCompiledIn: Bool {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         true
@@ -71,9 +74,27 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
-    /// The call sites that blocked the main thread, a shared pool thread or a `.cpu` lane item and reached the drain
-    /// queue, in the order they
-    /// first did, with their current counts.
+    /// How long one drain-queue job (a drain pass, or the replay to a new sink) may run before the hang watch the
+    /// composition root sets with ``watchDrain(_:)`` reports it: it resolves stacks and calls the sink, no wait.
+    public static let drainHangDeadline: Duration = .seconds(10)
+
+    /// Runs each drain-queue job through `watch`, so the drain queue is a hang-watched lane. Compat sits below
+    /// the hang watch (CmuxNextTrace) and cannot import it, so the composition root passes a closure that runs
+    /// the job inside one scope of its lane (p09-observability.md, layer rule 8). The last call wins; nil runs
+    /// the jobs unwatched again.
+    ///
+    /// ```swift
+    /// let lane = HangWatchedLane("blocking.drain", deadline: BlockingDetector.drainHangDeadline, on: hangWatch)
+    /// blocking.watchDrain { job in lane.run(job) }
+    /// ```
+    public func watchDrain(_ watch: BlockingDrainWatch?) {
+        #if DEBUG || CMUX_BLOCKING_CHECKS
+        table.watchDrain(watch)
+        #endif
+    }
+
+    /// The call sites that blocked the main thread, a shared pool thread or a `.cpu` lane item, or waited on a sync
+    /// primitive in a lane item, and reached the drain queue, in the order they first did, with their current counts.
     public var sites: [BlockingSite] {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         table.sites
@@ -82,7 +103,28 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
-    /// Blocking calls, on the main thread, the pool or a `.cpu` lane item, not recorded as a site (the sum of
+    /// The call sites that blocked the main thread (``BlockingContext/main``), with their counts and wall times
+    /// since launch: what the opt-in hang reports' `blocking_sites` count (p12-perf-process-226). Each count is the
+    /// site's relaxed atomic, which a repeat of a known site only increments: the stack is captured once, the
+    /// first time the site is seen. Empty in Release. Allocates; read it off the main thread.
+    public var mainThreadSites: [BlockingSite] {
+        sites.filter { $0.context == .main }
+    }
+
+    /// ``mainThreadSites`` with the count of ``resetCounts()`` calls they follow, so a reader that keeps a
+    /// baseline knows when the counters went back to zero instead of guessing it from smaller values.
+    public var mainThreadRead: MainThreadRead {
+        #if DEBUG || CMUX_BLOCKING_CHECKS
+        // The reset count first: a reset stores it after zeroing, so a new value means the sites read zeroed.
+        let resets = table.resetCount
+        return MainThreadRead(resets: resets, sites: mainThreadSites)
+        #else
+        return MainThreadRead()
+        #endif
+    }
+
+    /// Blocking calls, on the main thread, the pool, a `.cpu` lane item or a lane item's sync primitive, not recorded
+    /// as a site (the sum of
     /// ``overflow(in:)`` over the contexts).
     public var overflow: Int {
         #if DEBUG || CMUX_BLOCKING_CHECKS
@@ -106,11 +148,33 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
-    /// Zeroes every site's count and wall times (between sweep steps); the sites stay known, so a site that
-    /// blocks again is counted, not sent to the sink again.
+    /// Zeroes every site's count and wall times (between sweep steps) and adds one to
+    /// ``MainThreadRead/resets``; the sites stay known, so a site that blocks again is counted, not sent to the
+    /// sink again.
     public func resetCounts() {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         table.resetCounts()
         #endif
     }
 }
+
+extension BlockingDetector {
+    /// One read of the main thread's sites (``BlockingDetector/mainThreadRead``).
+    public struct MainThreadRead: Sendable, Equatable {
+        /// How many ``BlockingDetector/resetCounts()`` calls finished before ``sites`` was read: the counts are
+        /// since the last of them.
+        public var resets: Int
+        /// The main-thread sites, with their counts since launch or since the last reset.
+        public var sites: [BlockingSite]
+
+        /// Makes the value from its parts (a build without the detector reads no reset and no site).
+        public init(resets: Int = 0, sites: [BlockingSite] = []) {
+            self.resets = resets
+            self.sites = sites
+        }
+    }
+}
+
+/// Runs one job of the blocking detector's drain queue: call `job` exactly once, synchronously, on the calling
+/// thread (``BlockingDetector/watchDrain(_:)``).
+public typealias BlockingDrainWatch = @Sendable (_ job: () -> Void) -> Void

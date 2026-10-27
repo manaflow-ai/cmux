@@ -57,6 +57,36 @@
         "settled"
       ],
       "note": "the App Store item moves before Home in its own section"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "sidebar.move",
+        "params": {
+          "items": [
+            "itm_app_store"
+          ],
+          "to": {
+            "section": "sec_top",
+            "before": "itm_home"
+          }
+        },
+        "idempotencyKey": "sidebar-move-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

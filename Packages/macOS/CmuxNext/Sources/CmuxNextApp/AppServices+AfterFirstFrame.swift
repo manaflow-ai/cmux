@@ -11,7 +11,7 @@ extension AppServices {
     func postNonPaintServices(on startup: StartupScheduler) {
         serviceStartPosts().post(on: startup)
         let attest = FreeTierAttestStarter(build: environment.build, bundle: .main, apiBaseURL: FeedService.apiBaseURL(auth: cloudAuth), settings: settings, signedIn: { [weak self] in self.map { $0.cloudAuth.isSignedIn || $0.cloudAuth.isRestoring } ?? true })
-        LaunchServicePosts.nonPaint(freeTierAttest: { attest.start() }, ssh: { [weak self] in self?.ssh.start() }, serverReach: { [weak self] in self?.serverReach.start() },
+        LaunchServicePosts.nonPaint(freeTierAttest: { [weak self] in if let self, let follow = attest.start(on: self.mainWork) { self.lifetimeFollowers.append(follow) } }, ssh: { [weak self] in self?.ssh.start() }, serverReach: { [weak self] in self?.serverReach.start() },
                                     updater: { [weak self] in self?.updater.start(); DebugTimings.markLaunch("launch.non_paint_services") },
                                     emptyWorkspaceRepair: { [weak self] in _ = self?.emptyWorkspaces }).post(on: startup)
     }
@@ -29,22 +29,12 @@ extension AppServices {
     }
 
     /// Warm-ups for later tabs (WebKit for agent pages, Chromium, the New Tab spare, page preloads), the agent tab
-    /// import and the right sidebar's icons (on the cpu lane; a panel built first posted them already). No WebKit
-    /// view is made by these before startup completes (p08-startup-042): the agent pages' warm-up and the New Tab
-    /// spare's probe and page are afterStartup. The warm-up makes no WebKit page when a shown agent tab made its view
-    /// or agent pages open in Chromium (`AgentPageWarmup.start(webUI:)` decides when it runs); each outcome leaves its
-    /// own launch mark (`AgentPageWarmupOutcome.launchMark`).
+    /// import and the right sidebar's icons (on the cpu lane; a panel built first posted them already), through
+    /// ``LaterTabWarmups`` on this app (`AppServices+LaterTabWarmupHost`). No WebKit view is made by these before
+    /// startup completes (p08-startup-042). The warm-up makes no WebKit page when a shown agent tab made its view
+    /// or agent pages open in Chromium (`AgentPageWarmup.start(webUI:)` decides when it runs).
     func postLaterTabWarmups(on startup: StartupScheduler) {
-        LaunchServicePosts.laterTabs(chromiumWarmup: { [weak self] in if let self, !crashRecovery.recovery.skipsBrowserPages { startChromiumWarmup() } },
-                                     spareHooks: { [weak self] in self?.newTabSpares.start(holdingWarm: true) },
-                                     agentPageWarmup: { [weak self] in
-                                         if let mark = self.flatMap({ $0.agentPageWarmup.start(webUI: $0.webUI).launchMark }) { DebugTimings.markLaunch(mark) }
-                                     },
-                                     spareProbe: { [weak self] in self?.newTabSpares.prewarm() },
-                                     spareWarming: { [weak self] in self?.newTabSpares.startWarming() },
-                                     pagePreload: { [weak self] in self?.pagePreloads.start() },
-                                     agentTabImport: { [weak self] in if let self { AgentTabImport.start(self); DebugTimings.markLaunch("launch.post_window_warmups") } },
-                                     rightSidebarIcons: { [weak self] in self?.rightSidebarSections.buildIcons(.afterStartup) }).post(on: startup)
+        LaterTabWarmups(host: self).posts().post(on: startup)
     }
 
     /// The platform services (p08-startup-029). Now, before the windows build and the restore mounts a page:

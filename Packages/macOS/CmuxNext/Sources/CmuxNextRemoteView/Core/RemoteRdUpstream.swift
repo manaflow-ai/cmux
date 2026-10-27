@@ -13,6 +13,11 @@ public import Foundation
 /// `up_media` and the host answered `stream_opened` for the stream. No I/O,
 /// threads or timers inside; not thread-safe: one actor owns an instance,
 /// like `RemoteRdCore`.
+///
+/// Memory safety: `handle` is the core object `init` created and `deinit`
+/// frees once, so it is live in every method; one owner calls at a time,
+/// as the C ABI requires.
+@safe
 public nonisolated final class RemoteRdUpstream {
     public let kind: RemoteUpstreamKind
     public let stream: UInt16
@@ -29,16 +34,19 @@ public nonisolated final class RemoteRdUpstream {
         maxDatagram: UInt32 = 1152,
         path: UInt32 = UInt32(CMUX_RD_PATH_VIA_CLOUD_REGION)
     ) {
-        guard let handle = cmux_rd_upstream_new(
+        // SAFETY: the core returns a new sender or NULL; this instance owns it.
+        guard let handle = unsafe cmux_rd_upstream_new(
             carrier.raw, stream, kind.raw, maxDatagram, path, 0, 0, 0, kind != .microphone
         ) else { return nil }
         self.kind = kind
         self.stream = stream
-        self.handle = handle
+        // SAFETY: stores the owned handle; deinit frees it.
+        unsafe self.handle = handle
     }
 
     deinit {
-        cmux_rd_upstream_free(handle)
+        // SAFETY: frees the handle init created, exactly once; nothing uses it after.
+        unsafe cmux_rd_upstream_free(handle)
     }
 
     /// The path class of a loopback or LAN host (`CMUX_RD_PATH_DIRECT_LAN`).
@@ -47,7 +55,8 @@ public nonisolated final class RemoteRdUpstream {
     /// Grants or revokes consent for this sender's kind. Only
     /// `RemoteUpstreamConsent` calls this; revoking drops untaken datagrams.
     func setConsent(_ granted: Bool) {
-        _ = cmux_rd_upstream_set_consent(handle, kind.raw, granted)
+        // SAFETY: handle is live (see the type).
+        _ = unsafe cmux_rd_upstream_set_consent(handle, kind.raw, granted)
     }
 
     /// Sends one encoded frame; returns the datagrams queued (0 when the
@@ -55,7 +64,9 @@ public nonisolated final class RemoteRdUpstream {
     @discardableResult
     public func send(frame: Data, captureMicros: UInt64, independent: Bool, nowMicros: UInt64) throws(RemoteRdCoreError) -> Int {
         let code = frame.withUnsafeBytes { raw in
-            cmux_rd_upstream_send_frame(
+            // SAFETY: handle is live (see the type). The core reads raw.count bytes from
+            // raw's start during the call and queues its own datagrams.
+            unsafe cmux_rd_upstream_send_frame(
                 handle, raw.baseAddress?.assumingMemoryBound(to: UInt8.self), raw.count,
                 captureMicros, independent, nowMicros
             )
@@ -68,7 +79,9 @@ public nonisolated final class RemoteRdUpstream {
     @discardableResult
     public func receive(datagram: Data, nowMicros: UInt64) throws(RemoteRdCoreError) -> Bool {
         let code = datagram.withUnsafeBytes { raw in
-            cmux_rd_upstream_on_datagram(handle, raw.baseAddress?.assumingMemoryBound(to: UInt8.self), raw.count, nowMicros)
+            // SAFETY: handle is live (see the type). The core reads raw.count bytes from
+            // raw's start during the call only.
+            unsafe cmux_rd_upstream_on_datagram(handle, raw.baseAddress?.assumingMemoryBound(to: UInt8.self), raw.count, nowMicros)
         }
         if code == CMUX_RD_ERR_STREAM { return false }
         _ = try RemoteRdCoreError.check(code)
@@ -90,12 +103,15 @@ public nonisolated final class RemoteRdUpstream {
     private func popDatagram(into buffer: inout [UInt8]) throws(RemoteRdCoreError) -> Data? {
         var length = 0
         var code = buffer.withUnsafeMutableBufferPointer { out in
-            cmux_rd_upstream_pop_datagram(handle, out.baseAddress, out.count, &length)
+            // SAFETY: handle is live (see the type). The core writes at most out.count bytes
+            // to out and the length to the local `length`, both live for the call.
+            unsafe cmux_rd_upstream_pop_datagram(handle, out.baseAddress, out.count, &length)
         }
         if code == CMUX_RD_ERR_BUFFER {
             buffer = [UInt8](repeating: 0, count: length)
             code = buffer.withUnsafeMutableBufferPointer { out in
-                cmux_rd_upstream_pop_datagram(handle, out.baseAddress, out.count, &length)
+                // SAFETY: as above, into the grown buffer.
+                unsafe cmux_rd_upstream_pop_datagram(handle, out.baseAddress, out.count, &length)
             }
         }
         guard try RemoteRdCoreError.check(code) == 1 else { return nil }
@@ -104,13 +120,15 @@ public nonisolated final class RemoteRdUpstream {
 
     /// Reports a path change (the link moved to another path class).
     func setPath(_ path: UInt32) throws(RemoteRdCoreError) {
-        _ = try RemoteRdCoreError.check(cmux_rd_upstream_set_path(handle, path))
+        // SAFETY: handle is live (see the type).
+        _ = try RemoteRdCoreError.check(unsafe cmux_rd_upstream_set_path(handle, path))
     }
 
     /// Counters for the indicator and the status line.
     public func stats() -> RemoteRdUpstreamStats {
         var raw = CmuxRdUpstreamStats()
-        _ = cmux_rd_upstream_stats(handle, &raw)
+        // SAFETY: handle is live (see the type); the core fills the local `raw`.
+        _ = unsafe cmux_rd_upstream_stats(handle, &raw)
         return RemoteRdUpstreamStats(
             framesSent: raw.frames_sent,
             framesDropped: raw.frames_dropped,

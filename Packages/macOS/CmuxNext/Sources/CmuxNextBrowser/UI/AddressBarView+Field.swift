@@ -76,7 +76,7 @@ extension AddressBarView: NSTextFieldDelegate {
         case #selector(NSResponder.insertTab(_:)): send(.tab)
         case #selector(NSResponder.insertBacktab(_:)): send(.backTab)
         case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertLineBreak(_:)):
-            send(.enter(.init(NSApp.currentEvent?.modifierFlags ?? [])))
+            send(.enter(.init((textView as? OmnibarFieldEditor)?.handlingKeyDown?.modifierFlags ?? [])))
         case #selector(NSResponder.cancelOperation(_:)): send(.escape)
         case #selector(NSResponder.selectAll(_:)): send(.selectAll)
         // The Home key (Shift-Home extends); Cmd-Left is a caret move.

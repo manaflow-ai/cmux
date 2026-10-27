@@ -287,10 +287,17 @@ final class FocusCoordinator {
 }
 
 extension FocusEvent.Source {
-    /// Mouse or keyboard from the event AppKit is dispatching, else programmatic (`NSApp.currentEvent`
-    /// stays the last event after its dispatch, so it counts only inside `sendEvent`; cx-3hw0i.2).
+    /// Mouse or keyboard from the event the action answers (`InputEventTap.actionEvent`: a context menu's
+    /// own choice), only while the app dispatches one; else programmatic: a CLI run after a click is not the
+    /// mouse (cx-3hw0i.2).
     static var current: FocusEvent.Source {
-        switch (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true ? NSApp.currentEvent?.type : nil {
+        let app = NSApp as? CmuxApplication
+        return of(app?.inputDispatch?.event == nil ? nil : app?.inputTap?.actionEvent)
+    }
+
+    /// Mouse or keyboard from `event`, the input an action answers; programmatic for none.
+    static func of(_ event: NSEvent?) -> FocusEvent.Source {
+        switch event?.type {
         case .keyDown, .keyUp, .flagsChanged: .keyboard
         case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp, .leftMouseDragged: .mouse
         default: .programmatic

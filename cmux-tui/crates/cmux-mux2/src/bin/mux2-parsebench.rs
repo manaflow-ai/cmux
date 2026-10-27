@@ -2,6 +2,8 @@
 //! ghostty-vt wrapper and through the raw libghostty-vt call, in CHUNK-sized
 //! writes (default 16384). One JSON line.
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 use std::time::Instant;
 
 use ghostty_vt::sys;

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""JSON pointers and the waitFor condition of case-v1, one implementation for every oracle driver.
+"""JSON pointers, the waitFor condition and expect.resultExcept of case-v1, one implementation for every oracle driver.
 
 Spec: schemas/oracle/case-v1.schema.json `$defs/waitFor` and plans/cmux-next/chrome-parity/p15-oracle.md 3G. Stdlib
 only, safe under `python3 -I`. driver_daemon.py (p15-oracle-023) and driver_app_v0.py (p15-oracle-006) both call
@@ -10,7 +10,8 @@ present null is a value (`exists` holds for it).
 
 from __future__ import annotations
 
-from typing import Any, List, Mapping
+import copy
+from typing import Any, List, Mapping, Sequence
 
 
 class _Missing:
@@ -72,3 +73,36 @@ def predicate_holds(wait: Mapping[str, Any], value: Any, baseline: Any) -> bool:
     if not (isinstance(value, numbers) and isinstance(target, numbers)) or isinstance(value, bool):
         return False
     return {"gt": value > target, "gte": value >= target, "lt": value < target, "lte": value <= target}[op]
+
+
+def without_pointers(value: Any, pointers: Sequence[str]) -> Any:
+    """A copy of `value` without what each pointer names (case-v1 expect.resultExcept): a `*` segment stands for
+    every array item or object member there, and a pointer that names nothing removes nothing."""
+    out = copy.deepcopy(value)
+    for pointer in pointers:
+        _remove(out, decode_pointer(pointer))
+    return out
+
+
+def _remove(node: Any, parts: List[str]) -> None:
+    head, rest = parts[0], parts[1:]
+    if isinstance(node, dict):
+        keys = list(node) if head == "*" else [head] if head in node else []
+        for key in keys:
+            if rest:
+                _remove(node[key], rest)
+            else:
+                del node[key]
+    elif isinstance(node, list):
+        if head == "*":
+            indexes = range(len(node))
+        elif head.isdigit() and (head == "0" or not head.startswith("0")) and int(head) < len(node):
+            indexes = range(int(head), int(head) + 1)
+        else:
+            return
+        if rest:
+            for index in indexes:
+                _remove(node[index], rest)
+        else:
+            for index in reversed(indexes):
+                del node[index]

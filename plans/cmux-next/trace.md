@@ -181,8 +181,8 @@ files.
 | `app.key.terminal` (optional: drawn when emitted, not needed for a complete press) | app main (`TerminalSurfaceView.keyDown`) | flow id |
 | `app.io_write` | Ghostty IO thread (`io_write_cb`) | flow id |
 | `app.send` | the same thread (`TerminalAttachment.enqueueInput`; the `send` request gets `flow`) | flow id |
-| `daemon.send.write`, `daemon.send.written` | daemon `mux-control-dispatch` (`cmd_terminal_io::send`) | flow id |
-| `host.pty.write` (host model) or `daemon.pty.write` (holder model: the daemon writes the PTY itself) | `terminal-host-client-input` / `mux-control-dispatch` | terminal |
+| `daemon.send.write`, `daemon.send.written` | daemon `mux-seq-control` pool worker (`cmd_terminal_io::send`) | flow id |
+| `host.pty.write` (host model) or `daemon.pty.write` (holder model: the daemon writes the PTY itself) | `terminal-host-client-input` / `mux-seq-control` | terminal |
 | `host.pty.read` or `holder.pty.read` | `terminal-host-pty` / the holder's poll loop | terminal |
 | `daemon.output.host` or `daemon.output.holder` | `surface-<id>-host` / `surface-<id>-reader` | terminal |
 | `daemon.output.attach` | the same thread (`broadcast_attach_output`) | terminal |
@@ -334,6 +334,23 @@ the tables of "Release trace ring v1"; the Swift `TraceRuntime.Role` and `TraceR
   the pass used CEF's whole 10 ms time slice, else 0; end arg1 is the pass's elapsed time in us on
   the pump's clock. With the Chromium host on, the host writes the same name and layout from its
   own ring (task 104). The app emits no `cef.pump` then.
+- `task.post` and `task.run` (category `task`, recording only, closed by p09-observability-042) trace
+  posted work as Chrome's `TaskAnnotator` does (base/task/common/task_annotator.cc): every item posted
+  to a `BackgroundWork` lane and every request the control queue (`MainActorWorkQueue`) accepts. A
+  request the queue refuses as busy writes no `task.post`, so each `task.post` has its `task.run`.
+  `task.post` is a flow-out at the post: arg0 the post site (the interned `#fileID`'s id in bits 0-15,
+  the line in bits 16-47), arg1 the flow id (bit 63 set). The run's flow-in is the first record inside
+  its `task.run` slice (B/E): arg0 the post site, arg1 the flow id. A lane item's slice is the lane's
+  (below, "Blocking calls and lane jobs"); a control request's is written by `TaskTrace` on the main
+  thread, with the lane 3 (main) in B arg0 bits 8-15 and its `MainWorkClass` `rawValue` in bits 0-7, and
+  B arg1 the queue wait in us, or u64::MAX when unknown (the post was written before the recording started).
+- `control.request` (category `control`, closed for its queue part by p09-observability-042; task 115
+  owns the accept-to-reply part) is an async slice (AB/AE) per control request from its enqueue on
+  `MainActorWorkQueue` to the end of its run or its failure, keyed by an async id
+  (`TraceRuntime.nextAsyncScope`) in arg1 of both records. AB arg0 is the method's main task board
+  owner index in bits 0-31 (0 without a board) and the main work class (`MainWorkClass.rawValue`) in
+  bits 32-39. AE arg0 is the outcome: 0 ran, 1 expired while queued, 2 refused as
+  busy (it never queued).
 - `cef.create_browser` is reserved but has no emitter (requested from PL-motion-cef, task 033).
   Without it, a Release trace attributes Chromium browser-creation time only through the stack samples.
 - `cef.geometry` (category `cef`, perf-hot `cef-geometry`, owner PL-motion-cef, closed by
@@ -383,7 +400,7 @@ the tables of "Release trace ring v1"; the Swift `TraceRuntime.Role` and `TraceR
     trace event (base/threading/scoped_blocking_call.cc). Begin arg0: the kind's code in bits 0-7
     (`BlockingKind.traceCode`: 1 file-io, 2 socket-read, 3 socket-write, 4 sync-wait, 5 ipc-reply,
     6 process-wait, 7 process-spawn, 8 lock-wait, 9 system-call, 10 sleep, 11 wrong-lane, 12 cpu-intensive,
-    13 fs-metadata, 14 sqlite, 15 process-reap, 16 system-query) and the call's `#line` above them. Begin
+    13 fs-metadata, 14 sqlite, 15 process-reap, 16 system-query, 17 priority-inversion, 18 ffi, 19 xpc-reply) and the call's `#line` above them. Begin
     arg1: FNV-1a 64 of the call's `#fileID` (`Module/File.swift`). The end has no arguments; a written begin
     always gets its end, also when the body throws or the category turns off meanwhile. Only the app's
     `TraceRuntime.shared` routes them, while its `task` bit is on.
@@ -395,6 +412,7 @@ the tables of "Release trace ring v1"; the Swift `TraceRuntime.Role` and `TraceR
     start in us; a `WorkSequence` item's post is its post to the sequence, so the wait includes the time behind
     the items in front of it (Chrome stamps a sequenced task's queue time at its post,
     base/task/thread_pool/sequence.cc). Whether an item records is decided at that post too. A `task.blocking_call` inside the item nests in its slice.
+    The item's `task.post` flow-in (p09-observability-042, above) is the first record inside the slice.
 - acpmux has no spans; only its sampled stacks show (requested through the cmux-4f lead from
   PL-acpmux).
 - Time Profiler samples only threads that run. Off-CPU time shows as gaps. Use `--system-trace` for

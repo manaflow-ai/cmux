@@ -50,6 +50,11 @@ public struct NewFrontendBrowserTabRequest: DaemonRequest {
         self.activate = activate
         self.after = after
     }
+
+    enum CodingKeys: String, CodingKey {
+        case url, engine, pane, title, faviconURL = "favicon_url", profileID = "profile_id", cols, rows, activate, after
+        case idempotencyKey = "idempotency_key"
+    }
 }
 
 /// Records navigation of a frontend-rendered browser tab. Emits
@@ -80,7 +85,7 @@ public struct UpdateFrontendBrowserTabRequest: DaemonRequest {
         self.faviconURL = faviconURL
     }
 
-    enum CodingKeys: String, CodingKey { case surface, url, title, faviconURL }
+    enum CodingKeys: String, CodingKey { case surface, url, title, faviconURL = "favicon_url" }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(surface, forKey: .surface)

@@ -1,29 +1,34 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import SwiftUI
 
 /// Hosts the history page in a browser tab's content area. Resolves the
 /// page colors in this view's theme scope (room, workspace) and again on
 /// every theme change.
-public final class HistoryPageHostView: NSView {
+public final class HistoryPageHostView: NSView, VisibilityGatedContent {
     public let model: HistoryPageModel
-    private let appearanceState = HistoryPageAppearance()
-    private var hosting: NSHostingView<HistoryPageView>?
+    private let appearanceState: HistoryPageAppearance
+    private let gate: VisibilityGatedHostingView
+
+    /// Its SwiftUI leaves the hierarchy while the tab is hidden (``VisibilityGatedHostingView``).
+    public var visibilityGate: VisibilityGatedHostingView? { gate }
 
     public init(model: HistoryPageModel) {
+        let appearance = HistoryPageAppearance()
         self.model = model
+        appearanceState = appearance
+        gate = VisibilityGatedHostingView(owner: "HistoryPageHostView") { HistoryPageView(model: model, appearance: appearance) }
         super.init(frame: .zero)
         wantsLayer = true
-        let hosting = NSHostingView(rootView: HistoryPageView(model: model, appearance: appearanceState))
-        hosting.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(hosting)
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        gate.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(gate)
         NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: topAnchor),
-            hosting.bottomAnchor.constraint(equalTo: bottomAnchor),
+            gate.leadingAnchor.constraint(equalTo: leadingAnchor),
+            gate.trailingAnchor.constraint(equalTo: trailingAnchor),
+            gate.topAnchor.constraint(equalTo: topAnchor),
+            gate.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        self.hosting = hosting
     }
 
     @available(*, unavailable)

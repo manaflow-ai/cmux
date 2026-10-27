@@ -96,7 +96,7 @@ import UniformTypeIdentifiers
     /// A screenshot-sized PNG (1412 x 1106 px, Lawrence's capture), a different colour per INDEX.
     private static func screenshot(_ index: Int) throws -> Data {
         let w = 1412, h = 1106
-        let ctx = try #require(CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+        let ctx = try #require(CGContext.ownedBitmap(width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                          space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
         ctx.setFillColor(CGColor(red: CGFloat(index % 7) / 7, green: 0.4, blue: CGFloat(index % 3) / 3, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))

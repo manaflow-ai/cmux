@@ -32,7 +32,7 @@ import CmuxNextSignposts
 enum DebugPaneFocus {
     static let timer = SwitchFrameTimer(owner: "debug.pane_focus", signpost: SignpostName.switchPaneFocus)
     /// Main-thread follow-up work that ran after a move settled and before its commit, by kind
-    /// (`record_saves`, `trail_encodes`): work that can push the move's frame late.
+    /// (`record_saves`): work that can push the move's frame late.
     private(set) static var workBeforeCommit: [String: Int] = [:]
 
     /// Main-thread work of `kind` runs now: counted while a recorded move waits for its commit.

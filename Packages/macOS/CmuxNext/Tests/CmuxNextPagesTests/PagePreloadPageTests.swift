@@ -20,6 +20,9 @@ struct PagePreloadPageTests {
     let descriptor = PageDescriptor(id: "test.preload-page", resource: "preload-page", processGroup: .solo, namespaces: [])
     /// The slot's deadlines on a wake-up queue only the test fires.
     let rig = LifecycleDeadlineRig()
+    /// The pages' own deadlines (the claim's fallback, ``PageWebView/deadlines``) on another queue only the test
+    /// fires, so firing one never runs the other's.
+    let pageDeadlines = LifecycleDeadlineRig()
     /// The app's memory coordinator over a pressure source the test drives; the host registers its slot with it.
     let memory = PageTestMemory()
     static let key = PagePreloadSlot.Key("page.test")
@@ -53,7 +56,7 @@ struct PagePreloadPageTests {
     /// A host with its preload slot installed, as the composition root does.
     func makeHost(_ hosting: FakeChromiumHosting?, lazy: Bool = false) -> WebUIHost {
         let host = WebUIHost(chromium: hosting, openPanel: nil, memory: memory.coordinator,
-                             clock: PageTestClock.never, startsPagesAtFirstShow: lazy)
+                             deadlines: pageDeadlines.scheduler, startsPagesAtFirstShow: lazy)
         host.preload = PagePreloadSlot(parkState: .frozenHidden, deadlines: rig.scheduler)
         return host
     }

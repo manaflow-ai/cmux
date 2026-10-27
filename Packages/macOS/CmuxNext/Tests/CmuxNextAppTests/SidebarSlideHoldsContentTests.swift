@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextFeatures
 @testable import CmuxNextSidebar
 import CmuxNextWakeups
 import Testing
@@ -36,9 +37,10 @@ struct SidebarSlideHoldsContentTests {
         func paneMotionDidSettle() { settledWidths.append(bounds.width) }
     }
 
-    private func openRoot() -> (NSWindow, WindowRootView, NSView) {
+    private func openRoot(holds: Bool = true) -> (NSWindow, WindowRootView, NSView) {
         _ = NSApplication.shared
-        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())))
+        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())),
+                                  slideHoldsContent: { holds })
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 640),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)
@@ -55,15 +57,12 @@ struct SidebarSlideHoldsContentTests {
         return (window, root, content)
     }
 
-    private func withHold<T>(_ on: Bool?, _ body: () throws -> T) rethrows -> T {
-        let store = TunableStore.shared
-        store.activate(file: nil)
-        store.register(SidebarTunables.all)
-        let key = SidebarTunables.slideHoldsContent.key
-        let previous = store.override(key)
-        defer { store.set(key, previous) }
-        store.set(key, on.map(TunableValue.bool))
-        return try body()
+    /// The window's switch as the app builds it (`WindowRootView.slideHoldsContent(in:)`): on `channel` with
+    /// `overrides`, and the launch's Debug tunable `sidebar.slideHoldsContent` at `tunable`.
+    private func holds(_ channel: Feature.Channel, _ overrides: FeatureOverrides = FeatureOverrides(), tunable: Bool?) -> Bool {
+        let tunables = FeatureLaunchLocalOverrides(tunables: tunable.map { [SidebarTunables.slideHoldsContent.key: $0] } ?? [:])
+        let features = FeatureList(registry: FeatureRegistry(), channel: channel, overrides: overrides, local: tunables)
+        return WindowRootView.slideHoldsContent(in: features)()
     }
 
     /// Steps the sidebar's width the way its animator does, one window layout per frame.
@@ -72,12 +71,28 @@ struct SidebarSlideHoldsContentTests {
         root.layoutSubtreeIfNeeded()
     }
 
+    /// p12-perf-process-102: the hold is feature `sidebarSlideHoldsContent`, on by default on every channel.
     @Test func holdingIsTheDefault() {
-        withHold(nil) { #expect(SidebarTunables.slideHoldsContent.value) }
+        for channel in [Feature.Channel.dev, .nightly, .release] {
+            #expect(holds(channel, tunable: nil), "\(channel)")
+            #expect(WindowRootView.slideHoldsContent(in: FeatureList(registry: FeatureRegistry(), channel: channel))(), "\(channel)")
+        }
+    }
+
+    /// The Debug tunable `sidebar.slideHoldsContent`, read at launch, is the feature's local override on DEV and
+    /// NIGHTLY, under policy and the environment lists; Release never takes it.
+    @Test func theDebugTunableOverridesTheFeatureOnDevAndNightlyOnly() {
+        let name = Feature.sidebarSlideHoldsContent.name
+        #expect(!holds(.dev, tunable: false))
+        #expect(!holds(.nightly, FeatureOverrides(remote: [name: true]), tunable: false))
+        #expect(holds(.release, tunable: false), "Release never reads the tunable")
+        #expect(!holds(.release, FeatureOverrides(remote: [name: false]), tunable: true))
+        #expect(!holds(.dev, FeatureOverrides(policyDisabled: [name]), tunable: true))
+        #expect(holds(.dev, FeatureOverrides(environmentEnabled: [name]), tunable: false))
     }
 
     @Test func aHideSizesTheContentOnceAndItRidesTheEdge() throws {
-        try withHold(nil) {
+        do {
             let (window, root, content) = openRoot()
             defer { window.close() }
             let sidebar = root.sidebar.frame.width, card = root.contentHost.frame
@@ -104,7 +119,7 @@ struct SidebarSlideHoldsContentTests {
     }
 
     @Test func aShowKeepsTheWideContentUntilTheLanding() throws {
-        try withHold(nil) {
+        do {
             let (window, root, content) = openRoot()
             defer { window.close() }
             let sidebar = root.sidebar.frame.width
@@ -127,7 +142,7 @@ struct SidebarSlideHoldsContentTests {
     /// A toggle mid-slide turns the animation around from where it is: the content keeps the
     /// widest width either leg needs instead of resizing for the second one.
     @Test func aSlideThatTurnsAroundKeepsOneWidth() throws {
-        try withHold(nil) {
+        do {
             let (window, root, content) = openRoot()
             defer { window.close() }
             let sidebar = root.sidebar.frame.width, held = root.contentHost.frame.width + sidebar
@@ -146,7 +161,7 @@ struct SidebarSlideHoldsContentTests {
     /// laid it out at the landed width, so it flushed the held (wide) grid first. A hide reversed
     /// into a show must settle the terminal once, at the final width.
     @Test func aReversedSlideSettlesTheTerminalAtTheLandedWidth() throws {
-        try withHold(nil) {
+        do {
             let (window, root, _) = openRoot()
             defer { window.close() }
             let content = DeferredLayoutContent()
@@ -167,10 +182,10 @@ struct SidebarSlideHoldsContentTests {
         }
     }
 
-    /// Debug Settings can turn the hold off: the content then follows the card on every frame.
+    /// The feature off (or Debug Settings' override off): the content then follows the card on every frame.
     @Test func withTheHoldOffTheContentResizesEveryFrame() throws {
-        try withHold(false) {
-            let (window, root, content) = openRoot()
+        do {
+            let (window, root, content) = openRoot(holds: false)
             defer { window.close() }
             let sidebar = root.sidebar.frame.width
             root.sidebar.isWidthAnimating = true
@@ -186,7 +201,7 @@ struct SidebarSlideHoldsContentTests {
     /// content wider than itself it clips, so nothing shows past its edge, and Chromium pages and
     /// the overlay's rings see that edge (`CEFClipShape.clips(around:)`, `OverlayPlane.roundedClip`).
     @Test func aSquareMainPaneClipsOnlyWhileItHolds() throws {
-        try withHold(nil) {
+        do {
             let (window, root, content) = openRoot()
             defer { window.close() }
             root.contentHost.setCornerRadius(0)

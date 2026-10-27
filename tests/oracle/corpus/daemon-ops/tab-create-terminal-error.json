@@ -29,51 +29,33 @@
   ],
   "steps": [
     {
-      "id": "fx-workspace",
-      "op": "resource.call",
-      "target": {
-        "machine": "current",
-        "session": "current"
-      },
-      "args": {
-        "method": "workspace.create",
-        "params": {
-          "initial_content": "terminal",
-          "name": "oracle"
-        },
-        "idempotencyKey": "tab-create-terminal-error.fx-workspace"
-      },
-      "expect": {
-        "outcome": "ok",
-        "receipt": "mutation_result"
-      }
-    },
-    {
       "id": "call",
       "op": "resource.call",
       "target": {
         "machine": "current",
         "session": "current",
-        "workspace": "$step:fx-workspace#/value/workspace_id",
-        "screen": "$step:fx-workspace#/value/screen_id",
-        "pane": "$step:fx-workspace#/value/pane_id"
+        "pane": "pane_00000000000000000000000000000000"
       },
       "args": {
         "method": "tab.create_terminal",
         "params": {
-          "correlation_key": ""
+          "name": "oracle"
         },
         "idempotencyKey": "tab-create-terminal-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "selector.not_found",
+        "errorDetails": {
+          "scope": "pane",
+          "selector": "pane_00000000000000000000000000000000"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "correlation_key breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a well-formed pane id that names no pane: nothing opens"
     }
   ],
   "invariants": [

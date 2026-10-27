@@ -6,7 +6,7 @@ extension AgentPaneView {
     ///
     /// The request is the user's gesture, as a native permission shortcut is.
     public func forkConversation(to destination: AgentForkDestination) {
-        AgentPanePersonInput.record(model.transport.gestures)
+        AgentPanePersonInput.record(model.transport.gestures, input: gestureRouter.input)
         evaluateScript(Self.forkScript(destination))
     }
 

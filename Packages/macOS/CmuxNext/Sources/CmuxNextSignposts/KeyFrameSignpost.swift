@@ -1,4 +1,5 @@
 import Carbon.HIToolbox
+import CmuxNextMetrics
 public import Foundation
 
 /// The always-on `key.frame` interval (``SignpostName/keyToFrame``): from the app dispatching a key-down to the end
@@ -8,6 +9,12 @@ public import Foundation
 /// queue), so a reader adds that wait to the interval. For a text view (the Home composer, the omnibar, a field) the
 /// commit carries the typed character; for a terminal it carries the key's own work only, and the echo comes back
 /// from the shell in a later frame, so `target=terminal` rows are the main thread's share of the key.
+///
+/// Each committed key is also a sample of the field histogram `key.frame.<target>` (``HistogramID/keyFrame(_:)``,
+/// task 054): from the key-down (the event's timestamp, so its wait in the queue counts) to the end of that commit,
+/// as Chrome's `EventLatency.KeyPressed.TotalLatency` runs from the OS event's timestamp to its frame
+/// (cc/metrics/event_metrics.h). The histogram records whether or not anything takes the signposts. A key ended as
+/// missed records nothing: the run loop slept before its commit, so its time would hold the idle wait.
 ///
 /// It runs on every key for every user, so a key makes no heap allocation: the typed begin and end
 /// (``Signposter/begin(_:target:ageMicros:)``) emit through os_signpost's C macros, the open intervals are plain
@@ -40,13 +47,28 @@ public final class KeyFrameSignpost {
         case terminal
     }
 
+    /// One key begun since the observer last fired.
+    struct OpenKey {
+        /// Its signpost interval; nil while nothing took key signposts at its begin (``Signposter/isEnabled``).
+        let interval: KeyFrameInterval?
+        let target: Target
+        /// `CLOCK_UPTIME_RAW` nanoseconds of the key-down: its dispatch begin less its age (the begin itself when the
+        /// event had no timestamp).
+        let keyDownNanos: UInt64
+    }
+
     private let signposter: Signposter
+    /// Where each committed key's `key.frame.<target>` sample goes.
+    private let metrics: Metrics
     /// The most keys one run-loop turn holds open; a key past it records no interval.
     private let capacity: Int
     /// The keys begun since the observer last fired, reserved to ``capacity`` once.
-    private var pending: [KeyFrameInterval] = []
+    private var pending: [OpenKey] = []
     /// Whether secure event input is on now, read once per key-down (the system's `IsSecureEventInputEnabled`).
     private let secureEventInput: () -> Bool
+    /// Gets each committed key's `key.frame` time in microseconds, after its sample (the app's opt-in hang reports take
+    /// the black box at a slow one); nil: nothing gets it.
+    public var committedKey: ((_ micros: UInt64) -> Void)?
 
     /// The app's key-frame signposts: ``Signposter/key``, ended by an observer on the main run loop, gated by the
     /// system's secure event input.
@@ -59,10 +81,13 @@ public final class KeyFrameSignpost {
     ///
     /// - Parameters:
     ///   - signposter: The key category's signposter.
+    ///   - metrics: Where the `key.frame` samples go; nil: the store of the signposter's trace runtime.
     ///   - capacity: The most keys one turn holds open (several keys can dispatch in one turn when events queue).
     ///   - secureEventInput: Whether secure event input is on now (tests pass their own).
-    init(signposter: Signposter, capacity: Int = 64, secureEventInput: @escaping () -> Bool = { false }) {
+    init(signposter: Signposter, metrics: Metrics? = nil, capacity: Int = 64,
+         secureEventInput: @escaping () -> Bool = { false }) {
         self.signposter = signposter
+        self.metrics = metrics ?? Metrics(runtime: signposter.trace)
         self.capacity = capacity
         self.secureEventInput = secureEventInput
         pending.reserveCapacity(capacity)
@@ -73,7 +98,8 @@ public final class KeyFrameSignpost {
 
     /// Begins the interval for a key-down dispatched now; it ends after this main run-loop turn's commit. It first
     /// sets or clears the ``TraceRuntime/KeyTimingHold/secureEventInput`` hold from the system's secure event input,
-    /// so while that is on no interval begins and the key flows and the ring take no key timing either.
+    /// so while that is on (or another hold closes the keystroke-timing gate) no key opens: no interval, no
+    /// `key.frame` sample, and the key flows and the ring take no key timing either.
     ///
     /// - Parameters:
     ///   - target: What has the keyboard.
@@ -81,17 +107,26 @@ public final class KeyFrameSignpost {
     ///   - now: Seconds since boot now (`ProcessInfo.systemUptime`, the event timestamp's clock).
     public func begin(target: Target, eventTimestamp: TimeInterval, now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
         signposter.trace.setKeyTimingSuppressed(secureEventInput(), by: .secureEventInput)
-        guard signposter.isEnabled, pending.count < capacity else { return }
-        pending.append(signposter.begin(.keyToFrame, target: target,
-                                        ageMicros: Self.ageMicros(eventTimestamp: eventTimestamp, now: now)))
+        guard !signposter.trace.isKeyTimingSuppressed, pending.count < capacity else { return }
+        let ageMicros = Self.ageMicros(eventTimestamp: eventTimestamp, now: now)
+        let interval = signposter.isEnabled ? signposter.begin(.keyToFrame, target: target, ageMicros: ageMicros) : nil
+        let beginNanos = interval?.beginUptimeNanos ?? signposter.clock.nowNanos()
+        let ageNanos = UInt64(max(ageMicros, 0)) &* 1_000
+        pending.append(OpenKey(interval: interval, target: target, keyDownNanos: beginNanos - min(ageNanos, beginNanos)))
     }
 
-    /// Ends every open key: committed before waiting or on exit, missed after a wake (the observer's callout).
+    /// Ends every open key: committed before waiting or on exit, missed after a wake (the observer's callout). A
+    /// committed key records its `key.frame.<target>` sample, key-down to now.
     func runLoopReached(_ activity: CFRunLoopActivity) {
         guard !pending.isEmpty else { return }
         let outcome: CommitBoundary.Outcome = activity == .afterWaiting ? .missed : .committed
-        for interval in pending {
-            signposter.end(.keyToFrame, interval, outcome)
+        let endNanos = signposter.clock.nowNanos()
+        for key in pending {
+            if let interval = key.interval { signposter.end(.keyToFrame, interval, outcome) }
+            guard outcome == .committed else { continue }
+            let micros = endNanos > key.keyDownNanos ? (endNanos - key.keyDownNanos) / 1_000 : 0
+            metrics.record(.keyFrame(key.target.histogramTarget), Int64(truncatingIfNeeded: micros))
+            committedKey?(micros)
         }
         pending.removeAll(keepingCapacity: true)
     }
@@ -113,5 +148,15 @@ public final class KeyFrameSignpost {
     /// The key's age in microseconds (rounded) when its dispatch began (never negative), -1 when it has no timestamp.
     nonisolated static func ageMicros(eventTimestamp: TimeInterval, now: TimeInterval) -> Int64 {
         eventTimestamp > 0 ? Int64((max(0, now - eventTimestamp) * 1_000_000).rounded()) : -1
+    }
+}
+
+extension KeyFrameSignpost.Target {
+    /// The `key.frame` histogram of this target (``HistogramID/keyFrame(_:)``).
+    var histogramTarget: HistogramID.KeyTarget {
+        switch self {
+        case .view: .view
+        case .terminal: .terminal
+        }
     }
 }

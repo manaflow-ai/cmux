@@ -32,7 +32,7 @@ struct ScreenDragSessionTests {
         let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, tabResourceID: "tab_1", title: "~")])
         let snapshot = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
         let workspace = WorkspaceModel(WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [snapshot]))
-        let strip = TabStripView(model: TabStripModel(tabs: []))
+        let strip = TabStripView(model: TabStripModel(tabs: []), input: tap)
         let session = ScreenDragSession(services: services, screen: ScreenModel(snapshot), daemon: services.daemon,
                                         source: workspace, strip: strip, tabID: CmuxNextTabs.TabID("screen-1"),
                                         appEvents: appEvents)

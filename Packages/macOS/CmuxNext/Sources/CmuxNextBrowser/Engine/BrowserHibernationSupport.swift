@@ -70,7 +70,7 @@ extension CEFTab: BrowserHibernationSource {
 
     public func hibernationState() -> BrowserRestoreState? {
         guard supportsHibernation, let browserID, let shim = runtime.shim,
-              let state = shim.takeString(shim.tabNavigationState(browserID)) else { return nil }
+              let state = shim.tabNavigationState(browserID) else { return nil }
         return .chromium(state)
     }
 }

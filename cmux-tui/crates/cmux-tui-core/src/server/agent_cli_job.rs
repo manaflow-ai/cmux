@@ -3,18 +3,17 @@
 
 use crate::panic_free::JsonFields;
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::agent_session_attach::agent_session_link::AcpmuxLink;
+use super::routes::RouteLine;
 use super::{
     MessageWriter, Response, agent_inventory, apps, origin_gate, responses::send_response,
 };
 use crate::WorkspaceMutation;
-use crate::mux::Mux;
 use crate::resource::{MachinePublicId, ResourceError, SessionPublicId};
 
 pub(super) const CAPABILITY: &str = "agent-cli-update-job-v1";
@@ -86,24 +85,19 @@ pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
             crate::server::routes::RouteName::Exact(RESOLVE_COMMAND),
         ],
         stage: crate::server::FrameStage::AgentCliJob,
-        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
+        entry: handle,
     }];
 
-pub(super) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains(COMMAND) {
-        return None;
-    }
+/// Answers a line whose `cmd` is [`COMMAND`] or [`RESOLVE_COMMAND`] (the
+/// route found it by name). The line's one decode is its `Value`, which
+/// gives every reply the `id` as written, a refused one too, and then the
+/// typed [`Command`]. `None` only for a line with no `Value` (a number past
+/// `f64`, a lone surrogate); the `Command` parse answers it.
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
     let Ok(Value::Object(mut fields)) = crate::line_parses::parse::<Value>(message) else {
         return None;
     };
-    if !matches!(fields.get("cmd").and_then(Value::as_str), Some(COMMAND | RESOLVE_COMMAND)) {
-        return None;
-    }
     let id = fields.remove("id");
     // Same-uid Unix alone is insufficient. Require the proved main app and
     // no terminal/agent binding, before parsing owner/CLI/key or any work.
@@ -158,7 +152,8 @@ pub(super) fn try_handle(
     let socket = mux.control_clients.agent_sessions.socket();
     let output = writer.clone();
     let request_id = id.clone();
-    let spawned = std::thread::Builder::new().name("mux-agent-cli-job".into()).spawn(move || {
+    // The job's preparation waits on acpmux (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
         let cli = params.cli;
         let result = owner.create_agent_cli_update_job(&cli, &mutation, || {
             prepare(socket.as_deref().ok_or(Failure::Unavailable)?, &cli)
@@ -166,7 +161,7 @@ pub(super) fn try_handle(
         drop(slot);
         reply(&output, request_id, result);
     });
-    if spawned.is_err() {
+    if posted.is_err() {
         return Some(reply(writer, id, Err(Failure::Busy.into())));
     }
     Some(true)

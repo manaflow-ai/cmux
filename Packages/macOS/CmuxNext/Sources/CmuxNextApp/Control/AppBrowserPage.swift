@@ -27,6 +27,7 @@ enum AppBrowserPage {
     }
 
     static func run(_ operation: BrowserPageOperation, tabID: String, services: AppServices) async throws -> CmuxNextSettings.JSONValue {
+        // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), read once per request; no walk, no observation
         guard let (tab, _) = services.locateTab(tabID) else {
             throw ControlError(code: "not_found", message: "Surface not found or not a browser")
         }
@@ -72,7 +73,7 @@ enum AppBrowserPage {
         case .evaluate(let script):
             // The page's pending navigation (the first load after open) ends
             // first, bounded; then the script acts on the loaded document.
-            _ = await awaitPendingNavigation(page, within: actionWait)
+            _ = await awaitPendingNavigation(page, within: actionWait, work: services.mainWork)
             do {
                 let value = try await page.evaluate(script, world: .page, gesture: .agent)
                 return ["value": await json(value)]
@@ -92,7 +93,7 @@ enum AppBrowserPage {
             return try await cookies(page, request, work: services.work)
         case .input(let input):
             // Trusted input after the page's first load, as a script acts on the loaded document.
-            _ = await awaitPendingNavigation(page, within: actionWait)
+            _ = await awaitPendingNavigation(page, within: actionWait, work: services.mainWork)
             return try await services.browserNativeInputs.deliver(input, to: page, key: tabID)
         }
         return [:]

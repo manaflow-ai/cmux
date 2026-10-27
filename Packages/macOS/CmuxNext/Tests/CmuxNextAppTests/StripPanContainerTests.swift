@@ -136,11 +136,14 @@ import Testing
 
     @Test func onTheStripsHostsAndDividersSitInTheMotionContainer() {
         let w = Window(renderServer: true)
-        for pane in Self.strip { #expect(w.root.context.hosts[pane]?.superview === w.screen.stripContainer) }
+        // The first column's rows overflow: they sit in their row's container in the strip container (p04-input-050).
+        for pane in Self.strip { #expect(w.root.context.hosts[pane]?.isDescendant(of: w.screen.stripContainer) == true) }
         #expect(!w.screen.dividerViews.isEmpty)
-        #expect(w.screen.dividerViews.values.allSatisfy { $0.superview === w.screen.stripContainer })
+        #expect(w.screen.dividerViews.values.allSatisfy { $0.isDescendant(of: w.screen.stripContainer) })
         #expect(w.screen.stripContainer.frame == w.screen.bounds)
-        for pane in Self.strip { #expect(w.root.context.hosts[pane]?.chrome.superview === w.screen.stripChrome, "the rings sit in the strip's plane") }
+        for pane in Self.strip {
+            #expect(w.root.context.hosts[pane]?.chrome.isDescendant(of: w.screen.stripChrome) == true, "the rings sit in the strip's plane")
+        }
         #expect(w.screen.stripChrome.superview === w.root.overlayPlane && w.screen.stripChrome.frame == w.root.overlayPlane.bounds)
         #expect(w.screen.stripContainer.companion === w.screen.stripChrome.layer)
     }

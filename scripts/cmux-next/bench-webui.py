@@ -33,8 +33,9 @@ Modes (each prints `WEBUI-ROW` lines, one per row, and writes OUT/webui-<mode>.j
   open      D4, light or STRESS. Cmd-T into the preloaded New Tab (`debug.new_tab bench_open`: key turn, cover
             frame = `visible_ms`) and its Cmd-W; Cmd-, Settings warm (--runs) and cold (the first open and
             --cold-runs opens after its renderer was killed), timed on the app's uptime clock from the key's
-            `debug.action_budget` start to the page's `debug.page` painted_uptime, and its Cmd-W; a frozen chat of
-            --chat-turns turns shown again --runs times. D4 rows with no app signal yet print `unscored`.
+            `debug.action_budget` start to the page's `debug.page` painted_uptime, and its Cmd-W (with the engine
+            page closes `debug.webui` `retire` stamps in the key's turn); a frozen chat of --chat-turns turns
+            shown again --runs times. D4 rows with no app signal yet print `unscored`.
   crash     D5. 5 privileged pages, 1 shown; kill -9 of the shown page's renderer --kills times: cmux survives, the
             shown page paints again (until the group cap, 3 per 600 s), hidden pages do not reload.
   pressure  D6. A browser tab and a chat, then pages; `debug.hibernation.pressure critical` (the memory coordinator's
@@ -52,6 +53,14 @@ process), `page`, `engine`, `group`, `state` (active, hidden, frozen, discarded,
 `process_kind` (renderer, extension, utility, gpu), `reloads`. Task 001's report (`pages`, `spares`, `processes`)
 is read into the same rows (``Census.from_report``). Change them in ``Census`` only. The `publish` and `pressure`
 verbs count only when their reply confirms them; else their rows are `unscored`, never a pass with no load.
+
+--page-code-cache (task 052's A/B, Debug development bundles): the app starts Chromium with the code cache spike's
+switches (manaflow-ai/cef cp/p13-webui-052: cmux-page scripts get V8's code cache, in memory for the pages profile,
+as Chrome's WebUICodeCache gives chrome: scripts). Run `open` with and without it on one host, one build: the cold
+Settings row decides and the warm row is the control (webui-DESIGN.md 5.4). Every Chromium renderer must carry the switch; a
+run whose renderers do not (a bench or Release build drops CMUX_NEXT_CEF_EXTRA_SWITCHES, or the fork lacks the spike)
+is refused (exit 2): before the mode, once the first Settings open has its renderer (none then is refused too) and
+at the end, where `page_code_cache.renderers_with_switch` counts them.
 
 Session shapes (refused, exit 2, never measured as the shape asked): light is one window, no browser tab and no
 chat before the mode starts, every page the mode opens live, one page shown when the mode shows one; STRESS is
@@ -91,6 +100,11 @@ HIDDEN_WAKEUPS_PER_S = 0.2  # MQ5's bound for a hidden page's renderer and the G
 BACKGROUND_PRI = 4  # `ps -o pri` of a darwinbg task: Chrome backgrounds a hidden renderer so (base/process/process_mac.cc)
 GROUP_CAP = 3  # crash budget per group in 600 s (section 3.C)
 LATENCY_STEP = 0.005  # s between polls of a timed wait (bench-pages.py polls at 10 ms); setup waits poll at 50 ms
+# s after a Cmd-W's start that count as its turn and frames for engine page closes; PageRetirer.delay (500 ms) is later.
+CLOSE_TURN_WINDOW = 0.25
+# Task 052's spike switches (CMUX_NEXT_CEF_EXTRA_SWITCHES, colon-separated): the fork copies the first to every renderer.
+CODE_CACHE_SWITCHES = ("cmux-code-cache-schemes=cmux-page", "enable-features=WebUICodeCache")
+CODE_CACHE_MARK = "--" + CODE_CACHE_SWITCHES[0]
 
 
 def host_uptime():
@@ -400,6 +414,30 @@ class Bench:
         cef = self.rpc("debug.cef")
         return int(cef.get("fork_api") or 0) if isinstance(cef, dict) else 0
 
+    def code_cache_renderers(self):
+        """(Chromium renderers apart from extension renderers, how many of them carry task 052's switch)."""
+        commands = [cmd for cmd in self.instance.pids().values() if self.type_kind(cmd) == "cef-renderer"]
+        return len(commands), sum(CODE_CACHE_MARK in cmd for cmd in commands)
+
+    def check_code_cache_arm(self, when, need_renderer=False):
+        """--page-code-cache: refused when a renderer runs without the switch (the A/B would measure the off arm
+        twice), and with `need_renderer` when no renderer runs (the switch was never seen)."""
+        renderers, switched = self.code_cache_renderers()
+        if need_renderer and not renderers:
+            raise ShapeError(f"--page-code-cache: no Chromium renderer {when}, so no renderer shows the switch")
+        if switched < renderers:
+            raise ShapeError(f"--page-code-cache: {renderers - switched} of {renderers} Chromium renderers lack "
+                             f"{CODE_CACHE_MARK} {when} (a Debug development bundle reads CMUX_NEXT_CEF_EXTRA_SWITCHES; "
+                             "the fork needs manaflow-ai/cef cp/p13-webui-052)")
+
+    def code_cache_row(self):
+        """The end of an on-arm run: a renderer that started without the switch during the mode refuses the run."""
+        renderers, switched = self.code_cache_renderers()
+        self.add(row("page_code_cache.renderers_with_switch", switched if renderers else None, ("==", renderers),
+                     note=f"{renderers} Chromium renderers at the end of the run" if renderers
+                     else "no Chromium renderer at the end of the run"))
+        self.check_code_cache_arm("at the end of the run")
+
     def check_engine(self, mode):
         problems = engine_problems(self.rpc("debug.cef"), self.opts.engine, mode)
         if problems:
@@ -692,9 +730,7 @@ class Bench:
         # D4 rows with no app signal yet: printed unscored, so the gap shows in every run.
         self.add(row("cef.window_built_on_key_turn", built if isinstance(built, (int, float)) else None, ("==", 0),
                      note="" if isinstance(built, (int, float)) else "debug.cef reports no window_built_on_key_turn"),
-                 row("second_page_same_pane_windows", None, ("==", 0), note="no per-open window count in debug.cef or debug.webui"),
-                 row("settings.cmd_w_engine_close_calls", None, ("==", 0),
-                     note="no count of engine close calls in the key's turn yet"))
+                 row("second_page_same_pane_windows", None, ("==", 0), note="no per-open window count in debug.cef or debug.webui"))
         if self.opts.chat_turns > 0:
             self.frozen_chat()
 
@@ -747,12 +783,36 @@ class Bench:
         return result
 
     def settings_close(self):
-        """Cmd-W on the Settings tab: (its commit ms, the renderer pid that held the page)."""
+        """Cmd-W on the Settings tab: (its commit ms, the renderer pid that held the page, the engine page closes in
+        the key's turn or None when the build stamps none)."""
         sequence = self.budget_sequence()
         pid = Census.pid((self.census() or Census([])).page("cmux.settings") or {})
+        before = self.retire()
+        sent = self.uptime()
         self.key("w", "cmd")
         self.until(lambda: not self.live("cmux.settings"), self.opts.open_timeout)
-        return self.commit_ms("closeTab", sequence), pid
+        run = self.budget_run("closeTab", sequence) or {}
+        start = run["start_uptime_ns"] / 1e9 if isinstance(run.get("start_uptime_ns"), (int, float)) else sent
+        return run.get("commit_ms"), pid, self.engine_closes_in_turn(before, self.retire(), start)
+
+    def retire(self):
+        """`debug.webui` `retire` ({engine_closes, engine_close_uptimes, ...}), or None when the build has none."""
+        reply = self.rpc("debug.webui")
+        retire = reply.get("retire") if isinstance(reply, dict) else None
+        valid = isinstance(retire, dict) and isinstance(retire.get("engine_closes"), (int, float)) \
+            and isinstance(retire.get("engine_close_uptimes"), list)
+        return retire if valid else None
+
+    @staticmethod
+    def engine_closes_in_turn(before, after, start):
+        """The engine page closes stamped between the `before` and `after` reads (`retire`) from `start` to
+        CLOSE_TURN_WINDOW after it: the key's turn and its frames (the retirer's deadline comes later). None when a
+        read had no `retire`."""
+        if before is None or after is None:
+            return None
+        new = int(after["engine_closes"] - before["engine_closes"])
+        stamps = after["engine_close_uptimes"][-new:] if new > 0 else []
+        return sum(1 for t in stamps if isinstance(t, (int, float)) and start <= t < start + CLOSE_TURN_WINDOW)
 
     def drop_renderer(self, pid):
         """Kills the renderer that held the closed Settings page, so the next open starts a fresh one. Refused
@@ -767,22 +827,25 @@ class Bench:
         """Cmd-, Settings: the first open and --cold-runs opens after its renderer was killed (cold), --runs opens
         with the renderer live (warm), each with its Cmd-W."""
         view = _Envelope(self.rpc)
-        warm, cold, open_turns, close_turns = [], [], [], []
+        warm, cold, open_turns, close_turns, engine_closes = [], [], [], [], []
         preloaded = polled = skipped = 0
 
-        def sample(into):
+        def sample(into, first=False):
             nonlocal preloaded, polled
             result = self.settings_open(view)
+            if first and self.opts.page_code_cache:  # Settings' renderer runs now: no sample is taken without the switch
+                self.check_code_cache_arm("while Settings shows", need_renderer=True)
             open_turns.append(result["commit_ms"])
             preloaded += int(result["preloaded"])
             polled += int(result["polled"])
             if not result["preloaded"]:
                 into.append(result["ms"])
-            turn, pid = self.settings_close()
+            turn, pid, closes = self.settings_close()
             close_turns.append(turn)
+            engine_closes.append(closes)
             return pid
 
-        pid = sample(cold)
+        pid = sample(cold, first=True)
         for _ in range(self.opts.runs):
             pid = sample(warm)
         for _ in range(self.opts.cold_runs):
@@ -801,7 +864,18 @@ class Bench:
                  row("settings.cover_frame_ms", None, ("p99", "<=", 16.7), "ms",
                      note="no frame signal for Settings while preloaded yet"),
                  series("settings.key_turn_ms", open_turns, ("p99", "<=", 4)),
-                 series("settings.cmd_w_key_turn_ms", close_turns, ("p99", "<=", 4)))
+                 series("settings.cmd_w_key_turn_ms", close_turns, ("p99", "<=", 4)),
+                 self.engine_close_row(engine_closes))
+
+    @staticmethod
+    def engine_close_row(closes):
+        """p13-webui-064: every Settings Cmd-W makes 0 engine page closes in its turn (PageRetirer ends the page at its
+        deadline). Unscored when a close had no `debug.webui` `retire` to read."""
+        if not closes or any(c is None for c in closes):
+            return row("settings.cmd_w_engine_close_calls", None, ("==", 0),
+                       note="no debug.webui retire (engine_close_uptimes) in this build")
+        return row("settings.cmd_w_engine_close_calls", sum(closes), ("==", 0),
+                   note=f"engine page closes within {int(CLOSE_TURN_WINDOW * 1000)} ms of {len(closes)} Cmd-W keys")
 
     def conversation_tabs(self):
         """{tab id: pane id} of every chat tab."""
@@ -1000,7 +1074,12 @@ class Bench:
             problems = light_problems((self.rpc("snapshot.get") or {}).get("topology") or {})
             if problems:
                 raise ShapeError("not the light session: " + "; ".join(problems))
+        self.facts["page_code_cache"] = bool(self.opts.page_code_cache)
+        if self.facts["page_code_cache"]:
+            self.check_code_cache_arm("before the mode")
         getattr(self, mode)()
+        if self.facts["page_code_cache"]:
+            self.code_cache_row()
         if not self.alive():
             self.add(row("app_alive_at_end", 0, ("==", 1)))
         return {"mode": mode, "engine": self.opts.engine, "session": self.opts.session, "rows": self.rows, "facts": self.facts}
@@ -1046,6 +1125,10 @@ def parse(argv):
     parser.add_argument("--kills", type=int, default=GROUP_CAP + 1)
     parser.add_argument("--every-page-hidden", action="store_true",
                         help="pages10: hide all ten pages, then measure page renderer and GPU wakeups (task 037, MQ5)")
+    parser.add_argument("--page-code-cache", action="store_true",
+                        help="task 052's A/B: Chromium with the code cache spike's switches (Debug development bundles)")
+    parser.add_argument("--enable-feature", action="append", default=[], metavar="NAME",
+                        help="a feature to turn on for the run (CMUX_ENABLE_FEATURES), repeatable: an off feature's arm")
     parser.add_argument("--out")
     opts = parser.parse_args(argv)
     for name in ("settle", "measure", "hide_settle", "discard_settle", "open_timeout", "priority_wait"):
@@ -1055,7 +1138,20 @@ def parse(argv):
         parser.error("--runs and --kills must be >= 1, --cold-runs >= 0")
     if opts.every_page_hidden and opts.mode != "pages10":
         parser.error("--every-page-hidden is a pages10 option")
+    if opts.page_code_cache and opts.engine != "chromium":
+        parser.error("--page-code-cache needs --engine chromium")
     return opts
+
+
+def launch_env(opts, tunables):
+    """The app's environment: the React page tunables file, --enable-feature's features, and with --page-code-cache
+    task 052's switches."""
+    env = {"CMUX_NEXT_DEBUG_TUNABLES_FILE": tunables}
+    if opts.enable_feature:
+        env["CMUX_ENABLE_FEATURES"] = ",".join(opts.enable_feature)
+    if opts.page_code_cache:
+        env["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = ":".join(CODE_CACHE_SWITCHES)
+    return env
 
 
 def main(argv=None):
@@ -1071,8 +1167,7 @@ def main(argv=None):
     tunables = os.path.join(out, "debug-tunables.json")
     with open(tunables, "w") as handle:  # the React History and App Store pages (bench-pages.py's PAGES tunables)
         json.dump({"version": 1, "values": {"history.surface": "web", pages.PAGES["apps"]["tunable"]: "web"}}, handle)
-    app = launch.BenchApp(opts.app, out=out, config=launch_config(opts),
-                          env={"CMUX_NEXT_DEBUG_TUNABLES_FILE": tunables})
+    app = launch.BenchApp(opts.app, out=out, config=launch_config(opts), env=launch_env(opts, tunables))
     status = 0
     report = {"mode": opts.mode, "rows": []}
     try:

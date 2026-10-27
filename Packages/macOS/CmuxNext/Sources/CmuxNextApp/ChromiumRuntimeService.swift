@@ -52,8 +52,8 @@ final class ChromiumRuntimeService {
     private let downloadedTrust: CEFRuntimeLayout.Trust?
     private let prefetchDelay: Duration
     private var tasks: [Task<Void, Never>] = []
-    /// The background download's one-shot start after launch.
-    private let prefetch: DemandTimer
+    /// The background download's one-shot start after launch (made by ``start(on:)``).
+    private var prefetch: MainDeadline?
 
     /// Creates the service.
     ///
@@ -62,11 +62,9 @@ final class ChromiumRuntimeService {
     ///   - origin: Which runtime the launch picked.
     ///   - installer: Installs the pinned pack; nil when there is nothing to download.
     ///   - mainBundle: The app bundle, the main bundle for a runtime outside an `.app`.
-    ///   - clock: Drives the prefetch delay; tests pass a clock they control.
-    ///   - prefetchDelay: How long after ``start()`` the background download begins.
+    ///   - prefetchDelay: How long after ``start(on:)`` the background download begins.
     init(source: CEFRuntimeSource, origin: Origin, installer: ChromiumRuntimeInstaller?, mainBundle: URL,
-         downloadedTrust: CEFRuntimeLayout.Trust? = nil,
-         clock: any Clock<Duration> = ContinuousClock(), prefetchDelay: Duration = .seconds(20)) {
+         downloadedTrust: CEFRuntimeLayout.Trust? = nil, prefetchDelay: Duration = .seconds(20)) {
         self.source = source
         self.origin = origin
         self.installer = installer
@@ -74,7 +72,6 @@ final class ChromiumRuntimeService {
         self.mainBundle = mainBundle
         self.downloadedTrust = downloadedTrust
         self.prefetchDelay = prefetchDelay
-        prefetch = DemandTimer(owner: "chromium-runtime.prefetch", clock: clock)
     }
 
     /// The service for this app: the embedded runtime when present, else the
@@ -109,8 +106,7 @@ final class ChromiumRuntimeService {
     /// (`makeInstaller` receives the pack keys this process may run, which
     /// cleanup must keep), with Chromium in the Chromium Host when
     /// `hostSupervisor` is given.
-    static func launch(pin: ChromiumRuntimePin, store: ChromiumRuntimeStore, mainBundle: URL,
-                       clock: any Clock<Duration> = ContinuousClock(), prefetchDelay: Duration = .seconds(20),
+    static func launch(pin: ChromiumRuntimePin, store: ChromiumRuntimeStore, mainBundle: URL, prefetchDelay: Duration = .seconds(20),
                        hostSupervisor: (any ChromiumHostSupervising)? = nil,
                        makeInstaller: (Set<String>) -> ChromiumRuntimeInstaller) -> ChromiumRuntimeService {
         let selection = store.select(for: pin)
@@ -127,22 +123,28 @@ final class ChromiumRuntimeService {
         let inUse: Set<String> = layout == nil ? [] : Set(selection.installation.map { [$0.pin.key] } ?? [])
         let source = CEFRuntimeSource(layout: layout, pending: .downloading(fraction: nil), hostSupervisor: hostSupervisor)
         return ChromiumRuntimeService(source: source, origin: origin, installer: makeInstaller(inUse), mainBundle: mainBundle,
-                                      downloadedTrust: trust,
-                                      clock: clock, prefetchDelay: prefetchDelay)
+                                      downloadedTrust: trust, prefetchDelay: prefetchDelay)
     }
 
     /// Follows the installer and schedules the background download (or, when
     /// the pinned pack is already installed, the cleanup of older packs).
-    func start() {
-        guard let installer, tasks.isEmpty, !prefetch.isScheduled else { return }
-        // task-owner: lives with the service (one per process); cancelled in stop()
-        tasks.append(Task { [weak self] in
+    ///
+    /// - Parameter deadlines: The app's deadline scheduler: each installer state applies as a
+    ///   `visible` task on its scheduler, and the prefetch delay is a `background` deadline.
+    func start(on deadlines: MainDeadlineScheduler) {
+        guard let installer, tasks.isEmpty, prefetch == nil else { return }
+        // task-owner: lives with the service (one per process); cancelled in stop(). The stream is read off main;
+        // each state is one posted `visible` task: a tab that waits for Chromium shows the download's progress.
+        tasks.append(Task { @concurrent [weak self, mainWork = deadlines.work] in
             for await state in await installer.states() {
-                self?.apply(state)
+                guard let service = self else { return }
+                mainWork.postFromAnyThread(.visible, owner: "chromium-runtime.state") { service.apply(state) }
             }
         })
-        // A one-shot launch delay so the prefetch does not compete with launch work.
-        prefetch.schedule(after: prefetchDelay) { await installer.ensure(.background) }
+        // A one-shot launch delay so the prefetch does not compete with launch work; one hop to the installer actor,
+        // whose ensure returns at once (task-owner).
+        prefetch = MainDeadline(owner: "chromium-runtime.prefetch", workClass: .background, scheduler: deadlines)
+        prefetch?.schedule(after: prefetchDelay) { Task { @concurrent in await installer.ensure(.background) } }
     }
 
     /// A tab wanted Chromium: download now at user priority (any network).
@@ -150,14 +152,14 @@ final class ChromiumRuntimeService {
     func wanted() {
         guard let installer, source.layout == nil else { return }
         // task-owner: one hop to the installer actor; ensure returns at once
-        Task { await installer.ensure(.user) }
+        Task { @concurrent in await installer.ensure(.user) }
     }
 
     /// Stops following the installer (app quit).
     func stop() {
         tasks.forEach { $0.cancel() }
         tasks = []
-        prefetch.cancel()
+        prefetch?.cancel()
     }
 
     /// Maps one installer state onto ``source``.

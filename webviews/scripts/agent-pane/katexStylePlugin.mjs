@@ -29,9 +29,10 @@ export function katexCss() {
 }
 
 /**
- * With `split`, the stylesheet's module adds it to the page; KaTeX's chunk carries it. A bundle
- * without chunks (the pages build-pages-web.sh writes) gets an empty module instead, so its one
- * script does not carry ~350 KB of fonts for math those pages draw unstyled, as before.
+ * With `split` (the agent pane, and the pages' multi-entry run in scripts/pages/build-pages.mjs),
+ * the stylesheet's module adds it to the page; KaTeX's chunk carries it. A bundle without chunks
+ * gets an empty module instead, so its one script does not carry ~350 KB of fonts for math it
+ * draws unstyled.
  */
 export function katexStylePlugin({ split }) {
   return {

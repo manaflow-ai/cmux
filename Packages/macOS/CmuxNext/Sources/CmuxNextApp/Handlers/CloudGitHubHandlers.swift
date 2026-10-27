@@ -2,6 +2,9 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Set Up GitHub on This Machine (`cmux cloud setup-github --target machine:<id>`), over
 /// ``CloudHandlers``' machine resolution, runs and results (its own type: CloudHandlers is at the
@@ -33,11 +36,12 @@ enum CloudGitHubHandlers {
             }
             CloudHandlers.runTracked("set up GitHub on Cloud machine", context) {
                 let identity = try CloudGitHubSetup.validated(await CloudGitHubSetup.localIdentity())
-                let go = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+                // A dialog that goes unanswered is a no.
+                let go = (try? await withOnceContinuation { (done: OnceContinuation<Bool, OnceContinuationError>) in
                     CloudPresenter.confirm(CloudStrings.gitHubConfirmTitle(session.machine.title), confirmBody(identity),
                                            button: CloudStrings.gitHubSetUp, identifier: "cmux.dialog.cloud.setupGitHub",
                                            in: CloudHandlers.window(context)) { done.resume(returning: $0) }
-                }
+                }) ?? false
                 guard go else { return }
                 let outcome = try await setUp(identity)
                 // The person clicked Set Up: one browser page, with the code on the clipboard to paste.

@@ -44,4 +44,8 @@ public struct GetFrontendProjectionRequest: DaemonRequest {
         self.scope = scope
         self.subjectKey = subjectKey
     }
+
+    enum CodingKeys: String, CodingKey {
+        case frontend, scope, subjectKey = "subject_key"
+    }
 }

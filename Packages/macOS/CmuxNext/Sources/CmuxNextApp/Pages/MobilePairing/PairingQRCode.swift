@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CoreImage
 import CoreImage.CIFilterBuiltins
 
@@ -18,8 +19,8 @@ struct PairingQRCode {
               // concurrency-allow: software-renderer CIContext on one pairing QR code (at most ~180x180 modules); no GPU wait.
               let modules = context.createCGImage(output, from: output.extent) else { return nil }
         let side = modules.width + quiet * 2
-        guard let bitmap = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,
-                                     space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)
+        guard let bitmap = CGContext.bitmapOwningPixels(width: side, height: side, space: CGColorSpaceCreateDeviceGray(),
+                                                        bitmapInfo: CGImageAlphaInfo.none.rawValue)
         else { return nil }
         bitmap.setFillColor(gray: 1, alpha: 1)
         bitmap.fill(CGRect(x: 0, y: 0, width: side, height: side))

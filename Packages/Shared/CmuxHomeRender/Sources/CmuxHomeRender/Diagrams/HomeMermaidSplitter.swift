@@ -20,8 +20,20 @@ public struct HomeMermaidSplitter: Sendable {
     /// join back to `text`. A text without a closed Mermaid fence is one
     /// `.text` piece (none when `text` is empty).
     public func segments(in text: String) -> [HomeTextSegment] {
-        guard !text.isEmpty else { return [] }
-        guard text.lowercased().contains("mermaid") else { return [.text(text)] }
+        split(text).segments
+    }
+
+    /// `text` cut into pieces as ``segments(in:)`` does, and whether it ends in a Mermaid fence that
+    /// is not closed yet (a diagram still streaming in), in one pass over its lines. A word
+    /// `mermaid` outside an opening fence line is no diagram.
+    ///
+    /// ```swift
+    /// HomeMermaidSplitter().split("Flow:\n```mermaid\ngraph TD").opensDiagram // true
+    /// HomeMermaidSplitter().split("I cannot draw a mermaid diagram.").opensDiagram // false
+    /// ```
+    public func split(_ text: String) -> (segments: [HomeTextSegment], opensDiagram: Bool) {
+        guard !text.isEmpty else { return ([], false) }
+        guard text.lowercased().contains("mermaid") else { return ([.text(text)], false) }
         // Lines as unicode-scalar ranges: "\r\n" is one Character, so lines split on the "\n" scalar.
         let scalars = text.unicodeScalars
         var lines: [Range<String.Index>] = []
@@ -37,16 +49,19 @@ public struct HomeMermaidSplitter: Sendable {
         }
 
         var blocks: [(open: Int, close: Int, indent: Int)] = []
+        var opensDiagram = false
         var i = 0
         while i < lines.count {
             guard let open = fence(line(i)) else { i += 1; continue }
             guard let close = ((i + 1)..<lines.count).first(where: { closes(line($0), open) }) else {
-                break // unclosed: the rest of the text is that block's (CommonMark), so it stays text
+                // Unclosed: the rest of the text is that block's (CommonMark), so it stays text.
+                opensDiagram = open.isMermaid
+                break
             }
             if open.isMermaid { blocks.append((i, close, open.indent)) }
             i = close + 1
         }
-        guard !blocks.isEmpty else { return [.text(text)] }
+        guard !blocks.isEmpty else { return ([.text(text)], opensDiagram) }
 
         var out: [HomeTextSegment] = []
         var cursor = scalars.startIndex
@@ -58,7 +73,7 @@ public struct HomeMermaidSplitter: Sendable {
             cursor = to
         }
         if cursor < scalars.endIndex { out.append(.text(String(scalars.slice(from: cursor)))) }
-        return out
+        return (out, opensDiagram)
     }
 
     /// An opening fence: indentation, fence character and length, and whether its info word is `mermaid`.

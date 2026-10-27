@@ -328,7 +328,7 @@ final class FocusEffectApplier: FocusEffectApplying {
     private func childWindowDidBecomeKey(_ child: NSWindow) {
         guard let window = controller.window, child !== window else { return }
         let devTools = paneShowingDevTools(window: child)
-        let clicked = [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(NSApp.currentEvent?.type)
+        let clicked = [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(controller.services.inputDispatch.event?.type)
         let pane = paneShowingChildWindowPage(at: child.frame)
         let decision = ChildWindowKeyRule.decide(facts(of: child, in: window, clicked: clicked, overPane: pane != nil,
                                                        isDevTools: devTools != nil))
@@ -411,9 +411,10 @@ final class FocusEffectApplier: FocusEffectApplying {
         if context.agent { next.insert(.agentPaneFocused) }
         if case .addressBar = controller.focus.state.resolved { next.insert(.omnibarFocused) }
         // The same rule as `KeyRouter.keyContext`: the focused page's id (diff, markdown, code editor).
-        switch services.keyRouter.focusedPage(in: controller)?.descriptor.id {
+        let page = services.keyRouter.focusedPage(in: controller)
+        switch page?.descriptor.id {
         case KeyRouter.diffPageID?: next.insert(.diffViewerFocused)
-        case KeyRouter.markdownPageID?: next.formUnion(.markdown(readOnly: services.viewers.markdownPages.showsReadOnly(focusedIn: controller)))
+        case KeyRouter.markdownPageID?: next.formUnion(.markdown(readOnly: page.map { services.viewers.markdownPages.showsReadOnly(on: $0) } ?? false))
         case KeyRouter.codeEditorPageID?: next.insert(.codeEditorFocused)
         default: break
         }

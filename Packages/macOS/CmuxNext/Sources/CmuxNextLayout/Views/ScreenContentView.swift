@@ -71,6 +71,8 @@ final class ScreenContentView: NSView {
     /// Each horizontal scroll area keeps its own instance of the same rules
     /// (ScreenContentView+ScrollAreas.swift).
     var areaScrolls: [SplitID: ScrollAreaScroll] = [:]
+    /// Row and scroll area motion containers, and the scrollers the layout gives one now (`+Scrollers`).
+    var scrollerContainers: [NestedScroller: ScrollerPanContainerView] = [:], wantedScrollers: Set<NestedScroller> = []
     /// Row and area offsets a remount gave before their scrolls were built (`restoreScroll`).
     var pendingScroll = LayoutScreenScroll()
     /// A row divider drag's heights, shown until the next layout arrives
@@ -257,8 +259,9 @@ final class ScreenContentView: NSView {
 
     @discardableResult
     func reconcile(animated: Bool, structural: Bool = false, unzooming: Bool = false, zooming: Bool = false) -> Bool {
-        // A layout change takes the camera from a fling on the render server: the CPU carries it on.
+        // A layout change takes the camera, rows and scroll areas from flings on the render server: the CPU carries them on.
         takeCameraFromServer()
+        takeScrollersFromServer()
         let shown = rowDragPreview.map { layout.settingRowHeights($0.heights, for: $0.column) } ?? layout
         let before = geometry
         // A new structure starts from what shows, render-server springs included (`takeRenderSpringsBack`).
@@ -270,6 +273,7 @@ final class ScreenContentView: NSView {
         reconciledScale = scale
         baseGeometry = canvasGeometry ?? ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale)
         geometry = baseGeometry.shiftingAreas(areaOffsets).shiftingRows(rowOffsets)
+        reconcileScrollerContainers() // before `hostParent` puts a new host in one
         let animate = animated && !context.reduceMotion && bounds.width > 0
         // `ui.paneAnimations` (default on): a split, a close and a released divider spring only with it on.
         let splits = animate && context.animatesPaneLayout

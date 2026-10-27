@@ -7,8 +7,9 @@ public import Darwin
 /// Nightly to come), `body` on the main thread outside ``allowBlocking(_:_:)`` or on a shared pool thread
 /// (``BlockingContext/pool``: the Swift cooperative pool, a GCD root queue) is a violation, and while a
 /// violation is recorded its wall time adds to the call site's total and maximum (`debug.blocking` prints
-/// `total_ms` and `max_ms`). On a `BackgroundWork` lane or a dedicated queue or thread it is allowed. In Release
-/// it is `body` plus the trace hook's load.
+/// `total_ms` and `max_ms`). On a dedicated queue or thread it is allowed. On a `BackgroundWork` lane that may
+/// block it is allowed unless `kind` is a sync primitive (``BlockingKind/isSyncPrimitive``), which records a
+/// ``BlockingContext/laneSync`` site, timed and never a trap. In Release it is `body` plus the trace hook's load.
 ///
 /// In every build, while a trace records the `task` category, the call is one `task.blocking_call` interval
 /// (its kind and site, plans/cmux-next/trace.md) through ``BlockingTraceHook``, as Chrome's `ScopedBlockingCall`
@@ -32,9 +33,9 @@ public import Darwin
 /// without `MayBlock()` under `ScopedDisallowBlocking`).
 ///
 /// Off the main thread and off the pool it is the trace hook's load, one `pthread_main_np()` call, one
-/// thread-specific read and at most the queue label's compare, with no clock read. On the main thread
-/// a repeat of a known site is one table probe, two clock reads around `body` and three atomic adds; an allowed
-/// call is not timed.
+/// thread-specific read and at most the queue label's compare (on a lane, one test of `kind`), with no clock read.
+/// On the main thread a repeat of a known site is one table probe, two clock reads around `body` and three atomic
+/// adds; an allowed call is not timed.
 ///
 /// ```swift
 /// let bytes = try blockingCall(.fileIO, fileID: fileID, line: line) { try Data(contentsOf: url) }
@@ -67,7 +68,7 @@ func checkedBlockingCall<Result, Failure: Error>(
 ) throws(Failure) -> Result {
     #if DEBUG || CMUX_BLOCKING_CHECKS
     guard pthread_main_np() != 0 else {
-        guard let context = BlockingContext.offMainViolation() else { return try body() }
+        guard let context = BlockingContext.offMainViolation(kind) else { return try body() }
         return try BlockingViolationTable.offMainBlockingCall(kind, in: context, fileID: fileID, line: line, body)
     }
     return try BlockingViolationTable.mainThreadBlockingCall(kind, fileID: fileID, line: line, body)
@@ -93,7 +94,7 @@ public func assertBlockingAllowed(_ kind: BlockingKind, fileID: StaticString = #
     #if DEBUG || CMUX_BLOCKING_CHECKS
     if pthread_main_np() != 0 {
         BlockingViolationTable.mainThreadBlocked(kind, fileID: fileID, line: line)
-    } else if let context = BlockingContext.offMainViolation() {
+    } else if let context = BlockingContext.offMainViolation(kind) {
         BlockingViolationTable.offMainBlocked(kind, in: context, fileID: fileID, line: line)
     }
     #endif
@@ -124,8 +125,9 @@ public func recordAwaitedLowPriorityWork(fileID: StaticString, line: UInt) {
 /// `RunLoop.run(until:)`) the scope is held back, so the other main-thread work that nested run does is
 /// still checked. Synchronous callbacks from the body itself (a notification, KVO, a delegate call)
 /// share it, as in Chrome. Off the main thread it runs `body` with the thread marked dedicated
-/// (``BlockingContext/dedicated``), so a seam in it on a pool thread is not a pool violation either. In Release
-/// builds it only runs `body`.
+/// (``BlockingContext/dedicated``), so a seam in it on a pool thread is not a pool violation, nor a sync primitive
+/// in it on a lane a lane-sync one (Chrome's `ScopedAllowBaseSyncPrimitives`). In Release builds it only runs
+/// `body`.
 ///
 /// - Parameters:
 ///   - reason: The reviewed allowance (``BlockingAllowance``); each one is listed with its reason

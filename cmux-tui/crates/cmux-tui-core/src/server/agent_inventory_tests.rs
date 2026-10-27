@@ -285,6 +285,44 @@ fn cmux_next_agent_inventory_is_refused_on_untrusted_and_remote_connections() {
     assert!(owner.methods().is_empty());
 }
 
+/// The routes are found by the line's decoded `cmd`, never by a substring of the raw
+/// line (p05-ipc-064): a `cmd` spelled with a JSON escape reaches the inventory
+/// handlers, which answer that no owner is configured.
+#[test]
+fn cmux_next_agent_inventory_routes_an_escaped_cmd_to_its_handler() {
+    let mux = Mux::new_for_test("inventory-escaped-cmd", crate::SurfaceOptions::default());
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let machine = json!(mux.machine_public_id);
+    // The JSON escape of `-`.
+    let dash = "\\u002d";
+    let lines = [
+        format!(r#"{{"id":1,"cmd":"agent{dash}inventory"}}"#),
+        format!(
+            r#"{{"id":2,"cmd":"agent-inventory{dash}refresh","expected_machine_id":{machine}}}"#
+        ),
+        format!(
+            r#"{{"id":3,"cmd":"agent-inventory{dash}watch","expected_machine_id":{machine},"enabled":true}}"#
+        ),
+    ];
+    for (index, line) in lines.iter().enumerate() {
+        assert!(handle_connection_frame(
+            &mux,
+            client,
+            ClientTransport::Unix,
+            line,
+            &writer,
+            &scheduler
+        ));
+        let reply: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(reply["id"], json!(index + 1), "{line}");
+        assert_code(&reply, "agent_inventory.unavailable");
+    }
+}
+
 #[test]
 fn cmux_next_agent_inventory_capability_and_unavailable_owner() {
     let owner = Owner::new(json!(["harnessInventory"]), snapshot());

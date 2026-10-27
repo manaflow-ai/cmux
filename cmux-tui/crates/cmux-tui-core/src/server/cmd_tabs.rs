@@ -7,7 +7,6 @@ use super::batch_close_terminals_json;
 
 use super::MutationRequest;
 use super::PaneRef;
-use super::SplitRespawnRequest;
 use super::TabRef;
 use super::close_tabs_command;
 use super::column_anchor;
@@ -25,6 +24,7 @@ use super::surface_has_view_placement;
 use super::tab_column;
 use super::tab_drag_outcome_json;
 use super::tab_group_outcome_json;
+use super::tabs_wire;
 use super::validate_client_transaction;
 use crate::Actor;
 use crate::Mux;
@@ -35,23 +35,16 @@ use crate::SurfaceId;
 use crate::WorkspaceId;
 use serde_json::Value;
 use serde_json::json;
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn new_tab(
     mux: &Arc<Mux>,
     client: u64,
     actor: Actor,
-    pane: Option<PaneId>,
-    cwd: Option<String>,
-    env: Option<BTreeMap<String, String>>,
-    cols: Option<u16>,
-    rows: Option<u16>,
-    keep: bool,
-    terminal_id: Option<String>,
-    shell_args: Option<Vec<String>>,
+    params: tabs_wire::NewTabParams,
 ) -> anyhow::Result<Value> {
+    let tabs_wire::NewTabParams { pane, cwd, env, cols, rows, keep, terminal_id, shell_args } =
+        params;
     let spawn = placement_spawn_options(
         cwd,
         env.as_ref(),
@@ -67,7 +60,7 @@ pub(super) fn new_tab(
 pub(super) fn new_conversation_tab(
     mux: &Arc<Mux>,
     client: u64,
-    params: conversation_tabs_wire::NewConversationTabParams,
+    params: tabs_wire::NewConversationTabParams,
 ) -> anyhow::Result<Value> {
     conversation_tabs_wire::create(mux, client, params)
 }
@@ -75,7 +68,7 @@ pub(super) fn new_conversation_tab(
 pub(super) fn bind_conversation_tab_session(
     mux: &Arc<Mux>,
     actor: Actor,
-    params: conversation_tabs_wire::BindSessionParams,
+    params: tabs_wire::BindConversationTabSessionParams,
 ) -> anyhow::Result<Value> {
     conversation_tabs_wire::bind(mux, &actor, params)
 }
@@ -83,7 +76,7 @@ pub(super) fn bind_conversation_tab_session(
 pub(super) fn new_frontend_browser_tab(
     mux: &Arc<Mux>,
     client: u64,
-    params: frontend_browser_history::NewTabParams,
+    params: tabs_wire::NewFrontendBrowserTabParams,
 ) -> anyhow::Result<Value> {
     frontend_browser_history::create(mux, client, params)
 }
@@ -91,7 +84,7 @@ pub(super) fn new_frontend_browser_tab(
 pub(super) fn update_frontend_browser_tab(
     mux: &Arc<Mux>,
     actor: Actor,
-    params: frontend_browser_history::UpdateTabParams,
+    params: tabs_wire::UpdateFrontendBrowserTabParams,
 ) -> anyhow::Result<Value> {
     frontend_browser_history::update(mux, &actor, params)
 }
@@ -99,11 +92,9 @@ pub(super) fn update_frontend_browser_tab(
 pub(super) fn new_browser_tab(
     mux: &Arc<Mux>,
     actor: Actor,
-    url: String,
-    pane: Option<PaneId>,
-    cols: Option<u16>,
-    rows: Option<u16>,
+    params: tabs_wire::NewBrowserTabParams,
 ) -> anyhow::Result<Value> {
+    let tabs_wire::NewBrowserTabParams { url, pane, cols, rows } = params;
     let surface = mux.new_browser_tab_as(&actor, url, pane, optional_surface_size(cols, rows))?;
     Ok(json!({ "surface": surface.id }))
 }
@@ -111,10 +102,9 @@ pub(super) fn new_browser_tab(
 pub(super) fn move_tab_to_workspace(
     mux: &Arc<Mux>,
     actor: Actor,
-    surface: SurfaceId,
-    workspace: Option<WorkspaceId>,
-    transaction: Option<String>,
+    params: tabs_wire::MoveTabToWorkspaceParams,
 ) -> anyhow::Result<Value> {
+    let tabs_wire::MoveTabToWorkspaceParams { surface, workspace, transaction } = params;
     validate_client_transaction(transaction.as_deref())?;
     mux.move_tab_to_workspace_as(&actor, surface, workspace)?;
     mux.emit_tab_changed_for_transaction(surface, transaction.map(Arc::from));
@@ -122,18 +112,20 @@ pub(super) fn move_tab_to_workspace(
     Ok(json!({"surface": surface, "workspace": workspace, "pane": pane, "undoable": false}))
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn move_tab_to_split(
     mux: &Arc<Mux>,
     client: u64,
-    surface: SurfaceId,
-    pane: PaneId,
-    edge: String,
-    ratio: Option<f32>,
-    respawn: Option<SplitRespawnRequest>,
-    keep_focus: bool,
-    transaction: Option<String>,
+    params: tabs_wire::MoveTabToSplitParams,
 ) -> anyhow::Result<Value> {
+    let tabs_wire::MoveTabToSplitParams {
+        surface,
+        pane,
+        edge,
+        ratio,
+        respawn,
+        keep_focus,
+        transaction,
+    } = params;
     validate_client_transaction(transaction.as_deref())?;
     get_surface(mux, surface)?;
     let edge = crate::TabDropEdge::parse(&edge)?;
@@ -145,7 +137,7 @@ pub(super) fn move_tab_to_split(
 pub(super) fn move_tab_to_column(
     mux: &Arc<Mux>,
     client: u64,
-    params: tab_column::MoveTabToColumnParams,
+    params: tabs_wire::MoveTabToColumnParams,
 ) -> anyhow::Result<Value> {
     tab_column::move_tab_to_column(mux, client, params)
 }
@@ -153,12 +145,11 @@ pub(super) fn move_tab_to_column(
 pub(super) fn move_tab_to_new_workspace(
     mux: &Arc<Mux>,
     actor: Actor,
-    surface: SurfaceId,
-    group: Option<String>,
-    index: Option<usize>,
-    name: Option<String>,
-    transaction: Option<String>,
+    params: tabs_wire::MoveTabToNewWorkspaceParams,
 ) -> anyhow::Result<Value> {
+    let tabs_wire::MoveTabToNewWorkspaceParams { surface, group, index, name, transaction } =
+        params;
+    let index = index.map(tabs_wire::wire_usize);
     validate_client_transaction(transaction.as_deref())?;
     get_surface(mux, surface)?;
     let workspace =
@@ -185,11 +176,10 @@ pub(super) fn move_tab_to_new_workspace(
 pub(super) fn move_tab(
     mux: &Arc<Mux>,
     actor: Actor,
-    surface: SurfaceId,
-    pane: PaneId,
-    index: usize,
-    transaction: Option<String>,
+    params: tabs_wire::MoveTabParams,
 ) -> anyhow::Result<Value> {
+    let tabs_wire::MoveTabParams { surface, pane, index, transaction } = params;
+    let index = tabs_wire::wire_usize(index);
     validate_client_transaction(transaction.as_deref())?;
     let valid = mux.with_state(|state| {
         state.surfaces.contains_key(&surface)
@@ -489,12 +479,19 @@ pub(super) fn close_surface(
 pub(super) fn close_tabs(
     mux: &Arc<Mux>,
     client: u64,
-    surfaces: Vec<TabRef>,
-    end_terminals: bool,
-    transaction: Option<String>,
-    reason: Option<crate::mux::CloseReason>,
-    mutation: MutationRequest,
+    params: tabs_wire::CloseTabsParams,
 ) -> anyhow::Result<Value> {
+    let tabs_wire::CloseTabsParams {
+        surfaces,
+        end_terminals,
+        transaction,
+        reason,
+        origin,
+        mutation_id,
+        expected_generation,
+        expected_revision,
+    } = params;
+    let mutation = MutationRequest { origin, mutation_id, expected_generation, expected_revision };
     {
         close_tabs_command::run(
             mux,
@@ -525,11 +522,11 @@ pub(super) fn rename_surface(
 pub(super) fn select_tab(
     mux: &Arc<Mux>,
     actor: Actor,
-    pane: Option<PaneId>,
-    index: Option<usize>,
-    delta: Option<isize>,
+    params: tabs_wire::SelectTabParams,
 ) -> anyhow::Result<Value> {
-    mux.select_tab_as(&actor, pane, index, delta);
+    let tabs_wire::SelectTabParams { pane, index, delta } = params;
+    let index = index.map(tabs_wire::wire_usize);
+    mux.select_tab_as(&actor, pane, index, delta.map(tabs_wire::wire_isize));
     Ok(json!({}))
 }
 

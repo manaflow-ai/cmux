@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 
 #if DEBUG || CMUX_BENCH_HOOKS
 /// `debug.filepages`: the file pages for live checks (diff-host S6, S7, R96). `{}` reports every
@@ -35,16 +36,20 @@ enum DebugFilePages {
             let context = PageCallContext(page: page.descriptor.id, userGesture: page.debugHasRecentUserGesture)
             result["gesture"] = .bool(context.userGesture)
             lastOpenLink = "pending"
-            // task-owner: one debug link call; it ends with the sheet's answer or the refusal
-            Task { @MainActor in
+            let (op, work) = (provider.kind.op("openLink"), services.mainWork)
+            // task-owner: one debug link call; it ends with the sheet's answer or the refusal.
+            // It awaits off main; the provider's call is its own main-actor work, the outcome one automation task.
+            services.work.task(.userVisible) {
+                let outcome: String
                 do {
-                    _ = try await provider.call(provider.kind.op("openLink"), params: call, context: context)
-                    lastOpenLink = "opened"
+                    _ = try await provider.call(op, params: call, context: context)
+                    outcome = "opened"
                 } catch let error as PageError {
-                    lastOpenLink = error.code
+                    outcome = error.code
                 } catch {
-                    lastOpenLink = "failed"
+                    outcome = "failed"
                 }
+                work.postFromAnyThread(.automation, owner: "debug.filepages.open_link") { lastOpenLink = outcome }
             }
         }
         if let key = params["crash_page"]?.stringValue {

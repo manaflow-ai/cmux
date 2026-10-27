@@ -4,9 +4,13 @@ import CmuxNextCompat
 ///
 /// The scheduler may start an item while a cancel or a shutdown abandons it; whichever claims it first
 /// wins, so a caller's continuation resumes exactly once and the shutdown count drops exactly once.
+/// A job made with a ``TaskTrace/Ticket`` ends its post's flow in the `task.run` slice its lane writes around the
+/// run (``traceArrival()``).
 final class LaneJob: Sendable {
     let id: UInt64
     let shutdown: ShutdownBehavior
+    /// The post's trace ticket; nil writes no flow-in.
+    private let trace: TaskTrace.Ticket?
     /// The body; it gets the level the lane runs it at (a ``WorkSequence`` may raise it past its own priority).
     private let work: @Sendable (WorkPriority) -> Void
     /// Gets the level the lane ran the body at and the body's start and end on the lane's clock, after the body
@@ -17,11 +21,13 @@ final class LaneJob: Sendable {
     // concurrency-allow: one-shot claim checked synchronously by a lane thread, a cancel handler and shutdown (lock carve-out).
     private let claimed = Mutex(false)
 
-    init(id: UInt64, shutdown: ShutdownBehavior, work: @escaping @Sendable (WorkPriority) -> Void,
+    init(id: UInt64, shutdown: ShutdownBehavior, trace: TaskTrace.Ticket? = nil,
+         work: @escaping @Sendable (WorkPriority) -> Void,
          ran: (@Sendable (_ priority: WorkPriority, _ start: UInt64, _ end: UInt64) -> Void)? = nil,
          abandoned: @escaping @Sendable () -> Void, done: @escaping @Sendable () -> Void) {
         self.id = id
         self.shutdown = shutdown
+        self.trace = trace
         self.work = work
         self.ran = ran
         self.abandoned = abandoned
@@ -38,6 +44,11 @@ final class LaneJob: Sendable {
         ran?(priority, start, end)
         done()
         return end
+    }
+
+    /// Writes the flow-in of the item's post (when it was traced), right after its lane began the `task.run` slice.
+    func traceArrival() {
+        trace?.arrive()
     }
 
     /// Gives the item up unless it has started: a waiting caller gets `CancellationError`.

@@ -14,8 +14,9 @@ public import AppKit
 /// mask of a fill layer whose `backgroundColor` is ``textColor``: the color is a layer color the
 /// render server blends from the color on screen (`ThemeRepaint`). The glyphs draw again only
 /// when what they show changes (text, font, size, scale, line settings) or a color change moves
-/// the ink to a stem weight (``GlyphMask/weight(of:)``) they were not drawn in yet; each weight's
-/// image is kept for the same text. `draw(_:)` draws the same layout for `cacheDisplay` images.
+/// the ink to a stem weight (``GlyphMask/weight(of:)``) they were not drawn in yet; the images are
+/// kept in the scope's ``GlyphMaskCache`` (equal labels draw once), else per weight for the same
+/// text. `draw(_:)` draws the same layout for `cacheDisplay` images.
 ///
 /// One text color per label: per-run colors of an attributed string draw in ``textColor``.
 /// A selectable label keeps select and copy: a mouse down puts a text view with the same layout
@@ -40,6 +41,7 @@ open class ChromeLabel: NSView {
     open var attributedStringValue: NSAttributedString {
         get { LabelText.styled(content, font: font, color: textColor) }
         set {
+            guard !hasRunAttributes || !newValue.isEqual(to: content) else { return } // the same runs: nothing to measure
             content = newValue.copy() as? NSAttributedString ?? newValue
             hasRunAttributes = true
             textDidChange()
@@ -91,8 +93,8 @@ open class ChromeLabel: NSView {
     /// The width a wrapping label measures its height at; 0: its current width.
     open var preferredMaxLayoutWidth: CGFloat = 0 { didSet { if preferredMaxLayoutWidth != oldValue { textDidChange() } } }
 
-    open var drawsBackground = false { didSet { needsDisplay = true } }
-    open var backgroundColor: NSColor? { didSet { needsDisplay = true } }
+    open var drawsBackground = false { didSet { if drawsBackground != oldValue { needsDisplay = true } } }
+    open var backgroundColor: NSColor? { didSet { if backgroundColor != oldValue { needsDisplay = true } } }
 
     /// Select and copy (a mouse down starts a selection).
     open var isSelectable = false {
@@ -135,11 +137,14 @@ open class ChromeLabel: NSView {
 
     override public init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        // A size change redraws through `setFrameSize`; the glyphs keep their pixel size meanwhile.
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         apply(LabelDefaults.label)
     }
 
     public required init?(coder: NSCoder) {
         super.init(coder: coder)
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         apply(LabelDefaults.label)
     }
 
@@ -249,14 +254,14 @@ open class ChromeLabel: NSView {
         guard changed else { return }
         if widthChanged, shape.isMultiline, preferredMaxLayoutWidth <= 0, maximumNumberOfLines != 1 { invalidateIntrinsicContentSize() }
         endSelection()
-        needsDisplay = true
+        needsDisplay = true // invalidate: the size changed (the guard above); the lines lay out again.
     }
 
     private func textDidChange() {
         measured.removeAll()
         endSelection()
         invalidateIntrinsicContentSize()
-        needsDisplay = true
+        needsDisplay = true // invalidate: the text or its shape changed (the setter's check).
     }
 
     // MARK: Drawing
@@ -264,12 +269,12 @@ open class ChromeLabel: NSView {
     /// The text color, masked by ``glyphs``.
     private let fill = CALayer()
     private let glyphs = CALayer()
-    /// What ``glyphs`` shows now and in which stem weight; a different one draws them again.
-    private var drawn: (ink: Ink, weight: Int)?
-    /// The glyph image of `drawn.ink` per stem weight: a color change between two weights (a
-    /// selected row's color and its plain one) swaps images and draws each weight once.
+    /// What ``glyphs`` shows now, in which stem weight; a different one draws them again.
+    private var drawn: GlyphMaskCache.Key?
+    /// Without a shared ``GlyphMaskCache``, the image of `drawn`'s text per stem weight: a color
+    /// change between two weights (a selected row's and its plain one) draws each weight once.
     // memory: fixed one image per GlyphMask stem step (four) of this label's own text at its size;
-    // a change of text, shape, size or scale empties it.
+    // a change of text, shape, size or scale empties it, and so does drawing through a shared cache.
     private var images: [Int: CGImage] = [:]
 
     nonisolated override open var wantsUpdateLayer: Bool { true }
@@ -293,13 +298,10 @@ open class ChromeLabel: NSView {
         let scale = window?.backingScaleFactor ?? layer.contentsScale
         if fill.frame != layer.bounds { fill.frame = layer.bounds }
         let color = textColor?.cgColor, weight = GlyphMask.weight(of: color)
-        let ink = Ink(text: inkText(color: nil), shape: shape, size: bounds.size, scale: scale)
-        guard drawn?.ink != ink || drawn?.weight != weight else { return }
-        if drawn?.ink != ink { images = [:] }
-        drawn = (ink, weight)
-        let image = images[weight] ?? glyphImage(ink, color: color)
-        images[weight] = image
-        glyphs.contents = image
+        let key = GlyphMaskCache.Key(text: inkText(color: nil), shape: shape, size: bounds.size, scale: scale, weight: weight)
+        guard drawn != key else { return }
+        glyphs.contents = glyphImage(key, color: color)
+        drawn = key
         // The image at its own pixel size, top edge on top.
         GlyphMask.place(glyphs, in: fill, scale: scale)
     }
@@ -324,25 +326,27 @@ open class ChromeLabel: NSView {
         super.viewDidChangeBackingProperties()
         measured.removeAll()
         invalidateIntrinsicContentSize()
-        needsDisplay = true
+        needsDisplay = true // invalidate: the scale changed; the glyphs measure and rasterize again.
+    }
+
+    /// The image of `key` (`color` in its stem weight): the scope's shared one, else this label's.
+    private func glyphImage(_ key: GlyphMaskCache.Key, color: CGColor?) -> CGImage? {
+        let masks = themeScope.glyphMasks
+        if masks != nil || drawn?.showsSameText(as: key) != true { images = [:] }
+        guard key.text.length > 0 else { return nil }
+        if let masks { return masks.image(for: key) { rasterize(key, color: color) } }
+        let image = images[key.weight] ?? rasterize(key, color: color)
+        images[key.weight] = image
+        return image
     }
 
     /// The glyph coverage, upright, in the text color's stem weight, at the backing scale.
-    private func glyphImage(_ ink: Ink, color: CGColor?) -> CGImage? {
-        guard ink.text.length > 0 else { return nil }
-        return GlyphMask.image(size: ink.size, scale: ink.scale, ink: color) { ctx, opaque in
-            let text = NSMutableAttributedString(attributedString: ink.text)
+    private func rasterize(_ key: GlyphMaskCache.Key, color: CGColor?) -> CGImage? {
+        GlyphMask.image(size: key.size, scale: key.scale, ink: color) { ctx, opaque in
+            let text = NSMutableAttributedString(attributedString: key.text)
             text.addAttribute(.foregroundColor, value: NSColor(cgColor: opaque) ?? .black, range: NSRange(location: 0, length: text.length))
-            LabelText.draw(text, shape: ink.shape, in: ink.size, context: ctx)
+            LabelText.draw(text, shape: key.shape, in: key.size, context: ctx)
         }
-    }
-
-    /// What the glyphs show (not their color).
-    private struct Ink: Equatable {
-        var text: NSAttributedString
-        var shape: LabelText.Shape
-        var size: CGSize
-        var scale: CGFloat
     }
 
     // MARK: Selection
@@ -370,7 +374,7 @@ open class ChromeLabel: NSView {
         view.didResign = { [weak self] in self?.endSelection(resigned: true) }
         addSubview(view)
         selection = view
-        needsDisplay = true
+        needsDisplay = true // invalidate: the selection view draws the text now; the label draws none.
         guard window.makeFirstResponder(view) else {
             endSelection(resigned: true)
             return nil
@@ -384,7 +388,7 @@ open class ChromeLabel: NSView {
         guard let view = selection else { return }
         selection = nil
         view.didResign = nil
-        needsDisplay = true
+        needsDisplay = true // invalidate: the selection ended (the guard above); the label draws its text again.
         guard resigned else {
             if window?.firstResponder === view { window?.makeFirstResponder(nil) }
             view.removeFromSuperview()
@@ -392,6 +396,7 @@ open class ChromeLabel: NSView {
         }
         // Not `isHidden`: hiding the first responder moves first responder again, inside this change.
         view.alphaValue = 0
+        // main-hop-allow: AppKit focus order: the view is resigning first responder inside the window's responder change, so it leaves one job after that change
         Task { @MainActor in view.removeFromSuperview() }
     }
 

@@ -40,6 +40,11 @@ fn main() -> std::process::ExitCode {
         println!("cmux-tui-host {}", cmux_build_identity::BUILD_IDENTITY);
         return std::process::ExitCode::SUCCESS;
     }
+    // Chromium's SetCurrentTaskDefaultRole: the holder and every terminal
+    // host carry the person's keystrokes and echo. A refusal is not fatal.
+    if let Err(error) = cmux_threads::process_role::set_default_role() {
+        eprintln!("cmux-tui-host: {error}");
+    }
     // The holder of every PTY (cmux-holder) runs from this small binary too.
     #[cfg(unix)]
     if args.first().map(String::as_str) == Some("__holder") {

@@ -1,6 +1,9 @@
 public import CmuxNextActions
 public import CmuxNextDesign
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import Foundation
 public import Observation
 
@@ -85,7 +88,7 @@ public final class SettingsController {
     private struct LoadWaiter {
         let token: UUID
         let count: Int
-        let continuation: CheckedContinuation<Void, Never>
+        let continuation: OnceContinuation<Void, OnceContinuationError>
     }
 
     /// Everything a load depends on; an unchanged input skips the apply.
@@ -154,9 +157,10 @@ public final class SettingsController {
         guard loadCount < count, !Task.isCancelled else { return }
         let token = UUID()
         await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            // A dropped waiter returns as a loaded or cancelled one does.
+            _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
                 if Task.isCancelled || loadCount >= count {
-                    continuation.resume()
+                    continuation.resume(returning: ())
                 } else {
                     loadWaiters.append(LoadWaiter(token: token, count: count, continuation: continuation))
                 }
@@ -168,7 +172,7 @@ public final class SettingsController {
 
     private func resumeWaiter(_ token: UUID) {
         guard let index = loadWaiters.firstIndex(where: { $0.token == token }) else { return }
-        loadWaiters.remove(at: index).continuation.resume()
+        loadWaiters.remove(at: index).continuation.resume(returning: ())
     }
 
     // MARK: - Writing
@@ -348,6 +352,6 @@ public final class SettingsController {
         loadCount += 1
         let ready = loadWaiters.filter { $0.count <= loadCount }
         loadWaiters.removeAll { $0.count <= loadCount }
-        ready.forEach { $0.continuation.resume() }
+        ready.forEach { $0.continuation.resume(returning: ()) }
     }
 }

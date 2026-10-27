@@ -28,4 +28,8 @@ public nonisolated struct MachineCatalogPublishRequest: DaemonRequest {
         self.sequence = sequence
         self.machines = machines
     }
+
+    enum CodingKeys: String, CodingKey {
+        case expectedMachineID = "expected_machine_id", sequence, machines
+    }
 }

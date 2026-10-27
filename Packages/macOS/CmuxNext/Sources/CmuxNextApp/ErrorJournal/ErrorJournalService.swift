@@ -73,6 +73,7 @@ final class ErrorJournalService {
     /// idle-budget.json `allowed_periodic`.
     func start() {
         guard cadence == nil else { return }
+        // timer-class-allow: off-main: each fire starts the next harvest on the cooperative pool and never wakes the main thread
         let cadence = HarvestCadence(timer: DemandTimer(owner: "ErrorJournalService.harvest", clock: clock, ledger: ledger), energy: energy)
         self.cadence = cadence
         let journal = journal, sources = sources

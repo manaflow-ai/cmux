@@ -95,7 +95,7 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
         if let task = inFlight[key] { return await task.value }
         let fetcher = fetcher
         // Fetch and decode off the main thread (an ICO or SVG decode is not free).
-        let task = Task.detached(priority: .utility) { () -> NSImage? in
+        let task = Task.detached(priority: Task.currentPriority) { () -> NSImage? in
             guard case .success(let response) = await fetcher.fetch(url) else { return nil }
             return Self.decode(response.body)
         }
@@ -166,13 +166,15 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
         guard source.size.width > 0, source.size.height > 0 else { return nil }
         let side = CGFloat(maximumPixels)
         var proposed = CGRect(x: 0, y: 0, width: side, height: side)
-        guard let best = source.cgImage(forProposedRect: &proposed, context: nil, hints: nil) else { return nil }
+        // SAFETY: `proposed` is a local rect, live for the call; AppKit reads it and may write
+        // the rect it chose back into it, nothing else.
+        guard let best = unsafe source.cgImage(forProposedRect: &proposed, context: nil, hints: nil) else { return nil }
         let scale = min(1, side / CGFloat(max(best.width, best.height)))
         let width = max(1, Int((CGFloat(best.width) * scale).rounded()))
         let height = max(1, Int((CGFloat(best.height) * scale).rounded()))
-        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        guard let context = CGContext.ownedBitmap(width: width, height: height,
+                                                  space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         context.interpolationQuality = .high
         context.draw(best, in: CGRect(x: 0, y: 0, width: width, height: height))
         return context.makeImage()

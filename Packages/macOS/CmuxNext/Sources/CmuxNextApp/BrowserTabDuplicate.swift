@@ -31,6 +31,7 @@ struct BrowserTabDuplicate {
             if !copy.restore(state), let url { copy.load(url) }
             pane.newBrowserTab(url: url, inherited: tab.browserEngine, adopting: copy, profile: profile, opener: tab.surface)
         case .chromium:
+            // main-hop-allow: the cache's Chromium configuration and page make are main-actor async; the copy opens in their resume
             pane.services.registry.track(Task { [weak pane] in
                 // The remote-localhost store of the original, as for any Chromium page.
                 let configured = await cache.chromiumConfiguration(for: tab, base: configuration)

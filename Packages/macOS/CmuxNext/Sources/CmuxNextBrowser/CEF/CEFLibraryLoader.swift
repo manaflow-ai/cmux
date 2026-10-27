@@ -34,11 +34,9 @@ nonisolated struct CEFLibraryLoader: Sendable {
         // lock for the whole map, and every main-thread dlopen/dladdr waits
         // on that lock (CEFFrameworkPrefetch).
         prefetch.readBinary(layout)
-        var message = [CChar](repeating: 0, count: 512)
         let mapStarted = clock.now
-        guard shim.load(layout.frameworkBinary.path, &message, message.count) == 1 else {
-            let text = String(decoding: message.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-            return .failure(.framework(text))
+        if let message = shim.loadFramework(layout.frameworkBinary.path) {
+            return .failure(.framework(message))
         }
         prefetch.noteMapped(clock.now - mapStarted)
         prefetch.warm(layout)

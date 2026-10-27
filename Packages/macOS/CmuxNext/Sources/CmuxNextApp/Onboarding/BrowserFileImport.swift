@@ -20,6 +20,7 @@ struct BrowserFileImport {
 
     func run(profile: String) {
         let services = services
+        // main-hop-allow: the action's tracked work awaits the person's own sheets and picker (main-actor AppKit UI), then each file's import; each step runs in its reply's resume
         services.registry.track(Task { @MainActor in
             guard let source = await Self.chooseBrowser(work: services.work), await Self.showSteps(source),
                   let urls = await services.viewers.picker.open(.init(choose: .files, allowsMultiple: true,

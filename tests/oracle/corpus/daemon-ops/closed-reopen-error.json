@@ -37,20 +37,22 @@
       },
       "args": {
         "method": "closed.reopen",
-        "params": {
-          "closed": ""
-        },
+        "params": {},
         "idempotencyKey": "closed-reopen-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "resource.not_found",
+        "errorDetails": {
+          "scope": "closed",
+          "id": "newest"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "closed breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "nothing was closed, so there is no newest closed group (closed_history.rs state_reopen_closed)"
     }
   ],
   "invariants": [

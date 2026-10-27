@@ -27,7 +27,7 @@ import Observation
 final class WindowManager {
     unowned let services: AppServices
     let registry = WindowRegistryStore()
-    private(set) var controllers: [WindowController] = [] { didSet { services.background.windowsDidChange() } } // none left: background mode (cx-ghagp)
+    private(set) var controllers: [WindowController] = [] { didSet { services.background.windowsDidChange(); services.crashKeys?.noteWindows(controllers.count) } } // none left: background mode (cx-ghagp)
     /// Per-window state by window id, for every registered window.
     var states: [String: WindowState] = [:]
     private weak var lastActive: WindowController?
@@ -49,6 +49,7 @@ final class WindowManager {
     var quietClaims: Set<String> = [], behindWindows: Set<String> = []
     /// Restored windows but the front one, not shown yet (`present`); `keepsOrder` while one shows alone.
     private var restacking: Set<String> = [], keepsOrder = false
+    // memory: fixed one 32-byte CGRect per new window that waits for its claimed workspace (`claimNew`); `makeController` takes it when the window opens
     /// Frames for windows that open once their claimed workspace arrives.
     var pendingFrames: [String: CGRect] = [:]
     /// Sidebar slots for new workspaces, applied once the daemon reports
@@ -75,6 +76,8 @@ final class WindowManager {
     /// outside the registry, then becomes the frontmost restored window (or the window of the
     /// first workspaces). Nil once it is registered.
     var launchWindowID: String?
+    /// The launch window waits for the launch snapshot's read (`restoreWhenLoaded`): a reopen meanwhile is answered by it.
+    private(set) var launchWindowWaiting = false
     /// Windows placed by `TestWindowPlacement` so far (cascade ordinal).
     private var placedWindows = 0
     private(set) var isTerminating = false
@@ -87,6 +90,17 @@ final class WindowManager {
     var onFirstWindow: ((WindowController) -> Void)?
     /// The restore's and the visible panes' startup refs (p08-startup task 013), passed to `restoreWhenLoaded`.
     private var launchPaneRefs: VisiblePaneRefs?
+    /// The restored windows behind the front one not built yet (`launchWindowsByOcclusion`, p08-startup-062):
+    /// nil when every restored window was built in the restore's turn.
+    private(set) var launchWindows: LaunchWindowQueue?
+    /// Each waiting window's membership before its first change since restore: its selection repair waits
+    /// for its build, which has the sidebar's drawn rows (close-focus.md).
+    var waitingRepairs: [String: [String]] = [:]
+    /// The launch window's saved picture as its first frame (p08-startup-059, `LaunchSnapshotWindow`); nil when the
+    /// launch shows none.
+    var launchPicture: LaunchPicturePhase?
+    /// Work that waits for the launch's session restore (``whenRestored(_:)``); nil once it ran.
+    private var restoreWaiters: [() -> Void]? = []
     /// A window installed workspace content (links opened at launch wait for it).
     var onContentDidAppear: ((WindowController) -> Void)?
     /// One-shot work for a workspace a reveal is still mounting, by window
@@ -117,6 +131,7 @@ final class WindowManager {
     /// The registry's recency (the window order, saved as `WindowRecord.order`) follows each order and key change.
     func windowDidOrder(_ window: NSWindow, inFront: Bool) {
         services.cache.hibernation?.windowsDidReorder() // an order without a key change posts nothing
+        services.windowOcclusionFamilies?.windowsDidReorder()
         if inFront { eventDidBringForward(window) }
         guard !keepsOrder, let id = controllers.first(where: { $0.window === window })?.state.id else { return }
         registry.apply { if inFront { $0.activate(id) } else { $0.moveToBack(id) }; return WindowRegistry.Changes() }
@@ -161,8 +176,21 @@ final class WindowManager {
         }
     }
 
+    /// The controller of window `windowID` when it is built; never builds one, so reads (the palette's
+    /// lists, observation passes, the window records) never build a restored window still waiting for
+    /// its launch build (``launchWindows``). A window's state is in ``states`` built or not.
     func controller(for windowID: String) -> WindowController? {
         controllers.first { $0.state.id == windowID }
+    }
+
+    /// The controller of window `windowID`, built now when it is a restored window still waiting for its
+    /// launch build: only for a person's or a script's act in that window (show, reveal, focus, reopen,
+    /// a CLI target), as Chrome loads a restored tab once it is activated, ahead of its `TabLoader` turn
+    /// (chrome/browser/sessions/tab_loader.cc).
+    func controllerBuildingIfWaiting(for windowID: String) -> WindowController? {
+        if let built = controller(for: windowID) { return built }
+        guard launchWindows?.take(windowID) == true else { return nil }
+        return buildWaitingWindow(windowID)
     }
 
     /// The window's state, created on first use.
@@ -175,29 +203,40 @@ final class WindowManager {
 
     // MARK: Restore
 
-    /// Opens one window at once (from the launch snapshot, else in the
-    /// connecting state, outside the registry), then restores the saved
+    /// Opens one window once the launch snapshot's read has ended, never waiting (from the snapshot, else in the
+    /// connecting state, outside the registry; p08-startup-074), then restores the saved
     /// windows once the first live snapshot arrives, the launch window
     /// becoming the frontmost. Creates a workspace only for an empty tree. `paneRefs` (the app's
     /// launch; nil in tests) are released at the end of the restore (`VisiblePaneRefs.finishRestore`).
     func restoreWhenLoaded(paneRefs: VisiblePaneRefs? = nil) {
         if let paneRefs { launchPaneRefs = paneRefs }
         registry.isLaunching = !restored
-        if controllers.isEmpty, !LaunchSnapshotWindow(manager: self).show() {
-            let id = UUID().uuidString.lowercased()
-            launchWindowID = id
-            makeController(for: WindowRegistry.Window(id: id))
-        }
-        let store = services.daemon.store, work = services.work
+        launchWindowWaiting = true
+        services.daemon.launchSnapshot.whenSettled { [weak self] in self?.openThenRestore() }
+    }
+
+    private func openThenRestore() {
+        launchWindowWaiting = false
+        LaunchSnapshotWindow(manager: self).openLaunchWindow()
+        let store = services.daemon.store
         // The restore awaits the saved window state off main; `restore` runs once (`restored`).
         loadObservation = ServiceObservation(.visible, owner: "WindowManager.restoreWhenLoaded", on: services.mainWork) {
             store.isLoaded
         } apply: { [weak self] loaded in
             guard loaded, let self, !restored else { return }
             loadObservation?.cancel()
-            work.task(.userBlocking) { [weak self] in await self?.restore() }
+            // The restore adopts the launch window's controller, which a picture shown alone has not built yet.
+            guard let launchPicture else { return startRestore() }
+            launchPicture.whenBuilt { [weak self] in self?.startRestore() }
         }
     }
+
+    private func startRestore() {
+        services.work.task(.userBlocking) { [weak self] in await self?.restore() }
+    }
+
+    /// Runs `work` once the launch's session restore finished (the saved windows back, the launch window adopted or closed).
+    func whenRestored(_ work: @escaping () -> Void) { if restoreWaiters == nil { work() } else { restoreWaiters?.append(work) } }
 
     private func restore() async {
         guard !restored else { return }
@@ -240,6 +279,7 @@ final class WindowManager {
         }
         // Restored windows but the front one come back at their saved place, in any content arrival order.
         restacking = Set(registry.value.recency.filter { registry.value.window($0)?.isOpen == true }.dropFirst())
+        scheduleLaunchBuilds()
         sync(previous: [:])
         // Registered now (it received workspaces): an ordinary window. If
         // it has none (the daemon failed to create one), it keeps showing
@@ -262,10 +302,59 @@ final class WindowManager {
         FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // its New Tab page, not Home
         launchPaneRefs?.finishRestore(of: self)
         launchPaneRefs = nil
+        let waiting = restoreWaiters ?? []
+        restoreWaiters = nil
+        for work in waiting { work() }
         // Classic cmux's session comes over once, after restore so the restored
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)
         Task { await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace) }
+    }
+
+    /// The restored windows behind the front one build by what shows of them, not all in the restore's
+    /// turn (`launchWindowsByOcclusion`, p08-startup-062): one that no window in front covers, on a
+    /// connected display, in its own afterFirstFrame post; a covered or off-screen one at afterStartup.
+    /// The front window (the adopted launch window, else the first open one) builds now, and so does a
+    /// window saved in full screen: it enters full screen once restore finished, which moves the display
+    /// to its Space, so it does that at launch, never later under a person already at work.
+    ///
+    /// - Parameters:
+    ///   - screens: The connected displays' frames.
+    ///   - appHidden: Whether the app is hidden (nothing shows).
+    func scheduleLaunchBuilds(screens: [CGRect] = NSScreen.screens.map(\.frame), appHidden: Bool = NSApp.isHidden) {
+        guard services.features.isEnabled(.launchWindowsByOcclusion), services.environment.testWindow == nil,
+              let startup = services.launchStartup else { return }
+        let value = registry.value
+        let open = value.recency.compactMap { value.window($0) }.filter(\.isOpen)
+        let live = open.map(\.id).filter { self.controller(for: $0) != nil }
+        var built = Set(live.isEmpty ? open.prefix(1).map(\.id) : live)
+        built.formUnion(open.lazy.map(\.id).filter { self.states[$0]?.restoresFullScreen == true })
+        let saved = open.map { window in
+            LaunchWindowVisibility.Saved(id: window.id, frame: window.frame.map { WindowPlacementFallback.visible($0, display: window.display) },
+                                         onActiveSpace: states[window.id]?.restoresFullScreen != true)
+        }
+        let visibility = LaunchWindowVisibility(screens: screens, rule: WindowOcclusionRule(appHidden: appHidden))
+        let queue = launchWindows ?? LaunchWindowQueue(startup: startup) { [weak self] id in self?.buildLaunchWindow(id) }
+        if queue.schedule(visibility.split(saved, built: built)) { launchWindows = queue }
+    }
+
+    /// A restored window's launch post: builds it unless it closed or was built meanwhile.
+    private func buildLaunchWindow(_ id: String) {
+        guard controller(for: id) == nil else { return }
+        buildWaitingWindow(id)
+    }
+
+    /// Builds a restored window that waited for its launch build, then repairs its selection with its
+    /// sidebar's drawn rows, the repair ``repairSelections(previous:preferred:)`` left for it.
+    @discardableResult
+    private func buildWaitingWindow(_ id: String) -> WindowController? {
+        let previous = waitingRepairs.removeValue(forKey: id)
+        guard let window = registry.value.window(id), window.isOpen else { return nil }
+        let controller = makeController(for: window)
+        let shown = controller.state.workspaceID
+        repairSelection(of: window, previous: previous ?? window.workspaceIDs)
+        if controller.state.workspaceID != shown { controller.showWorkspace(requested: controller.state.workspaceID) }
+        return controller
     }
 
     /// The launch window takes the frontmost saved window's identity and
@@ -293,9 +382,10 @@ final class WindowManager {
 
     // MARK: Controllers
 
-    /// Creates the controller of registered window `id`.
+    /// Creates the controller of registered window `id`, in `premade` when the launch showed that window's saved
+    /// picture before it had a controller (`LaunchSnapshotWindow`).
     @discardableResult
-    func makeController(for window: WindowRegistry.Window) -> WindowController {
+    func makeController(for window: WindowRegistry.Window, in premade: ShellWindow? = nil) -> WindowController {
         let state = state(for: window.id)
         if state.machineID != MachineRegistry.localID { services.cloudNeeded() }  // a Cloud machine's window, restored ones too
         var frame = (window.frame ?? pendingFrames.removeValue(forKey: window.id)).map { WindowPlacementFallback.visible($0, display: window.display) }
@@ -304,21 +394,21 @@ final class WindowManager {
             frame = placed
             placedWindows += 1
         }
-        let controller = WindowController(state: state, services: services, frame: frame)
+        let controller = WindowController(state: state, services: services, frame: frame, window: premade)
         controller.focus.overlayChanges = services.overlayChanges
         if let window = controller.window { WindowOverlayHost.host(for: window).changes = services.overlayChanges }
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
         SidebarTabRowHandoff.install(on: controller, session: services.dragSession)
         controllers.append(controller)
-        // Its content goes in before it is ordered in (the launch snapshot's workspace, else the
-        // connecting state), so its first frame on screen draws it, never the backdrop alone; the
-        // controller's own observer would install it a main-actor hop later.
-        controller.showWorkspace(requested: state.workspaceID)
-        // A window none of whose workspaces is mirrored yet stays off screen
-        // until `contentDidAppear` (never an empty frame). The launch window
-        // (no workspaces) shows the connecting state at once.
-        if controller.content != nil || hasMirroredWorkspace(window) || window.workspaceIDs.isEmpty {
+        // Its content goes in before it is ordered in (the launch snapshot's workspace, else the connecting state), so
+        // its first frame on screen draws it, never the backdrop alone; the controller's own observer would install
+        // it a main-actor hop later. The launch picture's window is on screen already, its picture over it: its
+        // content is built behind the picture in slices (`LaunchSnapshotWindow`, p08-startup-060).
+        if premade == nil { controller.showWorkspace(requested: state.workspaceID) }
+        // A window none of whose workspaces is mirrored yet stays off screen until `contentDidAppear` (never an
+        // empty frame). The launch window (no workspaces) shows the connecting state at once.
+        if premade != nil || controller.content != nil || hasMirroredWorkspace(window) || window.workspaceIDs.isEmpty {
             present(controller)
         } else {
             awaitingContent[window.id] = false
@@ -326,6 +416,7 @@ final class WindowManager {
         if controllers.count == 1 { onFirstWindow?(controller) }
         return controller
     }
+
 
     /// True when a machine reports at least one of `window`'s workspaces.
     func hasMirroredWorkspace(_ window: WindowRegistry.Window) -> Bool {

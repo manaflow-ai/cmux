@@ -49,8 +49,8 @@ struct PageCrashGroupTests {
     private func makeHost(lifecycle: Bool, rig: LifecycleDeadlineRig, renderers: Renderers = Renderers(),
                           chromium: FakeChromiumHosting? = nil, chromiumGroups: Bool = false) -> WebUIHost {
         let host = WebUIHost(chromium: chromium, openPanel: nil,
-                             memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()),
-                             clock: PageTestClock.never)
+                             memory: QuietMemoryRegistry(),
+                             deadlines: LifecycleDeadlineRig.never)
         if lifecycle { host.lifecycle = PageLifecycle(deadlines: rig.scheduler) }
         host.crashGroups = PageCrashGroups(chromiumSharesByGroup: chromiumGroups) { renderers.ids[ObjectIdentifier($0)] }
         return host
@@ -351,13 +351,17 @@ struct PageCrashGroupTests {
             let renderer = PageRendererID.webKit(pid: Int32(100 + crash))
             let at = start + Double(crash) * 60
             for page in 0..<5 {
-                #expect(budget.shouldReload(at: at + Double(page) * 10, renderer: renderer), "crash \(crash), page \(page)")
+                // `shouldReload` is mutating: read it before `#expect`, which passes its subject immutably.
+                let reloads = budget.shouldReload(at: at + Double(page) * 10, renderer: renderer)
+                #expect(reloads, "crash \(crash), page \(page)")
             }
         }
         #expect(budget.allowsReload(at: start + 200))
         let fourth = start + 240
-        #expect(!budget.shouldReload(at: fourth, renderer: .webKit(pid: 103)))
-        #expect(!budget.shouldReload(at: fourth + 30, renderer: .webKit(pid: 103)), "a page of the 4th death reloaded")
+        let fourthDeath = budget.shouldReload(at: fourth, renderer: .webKit(pid: 103))
+        let fourthDeathLater = budget.shouldReload(at: fourth + 30, renderer: .webKit(pid: 103))
+        #expect(!fourthDeath)
+        #expect(!fourthDeathLater, "a page of the 4th death reloaded")
         #expect(!budget.allowsReload(at: fourth + 31))
     }
 

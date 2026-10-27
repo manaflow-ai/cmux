@@ -41,7 +41,7 @@ struct PageWebKitAbsenceTests {
     }
 
     private func makeHost(_ hosting: FakeChromiumHosting) -> WebUIHost {
-        WebUIHost(chromium: hosting, openPanel: nil, memory: QuietMemoryRegistry(), clock: PageTestClock.never)
+        WebUIHost(chromium: hosting, openPanel: nil, memory: QuietMemoryRegistry(), deadlines: LifecycleDeadlineRig.never)
     }
 
     @Test func aChromiumPageHasNoWebKitViewBeforeOrAfterItAttaches() async throws {
@@ -68,7 +68,7 @@ struct PageWebKitAbsenceTests {
         let agentRoot = try #require(Self.agentRoot)
         let hosting = FakeChromiumHosting()
         let groups = WebProcessGroups()
-        let host = WebUIHost(chromium: hosting, openPanel: nil, memory: QuietMemoryRegistry(), clock: PageTestClock.never,
+        let host = WebUIHost(chromium: hosting, openPanel: nil, memory: QuietMemoryRegistry(), deadlines: LifecycleDeadlineRig.never,
                              processGroups: groups)
         let options = PageEngineOptions(chromiumAgentChat: true, sharesWebKitProcess: true)
         let view = try #require(host.open(PageOpenRequest(descriptor: agent, root: agentRoot, routes: [], options: options)))
@@ -120,7 +120,7 @@ struct PageWebKitAbsenceTests {
         let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [], route: "#/c")))
         defer { host.close(view) }
         view.fileDrop = PageFileDrop(accepts: { _ in true }) { _ in }
-        let window = PageHostPoolLaunchWindowTests.shownWindow()
+        let window = PagePreloadPageTests.shownWindow()
         defer { window.close() }
         window.contentView?.addSubview(view)
         view.focusPage()

@@ -1,6 +1,8 @@
 import CmuxNextBrowser
 public import CmuxNextWakeups
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Load states in order; a wait for one is met by it or any later one.
 public nonisolated enum LoadState: Int, Comparable, Sendable {
@@ -196,11 +198,13 @@ final class LoadWaits {
         if ticket.navigation != nil, !started, loadingEnds > ticket.loadingEnds { return }
         if ticket.navigation == nil, generation > ticket.generation, let state, state >= target { return }
         let id = UUID()
-        let result: Result<Void, DriverError> = await withCheckedContinuation { continuation in
+        // A wait dropped unanswered (abandoned: the tab's waits went away) is a closed tab.
+        try await withOnceContinuation(failingWith: { _ in DriverError(.closed, "\(what): the tab closed") }) {
+            (continuation: OnceContinuation<Void, DriverError>) in
             let timer = timeout.map { _ in DemandTimer(owner: "BrowserAutomation.loadWait") }
             waits[id] = Wait(target: target, navigation: ticket.navigation, followsNextNavigation: false, started: started,
                              requestedURL: ticket.requestedURL, generation: ticket.generation, timer: timer) {
-                continuation.resume(returning: $0)
+                continuation.resume(with: $0)
             }
             if let timer, let timeout {
                 timer.schedule(after: timeout) { [weak self] in
@@ -208,7 +212,6 @@ final class LoadWaits {
                 }
             }
         }
-        try result.get()
     }
 
     /// Fails every pending wait (the tab closed or crashed).

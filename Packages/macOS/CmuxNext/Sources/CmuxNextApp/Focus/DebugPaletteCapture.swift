@@ -33,8 +33,9 @@ enum DebugPaletteCapture {
     /// the window server call off the main thread).
     static func capture(_ panel: NSWindow, to path: String, windowImage: (CGWindowID) async -> CGImage?) async -> JSONValue {
         guard let view = panel.contentView else { return .object(["error": .string("the palette is not open")]) }
+        // sync-layout: the capture below reads the panel's laid-out, drawn content.
         view.layoutSubtreeIfNeeded()
-        view.displayIfNeeded()
+        view.displayIfNeeded() // sync-layout: the capture below reads the drawn panel.
         // The composited window (glass included). A process may capture its
         // own windows without a Screen Recording grant.
         if let image = await windowImage(CGWindowID(panel.windowNumber)), image.width > 1 {
@@ -43,9 +44,9 @@ enum DebugPaletteCapture {
         guard let drawn = panel.renderSnapshot()?.cgImage else { return .object(["error": .string("no image")]) }
         let size = view.bounds.size
         let scale = panel.backingScaleFactor
-        guard let context = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8,
-                                      bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        guard let context = CGContext.bitmapOwningPixels(width: Int(size.width * scale), height: Int(size.height * scale),
+                                                         space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return .object(["error": .string("no bitmap context")]) }
         context.scaleBy(x: scale, y: scale)
         let dark = panel.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua

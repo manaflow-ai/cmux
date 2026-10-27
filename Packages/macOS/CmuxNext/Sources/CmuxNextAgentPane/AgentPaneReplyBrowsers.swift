@@ -1,5 +1,7 @@
 public import AppKit
 import CmuxNextCompat
+public import CmuxNextWakeups
+import CmuxNextPages
 public import Foundation
 
 /// The installed web browsers for a preview card's "Open in" menu (decision D6). The page gets
@@ -17,20 +19,34 @@ public import Foundation
     func open(_ url: URL, withApplicationAt app: URL)
 }
 
+/// The installed browsers over Launch Services. The list and the icons are answers kept by the app's
+/// ``WorkspaceQueries`` (the link menus share the list): asked on the system lane when this is made, so a card reads
+/// them kept. A card opened before they land lists what is kept and asks for the rest.
 @MainActor public final class AgentPaneWorkspaceBrowsers: AgentPaneBrowserApps {
+    private let queries: WorkspaceQueries?
     private let workspace: NSWorkspace
 
-    public init(workspace: NSWorkspace = .shared) {
+    /// - Parameters:
+    ///   - queries: The app's Launch Services answers; nil lists no browser.
+    ///   - workspace: Opens the chosen browser, off the main thread.
+    public init(queries: WorkspaceQueries?, workspace: NSWorkspace = .shared) {
+        self.queries = queries
         self.workspace = workspace
+        warm()
+    }
+
+    /// Asks for the browser list and, when it lands, their icons.
+    private func warm() {
+        queries?.value(Self.list, priority: .bestEffort) { [weak self] apps in
+            self?.queries?.prefetch(apps.prefix(16).map { Self.iconPNGQuery($0) }, priority: .bestEffort)
+        }
     }
 
     public func applications() -> [URL] {
-        guard let probe = URL(string: "https://example.com/") else { return [] }
-        var apps = workspace.urlsForApplications(toOpen: probe)
-        if let preferred = workspace.urlForApplication(toOpen: probe), let index = apps.firstIndex(of: preferred) {
-            apps.insert(apps.remove(at: index), at: 0)
-        }
-        return apps
+        guard let queries else { return [] }
+        if let kept = queries.cached(Self.list) { return kept }
+        warm()
+        return []
     }
 
     public func displayName(of app: URL) -> String {
@@ -38,16 +54,32 @@ public import Foundation
     }
 
     public func iconPNG(of app: URL) -> Data? {
-        let icon = workspace.icon(forFile: app.path)
-        let side = 32
-        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side, bitsPerSample: 8,
-                                         samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
-                                         bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-        icon.draw(in: NSRect(x: 0, y: 0, width: side, height: side))
-        NSGraphicsContext.restoreGraphicsState()
-        return rep.representation(using: .png, properties: [:])
+        guard let queries else { return nil }
+        let query = Self.iconPNGQuery(app)
+        if let kept = queries.cached(query) { return kept }
+        queries.prefetch([query], priority: .userVisible)
+        return nil
+    }
+
+    /// The apps that open https links, the default first (the link menus' list).
+    nonisolated static var list: WorkspaceQuery<[URL]> { LinkMenu.browsers(scheme: "http", own: Bundle.main.bundleURL) }
+
+    /// `app`'s icon as a PNG of about 32 px, drawn on the system lane into a bitmap of its own.
+    nonisolated static func iconPNGQuery(_ app: URL) -> WorkspaceQuery<Data?> {
+        WorkspaceQuery(id: "agentPane.browserIconPNG." + app.path, refreshes: false) { system in
+            let icon = system.fileIcon(atPath: app.path)
+            let side = 32
+            guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side, bitsPerSample: 8,
+                                             samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                             bytesPerRow: 0, bitsPerPixel: 0),
+                  let context = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+            NSGraphicsContext.saveGraphicsState()
+            defer { NSGraphicsContext.restoreGraphicsState() }
+            NSGraphicsContext.current = context
+            icon.draw(in: NSRect(x: 0, y: 0, width: side, height: side))
+            context.flushGraphics()
+            return rep.representation(using: .png, properties: [:])
+        }
     }
 
     public func open(_ url: URL, withApplicationAt app: URL) {

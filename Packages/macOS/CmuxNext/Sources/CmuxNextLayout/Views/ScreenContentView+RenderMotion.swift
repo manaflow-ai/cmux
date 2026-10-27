@@ -273,11 +273,11 @@ extension ScreenContentView {
         if springStripContainer(from: strip, velocity: stripVelocity, on: spring, landed: landed) { renderTracks.strip = true }
         // Each divider is a layer on the panes' spring (p03-rendering-024): the one placement path puts it at
         // rest (frame, alpha, hidden state, clips), its one frame set before it lands.
-        let placement = ScreenDividers(screen: self), uncovered = uncoveredRect
+        let placement = ScreenDividers(screen: self), uncovered = uncoveredRect, laidOutStrip = geometry.viewShift(offset: layoutOffset)
         let placed = SplitMotion.placeAtRest(panes, laysOut: laysOut, context: context) {
             for (kind, move) in dividers {
                 guard let view = dividerViews[kind] else { continue }
-                placement.place(view, kind, at: move.to, alpha: move.toAlpha, uncovered: uncovered, force: true)
+                placement.place(view, kind, at: move.to, alpha: move.toAlpha, strip: laidOutStrip, uncovered: uncovered, force: true)
             }
         }
         for (pane, host, move) in placed {

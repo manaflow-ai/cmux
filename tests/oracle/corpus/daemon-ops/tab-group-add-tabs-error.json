@@ -49,6 +49,68 @@
       }
     },
     {
+      "id": "fx-split",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id",
+        "screen": "$step:fx-workspace#/value/screen_id",
+        "pane": "$step:fx-workspace#/value/pane_id"
+      },
+      "args": {
+        "method": "pane.split",
+        "params": {
+          "direction": "right"
+        },
+        "idempotencyKey": "tab-group-add-tabs-error.fx-split"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "fx-tab-group",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "tab_group.create",
+        "params": {
+          "tabs": [
+            "$step:fx-workspace#/value/tab_id"
+          ],
+          "name": "oracle"
+        },
+        "idempotencyKey": "tab-group-add-tabs-error.fx-tab-group"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "pin",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "tab": "$step:fx-split#/value/tab_id"
+      },
+      "args": {
+        "method": "tab.pin",
+        "params": {},
+        "idempotencyKey": "tab-group-add-tabs-error.pin"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -58,22 +120,25 @@
       "args": {
         "method": "tab_group.add_tabs",
         "params": {
-          "tab_group": "",
+          "tab_group": "$step:fx-tab-group#/value/id",
           "tabs": [
-            "$step:fx-workspace#/value/tab_id"
+            "$step:fx-split#/value/tab_id"
           ]
         },
         "idempotencyKey": "tab-group-add-tabs-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "validation.invalid",
+        "errorDetails": {
+          "reason": "pinned tabs cannot be grouped"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "tab_group breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a pinned tab cannot join a group (tab_groups.rs tab_group_add); the group keeps its members"
     }
   ],
   "invariants": [

@@ -34,7 +34,7 @@ extension CEFEngine {
         try await startRuntime(trigger: "passkeys")
         guard let shim = Self.passkeyShim(), !credentialID.isEmpty else { throw ChromiumPasskeyError.unavailable }
         let reply = try await CEFRuntime.shared.profileWrite(profile, label: "passkey delete", timeout: Self.passkeyTimeout) { path, id in
-            credentialID.withCString { shim.passkeyDelete(path, $0, id) }
+            shim.passkeyDelete(path, credentialID, id)
         }
         return reply.value == 1
     }

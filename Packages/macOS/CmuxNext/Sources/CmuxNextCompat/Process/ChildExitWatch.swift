@@ -52,7 +52,8 @@ public struct ChildExitWatch: Sendable {
         var status: Int32 = 0
         var result: pid_t
         // wakeup-allow: one non-blocking poll, retried only when a signal interrupts it.
-        repeat { result = waitpid(pid, &status, WNOHANG) } while result == -1 && errno == EINTR
+        // SAFETY: waitpid writes one Int32 status into `status`, a local.
+        repeat { result = unsafe waitpid(pid, &status, WNOHANG) } while result == -1 && errno == EINTR
         if result == 0 { return nil }
         if result == -1 { logFailure(pid, errno) }
         return .some(result == pid ? status : nil)
@@ -65,7 +66,8 @@ public struct ChildExitWatch: Sendable {
         var result: pid_t
         // wakeup-allow: on the reap queue after the exit event, so the status is collectable at once; retried only
         // when a signal interrupts it.
-        repeat { result = blockingWaitpid(pid, &status, 0) } while result == -1 && errno == EINTR
+        // SAFETY: waitpid writes one Int32 status into `status`, a local.
+        repeat { result = unsafe blockingWaitpid(pid, &status, 0) } while result == -1 && errno == EINTR
         if result == -1 { logFailure(pid, errno) }
         return result == pid ? status : nil
     }

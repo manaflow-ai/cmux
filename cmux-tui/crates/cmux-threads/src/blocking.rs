@@ -17,6 +17,13 @@
 //!   [`register_own_descriptor`] before it disallowed blocking.
 //! - [`BlockingKind::IpcReply`] has no allowance: a cross-process round trip on
 //!   a disallowed thread is always a violation.
+//! - [`with_sync_primitives_disallowed`] (Chrome's
+//!   `ScopedDisallowBaseSyncPrimitives`) lets a thread block on I/O but not
+//!   wait for other work ([`BlockingKind::is_sync_primitive`]): each
+//!   [`crate::work`] item runs under it, as Chrome's task_tracker.cc runs a
+//!   `MayBlock()` task without `WithBaseSyncPrimitives()`. Such a wait is a
+//!   `lane-sync` site ([`BlockingSite::lane_sync`]), recorded and never a
+//!   panic, as the app records its lane-sync sites.
 //!
 //! A violation records its call site in a 256-site table (plus an overflow
 //! count) in every build. Debug also panics at the caller's location, as
@@ -117,6 +124,14 @@ impl BlockingKind {
         }
     }
 
+    /// Whether the kind waits for another thread to act: a channel receive,
+    /// a join or a condition-variable wait (Chrome's base sync primitives:
+    /// `WaitableEvent`, `ConditionVariable`, `PlatformThread::Join`). A work
+    /// item may block on I/O but not on these.
+    pub const fn is_sync_primitive(self) -> bool {
+        matches!(self, Self::Recv | Self::Join | Self::CondvarWait)
+    }
+
     const fn bit(self) -> u16 {
         1 << self as u8
     }
@@ -163,18 +178,21 @@ pub use mode::{BlockingMode, MODE_ENV, mode, set_mode, with_mode};
 
 /// Per-thread restriction state in one word, so the check is one TLS read and
 /// one AND. Bits 0-15: the kinds denied now, derived from the fields above
-/// them. Bit 16: blocking disallowed. Bits 17-18: the active allowance.
+/// them. Bit 16: blocking disallowed. Bits 17-18: the active allowance. Bit
+/// 19: sync primitives disallowed.
 #[derive(Clone, Copy)]
 struct ThreadState(u32);
 
 impl ThreadState {
     const DISALLOWED: u32 = 1 << 16;
     const ALLOW_SHIFT: u32 = 17;
+    const SYNC_DISALLOWED: u32 = 1 << 19;
 
-    fn new(disallowed: bool, allowance: Option<AllowReason>) -> Self {
+    fn new(disallowed: bool, sync_disallowed: bool, allowance: Option<AllowReason>) -> Self {
         let denied = BlockingKind::ALL
             .into_iter()
-            .filter(|kind| disallowed && !allowance.is_some_and(|reason| reason.permits(*kind)))
+            .filter(|kind| disallowed || (sync_disallowed && kind.is_sync_primitive()))
+            .filter(|kind| !allowance.is_some_and(|reason| reason.permits(*kind)))
             .fold(0, |mask, kind| mask | u32::from(kind.bit()));
         let allowance_bits = match allowance {
             None => 0,
@@ -182,11 +200,16 @@ impl ThreadState {
             Some(AllowReason::OwnDescriptor) => 2,
         };
         let disallowed_bit = if disallowed { Self::DISALLOWED } else { 0 };
-        Self(denied | disallowed_bit | (allowance_bits << Self::ALLOW_SHIFT))
+        let sync_bit = if sync_disallowed { Self::SYNC_DISALLOWED } else { 0 };
+        Self(denied | disallowed_bit | sync_bit | (allowance_bits << Self::ALLOW_SHIFT))
     }
 
     const fn disallowed(self) -> bool {
         self.0 & Self::DISALLOWED != 0
+    }
+
+    const fn sync_disallowed(self) -> bool {
+        self.0 & Self::SYNC_DISALLOWED != 0
     }
 
     const fn allowance(self) -> Option<AllowReason> {
@@ -198,11 +221,11 @@ impl ThreadState {
     }
 
     fn with_allowance(self, reason: AllowReason) -> Self {
-        Self::new(self.disallowed(), Some(reason))
+        Self::new(self.disallowed(), self.sync_disallowed(), Some(reason))
     }
 
     fn with_disallowed(self) -> Self {
-        Self::new(true, self.allowance())
+        Self::new(true, self.sync_disallowed(), self.allowance())
     }
 
     #[inline]
@@ -241,7 +264,22 @@ pub fn disallow_blocking() {
 /// `ScopedDisallowBlocking`), for work items that must not block. The
 /// innermost scope wins: an outer allowance does not apply inside `f`.
 pub fn with_blocking_disallowed<R>(f: impl FnOnce() -> R) -> R {
-    scoped_state(|_| ThreadState::new(true, None), f)
+    scoped_state(|_| ThreadState::new(true, false, None), f)
+}
+
+/// Forbids waits for other work ([`BlockingKind::is_sync_primitive`]) on the
+/// current thread while `f` runs, other blocking still allowed (Chrome's
+/// `ScopedDisallowBaseSyncPrimitives`). Each [`crate::work`] item runs under
+/// it. Such a wait records a `lane-sync` site and never panics. The innermost
+/// scope wins: an outer allowance does not apply inside `f`.
+pub fn with_sync_primitives_disallowed<R>(f: impl FnOnce() -> R) -> R {
+    scoped_state(|state| ThreadState::new(state.disallowed(), true, None), f)
+}
+
+/// Whether waits for other work are disallowed on the current thread
+/// (ignoring allowances): inside a [`crate::work`] item.
+pub fn is_sync_primitives_disallowed() -> bool {
+    STATE.with(Cell::get).sync_disallowed()
 }
 
 /// Whether blocking is disallowed on the current thread (ignoring allowances).
@@ -310,20 +348,52 @@ pub fn scoped_blocking_call<R>(kind: BlockingKind, f: impl FnOnce() -> R) -> R {
     f()
 }
 
-/// Records the violation; true when it is the first at its site.
+/// Records the violation; true when it is the first at its site. A thread
+/// that only disallows sync primitives (a work item) records a `lane-sync`
+/// site and never panics.
 #[cold]
 #[inline(never)]
 fn violation(kind: BlockingKind, location: &'static Location<'static>) -> bool {
-    let first_at_site = note_violation(&SITES, report::site_report(), kind, location);
+    let lane_sync = !STATE.with(Cell::get).disallowed();
+    let first_at_site = note_violation(&SITES, report::site_report(), kind, location, lane_sync);
     // Chrome's DCHECK: fails only in Panic mode, and Release compiles it out.
     debug_assert!(
-        mode() == BlockingMode::Record || std::thread::panicking(),
+        lane_sync || mode() == BlockingMode::Record || std::thread::panicking(),
         "cmux_threads: blocking call ({}) at {location} on thread '{}', which disallows blocking",
         kind.as_str(),
         std::thread::current().name().unwrap_or("<unnamed>"),
     );
     first_at_site
 }
+
+/// Records a [`BlockingKind::PriorityInversion`] site at `location`: a
+/// thread waited on work sent from a thread of lower QoS ([`crate::sync`]).
+/// Record only, in every mode and on every thread, as a lane-sync site is:
+/// the wait is allowed, the QoS pairing is the finding.
+#[cfg(debug_assertions)]
+#[cold]
+#[inline(never)]
+pub(crate) fn note_priority_inversion(location: &'static Location<'static>) {
+    note_violation(&SITES, report::site_report(), BlockingKind::PriorityInversion, location, false);
+}
+
+/// Records a [`BlockingKind::LockWait`] site at `location` when the current
+/// thread may not wait for a lock: a lock timed by its caller waited past
+/// the budget ([`crate::lock_wait::note_timed_lock_wait`]). Record only, in
+/// every mode, as a priority-inversion site is: the wait is over, and
+/// whether it passed the budget depends on scheduling.
+#[cold]
+#[inline(never)]
+pub(crate) fn note_long_lock_wait(location: &'static Location<'static>) {
+    if !STATE.with(Cell::get).permits(BlockingKind::LockWait) {
+        note_violation(&SITES, report::site_report(), BlockingKind::LockWait, location, false);
+    }
+}
+
+#[cfg(debug_assertions)]
+mod long_wait;
+#[cfg(debug_assertions)]
+pub(crate) use long_wait::{denies, note_long_wait};
 
 #[cfg(unix)]
 const NO_OWN_FD: std::os::fd::RawFd = -1;
@@ -469,6 +539,9 @@ pub struct BlockingSite {
     pub column: u32,
     pub kinds: BlockingKinds,
     pub count: u64,
+    /// Whether a work item's wait for other work reached the site (the
+    /// `lane-sync` context, [`with_sync_primitives_disallowed`]).
+    pub lane_sync: bool,
 }
 
 /// The recorded sites, most frequent first, and the violations that found the
@@ -756,17 +829,86 @@ mod tests {
         assert_eq!(mode(), BlockingMode::Record);
     }
 
+    /// Sync primitives disallowed (a work item, task p02-threads-119): the
+    /// waits for other work are denied, any other blocking is allowed, a
+    /// Shutdown allowance permits them, and disallowing keeps the sync bit.
+    #[test]
+    fn sync_primitives_disallowed_denies_only_waits_for_other_work() {
+        let state = ThreadState::new(false, true, None);
+        let denied: Vec<_> =
+            BlockingKind::ALL.into_iter().filter(|kind| !state.permits(*kind)).collect();
+        assert_eq!(denied, vec![BlockingKind::Recv, BlockingKind::Join, BlockingKind::CondvarWait]);
+        assert!(!state.disallowed());
+        let allowed = ThreadState::new(false, true, Some(AllowReason::Shutdown));
+        assert!(allowed.permits(BlockingKind::Recv));
+        assert!(state.with_disallowed().sync_disallowed(), "disallowing keeps the sync bit");
+        assert!(!state.with_disallowed().permits(BlockingKind::Fs));
+    }
+
+    /// A lane-sync wait records its site and never panics, in panic mode
+    /// too; a disallowed scope inside it wins until it returns.
+    #[test]
+    fn a_lane_sync_wait_records_without_panicking() {
+        set_mode(BlockingMode::Record);
+        let (recv, fs, inner, after) = std::thread::spawn(|| {
+            with_mode(BlockingMode::Panic, || {
+                let (recv, fs, inner) = with_sync_primitives_disallowed(|| {
+                    assert!(is_sync_primitives_disallowed());
+                    let recv = line!() + 1;
+                    assert_blocking_allowed(BlockingKind::Recv);
+                    let fs = line!() + 1;
+                    assert_blocking_allowed(BlockingKind::Fs);
+                    let inner = with_blocking_disallowed(|| {
+                        assert!(!is_sync_primitives_disallowed());
+                        is_blocking_disallowed()
+                    });
+                    (recv, fs, inner)
+                });
+                assert!(!is_sync_primitives_disallowed());
+                let after = line!() + 1;
+                assert_blocking_allowed(BlockingKind::Recv);
+                (recv, fs, inner, after)
+            })
+        })
+        .join()
+        .expect("the lane-sync wait does not panic");
+        let snapshot = snapshot();
+        let site = snapshot.site(file!(), recv).expect("lane-sync site");
+        assert_eq!(site.count, 1);
+        assert!(site.lane_sync);
+        assert_eq!(count_at(fs), 0);
+        assert!(inner);
+        assert_eq!(count_at(after), 0);
+    }
+
+    /// A violation on a thread that disallows blocking is not a lane-sync
+    /// site, inside a sync-primitive scope too.
+    #[test]
+    fn a_disallowed_thread_violation_is_not_lane_sync() {
+        let line = on_disallowed_thread(|| {
+            with_sync_primitives_disallowed(|| {
+                let line = line!() + 1;
+                assert_blocking_allowed(BlockingKind::Recv);
+                line
+            })
+        });
+        let snapshot = snapshot();
+        let site = snapshot.site(file!(), line).expect("site recorded");
+        assert!(!site.lane_sync);
+    }
+
     #[test]
     fn own_descriptor_permits_only_descriptor_kinds() {
-        let state = ThreadState::new(true, Some(AllowReason::OwnDescriptor));
+        let state = ThreadState::new(true, false, Some(AllowReason::OwnDescriptor));
         assert!(state.permits(BlockingKind::FdRead));
         assert!(state.permits(BlockingKind::FdWrite));
         assert!(!state.permits(BlockingKind::Fs));
         assert!(!state.permits(BlockingKind::IpcReply));
         assert!(ThreadState(0).permits(BlockingKind::IpcReply));
-        assert!(!ThreadState::new(true, None).permits(BlockingKind::FdRead));
+        assert!(!ThreadState::new(true, false, None).permits(BlockingKind::FdRead));
         assert!(
-            !ThreadState::new(true, Some(AllowReason::Shutdown)).permits(BlockingKind::IpcReply)
+            !ThreadState::new(true, false, Some(AllowReason::Shutdown))
+                .permits(BlockingKind::IpcReply)
         );
     }
 

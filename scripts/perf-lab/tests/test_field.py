@@ -54,14 +54,26 @@ def interval(category, name, *buckets, count=None):
 
 
 def row(*, version="0.71.0", build="2001", chip="Apple M4 Pro", memory=24, stalls=(), active=None,
-        intervals=(), features=None):
+        intervals=(), features=None, trials=None):
     out = {"kind": "report", "app_version": version, "app_build": build, "chip": chip, "memory_gb": memory,
            "stall_histogram": stall(*stalls), "intervals": list(intervals)}
     if active is not None:
         out["active_seconds"] = active
     if features is not None:
         out["features_hash"] = features
+    if trials is not None:
+        out["features"] = trials
     return out
+
+
+def entry(name, state, source="trial"):
+    """One task-151 `features[]` entry."""
+    return {"name": name, "state": state, "source": source}
+
+
+def trial_installs(count, trial, *, version="0.71.0", build="2001", chip="Apple M4 Pro", memory=24):
+    return {"kind": "trial_installs", "app_version": version, "app_build": build, "chip": chip, "memory_gb": memory,
+            "trial": trial, "installs": count}
 
 
 def installs(count, *, version="0.71.0", build="2001", chip="Apple M4 Pro", memory=24, features=None):
@@ -128,9 +140,22 @@ class SelectOnlyTests(unittest.TestCase):
         self.assertNotIn("frames", script)
         self.assertNotIn("'hangs'", script)
         self.assertNotIn("md5", script)
-        self.assertEqual(script.count("install_id"), 1)
-        self.assertIn("'installs', count(DISTINCT install_id)", script)
+        self.assertEqual(script.count("install_id"), 2)
+        self.assertEqual(script.count("'installs', count(DISTINCT install_id)"), 2)
         self.assertIn("GROUP BY app_version, app_build, chip, memory_gb, COALESCE(", script)
+        self.assertIn("GROUP BY app_version, app_build, chip, memory_gb, trials.entry->>'name', "
+                      "trials.entry->>'state'", script)
+
+    def test_trial_installs_read_the_trial_entries_of_task_151s_features(self):
+        """The split reads the key task 151 sends (`features[]`, source `trial`), not one no client writes."""
+        script = field.reports_query(since_hours=24, channel="nightly")
+        self.assertIn("CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(payload->'features') = 'array' "
+                      "THEN payload->'features' ELSE '[]'::jsonb END) AS trials(entry)", script)
+        self.assertIn("AND trials.entry->>'source' = 'trial' GROUP BY", script)
+        self.assertIn("'trial', (trials.entry->>'name') || '=' || (trials.entry->>'state')", script)
+        self.assertIn("'features', payload->'features'", script)
+        self.assertNotIn("field_trials", script)
+        self.assertNotIn("fieldTrials", script)
 
 
 class CredentialTests(unittest.TestCase):
@@ -284,6 +309,53 @@ class AggregationTests(unittest.TestCase):
         self.assertAlmostEqual(groups[("0.71.0 (2001)", "apple-m4-pro/24gb", "f00d")]
                                .hangs_per_1000_active_hours, 8000.0)
 
+    def test_metrics_split_by_field_trial_arm(self):
+        """task 152: a 50/50 study's arms are their own groups beside the features groups; each report counts once
+        in the total."""
+        rows = [
+            row(stalls=[(250, 500, 1)], active=3600, features="f1",
+                trials=[entry("slackThing", "on"), entry("otherThing", "off")],
+                intervals=[interval("action", "tab.close", (0, 8, 4))]),
+            row(stalls=[(250, 500, 3)], active=3600, features="f2", trials=[entry("slackThing", "off")]),
+            row(stalls=[(250, 500, 5)], active=3600, features="f2",
+                trials=[entry("slackThing", "off"), entry("bad name", "on"), entry("aThing", "enabled"),
+                        {"name": "bThing", "state": "on"}, 7, "slackThing=on"]),
+            # Forced by a higher input than the arm: in no trial group.
+            row(stalls=[(250, 500, 6)], active=3600, features="f3",
+                trials=[entry("slackThing", "on", "remote"), entry("prefetchThing", "off", "env"),
+                        entry("killThing", "off", "local")]),
+            row(stalls=[(250, 500, 2)], active=3600),
+            trial_installs(1, "slackThing=on"),
+            trial_installs(2, "slackThing=off"),
+            trial_installs(4, "not a tag"),
+            trial_installs(4, "slackThing=enabled"),
+        ]
+        groups = field.aggregate(rows)
+        study = {g.arm: g for g in groups if g.split == field.TRIAL_SPLIT}
+        self.assertEqual(set(study), {"slackThing=on", "slackThing=off", "otherThing=off"})
+        self.assertEqual((study["slackThing=on"].reports, study["slackThing=on"].installs), (1, 1))
+        self.assertEqual((study["slackThing=off"].reports, study["slackThing=off"].installs), (2, 2))
+        self.assertAlmostEqual(study["slackThing=on"].hangs_per_1000_active_hours, 1000.0)
+        self.assertAlmostEqual(study["slackThing=off"].hangs_per_1000_active_hours, 4000.0)
+        self.assertEqual(study["slackThing=on"].action, {"tab.close": {(0, 8): 4}})
+        features = {g.arm for g in groups if g.split == field.FEATURES_SPLIT}
+        self.assertEqual(features, {"f1", "f2", "f3", field.NO_ARM})
+        self.assertEqual([g.split for g in groups], [field.FEATURES_SPLIT] * 4 + [field.TRIAL_SPLIT] * 3)
+        result = field.report(groups, since_hours=None, channel="nightly", source="fixture")
+        self.assertEqual(result["reports"], 5)
+        arms = {(r["arm"], r["metric"]): r["value"] for r in result["rows"]}
+        self.assertEqual(arms[("slackThing=off", "hangs_over_250ms")], 8)
+        for item in result["rows"]:
+            dashboard.FieldRow(**item)
+        self.assertIn("trial slackThing=off: 2 reports, 2 installs", field.render_text(result))
+
+    def test_trial_tags_keep_only_well_formed_trial_entries(self):
+        self.assertEqual(field.trial_tags([entry("zThing", "on"), entry("aThing", "off"), entry("aThing", "off"),
+                                           entry("rThing", "on", "remote"), entry("1bad", "on"), None]),
+                         ["aThing=off", "zThing=on"])
+        self.assertEqual(field.trial_tags(None), [])
+        self.assertEqual(field.trial_tags({"name": "aThing", "state": "on", "source": "trial"}), [])
+
     def test_action_and_turn_histograms(self):
         rows = [
             row(intervals=[interval("action", "workspace.create", (0, 10, 8), (10, 20, 2)),
@@ -406,6 +478,87 @@ class CommandTests(unittest.TestCase):
         with contextlib.redirect_stderr(stderr), unittest.mock.patch.dict("os.environ", {}, clear=True):
             self.assertEqual(field.run("field", args), 2)
         self.assertIn(field.URL_ENV, stderr.getvalue())
+
+
+def site(site_id, kind, count, total_ms=0):
+    """One task-226 `blocking_sites[]` entry."""
+    return {"site": site_id, "kind": kind, "count": count, "total_ms": total_ms}
+
+
+# The client's ids (HangReportWireFormatTests.blockingSitesJSON).
+STORE_SITE = "8ef2dbd38483c034"  # CmuxNextApp/WorkspaceStore.swift:42
+SIDEBAR_SITE = "2fc36eeebd7c605e"  # CmuxNextSidebar/SidebarModel.swift:9
+
+
+class BlockingSiteTests(unittest.TestCase):
+    """Task 226: the top main-thread blocking sites per build, by hashed site id."""
+
+    def test_the_query_reads_the_reports_blocking_sites(self):
+        script = field.reports_query(since_hours=24, channel="nightly")
+        self.assertIn("'blocking_sites', payload->'blocking_sites'", script)
+        field.assert_select_only(script)
+
+    def test_site_id_matches_the_clients(self):
+        self.assertEqual(field.site_id("CmuxNextApp/WorkspaceStore.swift:42"), STORE_SITE)
+        self.assertEqual(field.site_id("CmuxNextSidebar/SidebarModel.swift:9"), SIDEBAR_SITE)
+
+    def test_sites_add_per_build_most_calls_first_and_skip_malformed_entries(self):
+        rows = [row(build="2001") | {"blocking_sites": [site(STORE_SITE, "file-io", 4, 9), site(SIDEBAR_SITE, "sqlite", 6),
+                                                        site("Sources/App.swift", "file-io", 9),
+                                                        site(STORE_SITE.upper(), "file-io", 9),
+                                                        site(SIDEBAR_SITE, "File IO", 9), site(SIDEBAR_SITE, "sqlite", 0),
+                                                        "x"]},
+                row(build="2001") | {"blocking_sites": [site(STORE_SITE, "file-io", 5, 3)]},
+                row(build="2002") | {"blocking_sites": "nope"}]
+        groups = field.aggregate(rows)
+        self.assertEqual(groups[0].top_blocking_sites(),
+                         [(STORE_SITE, "file-io", 9, 12, 2), (SIDEBAR_SITE, "sqlite", 6, 0, 1)])
+        self.assertEqual(groups[1].top_blocking_sites(), [])
+        metrics = {r["metric"]: (r["value"], r["unit"], r["samples"]) for r in field.field_rows(groups[:1])}
+        self.assertEqual(metrics[f"blocking_site.{STORE_SITE}.file-io"], (9, "calls", 2))
+        self.assertEqual(metrics[f"blocking_site.{STORE_SITE}.file-io.total_ms"], (12, "ms", 2))
+        for item in field.field_rows(groups):
+            dashboard.FieldRow(**item)
+
+    def test_a_group_reports_at_most_the_top_sites(self):
+        sites = [site(f"{index:016x}", "sleep", index + 1) for index in range(field.TOP_BLOCKING_SITES + 4)]
+        group = field.aggregate([row() | {"blocking_sites": sites}])[0]
+        self.assertEqual([calls for _, _, calls, _, _ in group.top_blocking_sites()],
+                         list(range(field.TOP_BLOCKING_SITES + 4, 4, -1)))
+
+    def test_sites_from_a_checkout_name_each_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "Packages" / "macOS" / "CmuxNext" / "Sources" / "CmuxNextApp" / "Workspace"
+            source.mkdir(parents=True)
+            (source / "WorkspaceStore.swift").write_text("\n" * 50)
+            hidden = root / ".claude" / "worktrees" / "x" / "Sources" / "CmuxNextSidebar"
+            hidden.mkdir(parents=True)
+            (hidden / "SidebarModel.swift").write_text("\n" * 20)
+            fixture = root / "rows.jsonl"
+            fixture.write_text(json.dumps(row() | {"blocking_sites": [site(STORE_SITE, "file-io", 3, 7),
+                                                                      site(SIDEBAR_SITE, "sqlite", 1)]}) + "\n")
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                code = lab.main(["field", "--fixture", str(fixture), "--json", "--sites-from", str(root)])
+            self.assertEqual(code, 0)
+            sites = json.loads(stdout.getvalue())["groups"][0]["blocking_sites"]
+            self.assertEqual([(s["site"], s["location"]) for s in sites],
+                             [(STORE_SITE, "CmuxNextApp/WorkspaceStore.swift:42"), (SIDEBAR_SITE, None)])
+            text = field.render_text(field.report(field.aggregate([json.loads(fixture.read_text())]), since_hours=None,
+                                                  channel="nightly", source="fixture"))
+            self.assertIn(f"blocking {STORE_SITE} file-io: 3 calls, 7 ms (n=1)", text)
+
+    def test_a_missing_sites_checkout_exits_2(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory) / "rows.jsonl"
+            fixture.write_text(json.dumps(row() | {"blocking_sites": [site(STORE_SITE, "file-io", 1)]}) + "\n")
+            stderr = io.StringIO()
+            args = argparse.Namespace(since="7d", channel="nightly", fixture=str(fixture), out=None, json=True,
+                                      sites_from=str(Path(directory) / "missing"))
+            with contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(field.run("field", args), 2)
+        self.assertIn("--sites-from is not a directory", stderr.getvalue())
 
 
 if __name__ == "__main__":

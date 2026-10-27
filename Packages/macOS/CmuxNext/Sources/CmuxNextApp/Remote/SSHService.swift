@@ -26,7 +26,14 @@ final class SSHService {
     @ObservationIgnored let paths: SSHPaths
     @ObservationIgnored private let binary: URL?
     @ObservationIgnored private let installer: RemoteInstaller
-    @ObservationIgnored private var observers: [Task<Void, Never>] = []
+    /// The app's activation and the Mac's wake (`AppServices.appEvents`, `workspaceEvents`): each wakes the machines.
+    @ObservationIgnored private let appEvents: AppEvents
+    @ObservationIgnored private let workspaceEvents: AppEvents
+    @ObservationIgnored private var wakeSubscriptions: [EventSubscription] = []
+    /// The registry's live records: restoring connects machines and prunes saved hosts, so a service observation.
+    @ObservationIgnored private var recordsWatch: ServiceObservation<[SessionRecord]>?
+    /// Machines waiting for their daemon's first compatibility answer after a person's connect, by machine id.
+    @ObservationIgnored private var installOffers: [String: ServiceObservation<DaemonCompatibility.Level?>] = [:]
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.ssh")
     /// Runs `remote.install` through the registry's confirmation (set by the handlers).
     @ObservationIgnored var offerInstall: ((SSHMachineSession) -> Void)?
@@ -47,10 +54,15 @@ final class SSHService {
 
     /// - Parameter mainWork: The app's ``MainWorkScheduler`` (AppServices passes the one it was built with).
     /// - Parameter work: The app's one ``BackgroundWork``: the bundled build's version file and the install's download cache.
-    init(machines: MachineRegistry, bundleID: String?, mainWork: MainWorkScheduler, work: BackgroundWork) {
+    /// - Parameter appEvents: The app's notices (`AppServices.appEvents`): activation wakes the machines.
+    /// - Parameter workspaceEvents: The workspace center's notices (`AppServices.workspaceEvents`): the Mac's wake.
+    init(machines: MachineRegistry, bundleID: String?, mainWork: MainWorkScheduler, work: BackgroundWork,
+         appEvents: AppEvents, workspaceEvents: AppEvents) {
         self.machines = machines
         self.mainWork = mainWork
         self.work = work
+        self.appEvents = appEvents
+        self.workspaceEvents = workspaceEvents
         paths = SSHPaths.standard(bundleID: bundleID)
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         installer = RemoteInstaller(paths: paths, work: work)
@@ -89,33 +101,33 @@ final class SSHService {
     // MARK: Lifecycle
 
     func start() {
-        observers.append(Task { [weak self] in
-            for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
+        wakeSubscriptions = [
+            appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "SSH.wake.appActivated") { [weak self] in
                 self?.wakeAll(.appActivated)
-            }
-        })
-        observers.append(Task { [weak self] in
-            for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.didWakeNotification) {
+            },
+            workspaceEvents.subscribe(NSWorkspace.didWakeNotification, owner: "SSH.wake.systemWake") { [weak self] in
                 self?.wakeAll(.systemWake)
-            }
-        })
+            },
+        ]
         let machines = machines
-        observers.append(Task { [weak self] in
-            // Live state only: restoring connects and prunes saved hosts,
-            // which the launch snapshot's cached registry must not drive.
-            for await records in ObservationStream({ () -> [SessionRecord] in
-                let store = machines.local.store
-                return store.personal.isLoaded && !store.isProvisional ? store.personal.sessions : []
-            }) {
-                self?.restore(records)
-                self?.restoreSavedHosts(registered: records)
-            }
-        })
+        // Live state only: restoring connects and prunes saved hosts,
+        // which the launch snapshot's cached registry must not drive.
+        recordsWatch = ServiceObservation(.visible, owner: "SSH.records", on: mainWork) { () -> [SessionRecord] in
+            let store = machines.local.store
+            return store.personal.isLoaded && !store.isProvisional ? store.personal.sessions : []
+        } apply: { [weak self] records in
+            self?.restore(records)
+            self?.restoreSavedHosts(registered: records)
+        }
     }
 
     func stop() {
-        for observer in observers { observer.cancel() }
-        observers.removeAll()
+        wakeSubscriptions.forEach { $0.cancel() }
+        wakeSubscriptions.removeAll()
+        recordsWatch?.cancel()
+        recordsWatch = nil
+        installOffers.values.forEach { $0.cancel() }
+        installOffers.removeAll()
         for session in machines.ssh { session.close() }
     }
 
@@ -242,7 +254,7 @@ final class SSHService {
     /// Disconnects and removes the machine from the saved list, with its
     /// personal organization (order, groups, pins) in the home session.
     func forget(_ session: SSHMachineSession) async {
-        await commitForget(hide(session))
+        await commitForget(hide(session))?.value
     }
 
     /// Disconnects the machine and takes it out of this run at once; the
@@ -264,18 +276,23 @@ final class SSHService {
         restore(pending.fields)
     }
 
-    /// Writes a hidden Forget: the saved list entry and the home session's
-    /// record with its personal organization go.
-    func commitForget(_ pending: PendingForget) async {
+    /// Writes a hidden Forget: the saved list entry goes now; the home session's record with its personal
+    /// organization goes in one request off the main thread, returned for a caller that waits for it.
+    @discardableResult
+    func commitForget(_ pending: PendingForget) -> Task<Void, Never>? {
         // A connect to the same machine while the toast showed took it back.
-        guard forgotten.contains(pending.machineID), machines.sshSession(pending.machineID) == nil else { return }
+        guard forgotten.contains(pending.machineID), machines.sshSession(pending.machineID) == nil else { return nil }
         forgetSavedHost(pending.machineID)
         guard let sessionID = pending.sessionID, machines.local.supports(DaemonCapability.profiles.rawValue),
-              let home = machines.local.connection else { return }
-        do {
-            try await home.forgetSession(sessionID, force: true)
-        } catch {
-            logger.error("forget-session \(sessionID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+              let home = machines.local.connection else { return nil }
+        let logger = logger
+        // task-owner: one home-daemon write, bounded by the request timeout
+        return Task { @concurrent in
+            do {
+                _ = try await home.forgetSession(sessionID, force: true)
+            } catch {
+                logger.error("forget-session \(sessionID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 
@@ -300,19 +317,38 @@ final class SSHService {
     /// handshake, or limited features) gets the same install offer as a
     /// missing binary, once per user-initiated connect.
     private func offerInstallWhenOld(_ session: SSHMachineSession) {
-        let machines = machines
-        // task-owner: ends at the first answer from the machine's daemon, or when the session is forgotten
-        Task { [weak self, weak session] in
-            for await level in ObservationStream({ session.flatMap { machines.compatibility(of: $0.daemon)?.level } }) {
-                guard let session, session.offersInstall, machines.sshSession(session.machineID) === session else { return }
-                guard let level else { continue }
-                if level != .current {
-                    session.offersInstall = false
-                    self?.offerInstall?(session)
-                }
-                return
-            }
+        installOffers.removeValue(forKey: session.machineID)?.cancel()
+        // The caller (re)connects later in this turn, and the answer to wait for is that connection's: the watch begins
+        // in the next task, the rest of the person's connect (userBlocking), never on the old connection's answer.
+        mainWork.post(.userBlocking, owner: "SSH.offerInstallWhenOld") { [weak self, weak session] in
+            guard let self, let session else { return }
+            watchInstallAnswer(session)
         }
+    }
+
+    private func watchInstallAnswer(_ session: SSHMachineSession) {
+        let machines = machines, id = session.machineID
+        installOffers.removeValue(forKey: id)?.cancel()
+        guard !installOfferEnds(session, level: machines.compatibility(of: session.daemon)?.level) else { return }
+        // Ends at the first answer from the machine's daemon, or when the session is forgotten.
+        installOffers[id] = ServiceObservation(.visible, owner: "SSH.offerInstallWhenOld", on: mainWork) { [weak session] in
+            session.flatMap { machines.compatibility(of: $0.daemon)?.level }
+        } apply: { [weak self, weak session] level in
+            guard let self, installOfferEnds(session, level: level) else { return }
+            installOffers.removeValue(forKey: id)?.cancel()
+        }
+    }
+
+    /// Whether the wait for `session`'s first compatibility answer is over: the session is gone or offers no install
+    /// now, or the answer came (an older daemon gets the offer, once).
+    private func installOfferEnds(_ session: SSHMachineSession?, level: DaemonCompatibility.Level?) -> Bool {
+        guard let session, session.offersInstall, machines.sshSession(session.machineID) === session else { return true }
+        guard let level else { return false }
+        if level != .current {
+            session.offersInstall = false
+            offerInstall?(session)
+        }
+        return true
     }
 
     private func statusChanged(_ session: SSHMachineSession, _ status: SSHConnectionMachine.Status) {
@@ -324,7 +360,7 @@ final class SSHService {
         if status == .connected {
             session.lastError = nil
             // task-owner: one update check per connect, at best effort (nobody waits); it installs only an older remote build
-            Task(priority: WorkPriority.bestEffort.taskPriority) { await updateIfOlder(session) }
+            work.task(.bestEffort) { [weak self] in await self?.updateIfOlder(session) }
         }
     }
 
@@ -382,11 +418,11 @@ final class SSHService {
             session.lastError = nil
         }
         do {
-            session.installPhase = .manifest
+            let run = session.beginInstall()
             var plan = try await installer.plan(commit: commit, treeKey: BundledCmuxTUI.treeKey(binary: binary), platform: platform,
                                                 remoteBinary: host.remoteBinary)
             if let automatic {
-                session.installPhase = nil
+                session.showInstallStep(nil, of: run)
                 guard plan.commit != automatic.lowercased() else {
                     logger.info("update of \(host.destination.description, privacy: .public) skipped: it already runs \(plan.commit, privacy: .public), the build this app installs")
                     return
@@ -396,11 +432,12 @@ final class SSHService {
             // Turned off while planning: refuse before the remote work starts (never mid-install).
             if policyDisabled { throw ActionFailure(message: RefusalStrings.turnedOffByOrganization) }
             lockedPlan = plan
+            let mainWork = mainWork
             try await installer.install(plan, on: host, daemonPID: daemonPID, environment: environment, priority: priority) { phase in
-                // task-owner: one main-actor hop per install step
-                Task { @MainActor in session.installPhase = phase }
+                // One visible task per install step: the sidebar header shows it while this install runs.
+                mainWork.postFromAnyThread(.visible, owner: "SSH.installPhase") { session.showInstallStep(phase, of: run) }
             }
-            session.installPhase = nil
+            session.endInstall()
             logger.info("installed cmux-tui \(plan.commit, privacy: .public) on \(host.destination.description, privacy: .public)")
             session.updateOffered = false
             if automatic == nil { await link.handle(.installFinished(.success)) }
@@ -411,7 +448,7 @@ final class SSHService {
             reconnect(session)
         } catch {
             if let lockedPlan { await installer.releaseLock(lockedPlan, on: host, environment: environment) }
-            session.installPhase = nil
+            session.endInstall()
             if automatic != nil {
                 // The machine keeps its old build and its link; the restart may have run, so link again.
                 reconnect(session)
@@ -421,33 +458,6 @@ final class SSHService {
             session.lastError = message
             await link.handle(.installFinished(.failure(message)))
             throw ActionFailure(message: message)
-        }
-    }
-
-    // MARK: Helpers
-
-    /// The environment ssh runs with: the app's own process identity (HOME,
-    /// USER, SSH_AUTH_SOCK for the user's agent) plus the login shell's
-    /// PATH for ProxyCommand helpers. Never a token or key.
-    @Sendable static func environment() async -> [String: String] {
-        let base = ProcessInfo.processInfo.environment
-        var env = await TerminalEnvironment.instance.shared(base: base)()
-        for key in TerminalEnvironment.instance.daemonIdentityKeys { if let value = base[key] { env[key] = value } }
-        return env
-    }
-
-    /// The registry transport for `session`.
-    static func transport(_ session: SSHMachineSession) -> JSONValue {
-        var fields = session.host.transportFields.mapValues(JSONValue.string)
-        fields["connect"] = .string(session.autoConnect ? "true" : "false")
-        return .object(fields)
-    }
-
-    static func fields(_ transport: JSONValue) -> [String: String]? {
-        guard case .object(let object) = transport else { return nil }
-        return object.compactMapValues { value in
-            if case .string(let text) = value { return text }
-            return nil
         }
     }
 }

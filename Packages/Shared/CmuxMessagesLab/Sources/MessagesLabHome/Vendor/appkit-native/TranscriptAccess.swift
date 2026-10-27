@@ -205,8 +205,8 @@ final class TranscriptSelection {
             // cmux: the shared bubble outline (BubblePath.balloon), moved from the cell into the demo view.
             let frame = RowDraw.bodyRect(spec)
             let origin = cell.convert(frame.origin, to: demo)
-            var move = CGAffineTransform(translationX: origin.x - frame.minX, y: origin.y - frame.minY)
-            return BubblePath.balloon(frame: frame, row: p).cgPath.copy(using: &move)
+            let move = CGAffineTransform(translationX: origin.x - frame.minX, y: origin.y - frame.minY)
+            return BubblePath.balloon(frame: frame, row: p).cgPath.copy(applying: move)
         }
         return nil
     }

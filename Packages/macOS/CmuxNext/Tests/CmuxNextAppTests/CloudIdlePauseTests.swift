@@ -4,6 +4,7 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -116,7 +117,9 @@ struct CloudIdlePauseTests {
     @Test func theProgressViewOffersOneClickResume() {
         let f = Self.pausedMachine(reason: .idle)
         let creation = CloudMachineCreation(windowID: nil, session: f.session)
-        let view = CloudMachineProgressView(creation: creation, actions: .init(retry: { _ in }, dismiss: { _ in }))
+        let view = CloudMachineProgressView(creation: creation, actions: .init(retry: { _ in }, dismiss: { _ in }),
+                                            parent: VisibilityNode(root: "test.window", own: .visible),
+                                            mainWork: f.services.mainWork, deadlines: f.services.mainDeadlines)
         #expect(view.showsButtons)
         #expect(view.primaryButtonTitle == CloudStrings.resume)
         #expect(!view.detailText.contains(CloudStrings.progressFailed("")), "paused must not read as a failed start")

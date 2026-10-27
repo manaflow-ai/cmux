@@ -31,8 +31,8 @@ struct NewTabSuccession {
     /// The new tab's surface once known.
     var surface: SurfaceID?
     var deadline: ContinuousClock.Instant
-    /// Ends the succession at its deadline: the strip then shows the pane as reported.
-    let expiry = DemandTimer(owner: "NewTabSuccession.deadline")
+    /// Ends the succession at its deadline: the strip then shows the pane as reported (`visible` work).
+    let expiry: MainDeadline
     weak var services: AppServices?
     weak var pane: PaneModel?
 
@@ -41,24 +41,24 @@ struct NewTabSuccession {
 
     /// Starts showing what replaces New Tab page `key` in the page's slot. Returns the open, for `made`.
     @discardableResult
-    static func begin(replacing key: String, in pane: PaneModel, services: AppServices) -> DemandTimer? {
+    static func begin(replacing key: String, in pane: PaneModel, services: AppServices) -> MainDeadline? {
         guard let index = pane.tabs.firstIndex(where: { $0.id == key }) else { return nil }
         return begin(page: StripTabID(key), after: index > 0 ? pane.tabs[index - 1].id : nil, in: pane, services: services)
     }
 
     /// Starts showing the pane's next new tab right after `anchor`. Returns the open, for `made`.
     @discardableResult
-    static func begin(after anchor: String, in pane: PaneModel, services: AppServices) -> DemandTimer? {
+    static func begin(after anchor: String, in pane: PaneModel, services: AppServices) -> MainDeadline? {
         begin(page: nil, after: anchor, in: pane, services: services)
     }
 
     /// Starts showing the pane's next new tab first, after its pinned tabs. Returns the open, for `made`.
     @discardableResult
-    static func begin(atStartOf pane: PaneModel, services: AppServices) -> DemandTimer? {
+    static func begin(atStartOf pane: PaneModel, services: AppServices) -> MainDeadline? {
         begin(page: nil, after: nil, in: pane, services: services)
     }
 
-    private static func begin(page: StripTabID?, after anchor: String?, in pane: PaneModel, services: AppServices) -> DemandTimer? {
+    private static func begin(page: StripTabID?, after anchor: String?, in pane: PaneModel, services: AppServices) -> MainDeadline? {
         active[ObjectIdentifier(pane)]?.expiry.cancel()
         // A CLI or script open selects nothing and shows nothing: its tab lands as reported.
         guard ActionRunScope.viewChangeAllowed() else {
@@ -66,7 +66,10 @@ struct NewTabSuccession {
             return nil
         }
         let succession = NewTabSuccession(page: page, before: anchor.map { StripTabID($0) }, known: Set(pane.tabs.map(\.id)),
-                                          deadline: ContinuousClock.now.advanced(by: answerLimit), services: services, pane: pane)
+                                          deadline: ContinuousClock.now.advanced(by: answerLimit),
+                                          expiry: MainDeadline(owner: "NewTabSuccession.deadline", workClass: .visible,
+                                                               scheduler: services.mainDeadlines),
+                                          services: services, pane: pane)
         active[ObjectIdentifier(pane)] = succession
         succession.expire(after: answerLimit)
         return succession.expiry
@@ -74,7 +77,7 @@ struct NewTabSuccession {
 
     /// The tab `open` (what `begin` returned) makes in `pane` is on `surface`. An open a later one
     /// in the same pane replaced names nothing: its tab lands as reported.
-    static func made(_ surface: SurfaceID, in pane: PaneModel, by open: DemandTimer?) {
+    static func made(_ surface: SurfaceID, in pane: PaneModel, by open: MainDeadline?) {
         guard let open, active[ObjectIdentifier(pane)]?.expiry === open else { return }
         active[ObjectIdentifier(pane)]?.found(surface)
     }
@@ -88,7 +91,7 @@ struct NewTabSuccession {
     private func expire(after limit: Duration) {
         guard let pane else { return }
         let timer = expiry, key = ObjectIdentifier(pane)
-        timer.scheduleOnMain(after: limit) { [weak services, weak pane] in
+        timer.schedule(after: limit) { [weak services, weak pane] in
             guard Self.active[key]?.expiry === timer else { return }
             Self.active[key] = nil
             if let pane { services?.paneController(for: pane)?.syncStripFromStore() }

@@ -27,6 +27,10 @@
 //! [`fds`] passes file descriptors with `SCM_RIGHTS` and queues the ones that
 //! arrive in order: the holder link uses it, and so do the daemon's frame lanes.
 //! It is the only module with `unsafe` (libc `sendmsg`/`recvmsg`).
+//!
+//! [`lane_writer`] is the outbound priority policy (design 3.4): input
+//! streams, then the one control FIFO, then bulk, then background, with
+//! per-stream turns, a starvation bound, chunking and a byte bound.
 
 #![deny(unsafe_code)]
 #![deny(
@@ -61,6 +65,7 @@ pub mod client;
 )]
 pub mod fds;
 pub mod frame;
+pub mod lane_writer;
 pub mod methods;
 pub mod reader;
 pub mod schema;
@@ -70,6 +75,10 @@ mod server_families;
 pub use frame::{
     Aux, AuxClass, BadMessage, CallAux, CallFlags, Frame, FrameHeader, FrameKind, HEADER_LEN,
     MAGIC, MAX_FRAME_PAYLOAD, PriorityHint,
+};
+pub use lane_writer::{
+    CoalesceKey, EndReason, EndedStream, Lane, LaneError, LaneWriter, LaneWriterConfig, Pushed,
+    StreamLane,
 };
 pub use methods::{
     Coalesce, Durability, EventAttrs, EventId, FamilyTable, MethodAttrs, MethodId, MethodTables,

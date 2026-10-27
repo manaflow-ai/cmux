@@ -46,6 +46,9 @@ final class SettingsPageProvider: PageProvider {
     /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
     var setTheme: (@MainActor (_ level: String, _ spec: String?) throws -> Void)?
     var acceptsTheme: (@MainActor (String) -> Bool)?
+    /// Experimental > Feature Flags' choice (`cmux.settings.features.set`): a feature on, off or back to no choice
+    /// (nil) for the next launch; nil in tests without an app.
+    var setFeature: (@MainActor (_ name: String, _ on: Bool?) throws -> Void)?
     /// Every published theme's colors (`cmux.settings.theme.colors`), for the Theme section's
     /// preview and swatches; nil in tests without an app.
     var themeColors: (@MainActor () -> [ThemeFileColors])?
@@ -178,6 +181,16 @@ final class SettingsPageProvider: PageProvider {
             guard let setTheme else { throw PageError(code: "cmux.page.unavailable", message: "no theme host") }
             guard let level = params["level"]?.stringValue else { throw PageError.invalidParams("level is required") }
             do { try setTheme(level, params["spec"]?.stringValue) } catch { throw PageError.invalidParams("unknown theme level \(level)") }
+            return .object([:])
+        case "cmux.settings.features.set":
+            // A local choice changes what the next launch runs: the person's own click in Settings only.
+            guard context.page == PageDescriptor.settings.id, context.userGesture else {
+                throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+            }
+            guard let name = params["name"]?.stringValue, let on = params["on"], on == .null || on.boolValue != nil else {
+                throw PageError.invalidParams("name and on (true, false or null) are required")
+            }
+            try Self.host(setFeature, "feature flags")(name, on.boolValue)
             return .object([:])
         case "cmux.settings.theme.colors": return try ["themes": .array(Self.host(themeColors, "theme colors")().map(Self.json))]
         case "cmux.settings.theme.save", "cmux.settings.theme.import":

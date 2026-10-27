@@ -1,4 +1,5 @@
-//! Terminals on the holder (`CMUX_TUI_TERMINAL_HOST_MODEL=holder`,
+//! Terminals on the holder (the `terminalHolder` feature, here through its
+//! alias `CMUX_TUI_TERMINAL_HOST_MODEL=holder`;
 //! terminal-host-model-DESIGN.md): no host process per terminal, and no
 //! shell dies when the daemon or the holder does.
 //!
@@ -351,6 +352,60 @@ fn a_holder_shell_that_exits_ends_its_terminal_with_its_status() {
         std::thread::sleep(Duration::from_millis(50));
     };
     assert_eq!(resolved["exit"]["outcome"], json!({"kind": "exit", "code": 3}), "{resolved}");
+}
+
+/// The `terminalHolder` feature picks the model, and the env switch it
+/// replaced stays an alias of the feature lists, whose disable wins
+/// (p12-perf-process-105).
+#[test]
+fn the_terminal_holder_feature_and_its_env_alias_pick_the_model() {
+    let unset = Path::new("");
+    let cases = [
+        (
+            "the enable list",
+            [
+                ("CMUX_TUI_TERMINAL_HOST_MODEL", unset),
+                ("CMUX_ENABLE_FEATURES", Path::new("terminalHolder")),
+            ],
+            true,
+        ),
+        (
+            "the alias",
+            [
+                ("CMUX_TUI_TERMINAL_HOST_MODEL", Path::new("holder")),
+                ("CMUX_ENABLE_FEATURES", unset),
+            ],
+            true,
+        ),
+        (
+            "the disable list over the alias",
+            [
+                ("CMUX_TUI_TERMINAL_HOST_MODEL", Path::new("holder")),
+                ("CMUX_DISABLE_FEATURES", Path::new("terminalHolder")),
+            ],
+            false,
+        ),
+    ];
+    for (case, env, on_holder) in cases {
+        let mut daemon = Daemon::start_with_env(&env);
+        let created = request(
+            &daemon.socket,
+            json!({"cmd": "run", "argv": ["/bin/cat"], "new_workspace": true,
+                "name": "model", "cols": 80, "rows": 24}),
+        );
+        let surface = created["surface"].as_u64().unwrap();
+        daemon.track(surface);
+        send(&daemon.socket, surface, "model-probe");
+        screen_contains(&daemon.socket, surface, "model-probe");
+        let host_records = walk(&daemon.dir.join("state"))
+            .into_iter()
+            .filter(|path| {
+                path.parent().is_some_and(|dir| dir.to_string_lossy().contains("terminal-hosts"))
+                    && path.extension().is_some_and(|ext| ext == "json")
+            })
+            .count();
+        assert_eq!(host_records == 0, on_holder, "{case}: {host_records} terminal host records");
+    }
 }
 
 /// A standalone holder that runs but never says `ready` (a startup error,

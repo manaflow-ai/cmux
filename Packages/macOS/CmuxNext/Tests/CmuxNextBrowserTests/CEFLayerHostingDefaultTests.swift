@@ -1,25 +1,28 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextDesign
 import Foundation
 import Testing
 
 /// Layer hosting's default (p03-rendering-050). The feature `cefLayerHosting` hosts a pane's page only where the
 /// app makes every Track A call for the fork (the resize fence, embedder visibility); no fork API alone turns it on.
 /// DevTools and popup windows keep their own window (until p03-rendering-056), and `debug.cef` counts why a page
-/// did not host. The developer's `browserResize.layerHosting` keeps its meaning: every page window from API 26.
+/// did not host. Only features decide in the app (p12-perf-process-100): the Debug tunable
+/// `browserResize.layerHosting` reaches it only as the feature's local override, resolved at launch; the benches'
+/// arm `cefLayerHostingEveryPage` and a test's `override` seam host every page window from API 26.
 @MainActor
 @Suite(.serialized) struct CEFLayerHostingDefaultTests {
     let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
     let fake = CEFLayerHostingTests.FakeFork()
 
-    /// The fake fork's calls with `trackA` as the feature's view of it.
-    func fork(trackA: CEFLayerHosting.TrackA?) -> CEFLayerHosting.Fork {
+    /// The fake fork's calls with `trackA` as the feature's view of it, and the benches' arm `everyPage`.
+    func fork(trackA: CEFLayerHosting.TrackA?, everyPage: Bool = false) -> CEFLayerHosting.Fork {
         let fake = fake
         return CEFLayerHosting.Fork(setLayerHosting: { browser, enabled in fake.fork.setLayerHosting(browser, enabled) },
-                                    trackA: trackA)
+                                    trackA: trackA, hostsEveryPage: everyPage)
     }
 
-    func makeHosting(override: Bool = BrowserResizeTunables.layerHosting.defaultValue,
+    func makeHosting(override: Bool = false,
                      widget: CEFLayerHosting.Widget) -> CEFLayerHosting {
         let hosting = CEFLayerHosting(isEnabled: { override }, schedule: { $0() },
                                       makePage: { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow, makeLayerHost: { _ in CALayer() }) },
@@ -46,7 +49,7 @@ import Testing
         #expect(host(false, fork(trackA: .required), .popup) == .widgetFallback)
     }
 
-    @Test func theDeveloperOverrideHostsEveryPageWindowOnAnyFork() {
+    @Test func theForcedOverrideHostsEveryPageWindowOnAnyFork() {
         for widget in [CEFLayerHosting.Widget.page, .devTools, .popup] {
             for trackA in [nil, [], CEFLayerHosting.TrackA.required] as [CEFLayerHosting.TrackA?] {
                 #expect(CEFLayerHosting.hosting(override: true, fork: fork(trackA: trackA), widget: widget) == .hosted)
@@ -54,12 +57,29 @@ import Testing
         }
     }
 
+    /// Feature `cefLayerHostingEveryPage`, the benches' on arm (`cef-layer-verify.py --mode on`): reachable while
+    /// no fork has every Track A call, and it hosts what the tunable hosted before p12-perf-process-100.
+    @Test func theBenchArmHostsEveryPageWindowWithoutTrackA() {
+        for widget in [CEFLayerHosting.Widget.page, .devTools, .popup] {
+            for trackA in [nil, [], [.embedderVisibility], CEFLayerHosting.TrackA.required] as [CEFLayerHosting.TrackA?] {
+                #expect(CEFLayerHosting.hosting(override: false, fork: fork(trackA: trackA, everyPage: true), widget: widget) == .hosted)
+            }
+        }
+    }
+
     // MARK: The state machine
 
-    @Test func aDockedDevToolsHostsWithTheOverrideAndNoFeature() throws {
+    @Test func aDockedDevToolsHostsWithTheBenchArm() throws {
+        let hosting = makeHosting(widget: .devTools)
+        hosting.pageWindowCreated(browser: 5, fork: fork(trackA: nil, everyPage: true))
+        #expect(fake.calls.map(\.enabled) == [true])
+        #expect(try #require(hosting.page).contextID == 7)
+    }
+
+    @Test func aDockedDevToolsHostsWithTheForcedOverrideAndNoFeature() throws {
         let hosting = makeHosting(override: true, widget: .devTools)
         hosting.pageWindowCreated(browser: 5, fork: fork(trackA: nil))
-        #expect(fake.calls.map(\.enabled) == [true], "an override set before 050 still hosts DevTools")
+        #expect(fake.calls.map(\.enabled) == [true], "a test's forced override hosts DevTools")
         #expect(try #require(hosting.page).contextID == 7)
     }
 
@@ -94,6 +114,28 @@ import Testing
         }
     }
 
+    /// The Debug tunable on hosts nothing by itself: the app's hosting reads only the features (its fork's Track A
+    /// calls and the benches' arm), and the tunable reaches them only as `cefLayerHosting`'s local override at launch.
+    @Test func theAppsHostingNeverReadsTheDebugTunable() {
+        let store = TunableStore.shared
+        store.activate(file: nil)
+        store.register(BrowserResizeTunables.all)
+        store.set("browserResize.layerHosting", .bool(true))
+        defer { store.set("browserResize.layerHosting", nil) }
+        let hosting = CEFLayerHosting(schedule: { $0() },
+                                      makePage: { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow, makeLayerHost: { _ in CALayer() }) },
+                                      resizeDeadlineMs: { 0 }, liveResizeDeadlineMs: { 0 }, refreshIntervals: { [] })
+        hosting.view = view
+        for widget in [CEFLayerHosting.Widget.page, .devTools, .popup] {
+            hosting.widget = widget
+            #expect(hosting.decide(fork(trackA: nil)) == .off, "\(widget) hosted with the feature off")
+        }
+        hosting.widget = .devTools
+        hosting.pageWindowCreated(browser: 5, fork: fork(trackA: nil))
+        #expect(fake.calls.isEmpty)
+        #expect(hosting.page == nil)
+    }
+
     @Test func theFeatureOffCountsNothing() {
         let before = CEFHostView.trackerStats
         let hosting = makeHosting(widget: .page)
@@ -124,6 +166,9 @@ import Testing
         #expect(try #require(CEFLayerHosting.Fork(runtime: runtime)).trackA == nil)
         runtime.pageHosting.trackA = [.resizeFence]
         #expect(try #require(CEFLayerHosting.Fork(runtime: runtime)).trackA == [.resizeFence])
+        #expect(try #require(CEFLayerHosting.Fork(runtime: runtime)).hostsEveryPage == false)
+        runtime.pageHosting.hostsEveryPage = true
+        #expect(try #require(CEFLayerHosting.Fork(runtime: runtime)).hostsEveryPage)
     }
 
     // MARK: The owners' widgets

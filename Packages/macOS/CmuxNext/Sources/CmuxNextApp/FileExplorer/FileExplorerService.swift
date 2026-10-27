@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextFilesUI
+import CmuxNextWakeups
 
 /// Makes each window's file explorer (the right sidebar's Files section) and
 /// finds the one an action runs on: the right-clicked one for a row's menu (its
@@ -15,23 +16,31 @@ final class FileExplorerService {
     /// The argument a row menu's actions carry: the id of the tree it was opened in.
     nonisolated static let explorerArgument = "explorer"
     let effects: any FileExplorerEffects
+    /// The app's main-thread scheduler the sections' observations and replies run on.
+    private let mainWork: MainWorkScheduler
     /// Find tabs (Open Find as Pane).
-    private(set) lazy var findPanes = FindPaneService(services: services)
+    private(set) lazy var findPanes = FindPaneService(services: services, mainWork: mainWork)
 
     init(services: AppServices) {
         self.services = services
+        mainWork = services.mainWork
         effects = AppFileExplorerEffects(services: services)
     }
 
     /// The Files section of `controller` (made once per window by ``RightSidebarSections``).
     func makeSection(for controller: WindowController) -> FileExplorerSectionView {
         let id = UUID().uuidString
+        let apps = services.map { WorkspaceFileApps(queries: $0.workspaceQueries) }
         let view = FileExplorerSectionView(
             model: FileExplorerModel(),
+            mainWork: mainWork,
             rootFolder: { [weak self, weak controller] in controller.flatMap { self?.folder(focusedIn: $0) } },
             perform: { [weak self] id in self?.perform(ActionID(rawValue: id)) },
             rowMenu: { [weak self] hasSelection in self?.rowMenu(hasSelection: hasSelection, explorer: id) },
-            openWith: services.map { FileExplorerOpenWithMenu(registry: $0.registry) },
+            openWith: services.map {
+                FileExplorerOpenWithMenu(registry: $0.registry, mainWork: mainWork, appIcon: { [apps] in apps?.showIcon(of: $0, in: $1) })
+            },
+            apps: apps ?? UnwiredFileApps(),
             effects: effects,
             showError: { [weak self, weak controller] reason in
                 self?.services?.refusalHUD.show(reason, in: controller?.window)
@@ -43,7 +52,7 @@ final class FileExplorerService {
 
     /// The Find section of `controller`: ripgrep over the folder the explorer would show.
     func makeFindSection(for controller: WindowController) -> FindSectionView {
-        FindSectionView(model: FindSectionModel(), rootFolder: { [weak self, weak controller] in
+        FindSectionView(model: FindSectionModel(), mainWork: mainWork, rootFolder: { [weak self, weak controller] in
             controller.flatMap { self?.folder(focusedIn: $0) } ?? FileManager.default.homeDirectoryForCurrentUser
         }, effects: effects)
     }
@@ -91,6 +100,7 @@ final class FileExplorerService {
     /// The selected tab's folder of `pane` when it is a local terminal's.
     func folder(of pane: PaneController) -> URL? {
         guard let services, let key = pane.currentTabKey,
+              // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), R-index's target; no walk, no observation
               let (tab, model) = services.locateTab(key), services.daemon(for: model).isLocal,
               let cwd = tab.cwd, !cwd.isEmpty else { return nil }
         return URL(fileURLWithPath: cwd, isDirectory: true)

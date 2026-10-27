@@ -36,12 +36,15 @@ final class PageClaimState {
     /// A claim carried the open's route already. Only the first one does: a later document (a
     /// reload, a crash reload) keeps the place it loaded at, which the person may have moved to.
     var routeSent = false
-    /// The fallback deadline's clock (tests inject a manual one).
-    var clock: any Clock<Duration> = ContinuousClock() {
-        didSet { deadline = DemandTimer(owner: "PageWebView.claim", clock: clock) }
-    }
-    private(set) var deadline = DemandTimer(owner: "PageWebView.claim")
+    /// The fallback reload: a person waits on the claimed page (opening Settings), so it is visible work at its due
+    /// time (flexible), never held for a hidden node.
+    let deadline: MainDeadline
     var budget: Duration = PageWebView.claimAcknowledgementBudget
+
+    /// - Parameter deadlines: The page's deadline scheduler (``PageWebView/deadlines``).
+    init(deadlines: MainDeadlineScheduler) {
+        deadline = MainDeadline(owner: "PageWebView.claim", workClass: .visible, alignment: .flexible, scheduler: deadlines)
+    }
 
     /// Ends the pending claim; true when it was pending.
     func end() -> Bool {
@@ -138,6 +141,7 @@ extension PageWebView {
         let params: JSONValue = claimRoute.map { ["route": .string($0)] } ?? .object([:])
         let router = router
         // task-owner: one claim reply; ends with the document's answer or the page's close
+        // main-hop-allow: callPage is the router's main-actor async page call (the claim runs in the page); the task only records its answer
         Task { @MainActor [weak self] in
             let path: PageClaimOutcome.Path
             do {
@@ -149,7 +153,7 @@ extension PageWebView {
             self?.finishClaim(generation, path, reloads: reloadsUnanswered)
         }
         guard reloadsUnanswered else { return }
-        state.deadline.scheduleOnMain(after: state.budget) { [weak self] in
+        state.deadline.schedule(after: state.budget) { [weak self] in
             self?.finishClaim(generation, .timedOut, reloads: true)
         }
     }
@@ -172,11 +176,13 @@ extension PageWebView {
     }
 
     /// Loads the current page URL again, in whichever engine shows it (a plain load of the same URL
-    /// with another fragment is only a fragment navigation, so this reloads from script).
+    /// with another fragment is only a fragment navigation, so this reloads from script). The open that
+    /// claimed the page waits on it, so a frozen page thaws first (``PageFrozenPush/thawsFirst``).
     func reloadDocument() {
         traceOpenLoadStarted(.reload)
         let fragment = route ?? "/"
-        evaluateInPage("history.replaceState(null, \"\", \(JSONValue.string(fragment).compactText)); location.reload();")
+        evaluate("history.replaceState(null, \"\", \(JSONValue.string(fragment).compactText)); location.reload();",
+                 whileFrozen: .thawsFirst)
     }
 }
 
@@ -199,6 +205,7 @@ extension PageWebView: PreloadablePage {
     public func preloadCaptureCover(_ body: @escaping @MainActor (CGImage?) -> Void) {
         guard snapshotKeepsClearAreas else { return body(nil) }
         // task-owner: one picture of the parked page; ends with WebKit's answer
+        // main-hop-allow: snapshot() is the page's main-actor async picture (WebKit's capture); the task only hands its image on
         Task { @MainActor [weak self] in
             let image = await self?.snapshot()
             body(image?.cgImage(forProposedRect: nil, context: nil, hints: nil))

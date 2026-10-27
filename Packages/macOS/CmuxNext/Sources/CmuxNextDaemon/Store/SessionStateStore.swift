@@ -23,6 +23,9 @@ public final class SessionStateStore {
     /// stored value: written only when the closed list changed, so its
     /// observers do not run on every status tick.
     public private(set) var closedItems: [ClosedItem] = []
+    /// Bumped with each change of ``closedItems``: an observer of several machines' closed
+    /// lists reads one number per machine, never the lists.
+    public private(set) var closedRevision: UInt64 = 0
     /// Counts stash changes (`stash-v1`) on this connection, and each fresh
     /// snapshot (changes in the gap were lost). Its readers (the Stashed
     /// page) list the stashes again when it moves; the mirror keeps none.
@@ -74,7 +77,9 @@ public final class SessionStateStore {
 
     private func publishClosed() {
         let closed = mirror?.closed ?? []
-        if closedItems != closed { closedItems = closed }
+        guard closedItems != closed else { return }
+        closedItems = closed
+        closedRevision &+= 1
     }
 
     /// Lays the mirror over the one record `touched` names.

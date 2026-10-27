@@ -1,6 +1,9 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AVFoundation
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import CmuxNextWakeups
 import CoreGraphics
 import Foundation
@@ -96,7 +99,8 @@ nonisolated final class VideoJob: @unchecked Sendable {
     }
 
     func run() async {
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+        // A writer that dropped its callback ends the run as a finished one does.
+        _ = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in
             input.requestMediaDataWhenReady(on: queue) { [self] in
                 while input.isReadyForMoreMediaData, next < frames {
                     if let buffer = frame(next) {
@@ -107,7 +111,7 @@ nonisolated final class VideoJob: @unchecked Sendable {
                 guard next >= frames else { return }
                 next = .max
                 input.markAsFinished()
-                writer.finishWriting { done.resume() }
+                writer.finishWriting { done.resume(returning: ()) }
             }
         }
     }

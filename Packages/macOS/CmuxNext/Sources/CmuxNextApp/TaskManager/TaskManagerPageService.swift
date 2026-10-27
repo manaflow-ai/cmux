@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextHibernation
 import CmuxNextResources
@@ -85,8 +86,9 @@ final class TaskManagerPageService: InternalPageProvider {
         guard let key, signaler.terminate(key.pid) else {
             throw ActionFailure(message: TaskManagerKillRefusal.signalFailed.message)
         }
-        // task-owner: one refresh after the kill; ends when the snapshot is read
-        if let model { Task { await model.refresh() } }
+        // task-owner: BackgroundWork (quit skips it); one refresh after the person's kill, it ends when the snapshot
+        // is read (recipe R-hop)
+        if let model, let work = services?.work { work.task(.userBlocking) { await model.refresh() } }
     }
 
     // MARK: InternalPageProvider
@@ -107,7 +109,7 @@ final class TaskManagerPageService: InternalPageProvider {
         tables[key] = table
         liveViews.insert(key)
         model.start()
-        return NSHostingView(rootView: TaskManagerView(model: model, table: table))
+        return VisibilityGatedHostingView(owner: "TaskManagerPage") { TaskManagerView(model: model, table: table) }
     }
 
     func tabClosed(_ key: String) {
@@ -174,7 +176,7 @@ final class TaskManagerPageService: InternalPageProvider {
                 let row = tableView.row(at: top)
                 return rows.indices.contains(row) ? rows[row].id : nil
             }
-            queue.append(contentsOf: next.subviews)
+            queue.append(contentsOf: next.subviewsIncludingGated)
         }
         return nil
     }

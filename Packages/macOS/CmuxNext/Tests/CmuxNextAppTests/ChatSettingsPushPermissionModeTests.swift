@@ -23,8 +23,9 @@ import Testing
 
         let daemon = try FakeDaemon()
         defer { daemon.close() }
-        ChatSettingsPush.start(settings: settings, socketPath: daemon.path)
+        let push = ChatSettingsPush.start(settings: settings, socketPath: daemon.path, on: linklessMainWork())
         let request = try await daemon.firstUpdate()
+        #expect(push.count == 2, "the push and its settings follower live while their owner holds them")
 
         #expect(request["method"]?.stringValue == "_acpmux/chat_settings", "\(request)")
         #expect(request["params"]?["permissionMode"]?.stringValue == "ask", "\(request)")
@@ -43,8 +44,9 @@ import Testing
 
         let daemon = try FakeDaemon()
         defer { daemon.close() }
-        ChatSettingsPush.start(settings: settings, socketPath: daemon.path)
+        let push = ChatSettingsPush.start(settings: settings, socketPath: daemon.path, on: linklessMainWork())
         let request = try await daemon.firstUpdate()
+        #expect(push.count == 2, "the push and its settings follower live while their owner holds them")
 
         #expect(request["params"]?["permissionMode"]?.stringValue == "standard", "\(request)")
         #expect(request["params"]?["permissionModeManaged"]?.boolValue == false, "\(request)")

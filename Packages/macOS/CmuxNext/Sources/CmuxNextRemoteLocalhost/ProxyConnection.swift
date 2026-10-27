@@ -2,6 +2,10 @@ import CmuxNextWakeups
 import Foundation
 import Network
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// One browser connection to the proxy: read the head, check the route
 /// credential, then tunnel to the machine (loopback) or connect directly
@@ -266,37 +270,47 @@ extension NWConnection {
     /// The next chunk and whether the peer finished sending. Throws on a
     /// connection error.
     func receiveChunk(max: Int) async throws -> (Data?, Bool) {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<(Data?, Bool), any Error>) in
             receive(minimumIncompleteLength: 1, maximumLength: max) { data, _, isComplete, error in
                 if let error {
                     continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: (data, isComplete))
+                    return
                 }
+                continuation.resume(returning: (data, isComplete))
             }
         }
     }
 
     func sendAll(_ data: Data) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
             send(content: data, completion: .contentProcessed { error in
-                if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                continuation.resume(returning: ())
             })
         }
     }
 
     /// Half-closes the write side (TCP FIN).
     func sendFinal() async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
             send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { error in
-                if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                continuation.resume(returning: ())
             })
         }
     }
 
-    /// Starts the connection and waits for ready (true) or failure (false).
+    /// Starts the connection and waits for ready (true) or failure (false); false too when the state
+    /// handler was dropped without an answer.
     func ready(on queue: DispatchQueue) async -> Bool {
-        await withCheckedContinuation { continuation in
+        (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
+            // A connection reports ready, then later failed or cancelled: only its first ending answers.
             let resumed = Mutex(false)
             stateUpdateHandler = { state in
                 let outcome: Bool? = switch state {
@@ -309,6 +323,6 @@ extension NWConnection {
                 continuation.resume(returning: outcome)
             }
             start(queue: queue)
-        }
+        }) ?? false
     }
 }

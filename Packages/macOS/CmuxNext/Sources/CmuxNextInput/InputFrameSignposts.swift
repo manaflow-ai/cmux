@@ -50,20 +50,38 @@ public final class InputFrameSignposts: InputFrameIntervals {
     }
 
     private let signposter: Signposter
-    /// The app's `key.frame` signposts, made at the first key (it installs its main run-loop observer then).
-    private lazy var keyFrames = KeyFrameSignpost()
+    /// Makes the `key.frame` signposts at the first key (the app's installs its main run-loop observer then).
+    private let makeKeyFrames: @MainActor () -> KeyFrameSignpost
+    private var madeKeyFrames: KeyFrameSignpost?
     /// Seconds since boot now (`NSEvent.timestamp`'s clock).
     private let now: @MainActor () -> TimeInterval
     private var open: ContiguousArray<OpenScroll> = []
+    /// Gets each committed key's `key.frame` time in microseconds (``CmuxNextSignposts/KeyFrameSignpost/committedKey``).
+    public var committedKey: ((_ micros: UInt64) -> Void)? {
+        didSet { madeKeyFrames?.committedKey = committedKey }
+    }
 
     /// - Parameters:
     ///   - signposter: The `key` category signposter (the scroll intervals').
     ///   - now: Seconds since boot now.
+    ///   - keyFrames: Makes the `key.frame` signposts at the first key (the app's ``CmuxNextSignposts/KeyFrameSignpost``
+    ///     on the main run loop by default; tests pass one they end themselves).
     public init(signposter: Signposter = .key,
-                now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+                now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+                keyFrames: @escaping @MainActor () -> KeyFrameSignpost = { KeyFrameSignpost() }) {
         self.signposter = signposter
         self.now = now
+        makeKeyFrames = keyFrames
         open.reserveCapacity(InputLatencySlotTable.defaultCapacity)
+    }
+
+    /// The `key.frame` signposts, made at the first call.
+    private var keyFrames: KeyFrameSignpost {
+        if let madeKeyFrames { return madeKeyFrames }
+        let made = makeKeyFrames()
+        made.committedKey = committedKey
+        madeKeyFrames = made
+        return made
     }
 
     public func begin(_ token: InputLatencyToken, _ interval: InputFrameInterval, target: InputTarget,

@@ -114,7 +114,7 @@ import Testing
 /// A provider on an injected scheduler (fake link, fake input, a clock and run loop turns the test
 /// moves), dialing a stand-in host.
 @MainActor
-private final class ProviderFixture {
+final class ProviderFixture {
     let clock: TestUptime
     let input: FakeInput
     let turns: HeldTurns
@@ -124,7 +124,10 @@ private final class ProviderFixture {
     let sources: StandInSources
     let provider: BrowserHostProvider
 
-    init() throws {
+    /// - Parameters:
+    ///   - driver: The WebKit driver its calls go to (nil: none).
+    ///   - capture: The tab nodes captures vote on (nil: none); the caller keeps it.
+    init(driver: (any DriverCallHandler)? = nil, capture: (any ProviderCaptureVoting)? = nil) throws {
         let path = "/tmp/cmux-bh-test-\(getpid())-\(UInt32.random(in: 0...UInt32.max)).sock"
         let clock = TestUptime()
         let input = FakeInput()
@@ -142,8 +145,8 @@ private final class ProviderFixture {
         host = try StandInHost(listeningAt: path)
         // The provider's own dial (ProviderConnection.dial): the listener's peer is this process.
         provider = BrowserHostProvider(identity: ProviderIdentity(providerID: "test", installID: "test-install"),
-                                       credentials: sources, tabs: sources, access: sources, driver: nil,
-                                       relay: sources, marking: sources, mainWork: work)
+                                       credentials: sources, tabs: sources, access: sources, driver: driver,
+                                       relay: sources, marking: sources, mainWork: work, capture: capture)
     }
 
     /// Starts the provider and completes the hello exchange.
@@ -172,7 +175,7 @@ private final class ProviderFixture {
 
 /// The scheduler's run loop turns, run only when the test says.
 @MainActor
-private final class HeldTurns {
+final class HeldTurns {
     private var queued: [@MainActor () -> Void] = []
     private var waiter: CheckedContinuation<Void, Never>?
 
@@ -202,7 +205,7 @@ private final class HeldTurns {
 
 /// The scheduler's frame link requests: each makes a fake link; a test awaits the next one.
 @MainActor
-private final class LinkRequests {
+final class LinkRequests {
     private var unseen = 0
     private var waiter: CheckedContinuation<Void, Never>?
 
@@ -235,20 +238,20 @@ private final class LinkKeeper {
 
 /// A clock the test moves (`CLOCK_UPTIME_RAW` nanoseconds).
 @MainActor
-private final class TestUptime {
+final class TestUptime {
     private var now: UInt64 = 1_000_000_000
     var read: () -> UInt64 { { [self] in self.now } }
     func advance(ms: Double) { now += UInt64(ms * 1_000_000) }
 }
 
 @MainActor
-private final class FakeInput: InputPendingSource {
+final class FakeInput: InputPendingSource {
     var pending = false
     func hasPendingInput(uptime: TimeInterval) -> Bool { pending }
 }
 
 @MainActor
-private final class FakeLink: FrameLink {
+final class FakeLink: FrameLink {
     var isPaused = false
     func invalidate() {}
 }
@@ -256,7 +259,7 @@ private final class FakeLink: FrameLink {
 /// The browser host's end: a listening socket the provider dials, then the accepted link. Reads and
 /// accepts block on the actor's executor (off the main actor, where the provider runs); each is
 /// bounded by the socket's receive timeout, so a missing reply fails the test instead of hanging it.
-private actor StandInHost {
+actor StandInHost {
     private let path: String
     private let listener: Int32
     private var fd: Int32 = -1
@@ -335,18 +338,18 @@ private actor StandInHost {
     }
 }
 
-private enum StandInHostError: Error {
+enum StandInHostError: Error {
     /// Creating, binding, listening on or accepting from the socket failed.
     case socket(errno: Int32)
     /// The app closed the link, or no frame came within the receive timeout (`EAGAIN`).
     case readEnded(errno: Int32)
 }
 
-/// Every source the provider reads: an observable tab list (empty at first) whose reads it counts, no
-/// relay, and credentials naming the stand-in host's socket and this process (the listener, so the
-/// dialed socket's peer).
+/// Every source the provider reads: an observable tab list (empty at first) whose reads it counts, a
+/// DevTools relay that starts no tab unless a test sets ``relayReady``, and credentials naming the
+/// stand-in host's socket and this process (the listener, so the dialed socket's peer).
 @MainActor
-private final class StandInSources: ProviderCredentialsSource, ProviderTabSource, ProviderAccessSource, ProviderDevToolsRelay,
+final class StandInSources: ProviderCredentialsSource, ProviderTabSource, ProviderAccessSource, ProviderDevToolsRelay,
     ProviderAgentMarking {
     private let socketPath: String
     let list: StandInTabList
@@ -371,15 +374,49 @@ private final class StandInSources: ProviderCredentialsSource, ProviderTabSource
         ProviderTabAccess(extensionHostAccess: false, userOverride: false, extensions: [])
     }
 
-    func prepareRelay(targetID: String) async -> Bool { false }
-    func startRelay(targetID: String, onMessage: @escaping (String) -> Void, onEnd: @escaping () -> Void) -> Bool { false }
-    func send(targetID: String, message: String) -> CEFDevToolsRawSend { .noBrowser }
-    func stopRelay(targetID: String) {}
+    /// Whether a tab's relay prepares and starts (false: no tab has a Chromium browser).
+    var relayReady = false
+    /// What a send to a started relay returns.
+    var sendResult = CEFDevToolsRawSend.sent
+    /// The raw messages handed to the browser, in order.
+    private(set) var relayed: [String] = []
+    /// The started relay's callbacks: a raw message from the browser, and the browser going away.
+    private(set) var fromBrowser: ((String) -> Void)?
+    private(set) var closedByBrowser: (() -> Void)?
+    private var startWaiter: CheckedContinuation<Void, Never>?
+
+    func prepareRelay(targetID: String) async -> Bool { relayReady }
+
+    func startRelay(targetID: String, onMessage: @escaping (String) -> Void, onEnd: @escaping () -> Void) -> Bool {
+        guard relayReady else { return false }
+        fromBrowser = onMessage
+        closedByBrowser = onEnd
+        startWaiter?.resume()
+        startWaiter = nil
+        return true
+    }
+
+    func send(targetID: String, message: String) -> CEFDevToolsRawSend {
+        guard relayReady, fromBrowser != nil else { return .noBrowser }
+        if sendResult == .sent { relayed.append(message) }
+        return sendResult
+    }
+
+    func stopRelay(targetID: String) {
+        fromBrowser = nil
+        closedByBrowser = nil
+    }
+
+    /// Waits until the provider started a relay.
+    func started() async {
+        if fromBrowser == nil { await withCheckedContinuation { startWaiter = $0 } }
+    }
+
     func agentWillDrive(targetID: String) {}
 }
 
 /// The stand-in app's tabs, observable as the store is.
 @MainActor @Observable
-private final class StandInTabList {
+final class StandInTabList {
     var tabs: [ProviderTab] = []
 }
