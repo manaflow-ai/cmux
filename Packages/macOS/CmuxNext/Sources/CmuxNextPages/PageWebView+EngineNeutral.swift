@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
 public import WebKit
@@ -174,7 +175,10 @@ private final class PageMessageRelay: NSObject, WKScriptMessageHandler {
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let view, let webView = message.webView, webView === view.webKitPieces?.view, message.frameInfo.isMainFrame else { return }
-        handler(message.body)
+        // Handlers get the body as a Chromium page's arrive (``ChromiumPageHostWire/object(_:)``): Swift values
+        // whose dictionaries hold each key once, so their `[String: Any]` casts cannot trap.
+        guard let body = view.router.envelope(message.body)?.foundationObject else { return }
+        handler(body)
     }
 }
 

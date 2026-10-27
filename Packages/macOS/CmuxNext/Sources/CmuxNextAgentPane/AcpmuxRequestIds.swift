@@ -22,6 +22,8 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         var inFlight: Set<String> = []
         /// Told when the daemon answers a relay id (``whenAnswered(_:_:)``).
         var answered: [Int: @Sendable () -> Void] = [:]
+        /// Daemon frames ``toPage(_:)`` dropped (``droppedFrames``).
+        var dropped = 0
     }
 
     private let state = Mutex(State())
@@ -84,8 +86,19 @@ nonisolated final class AcpmuxRequestIds: Sendable {
 
     /// One daemon frame (ad349, round 8): the duplicate-key check, one full parse, then a fresh
     /// serialization; a reply gets the page's id (or its filtered shape). A reply to no request the
-    /// relay sent is dropped.
+    /// relay sent is dropped and counted (``droppedFrames``).
     func toPage(_ text: String) -> Inbound {
+        let inbound = route(text)
+        if case .drop = inbound { state.withLock { $0.dropped += 1 } }
+        return inbound
+    }
+
+    /// The daemon frames of this connection the relay dropped (``toPage(_:)``): not one JSON object, or a
+    /// reply to no open request. Each is counted and the stream goes on, as Chrome counts each bad IPC
+    /// message (`bad_message::ReceivedBadMessage`, content/browser/bad_message.cc).
+    var droppedFrames: Int { state.withLock { $0.dropped } }
+
+    private func route(_ text: String) -> Inbound {
         switch AcpmuxJSONKeys.verdict(text) {
         case .clean: break
         case .malformed: return .drop

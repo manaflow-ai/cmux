@@ -68,17 +68,26 @@ public final class PageInputReadiness {
     /// cannot move the queued edits into another field.
     var editToken = UUID().uuidString
 
-    /// One message of the readiness script (`true`/`false`, `{list}` or `{editing}`), from any engine.
+    /// Messages ``receive(_:)`` dropped: a body no JSON holds.
+    public internal(set) var badMessages = 0
+
+    /// One message of the readiness script (`true`/`false`, `{list}` or `{editing}`), from any engine. The body
+    /// is read through `JSONValue`, never cast to `[String: Any]`, which traps on two keys that are equal Swift
+    /// strings (a page can post `{"\u{E9}": 1, "e\u{301}": 2}`).
     func receive(_ body: Any) {
-        if let body = body as? [String: Any] {
-            if let epoch = body["epoch"] as? Int { focusEpoch = epoch }
-            if let ready = body["ready"] as? Bool { report(ready) }
-            if let list = body["list"] as? Bool { reportList(list) }
-            if let editing = body["editing"] as? Bool { reportEditing(editing) }
-            if let sideways = body["sideways"] as? Bool { reportSideways(sideways) }
+        guard let message = JSONValue(foundation: body) else {
+            badMessages += 1
             return
         }
-        report(body as? Bool == true)
+        if let fields = message.objectValue {
+            if let epoch = fields["epoch"]?.intValue { focusEpoch = epoch }
+            if let ready = fields["ready"]?.boolValue { report(ready) }
+            if let list = fields["list"]?.boolValue { reportList(list) }
+            if let editing = fields["editing"]?.boolValue { reportEditing(editing) }
+            if let sideways = fields["sideways"]?.boolValue { reportSideways(sideways) }
+            return
+        }
+        report(message.boolValue == true)
     }
 
     func reportList(_ focused: Bool) {

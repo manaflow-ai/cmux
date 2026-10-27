@@ -534,7 +534,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
         // The message conversion stays here: `handle` must start in the order the page posted, and
         // `message.body` is a non-Sendable WebKit object graph (page messages are small calls).
-        guard let body = JSONValue(foundation: message.body) else { return nil }
+        guard let body = router.envelope(message.body) else { return nil }
         let started = ProcessInfo.processInfo.systemUptime
         let reply = await router.handle(body)
         let handled = ProcessInfo.processInfo.systemUptime

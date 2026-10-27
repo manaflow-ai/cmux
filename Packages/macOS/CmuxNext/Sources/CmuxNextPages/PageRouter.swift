@@ -57,6 +57,8 @@ public final class PageRouter {
     /// Sends what the host's script pipeline keeps for the next frame now: a built-in command or a
     /// host call was just sent and must not wait a frame (``PageWebView`` sets it).
     var deliverNow: (@MainActor () -> Void)?
+    /// Envelopes refused as malformed (``badMessage(_:)``, PageRouter+BadMessage.swift).
+    public internal(set) var badMessages = 0
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Whether the page's view is hidden, as its ``PageWebView`` tells the engine (`debug.webui`).
     public internal(set) var debugPageHidden = false
@@ -89,16 +91,16 @@ public final class PageRouter {
     /// Handles one envelope the page posted and returns the reply envelope (or `null` for
     /// messages that need none: `unsub`, and replies to host calls).
     public func handle(_ message: JSONValue) async -> JSONValue {
-        guard let type = message["t"]?.stringValue else { return Self.error(id: 0, .invalidParams("missing t")) }
-        let id = message["id"]?.doubleValue.map { UInt64(max(0, $0)) } ?? 0
+        guard let type = message["t"]?.stringValue else { return badMessage(Self.error(id: 0, .invalidParams("missing t"))) }
+        guard let id = Self.counter(message["id"]) else { return badMessage(Self.error(id: 0, .badCounter("id"))) }
         switch type {
         case "call":
-            guard let op = message["op"]?.stringValue else { return Self.error(id: id, .invalidParams("missing op")) }
+            guard let op = message["op"]?.stringValue else { return badMessage(Self.error(id: id, .invalidParams("missing op"))) }
             do {
                 var opid: String?
                 if let raw = message["opid"] {
                     guard let text = raw.stringValue, PageCallContext.isValidOpid(text) else {
-                        return Self.error(id: id, PageError(code: "cmux.protocol.bad_message", message: "opid must be 1-128 characters of [A-Za-z0-9._:-]"))
+                        return badMessage(Self.error(id: id, PageError(code: "cmux.protocol.bad_message", message: "opid must be 1-128 characters of [A-Za-z0-9._:-]")))
                     }
                     opid = text
                 }
@@ -114,7 +116,7 @@ public final class PageRouter {
                 return Self.error(id: id, PageError(code: "cmux.page.failed", message: String(describing: error)))
             }
         case "sub":
-            guard let stream = message["stream"]?.stringValue else { return Self.error(id: id, .invalidParams("missing stream")) }
+            guard let stream = message["stream"]?.stringValue else { return badMessage(Self.error(id: id, .invalidParams("missing stream"))) }
             do {
                 let sub = try await subscribe(stream, filter: message["filter"] ?? .object([:]))
                 return ["t": "ok", "id": .number(Double(id)), "value": ["sub": .number(Double(sub))]]
@@ -128,13 +130,15 @@ public final class PageRouter {
             inFlight[id]?.cancel()
             return .null
         case "unsub":
-            if let sub = message["sub"]?.doubleValue { unsubscribe(UInt64(max(0, sub))) }
+            // No subscription has id 0, the counter of an absent `sub`.
+            guard let sub = Self.counter(message["sub"]) else { return badMessage(.null) }
+            unsubscribe(sub)
             return .null
         case "ok", "err":
             resolve(id: id, message)
             return .null
         default:
-            return Self.error(id: id, .invalidParams("unknown message \(type)"))
+            return badMessage(Self.error(id: id, .invalidParams("unknown message \(type)")))
         }
     }
 
@@ -433,14 +437,5 @@ public final class PageRouter {
         inFlight.sorted { $0.key < $1.key }.map { id, call in
             ["id": .number(Double(id)), "op": .string(call.op), "age_ms": .number(((now - call.started) * 1000).rounded())]
         }
-    }
-
-    static func error(id: UInt64, _ error: PageError) -> JSONValue {
-        var envelope: [String: JSONValue] = [
-            "t": "err", "id": .number(Double(id)), "code": .string(error.code), "message": .string(error.message),
-            "retryable": .bool(error.retryable),
-        ]
-        if let details = error.details { envelope["details"] = details }
-        return .object(envelope)
     }
 }

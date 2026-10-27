@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextSettings
 import Foundation
 
 /// The JSON shapes ``ChromiumPageHostBridge`` reads and writes. Pure, so tests check each shape.
@@ -79,9 +80,13 @@ nonisolated struct ChromiumPageHostWire {
         }
     }
 
+    /// The JSON object `json` holds, as Swift values whose dictionaries hold each key once (read through
+    /// `JSONValue`: casting `JSONSerialization`'s dictionary to `[String: Any]` traps on two keys that are equal
+    /// Swift strings, which a page's payload can hold); nil for any other text.
     static func object(_ json: String) -> [String: Any]? {
-        guard let data = json.data(using: .utf8) else { return nil }
-        return (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any]
+        guard let data = json.data(using: .utf8), let parsed = try? JSONSerialization.blockingJSONObject(with: data),
+              let members = JSONValue(foundation: parsed)?.objectValue else { return nil }
+        return members.mapValues(\.foundationObject)
     }
 
     /// A JavaScript string literal (JSON is a subset of JavaScript).

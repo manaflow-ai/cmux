@@ -827,7 +827,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextPagesTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextHibernation", "CmuxNextMemory", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextHibernation", "CmuxNextMemory", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextWakeups",
+                           // CmuxFuzzSupport: PageBridgeFuzzTests (p10-stability-179).
+                           .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: uiSwiftSettings
         ),
         // Settings > Agents > Agent integrations: the coding-agent hooks the bundled CLI
