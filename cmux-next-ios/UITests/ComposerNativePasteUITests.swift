@@ -75,10 +75,12 @@ final class ComposerNativePasteUITests: XCTestCase {
         item.tap()
     }
 
+    @MainActor
     private func hasFocus(_ field: XCUIElement) -> Bool {
         (field.value(forKey: "hasKeyboardFocus") as? Bool) == true
     }
 
+    @MainActor
     private func waitForValue(_ field: XCUIElement, containing text: String) -> Bool {
         let predicate = NSPredicate { object, _ in
             ((object as? XCUIElement)?.value as? String)?.contains(text) == true
@@ -86,6 +88,7 @@ final class ComposerNativePasteUITests: XCTestCase {
         return XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: field)], timeout: 5) == .completed
     }
 
+    @MainActor
     private static func sampleImage() -> UIImage {
         UIGraphicsImageRenderer(size: CGSize(width: 120, height: 80)).image { context in
             UIColor.systemTeal.setFill()

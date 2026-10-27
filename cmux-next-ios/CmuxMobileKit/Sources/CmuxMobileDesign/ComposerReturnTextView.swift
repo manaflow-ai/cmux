@@ -1,6 +1,5 @@
 #if os(iOS)
 import UIKit
-import UniformTypeIdentifiers
 
 /// A composer's growing text view that follows a `ComposerReturnPolicy`:
 /// hardware Return, Shift-Return and Option-Return are key commands (each
@@ -129,12 +128,10 @@ open class ComposerReturnTextView: UITextView {
 
     // MARK: Paste
 
-    /// An image or a copied file on the pasteboard, for a composer that takes
-    /// attachments. Reading the types asks nothing.
+    /// An image or a copied file leads the pasteboard, for a composer that
+    /// takes attachments (`composerPastesAttachments`).
     private var pastesAttachments: Bool {
-        guard onPasteAttachments != nil else { return false }
-        let board = UIPasteboard.general
-        return board.hasImages || board.contains(pasteboardTypes: [UTType.fileURL.identifier])
+        onPasteAttachments != nil && UIPasteboard.general.composerPastesAttachments
     }
 
     override open func paste(_ sender: Any?) {

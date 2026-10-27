@@ -643,8 +643,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
 
     // MARK: Attachments
 
-    /// The pasteboard's images (the copying app's PNG or JPEG bytes, else
-    /// PNG), or its copied files.
+    /// The pasteboard's images (each item's PNG or JPEG bytes as the copying
+    /// app gave them, else re-encoded as PNG), or its copied files.
     private func pasteAttachments() {
         let board = UIPasteboard.general
         guard board.hasImages else {
@@ -657,23 +657,23 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
             }
             return
         }
-        var pasted: [ComposerAttachment] = []
-        for index in 0..<board.numberOfItems {
+        let pasted: [ComposerAttachment] = (0..<board.numberOfItems).compactMap { index in
             let item = IndexSet(integer: index)
-            for (type, mimeType) in [(UTType.png, "image/png"), (UTType.jpeg, "image/jpeg")] {
-                if let data = board.data(forPasteboardType: type.identifier, inItemSet: item)?.first as? Data,
-                   let image = UIImage(data: data) {
-                    pasted.append(ComposerAttachment(image: image, data: data, mimeType: mimeType))
-                    break
-                }
-            }
+            let itemTypes = (board.types(forItemSet: item)?.first ?? []).compactMap { UTType($0) }
+            guard let type = itemTypes.first(where: { $0.conforms(to: .image) }),
+                  let data = board.data(forPasteboardType: type.identifier, inItemSet: item)?.first,
+                  let image = UIImage(data: data) else { return nil }
+            if type.conforms(to: .png) { return ComposerAttachment(image: image, data: data, mimeType: "image/png") }
+            if type.conforms(to: .jpeg) { return ComposerAttachment(image: image, data: data, mimeType: "image/jpeg") }
+            return image.pngData().map { ComposerAttachment(image: image, data: $0, mimeType: "image/png") }
         }
-        if pasted.isEmpty {
-            pasted = (board.images ?? []).compactMap { image in
-                image.pngData().map { ComposerAttachment(image: image, data: $0, mimeType: "image/png") }
-            }
+        guard pasted.isEmpty else {
+            pasted.forEach(addAttachment)
+            return
         }
-        pasted.forEach(addAttachment)
+        for image in board.images ?? [] {
+            if let png = image.pngData() { addAttachment(ComposerAttachment(image: image, data: png, mimeType: "image/png")) }
+        }
     }
 
     func addAttachment(_ attachment: ComposerAttachment) {
@@ -870,12 +870,16 @@ final class ComposerTextView: UITextView {
     var onPasteAttachments: (() -> Void)?
     var acceptsAttachments: () -> Bool = { false }
 
-    /// An image or a copied file on the pasteboard, and the composer takes
-    /// one now. Reading the types asks nothing.
+    /// An image or a copied file leads the pasteboard, and the composer takes
+    /// one now. Text that came with an image (cells from Numbers, a note with
+    /// a picture) still pastes as text. Reading the types asks nothing.
     private var pastesAttachments: Bool {
         guard onPasteAttachments != nil, acceptsAttachments() else { return false }
         let board = UIPasteboard.general
-        return board.hasImages || board.contains(pasteboardTypes: [UTType.fileURL.identifier])
+        guard board.hasImages || board.contains(pasteboardTypes: [UTType.fileURL.identifier]) else { return false }
+        guard board.hasStrings else { return true }
+        guard let first = board.types.first.flatMap({ UTType($0) }) else { return false }
+        return first.conforms(to: .image) || first.conforms(to: .fileURL)
     }
 
     override func paste(_ sender: Any?) {
