@@ -91,6 +91,14 @@ public actor CloudMachineLink {
         guard !stopped, !suspended, self.generation == generation else { throw CancellationError() }
     }
 
+    /// `--vm-kind owner` when this attach's answer said the signed-in caller owns the machine
+    /// (``CloudAttachEndpoint/callerOwnsVM``), else nothing. Asked again at each link start and
+    /// never saved: the link's acpmux peer bridge leases the machine at the VM boundary only for
+    /// this link (cmux-tui `remote_cli/acpmux_peer.rs`).
+    public static func vmKindArguments(_ endpoint: CloudAttachEndpoint) -> [String] {
+        endpoint.callerOwnsVM ? ["--vm-kind", "owner"] : []
+    }
+
     /// PID of the running link process, for diagnostics.
     public var pid: Int32? { child?.pid }
 
@@ -130,6 +138,7 @@ public actor CloudMachineLink {
         } else if endpoint.trustedCarrier {
             arguments.append("--carrier")
         }
+        arguments += Self.vmKindArguments(endpoint)
         arguments += ["--wireguard-hub", hubSocket]
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_REMOTE_STATE_DIR"] = paths.linkState.path

@@ -236,6 +236,29 @@ public struct CloudAttachEndpoint: Sendable, Hashable, Decodable {
     public var vmKind: String?
     public var expiresAtUnix: Double?
     public var invitation: Invitation?
+    /// `"owner"`, `"team"` or null: the Cloud API's answer, for the signed-in caller and this
+    /// request only, whether this machine is the caller's own personal VM that it created.
+    /// Absent from an older server; a value of another type reads as nil, never a failed attach.
+    public var vmKind: String?
+
+    /// Only the exact `"owner"`: the link then starts the machine's remote chains at the VM
+    /// boundary (acpmux `hub/vm_boundary.rs`). Anything else keeps them sandboxed.
+    public var callerOwnsVM: Bool { vmKind == "owner" }
+
+    private enum CodingKeys: String, CodingKey {
+        case transport, route, session, trustedCarrier, expiresAtUnix, invitation, vmKind
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        transport = try c.decode(String.self, forKey: .transport)
+        route = try c.decode(String.self, forKey: .route)
+        session = try c.decode(String.self, forKey: .session)
+        trustedCarrier = try c.decode(Bool.self, forKey: .trustedCarrier)
+        expiresAtUnix = try c.decodeIfPresent(Double.self, forKey: .expiresAtUnix)
+        invitation = try c.decodeIfPresent(Invitation.self, forKey: .invitation)
+        vmKind = (try? c.decodeIfPresent(String.self, forKey: .vmKind)) ?? nil
+    }
 }
 
 public struct CloudEnrollmentApproval: Sendable, Hashable, Decodable {
