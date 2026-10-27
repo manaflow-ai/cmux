@@ -214,7 +214,13 @@ public actor DeviceHubClient {
         struct Answer: Decodable { var entries: [AuditEntry] }
         var query: [URLQueryItem] = []
         if let limit { query.append(URLQueryItem(name: "limit", value: String(limit))) }
-        if let before { query.append(URLQueryItem(name: "before", value: String(Int64((before.timeIntervalSince1970 * 1000).rounded())))) }
+        if let before {
+            // An entry's ts decodes only within 1e11 seconds of 1970 (KeyedDecodingContainer.date), so it fits.
+            guard let millis = Int64(exactly: (before.timeIntervalSince1970 * 1000).rounded()) else {
+                throw DeviceHubError.decoding("audit cursor \(before.timeIntervalSince1970) is not a time in milliseconds")
+            }
+            query.append(URLQueryItem(name: "before", value: String(millis)))
+        }
         // One device's entries (it is the viewer or the host).
         if let device { query.append(URLQueryItem(name: "device", value: device)) }
         return try await call("GET", "/v1/audit", query: query, as: Answer.self).entries

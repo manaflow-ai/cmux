@@ -495,7 +495,7 @@ impl crate::hub::Hub {
             waiter(&service);
         }
         // Settings sent during the first scan went only to the file.
-        tokio::task::spawn_blocking(move || service.reload_settings())
+        crate::daemon::spawn_blocking(move || service.reload_settings())
             .await
             .map_err(|e| format!("chat settings: {e}"))?;
         Ok(())

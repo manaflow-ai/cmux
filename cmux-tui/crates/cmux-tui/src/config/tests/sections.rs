@@ -547,6 +547,8 @@ fn compatibility_browser_keys_are_ignored_whatever_their_value() {
     )
     .unwrap();
     let old = std::env::var_os("CMUX_TUI_CONFIG");
+    // SAFETY: `_guard` holds CONFIG_ENV_LOCK, which serializes the environment changes of the
+    // config tests.
     unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
     let config = load();
     restore_env_var("CMUX_TUI_CONFIG", old);
@@ -556,6 +558,8 @@ fn compatibility_browser_keys_are_ignored_whatever_their_value() {
     // falls back to its defaults).
     std::fs::write(&path, r##"{"browser":{"typo":1,"max_capture_megapixels":1.0}}"##).unwrap();
     let old = std::env::var_os("CMUX_TUI_CONFIG");
+    // SAFETY: `_guard` holds CONFIG_ENV_LOCK, which serializes the environment changes of the
+    // config tests.
     unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
     let config = load();
     restore_env_var("CMUX_TUI_CONFIG", old);
@@ -573,6 +577,8 @@ fn invalid_section_does_not_discard_valid_sections() {
     )
     .unwrap();
     let old = std::env::var_os("CMUX_TUI_CONFIG");
+    // SAFETY: `_guard` holds CONFIG_ENV_LOCK, which serializes the environment changes of the
+    // config tests.
     unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
     let config = load();
     restore_env_var("CMUX_TUI_CONFIG", old);
@@ -589,6 +595,8 @@ fn unknown_top_level_field_keeps_strict_rejection() {
     let path = dir.join("cmux-tui.json");
     std::fs::write(&path, r##"{"theme":{"sidebar_rail":42},"future":true}"##).unwrap();
     let old = std::env::var_os("CMUX_TUI_CONFIG");
+    // SAFETY: `_guard` holds CONFIG_ENV_LOCK, which serializes the environment changes of the
+    // config tests.
     unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
     let config = load();
     restore_env_var("CMUX_TUI_CONFIG", old);

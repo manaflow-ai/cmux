@@ -148,7 +148,8 @@
               "invariants",
               "switches",
               "cli",
-              "mcp"
+              "mcp",
+              "reply"
             ]
           }
         }
@@ -3710,6 +3711,41 @@
               "pattern": "^[a-z][a-z_]*(\\.[a-z][a-z_]*)+$"
             }
           }
+        },
+        "reply": {
+          "description": "The reply of a resource.call step whose expect outcome is any (a walk move of scripts/cmux-next/oracle/gen_walks.py), in that step's settled checkpoint: ok with the mutation receipt's replayed flag, or the typed error code. The daemon facet beside it holds the state the call left; the reply's value is left out because the facet shows its objects.",
+          "x-oracle-source": {
+            "method": "resource.call",
+            "path": "/reply",
+            "task": "p15-oracle-098",
+            "from": "the step's reply on the daemon driver's ProtocolConnection (driver_daemon.py)"
+          },
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["outcome"],
+              "properties": {
+                "outcome": {
+                  "x-oracle-source": {"method": "resource.call", "path": "/reply/outcome"},
+                  "type": "string",
+                  "enum": ["ok", "error"]
+                },
+                "replayed": {
+                  "description": "an ok mutation_result's replayed flag: true when the daemon answered from the idempotency record of an earlier call with the same key (I10)",
+                  "x-oracle-source": {"method": "resource.call", "path": "/reply/replayed"},
+                  "type": "boolean"
+                },
+                "error": {
+                  "description": "the typed error code; present only when outcome is error",
+                  "x-oracle-source": {"method": "resource.call", "path": "/reply/error"},
+                  "type": "string",
+                  "pattern": "^[a-z][a-z_]*(\\.[a-z][a-z_]*)+$"
+                }
+              }
+            },
+            {"$ref": "#/definitions/notComparable"}
+          ]
         }
       }
     }

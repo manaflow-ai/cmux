@@ -22,7 +22,7 @@ struct PageChromiumWindowShareTests {
     }
 
     private func makeHost(_ hosting: FakeChromiumHosting, lazy: Bool) -> WebUIHost {
-        WebUIHost(chromium: hosting, openPanel: nil, memory: QuietMemoryRegistry(), clock: PageTestClock.never,
+        WebUIHost(chromium: hosting, openPanel: nil, memory: QuietMemoryRegistry(), deadlines: LifecycleDeadlineRig.never,
                   startsPagesAtFirstShow: lazy)
     }
 
@@ -55,7 +55,7 @@ struct PageChromiumWindowShareTests {
         let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
         defer { host.close(view) }
         view.chromiumWindow = paneA
-        let window = PageHostPoolLaunchWindowTests.shownWindow()
+        let window = PagePreloadPageTests.shownWindow()
         defer { window.close() }
         // AppKit reports the off-screen test window covered: its node reads visible.
         let visibility = WindowVisibilitySource.of(window, read: { _ in .visible })

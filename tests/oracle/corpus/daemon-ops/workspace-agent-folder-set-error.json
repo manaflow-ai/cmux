@@ -59,19 +59,23 @@
       "args": {
         "method": "workspace.agent_folder.set",
         "params": {
-          "path": 7
+          "path": "/usr"
         },
         "idempotencyKey": "workspace-agent-folder-set-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "origin.forbidden",
+        "errorDetails": {
+          "derived": "agent",
+          "required": "user"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "path breaks its catalog type (value must be a string); the daemon's catalog check refuses it"
+      "note": "Gate A2: an agent connection may not choose where agents run (request_origin.rs require_origin), refused before any handler runs"
     }
   ],
   "invariants": [
@@ -80,8 +84,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.path is a fixed placeholder, not a fixture object; workspace/_tuning.json tunes it"
   ]
 }

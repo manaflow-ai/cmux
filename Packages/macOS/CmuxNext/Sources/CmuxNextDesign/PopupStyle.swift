@@ -154,7 +154,7 @@ public final class PopupHostView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let radius = cornerRadius
-        let shape = CGPath(roundedRect: frame, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        let shape = CGPath.roundedRect(frame, cornerWidth: radius, cornerHeight: radius)
         shadowLayer.frame = bounds
         shadowLayer.shadowPath = shape
         let cutout = CGMutablePath()
