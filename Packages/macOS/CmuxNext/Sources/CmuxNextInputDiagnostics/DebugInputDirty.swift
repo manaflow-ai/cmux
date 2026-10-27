@@ -96,7 +96,7 @@ public nonisolated struct DebugInputDirty: Sendable, Encodable, Equatable {
         installed = copy.installed
         installedNow = copy.installedNow
         sinceLaunch = copy.sinceLaunch
-        turns = Dictionary(uniqueKeysWithValues: window.turns.map { ($0.key.rawValue, $0.value) })
+        turns = Dictionary(window.turns.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first })
         calls = window.calls
         offTargetCalls = window.offTargetCalls
         sitesOverflow = window.sitesOverflow
