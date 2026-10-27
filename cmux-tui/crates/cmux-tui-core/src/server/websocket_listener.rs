@@ -374,7 +374,7 @@ fn handle_websocket_connection_with_permit(
                     writer_stream.write_websocket_text(&text, &writer_ipc)
                 }
                 // The WebSocket sink refuses frames before they queue.
-                OutboundItem::Frame(..) => Err(std::io::Error::new(
+                OutboundItem::Frame(..) | OutboundItem::Chunk { .. } => Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     "a frame reached a WebSocket",
                 )),

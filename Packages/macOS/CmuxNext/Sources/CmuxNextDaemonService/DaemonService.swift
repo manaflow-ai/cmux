@@ -1,6 +1,8 @@
 import AppKit
 public import CmuxNextActions
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
 public import CmuxNextControl
 public import CmuxNextDaemon
 public import CmuxNextTrace
@@ -76,7 +78,7 @@ public final class DaemonService {
     @ObservationIgnored public let launchSnapshot: DaemonLaunchSnapshot
     /// Callers of `endpoint()` waiting for the first connection (terminals
     /// drawn from the launch snapshot attach as soon as it exists).
-    @ObservationIgnored var connectionWaiters: [CheckedContinuation<Void, Never>] = []
+    @ObservationIgnored var connectionWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
     /// Watches each line the service's connections and its terminal attachments read (their reader threads'
     /// `daemon.line` scopes); nil watches nothing.
     @ObservationIgnored public let hangWatch: (any HangWatchScoping)?

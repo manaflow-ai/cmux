@@ -1,6 +1,9 @@
 internal import Darwin
 internal import Observation
 internal import os
+internal import class CmuxSafeConcurrency.OnceContinuation
+internal import enum CmuxSafeConcurrency.OnceContinuationError
+internal import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The values of a main-actor expression over time, with the call shape of
 /// the Observation module's `Observations` sequence (macOS 26), so that
@@ -267,7 +270,7 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
     /// the one waiting `next()`.
     fileprivate final class ChangeState: Sendable {
         private struct Inner {
-            var waiter: CheckedContinuation<Void, Never>?
+            var waiter: OnceContinuation<Void, OnceContinuationError>?
             var dirty = false
             var cancelled = false
         }
@@ -277,7 +280,7 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
         /// The will-set callback: wakes the waiting `next()`, or marks the
         /// state dirty so the next `next()` does not wait.
         func changed() {
-            let waiter = inner.withLock { s -> CheckedContinuation<Void, Never>? in
+            let waiter = inner.withLock { s -> OnceContinuation<Void, OnceContinuationError>? in
                 guard let waiter = s.waiter else {
                     s.dirty = true
                     return nil
@@ -285,24 +288,25 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
                 s.waiter = nil
                 return waiter
             }
-            waiter?.resume()
+            waiter?.resume(returning: ())
         }
 
         /// Ends every wait now and later.
         func cancel() {
-            let waiter = inner.withLock { s -> CheckedContinuation<Void, Never>? in
+            let waiter = inner.withLock { s -> OnceContinuation<Void, OnceContinuationError>? in
                 s.cancelled = true
                 defer { s.waiter = nil }
                 return s.waiter
             }
-            waiter?.resume()
+            waiter?.resume(returning: ())
         }
 
         /// Returns after the next change, at once when a change came since the
         /// last evaluation or the iteration was cancelled.
         /// Runs on the caller's isolation (nonisolated(nonsending)).
         func waitForChange() async {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            // A dropped waiter returns as a change does: the iteration evaluates again.
+            _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
                 let resumeNow = inner.withLock { s -> Bool in
                     if s.cancelled || s.dirty {
                         s.dirty = false
@@ -311,7 +315,7 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
                     s.waiter = continuation
                     return false
                 }
-                if resumeNow { continuation.resume() }
+                if resumeNow { continuation.resume(returning: ()) }
             }
         }
     }

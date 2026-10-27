@@ -352,12 +352,18 @@ impl RenderState {
     }
 
     /// Release renderer-owned Kitty pixels after the process owner lowers a
-    /// terminal's native storage share. The next update rebuilds only images
-    /// that survived libghostty's eviction.
+    /// terminal's native storage share, or under critical memory pressure.
+    /// The next update rebuilds only images that survived libghostty's
+    /// eviction.
     pub fn clear_kitty_graphics_cache(&mut self) {
         self.kitty_graphics = Arc::new(KittyGraphicsSnapshot::default());
         self.kitty_pixel_cache.clear();
         self.kitty_terminal_instance_id = None;
+    }
+
+    /// Decoded Kitty pixel bytes this renderer's cache holds.
+    pub fn kitty_pixel_cache_bytes(&self) -> usize {
+        kitty::pixel_cache_bytes(&self.kitty_pixel_cache)
     }
 
     fn get<T: Default>(&self, data: sys::GhosttyRenderStateData) -> Result<T> {

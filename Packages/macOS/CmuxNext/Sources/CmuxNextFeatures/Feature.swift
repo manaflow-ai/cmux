@@ -27,9 +27,6 @@ public nonisolated struct Feature: Sendable, Hashable {
 
         /// Whether local Labs and Debug overrides apply (DEV and NIGHTLY).
         public var allowsLocalOverrides: Bool { self != .release }
-
-        /// Whether field-trial arms apply (Nightly studies only).
-        public var allowsFieldTrials: Bool { self == .nightly }
     }
 
     /// What a feature is for (the registry's `kind`).

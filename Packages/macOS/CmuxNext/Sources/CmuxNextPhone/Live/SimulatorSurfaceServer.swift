@@ -1,5 +1,7 @@
 public import Foundation
 import IOSurface
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import os
 
 private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "phone.surface")
@@ -36,7 +38,7 @@ public final class SimulatorSurfaceServer {
     public let secret = UUID().uuidString.replacingOccurrences(of: "-", with: "") + UUID().uuidString.replacingOccurrences(of: "-", with: "")
     private var listener: LoopbackListener?
     private var sessions: [ObjectIdentifier: Session] = [:]
-    private var ready: [CheckedContinuation<UInt16, any Error>] = []
+    private var ready: [OnceContinuation<UInt16, any Error>] = []
     /// Runs once when the source stops (``stop()``, or its listener failed).
     public var onEnd: (@MainActor () -> Void)?
     /// Whether the phone tab this source streams still shows this simulator. Asked on
@@ -59,7 +61,7 @@ public final class SimulatorSurfaceServer {
         } catch {
             throw Failure.listener("\(error)")
         }
-        return try await withCheckedThrowingContinuation { ready.append($0) }
+        return try await withOnceThrowingContinuation { (waiter: OnceContinuation<UInt16, any Error>) in ready.append(waiter) }
     }
 
     /// Whether the source still listens (``stop()`` not called, its listener not failed).

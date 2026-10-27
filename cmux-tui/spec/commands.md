@@ -236,7 +236,9 @@ Each client reports the cell grid available for every surface it displays with
 implemented in `crates/cmux-terminal-sizing` (re-exported as `cmux_tui_core::sizing_policy`). Every client view of a
 terminal placement is one participant with id `c<client>` (or
 `c<client>@<placement>` for a projected placement other than the terminal's
-first), and every relay sub-view is one participant `c<client>/<view>`. A view
+first; with the daemon feature `terminalSizingPerApp` every view of one
+connection is a lease of the one participant `c<client>`), and every relay
+sub-view is one participant `c<client>/<view>`. A view
 joins when it attaches or first reports a size and leaves when its last attach
 stream ends or its connection closes.
 
@@ -735,10 +737,15 @@ requests may be missing. `watchdog_wakeups` counts wakes of the
 still while the daemon is idle, and it wakes only on a 250 ms grid, so the
 count grows by at most four a second (plus one) under any request pattern.
 The same thread is the daemon's one hang watcher: it also watches each batch
-commit of the journal writer and each frame a holder link routes, and writes a
-scope busy past its hang tier (`hang_ms`, 2000, for a request or a journal
-commit; 1 s for a holder-link frame) once to the owner's hang log
-`owner-hangs-<session>.jsonl`, with its method and its thread's stack.
+commit of the journal writer, each frame a holder link routes and each item of
+the key echo path threads' work (a `mux-line-out` write, a `mux-pty-input`
+write, a `mux-attach-out` or `mux-render-attach-out` frame encode; never their
+wait for the next one), and writes a scope busy past its hang tier (`hang_ms`,
+2000, for a request or a journal commit; 1 s for a holder-link frame; 100 ms for
+an echo item, scope named after its thread) once to the owner's hang log
+`owner-hangs-<session>.jsonl`, with its method and its thread's stack. A holder
+whose own loop pass ran past 100 ms reports it on its link (HANG_REPORT): one
+`holder-loop` line with `stack_error` `other-process`.
 `hangs` counts those lines, over every kind of scope.
 With `CMUX_TUI_DEBUG_SPANS` set, each recorded request also appends a
 `slow-request` line with the method as its mark.
@@ -932,7 +939,7 @@ Result:
 object{
   schema:uint32,
   uptime_ms:uint64,
-  process:object{pid:uint32, role:string|null, role_raw:int32|null},
+  process:object{pid:uint32, role:string|null, role_raw:int32|null, darwin_bg:object{internal:bool, external:bool}|null},
   threads:array<object{
     name:string, tid:uint64|null,
     declared:qos, desired:qos, effective:qos|null,
@@ -959,7 +966,12 @@ the scheduler priority now: macOS `pth_curpri` (Default 31), Linux 20 + nice
 rt_priority` for a real-time thread. `role` is the Mach task role (`reniced`,
 `unspecified`, `foreground`, `background`, `control`, `graphics-server`,
 `throttle`, `non-ui`, `default`, `darwin-bg`, or `other` with `role_raw`);
-it is null on Linux. Threads are sorted by name, then tid.
+the daemon sets `foreground` at start (Chromium's `SetCurrentTaskDefaultRole`).
+`darwin_bg` holds the daemon's two PRIO_DARWIN_BG flags, and either one
+suppresses it: `internal` is the one the daemon set on itself, `external` the
+one its parent set by pid or that it inherited from a suppressed parent (only
+another process can clear that one). `role` and `darwin_bg` are null on
+Linux. Threads are sorted by name, then tid.
 
 Errors: `daemon thread diagnostics require a trusted local connection`.
 
