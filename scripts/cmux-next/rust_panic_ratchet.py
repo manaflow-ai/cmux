@@ -43,12 +43,17 @@ run).
 
 Shipped Rust workspaces outside cmux-tui/Cargo.toml (EXTRA_MANIFESTS: the
 CCmuxAppFFI crates, cmux-rd-host, the remote browser hosts, Native/OptChat/*,
-Native/DiffSidecar, cmux-next-ios/rust) are report-only. Each is linted with
-its own manifest and no target flags (the default targets are the lib and the
-bins; `--lib` fails on a bin-only package), with --locked when the workspace
-has a Cargo.lock (delete the lock cargo writes for one that has none):
+Native/DiffSidecar, cmux-next-ios/rust) are report-only. Each is linted from
+its own directory, so rustup uses the rust-toolchain.toml that applies there
+(1.95.0 for cmux-tui/* and cmux-next-ios/rust, 1.98.1 for Native/DiffSidecar;
+Native/OptChat has no pin and uses the host's default toolchain), with no
+target flags (the default targets are the lib and the bins; `--lib` fails on
+a bin-only package) and with --locked when the workspace has a Cargo.lock
+(delete the lock cargo writes for one that has none). From the repo root:
+  FLAGS=$(rust_panic_ratchet.py --flags)
   for m in $(rust_panic_ratchet.py --list-manifests); do
-    cargo clippy --manifest-path "$m" --workspace --message-format=json -- $(rust_panic_ratchet.py --flags) > "$(echo "$m" | tr / _).jsonl"
+    (cd "$(dirname "$m")" && cargo clippy --manifest-path "$PWD/Cargo.toml" --workspace \
+      $([ -f Cargo.lock ] && echo --locked) --message-format=json -- $FLAGS) > "$(echo "$m" | tr / _).jsonl"
   done
 and compared with one --manifest CARGO_TOML [LABEL=]JSONL per run (repeat a
 manifest with linux= and macos= runs to merge them):
