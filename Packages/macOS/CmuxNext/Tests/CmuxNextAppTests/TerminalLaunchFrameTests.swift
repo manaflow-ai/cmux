@@ -193,23 +193,22 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         let probe = LaunchReadProbe(held: true)
         let frames = TerminalLaunchFrames(directory: directory, reader: probe.reader)
+        // The prefetch task's handoff waits here until the settle below, as it does behind a busy main thread.
+        let (handoff, openHandoff) = AsyncStream.makeStream(of: Void.self)
+        frames.beforeHandoff = { for await _ in handoff { return } }
+        defer { openHandoff.finish() }
         let read = try #require(frames.prefetch(on: Self.work), "the launch read did not start")
         let laneEnd = try #require(frames.launchReadLaneEnd)
         #expect(await probe.waitForStart(), "the read never started")
         #expect(!frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
-        let ended = DispatchSemaphore(value: 0)
-        // Off the main actor (a @Sendable closure is nonisolated): the main actor stays blocked below.
-        Self.work.task(.userVisible) { @Sendable in
-            await laneEnd()
-            ended.signal()
-        }
         probe.release()
         probe.release()  // one per saved file
-        // The main actor stays in this turn until the lane ended, so the prefetch task has not handed off yet.
-        #expect(ended.wait(timeout: .now() + 10) == .success, "the read never ended")
+        // The main actor suspends here, but the prefetch task's handoff waits for the settle below.
+        await laneEnd()
         frames.dropLaunchRead()
         #expect(pane.held != nil, "the pane that asked before the read ended did not get its frame")
         #expect(frames.launchFrameCount == 0, "the frames no pane took stayed after the settle")
+        openHandoff.yield()
         await read.value
         #expect(pane.held != nil)
     }

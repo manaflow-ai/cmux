@@ -46,6 +46,10 @@ public final class TerminalLaunchFrames {
     /// The launch settled while the read ran: its frames go once the panes that asked before it ended have theirs.
     private var dropsWhenRead = false
     private var memoryRegistration: MemoryConsumerRegistration?
+    /// Awaited by the prefetch task between the read's lane end and its main-actor handoff to the waiting panes
+    /// (tests hold the handoff there to settle the launch first, as a busy main thread does at launch); nil goes
+    /// on at once. Set before ``prefetch(on:keep:mark:)``.
+    var beforeHandoff: (@Sendable () async -> Void)?
 
     /// A saved frame, decoded, with its point size and scale.
     private nonisolated struct Frame: Sendable {
@@ -98,6 +102,7 @@ public final class TerminalLaunchFrames {
         guard let directory, read == nil, !readDropped else { return nil }
         self.mark = mark
         let reader = reader
+        let beforeHandoff = beforeHandoff
         let read = LaunchRead(on: work) {
             let frames = Self.readAll(in: directory, reader)
             mark("terminal.launch_frames_read")
@@ -109,6 +114,7 @@ public final class TerminalLaunchFrames {
         // task-owner: shows the frames of the panes that asked before the read ended; ends then.
         return Task { [weak self] in
             _ = await read.finished()
+            await beforeHandoff?()
             self?.showWaiting()
             if self?.dropsWhenRead == true { self?.dropRead() }
         }
