@@ -2,7 +2,7 @@
   "generator": "scripts/cmux-next/oracle/gen_pane_protocol.py",
   "suite": "pane-protocol",
   "source": "cmux-tui/crates/cmux-pane-protocol/spec/pane-protocol-vectors.json",
-  "source_sha256": "fbb0b93bc6cb09d5167bc39e03232610c8ccd8472b3e948c882f1781096cc4ea",
+  "source_sha256": "e6c483e1ac3724bfa429f1b2f7e6fe88102994f24c7ae6b49679d725b84994ab",
   "unit": "implementation:category",
   "cases": {
     "envelopes": 52,

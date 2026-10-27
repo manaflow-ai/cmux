@@ -163,7 +163,11 @@ fn envelope_cases() -> Vec<Value> {
             r#"{"t":"err","id":1,"code":"c","message":"x","retryable":false,"details":[1]}"#,
             None,
         ),
-        ("filter not an object", r#"{"t":"sub","id":1,"stream":"a.b.c","filter":1}"#, None),
+        (
+            "filter not an object",
+            r#"{"t":"sub","id":1,"stream":"cmux.git.status.changed","filter":1}"#,
+            None,
+        ),
         ("stream id 2^32 (above u32)", r#"{"t":"credit","stream":4294967296,"bytes":1}"#, Some(12)),
         (
             "open stream id 2^32",

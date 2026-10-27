@@ -383,7 +383,7 @@
       "name": "filter not an object",
       "layer": "session",
       "kind": "sub",
-      "text": "{\"t\":\"sub\",\"id\":1,\"stream\":\"a.b.c\",\"filter\":1}",
+      "text": "{\"t\":\"sub\",\"id\":1,\"stream\":\"cmux.git.status.changed\",\"filter\":1}",
       "verdict": "invalid"
     },
     {

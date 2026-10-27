@@ -8,9 +8,11 @@ import Testing
 /// `conformance` example) and the TS runner (`webviews/scripts/pane-protocol-conformance.ts`) read too, as every
 /// Mojo binding reads chromium/src `mojo/public/interfaces/bindings/tests/data/validation/`.
 ///
-/// ``PageRouter`` is the Swift side of the protocol, so this runs the envelopes a page can send it: an envelope is
-/// refused when the router answers `invalid_params` or `bad_message`, and a case expects that when its verdict is
-/// `invalid` or it names a `session_refusal`. `_expectations.json` lists the cases Swift skips and its known
+/// ``PageRouter`` is the Swift side of the protocol, so this runs the envelopes a page can send it. Each reply is one
+/// of three outcomes (``Outcome``): accepted (`ok` to a `call` or `sub`, no reply to `unsub`, `cancel`, `ok` and
+/// `err`), refused (an `err` with `invalid_params` or `bad_message`, or text that is not JSON), or any other reply,
+/// which fails the case whatever it expects. A `valid` case must be accepted, an `invalid` one refused, and one that
+/// names a `session_refusal` refused with that code. `_expectations.json` lists the cases Swift skips and its known
 /// divergences; any other mismatch fails, and a listed divergence that conforms is an unexpected pass, recorded
 /// without failing (Blink's TestExpectations rule). Run: `swift test --filter PaneProtocolConformanceTests`.
 @MainActor
@@ -46,16 +48,53 @@ struct PaneProtocolConformanceTests {
         return try #require(expectations["implementations"]?["swift"])
     }
 
-    /// Whether a fresh router refuses `text` as a page's message.
-    private static func refuses(_ text: String) async -> Bool {
-        guard let message = try? JSONValue.parse(Data(text.utf8)) else { return true }
+    /// What a fresh router did with one message.
+    enum Outcome: Equatable {
+        /// `ok` to a `call` or `sub`; no reply to the kinds that take none.
+        case accepted
+        /// An `err` with a refusal code; nil code when the text is not JSON, which the bridge drops.
+        case refused(code: String?)
+        /// Any other reply: an `err` with another code, or the wrong kind of answer.
+        case unexpected(String)
+
+        var description: String {
+            switch self {
+            case .accepted: "accepted"
+            case .refused(let code): "refused (\(code ?? "not JSON"))"
+            case .unexpected(let reply): "answered \(reply)"
+            }
+        }
+    }
+
+    /// The kinds a router answers with no reply (`PageRouter.handle`).
+    private static let unansweredKinds: Set<String> = ["unsub", "cancel", "ok", "err"]
+
+    /// What a fresh router does with `text` as a page's message of kind `kind` (the corpus's `t`).
+    private static func outcome(of text: String, kind: String?) async -> Outcome {
+        guard let message = try? JSONValue.parse(Data(text.utf8)) else { return .refused(code: nil) }
         let route = PageRoute(prefix: "cmux.git.", provider: AcceptingProvider())
         let router = PageRouter(descriptor: descriptor, routes: [route])
         router.send = { _ in }
         let reply = await router.handle(message)
         router.close()
-        guard reply["t"]?.stringValue == "err", let code = reply["code"]?.stringValue else { return false }
-        return refusalCodes.contains(code)
+        if reply["t"]?.stringValue == "err" {
+            let code = reply["code"]?.stringValue ?? "no code"
+            return refusalCodes.contains(code) ? .refused(code: code) : .unexpected("err \(code)")
+        }
+        if let kind, unansweredKinds.contains(kind) {
+            return reply == .null ? .accepted : .unexpected(reply.prettyText())
+        }
+        return reply["t"]?.stringValue == "ok" ? .accepted : .unexpected(reply.prettyText())
+    }
+
+    /// Whether `outcome` is what the case expects: its `session_refusal` code, any refusal for `invalid`, else accepted.
+    private static func conforms(_ outcome: Outcome, verdict: String?, sessionRefusal: String?) -> Bool {
+        if let sessionRefusal { return outcome == .refused(code: sessionRefusal) }
+        if verdict == "invalid" {
+            if case .refused = outcome { return true }
+            return false
+        }
+        return outcome == .accepted
     }
 
     @Test func everyCategoryThisRunnerRunsIsEnvelopes() throws {
@@ -78,17 +117,23 @@ struct PaneProtocolConformanceTests {
             let id = try #require(test["id"]?.stringValue)
             guard skip[id] == nil else { continue }
             let text = try #require(test["text"]?.stringValue, "\(id) has no text")
-            let expectsRefusal = test["verdict"]?.stringValue == "invalid" || test["session_refusal"] != nil
-            let refused = await Self.refuses(text)
+            let verdict = test["verdict"]?.stringValue
+            let sessionRefusal = test["session_refusal"]?.stringValue
+            let outcome = await Self.outcome(of: text, kind: test["kind"]?.stringValue)
             ran += 1
-            switch (refused == expectsRefusal, divergences[id]) {
+            if case .unexpected = outcome {
+                Issue.record("\(id): PageRouter \(outcome.description) to \(text)")
+                continue
+            }
+            switch (Self.conforms(outcome, verdict: verdict, sessionRefusal: sessionRefusal), divergences[id]) {
             case (true, .none):
                 break
             case (true, .some(let listed)):
                 let bug = listed["bug"]?.stringValue ?? "?"
                 print("UNEXPECTED PASS \(id): conforms; remove its divergence (\(bug))")
             case (false, .none):
-                Issue.record("\(id): PageRouter \(refused ? "refused" : "accepted") \(text)")
+                let want = sessionRefusal.map { "refused (\($0))" } ?? (verdict == "invalid" ? "refused" : "accepted")
+                Issue.record("\(id): PageRouter \(outcome.description), want \(want): \(text)")
             case (false, .some):
                 known += 1
             }
