@@ -37,12 +37,12 @@ public struct CloudMachineEnrollment: Equatable, Sendable {
             && name.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || "._-".unicodeScalars.contains($0)) }
     }
 
-    /// `ssh-ed25519 <base64>` from a public key file's text, its comment dropped; nil for
-    /// anything else (another key type, options, several lines).
+    /// `ssh-ed25519 <base64>` from a public key file's text, its comment (any number of words)
+    /// dropped; nil for anything else (another key type, options, several lines).
     public static func ed25519Key(_ text: String) -> String? {
         let line = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fields = line.split(separator: " ")
-        guard !line.contains("\n"), (2...3).contains(fields.count), fields[0] == "ssh-ed25519",
+        let fields = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+        guard !line.contains(where: \.isNewline), fields.count >= 2, fields[0] == "ssh-ed25519",
               let blob = Data(base64Encoded: String(fields[1])), blob.count == 51 else { return nil }
         return "ssh-ed25519 \(fields[1])"
     }

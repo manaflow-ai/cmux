@@ -19,6 +19,8 @@ struct CloudEnrollMachineTests {
 
     @Test func onlyOneEd25519KeyIsTaken() {
         #expect(CloudMachineEnrollment.ed25519Key("\(Self.key) leo@mac\n") == Self.key, "the comment is dropped")
+        #expect(CloudMachineEnrollment.ed25519Key("\(Self.key) Work MacBook Pro\n") == Self.key, "a comment of several words")
+        #expect(CloudMachineEnrollment.ed25519Key("ssh-ed25519\t\(Self.key.dropFirst("ssh-ed25519 ".count))\tleo") == Self.key, "tabs")
         #expect(CloudMachineEnrollment.ed25519Key("ssh-rsa AAAAB3NzaC1yc2E user") == nil)
         #expect(CloudMachineEnrollment.ed25519Key("command=\"x\" \(Self.key)") == nil, "no options")
         #expect(CloudMachineEnrollment.ed25519Key("\(Self.key)\n\(Self.key)") == nil, "one key")

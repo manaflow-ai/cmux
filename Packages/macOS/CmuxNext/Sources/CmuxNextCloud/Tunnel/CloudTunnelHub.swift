@@ -131,6 +131,8 @@ public actor CloudTunnelHub {
     private func ended(_ ended: ChildProcess, generation: UInt64) async {
         guard generation == self.generation, child === ended else { return }
         child = nil
+        // A caller already saw the process gone and began a start: that start is the restart.
+        if case .starting = phase { return }
         phase = .idle
         let now = ContinuousClock.now
         restarts.removeAll { $0.duration(to: now) > Self.restartWindow }
