@@ -176,6 +176,10 @@ type Props = NewTabScreenActions & {
   /// true until the host's handshake answers: `startCwd` is not known yet, so the chip names the
   /// project the tab inherited (the handshake starts its chat there) rather than none.
   startPending?: boolean;
+  /// The prompt changed: `text` and what its Enter would start (the chip's agent in the chat's
+  /// folder; no target for a saved environment, no project or a shell command). The pane warms
+  /// that agent while the person types (newChatPrewarm.ts).
+  onPromptTyped?(text: string, target?: { harness?: string; cwd?: string }): void;
   /// true until this page's daemon connection has listed the chats (`listedSessions`), while no
   /// chat is known: the recent project may still come, so the folder chip holds its place.
   chatsPending?: boolean;
@@ -736,10 +740,17 @@ export function NewTabScreen(props: Props) {
     if (entry) {
       setShell(true);
       setText(entry.command);
+      props.onPromptTyped?.("");
       return;
     }
     setText(next);
     setSelected(undefined);
+    // A shell command, a saved environment (another machine's agent) or no project start no
+    // agent here to warm; an address the person ends up typing releases it once cleared.
+    props.onPromptTyped?.(
+      shell ? "" : next,
+      environment || !askFolder || !harness ? undefined : { harness, cwd: askFolder },
+    );
   };
   const submit = () => {
     // A pairing link (its room secret) is never searched, asked or opened: the host refuses it
