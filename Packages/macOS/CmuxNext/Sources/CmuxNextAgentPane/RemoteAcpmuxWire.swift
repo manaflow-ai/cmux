@@ -54,18 +54,21 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.remote")
     private let start: Start?
     private let trust: Trust?
+    private let host: String?
     private let state: Mutex<State>
 
     /// The wire of the chat `session` (its store record), through `client`.
-    public init(client: any AgentSessionRemoteClient, session: String, trust: Trust? = nil) {
+    public init(client: any AgentSessionRemoteClient, session: String, host: String? = nil, trust: Trust? = nil) {
         start = nil
+        self.host = host
         self.trust = trust
         state = Mutex(State(client: client, session: session))
     }
 
     /// The wire of a new chat that has no session yet: the page's first `session/new` runs `start`.
-    public init(start: @escaping Start, trust: Trust? = nil) {
+    public init(start: @escaping Start, host: String? = nil, trust: Trust? = nil) {
         self.start = start
+        self.host = host
         self.trust = trust
         state = Mutex(State())
     }
@@ -272,7 +275,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         let children = (listed?["sessions"] as? [[String: Any]] ?? []).filter { child in
             (child["sessionId"] as? String).map { !names($0) } ?? false
         }
-        Self.noteLinks(children)
+        noteLinks(children)
         var reply: [String: Any] = ["sessions": (summary.map { [$0] } ?? []) + children]
         // The session the tab is bound to on that machine now, by acpmux's id: the daemon attached
         // only the session its store records for this tab. The page may hold another name for it (a
@@ -284,13 +287,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
 
     /// The parents of the children the daemon listed or changed, for the sidebar's session tree
     /// and the Subagents rows' open (``RemoteAgentSessionLinks``).
-    private static func noteLinks(_ summaries: [[String: Any]]) {
+    private func noteLinks(_ summaries: [[String: Any]]) {
         guard !summaries.isEmpty, JSONSerialization.isValidJSONObject(summaries),
               let data = try? JSONSerialization.data(withJSONObject: summaries) else { return }
         // task-owner: one main-actor note of what the daemon answered; nothing waits on it
         Task { @MainActor in
             let copy = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
-            RemoteAgentSessionLinks.shared.note(copy)
+            RemoteAgentSessionLinks.shared.note(copy, host: self.host)
         }
     }
 
@@ -326,7 +329,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             // joins the chat's Subagents summary and the sidebar's tree.
             if let changed = change as? [String: Any], let session = changed["session"] as? [String: Any],
                let id = changed["sessionId"] as? String, !names(id) {
-                Self.noteLinks([session])
+                noteLinks([session])
             }
             notify("_acpmux/session_changed", change)
         case .presence(let data):

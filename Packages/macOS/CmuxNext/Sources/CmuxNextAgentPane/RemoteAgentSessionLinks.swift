@@ -12,8 +12,10 @@ import Observation
 public final class RemoteAgentSessionLinks {
     public static let shared = RemoteAgentSessionLinks()
 
-    /// Child session -> the session that started it.
+    /// Child session -> the session that started it for legacy callers that have one daemon.
     public private(set) var parents: [String: String] = [:]
+    /// Child session -> parent, scoped by the owning remote daemon host.
+    public private(set) var parentsByHost: [String: [String: String]] = [:]
 
     /// The most children remembered (the list starts again past it).
     static let limit = 4096
@@ -21,8 +23,9 @@ public final class RemoteAgentSessionLinks {
     public init() {}
 
     /// Notes the parent of each summary (`sessionId` with `startedBy`, else `spawnedBy`).
-    public func note(_ summaries: [[String: Any]]) {
-        var parents = parents
+    /// A host-qualified note keeps identical ids from separate remote daemons distinct.
+    public func note(_ summaries: [[String: Any]], host: String? = nil) {
+        var parents = host == nil ? parents : parentsByHost[host!] ?? [:]
         for summary in summaries {
             guard let child = summary["sessionId"] as? String, !child.isEmpty,
                   let parent = (summary["startedBy"] as? String) ?? (summary["spawnedBy"] as? String),
@@ -30,7 +33,11 @@ public final class RemoteAgentSessionLinks {
             if parents.count >= Self.limit, parents[child] == nil { parents.removeAll() }
             parents[child] = parent
         }
-        if parents != self.parents { self.parents = parents }
+        if let host {
+            if parentsByHost[host] != parents { parentsByHost[host] = parents }
+        } else if parents != self.parents {
+            self.parents = parents
+        }
     }
 
     /// True when `session` descends from `root` (a child, or a child's child, ...).

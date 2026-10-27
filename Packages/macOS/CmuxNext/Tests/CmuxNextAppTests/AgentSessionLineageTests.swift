@@ -35,16 +35,20 @@ import Testing
     }
 
     @Test func anAgentOpenedSessionWithNoDaemonLineageRecordsItsCallerAsParent() {
-        let parents = AgentSessionParents(defaults: nil)
-        AgentSessionWorkspace.recordParent(Self.identity("s-caller"), of: Self.identity("s-opened"), in: parents)
-        #expect(parents.parents == [Self.identity("s-opened"): Self.identity("s-caller")])
+        let localParents = AgentSessionParents(defaults: nil)
+        AgentSessionWorkspace.recordParent(Self.identity("s-caller"), of: Self.identity("s-opened"), in: localParents)
+        #expect(localParents.parents == [Self.identity("s-opened"): Self.identity("s-caller")])
         // A local daemon that lists no lineage (an older acpmux).
         let lanes = ["s-caller": Self.lane("s-caller", spawnedBy: nil), "s-opened": Self.lane("s-opened", spawnedBy: nil)]
-        let local = SidebarSessionTreeFeed.pass(Self.chats(), lanes: lanes, recordedParents: parents.parents,
+        let local = SidebarSessionTreeFeed.pass(Self.chats(), lanes: lanes, recordedParents: localParents.parents,
                                                 localHost: Self.localHost, pullRequests: [:])
         #expect(local.state.parents == [Self.opened: Self.caller])
-        // A remote daemon that lists none either.
-        let remote = SidebarSessionTreeFeed.pass(Self.chats(host: "registry:vm"), lanes: [:], recordedParents: parents.parents,
+        // A remote daemon that lists none either uses its own host-qualified records.
+        let remoteParents = AgentSessionParents(defaults: nil)
+        AgentSessionWorkspace.recordParent(Self.identity("registry:vm", "s-caller"),
+                                           of: Self.identity("registry:vm", "s-opened"), in: remoteParents)
+        let remote = SidebarSessionTreeFeed.pass(Self.chats(host: "registry:vm"), lanes: [:],
+                                                 recordedParents: remoteParents.parents,
                                                  localHost: Self.localHost, pullRequests: [:])
         #expect(remote.state.parents == [Self.opened: Self.caller])
     }
@@ -121,7 +125,6 @@ import Testing
         #expect(relaunched.parents == [Self.identity("s-opened"): Self.identity("s-spawner"),
                                       Self.identity("s-other"): Self.identity("s-caller")])
     }
-}
 
     @Test func sameSessionIDOnDifferentHostsResolvesRecordedParentsByHost() {
         let parents = AgentSessionParents(defaults: nil)
@@ -140,3 +143,23 @@ import Testing
         #expect(pass.state.parents[aChild] == aParent)
         #expect(pass.state.parents[bChild] == bParent)
     }
+
+    @Test func sameRemoteSessionIDOnDifferentHostsResolvesDaemonParentsByHost() {
+        let aParent = WorkspaceID("ws-remote-a-parent"), aChild = WorkspaceID("ws-remote-a-child")
+        let bParent = WorkspaceID("ws-remote-b-parent"), bChild = WorkspaceID("ws-remote-b-child")
+        let chats: [(WorkspaceID, [AgentSessionRef])] = [
+            (aParent, [AgentSessionRef(host: "registry:a", session: "same-parent")]),
+            (aChild, [AgentSessionRef(host: "registry:a", session: "same-child")]),
+            (bParent, [AgentSessionRef(host: "registry:b", session: "same-parent")]),
+            (bChild, [AgentSessionRef(host: "registry:b", session: "same-child")]),
+        ]
+        let pass = SidebarSessionTreeFeed.pass(chats, lanes: [:],
+                                               remoteParentsByHost: [
+                                                   "registry:a": ["same-child": "same-parent"],
+                                                   "registry:b": ["same-child": "same-parent"],
+                                               ],
+                                               localHost: Self.localHost, pullRequests: [:])
+        #expect(pass.state.parents[aChild] == aParent)
+        #expect(pass.state.parents[bChild] == bParent)
+    }
+}

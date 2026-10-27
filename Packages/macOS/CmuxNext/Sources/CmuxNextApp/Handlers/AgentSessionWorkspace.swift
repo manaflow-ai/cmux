@@ -49,8 +49,9 @@ enum AgentSessionWorkspace {
         let group = invocation["group"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         let parent = invocation.callerAgentSession.flatMap { caller in
             let matches = context.services.agentTabs.listTabs().filter { $0.record.session == caller }
-            guard matches.count == 1, let match = matches.first else { return nil }
-            return AgentSessionParents.identity(host: match.record.host, session: caller)
+            let hosts = Set(matches.map { $0.record.host })
+            guard hosts.count == 1, let host = hosts.first else { return nil }
+            return AgentSessionParents.identity(host: host, session: caller)
         }
         let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, group: group,
                             parent: parent, services: context.services)
