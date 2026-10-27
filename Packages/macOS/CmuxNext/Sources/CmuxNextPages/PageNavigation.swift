@@ -57,7 +57,6 @@ public nonisolated struct PageNavigation: Sendable, Equatable {
                                                 parent: sourceFrameURL, target: url) {
             return .cancel
         }
-        if url.absoluteString == "about:srcdoc" { return .cancel }
         if page.owns(url) { return !mainFrame || page.isEntryDocument(url) ? .allow : .cancel }
         let navigation = PageNavigation(url: url, userClicked: userClicked, mainFrame: mainFrame,
                                         targetFrameURL: targetFrameURL, sourceFrameURL: sourceFrameURL)
