@@ -110,6 +110,9 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           const closed = await rail(page);
           await openInspector(page, false);
           const open = await rail(page);
+          if (width === 1084 && process.env.RAIL_GUTTER_SCREENSHOT) {
+            await page.screenshot({ path: process.env.RAIL_GUTTER_SCREENSHOT });
+          }
           // Push always narrows the chat to the pane less the panel; the rail keeps its own small gutter
           // and is hidden only once that gutter cannot provide the allowed overlap.
           await closeInspector(page);

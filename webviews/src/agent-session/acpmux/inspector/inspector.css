@@ -27,6 +27,7 @@
   font-size: var(--text-control);
   line-height: 18px;
   --glass-elevation: var(--elevation-2);
+  letter-spacing: var(--text-control--letter-spacing);
 }
 /* Either place, the card: inset from the pane's right edge (ChatInspector.tsx FLOAT_MARGIN), as tall
    as its sections, up to the full room under the header less its inset at the foot; only past that does
@@ -85,13 +86,16 @@
    inspectorChatShift), the conversation and the composer's stack under it move left together, so the
    card lies over neither. The header stays outside that shift: its top-right controls stay anchored in
    the pane. */
-.acpmux-main > .acpmux-stage > .acpmux-scroll,
+.acpmux-main > .acpmux-stage > .acpmux-scroll > :is(.acpmux-spacer, .acpmux-find, .acpmux-minimap),
 .acpmux-main > .acpmux-stage .acpmux-handoff-review,
 .acpmux-main > .acpmux-dock > * {
   translate: calc(-1 * var(--acpmux-chat-shift, 0px)) 0;
 }
-/* The thread rail moves with the transcript. Its own placement follows the text edge, so the
-   inspector shift does not leave a second, stale gutter at the pane edge. */
+/* Move content and the rail without moving the native scrollbar under Session Info. Clamp the
+   rail's final left edge to the pane: its 28px gutter can use up to 8px of text-edge overlap. */
+.acpmux-main > .acpmux-stage > .acpmux-scroll > .acpmux-minimap {
+  translate: max(calc(-1 * var(--acpmux-chat-shift, 0px)), calc(-1 * var(--acpmux-rail-left, 0px))) 0;
+}
 /* A part that joins the stack while the chat is moved rises from below its moved place
    (bottomStack.css ui-enter), not from the unmoved one. Only the dock's own animated parts (the same
    list as bottomStack.css): the parts nested in them enter inside a part already moved. */
@@ -99,25 +103,22 @@
   --ui-enter-x: calc(-1 * var(--acpmux-chat-shift, 0px));
 }
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll,
+  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll > :is(.acpmux-spacer, .acpmux-find, .acpmux-minimap),
   .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-dock > *,
   .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage .acpmux-handoff-review {
     transition: translate var(--agent-motion-move, var(--cmux-motion-quick, 80ms))
       var(--acpmux-motion-ease, ease-out);
   }
 }
-:root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll,
-:root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll > .acpmux-minimap,
+:root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll > :is(.acpmux-spacer, .acpmux-find, .acpmux-minimap),
 :root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-dock > *,
 :root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage .acpmux-handoff-review,
-:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll,
-:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll > .acpmux-minimap,
+:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll > :is(.acpmux-spacer, .acpmux-find, .acpmux-minimap),
 :root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-dock > *,
 :root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage .acpmux-handoff-review {
   transition: none;
 }
-.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage > .acpmux-scroll,
-.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage > .acpmux-scroll > .acpmux-minimap,
+.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage > .acpmux-scroll > :is(.acpmux-spacer, .acpmux-find, .acpmux-minimap),
 .acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-dock > *,
 .acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage .acpmux-handoff-review {
   transition: none;
@@ -446,6 +447,7 @@ button.acpmux-chat-inspector-port:hover,
   color: var(--agent-muted);
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-chat-inspector-row__end[data-state="failed"] {
   color: var(--agent-status-failure);
@@ -458,6 +460,7 @@ button.acpmux-chat-inspector-port:hover,
   padding: 4px 8px 6px;
   color: var(--agent-muted);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-chat-inspector-link {
   padding: 0 2px;
@@ -467,6 +470,7 @@ button.acpmux-chat-inspector-port:hover,
   color: var(--agent-muted);
   font: inherit;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* Save, once saved, is disabled: it no longer lights (it was folded away before the dead-click sweep
    reached it while Environment was a folding card). */
@@ -612,6 +616,7 @@ button.acpmux-chat-inspector-port:hover,
   font-size: var(--text-detail);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* `repo #N` stays whole (Claude's); the failing checks at the end give way first. */
 .acpmux-chat-inspector-pr__ref {
@@ -668,6 +673,7 @@ button.acpmux-chat-inspector-port:hover,
   line-height: 16px;
   white-space: nowrap;
   text-overflow: ellipsis;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-chat-inspector-pr__more {
   margin-top: 4px;
@@ -750,6 +756,7 @@ button.acpmux-chat-inspector-port:hover,
   min-width: 0;
   color: var(--agent-muted);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-chat-inspector-port {
   display: inline-flex;
@@ -783,6 +790,7 @@ button.acpmux-chat-inspector-port:focus-visible {
   color: var(--agent-muted);
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-chat-inspector-task[data-state="failed"] .acpmux-chat-inspector-task__state,
 .acpmux-chat-inspector-task[data-state="lost"] .acpmux-chat-inspector-task__state {
@@ -803,6 +811,7 @@ button.acpmux-chat-inspector-port:focus-visible {
   font-size: var(--text-detail);
   text-align: left;
   appearance: none;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* No hover fill (Leo: plain text, no hover pill) and no focus rule of its own: keyboard focus takes
    the agent pane's soft pill (agent-session/shared/styles.css), the wider ring under Increase
@@ -921,4 +930,5 @@ button.acpmux-chat-inspector-scope__parent:focus-visible {
   white-space: nowrap;
   color: var(--agent-muted);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
