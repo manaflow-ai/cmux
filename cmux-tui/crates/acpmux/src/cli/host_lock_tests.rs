@@ -65,7 +65,7 @@ fn a_daemon_a_step_starts_holds_neither_lock_file_and_a_step_keeps_the_lock() {
     let pid = pid.trim().to_owned();
     let alive = || {
         std::fs::read_to_string(format!("/proc/{pid}/stat"))
-            .is_ok_and(|stat| !stat.split(' ').nth(2).is_some_and(|state| state == "Z"))
+            .is_ok_and(|stat| stat.split(' ').nth(2).is_none_or(|state| state != "Z"))
     };
     let lock_files = || -> Vec<String> {
         std::fs::read_dir(format!("/proc/{pid}/fd"))
