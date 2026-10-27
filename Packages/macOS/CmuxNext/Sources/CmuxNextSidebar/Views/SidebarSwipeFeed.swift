@@ -45,7 +45,8 @@ import CmuxNextInput
     /// Whether anything pages from this view: the tap calls the feed only then.
     private var listens: Bool { onHorizontalSwipe != nil || onHorizontalScroll != nil || onWheelPage != nil }
 
-    /// Hears `window`'s scrolls on `tap`; either nil hears none. Called when the view moves to a window
+    /// Hears the scrolls on `tap` while the view is in `window`, and pages for `window`'s; either nil hears
+    /// none. Called when the view moves to a window
     /// and when its tap changes; the same pair keeps the subscription it has.
     func follow(tap: InputEventTap?, window: NSWindow?) {
         guard tap !== subscribedTap || window !== subscribedWindow else { return }
@@ -55,8 +56,10 @@ import CmuxNextInput
         subscribedWindow = window
         latched = false
         decided = nil
-        guard let tap, let window else { return }
-        subscription = tap.subscribe(class: .scroll, window: .window(window), while: { [weak self] in self?.listens ?? false }) { [weak self] event in
+        guard let tap, window != nil else { return }
+        // Every window's scrolls: the tap's window scope never matches a synthesized scroll that AppKit left
+        // windowless. ``hits(_:)`` keeps only the view's window's.
+        subscription = tap.subscribe(class: .scroll, while: { [weak self] in self?.listens ?? false }) { [weak self] event in
             guard let self else { return }
             receive(event) { self.hits(event) }
         }
@@ -112,11 +115,28 @@ import CmuxNextInput
     /// or a view inside it that no other scroll view holds. A point outside the view's bounds is
     /// rejected before the hit test.
     private func hits(_ event: NSEvent) -> Bool {
-        guard let view, let window = view.window, event.window === window,
-              view.bounds.contains(view.convert(event.locationInWindow, from: nil)),
+        guard let view, let window = view.window, let point = Self.location(of: event, in: window),
+              view.bounds.contains(view.convert(point, from: nil)),
               let root = window.contentView?.superview ?? window.contentView,
-              let hit = root.hitTest(event.locationInWindow) else { return false }
+              let hit = root.hitTest(point) else { return false }
         return Self.routes(hit: hit, to: view)
+    }
+
+    /// `event`'s point in `window`'s coordinates when the event goes to `window`; nil when it goes elsewhere.
+    /// A scroll that `NSEvent(cgEvent:)` left windowless (`debug.mouse`, `debug.sidebar_wheel`) names its
+    /// window in its Quartz window field, and its location is on the screen (`NSEvent.locationInWindow`).
+    static func location(of event: NSEvent, in window: NSWindow) -> NSPoint? {
+        let quartzWindow = event.window == nil
+            ? event.cgEvent.map { Int($0.getIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent)) } : nil
+        return location(eventWindow: event.window, quartzWindowNumber: quartzWindow, point: event.locationInWindow, in: window)
+    }
+
+    /// ``location(of:in:)`` from the event's parts: its window, the window number its Quartz event names, and
+    /// its `locationInWindow` (screen coordinates when it has no window).
+    static func location(eventWindow: NSWindow?, quartzWindowNumber: Int?, point: NSPoint, in window: NSWindow) -> NSPoint? {
+        if let eventWindow { return eventWindow === window ? point : nil }
+        guard window.windowNumber > 0, quartzWindowNumber == window.windowNumber else { return nil }
+        return window.convertPoint(fromScreen: point)
     }
 
     /// Whether a scroll that hit `hit` reaches `view`: `hit` is `view` or inside it, and no scroll view

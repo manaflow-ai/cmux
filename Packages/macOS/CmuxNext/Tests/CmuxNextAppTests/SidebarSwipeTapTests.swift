@@ -5,7 +5,7 @@ import CmuxNextInput
 import Testing
 
 /// The sidebar's space paging hears the app's input tap (p04-input-100), not `scrollWheel(with:)`: the list's
-/// scroll view and the space bar each hold one window-scoped scroll observer while in a window with the tap; a
+/// scroll view and the space bar each hold one scroll observer while in a window with the tap; a
 /// horizontal trackpad gesture that began over the view pages 1:1 and never scrolls; a vertical one scrolls; a
 /// gesture that began elsewhere never pages; a wheel roll pages once and its rest is held; an event the tap never
 /// fed scrolls. So responsive scrolling (p03-rendering-110), which tracks a gesture without calling
@@ -263,5 +263,75 @@ import Testing
         harness.deliver(try harness.trackpad(dx: 40, phase: 2, at: harness.overList))
         harness.deliver(try harness.wheel(dx: -1, at: harness.outside))
         #expect(harness.scrolls.isEmpty && harness.pages.isEmpty, "a scroll off the sidebar paged its spaces")
+    }
+
+    @Test(.enabled(if: hasDisplay, "a windowed scroll's point needs a display"))
+    func aSidewaysWheelRollOverTheListThroughTheTapPagesOnceAndScrollWheelKeepsIt() throws {
+        let harness = Harness()
+        defer { harness.close() }
+        harness.window.orderFrontRegardless()
+        let first = try harness.wheel(dx: -1, at: harness.overList)
+        let rest = try harness.wheel(dx: -1, at: harness.overList)
+        harness.deliver(first)
+        harness.deliver(rest)
+        #expect(harness.pages == [1], "one sideways roll over the list pages once")
+        #expect(harness.sidebar.scrollView.swipes.takes(first), "scrollWheel would scroll the list for the notch that paged")
+        #expect(harness.sidebar.scrollView.swipes.takes(rest), "scrollWheel would scroll the list for the rest of the roll")
+    }
+
+    @Test(.enabled(if: hasDisplay, "a windowed scroll's point needs a display"))
+    func aVerticalWheelOverTheBarThroughTheTapPages() throws {
+        let harness = Harness()
+        defer { harness.close() }
+        harness.window.orderFrontRegardless()
+        try #require(!harness.sidebar.profileBar.isHidden, "two spaces show the bar")
+        let notch = try harness.wheel(dy: -1, at: harness.overBar)
+        harness.deliver(notch)
+        #expect(harness.pages == [1], "a vertical notch over the bar pages once, and only the bar pages it")
+        #expect(harness.sidebar.profileBar.swipes.takes(notch))
+    }
+
+    @Test(.enabled(if: hasDisplay, "a windowed scroll's point needs a display"))
+    func aVerticalWheelOverTheListThroughTheTapScrollsAndPagesNothing() throws {
+        let harness = Harness()
+        defer { harness.close() }
+        harness.window.orderFrontRegardless()
+        let notch = try harness.wheel(dy: -1, at: harness.overList)
+        harness.deliver(notch)
+        #expect(harness.pages.isEmpty, "a vertical notch over the list paged the spaces")
+        #expect(!harness.sidebar.scrollView.swipes.takes(notch), "scrollWheel would not scroll the list for a vertical notch")
+    }
+
+    @Test(.enabled(if: hasDisplay, "a windowed scroll's point needs a display"))
+    func aWheelInAnotherWindowThroughTheTapPagesNothing() throws {
+        let harness = Harness()
+        let other = Harness()
+        defer { harness.close(); other.close() }
+        harness.window.orderFrontRegardless()
+        other.window.orderFrontRegardless()
+        other.sidebar.inputTap = harness.tap // both windows' sidebars hear one tap, as in the app
+        harness.deliver(try other.wheel(dx: -1, at: other.overList))
+        #expect(harness.pages.isEmpty, "a notch in another window paged this window's spaces")
+        #expect(other.pages == [1])
+    }
+
+    // MARK: Windowless synthesized scrolls
+
+    @Test func aWindowlessScrollGoesToTheWindowItsQuartzFieldNames() {
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 200, width: 400, height: 300), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        let elsewhere = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 50, height: 50), styleMask: [.borderless],
+                                 backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        elsewhere.isReleasedWhenClosed = false
+        let screenPoint = NSPoint(x: 150, y: 260)
+        func location(_ eventWindow: NSWindow?, _ quartz: Int?) -> NSPoint? {
+            SidebarSwipeFeed.location(eventWindow: eventWindow, quartzWindowNumber: quartz, point: screenPoint, in: window)
+        }
+        #expect(location(nil, window.windowNumber) == NSPoint(x: 50, y: 60), "a windowless scroll's point is on the screen")
+        #expect(location(nil, elsewhere.windowNumber) == nil, "a windowless scroll named another window")
+        #expect(location(nil, nil) == nil, "a windowless scroll named no window")
+        #expect(location(window, nil) == screenPoint, "a windowed scroll's point is already the window's")
+        #expect(location(elsewhere, window.windowNumber) == nil, "an event's own window wins over its Quartz field")
     }
 }
