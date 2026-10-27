@@ -9,11 +9,12 @@ import Testing
 /// screen. Prints one `SIDEBAR-LAG-BENCH` line per scenario and size (sidebar-lag-DESIGN.md).
 @MainActor @Suite(.serialized)
 struct SidebarLagTests {
-    static func measure(_ scenario: SidebarLagBench.Scenario, _ count: Int) -> [SidebarLagBench.Frame] {
+    static func measure(_ scenario: SidebarLagBench.Scenario, _ count: Int) throws -> [SidebarLagBench.Frame] {
         let bench = SidebarLagBench(count: count)
         defer { bench.close() }
         let frames = bench.run(scenario)
         print(SidebarLagBench.summary(scenario, count, frames))
+        try SidebarLagBench.record(scenario, count, frames)
         return frames
     }
 
@@ -42,7 +43,7 @@ struct SidebarLagTests {
     /// floor is CPU time like the 8 ms budget, so it scales with the runner the same way. One pass
     /// each with an unscaled floor failed a576's green run (2.56 ms at 150, 4.27 ms at 500) where
     /// three runs at the same code on aws-m4pro-1 measured at most 1.63 ms at 500 (2026-10-23).
-    @Test func everyDayInteractionsStayInsideTheFrameBudget() {
+    @Test func everyDayInteractionsStayInsideTheFrameBudget() throws {
         var calibration = FrameBudgetCalibration()
         calibration.checkpoint()
         var timed: [(what: String, p95: Double)] = []
@@ -50,8 +51,8 @@ struct SidebarLagTests {
         for scenario in SidebarLagBench.Scenario.allCases {
             var p95s = Double.infinity, p95l = Double.infinity
             for _ in 0..<2 {
-                let small = Self.measure(scenario, 150)
-                let large = Self.measure(scenario, 500)
+                let small = try Self.measure(scenario, 150)
+                let large = try Self.measure(scenario, 500)
                 p95s = min(p95s, SidebarLagBench.percentile(small.map(\.cpuMs), 0.95))
                 p95l = min(p95l, SidebarLagBench.percentile(large.map(\.cpuMs), 0.95))
                 if scenario != .select {
