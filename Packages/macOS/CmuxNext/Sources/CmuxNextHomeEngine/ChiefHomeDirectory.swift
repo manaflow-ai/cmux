@@ -98,7 +98,12 @@ public actor ChiefHomeDirectory {
                    attached.standardizedFileURL.resolvingSymlinksInPath() == home.acpmuxHome.standardizedFileURL.resolvingSymlinksInPath() { return false }
                 return !home.hostRuns
             }), mayEnd else { continue }
+            // Keep the ownership lock for the entire shutdown. A brain can start between the
+            // census above and endAgents; acquiring the same flock makes that race a safe skip,
+            // and prevents a new owner from appearing while this app ends the old daemon.
+            guard let ownership = ChiefMigration.HostLock(path: home.root.appendingPathComponent("state/host.lock")) else { continue }
             let result = await endAgents(own.environment, waitForShutdown)
+            ownership.release()
             results.append(result)
             switch result {
             case .noDaemon, .ended: launchHomes.remove(host)
