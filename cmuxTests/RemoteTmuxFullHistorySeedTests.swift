@@ -47,7 +47,7 @@ import Testing
         // background and underline colors. The stream resets on a block over the
         // parser's limit, so a chunk of such cells must stay under it.
         let measuredBytesPerCell = 55
-        for width in [80, 200, 500, 1_000] {
+        for width in [80, 200, 500, 1_000, 10_000] {
             let historySize = 100_000
             let plan = RemoteTmuxPaneHistoryPlan(historySize: historySize, paneWidth: width)
             for chunk in plan.chunks {
