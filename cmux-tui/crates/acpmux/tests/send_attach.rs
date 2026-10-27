@@ -555,11 +555,16 @@ async fn a_peer_that_does_not_save_attachments_is_refused_before_anything_is_sen
                     };
                     let result = match m.as_str() {
                         method::INITIALIZE => json!({"protocolVersion": 1, "_meta": {"acpmux": {
-                            "build": "older", "origin": "peer", "features": ["trustGate"]}}}),
+                            "build": "older", "origin": "peer",
+                            "features": ["trustGate", "filePut", "filePutChunks"]}}}),
                         method::MUX_WATCH => json!({"sessions": [{"sessionId": "old-1"}]}),
                         method::SESSION_PROMPT => {
                             counted.fetch_add(1, Ordering::SeqCst);
                             json!({"stopReason": "end_turn"})
+                        }
+                        m if m.starts_with("_acpmux/file_put") => {
+                            counted.fetch_add(100, Ordering::SeqCst);
+                            json!({"uploadId": "x"})
                         }
                         _ => json!({}),
                     };
@@ -584,4 +589,15 @@ async fn a_peer_that_does_not_save_attachments_is_refused_before_anything_is_sen
     let (reply, _) = ca.send("old-1", &v7(), "plain", vec![]).await;
     assert!(reply.get("error").is_none(), "{reply}");
     assert_eq!(prompts.load(Ordering::SeqCst), 1);
+    // An upload for a prompt (`attach::blocks_for`, a file too large to go inline) is refused at
+    // its begin, before any byte: the peer would refuse the prompt naming it.
+    let begin = json!({"sessionId": "old-1", "fileName": "big.bin", "size": 1, "forPrompt": true});
+    let begun = ca.call(method::MUX_FILE_PUT_BEGIN, begin).await;
+    assert_eq!(begun["error"]["data"]["reason"], "upload.unsupported", "{begun}");
+    assert_eq!(prompts.load(Ordering::SeqCst), 1);
+    // Any other upload still goes to it.
+    let begin = json!({"sessionId": "old-1", "fileName": "big.bin", "size": 1});
+    let begun = ca.call(method::MUX_FILE_PUT_BEGIN, begin).await;
+    assert!(begun.get("error").is_none(), "{begun}");
+    assert_eq!(prompts.load(Ordering::SeqCst), 101);
 }
