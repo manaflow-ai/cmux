@@ -24,7 +24,7 @@ import Observation
     @ObservationIgnored private let launch: @Sendable () async throws -> Launch
     @ObservationIgnored private let target: @MainActor (CloudCodexBrokerScope, String) -> CloudCodexBrokerTarget
     @ObservationIgnored private var scopes: Set<CloudCodexBrokerScope> = []
-    @ObservationIgnored private var runs: [UUID: (CloudCodexBrokerScope, Task<Void, any Error>)] = [:]
+    @ObservationIgnored private var runs: [UUID: (CloudCodexBrokerScope, String, Task<Void, any Error>)] = [:]
     @ObservationIgnored private var cleanupWaiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
     @ObservationIgnored private var cleanupTimers: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var teardownTasks: [CloudCodexBrokerScope: Task<Void, Never>] = [:]
@@ -88,7 +88,7 @@ import Observation
                 _ = try await broker.waitForLoginAndTransfer(target: vm, confirmed: true)
             }
         }
-        runs[id] = (scope, task)
+        runs[id] = (scope, machineID, task)
         defer { runs.removeValue(forKey: id) }
         do {
             try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
@@ -115,7 +115,7 @@ import Observation
         guard enabled != available else { return }
         available = enabled
         guard !enabled else { return }
-        for run in runs.values { run.1.cancel() }
+        for run in runs.values { run.2.cancel() }
         let retiring = scopes
         scopes.removeAll()
         for scope in retiring { beginRetirement(scope) }
@@ -123,6 +123,9 @@ import Observation
 
     /// Called before deleting/unregistering a VM, while its transport still exists.
     public func revoke(machineID: String, scope: CloudCodexBrokerScope) async throws {
+        // End consent prompts and transfers before revoking their registration;
+        // accepting a prompt later must not register this deleted VM again.
+        for run in runs.values where run.0 == scope && run.1 == machineID { run.2.cancel() }
         guard scopes.contains(scope), let broker = await registry.existing(for: scope) else { return }
         do {
             try await broker.revoke(target: target(scope, machineID))
@@ -134,7 +137,7 @@ import Observation
     /// rotating credentials are retained for the next explicit, confirmed use.
     public func shutdown() async {
         stopped = true
-        for run in runs.values { run.1.cancel() }
+        for run in runs.values { run.2.cancel() }
         for scope in scopes.union(teardownTasks.keys) { await retire(scope) }
     }
 
@@ -142,7 +145,7 @@ import Observation
     /// this app's coordinator. Future confirmed runs can sign in again.
     public func signOut() async {
         signingOutScope = currentScope()
-        for run in runs.values { run.1.cancel() }
+        for run in runs.values { run.2.cancel() }
         for scope in scopes.union(teardownTasks.keys) { await retire(scope) }
     }
 
@@ -172,7 +175,7 @@ import Observation
 
     private func beginRetirement(_ scope: CloudCodexBrokerScope) {
         guard teardownTasks[scope] == nil else { return }
-        for run in runs.values where run.0 == scope { run.1.cancel() }
+        for run in runs.values where run.0 == scope { run.2.cancel() }
         scopes.remove(scope)
         // Keep the barrier visible until teardown completes. Every concurrent
         // caller must await the same task before opening a replacement holder.
