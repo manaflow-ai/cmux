@@ -16,7 +16,10 @@ function fixture() {
     return handle;
   };
   globalThis.cancelAnimationFrame = (id) => void pending.delete(id);
-  const page = Object.assign(new EventTarget(), { getComputedStyle: () => ({ overflowY: "auto", overflowX: "auto" }) });
+  let duration = "";
+  const page = Object.assign(new EventTarget(), {
+    getComputedStyle: () => ({ overflowY: "auto", overflowX: "auto", getPropertyValue: () => duration }),
+  });
   const doc = Object.assign(new EventTarget(), { defaultView: page, hidden: false, documentElement: { dataset: {} } });
   class Scroller extends EventTarget {
     ownerDocument = doc;
@@ -44,6 +47,9 @@ function fixture() {
   };
   return {
     node,
+    motion(value: string) {
+      duration = value;
+    },
     grow(by: number) {
       box.scrollHeight += by;
     },
@@ -172,6 +178,25 @@ test("a jump replaces wheel motion on the same clock; old cleanup cannot stop th
     f.glide.stop();
     f.finish();
     expect(f.node.scrollTop).toBe(1900);
+    expect(f.pending.size).toBe(0);
+  } finally {
+    f.restore();
+  }
+});
+
+test("notches honor the host motion speed and a zero duration remains native", () => {
+  const f = fixture();
+  try {
+    f.motion("360ms");
+    f.wheel(-10);
+    f.tick(180);
+    expect(f.node.scrollTop).toBeGreaterThan(840);
+    expect(f.pending.size).toBe(1);
+    f.tick(180);
+    expect(f.node.scrollTop).toBe(840);
+    expect(f.pending.size).toBe(0);
+    f.motion("0s");
+    expect(f.wheel(-10)).toBe(false);
     expect(f.pending.size).toBe(0);
   } finally {
     f.restore();

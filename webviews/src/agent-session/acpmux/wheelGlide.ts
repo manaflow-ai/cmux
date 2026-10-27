@@ -52,6 +52,14 @@ export function installWheelGlide(node: HTMLElement): { stop(): void; remove(): 
       stop();
       return;
     }
+    const token =
+      node.ownerDocument.defaultView?.getComputedStyle(node).getPropertyValue("--agent-motion-move").trim() ?? "";
+    const number = Number.parseFloat(token);
+    const duration = Number.isFinite(number) ? number * (token.endsWith("ms") ? 1 : 1000) : MOTION_MS.standard;
+    if (duration <= 0) {
+      stop();
+      return;
+    }
     const max = Math.max(0, node.scrollHeight - node.clientHeight);
     const wanted = node.scrollTop + (ride?.remaining() ?? 0) + wheelPixels(event, node.clientHeight);
     const distance = Math.max(0, Math.min(max, wanted)) - node.scrollTop;
@@ -64,7 +72,7 @@ export function installWheelGlide(node: HTMLElement): { stop(): void; remove(): 
       return;
     }
     event.preventDefault();
-    ride = animateScrollBy(node, distance, MOTION_MS.standard, [0.22, 1, 0.36, 1], wanted >= max, finished);
+    ride = animateScrollBy(node, distance, duration, [0.22, 1, 0.36, 1], wanted >= max, finished);
   };
   node.addEventListener("wheel", onWheel, { passive: false });
   return {

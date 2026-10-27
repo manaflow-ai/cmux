@@ -2169,6 +2169,7 @@ export function VirtualTranscript({
   /// Where Jump to latest's glide is headed while it is in flight: its steps are the view following,
   /// not the reader's scroll, and nothing snaps it to the end before it arrives.
   const jumpTarget = useRef<number | undefined>(undefined);
+  const wheelGlide = useRef<ReturnType<typeof installWheelGlide>>(undefined);
   // The last transcript box on this page until this one is measured (before its first paint, below).
   const [height, setHeight] = useState(() => lastTranscriptBox.height);
   /// The scrollbar's lane (scrollers.ts SHOWN_SCROLLER_ATTRIBUTE: always there, its thumb drawn while
@@ -2177,6 +2178,8 @@ export function VirtualTranscript({
   const [lane, setLane] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
   const stopJump = useCallback(() => {
+    // Find, reveal and an asynchronous send own their new placement, even without a jump in flight.
+    wheelGlide.current?.stop();
     const active = jumpTarget.current !== undefined;
     jumpTarget.current = undefined;
     if (active && ref.current) stopScroll(ref.current);
@@ -2687,7 +2690,6 @@ export function VirtualTranscript({
   const seenAnchor = useRef<ScrollAnchor | null | undefined>(undefined);
   /// When the reader last moved the transcript themselves (wheel, pointer, touch or key).
   const readerAt = useRef(Number.NEGATIVE_INFINITY);
-  const wheelGlide = useRef<ReturnType<typeof installWheelGlide>>(undefined);
   /// Whether a move off the latest row, to `top` against `latest`, is a stray rather than the reader's.
   const strayFrom = (top: number, latest: number) =>
     latest - top < STRAY_SCROLL_PX && performance.now() - readerAt.current > READER_SCROLL_MS;

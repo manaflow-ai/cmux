@@ -97,6 +97,27 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
             await page.video()!.saveAs(`${process.env.CMUX_WHEEL_TRACE_DIR}/${engine}.webm`);
         }
       });
+      test("an asynchronous send takes the view from an unfinished wheel glide", async () => {
+        const page = await pane.open();
+        try {
+          const gaps = await page.evaluate(async () => {
+            const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            node.style.setProperty("--agent-motion-move", "1s");
+            node.dispatchEvent(new WheelEvent("wheel", { deltaY: -20, deltaMode: 1, cancelable: true }));
+            await window.cmuxPaintFrame();
+            await window.cmuxAcpmuxActions!["chat.send"]!({ text: "Wheel ownership" });
+            const gaps: number[] = [];
+            for (let i = 0; i < 30; i++) {
+              await window.cmuxPaintFrame();
+              gaps.push(node.scrollHeight - node.clientHeight - node.scrollTop);
+            }
+            return gaps;
+          });
+          expect(Math.max(...gaps.slice(3))).toBeLessThanOrEqual(1);
+        } finally {
+          await page.close();
+        }
+      });
       test("precise, modified and reduced-motion wheels remain native", async () => {
         const page = await pane.open();
         try {
