@@ -28,6 +28,8 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CMUXMobileCore"),
+        // Test-only: the scrubber's time-budget fuzz (p10-stability-191).
+        .package(path: "../CmuxFuzzSupport"),
         .package(
             // sentry-cocoa 9.29.0 removed PrivateSentrySDKOnly, which the cmux
             // CLI uses to store envelopes (CLI/CLISocketSentryTelemetry.swift).
@@ -65,7 +67,10 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxSentryScrubbingTests",
-            dependencies: ["CmuxSentryScrubbing"],
+            dependencies: [
+                "CmuxSentryScrubbing",
+                .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
@@ -85,13 +90,13 @@ let package = Package(
 )
 
 #if os(Linux)
-// sentry-cocoa is Apple-only: a build for Linux builds the scrubber and its tests alone. Only the Linux
+// sentry-cocoa is Apple-only: a build for Linux builds the scrubber and its tests (with CmuxFuzzSupport) alone. Only the Linux
 // package jobs (swift-packages-linux.yml) set CMUX_SWIFTPM_TARGET_LINUX: the fleet's app compile also
 // reads this manifest on a Linux host, but builds for macOS and needs CmuxSentryReporting.
 if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
     package.products.removeAll { $0.name == "CmuxSentryReporting" }
     package.targets.removeAll { $0.name == "CmuxSentryReporting" || $0.name == "CmuxSentryReportingTests" }
-    package.dependencies.removeAll()
+    package.dependencies = [.package(path: "../CmuxFuzzSupport")]
 }
 #endif
 

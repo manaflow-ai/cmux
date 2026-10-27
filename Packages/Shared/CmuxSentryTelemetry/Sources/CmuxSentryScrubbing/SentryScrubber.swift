@@ -44,6 +44,18 @@ public struct SentryScrubber: Sendable {
     /// string-content rules, so any `Data` the scrubber walks is dropped wholesale.
     public static let redactedData = "<redacted-data>"
 
+    /// The most Unicode scalars of one string ``scrub(_:)`` reads; the rest is dropped.
+    ///
+    /// Sentry keeps 8192 characters of a message on ingest, so nothing longer
+    /// reaches the issue anyway, and the cap bounds the regex passes on hostile
+    /// text (p10-stability-191: 64 KiB in under 10 ms). Chromium bounds crash
+    /// metadata the same way: a crash key has a fixed size and a longer value is
+    /// truncated (components/crash/core/common/crash_key.h).
+    public static let maxScrubbedScalars = 8192
+
+    /// Appended where ``scrub(_:)`` dropped the tail of a longer string.
+    public static let truncatedMarker = "<truncated>"
+
     /// Matches `/Users/<name>` (the username component stops at the next path
     /// delimiter, quote, whitespace, or end of string) so the local username is
     /// replaced regardless of the runtime home dir AND whether the path has a
@@ -62,7 +74,7 @@ public struct SentryScrubber: Sendable {
     ///
     /// This is cmux's equivalent of relay's `@common` `@urlauth` rule
     /// (getsentry/relay @ 99c91d92845fe436713b51018a7f8d2b7b469be5,
-    /// relay-pii/src/regexes.rs:319-326). It is kept here, applied first in
+    /// relay-pii/src/regexes.rs:319-326). It is kept here, applied first (after PEM blocks) in
     /// ``scrub(_:)`` via `redactURLCredentials`, rather than ported into
     /// ``ScrubberDenylists/valuePatterns`` because cmux's redaction loop treats
     /// group 1 as a prefix to keep (the scheme), the inverse of relay's group-1
@@ -76,10 +88,23 @@ public struct SentryScrubber: Sendable {
     /// credential rather than stopping at the first `@` and leaking the password
     /// tail (`ss@host`). The terminators still bound each match to one URL's
     /// authority, so a later URL's host is never swallowed.
-    static let urlUserInfo = SentryRegexPattern(#"([A-Za-z][A-Za-z0-9+.\-]*://)[^/?#\s]+@"#)
+    ///
+    /// The scheme is capped at 32 characters and possessive (`:` is not a scheme
+    /// character): uncapped, every letter of a long word started a scan to the
+    /// word's end (quadratic, p10-stability-191). Group 1 is kept verbatim, so a
+    /// later start in a longer word gives the same output.
+    static let urlUserInfo = SentryRegexPattern(#"([A-Za-z][A-Za-z0-9+.\-]{0,31}+://)[^/?#\s]+@"#)
 
     /// Matches an email address.
-    static let email = SentryRegexPattern(#"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"#)
+    ///
+    /// A match starts only where a run of local-part characters starts, or where
+    /// the last match ended (`\G`), and takes the run possessively (`@` is not a
+    /// local-part character): every start inside a run would reach the same `@`
+    /// or fail the same way, and trying each made a long word with no `@`
+    /// quadratic (p10-stability-191). The domain is capped at 253 characters.
+    static let email = SentryRegexPattern(
+        #"(?:(?<![A-Za-z0-9._%+\-])|\G)[A-Za-z0-9._%+\-]++@[A-Za-z0-9.\-]{1,253}\.[A-Za-z]{2,}"#
+    )
 
     /// Matches one query-string segment (a `key=value` or bare `key` between
     /// `&`/`;` separators). Used by ``scrubQueryString(_:)`` so the separators are
@@ -149,16 +174,64 @@ public struct SentryScrubber: Sendable {
     /// Do not try to make this free-text path exhaustive by widening its regexes;
     /// route structured data through the structured methods instead.
     ///
+    /// A string longer than ``maxScrubbedScalars`` is cut there first, back to
+    /// the white space before the cut (a secret the cut splits might no longer
+    /// match its rule), and ends with ``truncatedMarker``.
+    ///
     /// - Parameter text: The string to scrub.
     /// - Returns: The scrubbed string.
     public func scrub(_ text: String) -> String {
         guard !text.isEmpty else { return text }
-        var result = text
+        var result = Self.bounded(text)
+        result = redactPEMBlocks(in: result)
         result = redactURLCredentials(in: result)
         result = redactSecrets(in: result)
         result = redactEmails(in: result)
         result = redactPaths(in: result)
         return result
+    }
+
+    /// `text` cut to ``maxScrubbedScalars`` scalars as ``scrub(_:)`` reads it, or `text` when it is not longer.
+    static func bounded(_ text: String) -> String {
+        let scalars = text.unicodeScalars
+        guard let cut = scalars.index(scalars.startIndex, offsetBy: maxScrubbedScalars, limitedBy: scalars.endIndex),
+              cut < scalars.endIndex else { return text }
+        let head = scalars[..<cut]
+        let end = scalars[cut].properties.isWhitespace
+            ? cut
+            : head.lastIndex(where: { $0.properties.isWhitespace }) ?? head.startIndex
+        return String(String.UnicodeScalarView(scalars[..<end])) + truncatedMarker
+    }
+
+    /// Replaces each PEM key block, header through footer, with ``redactedSecret``;
+    /// a header with no footer after it is redacted to the end of `text`.
+    ///
+    /// One scan for headers, one for footers, then one walk that pairs each
+    /// header with the first footer after it, so the time is linear however
+    /// many headers the text holds.
+    private func redactPEMBlocks(in text: String) -> String {
+        let headers = ScrubberDenylists.pemHeader.matchRanges(in: text)
+        guard !headers.isEmpty else { return text }
+        let footers = ScrubberDenylists.pemFooter.matchRanges(in: text)
+        let length = text.utf16.count
+        var blocks: [NSRange] = []
+        var nextFooter = 0
+        var from = 0
+        for header in headers where header.location >= from {
+            while nextFooter < footers.count, footers[nextFooter].location < NSMaxRange(header) { nextFooter += 1 }
+            let end = nextFooter < footers.count ? NSMaxRange(footers[nextFooter]) : length
+            blocks.append(NSRange(location: header.location, length: end - header.location))
+            from = end
+        }
+        let source = text as NSString
+        var result = ""
+        var copied = 0
+        for block in blocks {
+            result += source.substring(with: NSRange(location: copied, length: block.location - copied))
+            result += Self.redactedSecret
+            copied = NSMaxRange(block)
+        }
+        return result + source.substring(from: copied)
     }
 
     /// Replaces `user:password@` URL credentials with ``redactedSecret``,

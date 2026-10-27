@@ -115,19 +115,43 @@ public struct ScrubberDenylists: Sendable {
 
     // MARK: - Free-text value regexes
 
-    /// The ordered secret / token / key / PEM / financial value patterns applied
+    /// The first line of a PEM private or public key block (relay @pemkey).
+    ///
+    /// relay matches the whole block with one lazy regex and captures group 1
+    /// (the body); cmux redacts the WHOLE block (header, body, footer), so the
+    /// base64 body never survives. ``SentryScrubber`` pairs this line with the
+    /// next ``pemFooter`` itself instead of running relay's
+    /// `BEGIN…[\s\S]+?…END` regex: on text with many headers and no footer
+    /// that regex rescans to the end of the text from every header (quadratic),
+    /// and a block cut before its footer would not match at all and leak the
+    /// key. A header with no footer after it is redacted to the end of the text.
+    /// Ported from relay PEM_KEY_REGEX, relay-pii/src/regexes.rs:300-316
+    /// (getsentry/relay @ 99c91d92845fe436713b51018a7f8d2b7b469be5).
+    static let pemHeader = SentryRegexPattern(#"-----BEGIN[A-Z ]{1,64}(?:PRIVATE|PUBLIC) KEY-----"#)
+
+    /// The last line of a PEM key block; see ``pemHeader``.
+    static let pemFooter = SentryRegexPattern(#"-----END[A-Z ]{1,64}(?:PRIVATE|PUBLIC) KEY-----"#)
+
+    /// The ordered secret / token / key / financial value patterns applied
     /// to every free-text string, in priority order.
     ///
     /// Patterns that capture a field prefix in group 1 (e.g. `token=`) keep that
     /// prefix in the output so the redacted field stays legible; patterns with no
     /// capture group replace the whole match with the secret placeholder.
     ///
-    /// The first seven entries are cmux-original and partly exceed relay (relay
-    /// has no provider-prefix, JWT, or AWS-access-key rule); they are kept
-    /// verbatim, including their exact `options:` (JWT and AWS are
-    /// case-sensitive on purpose). The trailing entries are the relay `@common`
-    /// value rules cmux was missing, ported with no capture group so cmux's
-    /// "group 1 is a prefix to keep" loop redacts the whole match.
+    /// The first nine entries are cmux-original and partly exceed relay (relay
+    /// has no provider-prefix, JWT, or AWS-access-key rule); they keep their
+    /// exact `options:` (JWT and AWS are case-sensitive on purpose). The
+    /// trailing entries are the relay `@common` value rules cmux was missing,
+    /// ported with no capture group so cmux's "group 1 is a prefix to keep"
+    /// loop redacts the whole match.
+    ///
+    /// Every pattern runs in time linear in its input (p10-stability-191):
+    /// ICU's matcher backtracks, so a quantifier that can rescan the same text
+    /// from many start positions is capped or possessive. Chromium runs
+    /// untrusted text through RE2, which is linear by construction
+    /// (third_party/re2); Foundation has no such engine, so the bound is in the
+    /// patterns and in ``SentryScrubber/maxScrubbedScalars``.
     ///
     /// Upstream for the relay-ported entries:
     /// getsentry/relay @ 99c91d92845fe436713b51018a7f8d2b7b469be5,
@@ -140,7 +164,7 @@ public struct ScrubberDenylists: Sendable {
     /// omitted to avoid redacting version strings and the workspace/surface UUIDs
     /// cmux logs.
     static let valuePatterns: [SentryRegexPattern] = [
-        // --- cmux-original rules (kept verbatim; partly exceed relay) ---
+        // --- cmux-original rules (partly exceed relay) ---
         // Bearer <token>. Mirrors relay BEARER_TOKEN_REGEX
         // (relay-pii/src/regexes.rs:339) but keeps the `Bearer ` prefix legible.
         SentryRegexPattern(#"(Bearer\s+)[A-Za-z0-9\-._~+/]+=*"#),
@@ -168,9 +192,14 @@ public struct ScrubberDenylists: Sendable {
         // parser); the structured dict-key layer plus the wholesale Data/user/
         // cookie drops are the real boundary, this free-text pass is best-effort
         // defense-in-depth for raw event messages / stack lines / breadcrumbs.
+        //
+        // Linear (p10-stability-191): the match starts at the marker (group 1
+        // is kept as written, so the output is the same), since a leading
+        // `[A-Za-z0-9.\-]*` rescanned a long identifier from each of its
+        // characters; the name after the marker is capped at 128 and possessive.
         // Quoted-value form: redact through the closing quote.
         SentryRegexPattern(
-            #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|session|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]*["']?\s*[:=]\s*["'])[^"']*"#
+            #"((?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|session|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]{0,128}+["']?\s*+[:=]\s*+["'])[^"']*"#
         ),
         // The bare `sid` session alias (`?sid=…`, `&sid=…`, `sid:…`) carries a
         // session credential but is too short to embed in the marker set above
@@ -180,7 +209,7 @@ public struct ScrubberDenylists: Sendable {
         SentryRegexPattern(#"(\bsid["']?\s*[:=]\s*["'])[^"']*"#),
         // Unquoted-value form of the marker rule: delimiter-bounded value.
         SentryRegexPattern(
-            #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|session|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]*["']?\s*[:=]\s*)[^\s"'&,}]+"#
+            #"((?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|session|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]{0,128}+["']?\s*+[:=]\s*+)[^\s"'&,}]+"#
         ),
         // Unquoted-value form of the bare `sid` alias.
         SentryRegexPattern(#"(\bsid["']?\s*[:=]\s*)[^\s"'&,}]+"#),
@@ -188,24 +217,20 @@ public struct ScrubberDenylists: Sendable {
         // prefixes. No relay equivalent — cmux-specific add for dev secrets.
         SentryRegexPattern(#"\b(?:sk|pk|rk|ghp|gho|ghu|ghs|ghr|xox[baprs])[_\-][A-Za-z0-9_\-]{16,}"#),
         // JSON Web Tokens: three base64url segments separated by dots. No relay
-        // equivalent. Case-sensitive (`eyJ` header is fixed-case base64).
+        // equivalent. Case-sensitive (`eyJ` header is fixed-case base64). The
+        // header segment is capped at 256 characters and the first two segments
+        // are possessive (no segment character is a `.`): `-` breaks `\b`, so
+        // on `eyJ-eyJ-…` every `eyJ` starts a scan, and an uncapped header made
+        // each scan run to the end of the text (p10-stability-191).
         SentryRegexPattern(
-            #"\beyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+"#,
+            #"\beyJ[A-Za-z0-9_\-]{1,256}+\.[A-Za-z0-9_\-]++\.[A-Za-z0-9_\-]+"#,
             options: []
         ),
         // AWS access key IDs. No relay equivalent. Case-sensitive (AKIA/ASIA + uppercase).
         SentryRegexPattern(#"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"#, options: []),
 
         // --- relay @common value rules cmux was missing (ported, no group) ---
-        // @pemkey — a PEM private/public key block. relay captures group 1 (the
-        // body) and replaces only the body; cmux redacts the WHOLE block (header,
-        // body, footer) by using no capture group, so the base64 body never
-        // survives. `[\s\S]+?` matches the multi-line body without depending on a
-        // dotall flag (cmux's SentryRegexPattern sets only .caseInsensitive).
-        // Ported from relay PEM_KEY_REGEX, relay-pii/src/regexes.rs:300-316.
-        SentryRegexPattern(
-            #"-----BEGIN[A-Z ]+(?:PRIVATE|PUBLIC) KEY-----[\s\S]+?-----END[A-Z ]+(?:PRIVATE|PUBLIC) KEY-----"#
-        ),
+        // @pemkey is not here: ``pemHeader`` and ``pemFooter`` pair up blocks.
         // @creditcard — variable-length card number (Amex/Visa/Mastercard/
         // Discover prefixes), dashes/spaces allowed. Whole match redacted.
         // Ported from relay CREDITCARD_REGEX, relay-pii/src/regexes.rs:265-280.

@@ -89,7 +89,7 @@ public struct CrashReportErrorSource: ErrorHarvestSource {
         case let other?: "report \(other)"
         case nil: "report"
         }
-        let exception = Self.first(#""exception"\s*:\s*\{[^}]*"type"\s*:\s*"([^"]+)""#, in: text)
+        let exception = Self.exceptionType(in: text)
         let signal = Self.first(#""signal"\s*:\s*"([^"]+)""#, in: text)
         let frame = Self.first(#""symbol"\s*:\s*"([^"]+)""#, in: text)
         let message = ["\(kind) \(app)", exception, signal].compactMap { $0 }.joined(separator: " ")
@@ -97,6 +97,41 @@ public struct CrashReportErrorSource: ErrorHarvestSource {
         if let version = header["app_version"] as? String { context["version"] = version }
         return ErrorEvent(source: "crash", level: .crash, message: message, topFrame: frame, context: context,
                           date: modified)
+    }
+
+    /// The `type` in the report's first `"exception" : {…}` object that names one before its first
+    /// `}` (the last one there, as `"exception"\s*:\s*\{[^}]*"type"\s*:\s*"([^"]+)"` finds it).
+    ///
+    /// One pass (p10-stability-191): as one regex, every `"exception"` scanned to its `}` and back,
+    /// quadratic when a damaged report repeats the key with no `}`. An `"exception"` inside an object
+    /// that named no type opens a part of that object, so the next search starts after its `}`.
+    static func exceptionType(in text: String) -> String? {
+        guard let opening = try? NSRegularExpression(pattern: #""exception"\s*+:\s*+\{"#),
+              let value = try? NSRegularExpression(pattern: #"\s*+:\s*+"([^"]++)""#) else { return nil }
+        let source = text as NSString
+        var from = 0
+        while from < source.length,
+              let object = opening.firstMatch(in: text, range: NSRange(location: from, length: source.length - from)) {
+            let bodyStart = NSMaxRange(object.range)
+            let close = source.range(of: "}", options: .literal,
+                                     range: NSRange(location: bodyStart, length: source.length - bodyStart))
+            let bodyEnd = close.location == NSNotFound ? source.length : close.location
+            var searchEnd = bodyEnd
+            while searchEnd > bodyStart {
+                let key = source.range(of: #""type""#, options: [.literal, .backwards],
+                                       range: NSRange(location: bodyStart, length: searchEnd - bodyStart))
+                guard key.location != NSNotFound else { break }
+                let after = NSMaxRange(key)
+                if let match = value.firstMatch(in: text, options: .anchored,
+                                                range: NSRange(location: after, length: source.length - after)),
+                   let range = Range(match.range(at: 1), in: text) {
+                    return String(text[range])
+                }
+                searchEnd = NSMaxRange(key) - 1 // a "type" that overlaps this one starts before it
+            }
+            from = bodyEnd
+        }
+        return nil
     }
 
     private static func first(_ pattern: String, in text: String) -> String? {

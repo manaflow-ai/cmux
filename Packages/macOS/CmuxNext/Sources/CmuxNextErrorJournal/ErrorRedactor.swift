@@ -3,13 +3,21 @@ import Foundation
 /// Removes secrets from text before it is journaled: auth headers, cookies, bearer and API
 /// tokens, JWTs, URL credentials and secret query values, and long opaque blobs.
 ///
+/// Every pass is linear in the text (p10-stability-191): the patterns cap or make possessive
+/// each run a backtracking matcher could rescan from many starts, and `key=` / `key:` anchors
+/// and query keys are found by scanners, not by regexes. Chromium runs untrusted text through
+/// RE2, which is linear by construction (third_party/re2); Foundation has none, so the bound is
+/// here. Text past ``maxInputScalars`` is dropped first.
+///
 /// ```swift
 /// ErrorRedactor().redact("Authorization: Bearer abc.def") // "Authorization=<redacted>"
 /// ```
 public struct ErrorRedactor {
+    /// The most Unicode scalars of one text ``redact(_:)`` reads: the journal keeps at most
+    /// 1 KiB of a message, and the cap bounds the passes over a huge log line.
+    public static let maxInputScalars = 16_384
+
     private let rules: [(NSRegularExpression, String)]
-    private let assignmentAnchors: NSRegularExpression?
-    private let queryAssignments: NSRegularExpression?
     /// False when a built-in pattern failed to compile: ``redact(_:)`` then keeps no text at all.
     private let complete: Bool
     private static let sensitiveAssignmentComponents: Set<String> = [
@@ -29,13 +37,15 @@ public struct ErrorRedactor {
     /// Makes a redactor with the built-in rules.
     public init() {
         let patterns: [(String, String)] = [
-            // URL credentials: scheme://user:password@host
-            (#"([A-Za-z][A-Za-z0-9+.\-]*://)[^/?#\s]+@"#, "$1<redacted>@"),
+            // URL credentials: scheme://user:password@host. The scheme is capped and possessive, so
+            // a long word is not rescanned from each of its letters; $1 keeps the scheme as written.
+            (#"([A-Za-z][A-Za-z0-9+.\-]{0,31}+://)[^/?#\s]+@"#, "$1<redacted>@"),
             // Cookie and authorization headers contain structured lists whose
             // later fields are just as sensitive as the first one.
             (#"(?i)\b((?:proxy-)?authorization|(?:set-)?cookie)(\s*[:=]\s*)[^\r\n]+"#, "$1$2<redacted>"),
             (#"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+"#, "Bearer <redacted>"),
-            (#"\beyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}"#, "<jwt>"),
+            // The header is capped: `eyJ-eyJ-…` starts a scan at every `eyJ`.
+            (#"\beyJ[A-Za-z0-9_-]{6,256}+\.[A-Za-z0-9_-]{6,}+\.[A-Za-z0-9_-]{6,}"#, "<jwt>"),
             (#"\b(?:sk|pk|rk|ghp|gho|ghu|ghs|ghr|github_pat|xox[abprs]|AKIA|ASIA)[-_]?[A-Za-z0-9_-]{12,}"#, "<redacted>"),
             // Long opaque runs (keys, hashes, base64 payloads).
             (#"[A-Za-z0-9+/_=-]{48,}"#, "<blob>"),
@@ -45,69 +55,91 @@ public struct ErrorRedactor {
         let compiled = patterns.compactMap { pattern, replacement in
             (try? NSRegularExpression(pattern: pattern)).map { ($0, replacement) }
         }
-        let anchors = try? NSRegularExpression(
-            pattern: #"\b([A-Za-z_][A-Za-z0-9_-]*)((?:(?:\\+)?["'])?\s*[:=]\s*)"#
-        )
-        let query = try? NSRegularExpression(
-            pattern: #"(?=(^|[?#&;\s="'=(:,])([^=?&#;\s"']+)=)"#
-        )
         rules = compiled
-        assignmentAnchors = anchors
-        queryAssignments = query
-        complete = compiled.count == patterns.count && anchors != nil && query != nil
+        complete = compiled.count == patterns.count
     }
 
     /// Returns `text` with every secret replaced by a placeholder.
     public func redact(_ text: String) -> String {
-        guard complete, let assignmentAnchors, let queryAssignments else { return "<redacted>" }
-        var text = text
+        guard complete else { return "<redacted>" }
+        var text = Self.bounded(text)
         for (rule, replacement) in rules {
             text = rule.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text),
                                                  withTemplate: replacement)
         }
-        return redactQueryAssignments(in: redactAssignments(in: text, anchors: assignmentAnchors), queryAssignments)
+        return redactQueryAssignments(in: redactAssignments(in: text))
     }
 
-    private func redactAssignments(in text: String, anchors assignmentAnchors: NSRegularExpression) -> String {
+    /// `text` cut to ``maxInputScalars`` scalars, back to the white space before the cut (a secret
+    /// the cut splits might match no rule), then "…"; `text` itself when it is not longer.
+    static func bounded(_ text: String) -> String {
+        let scalars = text.unicodeScalars
+        guard let cut = scalars.index(scalars.startIndex, offsetBy: maxInputScalars, limitedBy: scalars.endIndex),
+              cut < scalars.endIndex else { return text }
+        let end = scalars[cut].properties.isWhitespace
+            ? cut
+            : scalars[..<cut].lastIndex(where: { $0.properties.isWhitespace }) ?? scalars.startIndex
+        return String(String.UnicodeScalarView(scalars[..<end])) + "…"
+    }
+
+    private func redactAssignments(in text: String) -> String {
         let source = text as NSString
-        let result = NSMutableString(string: text)
-        let matches = assignmentAnchors.matches(in: text, range: NSRange(location: 0, length: source.length))
         var ranges: [NSRange] = []
         var coveredUntil = 0
-        for match in matches {
-            guard match.range.location >= coveredUntil else { continue }
-            let key = source.substring(with: match.range(at: 1))
+        for anchor in Self.assignmentAnchors(in: Array(text.utf16)) {
+            guard anchor.key.location >= coveredUntil else { continue }
+            let key = source.substring(with: anchor.key)
             guard Self.isSensitiveAssignmentKey(key) else { continue }
-            let valueStart = NSMaxRange(match.range)
+            let valueStart = anchor.end
             let valueEnd = Self.assignmentValueEnd(in: source, from: valueStart)
             ranges.append(NSRange(location: valueStart, length: valueEnd - valueStart))
             coveredUntil = valueEnd
         }
-        for range in ranges.reversed() {
-            result.replaceCharacters(in: range, with: "<redacted>")
-        }
-        return result as String
+        return Self.replacing(ranges, in: source)
     }
 
-    private func redactQueryAssignments(in text: String, _ queryAssignments: NSRegularExpression) -> String {
+    private func redactQueryAssignments(in text: String) -> String {
         let source = text as NSString
-        let result = NSMutableString(string: text)
-        let matches = queryAssignments.matches(in: text, range: NSRange(location: 0, length: source.length))
+        let keys = Self.queryKeys(in: Array(text.utf16))
         var ranges: [NSRange] = []
         var coveredUntil = 0
-        for match in matches {
-            let key = source.substring(with: match.range(at: 2))
-            guard Self.isSensitiveQueryKey(key) else { continue }
-            let valueStart = NSMaxRange(match.range(at: 2)) + 1
-            guard valueStart >= coveredUntil else { continue }
-            let valueEnd = Self.queryValueEnd(in: source, from: valueStart)
-            ranges.append(NSRange(location: valueStart, length: valueEnd - valueStart))
-            coveredUntil = valueEnd
+        var index = 0
+        while index < keys.count {
+            // The keys that end at one `=` (`a(b(c=`: `a(b(c`, `b(c`, `c`) share its value, which is
+            // redacted when one of them is sensitive. The longest comes first and holds the words of
+            // the others, so beyond it only short keys are read: exact names (`apikey`) and
+            // percent-encoded ones. Reading every key made `((((…=` quadratic.
+            let valueStart = NSMaxRange(keys[index]) + 1
+            var next = index + 1
+            while next < keys.count, NSMaxRange(keys[next]) + 1 == valueStart { next += 1 }
+            let sensitive = valueStart >= coveredUntil && keys[index..<next].indices.contains { position in
+                (position == index || keys[position].length <= Self.maxShortQueryKeyLength)
+                    && Self.isSensitiveQueryKey(source.substring(with: keys[position]))
+            }
+            if sensitive {
+                let valueEnd = Self.queryValueEnd(in: source, from: valueStart)
+                ranges.append(NSRange(location: valueStart, length: valueEnd - valueStart))
+                coveredUntil = valueEnd
+            }
+            index = next
         }
-        for range in ranges.reversed() {
-            result.replaceCharacters(in: range, with: "<redacted>")
+        return Self.replacing(ranges, in: source)
+    }
+
+    /// The longest key besides a group's first that ``redactQueryAssignments(in:)`` reads.
+    static let maxShortQueryKeyLength = 64
+
+    /// `source` with each of `ranges` (in order, not overlapping) replaced by `<redacted>`, built in
+    /// one forward pass.
+    private static func replacing(_ ranges: [NSRange], in source: NSString) -> String {
+        var result = ""
+        var copied = 0
+        for range in ranges {
+            result += source.substring(with: NSRange(location: copied, length: range.location - copied))
+            result += "<redacted>"
+            copied = NSMaxRange(range)
         }
-        return result as String
+        return result + source.substring(from: copied)
     }
 
     private static func isSensitiveQueryKey(_ key: String) -> Bool {
@@ -158,8 +190,12 @@ public struct ErrorRedactor {
         guard quote == 34 || quote == 39 else {
             var end = start
             while end < source.length, !isUnquotedBoundary(source.character(at: end)) {
-                if isHorizontalWhitespace(source.character(at: end)), hasAssignmentAfterWhitespace(in: source, from: end) {
-                    return end
+                if isHorizontalWhitespace(source.character(at: end)) {
+                    // Every space of one run sees the same text after it: decide once, then skip the run.
+                    let runEnd = horizontalWhitespaceEnd(in: source, from: end)
+                    if hasAssignment(in: source, at: runEnd) { return end }
+                    end = runEnd
+                    continue
                 }
                 end += 1
             }
@@ -190,9 +226,15 @@ public struct ErrorRedactor {
         character == 10 || character == 13 || character == 38 || character == 44 || character == 59 || character == 125
     }
 
-    private static func hasAssignmentAfterWhitespace(in source: NSString, from start: Int) -> Bool {
+    private static func horizontalWhitespaceEnd(in source: NSString, from start: Int) -> Int {
         var index = start
         while index < source.length, isHorizontalWhitespace(source.character(at: index)) { index += 1 }
+        return index
+    }
+
+    /// Whether `key =` / `key:` starts at `start` (the end of a run of spaces).
+    private static func hasAssignment(in source: NSString, at start: Int) -> Bool {
+        var index = start
         guard index < source.length, isAssignmentKeyStart(source.character(at: index)) else { return false }
         index += 1
         while index < source.length, isAssignmentKeyCharacter(source.character(at: index)) { index += 1 }
@@ -218,8 +260,11 @@ public struct ErrorRedactor {
     private static func queryValueEnd(in source: NSString, from start: Int) -> Int {
         var end = start
         while end < source.length, !isQueryValueBoundary(source.character(at: end)) {
-            if isHorizontalWhitespace(source.character(at: end)), hasAssignmentAfterWhitespace(in: source, from: end) {
-                return end
+            if isHorizontalWhitespace(source.character(at: end)) {
+                let runEnd = horizontalWhitespaceEnd(in: source, from: end)
+                if hasAssignment(in: source, at: runEnd) { return end }
+                end = runEnd
+                continue
             }
             end += 1
         }

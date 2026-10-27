@@ -90,8 +90,7 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
         case .pty, .remoteTerminal:
             guard let connection = services.machines.daemon(forTab: tab).connection,
                   let screen = try? await connection.request(ReadScreenRequest(surface: tab.surface), timeout: .seconds(2)) else { return out }
-            let lines = screen.text.components(separatedBy: "\n").map { $0.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression) }
-            out.lines = Array(lines.filter { !$0.isEmpty }.suffix(Self.maxLines))
+            out.lines = Self.lastScreenLines(screen.text)
             out.monospaced = true
         case .browser:
             let image = await services.previews.previewImage(for: TabID(tab.id), maxPixelSize: CGSize(width: 600, height: 300))
@@ -159,6 +158,18 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
     nonisolated static func abbreviated(_ path: String) -> String {
         let home = NSHomeDirectory()
         return path == home ? "~" : path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
+    }
+
+    /// The last ``maxLines`` lines of a terminal screen that are not blank, trailing white space
+    /// dropped. One backward walk per line: the former `\s+$` regex scanned a line's white space
+    /// from each of its spaces, quadratic in a wide blank run (p10-stability-191).
+    nonisolated static func lastScreenLines(_ text: String) -> [String] {
+        let lines = text.components(separatedBy: "\n").compactMap { line -> String? in
+            var scalars = Substring(line).unicodeScalars
+            while let last = scalars.last, last.properties.isWhitespace { scalars.removeLast() }
+            return scalars.isEmpty ? nil : String(scalars)
+        }
+        return Array(lines.suffix(maxLines))
     }
 
     /// A file's first non-empty lines (or a folder's first names); nil when it is gone.

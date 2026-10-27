@@ -65,7 +65,7 @@
              return
          }
          if waiting[url] != nil { waiting[url]?.append(done); return } // no force unwrap
-@@ -102,7 +104,7 @@
+@@ -102,10 +104,12 @@
      var lastRefusal: [String: LinkGuard.Refusal] = [:]
  
      /// `<meta property|name="…" content="…">` (either attribute order), entities decoded.
@@ -73,8 +73,14 @@
 +    nonisolated static func metaTags(_ html: String) -> [String: String] {
          var out: [String: String] = [:]
          // no try! ; a pattern that fails to compile reads no tags.
-         guard let re = try? NSRegularExpression(pattern: "<meta\\s+[^>]*>", options: [.caseInsensitive]),
-@@ -123,7 +125,7 @@
+-        guard let re = try? NSRegularExpression(pattern: "<meta\\s+[^>]*>", options: [.caseInsensitive]),
++        // cmux: a tag ends at the next `<` too, read possessively: `[^>]*` scanned from every `<meta ` of a
++        // page with no `>` after it to the end (quadratic in the 400 000 characters read, p10-stability-191).
++        guard let re = try? NSRegularExpression(pattern: "<meta\\s[^<>]*+>", options: [.caseInsensitive]),
+               let key = try? NSRegularExpression(pattern: "(?:property|name)\\s*=\\s*[\"']([^\"']+)[\"']", options: [.caseInsensitive]),
+               let val = try? NSRegularExpression(pattern: "content\\s*=\\s*(\"([^\"]*)\"|'([^']*)')", options: [.caseInsensitive])
+         else { return out }
+@@ -123,7 +127,7 @@
      }
      /// "GitHub - manaflow-ai/cmux: …" shows as "manaflow-ai/cmux: …" (Messages,
      /// link-and-text take): a leading or trailing site name with a separator goes.
@@ -83,13 +89,15 @@
          guard let site, !site.isEmpty else { return t }
          for sep in [" - ", " | ", " · ", " — ", ": "] {
              if t.hasPrefix(site + sep) { return String(t.dropFirst(site.count + sep.count)) }
-@@ -132,13 +134,13 @@
+@@ -132,13 +136,14 @@
          return t
      }
  
 -    static func titleTag(_ html: String) -> String? {
+-        guard let re = try? NSRegularExpression(pattern: "<title[^>]*>([^<]*)</title>", options: [.caseInsensitive]),
 +    nonisolated static func titleTag(_ html: String) -> String? {
-         guard let re = try? NSRegularExpression(pattern: "<title[^>]*>([^<]*)</title>", options: [.caseInsensitive]),
++        // cmux: the tag ends at the next `<` too, possessively (as metaTags, p10-stability-191).
++        guard let re = try? NSRegularExpression(pattern: "<title[^<>]*+>([^<]*+)</title>", options: [.caseInsensitive]),
                let m = re.firstMatch(in: html, range: NSRange(location: 0, length: min((html as NSString).length, 400_000))) else { return nil }
          let t = decode((html as NSString).substring(with: m.range(at: 1))).trimmingCharacters(in: .whitespacesAndNewlines)
          return t.isEmpty ? nil : t
@@ -99,7 +107,7 @@
          guard s.contains("&") else { return s }
          var t = s
          for (k, v) in [("&amp;", "&"), ("&quot;", "\""), ("&#39;", "'"), ("&#x27;", "'"), ("&apos;", "'"), ("&lt;", "<"), ("&gt;", ">"), ("&nbsp;", " ")] {
-@@ -148,7 +150,7 @@
+@@ -148,7 +153,7 @@
      }
  
      /// A stable file name per URL (String.hashValue changes per launch).
@@ -108,7 +116,7 @@
          var h: UInt64 = 0xcbf29ce484222325
          for b in s.utf8 { h = (h ^ UInt64(truncatingIfNeeded: b)) &* 0x100000001b3 /* a byte widens exactly */ }
          return h
-@@ -160,116 +162,28 @@
+@@ -160,116 +165,28 @@
          let cbs = waiting.removeValue(forKey: url) ?? []
          cbs.forEach { $0(meta) }
          save()

@@ -6,13 +6,18 @@ import Foundation
 /// screen). A best-effort net, not a guarantee: terminal notifications stay
 /// off by default (`feed.mirrorNotifications.terminal`) because program
 /// output can hold secrets of any shape.
+///
+/// Every pattern is linear in the text (p10-stability-191), so ``scrub(_:)`` may read a whole
+/// command: ICU backtracks, and a run a pattern could rescan from each of its characters is
+/// capped or possessive. Chromium gets this from RE2 (third_party/re2), which Foundation lacks.
 nonisolated enum FeedSecretScrubber {
     static let marker = "[redacted]"
 
     /// Patterns whose whole match is a secret.
     private static let whole: [NSRegularExpression] = [
         #"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(-----END [A-Z0-9 ]*PRIVATE KEY-----|$)"#,
-        #"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"#,
+        // The header is capped: `-` breaks `\b`, so `eyJ-eyJ-…` starts a scan at every `eyJ`.
+        #"\beyJ[A-Za-z0-9_-]{8,256}+\.[A-Za-z0-9_-]{8,}+\.[A-Za-z0-9_-]{8,}"#,
         #"\b(sk|pk|rk)-[A-Za-z0-9_-]{16,}"#,
         #"\b(ghp|gho|ghs|ghu|ghr)_[A-Za-z0-9]{20,}"#,
         #"\bgithub_pat_[A-Za-z0-9_]{20,}"#,
@@ -21,14 +26,17 @@ nonisolated enum FeedSecretScrubber {
         #"\b(AKIA|ASIA)[0-9A-Z]{16}\b"#,
         #"\bAIza[0-9A-Za-z_-]{30,}"#,
         #"\bnpm_[A-Za-z0-9]{30,}"#,
-        #"(?i)\b[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@"#,
+        // The scheme is capped at 32: `.` and `-` break `\b`, so `a.a.a…` starts a scan at every `a`.
+        #"(?i)\b[a-z][a-z0-9+.-]{0,31}+://[^\s/:@]++:[^\s/@]++@"#,
     ].compactMap { try? NSRegularExpression(pattern: $0) }
 
     /// `Bearer value`: the value is the secret (before `name: value`, which would stop at "Bearer").
     private static let bearer = try? NSRegularExpression(pattern: #"(?i)(\b(?:bearer|basic)\s+)([^\s"',;]{4,})"#)
-    /// `name: value` / `name=value`: the value is the secret.
+    /// `name: value` / `name=value`: the value is the secret. The match starts at the name's marker
+    /// word (`$1` keeps the text before it as written), and the rest of the name is capped and
+    /// possessive: a leading `[a-z0-9_.-]*` rescanned a long name from each of its characters.
     private static let valued = try? NSRegularExpression(
-        pattern: #"(?i)(\b[a-z0-9_.-]*(?:api[_-]?key|token|secret|passw(?:or)?d|pwd|credential|auth(?:orization)?)[a-z0-9_.-]*["']?\s*[:=]\s*["']?)([^\s"',;]{4,})"#
+        pattern: #"(?i)((?:api[_-]?key|token|secret|passw(?:or)?d|pwd|credential|auth(?:orization)?)[a-z0-9_.-]{0,128}+["']?\s*+[:=]\s*+["']?)([^\s"',;]{4,})"#
     )
 
     /// Characters of a text the feed hand-off scrubs: above the 4096 the

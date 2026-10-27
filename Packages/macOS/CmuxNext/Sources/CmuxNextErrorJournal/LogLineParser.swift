@@ -10,7 +10,9 @@ struct LogLineParser {
     // nothing rather than crash the journal.
     private static let ansi = try? NSRegularExpression(pattern: #"\x1b\[[0-9;]*[A-Za-z]"#)
     private static let level = try? NSRegularExpression(pattern: #"\b(WARN|WARNING|ERROR|FATAL|CRITICAL)\b"#)
-    private static let panic = try? NSRegularExpression(pattern: #"panicked at ([^\s:]+:\d+)(?::\d+)?:?\s*(.*)$"#)
+    // Possessive up to `(.*)`: `.` stops at the same line end from any split of the digits, so giving
+    // them back never helps, and trying each split was quadratic in a long run of digits.
+    private static let panic = try? NSRegularExpression(pattern: #"panicked at ([^\s:]++:\d++)(?::\d++)?+:?+\s*+(.*)$"#)
     private static let timestamp = try? NSRegularExpression(pattern: #"^\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)"#)
 
     func events(in text: String) -> [ErrorEvent] {

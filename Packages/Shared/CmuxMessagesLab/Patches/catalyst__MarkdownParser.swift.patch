@@ -60,3 +60,17 @@
  
      /// Cheap pre-check (no allocation): could this text contain markdown syntax?
      /// False means the plain path for sure.
+@@ -489,8 +506,11 @@
+         guard (1...6).contains(n), n == t.s.count || t.s[checked: n] == " " || t.s[checked: n] == "\t" else { return nil } // checked
+         var body = t.string(n..<t.s.count).trimmingCharacters(in: .whitespaces)
+         // Closing sequence: spaces then #s at the end.
+-        if let r = body.range(of: "#+$", options: .regularExpression) {
+-            let before = body.prefix(upTo: r.lowerBound) // no range subscript
++        // cmux: the trailing run of #s, counted from the end: the regex `#+$` scanned from every # of a
++        // heading to the end of its run, quadratic in a long run of #s (p10-stability-191).
++        let closing = body.reversed().prefix { $0 == "#" }.count
++        if closing > 0 {
++            let before = body.dropLast(closing) // no range subscript
+             if before.isEmpty || before.hasSuffix(" ") || before.hasSuffix("\t") {
+                 body = String(before).trimmingCharacters(in: .whitespaces)
+             }

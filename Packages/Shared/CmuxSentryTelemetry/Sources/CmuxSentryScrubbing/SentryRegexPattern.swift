@@ -27,8 +27,9 @@ public struct SentryRegexPattern: Sendable {
 
     /// Replaces every match with the string returned by `replacement`.
     ///
-    /// Matches are rewritten from the end backwards so earlier ranges stay valid
-    /// while later matches are spliced out.
+    /// The result is built in one forward pass over the source's UTF-16 ranges
+    /// (the text between matches, then each replacement), so the time is linear
+    /// in the text however many matches it holds (p10-stability-191).
     ///
     /// - Parameters:
     ///   - text: The string to scan.
@@ -40,12 +41,21 @@ public struct SentryRegexPattern: Sendable {
         let matches = regex.matches(in: text, range: fullRange)
         guard !matches.isEmpty else { return text }
 
-        var result = text
-        for checkingResult in matches.reversed() {
-            let match = SentryRegexMatch(source: source, result: checkingResult)
-            guard let swiftRange = Range(checkingResult.range, in: result) else { continue }
-            result.replaceSubrange(swiftRange, with: replacement(match))
+        var result = ""
+        result.reserveCapacity(text.utf8.count)
+        var copied = 0
+        for checkingResult in matches {
+            let range = checkingResult.range
+            result += source.substring(with: NSRange(location: copied, length: range.location - copied))
+            result += replacement(SentryRegexMatch(source: source, result: checkingResult))
+            copied = NSMaxRange(range)
         }
+        result += source.substring(from: copied)
         return result
+    }
+
+    /// The UTF-16 ranges of every match in `text`, in order.
+    func matchRanges(in text: String) -> [NSRange] {
+        regex.matches(in: text, range: NSRange(location: 0, length: text.utf16.count)).map(\.range)
     }
 }

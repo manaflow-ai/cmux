@@ -7,9 +7,15 @@ import Foundation
 /// on one baseline (a class name over its first member). Each positioned
 /// `tspan` becomes a `<text>` with the parent's attributes and the line's
 /// position. A `text` whose content is anything else stays as written.
+///
+/// A tag's attributes end at the next `<` as well as at `>` (XML allows no `<` in an
+/// attribute value), and are read possessively: with `[^>]*`, every `<text` of a diagram with no
+/// `>` after it scanned to the end of the SVG, quadratic in its length (p10-stability-191).
 nonisolated struct SVGTextFlattener: Sendable {
-    private static let textElement = try? NSRegularExpression(pattern: "<text((?:\\s[^>]*)?)>((?:<tspan[^>]*>[^<]*</tspan>)+)</text>")
-    private static let span = try? NSRegularExpression(pattern: "<tspan([^>]*)>([^<]*)</tspan>")
+    private static let textElement = try? NSRegularExpression(
+        pattern: "<text((?:\\s[^<>]*+)?)>((?:<tspan[^<>]*+>[^<]*+</tspan>)+)</text>"
+    )
+    private static let span = try? NSRegularExpression(pattern: "<tspan([^<>]*+)>([^<]*+)</tspan>")
     private static let position = try? NSRegularExpression(pattern: "\\s(x|y)=\"[^\"]*\"")
 
     /// `svg` with each label of positioned lines as separate `<text>` elements.
