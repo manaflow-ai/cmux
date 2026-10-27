@@ -6,7 +6,13 @@ import { chromium, type Browser } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
-type Sample = { token: number; caller: string; following?: boolean; atLatest?: boolean; top?: number };
+type Sample = {
+  token: number;
+  caller: string;
+  following?: boolean;
+  atLatest?: boolean;
+  top?: number;
+};
 type Probe = Window & {
   __token: number;
   __samples: Sample[];
@@ -121,7 +127,11 @@ await requireBrowserLane("transcript-parked-stream.test.ts", async () => {
             return descriptor.get!.call(node);
           },
           set(top: number) {
-            w.__samples.push({ token: w.__token, caller: `write:${new Error().stack?.split("\n")[2]?.trim()}`, top });
+            w.__samples.push({
+              token: w.__token,
+              caller: `write:${new Error().stack?.split("\n")[2]?.trim()}`,
+              top,
+            });
             descriptor.set!.call(node, top);
           },
           configurable: true,
@@ -188,6 +198,72 @@ await requireBrowserLane("transcript-parked-stream.test.ts", async () => {
         await page.screenshot({ path: process.env.CMUX_PARKED_CAPTURE });
       console.log(JSON.stringify({ distance, ...result }));
       results.push({ distance, ...result });
+      if (distance) {
+        // Only the reader's own trip back to the end may resume follow.
+        if (distance === 80) {
+          // A long scrollbar drag: start in the scroller, then move outside it after the press's
+          // input window expires. Chromium owns the scroll event from the changed native offset.
+          await page.mouse.down();
+          await page.evaluate(async () => {
+            const until = performance.now() + 1100;
+            do {
+              await window.cmuxPaintFrame();
+            } while (performance.now() < until);
+          });
+          await page.mouse.move(1, 1);
+          await page.locator(".acpmux-scroll").evaluate((node) => {
+            node.scrollTop = node.scrollHeight;
+          });
+          await page.mouse.up();
+        } else if (distance === 40) {
+          await page.locator(".acpmux-scroll").evaluate((node) => {
+            node.dispatchEvent(new TouchEvent("touchmove", { bubbles: true }));
+            node.scrollTop = node.scrollHeight;
+          });
+        } else await page.mouse.wheel(0, 10000);
+        await page.waitForFunction(() => {
+          const w = window as unknown as Probe;
+          return [...w.__samples].reverse().find((s) => s.following !== undefined)?.following === true;
+        });
+        const resumed = await page.evaluate(async () => {
+          const w = window as unknown as Probe;
+          const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          const top = node.scrollTop;
+          const rows = Array.from({ length: 40 }, (_, i) => ({
+            id: `history-${i}`,
+            kind: i % 2 ? "assistant" : "user",
+            text: `Earlier message ${i}.`,
+            version: 1,
+            at: 1,
+          }));
+          w.__showRowsSync([
+            ...rows,
+            {
+              id: "stream",
+              kind: "assistant",
+              text: "A streaming reply. ".repeat(100) + "\n\nAnother streamed line.".repeat(25),
+              streaming: true,
+              version: 30,
+              at: 1,
+            },
+          ]);
+          // Streaming markdown can reveal more rows after the first measurement. Observe its
+          // settled end, rather than assuming that a fixed number of frames finishes the reveal.
+          const deadline = performance.now() + 5000;
+          do {
+            await window.cmuxPaintFrame();
+          } while (
+            (node.scrollTop <= top || node.scrollHeight - node.clientHeight - node.scrollTop > 4) &&
+            performance.now() < deadline
+          );
+          return {
+            moved: node.scrollTop - top,
+            gap: node.scrollHeight - node.clientHeight - node.scrollTop,
+          };
+        });
+        expect(resumed.moved, `${distance}px reader resumed follow`).toBeGreaterThan(0);
+        expect(resumed.gap).toBeLessThanOrEqual(4);
+      }
       await page.close();
     }
     for (const result of results) {
