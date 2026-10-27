@@ -69,6 +69,21 @@ test("every failure reads human, never as the agent's raw words", () => {
   expect(failureCopy(t, undefined, claude, "disk.full")).toContain("The disk is full");
 });
 
+test("cloud auth failures explain safe causes without leaking provider output or machine names", () => {
+  const cloud = { name: "Claude Code", harness: "claude", hostKind: "cloud" as const, host: "secret-host.internal" };
+  expect(failureCopy(t, "Claude failed to authenticate: credential is missing", cloud)).toBe(
+    "Claude Code has no provider credential on this Cloud machine. Set up Claude credentials to continue.",
+  );
+  expect(failureCopy(t, "OAuth token expired (HTTP 401): raw-secret-value", cloud)).toBe(
+    "Claude Code’s provider credential has expired on this Cloud machine. Set it up again to continue.",
+  );
+  expect(failureCopy(t, "HTTP 403 Forbidden: raw-secret-value", cloud)).toBe(
+    "The provider rejected Claude Code’s credentials (HTTP 403) on this Cloud machine.",
+  );
+  expect(failureKind("HTTP 401 Unauthorized from https://proxy.tail123.ts.net/v1/messages", cloud)).toBe("proxy-auth");
+  expect(failureKind("needs a team account on this machine; run cr add claude", cloud)).toBe("no-team-account");
+});
+
 test("the way out: Retry for what may pass, Switch model for capacity and keys, none for sign-in", () => {
   expect(failureRecovery("disk-full")).toBe("retry");
   expect(failureRecovery("tailscale")).toBe("retry");
@@ -171,6 +186,36 @@ test('"agent process closed" draws a card: the cause, Retry first, the raw words
   expect(details.querySelector("summary")!.textContent).toBe("Details");
   expect(details.textContent).toContain("agent process closed");
   expect([...details.querySelectorAll("button")].map((element) => element.textContent)).toEqual(["Copy error"]);
+});
+
+test("cloud credential transfer retries only the failed prompt after a successful transfer", async () => {
+  const calls: string[] = [];
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider
+        value={{
+          route: { name: "Claude Code", harness: "claude", hostKind: "cloud", host: "private.internal" },
+          transferCloudCredentials: async (rowId, prompt) => {
+            calls.push(`transfer:${rowId}:${prompt}`);
+            return true;
+          },
+          retry: (rowId, prompt) => calls.push(`retry:${rowId}:${prompt}`),
+        }}
+      >
+        <TurnFooter row={failed("HTTP 401 Unauthorized") as never} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(card().querySelector(".cv-turn-error__cause")!.textContent).toBe(
+    "The provider rejected Claude Code’s credentials (HTTP 401) on this Cloud machine.",
+  );
+  expect(card().textContent).not.toContain("private.internal");
+  await act(async () => button("Set up Claude credentials")!.click());
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(calls).toEqual([
+    "transfer:user-1:Run the sidebar tests and fix what fails",
+    "retry:user-1:Run the sidebar tests and fix what fails",
+  ]);
 });
 
 test("capacity puts Switch model first, Retry after it", async () => {
