@@ -21,12 +21,13 @@ extension SessionPriorityCoordinator {
     }
 
     /// The workspace's panes that run Claude, and those a restart is moving to a new Claude
-    /// (their session may be missing from the cache meanwhile), in sidebar order.
+    /// (their session may be missing from the cache until the index shows the resumed Claude),
+    /// in sidebar order.
     func claudePanes(in workspace: Workspace) -> [ClaudePane] {
         workspace.orderedPanelIds.compactMap { panelId in
             let snapshot = workspace.sessionPriorityClaudeSnapshot(panelId: panelId)
             let restarting = Workspace.isSessionPriorityApplyInFlight(panelId: panelId)
-                || state.records[panelId]?.awaitingSessionStartUntilMs != nil
+                || state.isRestarting(panelId: panelId)
             guard snapshot != nil || restarting else { return nil }
             return ClaudePane(panelId: panelId, snapshot: snapshot)
         }

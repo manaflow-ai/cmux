@@ -31,6 +31,10 @@ struct SessionPriorityCoordinatorState: Equatable {
         /// Set from the start of a restart until its resumed Claude reports its start, at most
         /// ``SessionPriorityCoordinatorState/sessionStartTimeoutMs`` after the restart returned.
         var awaitingSessionStartUntilMs: Int64?
+        /// Set when a restart replaced the pane's Claude, until a reconcile after its resumed
+        /// Claude's start finds it in the agent index, or its session ends. Meanwhile the pane
+        /// still counts as a Claude pane, so its workspace keeps its place in the plan.
+        var awaitsIndexAfterRestart = false
         /// A manual signal seen on the pane's screen during this session. It outlives the text.
         var stickyManual: SessionPriorityManualSignal?
         /// How the last restart attempt ended, e.g. `held.draft`. Never the resume command.
@@ -50,6 +54,7 @@ struct SessionPriorityCoordinatorState: Equatable {
             parkedTarget = lastAttempt?.target
             lastAttempt = nil
             awaitingSessionStartUntilMs = nil
+            awaitsIndexAfterRestart = false
         }
     }
 
@@ -124,16 +129,28 @@ struct SessionPriorityCoordinatorState: Equatable {
         records[panelId] = record
     }
 
-    /// Follows the session the pane runs now. Another session than the followed one starts a
-    /// fresh record: its manual signal belonged to the old session. The last attempt stays,
-    /// since it names its session.
+    /// Follows the session the agent index shows in the pane. Another session than the followed
+    /// one starts a fresh record: its manual signal belonged to the old session. The last attempt
+    /// stays, since it names its session. Seen after a restarted Claude reported its start, the
+    /// entry is the resumed Claude's, so the restart no longer needs to count the pane.
     mutating func follow(panelId: UUID, sessionId: String) {
         var record = records[panelId] ?? PaneRecord()
         if let followed = record.sessionId, followed != sessionId, record.awaitingSessionStartUntilMs == nil {
             record = PaneRecord(lastAttempt: record.lastAttempt)
         }
         record.sessionId = sessionId
+        if record.awaitingSessionStartUntilMs == nil { record.awaitsIndexAfterRestart = false }
         records[panelId] = record
+    }
+
+    /// Whether a restart is moving the pane to a new Claude, which the agent index may not show
+    /// yet: from the restart until its resumed Claude reports its start and then shows in the
+    /// index, or its session ends. Such a pane still counts as one of its workspace's Claude
+    /// panes.
+    func isRestarting(panelId: UUID) -> Bool {
+        guard let record = records[panelId] else { return false }
+        return record.awaitingSessionStartUntilMs != nil
+            || (record.awaitsIndexAfterRestart && record.sessionId != nil)
     }
 
     /// Whether the pane may be restarted for `target`: not when its last restart was for this
@@ -171,6 +188,7 @@ struct SessionPriorityCoordinatorState: Equatable {
             record.lastAttempt?.sessionId = sessionId
             record.state = .applying
             record.awaitingSessionStartUntilMs = nowMs + Self.sessionStartTimeoutMs
+            record.awaitsIndexAfterRestart = true
             record.dismissedScreenMarkers = .max
             manualDismissedAtMs[panelId] = nowMs
             return .none
@@ -189,6 +207,7 @@ struct SessionPriorityCoordinatorState: Equatable {
         case .resumeNotTyped:
             // The pane was restarted and holds a bare shell; the user resumes it by hand.
             record.awaitingSessionStartUntilMs = nil
+            record.awaitsIndexAfterRestart = false
             record.dismissedScreenMarkers = .max
             manualDismissedAtMs[panelId] = nowMs
             record.state = .notApplied(nil)
@@ -223,11 +242,13 @@ struct SessionPriorityCoordinatorState: Equatable {
     }
 
     /// Whether the pane still waits for its restarted Claude's start. A wait past its deadline
-    /// ends here and leaves the pane not applied.
+    /// ends here and leaves the pane not applied, counted as a Claude pane only once the agent
+    /// index shows one in it.
     mutating func awaitsSessionStart(panelId: UUID, nowMs: Int64) -> Bool {
         guard let until = records[panelId]?.awaitingSessionStartUntilMs else { return false }
         guard nowMs >= until else { return true }
         records[panelId]?.awaitingSessionStartUntilMs = nil
+        records[panelId]?.awaitsIndexAfterRestart = false
         records[panelId]?.state = .notApplied(nil)
         records[panelId]?.lastResultDescription = "sessionStartTimedOut"
         return false
