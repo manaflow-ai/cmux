@@ -456,6 +456,10 @@ impl Hub {
 
     /// Point `role` at `spec` and start it when nothing holds it.
     async fn pool_want(self: &Arc<Self>, role: Role, spec: PoolSpec) {
+        // MDM's off as this pooled start begins: its one read, first, before any await or pool
+        // lock (reviews 76 and 124), which every check of the start takes, at completion too
+        // (reviews 73, 75 and 77 of #23322).
+        let off = self.off_latch();
         if !self.pool_enabled().await {
             return;
         }
@@ -476,14 +480,10 @@ impl Hub {
         self.pool_discard(wanted.evicted);
         self.start_pool_reaper();
         let Some(generation) = wanted.start else { return };
+        #[cfg(debug_assertions)]
+        crate::hub::full_access_bound::POOL_STARTS.send_modify(|n| *n += 1);
         let hub = self.clone();
         tokio::spawn(async move {
-            #[cfg(debug_assertions)]
-            hub.start_blip_seam().await;
-            // MDM's off as this pooled start begins: its one read, which every check of the start
-            // takes, at completion too (reviews 73, 75 and 77 of #23322). Read before any pool lock
-            // (review 76).
-            let off = hub.off_latch();
             match hub.spawn_pooled(&spec, &off).await {
                 Ok(p) => {
                     let id = p.session_id.clone();
@@ -651,9 +651,9 @@ impl Hub {
         // (reviews 76 and 122), kept with the entry it claims (`Pooled::claimed_under`, review 121
         // of #23322).
         let off = self.off_latch();
-        // MDM's off comes and goes as the claim begins (reviews 120 and 122).
+        // MDM's off comes and goes as the claim begins (reviews 120, 122 and 124).
         #[cfg(debug_assertions)]
-        self.off_blip_seam();
+        self.claim_blip_seam().await;
         // REMOTE-FLOOR v3: a remote-origin chain is never served.
         if meta.remote_origin || !self.pool_enabled().await {
             return None;
@@ -711,8 +711,6 @@ impl Hub {
                 }
                 Take::Miss => return None,
                 Take::Warming(mut settled) => {
-                    #[cfg(debug_assertions)]
-                    crate::hub::full_access_bound::CLAIM_WAITING.notify_one();
                     // A start that hangs never holds a user's session/new
                     // longer than a cold start would roughly take.
                     match tokio::time::timeout(CLAIM_WAIT, settled.changed()).await {

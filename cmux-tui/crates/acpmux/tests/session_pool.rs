@@ -105,8 +105,6 @@ impl Daemon {
             .env("ACPMUX_TEST_POOL_CLAIM_REPORT_FILE", self.home.join("claim-report"))
             // MDM's off comes and goes once, right after a pooled start read it: `off-blip`.
             .env("ACPMUX_TEST_OFF_BLIP_FILE", self.home.join("off-blip"))
-            // The same once a chat's claim waits on a pooled start, before it reads the off.
-            .env("ACPMUX_TEST_POOL_START_BLIP_FILE", self.home.join("start-blip"))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -709,51 +707,30 @@ async fn a_pinned_prewarm_holds_an_off_that_came_and_went_as_it_began() {
     );
 }
 
-/// MDM forces `sessions.allowFullAccess` off (#23322, review 121): a chat whose claim waits on a
-/// starting pooled agent that comes up in full access does not take it when MDM's off came and
-/// went while it waited, before the pooled start began.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_full_access_pooled_start_a_claim_waited_on_through_an_mdm_off_is_not_taken() {
-    claim_waits_on_a_full_access_start("fawarm", "", false).await;
-}
-
-/// The same when MDM's off comes and goes as the claim begins, before the start read it
-/// (review 122).
+/// MDM forces `sessions.allowFullAccess` off (#23322, reviews 121, 122 and 124): a chat whose
+/// claim began, saw MDM's off come and go, and then waited on a pooled agent that started only
+/// after the unset (so its start saw no off) and came up in full access does not take it: the
+/// claim's own read holds.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_full_access_pooled_start_claimed_as_an_mdm_off_came_and_went_is_not_taken() {
-    claim_waits_on_a_full_access_start("fawarmb", "wait", true).await;
-}
-
-/// A chat's claim waits on a starting fakeb that comes up in full access. `start_blip`: the
-/// start-blip seam's file ("": the off comes and goes as the start sees the claim wait, "wait":
-/// the start only waits); `claim_blip`: the off also comes and goes as the claim begins.
-async fn claim_waits_on_a_full_access_start(tag: &str, start_blip: &str, claim_blip: bool) {
     let mut fakeb = profile("b");
     fakeb["env"]["FAKE_FULL_ACCESS"] = json!("1");
     fakeb["env"]["FAKE_NEW_MODE"] = json!("full-access");
-    let daemon = Daemon::with_fakeb(tag, 0, &fakeb);
-    let mut rpc = daemon.rpc().await;
+    let daemon = Daemon::with_fakeb("fawarmb", 0, &fakeb);
     let home = daemon.home.clone();
-    std::fs::write(home.join("start-blip"), start_blip).unwrap();
-    rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home})).await;
+    let blip = home.join("off-blip");
+    std::fs::write(&blip, "then-start").unwrap();
+    let mut claiming = daemon.rpc().await;
+    let at = home.clone();
+    let created = tokio::spawn(async move { new_session(&mut claiming, &at, "fakeb").await });
     let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
-        let status = rpc.call("_acpmux/status", json!({})).await;
-        let warming = status["pool"]["entries"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|e| e["harness"] == "fakeb" && e["state"] == "warming");
-        if warming {
-            break;
-        }
-        assert!(Instant::now() < deadline, "fakeb never started warming: {status}");
+    while blip.exists() {
+        assert!(Instant::now() < deadline, "the claim never reached its seam");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    if claim_blip {
-        blip_at_claim(&daemon);
-    }
-    let (session, _) = new_session(&mut rpc, &home, "fakeb").await;
+    let mut rpc = daemon.rpc().await;
+    rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home})).await;
+    let (session, _) = created.await.expect("the chat is created");
     assert!(
         !taken(&daemon, &session),
         "a chat took a pooled agent in full access its claim waited on through MDM's off"

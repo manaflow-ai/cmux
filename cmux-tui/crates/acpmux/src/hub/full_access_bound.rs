@@ -376,35 +376,36 @@ pub(super) fn operation_entry(hub: &Hub) {
     }
 }
 
-/// Test seam (debug builds): notified when a chat's claim waits on a starting pooled agent
-/// (`Hub::start_blip_seam`).
+/// Test seam (debug builds): the pooled starts begun (`pool_want`), for `Hub::claim_blip_seam`.
 #[cfg(debug_assertions)]
-pub(super) static CLAIM_WAITING: std::sync::LazyLock<tokio::sync::Notify> =
-    std::sync::LazyLock::new(tokio::sync::Notify::new);
+pub(super) static POOL_STARTS: std::sync::LazyLock<tokio::sync::watch::Sender<u64>> =
+    std::sync::LazyLock::new(|| tokio::sync::watch::channel(0).0);
 
 impl Hub {
-    /// Test seam (debug builds): when the file `ACPMUX_TEST_POOL_START_BLIP_FILE` names exists, a
-    /// pooled start waits (at most 10 s) for a chat's claim to wait on it, then MDM's off comes
-    /// and goes once (review 121 of #23322); a file that says "wait" only waits (review 122).
+    /// Test seam (debug builds) at a pool claim, right after its read of MDM's off: when the file
+    /// `ACPMUX_TEST_OFF_BLIP_FILE` names exists, the off comes and goes once; a file that says
+    /// "then-start" then waits (at most 10 s) for a pooled start to begin, so the start reads the
+    /// off after the claim did and the claim waits on it (reviews 121, 122 and 124 of #23322).
     #[cfg(debug_assertions)]
-    pub(super) async fn start_blip_seam(&self) {
-        let Some(file) = std::env::var_os("ACPMUX_TEST_POOL_START_BLIP_FILE") else { return };
+    pub(super) async fn claim_blip_seam(&self) {
+        let Some(file) = std::env::var_os("ACPMUX_TEST_OFF_BLIP_FILE") else { return };
         let Ok(what) = std::fs::read_to_string(&file) else { return };
+        let mut starts = POOL_STARTS.subscribe();
+        let seen = *starts.borrow_and_update();
         if std::fs::remove_file(file).is_err() {
-            return;
-        }
-        let waiting = CLAIM_WAITING.notified();
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(10), waiting).await;
-        if what.trim() == "wait" {
             return;
         }
         self.update_start_mode_state(None, |s| s.full_access_managed = Some(false));
         self.update_start_mode_state(None, |s| s.full_access_managed = None);
+        if what.trim() == "then-start" {
+            let begun = starts.wait_for(|n| *n > seen);
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(10), begun).await;
+        }
     }
 
     /// Test seam (debug builds): when the file `ACPMUX_TEST_OFF_BLIP_FILE` names exists, MDM's off
-    /// comes and goes once, at the next pooled start (right after it read the off) or pool claim
-    /// (reviews 73, 75, 77 and 120 of #23322).
+    /// comes and goes once, at the next pooled start, after it read the off (reviews 73, 75 and 77
+    /// of #23322). A pool claim has its own (`claim_blip_seam`).
     #[cfg(debug_assertions)]
     pub(super) fn off_blip_seam(&self) {
         let Some(file) = std::env::var_os("ACPMUX_TEST_OFF_BLIP_FILE") else { return };
