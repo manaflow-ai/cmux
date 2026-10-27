@@ -134,6 +134,8 @@ if [[ -x "$cache_bin" ]]; then
     [[ -L "$cache_bin" || -L "$ref" ]] || actual_sha="$(shasum -a 256 "$cache_bin" | awk '{print $1}')"
     if [[ ! -r "$ref" ]] || [[ -L "$cache_bin" || -L "$ref" ]] || ! grep -Fxq "inputs=$input_key" "$ref" || ! grep -Fxq "environment=$environment_key" "$ref" || ! grep -Fxq "archs=$archs" "$ref" || ! grep -Fxq "sha256=$actual_sha" "$ref"; then
       echo "cached optchat-chief identity does not match; rebuilding" >&2
+      # Remove links themselves before the rebuild writes its provenance.
+      rm -f "$cache_bin" "$ref"
     else
       prune_input_keyed
       deliver "already cached"

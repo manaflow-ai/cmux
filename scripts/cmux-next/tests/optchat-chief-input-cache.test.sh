@@ -143,18 +143,33 @@ keyed; expect_builds "$n" "restoring the committed page did not reuse its binary
 # Another architecture set is another binary.
 ARCHS_UNDER_TEST=x86_64 keyed; n=$((n + 1)); expect_builds "$n" "another architecture reused the arm64 binary"
 
-# The resolver's portable source key can be handed to a Mac build. The exact
-# environment identity is recorded and required on a restored artifact.
+# Unidentified compilers must not acquire a remote artifact key.
+if PATH="$TMP/bin:$python_dir:/usr/bin:/bin" HOME="$TMP" python3 "$src/scripts/cmux-next/optchat-chief-input-key.py" --environment --archs x86_64 --toolchain 1.95.0 >/dev/null 2>&1; then
+  fail "an unidentified compiler acquired a remote key"
+fi
+# The resolver key is portable; the builder adds actual tool identities.
+for tool in rustup xcrun sw_vers xcodebuild xcode-select; do
+  printf '#!/bin/sh\necho fixture-tool-1\n' > "$TMP/bin/$tool"
+  chmod +x "$TMP/bin/$tool"
+done
 portable_key=$(PATH="$TMP/bin:$python_dir:/usr/bin:/bin" HOME="$TMP" python3 "$src/scripts/cmux-next/optchat-chief-input-key.py" --portable --archs x86_64 --toolchain 1.95.0)
 environment_key=$(PATH="$TMP/bin:$python_dir:/usr/bin:/bin" HOME="$TMP" python3 "$src/scripts/cmux-next/optchat-chief-input-key.py" --environment --archs x86_64 --toolchain 1.95.0)
-run CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED=1 CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEY="$portable_key" \
-  CMUX_NEXT_OPTCHAT_CHIEF_ENVIRONMENT_KEY="$environment_key" CMUX_NEXT_OPTCHAT_CHIEF_REQUIRE_IDENTITY=1 >/dev/null 2>"$TMP/err" \
-  || fail "portable keyed build failed: $(cat "$TMP/err")"
-n=$((n + 1)); expect_builds "$n" "the portable source key did not build once"
-run CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED=1 CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEY="$portable_key" \
-  CMUX_NEXT_OPTCHAT_CHIEF_ENVIRONMENT_KEY="$environment_key" CMUX_NEXT_OPTCHAT_CHIEF_REQUIRE_IDENTITY=1 >/dev/null 2>"$TMP/err" \
-  || fail "portable keyed cache hit failed: $(cat "$TMP/err")"
-expect_builds "$n" "the portable source key rebuilt its exact cache entry"
+portable() {
+  ARCHS_UNDER_TEST=x86_64 run CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED=1 CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEY="$portable_key" \
+    CMUX_NEXT_OPTCHAT_CHIEF_ENVIRONMENT_KEY="$environment_key" CMUX_NEXT_OPTCHAT_CHIEF_REQUIRE_IDENTITY=1 >/dev/null 2>"$TMP/err" \
+    || fail "portable cache failed: $(cat "$TMP/err")"
+}
+portable; n=$((n + 1)); expect_builds "$n" "portable source key did not build once"
+portable; expect_builds "$n" "portable source key rebuilt its exact cache entry"
+binary="$TMP/cache/inputs-$portable_key-$environment_key/x86_64/optchat-chief"
+printf 'corrupt\n' >> "$binary"
+portable; n=$((n + 1)); expect_builds "$n" "corrupt bytes were reused"
+mv "$binary" "$binary.target"; ln -s "$binary.target" "$binary"
+portable; n=$((n + 1)); expect_builds "$n" "symlink binary was reused"
+echo untouched > "$TMP/ref-target"
+rm "$binary.ref"; ln -s "$TMP/ref-target" "$binary.ref"
+portable; n=$((n + 1)); expect_builds "$n" "symlink provenance was reused"
+[[ "$(cat "$TMP/ref-target")" == untouched ]] || fail "rebuild followed the provenance symlink"
 
 # Only the 8 most recently used input-keyed entries stay.
 entries=$(find "$TMP/cache" -maxdepth 1 -name 'inputs-*' | grep -c .)

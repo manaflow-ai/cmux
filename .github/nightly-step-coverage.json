@@ -62,7 +62,6 @@
         "Build the web bundles (cmux-next)": {"pr": "cmux-next.yml:web-bundles:Build the web bundles for this source key"},
         "Fetch the resolved cmux-tui tree companions": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
         "Build in-tree acpmux for the compilation cache": {"pr": "cmux-next.yml:cmux-scheme-compile:Build in-tree acpmux for the app bundle"},
-        "Compute portable OptChat Chief input key": {"plumbing": true, "note": "computes the source key before the Mac build so the Chief cache is portable across nightly runs; no product check"},
         "Prepare the OptChat Chief cache key": {"plumbing": true, "note": "combines the portable source key with the Mac SDK, compiler and environment identity"},
         "Restore the OptChat Chief cache": {"plumbing": true, "note": "restores an exact source and environment keyed Chief artifact; no product check"},
         "Build the OptChat Chief (cmux-next)": {"nightly_only": "cargo build of optchat-chief for the macOS arm64 and x86_64 targets needs the macOS SDK; PR builds skip it (bundle-optchat-chief.sh exits 0 without a binary)"},
@@ -104,6 +103,7 @@
         "Build the web bundles": {"pr": "cmux-next.yml:web-bundles:Build the web bundles for this source key"},
         "Generate the third-party notices": {"pr": "cmux-next-guards.yml:rust-notices-tree:Generate the Rust notices from this tree (as the nightly does)"}},
       "resolve-nightly-cmux-tui-client": {
+        "Compute portable OptChat Chief input key": {"plumbing": true, "note": "computes the source key before the Mac build so the Chief cache is portable across nightly runs; no product check"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Validate the saved unsigned nightly source": {"pr": "ci-guards.yml:workflow-guard-tests:Validate unsigned nightly resume provenance and routing"},
         "Resolve the original cmux-tui tree": {"plumbing": true},

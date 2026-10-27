@@ -286,7 +286,17 @@ def environment_lines(archs: str, toolchain: str) -> list[str]:
 
 
 def environment_key(archs: str, toolchain: str) -> str:
-    return hashlib.sha256(("\n".join(environment_lines(archs, toolchain)) + "\n").encode()).hexdigest()
+    lines = environment_lines(archs, toolchain)
+    for label in ("sdk", "clang", "rustc", "cargo", "macos", "macos-build", "xcode", "developer-dir"):
+        value = next(line[len(label) + 1:] for line in lines if line.startswith(label + " "))
+        if not value or value == "none":
+            raise InputError(f"cannot identify {label}; remote cache reuse is unavailable")
+    for parent in ROOT.parents:
+        for name in ("config", "config.toml"):
+            path = parent / ".cargo" / name
+            if path.is_file():
+                lines.append(f"ancestor-config {path} {hashlib.sha256(path.read_bytes()).hexdigest()}")
+    return hashlib.sha256(("\n".join(lines) + "\n").encode()).hexdigest()
 
 
 def key(archs: str, toolchain: str, *, portable: bool = False) -> str:
