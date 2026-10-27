@@ -317,3 +317,33 @@ fn an_archive_folder_replaced_by_a_link_is_refused() {
     assert_eq!(std::fs::read_dir(archive.join("c1")).unwrap().count(), 0);
     assert!(log(&store, "c1").len() == 15, "the log is as it was");
 }
+
+/// A link above the archive in a folder another account may write is refused; one only this user
+/// could have made is followed.
+#[cfg(unix)]
+#[test]
+fn a_link_above_the_archive_is_followed_only_when_no_one_else_could_have_made_it() {
+    use std::os::unix::fs::PermissionsExt;
+    let (home, store) = Home::new();
+    chat(&store, "c1");
+    let elsewhere = home.0.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let shared = home.0.join("shared");
+    std::fs::create_dir_all(&shared).unwrap();
+    std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o775)).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, shared.join("link")).unwrap();
+    let archive = shared.join("link").join("archive");
+    let mode = CompactMode::Write { archive: Some(&archive) };
+    assert!(store.stage_compaction("c1", mode).is_err());
+    assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 0, "nothing went through the link");
+    // The same link in a folder only this user may write.
+    let own = home.0.join("own");
+    std::fs::create_dir_all(&own).unwrap();
+    std::fs::set_permissions(&own, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, own.join("link")).unwrap();
+    let archive = own.join("link").join("archive");
+    let mode = CompactMode::Write { archive: Some(&archive) };
+    let staged = store.stage_compaction("c1", mode).unwrap().unwrap();
+    assert!(store.commit_compaction("c1", staged).unwrap());
+    assert_eq!(passes(&elsewhere.join("archive"), "c1").len(), 1);
+}

@@ -2,12 +2,12 @@
 //! segments and `session.json`, kept under `DIR/<chat id>/<pass>/` before the log is rewritten.
 //!
 //! An archive is a copy kept for a person, not state the daemon reads back, so the folders the
-//! person named may be any they chose (huge-blue's `~/archive` is group-writable). What the pass
-//! makes is held open instead: every folder from the first one that was there before the pass
-//! down to its `events` is opened without following a link, each one it goes into is made
-//! relative to its parent's handle and must be this user's and owner-only, and the copies go in
-//! by those handles, never over anything there. An account that may write a folder above can
-//! rename what the pass made, but not move where its copies go.
+//! person named may be any they chose (huge-blue's `~/archive` is group-writable). The path is
+//! walked from `/` by handle, following only links no other account could have put there
+//! (`resolve`); the chat's and the pass's folders are made relative to their parent's handle and
+//! must be this user's and owner-only; and the copies go in by those handles, never over anything
+//! there. An account that may write a folder above can rename what the pass made, but not move
+//! where its copies go.
 
 #[cfg(unix)]
 pub(super) use unix::Archive;
@@ -23,12 +23,12 @@ mod unix {
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-    use std::path::{Component, Path};
+    use std::path::{Component, Path, PathBuf};
 
     /// A pass's archive folder, held open (module docs).
     pub(in crate::store) struct Archive {
-        /// From the first folder above the named one that was there before the pass (the named
-        /// one itself, when it was) down to the pass's own.
+        /// The folders to sync: every one the pass made above the named one with the folder that
+        /// names it, then the named one, the chat's and the pass's own.
         dirs: Vec<File>,
         events: File,
     }
@@ -69,32 +69,136 @@ mod unix {
         Ok(dir)
     }
 
+    fn open_at(parent: &File, name: &CString) -> std::io::Result<File> {
+        let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+        // SAFETY: a valid descriptor and a NUL-terminated name.
+        let fd = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), flags) };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        // SAFETY: `openat` just returned this descriptor, owned by nothing else.
+        Ok(File::from(unsafe { OwnedFd::from_raw_fd(fd) }))
+    }
+
+    /// `name` in `parent` as `lstat` sees it: None when there is nothing.
+    fn lstat_at(parent: &File, name: &CString) -> std::io::Result<Option<libc::stat>> {
+        // SAFETY: zeroed is a valid `stat`; a valid descriptor and a NUL-terminated name.
+        let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        let rc = unsafe {
+            libc::fstatat(parent.as_raw_fd(), name.as_ptr(), &mut st, libc::AT_SYMLINK_NOFOLLOW)
+        };
+        if rc == 0 {
+            return Ok(Some(st));
+        }
+        let e = std::io::Error::last_os_error();
+        if e.kind() == std::io::ErrorKind::NotFound { Ok(None) } else { Err(e) }
+    }
+
+    fn read_link_at(parent: &File, name: &CString) -> std::io::Result<std::ffi::OsString> {
+        use std::os::unix::ffi::OsStringExt;
+        let mut buf = vec![0u8; libc::PATH_MAX as usize];
+        // SAFETY: a valid descriptor, a NUL-terminated name and a buffer of that length.
+        let n = unsafe {
+            libc::readlinkat(parent.as_raw_fd(), name.as_ptr(), buf.as_mut_ptr().cast(), buf.len())
+        };
+        if n < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        buf.truncate(n as usize);
+        Ok(std::ffi::OsString::from_vec(buf))
+    }
+
+    fn slash() -> Result<File> {
+        Ok(std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC)
+            .open("/")?)
+    }
+
+    /// The folder at `path`, walked from `/` one name at a time by handle, every missing one
+    /// made owner-only (and kept in `made`, with its parent, to be synced). A link is followed
+    /// only when no other account could have put it there: it is this user's or root's, in a
+    /// folder of this user's or root's that no other account may write, or that is sticky
+    /// (`/tmp`; macOS's `/var`). Any other link is refused, so a folder above the archive that
+    /// another account may write cannot send it elsewhere.
+    fn resolve(path: &Path, made: &mut Vec<File>) -> Result<File> {
+        ensure!(path.is_absolute(), "archive path {} is not absolute", path.display());
+        // SAFETY: getuid has no preconditions.
+        let uid = unsafe { libc::getuid() };
+        let trusted = |owner: u32| owner == uid || owner == 0;
+        let mut todo: std::collections::VecDeque<std::ffi::OsString> =
+            path.components().map(|c| c.as_os_str().to_owned()).collect();
+        let mut cur = slash()?;
+        let mut links = 0;
+        while let Some(part) = todo.pop_front() {
+            if part == "/" {
+                cur = slash()?;
+                continue;
+            }
+            if part == "." {
+                continue;
+            }
+            let c = name(&part)?;
+            let st = match lstat_at(&cur, &c)? {
+                Some(st) => st,
+                None => {
+                    match mkdir_at(&cur, &c) {
+                        Ok(()) => made.push(cur.try_clone()?),
+                        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                        Err(e) => {
+                            return Err(e).with_context(|| {
+                                format!("make archive folder {:?} in {}", part, path.display())
+                            });
+                        }
+                    }
+                    todo.push_front(part);
+                    continue;
+                }
+            };
+            if st.st_mode & libc::S_IFMT == libc::S_IFLNK {
+                let here = cur.metadata()?;
+                let shared = here.mode() & 0o022 != 0 && here.mode() & 0o1000 == 0;
+                ensure!(
+                    trusted(st.st_uid) && trusted(here.uid()) && !shared,
+                    "{} goes through a link {:?} another account could have put there",
+                    path.display(),
+                    part
+                );
+                links += 1;
+                ensure!(links <= 40, "{} has too many links", path.display());
+                let target = read_link_at(&cur, &c)?;
+                for (i, t) in Path::new(&target).components().enumerate() {
+                    todo.insert(i, t.as_os_str().to_owned());
+                }
+                continue;
+            }
+            let next = open_at(&cur, &c)
+                .with_context(|| format!("open archive folder {:?} in {}", part, path.display()))?;
+            if made.last().is_some_and(|parent| same(parent, &cur)) && part != ".." {
+                made.push(next.try_clone()?);
+            }
+            cur = next;
+        }
+        Ok(cur)
+    }
+
+    fn same(a: &File, b: &File) -> bool {
+        match (a.metadata(), b.metadata()) {
+            (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+            _ => false,
+        }
+    }
+
     impl Archive {
-        /// Makes `<root>/<id>/<pass>/events`, owner-only. `root` is the folder the person named,
-        /// which may be a link and is made owner-only if it is not there; the chat's folder is
-        /// made the first time, and the pass's folder is new: one there already is another
+        /// Makes `<root>/<id>/<pass>/events`, owner-only. `root` is the folder the person named
+        /// and any missing folders above it are made owner-only (`resolve`); the chat's folder
+        /// is made the first time, and the pass's folder is new: one there already is another
         /// pass's, refused.
         pub(in crate::store) fn create(root: &Path, id: &str, pass: &str) -> Result<Self> {
-            use std::os::unix::fs::DirBuilderExt;
-            // The folders above it that were not there are made, and synced from the top one
-            // that was.
-            let mut named = Vec::new();
-            for dir in root.ancestors().filter(|dir| !dir.as_os_str().is_empty()) {
-                named.push(dir.to_path_buf());
-                if dir.is_dir() {
-                    break;
-                }
-            }
-            std::fs::DirBuilder::new().recursive(true).mode(0o700).create(root)?;
-            let open = |dir: &Path| {
-                std::fs::OpenOptions::new()
-                    .read(true)
-                    .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC)
-                    .open(dir)
-                    .with_context(|| format!("open archive folder {}", dir.display()))
-            };
-            let mut dirs = named.iter().rev().map(|dir| open(dir)).collect::<Result<Vec<_>>>()?;
-            let mut path = root.to_path_buf();
+            let mut dirs = Vec::new();
+            let root = resolve(root, &mut dirs)?;
+            dirs.push(root);
+            let mut path = PathBuf::new();
             for (part, made_before) in [(id, true), (pass, false)] {
                 ensure!(
                     matches!(
