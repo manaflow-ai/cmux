@@ -184,7 +184,7 @@ public final class UpdaterService {
     /// Sparkle is about to relaunch into the update (set by the App: the quit keeps every terminal).
     @ObservationIgnored public var willRelaunch: (() -> Void)?
     /// Quits and reopens `URL` behind once the app exits (``UpdateRelaunchBehind``); the closure
-    /// it is given runs instead when that cannot start. Nil (tests) lets Sparkle relaunch.
+    /// it is given runs when the app did not quit. Nil (tests) lets Sparkle relaunch.
     @ObservationIgnored public var relaunchBehind: ((URL, @escaping @MainActor () -> Void) -> Void)?
     /// Reads the executable's live session and input state before Sparkle relaunches.
     @ObservationIgnored public var relaunchBlockers: () -> UpdateRelaunchBlockers = { .daemonUnavailable }

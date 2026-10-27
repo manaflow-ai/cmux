@@ -34,7 +34,17 @@ extension UpdaterService {
         updaterWillInstallUpdate(build: build)
         updaterWillRelaunchApplication()
         log.append("relaunching behind: quitting for the install, then open -g")
-        relaunchBehind(Bundle.main.bundleURL) { [weak controller] in controller?.relaunchThroughSparkle() }
+        relaunchBehind(Bundle.main.bundleURL) { [weak self] in self?.quitForInstallDeclined() }
         return true
+    }
+
+    /// The app did not quit for the automatic install: the update waits for a click again, and the
+    /// relaunch record goes (a later launch the user starts must not stay behind).
+    func quitForInstallDeclined() {
+        log.append("relaunching behind: the app did not quit; the update waits for a click")
+        UpdateRelaunchFocus.write(nil, defaults: defaults)
+        automaticInstallInFlight = false
+        automaticInstallFrontmost = nil
+        controller?.restageAfterDeclinedQuit()
     }
 }

@@ -72,22 +72,44 @@ extension UpdateDriver {
     func installStaged(automatic: Bool = false) -> Bool {
         guard let install = stagedInstall else { return false }
         log.append("background install: installing staged update (automatic=\(automatic))")
-        let build = backgroundItem?.versionString
+        let item = backgroundItem, cancel = stagedCancel
         stagedInstall = nil
         stagedCancel = nil
         installsWhenStaged = false
         backgroundItem = nil
-        if automatic, !holdsUserInstalls, let build,
-           actionDelegate?.updaterQuitsForAutomaticInstall(build: build) == true {
-            log.append("background install: the app quits for the install; Sparkle installs as it exits, the app reopens itself")
-            // A retry (the quit did not happen) installs and relaunches through Sparkle, once.
-            let once = InstallOnce(install)
-            setState(.installing(.init(retryTerminatingApplication: { once.run() }, dismiss: {})))
-            return true
+        if automatic, !holdsUserInstalls, let item {
+            // Set before asking: the host may start its quit at once.
+            quitInstall = (item, install, cancel)
+            if actionDelegate?.updaterQuitsForAutomaticInstall(build: item.versionString) == true {
+                log.append("background install: the app quits for the install; Sparkle installs as it exits, the app reopens itself")
+                setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
+                return true
+            }
+            quitInstall = nil
         }
         setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
         relaunchIsAutomatic = automatic
         install()
+        return true
+    }
+
+    /// The automatic install the host quit for did not end the app (its quit was refused, or the
+    /// host could not reopen itself): the update is staged again, with Sparkle's reply still held,
+    /// so a click installs it and Sparkle still installs it when the app quits. False when no
+    /// such install waits.
+    @discardableResult
+    func restageAfterDeclinedQuit() -> Bool {
+        guard let pending = quitInstall else { return false }
+        quitInstall = nil
+        log.append("background install: the app did not quit for the install; staged again, waiting for the user")
+        backgroundItem = pending.item
+        stagedInstall = pending.install
+        stagedCancel = pending.cancel
+        setState(.installing(.init(
+            isAutoUpdate: true,
+            retryTerminatingApplication: { [weak self] in _ = self?.installStaged() },
+            dismiss: {}
+        )))
         return true
     }
 

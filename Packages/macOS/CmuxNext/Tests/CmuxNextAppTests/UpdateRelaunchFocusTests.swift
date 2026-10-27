@@ -127,18 +127,35 @@ import Testing
         }
     }
 
-    @Test func helperWaitsForTheAppThenTheInstallerThenOpensInTheBackground() {
+    @Test func helperLooksUpTheInstallerThenWaitsForTheAppThenOpensInTheBackground() {
         let app = URL(fileURLWithPath: "/Applications/cmux NEXT.app")
         let label = UpdateRelaunchBehind.installerJobLabel(bundleIdentifier: "com.cmuxterm.app.next")
         #expect(label == "com.cmuxterm.app.next-sparkle-updater")
-        let command = UpdateRelaunchBehind.command(pid: 4242, app: app, installerJob: label)
-        #expect(Array(command.prefix(2)) == ["/bin/sh", "-c"])
-        #expect(Array(command.suffix(3)) == [app.path, "4242", label])
-        let script = command[2]
-        let order = ["caffeinate -w \"$1\"", "launchctl list \"$2\"", "caffeinate -w \"$installer\"", "open -g \"$0\""]
-        let positions = order.compactMap { script.range(of: $0)?.lowerBound }
-        #expect(positions.count == order.count && positions == positions.sorted(), "\(script)")
-        #expect(Set(UpdateRelaunchBehind.environment.keys) == ["PATH"], "open passes its environment to the new build")
+        let arguments = UpdateRelaunchBehind.arguments(app: app, installerJob: label)
+        #expect(arguments == ["/bin/sh", "-c", UpdateRelaunchBehind.script, app.path, label])
+        #expect(UpdateRelaunchBehind.environment == ["PATH=/usr/bin:/bin:/usr/sbin:/sbin"], "open passes its environment to the new build")
+    }
+
+    /// The helper itself, with stand-ins: a refused quit opens nothing; the app's end (EOF) waits
+    /// for the installer job, then opens the bundle. `open` is not run: the bundle path does not
+    /// exist, so the script stops at its last check (exit 1) instead.
+    @Test func helperStopsOnARefusedQuitAndOtherwiseRunsToTheOpen() throws {
+        let missing = "/nonexistent/cmux \(UUID().uuidString).app"
+        let arguments = UpdateRelaunchBehind.arguments(app: URL(fileURLWithPath: missing), installerJob: "com.cmuxterm.test.no-such-job")
+        for refused in [true, false] {
+            let helper = try #require(UpdateRelaunchBehind.spawn(arguments))
+            if refused {
+                UpdateRelaunchBehind.refuse(helper.writeEnd)
+            } else {
+                close(helper.writeEnd)
+            }
+            var status: Int32 = 0
+            var reaped: pid_t = 0
+            repeat { reaped = waitpid(helper.pid, &status, 0) } while reaped == -1 && errno == EINTR
+            #expect(reaped == helper.pid)
+            let code = (status >> 8) & 0xff
+            #expect(code == (refused ? 0 : 1), "refused=\(refused) exit=\(code)")
+        }
     }
 }
 

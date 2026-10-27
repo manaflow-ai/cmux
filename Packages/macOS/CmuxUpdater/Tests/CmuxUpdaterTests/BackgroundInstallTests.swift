@@ -372,12 +372,19 @@ private final class ReopeningHost: UpdateActionDelegate {
         #expect(harness.controller.stagedUpdate == nil)
         #expect(!harness.controller.driver.relaunchIsAutomatic)
 
-        // The quit did not happen: the fallback installs and relaunches through Sparkle, once.
-        harness.controller.relaunchThroughSparkle()
+        // The quit was refused: the update is staged again (Sparkle's reply still held), once.
+        harness.controller.restageAfterDeclinedQuit()
+        #expect(ready.choice == nil, "a refused quit never relaunches through Sparkle (that activates)")
+        #expect(harness.controller.stagedUpdate?.versionString == "0.64.17")
+        guard case .installing(let staged) = harness.model.state, staged.isAutoUpdate else {
+            Issue.record("expected the staged state, got \(harness.model.state)")
+            return
+        }
+        harness.controller.restageAfterDeclinedQuit()
+        // The user's click then installs and relaunches through Sparkle.
+        harness.controller.installStagedUpdate()
         #expect(ready.choice == .install)
-        ready.choice = nil
-        harness.controller.relaunchThroughSparkle()
-        #expect(ready.choice == nil)
+        #expect(host.asked == ["0.64.17"], "a click never asks the host to reopen")
     }
 
     @Test func aHostThatDoesNotReopenRelaunchesThroughSparkle() {

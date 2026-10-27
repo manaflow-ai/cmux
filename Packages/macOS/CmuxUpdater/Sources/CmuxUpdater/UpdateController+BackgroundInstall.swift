@@ -85,13 +85,11 @@ extension UpdateController {
         setInstallDidNotStartError(diagnostic: "install clicked with no staged update (state=\(model.state))")
     }
 
-    /// An automatic install whose app did not quit for it (the host could not reopen itself,
-    /// ``UpdateActionDelegate/updaterQuitsForAutomaticInstall(build:)``) installs and relaunches
-    /// through Sparkle instead. No-op unless an install waits in that state.
-    public func relaunchThroughSparkle() {
-        guard case .installing(let installing) = model.state, installing.relaunchBlockers == nil, !installing.isAutoUpdate else { return }
-        log.append("background install: relaunching through Sparkle")
-        installing.retryTerminatingApplication()
+    /// The automatic install the app quit for did not end it (the quit was refused, or the helper
+    /// that reopens the app could not start): the update is staged again and waits for a click
+    /// (``UpdateActionDelegate/updaterQuitsForAutomaticInstall(build:)``). No-op otherwise.
+    public func restageAfterDeclinedQuit() {
+        driver.restageAfterDeclinedQuit()
     }
 
     /// The app should quit for the installer within ``installWatchdogTimeout``; a click that
