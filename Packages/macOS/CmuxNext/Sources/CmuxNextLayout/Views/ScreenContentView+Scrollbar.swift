@@ -37,6 +37,8 @@ extension ScreenContentView {
         let bar = StripScrollbarView(hideClock: context.scrollbarClock)
         addSubview(bar)
         scrollbar = bar
+        // The thumb drag scrolls once per frame (feature `pointerFrameDrags`).
+        bar.pointerFrames = { [weak self] in self?.context.dragFrameInput }
         bar.onDragBegan = { [weak self] in
             guard let self else { return }
             self.beginUserScroll()

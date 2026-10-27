@@ -1397,12 +1397,12 @@ nonisolated extension Feature {
         replaces: ["motion.pane.holdContent"]
     )
 
-    /// Pane divider, column edge, row edge, both sidebar edges and the DevTools divider move on the first drag event of a display frame and once more at the frame, to the latest pointer point; every drag event still counts toward the release velocity.
+    /// Resize edges (pane dividers, column and row edges, both sidebars, the DevTools divider), canvas pane drags and pans and the strip scrollbar thumb move on a display frame's first drag event and once more at the frame, to the latest point; every drag event still counts toward the release velocity.
     public static let pointerFrameDrags = Feature(
         index: 80,
         name: "pointerFrameDrags",
         owner: "PL-motion-cef",
-        description: "Pane divider, column edge, row edge, both sidebar edges and the DevTools divider move on the first drag event of a display frame and once more at the frame, to the latest pointer point; every drag event still counts toward the release velocity.",
+        description: "Resize edges (pane dividers, column and row edges, both sidebars, the DevTools divider), canvas pane drags and pans and the strip scrollbar thumb move on a display frame's first drag event and once more at the frame, to the latest point; every drag event still counts toward the release velocity.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,
@@ -1414,12 +1414,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// The sidebar, tab strips, saved groups bar, palette, address bar suggestions, page menus, agent cursor tags, hover cards, hover reveals and thin scrollers hover on a display frame's first pointer move and once more at the frame, to the latest point; entering, leaving, clicking and keys act at once.
+    /// Sidebar, tab strips, saved groups bar, palette, suggestions, page menus, agent cursor tags, hover cards, hover reveals, thin scrollers and focus follows mouse hover on a display frame's first pointer move and again at the frame, at the latest point; entering, leaving, clicks and keys act at once.
     public static let pointerFrameHover = Feature(
         index: 81,
         name: "pointerFrameHover",
         owner: "PL-motion-cef",
-        description: "The sidebar, tab strips, saved groups bar, palette, address bar suggestions, page menus, agent cursor tags, hover cards, hover reveals and thin scrollers hover on a display frame's first pointer move and once more at the frame, to the latest point; entering, leaving, clicking and keys act at once.",
+        description: "Sidebar, tab strips, saved groups bar, palette, suggestions, page menus, agent cursor tags, hover cards, hover reveals, thin scrollers and focus follows mouse hover on a display frame's first pointer move and again at the frame, at the latest point; entering, leaving, clicks and keys act at once.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,

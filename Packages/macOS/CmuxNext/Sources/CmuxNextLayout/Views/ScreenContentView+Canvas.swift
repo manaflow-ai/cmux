@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextInput
+import CmuxNextWakeups
 import QuartzCore
 
 /// A screen shown as a canvas (plans/cmux-next/canvas-layout.md). The camera is
@@ -26,6 +28,7 @@ extension ScreenContentView {
             stopCanvasCameraOnRenderServer()
             canvasState.modelCamera = nil
             canvasState.drag = nil
+            endCanvasDragFrames()
             if modeChanged { window?.invalidateCursorRects(for: self) }
             return !modeChanged
         }
@@ -220,26 +223,23 @@ extension ScreenContentView {
         } else {
             canvasState.drag = .pan(origin: event.locationInWindow, from: canvasState.camera.shown)
         }
+        beginCanvasDragFrames()
     }
 
-    override func mouseDragged(with event: NSEvent) {
-        guard let drag = canvasState.drag else { return super.mouseDragged(with: event) }
-        switch drag {
-        case let .pane(pane, origin):
-            let zoom = canvasState.camera.shown.zoom
-            // Window points grow up; canvas points grow down.
-            let translation = CGSize(width: (event.locationInWindow.x - origin.x) / zoom, height: (origin.y - event.locationInWindow.y) / zoom)
-            context.model.setCanvasFrame(pane.frame(translation: translation), for: pane.pane)
-        case let .pan(origin, from):
-            let delta = CGSize(width: event.locationInWindow.x - origin.x, height: origin.y - event.locationInWindow.y)
-            canvasState.camera.retarget(from.panned(byScreenDelta: delta), animated: false)
-            applyCamera()
-        }
-        context.requestFrames()
+    override func mouseDragged(with event: NSEvent) { // perf-hot: 2ms resize-drag (every canvas drag event)
+        guard canvasState.drag != nil else { return super.mouseDragged(with: event) }
+        if let frames = canvasState.dragFrames, frames.post(event) { return }
+        moveCanvasDrag(to: event.locationInWindow)
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard let drag = canvasState.drag else { return super.mouseUp(with: event) }
+        guard canvasState.drag != nil else { return super.mouseUp(with: event) }
+        // The frame's pending move lands before the release (Chromium's ShouldFlushQueue); the delivery
+        // writes `canvasState`, so the consumer is read out of it first.
+        let frames = canvasState.dragFrames
+        frames?.flush()
+        endCanvasDragFrames()
+        guard let drag = canvasState.drag else { return }
         canvasState.drag = nil
         switch drag {
         case .pane:
@@ -248,6 +248,43 @@ extension ScreenContentView {
             reportCamera()
         }
         window?.invalidateCursorRects(for: self)
+    }
+
+    /// The drag's moves on its window's coalescer (feature `pointerFrameDrags`, ``LayoutRootView/dragFrameInput``):
+    /// a frame interval's first drag event moves the pane or the camera in its own turn, the rest once at the
+    /// frame to the latest point, as Chromium delivers rAF-aligned moves
+    /// (`third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`). Without the
+    /// coalescers every drag event moves it at once.
+    private func beginCanvasDragFrames() {
+        endCanvasDragFrames()
+        guard let window, let frames = context.dragFrameInput else { return }
+        canvasState.dragFrames = frames.coalescer(for: window).consumer(owner: "ScreenContentView.canvasDrag") { [weak self] input in
+            self?.moveCanvasDrag(to: CGPoint(x: input.latest.location.x, y: input.latest.location.y))
+        }
+    }
+
+    /// Drops the drag's consumer and the moves it still holds.
+    private func endCanvasDragFrames() {
+        let frames = canvasState.dragFrames
+        canvasState.dragFrames = nil
+        frames?.cancel()
+    }
+
+    /// Moves the dragged pane, or pans the camera, to the pointer at `windowPoint` (one delivery).
+    private func moveCanvasDrag(to windowPoint: CGPoint) { // perf-hot: 2ms resize-drag (each canvas drag delivery)
+        guard let drag = canvasState.drag else { return }
+        switch drag {
+        case let .pane(pane, origin):
+            let zoom = canvasState.camera.shown.zoom
+            // Window points grow up; canvas points grow down.
+            let translation = CGSize(width: (windowPoint.x - origin.x) / zoom, height: (origin.y - windowPoint.y) / zoom)
+            context.model.setCanvasFrame(pane.frame(translation: translation), for: pane.pane)
+        case let .pan(origin, from):
+            let delta = CGSize(width: windowPoint.x - origin.x, height: origin.y - windowPoint.y)
+            canvasState.camera.retarget(from.panned(byScreenDelta: delta), animated: false)
+            applyCamera()
+        }
+        context.requestFrames()
     }
 
     override func resetCursorRects() {
