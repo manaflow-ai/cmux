@@ -1470,6 +1470,9 @@ impl Hub {
 
     /// Stop the child but keep the session resumable.
     pub async fn detach_child(&self, session: &Arc<Session>) {
+        // A launch cleanup stop is resumable, but it still fences in-flight starts and retries.
+        session.stops.fetch_add(1, Ordering::SeqCst);
+        self.stop_auto_resume(session);
         self.revoke_permission_chat(session);
         self.cancel_pending_permissions(session);
         if let Some(child) = session.child.lock().await.take() {
