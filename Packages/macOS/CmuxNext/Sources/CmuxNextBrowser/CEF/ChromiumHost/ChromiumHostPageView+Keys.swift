@@ -55,6 +55,7 @@ extension ChromiumHostPageView {
               window?.firstResponder === self, Self.reportsUnhandled(event.modifierFlags) else {
             return super.performKeyEquivalent(with: event)
         }
+        keyEquivalentsTaken += 1
         key(event, phase: 0)
         return true
     }

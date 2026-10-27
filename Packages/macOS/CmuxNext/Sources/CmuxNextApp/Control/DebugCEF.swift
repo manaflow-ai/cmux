@@ -140,13 +140,13 @@ enum DebugCEF {
     }
 
     /// `host_wire`: the remote shim's counters (``ChromiumHostRemoteWireStats``), null in process or with no host
-    /// attached. `ring_depth`, `unacked_seq` and `ime_sync_requests` stay null until something counts them: the
-    /// runtime's host gets no input ring before tasks 041 and 042, and the input method client sends no request
-    /// that waits (task 043).
+    /// attached. `ime_sync_requests` is 0: no input method request waits on the host (task 043). `ring_depth` and
+    /// `unacked_seq` stay null until something counts them: the runtime's host gets no input ring before tasks 041
+    /// and 042.
     static func hostWire(_ stats: ChromiumHostRemoteWireStats?) -> JSONValue {
         guard let stats else { return .null }
         var fields = stats.report.mapValues(JSONValue.number)
-        for unmeasured in ["ring_depth", "unacked_seq", "ime_sync_requests"] { fields[unmeasured] = .null }
+        for unmeasured in ["ring_depth", "unacked_seq"] { fields[unmeasured] = .null }
         return .object(fields)
     }
 

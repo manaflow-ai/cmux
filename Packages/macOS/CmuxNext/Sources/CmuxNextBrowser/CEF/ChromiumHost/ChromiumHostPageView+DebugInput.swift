@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextWakeups
 
 /// What the app's input checks and debug reports read of a hosted page view (task 224 of
 /// plans/cmux-next/chrome-parity/p01-process.md). With ``InputTarget/view`` the page has no window
@@ -14,9 +15,13 @@ extension ChromiumHostPageView {
     /// The Core Animation context id the view shows; 0 while it shows none.
     public var shownContextID: UInt32 { contextID }
 
-    /// The first page view in `view`'s tree, `view` included, that takes the page's input; nil without one.
+    /// The first shown page view in `view`'s tree, `view` included, that takes the page's input; nil without
+    /// one. Hidden views and their subtrees are skipped: a pane keeps parked content (another profile's page
+    /// host, a retired browser view) hidden in its tree, and that page is not the one the pane shows. A page
+    /// view under a hidden ancestor above `view` is own-hidden in its ``pageNode`` (`viewDidHide`).
     public static func firstTakingInput(in view: NSView) -> ChromiumHostPageView? {
-        if let page = view as? ChromiumHostPageView, page.takesPageInput { return page }
+        guard !view.isHidden else { return nil }
+        if let page = view as? ChromiumHostPageView, page.takesPageInput, page.pageNode.own != .hidden { return page }
         for subview in view.subviews {
             if let page = firstTakingInput(in: subview) { return page }
         }
@@ -40,11 +45,13 @@ extension ChromiumHostPageView {
         public var passwordInput: Bool
         /// The input method client's answers from pushed state, by their `debug.chromium_host` names.
         public var textInput: [String: Int]
+        /// Command and Control chords the view took for the page from the window's key equivalent pass.
+        public var keyEquivalentsTaken: Int
     }
 
     public var wireReport: WireReport {
         WireReport(hasInputRoute: sink != nil, heldKeyDowns: keyDowns.count, lastWheelSeq: lastWheelSeq,
-                   passwordInput: passwordInput.isOn, textInput: textInput.stats.report)
+                   passwordInput: passwordInput.isOn, textInput: textInput.stats.report, keyEquivalentsTaken: keyEquivalentsTaken)
     }
 }
 #endif

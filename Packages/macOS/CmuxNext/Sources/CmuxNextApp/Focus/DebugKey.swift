@@ -77,9 +77,7 @@ enum DebugKey {
             let pane = params["pane"]?.stringValue ?? controller?.focus.state.pane
             guard let controller, let pane else { return .object(["error": .string("no Chromium page for pane")]) }
             if let page = hostPage(of: pane, in: controller) {
-                if shell.firstResponder !== page, !shell.makeFirstResponder(page) {
-                    return .object(["error": .string("the hosted page view did not take the keyboard")])
-                }
+                // It takes the keyboard only right before the dispatch: a bad key or a dry run moves nothing.
                 hostedPage = page
             } else if let page = pageWindow(of: pane, in: controller) {
                 window = page
@@ -111,7 +109,11 @@ enum DebugKey {
         // nothing (shortcut sweeps: every app shortcut routes while a page has the keyboard).
         // Only the router's decision: no chord sequences, intercepts or focus-kind checks.
         if params["dry_run"]?.boolValue == true {
-            guard let controller, window === shell else { return .object(["error": .string("dry_run needs the shell window")]) }
+            // A hosted page is a view of the shell window, but taking the page as the target would move the
+            // keyboard to it, which a dry run must not do: the shell target asks the router about the focus as it is.
+            guard let controller, window === shell, hostedPage == nil else {
+                return .object(["error": .string("dry_run needs the shell window")])
+            }
             let router = services.keyRouter
             let decision = router.decide(event, focus: controller.focus.state, keyWindow: .content,
                                          facts: router.facts(in: window, controller: controller))
@@ -120,6 +122,13 @@ enum DebugKey {
             return .object(["decision": .string(String(describing: decision)), "action": action,
                             "focus": .string(String(describing: controller.focus.state.resolved))])
         }
+        // The hosted page view takes the keyboard as a click into it gives it, then the key takes the shell
+        // window's own path to it.
+        if let hostedPage, shell.firstResponder !== hostedPage, !shell.makeFirstResponder(hostedPage) {
+            return .object(["error": .string("the hosted page view did not take the keyboard")])
+        }
+        // Chords the page view took before this key: `handled_by` is `page` only when it took this one.
+        let pageChordsBefore = hostedPage?.keyEquivalentsTaken ?? 0
         // The target window is the key window for this dispatch, so rules
         // that read the key window (WindowKeyTable) see it.
         let previousKey = services.keyWindowSource
@@ -136,7 +145,9 @@ enum DebugKey {
             if services.routeKeyDown(event, window) {
                 return ("app", services.keyRouter.lastInterception.map { verdict($0)["action"] ?? .null } ?? .null)
             } else if isChord, window.performKeyEquivalent(with: event) {
-                return (window === shell && hostedPage == nil ? "window" : params["target"]?.stringValue == "devtools" ? "devtools" : "page", .null)
+                // Through the shell window, a hosted page took it only when its page view did; any other view is the window's.
+                if let hostedPage { return (hostedPage.keyEquivalentsTaken > pageChordsBefore ? "page" : "window", .null) }
+                return (window === shell ? "window" : params["target"]?.stringValue == "devtools" ? "devtools" : "page", .null)
             } else if isChord, NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
                 return ("menu", NSApp.mainMenu.flatMap { menuItem(matching: event, in: $0) }.map { .string($0.title) } ?? .null)
             }

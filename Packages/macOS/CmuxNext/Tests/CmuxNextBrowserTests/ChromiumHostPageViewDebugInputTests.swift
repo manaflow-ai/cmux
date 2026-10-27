@@ -28,7 +28,63 @@ import Testing
         #expect(hosted.shownContextID == 0, "no context shown yet")
     }
 
+    /// A pane keeps parked content hidden in its tree (another profile's page host, a retired browser view):
+    /// a hidden page view placed before the shown one is never the pane's page.
+    @Test func aHiddenPageViewBeforeTheShownOneIsSkipped() {
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let parked = NSView(frame: root.bounds)
+        parked.isHidden = true
+        root.addSubview(parked)
+        parked.addSubview(makePage(.view))
+        let hiddenPage = makePage(.view)
+        hiddenPage.isHidden = true
+        root.addSubview(hiddenPage)
+        #expect(ChromiumHostPageView.firstTakingInput(in: root) == nil, "only hidden page views: none is shown")
+
+        let shown = makePage(.view)
+        root.addSubview(shown)
+        #expect(ChromiumHostPageView.firstTakingInput(in: root) === shown)
+        #expect(ChromiumHostPageView.firstTakingInput(in: parked) == nil, "a search from inside hidden content finds nothing")
+    }
+
     #if DEBUG || CMUX_BENCH_HOOKS
+    /// A view of the shell window that takes every Command chord (a shortcut button, a shell control).
+    final class ChordTaker: NSView {
+        var taken = 0
+        override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            taken += 1
+            return true
+        }
+    }
+
+    func chord(_ window: NSWindow) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 1,
+                                      windowNumber: window.windowNumber, context: nil, characters: "k",
+                                      charactersIgnoringModifiers: "k", isARepeat: false, keyCode: 40))
+    }
+
+    /// `debug.key` says a chord was the page's only when the page view took it: the page view counts the
+    /// chords it takes, and a chord another view of the window takes leaves the count alone.
+    @Test func thePageViewCountsOnlyTheChordsItTakes() throws {
+        let page = makePage(.view)
+        let window = window(holding: page)
+        page.sink = { _ in nil }
+        #expect(window.makeFirstResponder(page))
+
+        // The host does not report unhandled keys: the page view leaves chords to the window's other views.
+        let shell = ChordTaker(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        window.contentView?.addSubview(shell)
+        #expect(window.performKeyEquivalent(with: try chord(window)))
+        #expect(shell.taken > 0)
+        #expect(page.keyEquivalentsTaken == 0, "another view took the chord")
+
+        shell.removeFromSuperview()
+        page.hostReportsUnhandledKeys = true
+        #expect(page.performKeyEquivalent(with: try chord(window)))
+        #expect(page.keyEquivalentsTaken == 1)
+        #expect(page.wireReport.keyEquivalentsTaken == 1)
+    }
+
     func window(holding page: ChromiumHostPageView) -> NSWindow {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless,
                               backing: .buffered, defer: true)

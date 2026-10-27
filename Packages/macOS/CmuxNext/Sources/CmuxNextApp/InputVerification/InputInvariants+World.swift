@@ -56,9 +56,12 @@ extension InputInvariants {
             }
         }
         let resolved = model.resolved
-        // A Chromium browser tab or a cmux page in Chromium: its page window has the keys.
-        let childPage: String? = if let tab = resolved.tab, ["browserPage", "page", "agentPage"].contains(resolved.kind),
-                                    window.childWindowTabs.contains(tab) { tab } else { nil }
+        // A Chromium browser tab or a cmux page in Chromium. In process its page window has the keys
+        // (`childPage`); in host mode its page view in the pane does. In both the applier makes it the
+        // embedder's active page (`activePage`, which `window.childPage` reports).
+        let chromiumTab: String? = if let tab = resolved.tab, ["browserPage", "page", "agentPage"].contains(resolved.kind) { tab } else { nil }
+        let childPage = chromiumTab.flatMap { window.childWindowTabs.contains($0) ? $0 : nil }
+        let activePage = chromiumTab.flatMap { childPage != nil || window.hostPageTabs?.contains($0) == true ? $0 : nil }
         if let expected = expectedResponder(resolved, childPage: childPage), expected != window.responder {
             fail(.responderMatches, "appkit \(describe(window.responder)) (\(window.responderClass ?? "nil")) != model \(resolved.kind)")
         }
@@ -70,14 +73,10 @@ extension InputInvariants {
         } else if !window.ghosttyFocused.isEmpty {
             fail(.ghosttyMatches, "ghostty \(window.ghosttyFocused) while model is \(resolved.kind)\(window.isKey ? "" : ", window not key")")
         }
-        // A hosted page (host mode) has no page window: its page view in the pane has the keys, so
-        // the applier never gives it page window focus, under an overlay either.
-        if let focused = window.childPage, window.hostPageTabs?.contains(focused) == true {
-            fail(.chromiumMatches, "hosted page \(focused) has page window focus; a hosted context has no page window")
-        } else if model.overlays.isEmpty, window.childPage != childPage {
-            // Under an overlay the applier leaves page focus alone (keys go to
-            // the overlay); closing it re-applies.
-            fail(.chromiumMatches, "chromium page \(window.childPage ?? "nil") != model \(childPage ?? "nil")")
+        // Under an overlay the applier leaves page focus alone (keys go to
+        // the overlay); closing it re-applies.
+        if model.overlays.isEmpty, window.childPage != activePage {
+            fail(.chromiumMatches, "chromium page \(window.childPage ?? "nil") != model \(activePage ?? "nil")")
         }
         return out
     }

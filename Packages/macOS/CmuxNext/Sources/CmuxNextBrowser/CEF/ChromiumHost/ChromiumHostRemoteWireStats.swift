@@ -32,11 +32,17 @@ public nonisolated struct ChromiumHostRemoteWireStats: Equatable, Sendable {
         unsupported = fields[6]
     }
 
+    /// Input method requests that ask the host and wait for its answer: none, by construction. The page
+    /// view's text input answers every one from the state the host already pushed (`ChromiumHostTextInput`,
+    /// task 043), so no such request exists to count.
+    public static let imeSyncRequests: UInt64 = 0
+
     /// The counters under their `debug.cef` names.
     public var report: [String: Double] {
         ["quota_excess": Double(quotaExcess), "coalesced": Double(coalesced), "pending_messages": Double(pendingMessages),
          "reads_unattached": Double(readsUnattached), "unsendable": Double(unsendable),
-         "replies_unhandled": Double(repliesUnhandled), "unsupported": Double(unsupported)]
+         "replies_unhandled": Double(repliesUnhandled), "unsupported": Double(unsupported),
+         "ime_sync_requests": Double(Self.imeSyncRequests)]
     }
 }
 

@@ -172,6 +172,8 @@ public final class ChromiumHostPageView: NSView {
     /// The input seq of the last wheel frame this view sent, 0 before any: WHEEL_ACKs of a gesture's own
     /// wheels carry later seqs (task p01-process-234).
     private(set) var lastWheelSeq: UInt32 = 0
+    /// Key equivalents this view took for the page (``performKeyEquivalent(with:)``; `debug.key`'s `handled_by`).
+    public internal(set) var keyEquivalentsTaken = 0
     private var tracking: NSTrackingArea?
     #endif
 

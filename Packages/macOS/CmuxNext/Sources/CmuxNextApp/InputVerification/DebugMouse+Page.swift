@@ -14,7 +14,7 @@ extension DebugMouse {
     /// and waits for its answer, so a hung page's hang timer starts (cx-d0d.36). `delivered`
     /// counts the events a view got. No system event and no other app.
     /// A hosted page (host mode, ``DebugKey/hostPage(of:in:)``) has no window: the press and release
-    /// take the cmux window's `sendEvent`, as AppKit hands a real click on (``clickHostPage(_:services:)``).
+    /// go to the view under the point in the cmux window, by the same rule (``clickHostPage(_:services:)``).
     static func clickPage(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let windowID = params["window"]?.stringValue
         let controller = services.windows.controllers.first { windowID == nil || $0.state.id == windowID }
@@ -94,11 +94,12 @@ extension DebugMouse {
         return (controller.state.id, window, page, point, NSPoint(x: base.x, y: baseLocation(.zero, in: window).y - base.y))
     }
 
-    /// A left click on a hosted page view through its cmux window's `sendEvent`, as AppKit hands a real click
-    /// on: hit testing, the view's `acceptsFirstMouse` and `mouseDown`, which makes it first responder and
-    /// sends the MOUSE frames to the host. The key window takes the app's path (`CmuxApplication.sendEvent`,
-    /// local monitors); any other window gets the panes' gesture monitors, then its own `sendEvent` inside the
-    /// app's input dispatch with a latency slot, as ``scrollPage(_:services:)`` delivers. `view` names the view
+    /// A left click on a hosted page view, at the view a real click there hits. The key window takes the app's
+    /// path (`CmuxApplication.sendEvent`, local monitors). A window that is not key never gets the click through
+    /// `sendEvent`, which would make it key and hold the first click back (`acceptsFirstMouse`), as for the
+    /// in-process page window above: the panes' gesture monitors run, then, inside the app's input dispatch with
+    /// a latency slot, the view under the point takes the keyboard when it is in the page (as AppKit's click
+    /// gives it) and gets the press and release, which send the MOUSE frames to the host. `view` names the view
     /// under the point and `on_page` whether it is the page view or inside it (a find bar over the page is not).
     private static func clickHostPage(_ target: (windowID: String, window: NSWindow, page: ChromiumHostPageView, point: NSPoint, topLeft: NSPoint),
                                       services: AppServices) -> JSONValue {
@@ -113,10 +114,18 @@ extension DebugMouse {
             DebugNativeInput.sendThroughApp([down, up])
         } else {
             SyntheticInput.register([down, up])
+            let onPage = hit.isDescendant(of: target.page)
             for event in [down, up] {
                 DebugNativeInput.runPaneMonitors(event, in: window, services: services)
                 let slot = services.inputLatency.willDeliver(event, in: window, to: hit)
-                services.inputDispatch.dispatching(event) { window.sendEvent(event) }
+                services.inputDispatch.dispatching(event) {
+                    if event.type == .leftMouseDown {
+                        if onPage { window.makeFirstResponder(target.page) }
+                        hit.mouseDown(with: event)
+                    } else {
+                        hit.mouseUp(with: event)
+                    }
+                }
                 if let slot { services.inputLatency.didDispatch(slot, layoutTookScroll: false) }
             }
         }
