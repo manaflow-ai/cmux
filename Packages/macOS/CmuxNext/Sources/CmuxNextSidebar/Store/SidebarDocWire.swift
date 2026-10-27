@@ -23,6 +23,16 @@ nonisolated enum SidebarDocWire {
     struct Batch: Decodable {
         var revision: Revision?
         var changes: [Lossy<Change>]
+
+        /// The idempotency key of the change a batch echoes, or nil.
+        static func key(of data: Data) -> String? {
+            (try? JSONDecoder().decode(Key.self, from: data))?.idempotencyKey
+        }
+
+        private struct Key: Decodable {
+            var idempotencyKey: String?
+            enum CodingKeys: String, CodingKey { case idempotencyKey = "idempotency_key" }
+        }
     }
 
     struct Change: Decodable {

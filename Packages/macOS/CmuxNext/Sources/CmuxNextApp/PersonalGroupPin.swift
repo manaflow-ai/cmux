@@ -24,26 +24,25 @@ struct PersonalGroupPin {
                 bridge.resync()
                 return true
             }
-            bridge.model.apply(intent)
-            send("update-personal-group") { try await $0.state.updateWorkspaceGroup(group.rawValue, pinned: pinned) }
+            send("update-personal-group", intent, held: true) { try await $0.state.updateWorkspaceGroup(group.rawValue, pinned: pinned) }
             return true
         case let .setGroupIcon(group, icon):
             guard bridge.statePersonal, home.supports(DaemonCapability.workspaceGroupIcon.rawValue) else {
                 bridge.resync()
                 return true
             }
-            bridge.model.apply(intent)
             let update: FieldUpdate<String> = icon.map { .set($0) } ?? .clear
-            send("update-personal-group") { try await $0.state.updateWorkspaceGroup(group.rawValue, icon: update) }
+            send("update-personal-group", intent, held: true) { try await $0.state.updateWorkspaceGroup(group.rawValue, icon: update) }
             return true
         case let .closeGroup(group):
             guard isServed, let pinned = bridge.model.group(group)?.isPinned else { return false }
             // The personal group: a sidebar-document row names its item (`itm_g_<id>`).
             let id = PersonalStore.legacyGroupID(item: group.rawValue)?.rawValue ?? group.rawValue
+            // The group's rows are the bridge's close edit (`SidebarIntent.closeGroup`); this write only reports.
             if pinned {
-                send("update-personal-group") { try await $0.state.updateWorkspaceGroup(id, collapsed: true) }
+                send("update-personal-group", intent, held: false) { try await $0.state.updateWorkspaceGroup(id, collapsed: true) }
             } else {
-                send("delete-personal-group") { try await $0.state.deleteWorkspaceGroup(id) }
+                send("delete-personal-group", intent, held: false) { try await $0.state.deleteWorkspaceGroup(id) }
             }
             return false
         default:
@@ -51,11 +50,9 @@ struct PersonalGroupPin {
         }
     }
 
-    /// One home-daemon request; a failure re-syncs the sidebar.
-    private func send(_ label: String, _ body: @escaping DaemonCommandBody) {
-        let home = home, bridge = bridge
-        Task {
-            if await home.request(label, body) == nil { bridge.resync() }
-        }
+    /// One home-daemon request for `intent`. `held`: the rows show `intent` now and hold it until the
+    /// home store has it (a pending edit, #26382). A failure re-syncs the sidebar and says why.
+    private func send(_ label: String, _ intent: SidebarIntent, held: Bool, _ body: @escaping DaemonCommandBody) {
+        bridge.rows.send(label, edit: held ? bridge.rows.add(intent) : nil, on: home, failed: bridge.saveFailed(intent), body)
     }
 }

@@ -77,6 +77,18 @@ extension ActionRegistry {
         }
         track(task)
     }
+
+    /// Shows that the remote half of a change made outside an action run (a sidebar click, drag or
+    /// inline edit, #26382) failed and its local change was taken back: the notice a failed effect
+    /// shows, titled `title`, else the action's own title.
+    ///
+    /// - Parameters:
+    ///   - id: The action the change stands for.
+    ///   - title: The change's name when the action's title does not say it (a drag says "Move").
+    ///   - failure: Why it failed.
+    public func reportFailure(of id: ActionID, title: String? = nil, _ failure: ActionWorkFailure) {
+        remoteFailureObserver?(id, failedText(title ?? self.title(for: id) ?? id.rawValue, failure.message))
+    }
 }
 
 /// The notice for a failed remote half (Localizable.xcstrings).

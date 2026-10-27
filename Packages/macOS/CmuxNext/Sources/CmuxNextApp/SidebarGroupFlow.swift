@@ -84,7 +84,7 @@ struct SidebarGroupFlow {
     func editorEnded(_ group: WorkspaceGroupID) {
         guard editor.explicit.remove(group) != nil else { return }
         let bridge = bridge
-        bridge.life.deleteIfEmpty(group, failed: { bridge.resync() })
+        bridge.life.deleteIfEmpty(group, failed: bridge.saveFailed(.ungroup(CmuxNextSidebar.GroupID(group.rawValue))))
     }
 
     // MARK: Organization intents that end groups
@@ -94,7 +94,7 @@ struct SidebarGroupFlow {
         let id = WorkspaceGroupID(rawValue: group.rawValue), members = bridge.placements(ids)
         let life = bridge.life, ending = life.emptied(by: members, into: id)
         // A pending edit until the store holds the move (cx-odqn): no recompute in between shows the old group.
-        let (failed, applied) = bridge.rows.outcome(bridge.rows.add(intent), resync: { bridge.resync() })
+        let (failed, applied) = bridge.rows.outcome(bridge.rows.add(intent), failed: bridge.saveFailed(intent))
         life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: members, into: id) },
                     failed: failed, applied: applied) { connection in
             for workspace in members {
@@ -113,12 +113,12 @@ struct SidebarGroupFlow {
         // A pending edit until the store holds the new group (cx-odqn): the
         // create, place and delete echoes never show the group empty or the
         // member snapping back; the header view carries on under the daemon's id.
-        let (settleFailed, applied) = bridge.rows.outcome(bridge.rows.add(intent), resync: { bridge.resync() })
+        let (settleFailed, applied) = bridge.rows.outcome(bridge.rows.add(intent), failed: bridge.saveFailed(intent))
         let editor = editor
-        let failed: @MainActor () -> Void = {
+        let failed: @MainActor (ActionWorkFailure) -> Void = { failure in
             // Edits made meanwhile go with the group that was not made.
             for edit in editor.creating.removeValue(forKey: id) ?? [] { bridge.rows.settle(edit.token) }
-            settleFailed()
+            settleFailed(failure)
         }
         // Mixed order: the new group's place where the model formed it,
         // set before members join so it never shows at the end first.
@@ -166,7 +166,9 @@ struct SidebarGroupFlow {
 
     private func send(_ id: WorkspaceGroupID, name: String?, color: GroupTint?, edit: SidebarPendingEdits.Token) {
         let v2 = bridge.statePersonal, bridge = bridge, colorUpdate: FieldUpdate<String> = color.map { .set($0.wire) } ?? .unchanged
-        bridge.rows.send("update-personal-group", edit: edit, on: bridge.services.machines.local, resync: { bridge.resync() }) { connection in
+        let group = CmuxNextSidebar.GroupID(id.rawValue)
+        let intent: SidebarIntent = name.map { .renameGroup(group, $0) } ?? .setGroupColor(group, color ?? GroupTint.none)
+        bridge.rows.send("update-personal-group", edit: edit, on: bridge.services.machines.local, failed: bridge.saveFailed(intent)) { connection in
             if v2 { return try await connection.state.updateWorkspaceGroup(id.rawValue, name: name, color: colorUpdate) }
             try await connection.updatePersonalGroup(id, name: name, color: colorUpdate)
         }

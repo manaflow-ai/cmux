@@ -39,14 +39,15 @@ extension SidebarBridge {
             // until the store has it, so no echo undoes a click (cx-qno.17).
             guard let shown = model.group(group)?.isCollapsed else { return true }
             let collapsed = !shown, v2 = statePersonal
-            rows.fold(group, collapsed: collapsed, on: services.machines.local, resync: { [weak self] in self?.resync() }) {
+            rows.fold(group, collapsed: collapsed, on: services.machines.local, failed: saveFailed(intent)) {
                 if v2 { return try await $0.state.updateWorkspaceGroup(group.rawValue, collapsed: collapsed) }
                 try await $0.updatePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue), collapsed: collapsed)
             }
         case .ungroup(let group):
-            model.apply(intent)
+            // A pending edit until the store has the delete (#26382): the group leaves in this turn, and no
+            // live recompute before the delete lands shows it again; a failed delete brings it back and says why.
             let v2 = statePersonal
-            personal("delete-personal-group") {
+            personal("delete-personal-group", intent, edit: rows.add(intent)) {
                 if v2 { return try await $0.state.deleteWorkspaceGroup(group.rawValue) }
                 try await $0.deletePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue))
             }
@@ -56,7 +57,7 @@ extension SidebarBridge {
             // group-order index (and, mixed, the group's place among the rows).
             let place = PersonalSidebarPlanner(machines: services.machines).groupPlacement(of: group, in: model.sections)
             let v2 = statePersonal, move = place.move, top = place.topIndex
-            personal("move-personal-group", edit: edit) { connection in
+            personal("move-personal-group", intent, edit: edit) { connection in
                 if let move {
                     if v2 {
                         try await connection.state.moveWorkspaceGroup(group.rawValue, to: move)
@@ -80,8 +81,12 @@ extension SidebarBridge {
         // A position the sidebar document listed names the group by its item (`itm_g_<id>`); the home session
         // knows only the personal id, and an unknown one would take the rows out of their group.
         let group = position.group.map { WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: $0.rawValue)) }
-        let (failed, applied) = rows.outcome(edit, resync: { [weak self] in self?.resync() })
-        guard let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else { return failed() }
+        let (failed, applied) = rows.outcome(edit, failed: saveFailed(.reorder(ids, to: position)))
+        guard let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else {
+            // Nothing to send: the rows show the store's again (no save failed).
+            rows.settle(edit)
+            return resync()
+        }
         let regroup = statePersonal ? plan.regroup : []
         // Only the dropped workspaces leave their group; a group they empty goes (cx-rcby).
         let moving = plan.steps.filter(\.moves).map(\.workspace), life = self.life
@@ -111,10 +116,10 @@ extension SidebarBridge {
         PersonalSidebarPlanner(machines: services.machines).placements(ids)
     }
 
-    /// Sends one personal-state command to the home daemon; a failure
-    /// re-syncs the sidebar; a pending `edit` settles (SidebarRows.send).
-    private func personal(_ label: String, edit: SidebarPendingEdits.Token? = nil,
+    /// Sends one personal-state command for `intent` to the home daemon; a failure
+    /// re-syncs the sidebar and says why; a pending `edit` settles (SidebarRows.send).
+    private func personal(_ label: String, _ intent: SidebarIntent, edit: SidebarPendingEdits.Token? = nil,
                           _ body: @escaping DaemonCommandBody) {
-        rows.send(label, edit: edit, on: services.machines.local, resync: { [weak self] in self?.resync() }, body)
+        rows.send(label, edit: edit, on: services.machines.local, failed: saveFailed(intent), body)
     }
 }
