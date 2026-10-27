@@ -24,6 +24,8 @@ final class CloudService {
     /// The machines a `cloud deliver-secrets` runs for now: one delivery per machine at a time.
     @ObservationIgnored var deliveringSecrets: Set<String> = []
     @ObservationIgnored let paths: CloudPaths
+    /// One app-lifetime owner of confirmed, per-account Codex delivery.
+    let codexBroker: CloudCodexBrokerAdapter
     @ObservationIgnored private let work: BackgroundWork
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
     /// This Mac's Cloud install principal (cx-wb5.64): install tokens for the
@@ -112,6 +114,29 @@ final class CloudService {
             tokens: { try await auth.tokens() },
             teamID: { await auth.teamID }
         )
+        let api = api
+        let build = LaunchIdentity.current().build
+        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
+        let environment = ProcessInfo.processInfo.environment
+        let userHome = FileManager.default.homeDirectoryForCurrentUser
+        codexBroker = CloudCodexBrokerAdapter(root: paths.root, registry: CloudCodexBrokerRegistry(),
+            currentScope: {
+                guard auth.isSignedIn, let user = auth.user else { return nil }
+                return CloudCodexBrokerScope(userID: user.id, teamID: auth.teamID)
+            },
+            launch: {
+                try await work.run(.userVisible, mayBlock: .files) {
+                    guard let acpmux = AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: bin,
+                        environment: environment, userHome: userHome) else { throw CloudCodexBrokerError.brokerUnavailable }
+                    let search = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
+                        + [userHome.appendingPathComponent(".local/bin").path, "/opt/homebrew/bin", "/usr/local/bin"]
+                    guard let codex = search.filter { $0.hasPrefix("/") }.map({ URL(fileURLWithPath: $0).appendingPathComponent("codex") })
+                        .first(where: { FileManager.checked.isExecutableFile(atPath: $0.path) }) else {
+                        throw CloudCodexBrokerError.brokerUnavailable
+                    }
+                    return CloudCodexBrokerAdapter.Launch(executable: acpmux.executable, prefix: [], codex: codex)
+                }
+            }, target: { scope, machineID in CloudCodexBrokerTarget(api: api, machineID: machineID, scope: scope) })
         installIdentity = MacInstallIdentity(
             store: .forApp(directory: paths.root.appendingPathComponent("install", isDirectory: true),
                            service: "\(configuration.bundleID ?? "cmux").install-key.\(configuration.ownerAPIBaseURL().host ?? "unknown")",
@@ -259,6 +284,7 @@ final class CloudService {
             var last = account
             for await account in ObservationStream({ self.account }) where account != last {
                 last = account
+                await codexBroker.scopeDidChange()
                 startSessionRuns.forgetAll()
                 startSessionAsks.endAll()
             }
@@ -274,6 +300,10 @@ final class CloudService {
     func applyPolicy(disabled: Bool) {
         guard disabled != policyDisabled else { return }
         policyDisabled = disabled
+        // Fence Codex broker requests synchronously with the policy flip. The
+        // adapter tears down holders asynchronously and retains their private
+        // homes for a later confirmed run after policy is restored.
+        codexBroker.setAvailable(!disabled)
         if disabled {
             for session in machines.cloud {
                 session.daemon.policyBlock.set(true)
@@ -308,6 +338,10 @@ final class CloudService {
         // task-owner: teardown hop at quit; hub.stop() is idempotent
         if let hub { Task { await hub.stop() } }
     }
+
+    /// The quit coordinator awaits this before AppKit may terminate the
+    /// process, while Cloud transports can still erase delivered access.
+    func prepareForTermination() async { await codexBroker.shutdown() }
 
     /// Serves the `credential` family on the local daemon: answers its
     /// calls on the connection that sent them, and registers again after
@@ -423,6 +457,12 @@ final class CloudService {
         }
         let ids = Set(visible.map(\.id))
         for session in machines.cloud where !ids.contains(session.machineID) {
+            if let user = auth.user {
+                let scope = CloudCodexBrokerScope(userID: user.id, teamID: auth.teamID)
+                let machineID = session.machineID
+                // task-owner: server-driven removal; the adapter stops renewal before cleanup.
+                Task { try? await codexBroker.revoke(machineID: machineID, scope: scope) }
+            }
             creations.machineRemoved(session.machineID)
             machines.remove(session.machineID)?.disconnect()
         }
@@ -560,7 +600,10 @@ final class CloudService {
     static let inProgressDelay: Duration = .seconds(15)
 
     func deleteMachine(_ machineID: String) async throws {
+        let brokerScope = auth.user.map { CloudCodexBrokerScope(userID: $0.id, teamID: auth.teamID) }
+        if let brokerScope { try? await codexBroker.revoke(machineID: machineID, scope: brokerScope) }
         try await api.deleteMachine(machineID)
+        if let brokerScope { await codexBroker.machineWasDeleted(machineID, scope: brokerScope) }
         // A list in flight was asked while this machine still existed.
         listGeneration += 1
         creations.machineRemoved(machineID)
@@ -615,6 +658,7 @@ final class CloudService {
         startSessionRuns.forgetAll()
         startSessionAsks.endAll()
         for hook in willSignOut { hook() }
+        await codexBroker.signOut()
         AgentPaneTailCache.shared.clear() // the panes' chat tails: memory only, forgotten whole
         // No ensure starts from here until the session's final endLink (the
         // signed-out branch above, after auth.signOut).

@@ -271,7 +271,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 id: "cloudDeliverSecrets",
                 title: String(localized: "action.cloudDeliverSecrets", defaultValue: "Deliver Secrets to Machine", bundle: .module),
                 keywords: ["vm", "cloud", "secrets", "env", "keychain", "config"], category: .cloud,
-                symbol: "key.horizontal", surfaces: [.palette], requires: [.cloudWorkspace],
+                symbol: "lock.rectangle.stack", surfaces: [.palette], requires: [.cloudWorkspace],
                 arguments: [CatalogArgument.secretRepoString], targets: [.machine], cliName: "cloud deliver-secrets"
             ),
             ActionDescriptor(

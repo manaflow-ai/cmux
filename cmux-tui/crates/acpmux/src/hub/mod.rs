@@ -6,6 +6,7 @@
 
 mod activity;
 pub(crate) mod admission;
+mod adopted_fences;
 mod adoption;
 mod agent_pairs;
 pub use agent_pairs::PairGuard;
@@ -65,6 +66,7 @@ mod models_view;
 mod paging;
 mod personal_stats;
 mod policy_mode;
+mod policy_source;
 mod pool;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
@@ -137,7 +139,8 @@ pub(crate) mod purge_tombstones;
 pub(crate) mod questions;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
-pub use remote_sandbox::vm_host_peer_approves;
+pub mod vm_boundary;
+pub use vm_boundary::vm_boundary_peer_approves;
 mod start_gate;
 pub mod vm_host;
 pub(crate) use start_gate::host_label;
@@ -726,18 +729,24 @@ impl Hub {
     }
 
     pub(super) fn load_from_store(self: &Arc<Self>, deferred: bool) {
-        let metas = match self.store.list() {
-            Ok(m) => m,
-            Err(e) => {
-                tracing::warn!("store list failed: {e}");
-                return;
+        let Ok(mut metas) = self.store.list().inspect_err(|e| tracing::warn!("store list: {e}"))
+        else {
+            // Adoption still reaches every host this list hid: an off push waits for it
+            // (`full_access_turned_off`).
+            if deferred {
+                self.adoption_ready.send_replace(false);
             }
+            return;
         };
         // The small index the chat logs load by (`log_load.rs`): agent hosts still running.
-        let hosted = Self::live_host_sessions();
+        let read = Self::read_live_host_sessions();
+        // Records that can not be read may hide a host whose lines adoption holds again: an off
+        // push waits for adoption then too (`full_access_turned_off`).
+        let unknown = read.is_none();
+        let hosted = read.unwrap_or_default();
         let waiting =
             metas.iter().filter(|m| m.status == SessionStatus::Waiting).map(|m| m.id.clone());
-        if deferred && !hosted.is_empty() {
+        if deferred && (!hosted.is_empty() || unknown) {
             self.adoption_ready.send_replace(false);
         }
         *self.load_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
@@ -746,6 +755,8 @@ impl Hub {
                 adopting: hosted.clone(),
                 hosted: hosted.clone(),
             };
+        // An older daemon's approve-all that could be vmHost's asks now (`policy_source.rs`).
+        self.settle_legacy_grants(&mut metas);
         let mut sessions = self.sessions.lock().unwrap();
         for mut meta in metas {
             // An agent whose host still runs keeps its saved status until adoption reaches it:

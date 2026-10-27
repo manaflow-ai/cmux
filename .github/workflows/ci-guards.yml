@@ -1330,6 +1330,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_gh_budget_wait.py
 
+      - name: Validate the nightly build stops once its run cannot publish
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_stop_if_publish_doomed.py
+
       - name: Validate the nightly-next tick re-runs a cancelled tip
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_cancelled_tip.py
@@ -1461,6 +1465,7 @@ jobs:
           bash ./tests/test_nightly_universal_build.sh
           python3 tests/test_nightly_trusted_routing.py
           python3 tests/test_nightly_build_state.py
+          python3 tests/test_ensure_setup_node.py
 
       # .github/nightly-step-coverage.json: every step only the nightly runs
       # names its pull-request dry run here or elsewhere, or a reviewed reason.
@@ -1609,6 +1614,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_build_runner.py
 
+      - name: Validate the warm nightly-next builder's git fetches are bounded and retried
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_git_fetch_retry.py
+
       - name: Validate test compilation cache seeding
         if: ${{ !cancelled() && matrix.group == 'quality-sharding' }}
         run: |
@@ -1661,6 +1670,7 @@ jobs:
           python3 tests/test_release_signer_scripts.py
           python3 tests/test_release_signer_nightly.py
           python3 tests/test_dev_app_linux.py
+          python3 tests/test_nightly_signer_jobs.py
 
       - name: Validate the release app signer
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
