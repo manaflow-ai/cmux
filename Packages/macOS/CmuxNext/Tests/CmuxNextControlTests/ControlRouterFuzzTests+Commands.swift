@@ -138,7 +138,8 @@ extension ControlRouterFuzzTests {
     /// op in 32 that keeps its per-op refusal covered. A large batch is mostly ops that validate, so it
     /// reaches the op limit and its transactions; else each op is `action.run` params.
     static func batchOps(_ rng: inout FuzzRNG, count: Int, catalog: ControlCatalog, daemon: RouterFuzzDaemon) -> [JSONValue] {
-        let plain = count > 6 && !rng.oneIn(4) ? catalog.actions.filter(isPlain) : []
+        var plain: [ControlActionInfo] = []
+        if count > 6, !rng.oneIn(4) { plain = catalog.actions.filter(isPlain) }
         var ops: [JSONValue] = []
         ops.reserveCapacity(count)
         for _ in 0..<count {
