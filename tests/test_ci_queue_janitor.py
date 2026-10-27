@@ -1257,15 +1257,35 @@ class SupersededDeliveryTests(unittest.TestCase):
         old = nightly_run("864dceb6", 60)
         same_head = nightly_run("864dceb6", 30)
         cancelled = {**nightly_run("ccb74c4d", 20), "status": "completed", "conclusion": "cancelled"}
+        failed = {**nightly_run("ccb74c4d", 20), "status": "completed", "conclusion": "failure"}
+        fork = nightly_run("ccb74c4d", 20)
+        fork["head_repository"] = {"full_name": "someone/cmux", "owner": {"login": "someone"}}
+        dispatched = {**nightly_run("ccb74c4d", 20), "event": "workflow_dispatch"}
+        ordinary = {**nightly_run("ccb74c4d", 20), "path": ".github/workflows/cmux-next.yml", "workflow_id": 9,
+                    "name": "cmux-next", "display_title": "cmux-next tip Swift suite"}
         other_branch = nightly_run("ccb74c4d", 20, branch="main")
         other_workflow = {**nightly_run("ccb74c4d", 20), "workflow_id": 1, "path": ".github/workflows/ci.yml"}
         older = nightly_run("0ldhead0", 90)
-        for others in ([], [same_head], [cancelled], [other_branch], [other_workflow], [older]):
+        for others in ([], [same_head], [cancelled], [failed], [fork], [dispatched], [other_branch], [other_workflow],
+                       [older]):
             with self.subTest(others=others):
                 ok, why = janitor.superseded_unstarted(old, gate_jobs(60), [old, *others])
                 self.assertFalse(ok)
                 self.assertIn("no newer head", why)
         self.assertFalse(janitor.superseded_unstarted(old, None, [old, nightly_run("ccb74c4d", 20)])[0])
+        # A shared workflow's DEV delivery run is not superseded by an ordinary run of that workflow.
+        dev = {**nightly_run("864dceb6", 60), "path": ".github/workflows/cmux-next.yml", "workflow_id": 9,
+               "name": "cmux-next", "display_title": "cmux NEXT DEV daily · 864dceb6"}
+        self.assertFalse(janitor.superseded_unstarted(dev, gate_jobs(60), [dev, {**ordinary, "event": "push"}])[0])
+        self.assertTrue(janitor.superseded_unstarted(
+            dev, gate_jobs(60), [dev, {**ordinary, "display_title": "cmux NEXT DEV daily · ccb74c4d"}])[0])
+
+    def test_a_rerun_is_kept(self):
+        # Only the latest attempt's jobs are read; an earlier attempt may have built.
+        old, new = {**nightly_run("864dceb6", 60), "run_attempt": 2}, nightly_run("ccb74c4d", 20)
+        ok, why = janitor.superseded_unstarted(old, gate_jobs(60), [old, new])
+        self.assertFalse(ok)
+        self.assertIn("attempt 2", why)
 
     def sweep(self, runs, jobs, *, completed=(), dry_run=False, prs=None, rejob=None):
         fake = FakeGitHub({r["id"]: dict(r) for r in runs}, jobs)

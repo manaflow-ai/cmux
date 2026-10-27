@@ -79,8 +79,13 @@ def is_delivery_run(path: str | None, *names: str | None) -> bool:
 #     inputs, pick a runner) are not the build. A queued job's started_at is
 #     set when it is queued, so it is never read as a start.
 #   - a newer head of the same branch has its own run of the same workflow,
-#     not cancelled, which builds the tip in its place.
-# Anything unread (no jobs list, no branch or head) is not a skip.
+#     which builds the tip in its place: a delivery run itself (not an
+#     ordinary run of a shared workflow), from the same event and the same
+#     head repository (never a fork's branch of the same name), and not
+#     finished other than in success.
+# Anything unread (no jobs list, no branch, head or head repository) is not a
+# skip, and neither is a re-run (run_attempt > 1): only the latest attempt's
+# jobs are read, and an earlier attempt may have built.
 WAITING_JOB_STATUSES = frozenset({"queued", "waiting", "pending", "requested"})
 BUILD_JOB_NAME = re.compile(
     r"publish|promot|sign|notari[sz]|release|upload|deploy|verif|delta|dmg|archive|compile|\bapp\b",
@@ -124,18 +129,27 @@ def _workflow_key(run: Mapping[str, Any]) -> Any:
     return run.get("workflow_id") or _file_name(run.get("path"))
 
 
+def _head_repo(run: Mapping[str, Any]) -> str:
+    return str(((run.get("head_repository") or {}).get("full_name")) or "").lower()
+
+
 def newer_head_run(run: Mapping[str, Any], runs: Iterable[Mapping[str, Any]]) -> Mapping[str, Any] | None:
-    """A run of the same workflow on the same branch, created after `run` at another head, and not cancelled."""
-    branch, sha = run.get("head_branch"), run.get("head_sha")
+    """A delivery run of the same workflow, event, head repository and branch, created after `run` at another head,
+    and not finished other than in success."""
+    branch, sha, repo = run.get("head_branch"), run.get("head_sha"), _head_repo(run)
     created = _time(run.get("created_at"))
-    if not branch or not sha or created is None:
+    if not branch or not sha or not repo or created is None:
         return None
     for other in runs:
         if _workflow_key(other) != _workflow_key(run) or other.get("head_branch") != branch:
             continue
         if not other.get("head_sha") or other.get("head_sha") == sha:
             continue
-        if other.get("status") == "completed" and other.get("conclusion") in ("cancelled", "skipped"):
+        if _head_repo(other) != repo or other.get("event") != run.get("event"):
+            continue
+        if not is_delivery_run(other.get("path"), other.get("name"), other.get("display_title")):
+            continue
+        if other.get("status") == "completed" and other.get("conclusion") != "success":
             continue
         when = _time(other.get("created_at"))
         if when is not None and when > created:
@@ -153,6 +167,8 @@ def superseded_unstarted(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any
         return False, "it has completed"
     if jobs is None:
         return False, "its jobs could not be read"
+    if int(run.get("run_attempt") or 1) > 1:
+        return False, f"it is attempt {run.get('run_attempt')}, and an earlier attempt's jobs are not read"
     started = build_started(jobs)
     if started:
         return False, f"its build has started: {started}"

@@ -2300,6 +2300,8 @@ SUPERSEDED_MAX_CANCELS = 10
 # A candidate with no newer run among the in-flight ones gets one listing of its workflow's runs on its branch
 # (the newer run may have finished already); at most this many listings a sweep.
 SUPERSEDED_BRANCH_LISTINGS = 3
+# Delivery runs whose jobs the sweep did not list (queued past GHOST_QUEUED_RUN_AGE): at most this many read a sweep.
+SUPERSEDED_EXTRA_JOBS = 5
 
 
 def superseded_candidates(runs: Sequence[Mapping[str, Any]],
@@ -3136,7 +3138,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Orphans read only what is already fetched; their PR branches join
         # the one batched GraphQL lookup for the no-janitor label.
         orphans = find_orphans(runs, jobs_by_run, min_age=orphan_age, now=now)
-        superseded = superseded_candidates(runs, jobs_by_run)
+        # A delivery run queued past GHOST_QUEUED_RUN_AGE has no listing (needs_jobs()); read a few of them here.
+        delivery_jobs = dict(jobs_by_run)
+        for run in [r for r in runs if r["id"] not in jobs_by_run and r.get("status") in IN_FLIGHT_RUN_STATUSES
+                    and is_delivery_run(r.get("path"), r.get("name"), r.get("display_title"))][:SUPERSEDED_EXTRA_JOBS]:
+            try:
+                delivery_jobs[run["id"]] = github.jobs(run["id"])
+            except RateLimited:
+                raise
+            except RuntimeError as error:  # unread: never a candidate
+                print(f"queue-janitor: jobs of delivery run {run['id']}: {error}", file=sys.stderr)
+        superseded = superseded_candidates(runs, delivery_jobs)
         branches = sorted(set(branches_to_resolve(runs, jobs_by_run)) | set(orphan_branches(orphans, now))
                           | {str(run["head_branch"]) for run in superseded if run.get("head_branch")}
                           | set(lost_branches(runs, {**lost, **unclaimed}, pending or [])))
@@ -3305,7 +3317,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         superseded_decisions, superseded_failures = skip_superseded_delivery(
-            github, superseded, runs, jobs_by_run, prs_by_branch, dry_run=args.dry_run)
+            github, superseded, runs, delivery_jobs, prs_by_branch, dry_run=args.dry_run)
     except RuntimeError as error:  # a rate limit: what was cancelled before it is in the next sweep's inventory
         print(f"queue-janitor: superseded delivery runs: {error}", file=sys.stderr)
         superseded_decisions, superseded_failures = [], 1
