@@ -69,14 +69,15 @@ test("every failure reads human, never as the agent's raw words", () => {
   expect(failureCopy(t, undefined, claude, "disk.full")).toContain("The disk is full");
 });
 
-test("the way out: Retry for what may pass, Switch model for capacity and keys, none for sign-in", () => {
+test("the way out: Retry for what may pass, Switch model for capacity and keys, Sign in again for sign-in", () => {
   expect(failureRecovery("disk-full")).toBe("retry");
   expect(failureRecovery("tailscale")).toBe("retry");
   expect(failureRecovery("agent-exited")).toBe("retry");
   expect(failureRecovery("other")).toBe("retry");
   expect(failureRecovery("rate-limited")).toBe("switch-model");
   expect(failureRecovery("invalid-key")).toBe("switch-model");
-  expect(failureRecovery("subscription-login")).toBeUndefined();
+  expect(failureRecovery("subscription-login")).toBe("sign-in");
+  expect(failureRecovery("auth")).toBe("sign-in");
   expect(failureRecovery("trust-pending")).toBeUndefined();
 });
 
@@ -268,6 +269,52 @@ test("Compact is offered only where the agent lists /compact", async () => {
   expect(offersCompact([{ name: "compact", description: "", source: "skill" }])).toBe(false);
   expect(offersCompact([{ name: "review", description: "" }])).toBe(false);
   expect(offersCompact(undefined)).toBe(false);
+});
+
+// A turn that failed because the agent's login expired put Sign in again in the footer, which shows
+// only on hover, offered no Retry on the card, and nothing sent the prompt again after the login:
+// two things to discover and the prompt to retype. The card leads with Sign in again and keeps Retry
+// beside it for once the login is done.
+const signedOut = "Not logged in · Please run /login";
+
+test("a sign-in failure's card leads with Sign in again, then Retry, then Switch model", async () => {
+  const done: string[] = [];
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider
+        value={{
+          retry: () => done.push("retry"),
+          switchModel: () => done.push("switch"),
+          reauthenticate: () => done.push("sign-in"),
+        }}
+      >
+        <TurnFooter row={failed(signedOut)} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(card().getAttribute("data-failure-kind")).toBe("subscription-login");
+  const labels = [...card().querySelectorAll(".cv-turn-error__actions > button")].map((element) => element.textContent);
+  expect(labels).toEqual(["Sign in again", "Retry", "Switch model"]);
+  expect(button("Sign in again")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  expect(button("Retry")!.classList.contains("cv-turn-error__primary")).toBe(false);
+  await act(async () => button("Sign in again")!.click());
+  await act(async () => button("Retry")!.click());
+  expect(done).toEqual(["sign-in", "retry"]);
+  // One Sign in again: the card's, not a second one in the footer row.
+  expect(host.querySelectorAll(".cv-turn-actions .cv-turn-auth-action").length).toBe(0);
+});
+
+test("a sign-in failure with no login to run leads with Switch model, Retry after it", async () => {
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ retry: () => undefined, switchModel: () => undefined }}>
+        <TurnFooter row={failed(signedOut)} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  const labels = [...card().querySelectorAll(".cv-turn-error__actions > button")].map((element) => element.textContent);
+  expect(labels).toEqual(["Switch model", "Retry"]);
+  expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(true);
 });
 
 // Lawrence 2026-10-23, on a "Deepseek has no valid API key" card with Switch model and Copy error:
