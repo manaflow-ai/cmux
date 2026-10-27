@@ -450,6 +450,8 @@ impl Hub {
         profile: &super::spawn::Spawn,
         stops: u64,
     ) -> Result<Arc<ChildAgent>, RpcError> {
+        #[cfg(test)]
+        super::full_access_bound::operation_entry(self);
         // One spawn at a time per session; a caller that waited here finds
         // the child the previous holder started.
         let _spawning = session.spawn_lock.lock().await;

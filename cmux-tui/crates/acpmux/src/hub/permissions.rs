@@ -504,6 +504,8 @@ impl Hub {
         agent_request_id: Option<&Id>,
         ask: Option<super::permission_groups::AskInFlight>,
     ) -> Value {
+        #[cfg(test)]
+        super::full_access_bound::operation_entry(self);
         // One harness-neutral copy of any questions, before rules and the
         // record see the request (questions.rs).
         super::questions::normalize(&mut request, Self::preview_format(session));

@@ -361,6 +361,21 @@ fn after_off_count(hub: &Hub) {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Test seam (review 123): runs as a start (`ensure_child`) or an ask (`handle_permission_for`)
+    /// is entered, before it waits on anything.
+    pub(super) static AT_OPERATION_ENTRY: std::cell::Cell<Option<fn(&Hub)>> = const { std::cell::Cell::new(None) };
+}
+
+/// Runs the `AT_OPERATION_ENTRY` seam, once.
+#[cfg(test)]
+pub(super) fn operation_entry(hub: &Hub) {
+    if let Some(f) = AT_OPERATION_ENTRY.take() {
+        f(hub);
+    }
+}
+
 /// Test seam (debug builds): notified when a chat's claim waits on a starting pooled agent
 /// (`Hub::start_blip_seam`).
 #[cfg(debug_assertions)]

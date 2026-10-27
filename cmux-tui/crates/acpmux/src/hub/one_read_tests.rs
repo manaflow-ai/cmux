@@ -134,3 +134,51 @@ async fn merged_reads_hold_an_off_either_one_saw() {
     let quiet = (hub.off_latch(), hub.off_latch());
     assert!(!quiet.0.merge(&quiet.1).off(), "two reads with no off between them merged to an off");
 }
+
+/// A start holds an off that comes and goes as it is entered, before it waits on the spawn lock
+/// (review 123).
+#[tokio::test]
+async fn a_start_holds_an_off_that_came_and_went_as_it_was_entered() {
+    let hub = hub_on(&[], &["--yolo"]);
+    AT_OPERATION_ENTRY.set(Some(came_and_went));
+    let started = hub.new_session(here()).await;
+    AT_OPERATION_ENTRY.set(None);
+    assert!(started.is_err(), "a profile pinning full access started after an off at its entry");
+}
+
+/// An ask holds an off that comes and goes as it is entered, before its preprocessing (review
+/// 123).
+#[tokio::test]
+async fn an_ask_holds_an_off_that_came_and_went_as_it_was_entered() {
+    let hub = hub_on(&["FAKE_FULL_ACCESS=1"], &[]);
+    let session = hub.new_session(here()).await.unwrap();
+    hub.forward_as(&session, method::SESSION_SET_MODE, json!({"modeId": "full-access"}), false)
+        .await
+        .expect("full access is allowed before the off");
+    AT_OPERATION_ENTRY.set(Some(came_and_went));
+    let answered = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        hub.handle_permission_for(&session, edit_ask(), current_epoch(&session), None, None, None),
+    )
+    .await;
+    AT_OPERATION_ENTRY.set(None);
+    assert!(
+        !matches!(&answered, Ok(v) if v["outcome"]["optionId"] == "allow"),
+        "full access answered an ask after an off at its entry: {answered:?}"
+    );
+}
+
+fn edit_ask() -> Value {
+    json!({
+        "sessionId": "fake-1",
+        "toolCall": {"toolCallId": "t2", "title": "Edit a file", "kind": "edit"},
+        "options": [
+            {"optionId": "allow", "name": "Allow", "kind": "allow_once"},
+            {"optionId": "reject", "name": "Reject", "kind": "reject_once"},
+        ],
+    })
+}
+
+fn current_epoch(session: &Session) -> u64 {
+    session.permission_epoch.load(Ordering::SeqCst)
+}
