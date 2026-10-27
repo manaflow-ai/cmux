@@ -80,7 +80,9 @@ import Testing
         let follow = DaemonMemoryLimitFollow(AppMemoryConsumers.memoryLimit(of: coordinator), store: store, on: Self.work()) {
             daemon.requests.append($0)
         }
-        let link = DaemonMemoryLimitLink(follow: follow, registry: coordinator) { AppMemoryConsumers.memoryLimit(of: coordinator) }
+        let link = DaemonMemoryLimitLink(
+            follow: follow, registry: coordinator, observeOverrides: { coordinator.observePressureOverride($0) }
+        ) { AppMemoryConsumers.memoryLimit(of: coordinator) }
         #expect(coordinator.report(budget: .forMemory(physicalBytes: 16 << 30, gpuResidentAvailable: false)).consumers
             .contains { $0.name == DaemonMemoryLimitLink.name })
 
@@ -94,12 +96,21 @@ import Testing
         await daemon.reach(2)
         #expect(daemon.requests.last == Self.critical)
 
-        coordinator.pressureOverride = .warning
+        // An override equal to the kernel's level keeps the level, and still reaches the daemon, set and cleared.
+        coordinator.pressureOverride = .critical
         await daemon.reach(3)
+        #expect(coordinator.level == .critical)
+        #expect(daemon.requests.last == MemoryLimitRequest(level: .critical, mode: .medium, pressureOverride: .critical))
+        coordinator.pressureOverride = nil
+        await daemon.reach(4)
+        #expect(daemon.requests.last == Self.critical)
+
+        coordinator.pressureOverride = .warning
+        await daemon.reach(5)
         #expect(daemon.requests.last == MemoryLimitRequest(level: .warning, mode: .medium, pressureOverride: .warning))
 
         coordinator.mode = .aggressive
-        await daemon.reach(4)
+        await daemon.reach(6)
         #expect(daemon.requests.last == MemoryLimitRequest(level: .warning, mode: .aggressive, pressureOverride: .warning))
 
         // A daemon without `memory-limit-v1` is skipped.
@@ -108,7 +119,7 @@ import Testing
         await drainMainTurns()
         coordinator.pressureOverride = nil
         await drainMainTurns()
-        #expect(daemon.requests.count == 4)
+        #expect(daemon.requests.count == 6)
         withExtendedLifetime((link, pressure)) {}
     }
 

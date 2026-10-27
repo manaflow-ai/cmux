@@ -135,7 +135,9 @@ struct AppMemoryConsumers {
                                              on: services.mainWork) { [weak daemon] request in
             _ = await daemon?.run("memory.limit") { _ = try await $0.request(request) }
         }
-        services.lifetimeFollowers.append(DaemonMemoryLimitLink(follow: follow, registry: coordinator) { [weak coordinator] in
+        services.lifetimeFollowers.append(DaemonMemoryLimitLink(
+            follow: follow, registry: coordinator, observeOverrides: { coordinator.observePressureOverride($0) }
+        ) { [weak coordinator] in
             coordinator.map { Self.memoryLimit(of: $0) } ?? MemoryLimitRequest(level: .normal, mode: .medium)
         })
     }
