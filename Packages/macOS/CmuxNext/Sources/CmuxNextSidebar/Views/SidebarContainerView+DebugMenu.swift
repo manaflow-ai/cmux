@@ -11,6 +11,7 @@ extension SidebarContainerView {
         guard let window = list.window else { return nil }
         let height = window.contentView?.bounds.height ?? window.frame.height
         let location = NSPoint(x: windowPoint.x, y: height - windowPoint.y)
+        // visibility-walk-allow: the debug menu's hit test: the band regions on screen now
         for region in sidebarView.bandRegions where !region.isHiddenOrHasHiddenAncestor {
             if let menu = region.debugItemMenu(atWindowPoint: location) { return menu }
         }
@@ -25,6 +26,7 @@ extension SidebarRegionView {
     /// The context menu of the item under `location` (window coordinates), as its right-click builds it.
     func debugItemMenu(atWindowPoint location: NSPoint) -> NSMenu? {
         // A transient item (What's New) has no right-click menu.
+        // visibility-walk-allow: the debug menu's hit test: the item views under the point that are on screen now
         for (id, view) in itemViews where !id.isTransient && !view.isHiddenOrHasHiddenAncestor && view.window != nil {
             if view.bounds.contains(view.convert(location, from: nil)) { return contextMenuProvider?(.layoutItem(id)) }
         }

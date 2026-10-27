@@ -22,6 +22,7 @@ extension SidebarListViewComponents {
     /// The workspace row `point` (this view's coordinates) hovers, by the
     /// list's own hover rule, that may have a card now: none during a drag or rename, or off the visible rows.
     func hoverCardWorkspace(at point: CGPoint) -> WorkspaceID? {
+        // visibility-walk-allow: hover hit test: a hidden list hovers no row
         guard drag == nil, !inlineRename.isActive, visibleRect.contains(point), !isHiddenOrHasHiddenAncestor,
               // The list's own rows (a dictionary): `model.isPlaceholder` walks every section, and this
               // runs on each scroll frame (hover geometry), O(workspaces) per frame at 1,000 rows.
@@ -34,6 +35,7 @@ extension SidebarListViewComponents {
     /// editor. One row lookup by position, like a workspace row's: a hover never walks the groups.
     func hoverCardGroup(at point: CGPoint) -> GroupID? {
         guard DesignSettings.shared.groupHoverCard.workspaceGroups, drag == nil, !inlineRename.isActive,
+              // visibility-walk-allow: hover hit test: a hidden list hovers no group header
               visibleRect.contains(point), !isHiddenOrHasHiddenAncestor,
               case .group(let id)? = displayed.row(at: point.y)?.key, groups[id] != nil, !isEmptyTree(id) else { return nil }
         return id
