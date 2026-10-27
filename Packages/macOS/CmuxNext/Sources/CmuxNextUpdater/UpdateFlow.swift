@@ -11,8 +11,9 @@ import Foundation
 /// every channel) the flow asks twice, as Sparkle's own UI does: a found update waits on the
 /// update-found step (``UpdateIndicatorPhase/available(version:)``) until Update
 /// (``UpdateFlowEvent/downloadRequested``), and the staged update waits on the Update Ready card
-/// until Restart to Update (``UpdateFlowEvent/installRequested``); Hide, or no answer, installs
-/// it at the next quit.
+/// until Restart to Update (``UpdateFlowEvent/installRequested``). Hide, or no answer, never
+/// relaunches; a quit installs it only with `updates.installOnQuit` on (off by default, the
+/// nightly restart policy).
 nonisolated public struct UpdateFlow: Equatable, Sendable {
     public private(set) var phase: UpdateIndicatorPhase = .hidden
     /// The user asked to install; held until the update is staged.

@@ -27,8 +27,9 @@ nonisolated public enum UpdateTrack: String, Sendable, CaseIterable, Codable {
     /// updates thing, we can do it more properly to ask before the download + install step, and
     /// likewise for the reboot... to make it more like how it'd be in prod"). A found update waits
     /// on the Update Available step; its Update downloads it, and the staged update waits on the
-    /// Update Ready card for Restart to Update (a quit installs it). Turning the setting on is the
-    /// opt-in to automatic download, install and relaunch (#25283, #25904). Stable and RC were
+    /// Update Ready card for Restart to Update. Turning the setting on is the opt-in to automatic
+    /// download; the relaunch still waits for Restart to Update (the nightly restart policy, which
+    /// keeps the idle install off). Stable and RC were
     /// already off (claude-sr2 2026-10-26, relaying Leo: "maybe better as an opt in for normal users").
     public var downloadsAutomaticallyByDefault: Bool {
         switch self {

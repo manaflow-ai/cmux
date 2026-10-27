@@ -31,7 +31,7 @@ nonisolated public enum UpdateFlowEvent: Equatable, Sendable {
     /// Update on the Update Available step (the found update's notice card or the titlebar's
     /// Update Available button) while `updates.downloadAutomatically` is off: download the found
     /// update, then ask before relaunching (the Update Ready card's Restart to Update). Nothing
-    /// relaunches by itself; a quit installs the staged update.
+    /// relaunches by itself (``UpdateQuitAction`` says what a quit does with it).
     case downloadRequested
     case quitRequested
     /// A note's display time ended.

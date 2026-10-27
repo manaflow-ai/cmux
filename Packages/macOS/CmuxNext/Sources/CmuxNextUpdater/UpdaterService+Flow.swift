@@ -43,7 +43,8 @@ extension UpdaterService {
     /// update-found prompt: without the automatic-install opt-in the update downloads and then
     /// waits on the Update Ready card, which asks before relaunching (Leo 2026-10-27: "ask before
     /// the download + install step, and likewise for the reboot"); with the opt-in (downloads
-    /// deferred on a metered link) it downloads and installs as one click, as before.
+    /// deferred on a metered link) the person already chose automatic updates, so the click
+    /// downloads and installs as one click, as before.
     public func installClicked() {
         syncFlowPhase()
         if case .available = flow.phase, !downloadSetting.enabled {

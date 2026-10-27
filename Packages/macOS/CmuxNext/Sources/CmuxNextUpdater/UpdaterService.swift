@@ -16,7 +16,7 @@ import Observation
 /// (`updates.downloadAutomatically`, off by default on every channel) a found update is the
 /// update-found step (the notice card after Check for Updates, else the titlebar's Update
 /// Available) and a downloaded one is the Update Ready card, which asks before relaunching; with
-/// it, updates download and install by themselves (``UpdaterService/updaterQuitsForAutomaticInstall(build:)``).
+/// it, updates download by themselves and the Update Ready card still asks before the relaunch.
 /// A check's progress and result show on the notice card (``card``). The update sheet
 /// (``UpdateSheetModel``) opens only for a failure's details.
 @MainActor

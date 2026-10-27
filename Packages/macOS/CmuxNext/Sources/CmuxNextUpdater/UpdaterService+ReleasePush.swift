@@ -13,8 +13,8 @@ extension UpdaterService {
     /// `updates.checkAutomatically` on, and the app on the organization's channel. It does not
     /// wait for the automatic-install opt-in: Leo lists the release push among the checks that ask
     /// (2026-10-27: "ask before the download + install step"), so without the opt-in the pushed
-    /// build's check ends on the update-found step, and with it the build downloads and installs
-    /// by itself. Automatic checks off keep it quiet.
+    /// build's check ends on the update-found step, and with it the build downloads by itself and
+    /// waits on the Update Ready card. Automatic checks off keep it quiet.
     var releasePushMayRun: Bool {
         isStarted && disabledReason == nil && tipCheck.automatic && !isOffManagedChannel
     }
@@ -51,8 +51,8 @@ extension UpdaterService {
     }
 
     /// One read for the pushed build, through the paths the scheduled reads use, so the build
-    /// takes the path a scheduled one does: with the opt-in it downloads, stages and installs by
-    /// itself, without it the check ends on the update-found step (the titlebar's Update
+    /// takes the path a scheduled one does: with the opt-in it downloads and stages by itself,
+    /// without it the check ends on the update-found step (the titlebar's Update
     /// Available); the app is never brought forward. Nothing found yet: the fast check reads the feed now
     /// (``TipUpdateCheck/readNow(_:)``) and starts the check its interval would. An update
     /// waiting: the staged build gives way to the newer one (``StagedUpdateRefresh``), as its

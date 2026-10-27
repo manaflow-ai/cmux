@@ -6,9 +6,10 @@ import Testing
 /// before the download + install step, and likewise for the reboot... to make it more like how
 /// it'd be in prod". On every channel (stable, NIGHTLY, the tip app, DEV) a found update asks
 /// before it downloads (the update-found step: Update / Release Notes / Hide), and the downloaded
-/// update asks before the relaunch (the Update Ready card: Restart to Update / Hide); Hide, or no
-/// answer, installs it at the next quit and never relaunches. Only the automatic-install opt-in
-/// (`updates.downloadAutomatically`) downloads, installs and relaunches by itself (#25904).
+/// update asks before the relaunch (the Update Ready card: Restart to Update / Hide). Hide, or no
+/// answer, never relaunches; a quit installs it only with `updates.installOnQuit` on (the nightly
+/// restart policy keeps it off by default). The automatic-download opt-in
+/// (`updates.downloadAutomatically`) only skips the first ask.
 @MainActor @Suite(.serialized) struct UpdateAsksBeforeInstallTests {
     static let stable = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app", shortVersion: "0.70.0", build: "100",
                                             minimumSystemVersion: nil, infoFeedURL: TipAppTrackTests.stableFeed, hasPublicKey: true)
@@ -104,9 +105,11 @@ import Testing
         #expect(await eventually { effects.installs == 1 }, "\(identity.track): Restart to Update did not install")
     }
 
-    /// Later (the Update Ready card's Hide): no relaunch; the quit installs it.
+    /// Later (the Update Ready card's Hide): no relaunch. A quit installs it only with
+    /// `updates.installOnQuit` on; by default (the nightly restart policy) the quit cancels the
+    /// pending installer and the next check offers the update again.
     @Test(arguments: UpdateAsksBeforeInstallTests.channels)
-    func laterInstallsOnQuitWithoutARelaunch(identity: UpdateBuildIdentity) async throws {
+    func laterNeverRelaunches(identity: UpdateBuildIdentity) async throws {
         let (updater, effects) = Self.make(identity)
         updater.debugIndicatorPhase = .available(version: "2.0.0")
         updater.installClicked()
@@ -117,31 +120,25 @@ import Testing
         #expect(updater.readyCard == nil, "Later left the Update Ready card")
         try await Task.sleep(for: .milliseconds(50))
         #expect(effects.installs == 0, "Later relaunched")
-        #expect(updater.prepareForQuit() == .proceed, "the quit does not install the staged update")
-        #expect(effects.cancels == 0, "the quit cancelled the staged update's installer")
+        #expect(updater.prepareForQuit() == .cancelPendingInstall, "a quit installed the update nobody asked to install")
+        #expect(effects.cancels == 1)
+        updater.preferences.installOnQuit = true
+        #expect(updater.prepareForQuit() == .proceed, "with install on quit on, the quit does not install it")
     }
 
-    /// The opt-in (`updates.downloadAutomatically` on): found updates download by themselves, a
-    /// click on a found update (downloads deferred on a metered link) installs as one click, and an
-    /// install nobody clicked takes #25904's background relaunch (the app quits, Sparkle installs,
-    /// `open -g` reopens it behind).
+    /// The opt-in (`updates.downloadAutomatically` on) skips the first ask only: found updates
+    /// download by themselves, and the staged update still waits for Restart to Update.
     @Test(arguments: UpdateAsksBeforeInstallTests.channels)
-    func theOptInDownloadsInstallsAndRelaunchesBehind(identity: UpdateBuildIdentity) async throws {
+    func theOptInDownloadsButStillAsksBeforeTheRelaunch(identity: UpdateBuildIdentity) async throws {
         let (updater, effects) = Self.make(identity, optIn: true)
         #expect(updater.downloadsFoundUpdates && updater.automaticUpdates, "\(identity.track): the opt-in does not download by itself")
-        updater.debugIndicatorPhase = .available(version: "2.0.0")
-        updater.installClicked()
-        #expect(updater.flow.installRequested, "\(identity.track): with the opt-in the click asks again before the relaunch")
         updater.debugIndicatorPhase = .downloading(.starting)
         updater.debugIndicatorPhase = .ready(version: "2.0.0")
-        #expect(await eventually { effects.installs == 1 }, "\(identity.track): the opted-in click did not install once staged")
-
-        updater.frontmost = { UpdateFrontmostApp(isThisApp: false, pid: 7045, bundleID: "com.example.other") }
-        updater.automaticInstallInFlight = true
-        var reopensBehind = false
-        updater.relaunchBehind = { _, _, _ in reopensBehind = true }
-        #expect(updater.updaterQuitsForAutomaticInstall(build: "200") && reopensBehind,
-                "\(identity.track): an automatic install did not take the background relaunch")
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(effects.installs == 0, "\(identity.track): the opted-in update relaunched without a click")
+        #expect(updater.readyCard != nil, "\(identity.track): the opted-in update did not ask before the relaunch")
+        updater.installClicked()
+        #expect(await eventually { effects.installs == 1 }, "\(identity.track): Restart to Update did not install")
     }
 
     func eventually(_ condition: () -> Bool) async -> Bool {
