@@ -54,6 +54,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_HANDOFF_DISCARD,
     "_acpmux/peers",
     "_acpmux/peer_status",
+    // Names a peer machine, never a session (`vm_host.rs`).
+    "_acpmux/vm_host",
     "_acpmux/host_health",
     "_acpmux/place",
     "_acpmux/models",
@@ -154,11 +156,20 @@ async fn forward_inner(
                 return Err(crate::prompt_uploads::peer_unsupported(&peer));
             }
         }
+        // An older peer would answer status as unknown and finish without checking `sha256`.
+        let checked =
+            m == method::MUX_FILE_PUT_FINISH && params.get("sha256").is_some_and(|h| !h.is_null());
+        if (checked || m == method::MUX_FILE_PUT_STATUS) && !peer.supports_upload_resume() {
+            return Err(crate::hub::file_uploads::peer_unsupported(&peer));
+        }
         if m == method::MUX_FILE_PUT_CHUNK {
             crate::hub::file_uploads::check_chunk(params)?;
-            if !peer.supports_file_put() {
-                return Err(crate::hub::file_uploads::peer_unsupported(&peer));
-            }
+        }
+        // A peer with only the one-shot `file_put` would refuse the upload part way through.
+        if matches!(m, method::MUX_FILE_PUT_BEGIN | method::MUX_FILE_PUT_CHUNK)
+            && !peer.supports_file_put_chunks()
+        {
+            return Err(crate::hub::file_uploads::peer_unsupported(&peer));
         }
         // The media reader runs on the peer that owns the chat, if it has one (`hub/media_read.rs`).
         if matches!(m, method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE)
@@ -282,7 +293,7 @@ async fn forward_inner(
         }
         // `Peer::request` already took the peer's display lines out of the result and the error.
         let mut result = result.map_err(|e| {
-            if matches!(m, method::MUX_FILE_PUT_BEGIN | method::MUX_FILE_PUT_CHUNK | method::MUX_FILE_PUT_FINISH | method::MUX_FILE_PUT_CANCEL)
+            if matches!(m, method::MUX_FILE_PUT_BEGIN | method::MUX_FILE_PUT_CHUNK | method::MUX_FILE_PUT_FINISH | method::MUX_FILE_PUT_CANCEL | method::MUX_FILE_PUT_STATUS)
                 && e.message.contains("Method not found")
             {
                 crate::hub::file_uploads::peer_unsupported(&peer)

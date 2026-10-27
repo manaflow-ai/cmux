@@ -64,6 +64,8 @@ final class UpdateRelaunchMomentHold {
     private let log: (String) -> Void
     private var ready: (@MainActor () -> Void)?
     private var observers: [any NSObjectProtocol] = []
+    /// Ends a ``waitUntilClear()`` whose hold is dropped instead of released.
+    private var dropped: (() -> Void)?
 
     init(moment: @escaping @MainActor () -> UpdateRelaunchMoment = { .current() },
          center: NotificationCenter = .default,
@@ -102,16 +104,29 @@ final class UpdateRelaunchMomentHold {
         guard let ready else { return }
         guard moment().interruption == nil else { return }
         log("automatic install: nothing would be cut off now; installing")
+        dropped = nil
         cancel()
         ready()
     }
 
+    /// Returns at once when nothing would be cut off, else once the moment clears (true) or the
+    /// hold is dropped (false: a click, a cancel or a newer hold took over).
+    func waitUntilClear() async -> Bool {
+        await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            let held = hold { done.resume(returning: true) }
+            if held { dropped = { done.resume(returning: false) } } else { done.resume(returning: true) }
+        }
+    }
+
     /// Drops the held install without running it.
     func cancel() {
+        let drop = dropped
+        dropped = nil
         ready = nil
         timer.cancel()
         for observer in observers { center.removeObserver(observer) }
         observers = []
+        drop?()
     }
 
     private func scheduleRecheck() {

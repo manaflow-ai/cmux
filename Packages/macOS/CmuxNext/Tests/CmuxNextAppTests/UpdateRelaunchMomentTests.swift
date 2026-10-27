@@ -126,4 +126,34 @@ import Testing
         #expect(!updater.updaterDefersAutomaticInstall(until: {}))
         #expect(!updater.relaunchMomentHold.isHolding)
     }
+
+    /// The self-quit (UpdateRelaunchBehind) waits for the moment too: the quit ends every sheet.
+    @Test func theSelfQuitWaitsUntilTheSheetEnds() async {
+        let center = NotificationCenter()
+        let moment = Moment()
+        let hold = UpdateRelaunchMomentHold(moment: { moment.now }, center: center, clock: ManualClock())
+        #expect(await hold.waitUntilClear()) // nothing up: at once
+
+        moment.now.sheet = true
+        var answer: Bool?
+        let waiting = Task { @MainActor in answer = await hold.waitUntilClear() }
+        await settle()
+        #expect(answer == nil)
+        moment.now.sheet = false
+        center.post(name: NSWindow.didEndSheetNotification, object: nil)
+        await waiting.value
+        #expect(answer == true)
+    }
+
+    @Test func aDroppedSelfQuitWaitAnswersNo() async {
+        let moment = Moment()
+        moment.now.composing = true
+        let hold = UpdateRelaunchMomentHold(moment: { moment.now }, center: NotificationCenter(), clock: ManualClock())
+        var answer: Bool?
+        let waiting = Task { @MainActor in answer = await hold.waitUntilClear() }
+        await settle()
+        hold.cancel()
+        await waiting.value
+        #expect(answer == false)
+    }
 }

@@ -128,24 +128,41 @@ def key(repo: Path, environ=os.environ, toolchain: str | None = None) -> str:
 
 def drivers_and_lines(log: Path) -> tuple[list[str], set[str], str]:
     """The SwiftDriver task modules, the modules with a frontend compile line, and the xcodebuild line."""
-    modules, compiled, command = [], set(), ""
-    for raw in log.open(errors="replace"):
-        line = raw.rstrip("\n")
-        if line.startswith("xcodebuild command: ") and not command:
-            command = line.removeprefix("xcodebuild command: ")
-        match = DRIVER.match(line)
-        if match:
-            modules.append(match.group(1))
-            continue
-        text = line.strip()
-        if "/swift-frontend " not in text or " -frontend " not in text:
-            continue
-        try:
-            argv = shlex.split(text)
-        except ValueError:
-            continue
-        if argv and argv[0].endswith("swift-frontend") and "-c" in argv and "-module-name" in argv[:-1]:
-            compiled.add(argv[argv.index("-module-name") + 1])
+    # A driver task names its target ("SwiftDriver cmux-next ..."), and its module is the
+    # -module-name of the builtin-SwiftDriver line under it: they differ for the app (target
+    # cmux-next, module cmux), and the frontend lines name the module.
+    modules, compiled, command, target = [], set(), "", None
+    with log.open(errors="replace") as lines:
+        for raw in lines:
+            line = raw.rstrip("\n")
+            if line.startswith("xcodebuild command: ") and not command:
+                command = line.removeprefix("xcodebuild command: ")
+            match = DRIVER.match(line)
+            if match:
+                if target is not None:
+                    modules.append(target)
+                target = match.group(1)
+                continue
+            text = line.strip()
+            if target is not None and text.startswith("builtin-SwiftDriver "):
+                try:
+                    argv = shlex.split(text)
+                except ValueError:
+                    argv = []
+                name = argv[argv.index("-module-name") + 1] if "-module-name" in argv[:-1] else target
+                modules.append(name)
+                target = None
+                continue
+            if "/swift-frontend " not in text or " -frontend " not in text:
+                continue
+            try:
+                argv = shlex.split(text)
+            except ValueError:
+                continue
+            if argv and argv[0].endswith("swift-frontend") and "-c" in argv and "-module-name" in argv[:-1]:
+                compiled.add(argv[argv.index("-module-name") + 1])
+    if target is not None:
+        modules.append(target)
     return modules, compiled, command
 
 

@@ -428,6 +428,16 @@ class FreshRoute(unittest.TestCase):
             with self.subTest(runners=runners):
                 self.assertEqual(placement.fresh_route(values, runners), ("", ()))
 
+    def test_the_summary_names_why_the_slot_took_nothing(self):
+        runners = [runner("mini-a-glaeda-2", busy=True, labels=(FRESH,)),
+                   runner("mini-b-glaeda-2", status="offline", labels=(FRESH,)),
+                   runner("mini-c-glaeda-2", status="offline", labels=(FRESH,)), runner("mini-d-glaeda-1")]
+        self.assertEqual(placement.fresh_slot_state(FRESH, runners),
+                         "busy: mini-a-glaeda-2; offline: mini-b-glaeda-2, mini-c-glaeda-2")
+        self.assertEqual(placement.fresh_slot_state(FRESH, runners[1:]), "offline: mini-b-glaeda-2, mini-c-glaeda-2")
+        self.assertEqual(placement.fresh_slot_state(FRESH, runners[3:]), "no runner carries it")
+        self.assertEqual(placement.fresh_slot_state(FRESH, None), "runners unread")
+
     def test_routed_jobs_leave_the_side_route_and_the_cascade(self):
         trimmed = placement.without_jobs({"JOBS": "fast-tier release-compile", "CASCADE_RUNS": " release-compile ",
                                           "FIRST_JOBS": "release-compile", "FRESH_JOBS": "release-compile"},

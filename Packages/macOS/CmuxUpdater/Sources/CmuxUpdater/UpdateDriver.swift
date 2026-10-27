@@ -33,6 +33,9 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     var installsInBackground = false
     /// With background installs: whether a found update downloads without a click.
     var downloadsInBackground = true
+    /// The automatic install whose app quits for it (``UpdateActionDelegate/updaterQuitsForAutomaticInstall(build:)``):
+    /// Sparkle's held reply, kept until the app ends so a refused quit can stage it again.
+    var quitInstall: (item: SUAppcastItem, install: () -> Void, cancel: (() -> Void)?)?
     /// Replaces the baked feed when set (``UpdateController/feedOverride``).
     var feedOverride: String?
     /// The release ring whose `sparkle:channel` tags are accepted (``UpdateController/ring``).
