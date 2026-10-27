@@ -6,17 +6,22 @@ recorded rules of one real Mac build of the same shape (the REF): the SwiftDrive
 Swift Build's build description and the planning files. Until 2026-10-26 the only REF was
 assembled by hand from an old nightly build, so the Linux path stopped as soon as
 Package.resolved moved. This records a REF from the per-landing DEV compile itself, at its
-own paths, when the inputs that change build lines have no capture yet.
+own paths, when the inputs that change build lines have no capture yet. HYBRID_REF_PROFILE
+nightly-next records the nightly-next Release compile (nightly.yml build-nightly-app) the same
+way, keyed on that compile's own settings and recipe; unset, the profile is dev.
 
   hybrid_ref_capture.py key REPO
       Prints the REF key: sha256 over Package.resolved, every file of cmux.xcodeproj but
       xcuserdata, the macOS xcconfigs, the local package manifests, the compile recipe
       (KEY_PATHS), the DEV build settings (HYBRID_REF_SETTINGS: the
       compile step's CMUX_NEXT_*) and the toolchain (xcodebuild -version, the SDK build). Most landings share one.
+      The nightly-next profile hashes its own recipe (NIGHTLY_RECIPE_PATHS and the text of the
+      compile step, NIGHTLY_STEP) and settings (NIGHTLY_SETTINGS) instead of the DEV ones.
 
   hybrid_ref_capture.py capture --log LOG --workspace WS --derived-data DD --sha SHA
                                 --key KEY --run-id N --out DIR [--lane L] [--upload]
                                 [--read-workspace SNAP_WS --read-derived-data SNAP_DD]
+                                [--deadline EPOCH]
       Checks that the log (a build with EMIT_FRONTEND_COMMAND_LINES=YES) has a frontend
       compile line for the module of every SwiftDriver task; a module without one makes the
       capture incomplete (manifest "complete": false, "missing": [...]) and nothing is
@@ -25,9 +30,11 @@ own paths, when the inputs that change build lines have no capture yet.
       committed Package.resolved, splits each pack under PART_BYTES, and with --upload puts
       every part in the build fleet's private store (cmux-ci artifact-put --lane L). WS and
       DD are the build's paths (the REF's); the files come from the --read-* snapshot of
-      them, cloned while the build still held its host lock (compile-dev-release.sh). It
+      them, cloned while the build still held its host lock (compile-dev-release.sh). A DD
+      inside WS (the nightly's build-universal) is packed once, as DerivedData. It
       writes DIR/manifest.json: names, sizes and sha256 only, never file contents, since the
-      manifest goes to this public repository's Actions artifacts.
+      manifest goes to this public repository's Actions artifacts. With --deadline (a Unix time)
+      a capture still packing or uploading then stops, its upload killed, and writes no manifest.
 
   hybrid_ref_capture.py have --key KEY --repo OWNER/NAME [--budget SECONDS]
       Prints complete=N, the hybrid-ref-capture-KEY artifacts that are unexpired and under 13
@@ -37,7 +44,9 @@ own paths, when the inputs that change build lines have no capture yet.
       landing). A rate limit (403 or 429 that says so) waits for its Retry-After or reset,
       other transient failures back off, and once the next wait would pass --budget (default
       600 s, both lookups) it exits 1 with the last error, so the caller never reads "no
-      answer" as "a capture exists" (GH_TOKEN: the job's token).
+      answer" as "a capture exists" (GH_TOKEN: the job's token). The nightly-next profile's
+      artifacts carry its name: hybrid-ref-capture-nightly-next-KEY and
+      hybrid-ref-capture-nightly-next-incomplete-KEY.
 """
 from __future__ import annotations
 
@@ -51,6 +60,7 @@ import platform
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
@@ -66,36 +76,72 @@ PART_BYTES = 480 * 1024 * 1024
 RESOLVED = "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
 # What sets a build line: the project, the macOS xcconfigs, the local package manifests (a target or
 # dependency added there changes the plan) and the compile recipe with its hardcoded settings.
-KEY_PATHS = ("cmux.xcodeproj", "*.xcconfig", "Packages/macOS/**/Package.swift", "Packages/Shared/**/Package.swift",
-             "vendor/**/Package.swift", "scripts/cmux-next/check-cmux-scheme-compile.sh",
-             "scripts/cmux-next/compile-dev-release.sh", "scripts/cmux-next/lib/compilation-cache.sh")
+PROJECT_PATHS = ("cmux.xcodeproj", "*.xcconfig", "Packages/macOS/**/Package.swift", "Packages/Shared/**/Package.swift",
+                 "vendor/**/Package.swift")
+KEY_PATHS = PROJECT_PATHS + ("scripts/cmux-next/check-cmux-scheme-compile.sh",
+                             "scripts/cmux-next/compile-dev-release.sh", "scripts/cmux-next/lib/compilation-cache.sh")
 KEY_SKIP = re.compile(r"(^|/)xcuserdata/|^ios/")
 # The compile step's settings that change a build line (check-cmux-scheme-compile.sh reads them);
 # the capture steps get them as HYBRID_REF_SETTINGS.
 SETTINGS = ("CMUX_NEXT_CONFIGURATION", "CMUX_NEXT_PRODUCT_NAME", "CMUX_NEXT_BUNDLE_ID",
             "CMUX_NEXT_CODE_SIGN_ENTITLEMENTS", "CMUX_NEXT_AUTH_CALLBACK_SCHEME",
             "CMUX_NEXT_BROWSER_DATA_IMPORT", "CMUX_NEXT_SWIFT_COMPILATION_MODE", "CMUX_NEXT_TUI_MODE")
+# The nightly-next profile: the env the nightly's "Build nightly app (Release)" step reads (its own
+# and the job's), the defines it sources, and the step itself, whose xcodebuild flags are inline.
+NIGHTLY_SETTINGS = ("BUILD_TRACK", "SWIFT_IMPORT_FLAGS", "EMPTY_BROWSER_SOURCES", "NIGHTLY_COMPILE_ARCHS",
+                    "CHANNEL_ICON_NAME")
+NIGHTLY_RECIPE_PATHS = ("scripts/cmux-next/lib/nightly-swift-defines.sh",)
+NIGHTLY_STEP = (".github/workflows/nightly.yml", "Build nightly app (Release)")
+PROFILES = {"dev": SETTINGS, "nightly-next": NIGHTLY_SETTINGS}
 # check-cmux-scheme-compile.sh writes this file for a compiled-out browser-data import and
 # restores it after the build; the REF needs the tree the compiler read.
 BROWSER_SOURCES = "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json"
 BROWSER_SOURCES_COMPILED_OUT = "scripts/cmux-next/lib/browser-sources-compiled-out.json"
-WS_EXCLUDE = re.compile(r"(^|/)(\.git|target|node_modules|\.build|DerivedData)(/|$)")
+# .spm-cache is the nightly's -clonedSourcePackagesDirPath: its checkouts are sources, its git
+# mirrors are not (DD_EXCLUDE drops SourcePackages/repositories for the DEV build).
+WS_EXCLUDE = re.compile(r"(^|/)(\.git|target|node_modules|\.build|DerivedData)(/|$)"
+                        r"|^\.spm-cache/(repositories|\.package-cache)(/|$)")
 DD_EXCLUDE = re.compile(r"(^|/)(\.git|CompilationCache\.noindex|Logs|SourcePackages/repositories)(/|$)"
                         r"|\.(o|app|dSYM)(/|$)|(^|/)Chromium Embedded Framework\.framework(/|$)")
 DRIVER = re.compile(r"^SwiftDriver (\S+) normal (\S+) ")
 
 
+def profile(environ=os.environ) -> str:
+    name = environ.get("HYBRID_REF_PROFILE") or "dev"
+    if name not in PROFILES:
+        raise SystemExit(f"hybrid_ref_capture: unknown HYBRID_REF_PROFILE {name}")
+    return name
+
+
 def settings(environ=os.environ) -> dict[str, str]:
-    """HYBRID_REF_SETTINGS (NAME=VALUE lines: the compile step's SETTINGS); a name it lacks is empty."""
+    """HYBRID_REF_SETTINGS (NAME=VALUE lines: the compile step's settings of the profile); a name it lacks is empty."""
+    names = PROFILES[profile(environ)]
     given = {}
     for line in environ.get("HYBRID_REF_SETTINGS", "").splitlines():
         name, sep, value = line.strip().partition("=")
         if sep:
             given[name] = value
-    unknown = sorted(set(given) - set(SETTINGS))
+    unknown = sorted(set(given) - set(names))
     if unknown:
         raise SystemExit(f"hybrid_ref_capture: HYBRID_REF_SETTINGS names unknown settings: {', '.join(unknown)}")
-    return {name: given.get(name, "") for name in SETTINGS}
+    return {name: given.get(name, "") for name in names}
+
+
+def step_text(workflow: Path, name: str) -> str:
+    """The lines of the workflow step named NAME, up to the next step or job."""
+    lines = workflow.read_text().splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if line.strip() == f"- name: {name}":
+            indent = len(line) - len(line.lstrip())
+            end = i + 1
+            while end < len(lines):
+                text = lines[end]
+                # A step's own lines are deeper than its "- name:"; the next step's comments are not.
+                if text.strip() and len(text) - len(text.lstrip()) <= indent:
+                    break
+                end += 1
+            return "".join(lines[i:end]).rstrip() + "\n"
+    raise SystemExit(f"hybrid_ref_capture: no step {name!r} in {workflow}")
 
 
 def xcode_version(text: str) -> str:
@@ -115,9 +161,15 @@ def key(repo: Path, environ=os.environ, toolchain: str | None = None) -> str:
     def add(label: str, data: bytes) -> None:
         h.update(label.encode() + b"\0" + hashlib.sha256(data).hexdigest().encode() + b"\n")
 
-    files = run(["git", "-C", str(repo), "ls-files", "-z", "--", *KEY_PATHS]).split("\0")
+    nightly = profile(environ) == "nightly-next"
+    paths = PROJECT_PATHS + NIGHTLY_RECIPE_PATHS if nightly else KEY_PATHS
+    files = run(["git", "-C", str(repo), "ls-files", "-z", "--", *paths]).split("\0")
     for name in sorted(f for f in files if f and not KEY_SKIP.search(f)):
         add(name, (repo / name).read_bytes())
+    if nightly:
+        # The DEV key stays what it was: only another profile hashes its name and its step.
+        add("profile", b"nightly-next")
+        add("step:" + NIGHTLY_STEP[1], step_text(repo / NIGHTLY_STEP[0], NIGHTLY_STEP[1]).encode())
     for name, value in settings(environ).items():
         add("env:" + name, value.encode())
     if toolchain is None:
@@ -222,16 +274,77 @@ def split(path: Path) -> list[Path]:
     return parts
 
 
+class Stopped(Exception):
+    pass
+
+
+def put(argv: list[str]) -> None:
+    """Run one upload in its own process group, and kill that group however the upload ends: the job's
+    cleanup (background_build.py stop) signals only the capture's group, so nothing an upload started
+    may outlive it."""
+    # A stop that lands while the upload starts waits until the group is known, then runs the finally.
+    stops = {signal.SIGALRM, signal.SIGTERM}
+    signal.pthread_sigmask(signal.SIG_BLOCK, stops)
+    try:
+        proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL, start_new_session=True)
+    except BaseException:
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, stops)
+        raise
+    try:
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, stops)
+        status = proc.wait()
+    finally:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        if proc.returncode is None:
+            proc.wait()
+    if status:
+        raise subprocess.CalledProcessError(status, argv)
+
+
 def capture(a: argparse.Namespace, environ=os.environ) -> int:
+    """capture_now, stopped without a manifest at --deadline or on SIGTERM (the cleanup's stop), so
+    put() still kills a running upload's group."""
+    deadline = getattr(a, "deadline", None)
+    left = None
+    if deadline is not None:
+        left = int(deadline - time.time())
+        if left <= 0:
+            print("hybrid-ref capture: the deadline has passed; nothing captured")
+            return 3
+
+    def stop(signum, _frame):
+        raise Stopped("its deadline" if signum == signal.SIGALRM else signal.Signals(signum).name)
+
+    previous = {sig: signal.signal(sig, stop) for sig in (signal.SIGALRM, signal.SIGTERM)}
+    if left:
+        signal.alarm(left)
+    try:
+        return capture_now(a, environ)
+    except Stopped as why:
+        print(f"hybrid-ref capture: stopped at {why}; no manifest")
+        return 3
+    finally:
+        signal.alarm(0)
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+
+
+def capture_now(a: argparse.Namespace, environ=os.environ) -> int:
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     # The build's paths go in the manifest; the files are read from the snapshot of them.
     ws, dd, log = Path(a.workspace), Path(a.derived_data), Path(a.log)
     read_ws, read_dd = Path(a.read_workspace or ws), Path(a.read_derived_data or dd)
+    # The packer keeps directory links as links: a linked package cache would ship without sources.
+    if (read_ws / ".spm-cache").is_symlink():
+        raise SystemExit(f"hybrid_ref_capture: {read_ws}/.spm-cache is a link; snapshot what it points to")
     modules, compiled, command = drivers_and_lines(log)
     missing = sorted(set(modules) - compiled)
     manifest = {
-        "schema": SCHEMA, "key": a.key, "sha": a.sha, "run_id": a.run_id, "lane": a.lane,
+        "schema": SCHEMA, "profile": profile(environ), "key": a.key, "sha": a.sha, "run_id": a.run_id, "lane": a.lane,
         "complete": bool(modules) and not missing, "modules": len(set(modules)), "missing": missing,
         "workspace": str(ws), "derived_data": str(dd),
         "tmpdir": environ.get("TMPDIR", ""), "runner": environ.get("RUNNER_NAME", ""),
@@ -247,7 +360,8 @@ def capture(a: argparse.Namespace, environ=os.environ) -> int:
     }
     if manifest["complete"]:
         replace = {}
-        if settings(environ)["CMUX_NEXT_BROWSER_DATA_IMPORT"] == "compiled-out":
+        # The nightly writes the empty file into its tree itself and never restores it.
+        if settings(environ).get("CMUX_NEXT_BROWSER_DATA_IMPORT") == "compiled-out":
             replace[BROWSER_SOURCES] = (read_ws / BROWSER_SOURCES_COMPILED_OUT).read_bytes()
         packs = out / "packs"
         packs.mkdir(exist_ok=True)
@@ -257,7 +371,11 @@ def capture(a: argparse.Namespace, environ=os.environ) -> int:
         write_tar(read_dd / "Build/Intermediates.noindex", packs / "xcbuilddata.tgz",
                   re.compile(r"^(?!XCBuildData(/|$))"))
         write_tar(read_dd, packs / "build-noobj.tgz", DD_EXCLUDE)
-        write_tar(read_ws, packs / "ws-src.tgz", WS_EXCLUDE, replace)
+        ws_skip = WS_EXCLUDE
+        inside = os.path.relpath(dd, ws)
+        if inside != "." and not inside.startswith(".."):
+            ws_skip = re.compile(f"{WS_EXCLUDE.pattern}|^{re.escape(inside)}(/|$)")
+        write_tar(read_ws, packs / "ws-src.tgz", ws_skip, replace)
         shutil.copyfile(read_ws / RESOLVED, packs / "Package.resolved")
         for pack in sorted(packs.iterdir()):
             whole = {"sha256": sha256_file(pack), "size": pack.stat().st_size}
@@ -268,8 +386,7 @@ def capture(a: argparse.Namespace, environ=os.environ) -> int:
             for p in whole["parts"]:
                 if a.upload:
                     client = environ.get("CMUX_CI_CLIENT") or str(Path.home() / ".local/bin/cmux-ci")
-                    subprocess.run([client, "artifact-put", str(packs / p["name"]), "--sha256", p["sha256"],
-                                    "--lane", a.lane], check=True, stdout=subprocess.DEVNULL)
+                    put([client, "artifact-put", str(packs / p["name"]), "--sha256", p["sha256"], "--lane", a.lane])
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n")
     if environ.get("GITHUB_OUTPUT"):
         with open(environ["GITHUB_OUTPUT"], "a") as f:
@@ -302,17 +419,27 @@ def retry_wait(status: int, headers, body: str, attempt: int, now: float) -> flo
     return None
 
 
-def incomplete_name(key: str) -> str:
+def artifact_prefix(environ=os.environ) -> str:
+    """The manifest artifacts' name prefix: the nightly-next profile's carry its name."""
+    return "hybrid-ref-capture-nightly-next-" if profile(environ) == "nightly-next" else "hybrid-ref-capture-"
+
+
+def complete_name(key: str, environ=os.environ) -> str:
+    """The artifact name of a complete capture's manifest (the workflow's upload step)."""
+    return f"{artifact_prefix(environ)}{key}"
+
+
+def incomplete_name(key: str, environ=os.environ) -> str:
     """The artifact name of an incomplete capture's manifest (the workflow's upload step)."""
-    return f"hybrid-ref-capture-incomplete-{key}"
+    return f"{artifact_prefix(environ)}incomplete-{key}"
 
 
 def have(key: str, repo: str, token: str, budget: float = 600, opener=urllib.request.urlopen,
-         sleep=time.sleep, clock=time.time) -> tuple[int, int]:
+         sleep=time.sleep, clock=time.time, environ=os.environ) -> tuple[int, int]:
     """(complete, recent_incomplete) captures of KEY (see the module doc); raises LookupFailed."""
     start = clock()
-    complete = _count(f"hybrid-ref-capture-{key}", 13 * 24, repo, token, start + budget, opener, sleep, clock)
-    incomplete = _count(incomplete_name(key), 24, repo, token, start + budget, opener, sleep, clock)
+    complete = _count(complete_name(key, environ), 13 * 24, repo, token, start + budget, opener, sleep, clock)
+    incomplete = _count(incomplete_name(key, environ), 24, repo, token, start + budget, opener, sleep, clock)
     return complete, incomplete
 
 
@@ -357,6 +484,7 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--read-workspace", help="where to read the workspace from (a snapshot of --workspace)")
     c.add_argument("--read-derived-data", help="where to read DerivedData from (a snapshot of --derived-data)")
     c.add_argument("--lane", default="hybrid-ref-dev")
+    c.add_argument("--deadline", type=int, help="Unix time by which the capture ends, or stops without a manifest")
     c.add_argument("--upload", action="store_true")
     h = sub.add_parser("have")
     h.add_argument("--key", required=True)

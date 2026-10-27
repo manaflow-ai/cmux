@@ -1948,6 +1948,38 @@ jobs:
               ;;
           esac
 
+      # The Linux whole-app build plans from the rules of one real Mac build of the same shape (its
+      # REF). With NIGHTLY_HYBRID_REF_CAPTURE=1 the nightly-next compile records them, as
+      # cmux-next.yml's DEV compile does, when the inputs that change its build lines
+      # (scripts/cmux-next/hybrid_ref_capture.py key, profile nightly-next) have no complete
+      # capture yet. Only on an owned mini with cmux-ci: the packs go to the build fleet's private
+      # store, which a Blacksmith Mac (the rescue attempts) cannot reach. Before the product lookup:
+      # a key with no capture compiles instead of reusing a product (a reused product compiles
+      # nothing, so there would be no build to capture).
+      # tests/test_cmux_next_hybrid_ref_capture.py keeps HYBRID_REF_SETTINGS equal to the compile's.
+      - name: Decide the Linux build's REF capture
+        id: hybrid-ref
+        if: vars.NIGHTLY_HYBRID_REF_CAPTURE == '1' && inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next' && runner.environment == 'self-hosted'
+        continue-on-error: true
+        # The capture lookup waits out a rate limit for 30 s at most (hybrid_ref_capture.py have):
+        # this step runs before the compile, and a lookup that fails captures anyway.
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # The job-start gh call never waits for the budget, and so spends none of the hour this
+          # job's publish-path gh calls may wait (gh_budget_wait.sh).
+          GH_BUDGET_WAIT_MAX_SECONDS: "0"
+          HYBRID_REF_PROFILE: nightly-next
+          # The compile step's build-line env, one NAME=VALUE a line (not as env: only the
+          # compile step may carry it).
+          HYBRID_REF_SETTINGS: |
+            BUILD_TRACK=${{ needs.decide.outputs.track }}
+            SWIFT_IMPORT_FLAGS=${{ needs.decide.outputs.swift_import_flags }}
+            EMPTY_BROWSER_SOURCES=${{ needs.decide.outputs.empty_browser_sources }}
+            NIGHTLY_COMPILE_ARCHS=${{ needs.decide.outputs.compile_archs }}
+            CHANNEL_ICON_NAME=${{ needs.decide.outputs.icon_name }}
+        run: bash scripts/ci/nightly-steps/hybrid-ref-decide.sh
+
       # Reuse the unsigned app of an earlier nightly-next build on the same inputs
       # (scripts/ci/nightly_release_product_reuse.py has the key and trust rules). A hit skips the
       # steps that only feed xcodebuild; stamping, signing and notarization always run.
@@ -1960,7 +1992,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           # format(): an unset variable is null, and null == '0' is true.
-          SKIP_REASON: ${{ format('{0}', vars.CI_NIGHTLY_NEXT_PRODUCT_REUSE) == '0' && 'vars.CI_NIGHTLY_NEXT_PRODUCT_REUSE is 0' || '' }}
+          SKIP_REASON: ${{ steps.hybrid-ref.outputs.compile == 'true' && 'a REF capture needs a real compile' || format('{0}', vars.CI_NIGHTLY_NEXT_PRODUCT_REUSE) == '0' && 'vars.CI_NIGHTLY_NEXT_PRODUCT_REUSE is 0' || '' }}
           CMUX_TUI_TREE_KEY: ${{ needs.resolve-nightly-cmux-tui-client.outputs.key }}
           NIGHTLY_PRODUCT_TRACK: ${{ needs.decide.outputs.track }}
           NIGHTLY_PRODUCT_CHANNEL: ${{ needs.decide.outputs.channel }}
@@ -2256,6 +2288,9 @@ jobs:
           SWIFT_IMPORT_FLAGS: ${{ needs.decide.outputs.swift_import_flags }}
           EMPTY_BROWSER_SOURCES: ${{ needs.decide.outputs.empty_browser_sources }}
           BUILD_TRACK: ${{ needs.decide.outputs.track }}
+          # A REF capture run keeps the log where the capture reads it and prints every frontend line.
+          CMUX_XCODEBUILD_OUTPUT_LOG: ${{ steps.hybrid-ref.outputs.capture == 'true' && format('{0}/hybrid-ref-xcodebuild.log', runner.temp) || '' }}
+          HYBRID_REF_CAPTURE: ${{ steps.hybrid-ref.outputs.capture == 'true' && '1' || '' }}
         run: |
           set -euo pipefail
           # cx-f58x: compile out browser-import code as `decide` chose (the
@@ -2284,6 +2319,8 @@ jobs:
             # shellcheck disable=SC2016 # $(inherited) is an Xcode build setting, not a shell expansion
             notary_test_flags=("OTHER_SWIFT_FLAGS=\$(inherited) $swift_defines" build)
           fi
+          # The Linux whole-app build's REF capture (hybrid_ref_capture.py) reads the frontend lines from the log.
+          [[ "${HYBRID_REF_CAPTURE:-}" == 1 ]] && notary_test_flags=(EMIT_FRONTEND_COMMAND_LINES=YES "${notary_test_flags[@]}")
           if [[ "$NIGHTLY_COMPILE_ARCHS" == "arm64" ]]; then
             archs="arm64"
             only_active="YES"
@@ -2358,6 +2395,33 @@ jobs:
           python3 scripts/ci/background_build.py join --state "$state" mobile-host
           env "${phase_env[@]}" CMUX_NEXT_MOBILE_HOST_BIN="${CMUX_NEXT_MOBILE_HOST_PENDING_BIN:?}" \
             CMUX_NEXT_REQUIRE_MOBILE_HOST=1 scripts/cmux-next/bundle-mobile-host.sh
+
+      # Right after the compile (and the helper bundling, which changes only the app), before
+      # later steps change the tree: one clonefile(2) of the workspace, about a second
+      # (build-universal, the DerivedData, is inside it). The capture packs that snapshot and puts
+      # the packs in the build fleet's private store in the background, at low priority, beside
+      # the rest of this job; the manifest artifact names their sizes and sha256 only. "Finish the
+      # Linux build's REF capture" joins it.
+      - name: Start the Linux build's REF capture
+        id: hybrid-ref-start
+        if: steps.hybrid-ref.outputs.capture == 'true' && steps.nightly-product.outputs.hit != 'true'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          HYBRID_REF_PROFILE: nightly-next
+          # The compile step's build-line env, one NAME=VALUE a line (not as env: only the
+          # compile step may carry it).
+          HYBRID_REF_SETTINGS: |
+            BUILD_TRACK=${{ needs.decide.outputs.track }}
+            SWIFT_IMPORT_FLAGS=${{ needs.decide.outputs.swift_import_flags }}
+            EMPTY_BROWSER_SOURCES=${{ needs.decide.outputs.empty_browser_sources }}
+            NIGHTLY_COMPILE_ARCHS=${{ needs.decide.outputs.compile_archs }}
+            CHANNEL_ICON_NAME=${{ needs.decide.outputs.icon_name }}
+          BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          CMUX_CI_CLIENT: ${{ steps.hybrid-ref.outputs.client }}
+          KEY: ${{ steps.hybrid-ref.outputs.key }}
+          STARTED: ${{ steps.hybrid-ref.outputs.started }}
+        run: bash scripts/ci/nightly-steps/hybrid-ref-start.sh
 
       # cmux-next ships THIRD_PARTY_LICENSES.md for exactly what this nightly
       # bundles: the daemon, app host and Cloud server come from this tree
@@ -2790,9 +2854,37 @@ jobs:
           retention-days: 2
           overwrite: true
 
+      # Last, and bounded: it waits at most 4 minutes for the capture, and never past minute 130 of
+      # this job's 150 (the capture itself stops at minute 130 too, whatever the steps between
+      # wait on), so the job cannot reach its limit and the sign job that needs it waits
+      # little (the capture runs beside the steps above, about once per REF key). A capture still
+      # running is stopped and uploads no manifest; the next nightly-next build of the key takes it.
+      - name: Finish the Linux build's REF capture
+        id: hybrid-ref-capture
+        if: steps.hybrid-ref-start.outputs.started == 'true'
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          STARTED: ${{ steps.hybrid-ref.outputs.started }}
+        run: bash scripts/ci/nightly-steps/hybrid-ref-finish.sh
+
+      - name: Upload the REF capture manifest
+        if: steps.hybrid-ref-capture.outputs.manifest != ''
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.hybrid-ref-capture.outputs.complete != 'true' && 'hybrid-ref-capture-nightly-next-incomplete-' || 'hybrid-ref-capture-nightly-next-' }}${{ steps.hybrid-ref.outputs.key }}
+          path: ${{ steps.hybrid-ref-capture.outputs.manifest }}
+          if-no-files-found: error
+          retention-days: 14
+
+      # A failed or cancelled job leaves no background helper build (or REF capture) running.
       - name: Stop the helper builds still running
         if: always() && inputs.nightly_next_unsigned_run == ''
-        run: python3 scripts/ci/background_build.py stop --state "$RUNNER_TEMP/nightly-helper-builds"
+        run: |
+          python3 scripts/ci/background_build.py stop --state "$RUNNER_TEMP/nightly-helper-builds"
+          python3 scripts/ci/background_build.py stop --state "$RUNNER_TEMP/hybrid-ref-builds"
 
   # Runs beside build-nightly-app. Deepening the shallow clone to find the
   # newest published cmux-tui commit took 1.5 to 11 minutes after the Xcode

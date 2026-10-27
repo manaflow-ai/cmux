@@ -286,8 +286,10 @@ class WorkflowTests(unittest.TestCase):
             timeout = self.jobs[name].get("timeout-minutes", 360)
             self.assertGreaterEqual(int(timeout), 65, name)
             # A step bounded on its own that calls gh needs the hour too, or it times out mid-wait.
+            # A step that never waits (GH_BUDGET_WAIT_MAX_SECONDS 0) needs no hour.
             for step in self.jobs[name]["steps"]:
-                if "timeout-minutes" in step and "GH_TOKEN" in step.get("env", {}):
+                env = step.get("env", {})
+                if "timeout-minutes" in step and "GH_TOKEN" in env and str(env.get("GH_BUDGET_WAIT_MAX_SECONDS")) != "0":
                     self.assertGreaterEqual(int(step["timeout-minutes"]), 65, (name, step.get("name")))
 
     def test_the_attestation_reserves_budget_and_its_retry_shares_the_ledger(self) -> None:

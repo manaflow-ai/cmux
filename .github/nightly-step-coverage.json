@@ -92,6 +92,9 @@
         "Pack the nightly app for reuse": {"nightly_only": "records the nightly-next products for a later nightly-next build; a pull request never records one"},
         "Finish the dSYM upload to Sentry": {"nightly_only": "finishes Sentry dSYM upload (token)"},
         "Bundle the OptChat Chief and the iPhone host": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly helper builds beside the Release build", "note": "joins the background Chief and iPhone host builds and runs bundle-optchat-chief.sh and bundle-mobile-host.sh on the Release app; tests/test_nightly_helpers_beside_release_build.py runs the join on fixtures"},
+        "Decide the Linux build's REF capture": {"pr": "cmux-next.yml:checks:Checks job structure", "note": "tests/test_cmux_next_hybrid_ref_capture.py runs the key and the capture on fixtures and pins these steps (off by default, continue-on-error, bounded, owned mini only)"},
+        "Start the Linux build's REF capture": {"pr": "cmux-next.yml:checks:Checks job structure", "note": "tests/test_cmux_next_hybrid_ref_capture.py runs the key and the capture on fixtures and pins these steps (off by default, continue-on-error, bounded, owned mini only)"},
+        "Finish the Linux build's REF capture": {"pr": "cmux-next.yml:checks:Checks job structure", "note": "tests/test_cmux_next_hybrid_ref_capture.py runs the key and the capture on fixtures and pins these steps (off by default, continue-on-error, bounded, owned mini only)"},
         "Stop the helper builds still running": {"plumbing": true}},
       "build-nightly-linux-inputs": {
         "Drop stale submodule checkouts (self-hosted reused workspace)": {"plumbing": true},

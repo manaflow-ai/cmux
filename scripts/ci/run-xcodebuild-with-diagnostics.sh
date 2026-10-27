@@ -12,9 +12,8 @@ shift
 started_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 started_epoch="$(date '+%s')"
 echo "xcodebuild diagnostic wrapper start: $started_at"
-printf 'xcodebuild command:'
-printf ' %q' "$@"
-printf '\n'
+command_line="xcodebuild command:$(printf ' %q' "$@")"
+printf '%s\n' "$command_line"
 
 # Blacksmith terminates a job whose command stream is idle while a compiler is
 # still working. xcodebuild can legitimately spend several minutes in one
@@ -74,7 +73,14 @@ output_dir="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/xcodebuild-output.XXXXX
 output_log="${CMUX_XCODEBUILD_OUTPUT_LOG:-$output_dir/xcodebuild.log}"
 output_fifo="$output_dir/xcodebuild.fifo"
 mkfifo "$output_fifo"
-tee "$output_log" <"$output_fifo" &
+# A log the caller keeps (CMUX_XCODEBUILD_OUTPUT_LOG) starts with the command line too: the
+# nightly's REF capture (hybrid_ref_capture.py) reads the build's arguments from it.
+tee_args=("$output_log")
+if [[ -n "${CMUX_XCODEBUILD_OUTPUT_LOG:-}" ]]; then
+  printf '%s\n' "$command_line" >"$output_log"
+  tee_args=(-a "$output_log")
+fi
+tee "${tee_args[@]}" <"$output_fifo" &
 tee_pid=$!
 
 "$@" >"$output_fifo" 2>&1 &
