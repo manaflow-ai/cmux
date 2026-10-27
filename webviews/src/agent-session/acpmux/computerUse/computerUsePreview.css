@@ -20,7 +20,11 @@
   top: calc(var(--acpmux-header-height, 44px) + 8px);
   right: 12px;
   z-index: var(--layer-sticky);
-  width: 180px;
+  /* As wide as the frame, at most 180px (the column's reserve): a tall window gets a narrow card,
+     with no empty glass beside it (the Codex app's preview). */
+  width: fit-content;
+  min-width: 120px;
+  max-width: 180px;
   border-radius: 14px;
   overflow: hidden;
   --glass-elevation: var(--elevation-2);
@@ -94,9 +98,9 @@
 }
 .acpmux-cu-preview__frame > img {
   display: block;
-  width: 100%;
+  width: auto;
+  max-width: 100%;
   max-height: 180px;
-  object-fit: contain;
 }
 .acpmux-cu-preview[data-done] .acpmux-cu-preview__frame > img {
   opacity: 0.4;
