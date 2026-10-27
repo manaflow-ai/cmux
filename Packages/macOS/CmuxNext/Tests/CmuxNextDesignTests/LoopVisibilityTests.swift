@@ -119,6 +119,29 @@ import Testing
         #expect(reversing.animation(forKey: "breath")?.beginTime == 99.75)
     }
 
+    /// A loop that sets its own begin (a caret's solid hold, typing dots counted from their row's
+    /// insert, p14-energy-115) keeps it, in its first start and after a show.
+    @Test func aLoopWithItsOwnBeginKeepsIt() throws {
+        let clock = SpinnerClock(mediaTime: { 100 }, unixTime: { 1_000.25 })
+        let host = LoopTestWindow()
+        let loops = LoopVisibility("test.ownBegin", clock: clock)
+        loops.place(in: host.window)
+        let layer = CALayer()
+        let begin = layer.convertTime(CACurrentMediaTime(), from: nil) + 0.56
+        loops.attach(layer, key: "blink") {
+            let blink = CABasicAnimation(keyPath: "opacity")
+            blink.duration = 1
+            blink.repeatCount = .infinity
+            blink.beginTime = begin
+            return blink
+        }
+        #expect(layer.animation(forKey: "blink")?.beginTime == begin, "the shared clock took the loop's own begin")
+        host.set(.occluded)
+        #expect(layer.animation(forKey: "blink") == nil)
+        host.set(.visible)
+        #expect(layer.animation(forKey: "blink")?.beginTime == begin)
+    }
+
     /// Loops off (Reduce Motion): the make returns nil and the layer keeps no loop, visible or not.
     @Test func loopsOffAttachNothing() {
         Motion.reduceMotionOverride = true

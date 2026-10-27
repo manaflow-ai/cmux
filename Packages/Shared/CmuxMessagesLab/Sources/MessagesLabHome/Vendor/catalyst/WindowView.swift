@@ -238,6 +238,11 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// two views can show at two backing scales at the same time (cmux Home: windows on a 2x and a 1x display).
     /// The scale the view was made at (`Fixture.renderScale` then) until its first `setRenderScale`.
     private(set) var renderScale: CGFloat = Fixture.renderScale
+    /// cmux: where its loops run (p14-energy-115): the host's LoopHost (ChatController.install), handed to each
+    /// cell before its decorate and to the message box's field. A view no host gave one runs them as attached.
+    var loops = LabLoops.standalone() {
+        didSet { compose.textView.view.loops = loops }
+    }
 
     /// This view's window has another backing scale (it moved to a display with another scale, it was put in a
     /// window on another display, or a test forced one): every bitmap of this view is drawn again at the new scale,
@@ -2002,6 +2007,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         cell.fillSpan = fillSpan
         cell.renderScale = renderScale
         cell.inactive = inactive
+        cell.loops = loops // cmux: the view's LoopHost (p14-energy-115)
         cell.crispEdge = crispSends[r.spec.key] != nil
         cell.configure(r.spec)
         step(0)

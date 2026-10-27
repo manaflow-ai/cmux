@@ -41,7 +41,18 @@
      /// Rows drawn on the main thread because their bitmap was not ready
      /// (bench evidence).
      static var syncRenders = 0
-@@ -622,10 +640,14 @@
+@@ -601,6 +619,10 @@
+     /// inactive-per-view): the typing indicator's colours follow it (Fixture.typingColors). The window view sets it
+     /// before each configure (decorate), as `renderScale`; a cell no window view placed yet (iOS) keeps false.
+     var inactive = false
++    /// cmux: where the typing dots and breath run (p14-energy-115): the window view's LoopHost, set before each
++    /// configure (decorate) as `renderScale`, so a hidden or occluded window keeps no loop. A cell no window view
++    /// placed (tests) runs them as attached.
++    var loops = LabLoops.standalone()
+     /// The state this cell's typing colours were set for (configure repaints the row when `inactive` differs).
+     private var appliedInactive = false
+     /// The scale this cell's layers were set for (configure sets them again when `renderScale` differs).
+@@ -622,10 +644,14 @@
          let noActions: [String: CAAction] = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "path": NSNull(),
                                               "hidden": NSNull(), "opacity": NSNull(), "strokeEnd": NSNull(), "transform": NSNull()]
          appliedScale = renderScale
@@ -57,7 +68,7 @@
          typingBody.actions = noActions.merging(["fillColor": NSNull()]) { a, _ in a }
          fillMaskImage.actions = noActions.merging(["contentsCenter": NSNull()]) { a, _ in a }
          typingBody.frame = RowDraw.typingBubble
-@@ -638,15 +660,14 @@
+@@ -638,15 +664,14 @@
          // Circular ends with a flat top and bottom, as Messages' (its stills: the top row fully covered between the
          // ends). UIBezierPath(roundedRect:cornerRadius:) curves continuously at this radius: no flat part at all.
          let r = RowDraw.typingBubble.height / 2
@@ -75,7 +86,7 @@
          fillContainer.addSublayer(fillGradient)
          fillContainer.mask = fillMask
          connectorLine.backgroundColor = connector.strokeColor
-@@ -694,12 +715,23 @@
+@@ -694,12 +719,23 @@
          key = ""
          // A bitmap kept in a live resize is not the row's own: the next configure draws it, even for the same row.
          if liveKept { liveKept = false; spec = nil }
@@ -99,7 +110,7 @@
      func clearAnimations() {
          layer.removeAllAnimations()
          contentView.layer.removeAllAnimations()
-@@ -719,10 +751,11 @@
+@@ -719,10 +755,11 @@
              guard let spec else { return nil }
              switch spec.kind {
              case let .part(p): return p.text?.text ?? p.part.plainText
@@ -112,7 +123,7 @@
              default: return nil
              }
          }
-@@ -759,7 +792,7 @@
+@@ -759,7 +796,7 @@
          let frame = CGRect(x: span.lowerBound, y: 0, width: span.upperBound - span.lowerBound, height: s.height + 2 * RowDraw.margin)
          if let img = RowBitmaps.shared.image(for: s, scale: renderScale) {
              CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -121,7 +132,7 @@
              bitmap.frame = frame
              bitmap.contents = img
              shown(s, img, scale: renderScale)
-@@ -782,7 +815,7 @@
+@@ -782,7 +819,7 @@
          // A key state change of this cell's own window view repaints the row as a palette change did when the state
          // was process-wide (the typing colours follow it; host custom rows read their window's key state again).
          let repaint = palette != Fixture.paletteGeneration || rescaled || appliedInactive != inactive
@@ -130,7 +141,7 @@
          if let w = pendingWant, w != spec { dropWant() }
          if repaint {
              palette = Fixture.paletteGeneration
-@@ -790,14 +823,14 @@
+@@ -790,14 +827,14 @@
              appliedInactive = inactive
              CATransaction.begin(); CATransaction.setDisableActions(true)
              // A scale change: every layer this cell owns follows its window view's scale.
@@ -147,7 +158,7 @@
              CATransaction.commit()
              self.spec = nil
          }
-@@ -835,10 +868,10 @@
+@@ -835,10 +872,10 @@
          //   until the new bitmap arrives, then swap both in one transaction.
          // Old bitmaps are freed off the main thread (vm_deallocate blocked main
          // for up to 291 ms in the uikit-virtual profile).
@@ -160,7 +171,7 @@
              MediaPlaceholder.clear(bitmap)
              bitmap.frame = bitmapFrame
              bitmap.contents = img
-@@ -857,6 +890,7 @@
+@@ -857,6 +894,7 @@
              liveKept = true
              RowCell.liveKeptBitmaps += 1
          } else if RowCell.synchronousBitmaps || (!deferred && !(repaint && showingThisRow) && !(RowCell.reflow != nil && showingThisRow && Images.ready(spec))
@@ -168,7 +179,7 @@
                                                      && ((RowCell.transitionDepth > 0 && !RowCell.inPaging)
                                                          || (RowCell.mainDrawBudgetLeft() && Images.ready(spec)))) {
              // (A scrolled-in row whose image is not decoded waits for its off-main bitmap: no decode on main.)
-@@ -865,7 +899,7 @@
+@@ -865,7 +903,7 @@
              RowCell.mainDrawSpent += CACurrentMediaTime() - t0
              if let img { RowBitmaps.shared.insert([(spec, img)], scale: renderScale) } // an unallocated bitmap is not cached
              RowCell.syncRenders += 1
@@ -177,7 +188,7 @@
              MediaPlaceholder.clear(bitmap)
              bitmap.frame = bitmapFrame
              bitmap.contents = img
-@@ -880,12 +914,20 @@
+@@ -880,12 +918,20 @@
              var queued = false
              if deferred {
                  RowCell.deferredRenders += 1
@@ -199,7 +210,7 @@
              } else if showingThisRow {
                  // The same row is on screen with its previous bitmap and its spec changed: a new
                  // width (live resize, the sidebar divider: every visible row at once) or a palette
-@@ -907,7 +949,7 @@
+@@ -907,7 +953,7 @@
                  }
              } else {
                  RowCell.overBudget += 1
@@ -208,7 +219,7 @@
                  MediaPlaceholder.clear(bitmap)
                  bitmap.frame = bitmapFrame
                  bitmap.contents = nil
-@@ -923,9 +965,13 @@
+@@ -923,9 +969,13 @@
              RowBitmaps.shared.request(want, scale: renderScale) { [weak self, scale = renderScale] img in
                  if self?.pendingWant == want { self?.dropWant() }
                  // A bitmap of the scale the cell had at the request (a scale change since: its own request follows).
@@ -224,7 +235,7 @@
                  MediaPlaceholder.clear(self.bitmap)
                  self.bitmap.frame = bitmapFrame
                  self.bitmap.contents = img
-@@ -957,7 +1003,7 @@
+@@ -957,7 +1007,7 @@
          }
          guard bitmap.contents == nil || (bitmap.contents as AnyObject) !== (img as AnyObject) else { return }
          let span = RowDraw.drawSpan(spec)
@@ -233,7 +244,7 @@
          MediaPlaceholder.clear(bitmap)
          bitmap.frame = CGRect(x: span.lowerBound, y: 0, width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
          bitmap.contents = img
-@@ -1004,8 +1050,15 @@
+@@ -1004,8 +1054,15 @@
              DispatchQueue.concurrentPerform(iterations: specs.count) { i in
                  // checked reads and writes (crash ratchet)
                  let r0 = CACurrentMediaTime()
@@ -251,7 +262,7 @@
              }
              }
          }
-@@ -1023,7 +1076,7 @@
+@@ -1023,7 +1080,7 @@
          CATransaction.begin(); CATransaction.setDisableActions(true)
          for (k, (cell, spec, frame, sc)) in q.enumerated() where cell.spec == spec && cell.renderScale == sc {
              guard let img = images[k] else { continue }
@@ -260,7 +271,7 @@
              MediaPlaceholder.clear(cell.bitmap)
              cell.bitmap.frame = frame
              cell.bitmap.contents = img
-@@ -1197,8 +1250,11 @@
+@@ -1197,8 +1254,11 @@
          box.position = CGPoint(x: c.x - 20 + box.anchorPoint.x * size.width, y: c.y - 20 + box.anchorPoint.y * size.height)
          box.contentsScale = renderScale
          badgeTop = c.y - 20
@@ -274,7 +285,7 @@
          RowCell.placeFill(fill, windowTop: contentWindowY + badgeTop, width: size.width, span: fillSpan, reachBelow: fillReachBelow)
          if let holder = fill.superlayer, let mask = holder.mask as? CAShapeLayer {
              holder.frame = CGRect(origin: .zero, size: size)
-@@ -1386,7 +1442,7 @@
+@@ -1386,7 +1446,7 @@
          case let .label(_, outgoing, _), let .replies(_, _, outgoing): return outgoing
          case .receipt: return true
          case let .threadPreview(pv): return pv.outgoing
@@ -283,7 +294,7 @@
          }
      }
      /// The x (view pt) of the row's anchored side for a cell at `frame` (snapRow, the send morph's landing place): the
-@@ -1451,6 +1507,16 @@
+@@ -1451,6 +1511,16 @@
          clipTypingBody(Springs.typingBreathBody, about: Springs.typingBreathAnchor, begin: c.beginTime - Springs.typingBreathBody.start)
      }
  
@@ -300,7 +311,7 @@
      /// Window y of the cell's top: the outgoing fill shades with it.
      var windowY: CGFloat = 0 {
          didSet {
-@@ -1471,10 +1537,12 @@
+@@ -1471,10 +1541,12 @@
      /// down to this bubble: an arc that hangs from the root and a vertical
      /// stroke whose bottom stays 8.5 pt above this bubble. When the two rows
      /// move apart, the arc and the stroke's height animate (no path animation).
@@ -316,7 +327,7 @@
          connectorState = state
          CATransaction.begin(); CATransaction.setDisableActions(true)
          defer { CATransaction.commit() }
-@@ -1487,7 +1555,7 @@
+@@ -1487,7 +1559,7 @@
              contentView.layer.insertSublayer(connector, at: 0)
              contentView.layer.insertSublayer(connectorLine, at: 1)
          }
@@ -325,7 +336,7 @@
          let cx = x + r, cy = top + r
          let w = spec?.width ?? 628
          let p = UIBezierPath()
-@@ -1521,7 +1589,7 @@
+@@ -1521,7 +1593,7 @@
          CATransaction.begin(); CATransaction.setDisableActions(true)
          receiptOld.frame = bitmap.frame
          let span = RowDraw.drawSpan(spec)
@@ -334,17 +345,56 @@
          if receiptOld.superlayer == nil { contentView.layer.insertSublayer(receiptOld, above: bitmap) }
          var reuse: CGImage?
          #if !canImport(UIKit)
-@@ -1566,6 +1634,9 @@
-             a.isRemovedOnCompletion = false
-             a.calculationMode = .linear
-             if let p = Springs.typingStillPhase { a.speed = 0; a.timeOffset = p }
-+            // cmux: under Reduce Motion or the host's still loops (Energy Saver) the dots stand at the first dot's
-+            // peak, played once (cx-sya4n: nothing loops; p14-energy-027).
-+            else if MessagesLabHomeView.stillsLoops { a.speed = 0; a.timeOffset = Self.typingDotPeak; a.repeatCount = 1 }
-             hi.add(a, forKey: "dots")
+@@ -1551,23 +1623,32 @@
+     func startTypingDots(begin: CFTimeInterval) {
+         for (i, d) in dots.enumerated() {
+             guard let hi = d.sublayers?.first else { continue }
+-            let n = 60
+-            var values: [NSNumber] = []
+-            for k in 0...n {
+-                var x = Double(k) / Double(n) - Self.typingDotPeak - Double(i) * 0.251
+-                x -= x.rounded()
+-                values.append(NSNumber(value: exp(-(x / 0.223) * (x / 0.223))))
+-            }
+-            let a = CAKeyframeAnimation(keyPath: "opacity")
+-            a.values = values
+-            a.duration = 1
+-            a.repeatCount = .infinity
+-            a.beginTime = begin
+-            a.isRemovedOnCompletion = false
+-            a.calculationMode = .linear
+-            if let p = Springs.typingStillPhase { a.speed = 0; a.timeOffset = p }
+-            hi.add(a, forKey: "dots")
++            // cmux: through the window view's LoopHost (p14-energy-115); made again each time it shows.
++            loops.attach(hi, key: "dots") { Self.typingDotLoop(i, begin: begin) }
++        }
++    }
++
++    /// cmux: dot `i`'s pulse from `begin` (layer time), the make of startTypingDots' attach (p14-energy-115).
++    static func typingDotLoop(_ i: Int, begin: CFTimeInterval) -> CAAnimation {
++        let n = 60
++        var values: [NSNumber] = []
++        for k in 0...n {
++            var x = Double(k) / Double(n) - Self.typingDotPeak - Double(i) * 0.251
++            x -= x.rounded()
++            values.append(NSNumber(value: exp(-(x / 0.223) * (x / 0.223))))
          }
++        let a = CAKeyframeAnimation(keyPath: "opacity")
++        a.values = values
++        a.duration = 1
++        a.repeatCount = .infinity
++        a.beginTime = begin
++        a.isRemovedOnCompletion = false
++        a.calculationMode = .linear
++        if let p = Springs.typingStillPhase { a.speed = 0; a.timeOffset = p }
++        // cmux: under Reduce Motion or the host's still loops (Energy Saver) the dots stand at the first dot's
++        // peak, played once (cx-sya4n: nothing loops; p14-energy-027).
++        else if MessagesLabHomeView.stillsLoops { a.speed = 0; a.timeOffset = Self.typingDotPeak; a.repeatCount = 1 }
++        return a
      }
-@@ -1576,6 +1647,8 @@
+ 
+     /// Messages' indicator breathes while it shows (Springs.typingBreathBody, typingBreathDiscs): the bubble
+@@ -1576,14 +1657,17 @@
      func startTypingBreath(insert: CFTimeInterval) {
  #if !os(iOS) || targetEnvironment(macCatalyst)
          guard Springs.typingStillPhase == nil else { return }
@@ -353,7 +403,59 @@
          let a = RowDraw.typingAnchor, b = Springs.typingBreathAnchor
          // The container scales about RowDraw.typingAnchor; the opposite offset of a scale e about it moves the
          // fixed point to b: e x (a - b).
-@@ -1674,7 +1747,8 @@
+         let body = Springs.typingBreathBody
+-        Self.breathe(typingContainer, "transform.scale", body, gain: 1, begin: insert)
+-        Self.breathe(typingContainer, "position.x", body, gain: Double(a.x - b.x), begin: insert)
+-        Self.breathe(typingContainer, "position.y", body, gain: Double(a.y - b.y), begin: insert)
+-        for (l, w) in zip(typingDiscs, Springs.typingBreathDiscs) { Self.breathe(l, "transform.scale", w, gain: 1, begin: insert) }
++        // cmux: each wave through the window view's LoopHost (p14-energy-115).
++        breathe(typingContainer, "transform.scale", body, gain: 1, begin: insert)
++        breathe(typingContainer, "position.x", body, gain: Double(a.x - b.x), begin: insert)
++        breathe(typingContainer, "position.y", body, gain: Double(a.y - b.y), begin: insert)
++        for (l, w) in zip(typingDiscs, Springs.typingBreathDiscs) { breathe(l, "transform.scale", w, gain: 1, begin: insert) }
+         clipTypingBody(body, about: b, begin: insert)
+ #endif
+     }
+@@ -1655,18 +1739,29 @@
+         }
+         for (path, values) in [("position.x", x0), ("bounds.origin.x", x0), ("position.y", y0), ("bounds.origin.y", y0),
+                                ("bounds.size.width", wd), ("bounds.size.height", ht)] {
+-            let a = CAKeyframeAnimation(keyPath: path)
+-            a.values = values
+-            a.keyTimes = times
+-            a.calculationMode = .linear
+-            a.duration = w.period
+-            a.repeatCount = .infinity
+-            a.beginTime = begin + w.start
+-            a.isRemovedOnCompletion = false
+-            typingClip.add(a, forKey: "breath.clip.\(path)")
++            // cmux: through the window view's LoopHost (p14-energy-115).
++            loops.attach(typingClip, key: "breath.clip.\(path)") {
++                Self.clipLoop(path, values: values, times: times, period: w.period, begin: begin + w.start)
++            }
+         }
+     }
+ 
++    /// cmux: one key path of the clip's wave, the make of clipTypingBody's attach (p14-energy-115); nil when loops
++    /// are still (Reduce Motion, the host's still loops), so a show after they turned still brings no wave back.
++    private static func clipLoop(_ path: String, values: [NSNumber], times: [NSNumber], period: Double,
++                                 begin: CFTimeInterval) -> CAAnimation? {
++        guard !MessagesLabHomeView.stillsLoops else { return nil }
++        let a = CAKeyframeAnimation(keyPath: path)
++        a.values = values
++        a.keyTimes = times
++        a.calculationMode = .linear
++        a.duration = period
++        a.repeatCount = .infinity
++        a.beginTime = begin
++        a.isRemovedOnCompletion = false
++        return a
++    }
++
+     /// The clip's frame at rest and while the bubble appears: 2 pt around the body (no clip). Its bounds' origin is
+     /// its position, so the body keeps the container's coordinates (RowDraw.typingBubble).
+     static let typingClipRest = RowDraw.typingBubble.insetBy(dx: -2, dy: -2)
+@@ -1674,7 +1769,8 @@
      /// The typing row should breathe but does not (macOS, not a still scene): its breathing was stopped or never started.
      var needsTypingBreath: Bool {
  #if !os(iOS) || targetEnvironment(macCatalyst)
@@ -363,3 +465,44 @@
  #else
          false
  #endif
+@@ -1687,14 +1783,30 @@
+     /// (typing-unfocused-take1 +10.15 s, link-ask-instinct-take1).
+     func stopTypingBreath() {
+         for l in [typingContainer, typingClip] + typingDiscs {
++            // cmux: off the window view's LoopHost too, so a show does not bring the breath back (p14-energy-115).
++            for k in Self.breathKeys { loops.detach(l, key: k) }
+             for k in l.animationKeys() ?? [] where k.hasPrefix("breath.") { l.removeAnimation(forKey: k) }
+         }
+     }
+ 
++    /// cmux: every breath key startTypingBreath attaches (p14-energy-115): the waves of the container and the
++    /// discs, and the clip's.
++    static let breathKeys = ["transform.scale", "position.x", "position.y"].map { "breath.\($0)" }
++        + ["position.x", "bounds.origin.x", "position.y", "bounds.origin.y", "bounds.size.width", "bounds.size.height"]
++        .map { "breath.clip.\($0)" }
++
+     /// One additive repeating wave on `keyPath` (Springs.Breath): gain x amplitude x (1 - cos(2 pi u)) / 2,
+     /// u = (t - start) / period, from `begin + start` on (61 linear keyframes per period; render server).
+-    private static func breathe(_ l: CALayer, _ keyPath: String, _ w: Springs.Breath, gain: Double, begin: CFTimeInterval) {
++    /// cmux: through the window view's LoopHost (p14-energy-115).
++    private func breathe(_ l: CALayer, _ keyPath: String, _ w: Springs.Breath, gain: Double, begin: CFTimeInterval) {
+         guard w.amplitude > 0, w.period > 0, abs(gain) > 1e-9 else { return }
++        loops.attach(l, key: "breath.\(keyPath)") { Self.breathLoop(keyPath, w, gain: gain, begin: begin) }
++    }
++
++    /// cmux: the wave of `breathe`, the make of its attach (p14-energy-115); nil when loops are still (Reduce Motion,
++    /// the host's still loops), so a show after they turned still brings no breath back.
++    private static func breathLoop(_ keyPath: String, _ w: Springs.Breath, gain: Double, begin: CFTimeInterval) -> CAAnimation? {
++        guard !MessagesLabHomeView.stillsLoops else { return nil }
+         let n = 60
+         var values: [NSNumber] = []
+         for k in 0...n { values.append(NSNumber(value: gain * w.amplitude * (1 - cos(2 * .pi * Double(k) / Double(n))) / 2)) }
+@@ -1706,7 +1818,7 @@
+         a.isAdditive = true
+         a.isRemovedOnCompletion = false
+         a.calculationMode = .linear
+-        l.add(a, forKey: "breath.\(keyPath)")
++        return a
+     }
+ }
+ 

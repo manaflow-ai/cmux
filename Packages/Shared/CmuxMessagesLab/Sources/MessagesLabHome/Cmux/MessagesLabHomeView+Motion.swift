@@ -65,7 +65,7 @@ extension FieldTextView {
     func applyReduceMotion() {
         let state = caretState
         if MessagesLabHomeView.reducesMotion {
-            caretLayer.removeAnimation(forKey: "blink")
+            loops.detach(caretLayer, key: "blink")
             caretLayer.opacity = 1
         } else if state.shown, !state.blinks {
             startBlink()

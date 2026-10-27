@@ -23,7 +23,8 @@ struct UpdateSheetView: View {
                     .font(.system(size: Metrics.iconSize * 1.6, weight: .regular))
                     .foregroundStyle(Color(nsColor: Palette.textSecondary))
                     .frame(width: Metrics.iconSize * 2)
-                    .modifier(IndeterminateSymbolEffect(isActive: content.progress == .indeterminate))
+                    // Still while loops are off or the sheet's window does not show (p14-energy-115).
+                    .indeterminateSymbolEffect(isActive: content.progress == .indeterminate)
                 VStack(alignment: .leading, spacing: Metrics.space2) {
                     Text(content.title)
                         .font(Font(Typography.bodyEmphasized))
@@ -48,7 +49,7 @@ struct UpdateSheetView: View {
         case .none:
             EmptyView()
         case .indeterminate:
-            ProgressView().progressViewStyle(.linear).padding(.top, Metrics.space2)
+            IndeterminateProgressBar().padding(.top, Metrics.space2)
         case .fraction(let value):
             ProgressView(value: value).progressViewStyle(.linear).padding(.top, Metrics.space2)
         }
@@ -81,27 +82,5 @@ struct UpdateSheetView: View {
     private func press(_ button: UpdateSheetButton) {
         source.perform(button)
         if button.dismisses { dismiss() }
-    }
-}
-
-/// The indeterminate-progress symbol effect: rotate on macOS 15 and newer,
-/// pulse on macOS 14 (no rotate effect there). Still while loops are off
-/// (Reduce Motion or `ui.animationSpeed` off; cx-sya4n: nothing loops). The
-/// body reads `Motion` through Observation (``AppearanceSignals``), so a Reduce
-/// Motion pin, the system setting or a motion switch re-runs it while the sheet shows.
-private struct IndeterminateSymbolEffect: ViewModifier {
-    let isActive: Bool
-
-    func body(content: Content) -> some View {
-        let runs = isActive && Motion.indicators.animatesLoops
-        return Group {
-            if #available(macOS 15, *) {
-                // motion: allow the effect runs only while Motion.indicators.animatesLoops (`runs`)
-                content.symbolEffect(.rotate, isActive: runs)
-            } else {
-                // motion: allow the effect runs only while Motion.indicators.animatesLoops (`runs`)
-                content.symbolEffect(.pulse, isActive: runs)
-            }
-        }
     }
 }

@@ -45,9 +45,11 @@ final class HomeReduceMotion {
         shared.views.add(transcript)
     }
 
-    /// Installs, then re-applies Reduce Motion to `list` on each change while it lives.
+    /// Installs, then re-applies Reduce Motion to `list` on each change while it lives; its typing
+    /// bubbles pulse only while its window shows (p14-energy-115).
     static func follow(_ list: CmuxSidebarView) {
         install()
+        list.loops = HomeLoopProbe("home.sidebar.loops")
         shared.views.add(list)
     }
 

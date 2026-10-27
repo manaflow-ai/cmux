@@ -374,6 +374,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private var viewWakeAt = Double.infinity
     /// cmux: where the pane's display frames come from (CmuxNext: its FrameScheduler).
     private let frameSource: any FrameTickSource
+    /// cmux: where the transcript's loops run (the caret's blink, the typing dots and breath; p14-energy-115):
+    /// CmuxNext's `LoopVisibility` of the pane, so none runs while its window is hidden or occluded.
+    let loops: LabLoops
     /// The next display frame of the pane's screen (MessagesLab bd65bbf FrameTick).
     private(set) lazy var frameTick = FrameTick(view: host, source: frameSource)
     /// Runs work at the start of the next display frame (FrameTick; tests capture it).
@@ -468,11 +471,12 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var followsKeyWindow = ChatController.args.contains("--follow-key-state")
 
     init(host: HostView = HostView(frame: NSRect(origin: .zero, size: Fixture.windowSize)), wake: ChatWakeScheduler,
-         frames: any FrameTickSource = DisplayLinkFrameTicks()) {
+         frames: any FrameTickSource = DisplayLinkFrameTicks(), loops: LabLoops = .standalone()) {
         HomeMarkdownPolicy.install()  // cmux: before the first Markdown parse
         self.host = host
         self.wake = wake
         self.frameSource = frames
+        self.loops = loops
         super.init()
         host.controller = self
         // The scroller's fade-in, widen and hide on the host's timer (CmuxNext: DemandTimer).
@@ -496,6 +500,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         store.setThreadMode(.tree)
         start = CACurrentMediaTime()
         let demo = MessagesWindowView(store: store)
+        demo.loops = loops  // its cells and its message box's caret loop through the pane's host
         self.demo = demo
         demo.clock = { [weak self] in self?.clock ?? 0 }
         demo.requestWake = { [weak self] t in self?.requestViewWake(t) }

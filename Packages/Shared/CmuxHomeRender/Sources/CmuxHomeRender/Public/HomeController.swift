@@ -88,16 +88,20 @@ public final class HomeController {
     ///   - deadline: the host's one-shot timer for cleanup after animations.
     ///   - memoryBudget: what the bitmap and picture caches keep (the Mac passes its share of
     ///     its memory budget; the default sizes it from the device's memory).
+    ///   - loops: where the caret blink and the typing dots run. A Mac host passes the
+    ///     `LoopVisibility` of its view, so they stop while its window is hidden or occluded; the
+    ///     default runs them as attached (iOS, where a background app does not draw, and tests).
     public init(conversation: ConversationID, me: ParticipantID, palette: HomePalette, deadline: any HomeDeadline,
                 calendar: Calendar = .autoupdatingCurrent, locale: Locale = .autoupdatingCurrent,
                 memoryBudget: HomeMemoryBudget = .forDevice(),
+                loops: any LoopHost = StandaloneLoopHost(),
                 now: @escaping @MainActor () -> Date = { Date() }) {
         self.conversation = conversation
         self.me = me
         self.deadline = deadline
         self.memoryBudget = memoryBudget
         currentDate = now
-        scene = HomeScene(palette: palette, memoryBudget: memoryBudget)
+        scene = HomeScene(palette: palette, memoryBudget: memoryBudget, loops: loops)
         builder = RowBuilder(format: RowFormat(calendar: calendar, locale: locale))
         container.actions = RowLayer.noActions
         container.masksToBounds = true

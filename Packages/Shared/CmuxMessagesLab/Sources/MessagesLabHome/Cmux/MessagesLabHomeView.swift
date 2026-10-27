@@ -25,9 +25,14 @@ public final class MessagesLabHomeView: NSView {
     ///     JavaScriptCore Ondine renderer); nil keeps them as text.
     ///   - replies: how an agent's running reply shows: ``HomeReplyDisplay/wholeMessages`` (default:
     ///     typing dots, then each message whole) or the older token-by-token stream bubble.
+    ///   - loops: where the caret's blink and the typing dots and breath run (p14-energy-115). A host
+    ///     that is a view goes in this view, so it follows this view's window and hidden state
+    ///     (CmuxNext's `HomeLoopProbe`: none runs while the window is hidden or occluded). The default
+    ///     runs them as attached (tests, the harness).
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler,
                 frames: any FrameTickSource = DisplayLinkFrameTicks(),
-                diagrams: (any HomeDiagramRendering)? = nil, replies: HomeReplyDisplay = .wholeMessages) {
+                diagrams: (any HomeDiagramRendering)? = nil, replies: HomeReplyDisplay = .wholeMessages,
+                loops: any LoopHost = StandaloneLoopHost()) {
         MessagesLabHomeView.liveFormatting()
         HomeMarkdownPolicy.install()
         // Before the projection maps its first messages, so they split at their fences (a fence shows
@@ -35,13 +40,14 @@ public final class MessagesLabHomeView: NSView {
         if let diagrams { HomeDiagramRowProvider.install(diagrams) }
         // An agent's pipe tables as full-width table and plan cards (Leo 2026-10-20).
         HomeTableRowProvider.install()
-        controller = ChatController(wake: wake, frames: frames)
+        controller = ChatController(wake: wake, frames: frames, loops: LabLoops(loops))
         // Link cards fetch their preview (title, image) for links the user or an agent sent (README).
         projection = HomeProjection(store: store, conversation: conversation, me: me, controller: controller,
                                     linkPreviews: HomeLinkPreviews(), replies: replies)
         super.init(frame: .zero)
         wantsLayer = true
         addSubview(controller.host)
+        if let probe = loops as? NSView { addSubview(probe) }
         projection.start()
     }
 

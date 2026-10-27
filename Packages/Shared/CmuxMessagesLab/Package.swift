@@ -48,6 +48,10 @@ let package = Package(
         ),
         .target(
             name: "MessagesLabSidebar",
+            // CmuxHomeCore only for its LoopHost (p14-energy-115, Cmux/SidebarLoops.swift).
+            dependencies: [
+                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+            ],
             resources: [
                 .process("Resources/SidebarLocalizable.xcstrings"),
             ],

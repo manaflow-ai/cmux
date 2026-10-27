@@ -106,6 +106,9 @@ final class FieldTextView: NSTextView {
     private let caretView = CaretView()
     /// A plain sublayer of the caret view's layer (AppKit manages the view's own layer).
     let caretLayer = CALayer()
+    /// cmux: where the blink runs (p14-energy-115): the window view's LoopHost (ChatController.install), so a
+    /// hidden or occluded window keeps no blink. A field made alone (tests, the inline editor) runs it as attached.
+    var loops = LabLoops.standalone()
     /// Off: AppKit's own indicator (`--appkit-caret`, and capture mode, which draws its own).
     static let ownCaret = !ProcessInfo.processInfo.arguments.contains("--appkit-caret")
     /// `--caret-log`: caret placements and blink restarts to /tmp/caret.log (diagnostics).
@@ -191,7 +194,8 @@ final class FieldTextView: NSTextView {
             }
             if Self.caretLog { Self.log("line \(local) caret \(caretFrame) shown \(show) reset \(reset)") }
         }
-        guard show else { caretView.isHidden = true; caretLayer.removeAllAnimations(); return }
+        // cmux: a hidden caret leaves the LoopHost too, so a show does not bring its blink back (p14-energy-115).
+        guard show else { caretView.isHidden = true; loops.detach(caretLayer, key: "blink"); caretLayer.removeAllAnimations(); return }
         caretView.frame = caretFrame
         let wasHidden = caretView.isHidden
         caretView.isHidden = false
@@ -225,8 +229,16 @@ final class FieldTextView: NSTextView {
         if Self.caretLog { Self.log("blink restart \(CACurrentMediaTime())") }
         caretLayer.removeAnimation(forKey: "blink")
         caretLayer.opacity = 1
-        // cmux: under Reduce Motion the caret holds solid (cx-sya4n: nothing loops).
-        if Self.solidCaret || MessagesLabHomeView.reducesMotion { return }
+        // cmux: under Reduce Motion the caret holds solid (cx-sya4n: nothing loops), off the LoopHost (p14-energy-115).
+        if Self.solidCaret || MessagesLabHomeView.reducesMotion { loops.detach(caretLayer, key: "blink"); return }
+        // Solid (the model value 1) until the blink begins, then it repeats.
+        let begin = caretLayer.convertTime(CACurrentMediaTime(), from: nil) + Self.caretSolid
+        // cmux: through the window view's LoopHost (p14-energy-115): a show puts the blink back at its phase.
+        loops.attach(caretLayer, key: "blink") { Self.blinkLoop(begin: begin) }
+    }
+
+    /// cmux: the blink from `begin` (layer time), the make of startBlink's attach (p14-energy-115).
+    static func blinkLoop(begin: CFTimeInterval) -> CAAnimation {
         let a = CAKeyframeAnimation(keyPath: "opacity")
         a.calculationMode = .discrete
         // One period from the first fade-out: out 1 -> 0 in four steps, off, in 0 -> 1.
@@ -235,10 +247,9 @@ final class FieldTextView: NSTextView {
         a.keyTimes = [0, 0.035, 0.07, 0.105, 0.34, 0.375, 0.41, 0.445, 1]
         a.duration = 1.0
         a.repeatCount = .infinity
-        // Solid (the model value 1) until the blink begins, then it repeats.
-        a.beginTime = caretLayer.convertTime(CACurrentMediaTime(), from: nil) + Self.caretSolid
+        a.beginTime = begin
         a.isRemovedOnCompletion = false
-        caretLayer.add(a, forKey: "blink")
+        return a
     }
 
     override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {

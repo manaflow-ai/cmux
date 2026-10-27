@@ -619,6 +619,10 @@ final class RowCell: UICollectionViewCell {
     /// inactive-per-view): the typing indicator's colours follow it (Fixture.typingColors). The window view sets it
     /// before each configure (decorate), as `renderScale`; a cell no window view placed yet (iOS) keeps false.
     var inactive = false
+    /// cmux: where the typing dots and breath run (p14-energy-115): the window view's LoopHost, set before each
+    /// configure (decorate) as `renderScale`, so a hidden or occluded window keeps no loop. A cell no window view
+    /// placed (tests) runs them as attached.
+    var loops = LabLoops.standalone()
     /// The state this cell's typing colours were set for (configure repaints the row when `inactive` differs).
     private var appliedInactive = false
     /// The scale this cell's layers were set for (configure sets them again when `renderScale` differs).
@@ -1619,26 +1623,32 @@ final class RowCell: UICollectionViewCell {
     func startTypingDots(begin: CFTimeInterval) {
         for (i, d) in dots.enumerated() {
             guard let hi = d.sublayers?.first else { continue }
-            let n = 60
-            var values: [NSNumber] = []
-            for k in 0...n {
-                var x = Double(k) / Double(n) - Self.typingDotPeak - Double(i) * 0.251
-                x -= x.rounded()
-                values.append(NSNumber(value: exp(-(x / 0.223) * (x / 0.223))))
-            }
-            let a = CAKeyframeAnimation(keyPath: "opacity")
-            a.values = values
-            a.duration = 1
-            a.repeatCount = .infinity
-            a.beginTime = begin
-            a.isRemovedOnCompletion = false
-            a.calculationMode = .linear
-            if let p = Springs.typingStillPhase { a.speed = 0; a.timeOffset = p }
-            // cmux: under Reduce Motion or the host's still loops (Energy Saver) the dots stand at the first dot's
-            // peak, played once (cx-sya4n: nothing loops; p14-energy-027).
-            else if MessagesLabHomeView.stillsLoops { a.speed = 0; a.timeOffset = Self.typingDotPeak; a.repeatCount = 1 }
-            hi.add(a, forKey: "dots")
+            // cmux: through the window view's LoopHost (p14-energy-115); made again each time it shows.
+            loops.attach(hi, key: "dots") { Self.typingDotLoop(i, begin: begin) }
         }
+    }
+
+    /// cmux: dot `i`'s pulse from `begin` (layer time), the make of startTypingDots' attach (p14-energy-115).
+    static func typingDotLoop(_ i: Int, begin: CFTimeInterval) -> CAAnimation {
+        let n = 60
+        var values: [NSNumber] = []
+        for k in 0...n {
+            var x = Double(k) / Double(n) - Self.typingDotPeak - Double(i) * 0.251
+            x -= x.rounded()
+            values.append(NSNumber(value: exp(-(x / 0.223) * (x / 0.223))))
+        }
+        let a = CAKeyframeAnimation(keyPath: "opacity")
+        a.values = values
+        a.duration = 1
+        a.repeatCount = .infinity
+        a.beginTime = begin
+        a.isRemovedOnCompletion = false
+        a.calculationMode = .linear
+        if let p = Springs.typingStillPhase { a.speed = 0; a.timeOffset = p }
+        // cmux: under Reduce Motion or the host's still loops (Energy Saver) the dots stand at the first dot's
+        // peak, played once (cx-sya4n: nothing loops; p14-energy-027).
+        else if MessagesLabHomeView.stillsLoops { a.speed = 0; a.timeOffset = Self.typingDotPeak; a.repeatCount = 1 }
+        return a
     }
 
     /// Messages' indicator breathes while it shows (Springs.typingBreathBody, typingBreathDiscs): the bubble
@@ -1653,10 +1663,11 @@ final class RowCell: UICollectionViewCell {
         // The container scales about RowDraw.typingAnchor; the opposite offset of a scale e about it moves the
         // fixed point to b: e x (a - b).
         let body = Springs.typingBreathBody
-        Self.breathe(typingContainer, "transform.scale", body, gain: 1, begin: insert)
-        Self.breathe(typingContainer, "position.x", body, gain: Double(a.x - b.x), begin: insert)
-        Self.breathe(typingContainer, "position.y", body, gain: Double(a.y - b.y), begin: insert)
-        for (l, w) in zip(typingDiscs, Springs.typingBreathDiscs) { Self.breathe(l, "transform.scale", w, gain: 1, begin: insert) }
+        // cmux: each wave through the window view's LoopHost (p14-energy-115).
+        breathe(typingContainer, "transform.scale", body, gain: 1, begin: insert)
+        breathe(typingContainer, "position.x", body, gain: Double(a.x - b.x), begin: insert)
+        breathe(typingContainer, "position.y", body, gain: Double(a.y - b.y), begin: insert)
+        for (l, w) in zip(typingDiscs, Springs.typingBreathDiscs) { breathe(l, "transform.scale", w, gain: 1, begin: insert) }
         clipTypingBody(body, about: b, begin: insert)
 #endif
     }
@@ -1728,16 +1739,27 @@ final class RowCell: UICollectionViewCell {
         }
         for (path, values) in [("position.x", x0), ("bounds.origin.x", x0), ("position.y", y0), ("bounds.origin.y", y0),
                                ("bounds.size.width", wd), ("bounds.size.height", ht)] {
-            let a = CAKeyframeAnimation(keyPath: path)
-            a.values = values
-            a.keyTimes = times
-            a.calculationMode = .linear
-            a.duration = w.period
-            a.repeatCount = .infinity
-            a.beginTime = begin + w.start
-            a.isRemovedOnCompletion = false
-            typingClip.add(a, forKey: "breath.clip.\(path)")
+            // cmux: through the window view's LoopHost (p14-energy-115).
+            loops.attach(typingClip, key: "breath.clip.\(path)") {
+                Self.clipLoop(path, values: values, times: times, period: w.period, begin: begin + w.start)
+            }
         }
+    }
+
+    /// cmux: one key path of the clip's wave, the make of clipTypingBody's attach (p14-energy-115); nil when loops
+    /// are still (Reduce Motion, the host's still loops), so a show after they turned still brings no wave back.
+    private static func clipLoop(_ path: String, values: [NSNumber], times: [NSNumber], period: Double,
+                                 begin: CFTimeInterval) -> CAAnimation? {
+        guard !MessagesLabHomeView.stillsLoops else { return nil }
+        let a = CAKeyframeAnimation(keyPath: path)
+        a.values = values
+        a.keyTimes = times
+        a.calculationMode = .linear
+        a.duration = period
+        a.repeatCount = .infinity
+        a.beginTime = begin
+        a.isRemovedOnCompletion = false
+        return a
     }
 
     /// The clip's frame at rest and while the bubble appears: 2 pt around the body (no clip). Its bounds' origin is
@@ -1761,14 +1783,30 @@ final class RowCell: UICollectionViewCell {
     /// (typing-unfocused-take1 +10.15 s, link-ask-instinct-take1).
     func stopTypingBreath() {
         for l in [typingContainer, typingClip] + typingDiscs {
+            // cmux: off the window view's LoopHost too, so a show does not bring the breath back (p14-energy-115).
+            for k in Self.breathKeys { loops.detach(l, key: k) }
             for k in l.animationKeys() ?? [] where k.hasPrefix("breath.") { l.removeAnimation(forKey: k) }
         }
     }
 
+    /// cmux: every breath key startTypingBreath attaches (p14-energy-115): the waves of the container and the
+    /// discs, and the clip's.
+    static let breathKeys = ["transform.scale", "position.x", "position.y"].map { "breath.\($0)" }
+        + ["position.x", "bounds.origin.x", "position.y", "bounds.origin.y", "bounds.size.width", "bounds.size.height"]
+        .map { "breath.clip.\($0)" }
+
     /// One additive repeating wave on `keyPath` (Springs.Breath): gain x amplitude x (1 - cos(2 pi u)) / 2,
     /// u = (t - start) / period, from `begin + start` on (61 linear keyframes per period; render server).
-    private static func breathe(_ l: CALayer, _ keyPath: String, _ w: Springs.Breath, gain: Double, begin: CFTimeInterval) {
+    /// cmux: through the window view's LoopHost (p14-energy-115).
+    private func breathe(_ l: CALayer, _ keyPath: String, _ w: Springs.Breath, gain: Double, begin: CFTimeInterval) {
         guard w.amplitude > 0, w.period > 0, abs(gain) > 1e-9 else { return }
+        loops.attach(l, key: "breath.\(keyPath)") { Self.breathLoop(keyPath, w, gain: gain, begin: begin) }
+    }
+
+    /// cmux: the wave of `breathe`, the make of its attach (p14-energy-115); nil when loops are still (Reduce Motion,
+    /// the host's still loops), so a show after they turned still brings no breath back.
+    private static func breathLoop(_ keyPath: String, _ w: Springs.Breath, gain: Double, begin: CFTimeInterval) -> CAAnimation? {
+        guard !MessagesLabHomeView.stillsLoops else { return nil }
         let n = 60
         var values: [NSNumber] = []
         for k in 0...n { values.append(NSNumber(value: gain * w.amplitude * (1 - cos(2 * .pi * Double(k) / Double(n))) / 2)) }
@@ -1780,7 +1818,7 @@ final class RowCell: UICollectionViewCell {
         a.isAdditive = true
         a.isRemovedOnCompletion = false
         a.calculationMode = .linear
-        l.add(a, forKey: "breath.\(keyPath)")
+        return a
     }
 }
 

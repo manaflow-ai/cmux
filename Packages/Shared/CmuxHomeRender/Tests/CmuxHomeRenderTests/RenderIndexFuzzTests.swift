@@ -34,7 +34,7 @@ import Testing
     @Test func decoratingARowOfAStaleIndexDoesNothing() {
         let c = Fixtures.controller(width: 628, height: 900)
         c.update(items: Fixtures.items(Fixtures.conversation(6)), summary: Fixtures.summary(), typing: [], hasOlder: false)
-        let row = RowLayer()
+        let row = RowLayer(loops: StandaloneLoopHost())
         c.scene.decorate(row, c.scene.model.count + 7)
         c.scene.decorate(row, -1)
         #expect(row.key.isEmpty, "a stale index configures nothing")

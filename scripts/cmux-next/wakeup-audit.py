@@ -18,7 +18,13 @@ animation in the code that runs while the app is idle:
                 Report-only: the work list goes to ghostty-next's owner (PL-ghostty), `--strict` never fails on it
 
 The Swift rules are check-concurrency.sh's WAKEUP_RULES (read from that file, one definition), plus
-TimelineView(.periodic / .animation), NSWindow.didUpdateNotification and `.activeAlways`. The cxx rules are
+TimelineView(.periodic / .animation), NSWindow.didUpdateNotification, `.activeAlways` and SwiftUI's own loops (an
+indefinite `symbolEffect`, an indeterminate `ProgressView`, `repeatForever`, `startAnimation`), which only
+CmuxNextDesign's VisibleLoopEffects.swift writes, gated by its window's visibility and the motion switches. In
+swift-shared an infinite Core Animation loop (`repeatCount = .infinity`) must come from a maker, a function that
+returns the animation, and every call of a maker in the package must be the make closure of a LoopHost
+`.attach(` (CmuxHomeCore), or sit in a maker in its turn; the site in a non-maker and each other call is a hit
+(CmuxNext's own loops are LoopRegistrationTests'). The cxx rules are
 dispatch_after, NSTimer, CFRunLoopTimer, dispatch timer sources, performSelector afterDelay:, PostDelayedTask /
 CefPostDelayedTask, sleeps, timed condition waits and `for (;;)` / `while (true)`; such a loop whose own braced
 body (or `do { }` body) blocks on its looping path has status `blocking`: reported, never open. Blocking is an
@@ -104,6 +110,12 @@ class Rule:
     literal: str = ""
     # Matches inside string literals count (an inline style's `animation: "spin 1s infinite"`).
     in_strings: bool = False
+    # The languages it audits (empty: every language the rule list is used for).
+    langs: frozenset[str] = frozenset()
+    # Repository-relative files that are the sanctioned owner of what the rule finds (never hits).
+    owners: tuple[str, ...] = ()
+    # An infinite-animation site judged through its maker's calls (loop_host_hits) instead of by itself.
+    maker: bool = False
 
 
 @dataclass
@@ -141,7 +153,25 @@ def swift_wakeup_rules(repo: Path) -> list[Rule]:
              re.compile(r"\bNSWindow\.didUpdateNotification\b"), repeating=True),
         Rule("active-always", ".activeAlways tracking areas wake the app for mouse moves while inactive "
              "(use .activeInKeyWindow or .activeInActiveApp)", re.compile(r"\.activeAlways\b")),
+        Rule("swiftui-loop", "a SwiftUI loop runs while its window is hidden or occluded (use VisibleLoopEffects: "
+             "indeterminateSymbolEffect, IndeterminateProgressBar)", SWIFTUI_LOOP, repeating=True,
+             owners=SWIFTUI_LOOP_OWNERS),
+        Rule("infinite-loop", "an infinite Core Animation loop outside a LoopHost draws for a hidden view (return it "
+             "from a maker and add it with loops.attach(layer, key:) { maker() })", INFINITE_LOOP, repeating=True,
+             langs=frozenset({"swift-shared"}), maker=True),
     ]
+
+
+# SwiftUI's infinite loops (p14-energy-115): a symbol effect with no `value:` (indefinite: it repeats while active),
+# an indeterminate ProgressView (no `value:`; a timerInterval one counts too), a repeatForever animation and
+# NSProgressIndicator.startAnimation.
+SWIFTUI_LOOP = re.compile(r"\.symbolEffect\s*\((?![^()]*\bvalue\s*:)|\bProgressView\s*\((?![^()]*\bvalue\s*:)|"
+                          r"\.repeatForever\s*\(|\.startAnimation\s*\(")
+SWIFTUI_LOOP_OWNERS = (f"{CMUXNEXT}/Sources/CmuxNextDesign/Motion/VisibleLoopEffects.swift",)
+# An infinite Core Animation loop.
+INFINITE_LOOP = re.compile(r"\brepeatCount\s*=\s*(?:Float|CGFloat|Double)?\.(?:infinity|greatestFiniteMagnitude)\b|"
+                           r"\brepeatDuration\s*=\s*(?:CFTimeInterval|TimeInterval|Double)?\.(?:infinity|"
+                           r"greatestFiniteMagnitude)\b")
 
 
 # Rust: definitions (`fn wait_timeout(`) are not calls.
@@ -1095,15 +1125,19 @@ def mask_lang(lang: str, suffix: str) -> str:
 
 
 def audit_file(repo: Path, lang: str, group: str, path: Path, rules: list[Rule], periodic_owners: set[str],
-               skip: list[tuple[int, int]] = (), raw: str | None = None, code: str | None = None) -> list[Hit]:
+               skip: list[tuple[int, int]] = (), raw: str | None = None, code: str | None = None,
+               makers: frozenset[str] | None = None) -> list[Hit]:
     raw = path.read_text(encoding="utf-8", errors="replace") if raw is None else raw
-    return audit_text(lang, group, path.relative_to(repo).as_posix(), raw, rules, periodic_owners, skip, code)
+    return audit_text(lang, group, path.relative_to(repo).as_posix(), raw, rules, periodic_owners, skip, code, makers)
 
 
 def audit_text(lang: str, group: str, rel: str, raw: str, rules: list[Rule], periodic_owners: set[str],
-               skip: list[tuple[int, int]] = (), code: str | None = None) -> list[Hit]:
-    """The hits of one file's text RAW (repository path REL)."""
+               skip: list[tuple[int, int]] = (), code: str | None = None,
+               makers: frozenset[str] | None = None) -> list[Hit]:
+    """The hits of one file's text RAW (repository path REL). MAKERS: the loop makers of the file's group
+    (group_makers); None judges with the file's own."""
     mlang = mask_lang(lang, Path(rel).suffix)
+    rules = [r for r in rules if (not r.langs or lang in r.langs) and rel not in r.owners]
     if lang == "zig":
         code = mask(raw, mlang) if code is None else code
         rules = rules + zig_timer_rules(code)
@@ -1120,10 +1154,12 @@ def audit_text(lang: str, group: str, rel: str, raw: str, rules: list[Rule], per
         text = with_strings if rule.in_strings else code
         if rule.literal not in text:
             continue
-        for m in rule.pattern.finditer(text):
-            index = bisect.bisect_right(starts, m.start()) - 1
-            if (index, rule.id) not in found and not any(a <= m.start() < b for a, b in skip):
-                found[(index, rule.id)] = m.start()
+        spots = loop_host_hits(code, tree, rule.pattern, makers) if rule.maker else \
+            [m.start() for m in rule.pattern.finditer(text)]
+        for at in spots:
+            index = bisect.bisect_right(starts, at) - 1
+            if (index, rule.id) not in found and not any(a <= at < b for a, b in skip):
+                found[(index, rule.id)] = at
     event = cxx_events(code, tree) if lang == "cxx" and found else None
     timers = [r for r in rules if r.id not in WAITS] if lang in ("cxx", "zig") else []
     arming = re.compile("|".join(r.pattern.pattern for r in timers) or "(?!)")
@@ -1143,6 +1179,89 @@ def audit_text(lang: str, group: str, rel: str, raw: str, rules: list[Rule], per
             kind = shape(at, code, tree, mlang, event) if tree else "oneshot"
         hits.append(Hit(lang, group, rel, index + 1, rule.id, kind, status, word, lines.raw[index].strip()))
     return hits
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Infinite Core Animation loops in swift-shared (p14-energy-115): a maker returns the loop, a LoopHost attaches it.
+
+# A function header that returns an animation (`-> CAAnimation`, `-> CAKeyframeAnimation?`).
+_RETURNS_ANIMATION = re.compile(r"->\s*CA\w*Animation\w*\s*[?!]?\s*(?:where\b[^{]*)?$")
+# The header of a LoopHost attach's make closure: `loops.attach(layer, key: "spin") {`.
+_ATTACH_CALL = re.compile(r"\.attach\s*\(")
+# A name's declaration, not a call: `func spin(`.
+_DECLARES = re.compile(r"\bfunc\s+$")
+
+
+def _header(code: str, block: Block) -> str:
+    return swift_statement(code[block.header_start:block.open].strip())
+
+
+def _function_around(at: int, tree: list[Block]) -> Block | None:
+    functions = [b for b in tree if b.function and b.open < at < b.close]
+    return max(functions, key=lambda b: b.open) if functions else None
+
+
+def _maker(code: str, function: Block | None) -> bool:
+    """FUNCTION returns an animation: a maker, judged at its calls."""
+    return function is not None and bool(function.name) and bool(_RETURNS_ANIMATION.search(_header(code, function)))
+
+
+def _attached(at: int, code: str, tree: list[Block]) -> bool:
+    """The call at AT is in the make closure of a LoopHost attach (no function between them)."""
+    for block in sorted((b for b in tree if b.open < at < b.close), key=lambda b: b.open, reverse=True):
+        if block.function:
+            return False
+        if _ATTACH_CALL.search(_header(code, block)):
+            return True
+    return False
+
+
+def _maker_calls(code: str, names: set[str] | frozenset[str]) -> list[int]:
+    if not names:
+        return []
+    call = re.compile(r"(?<![\w])(?:" + "|".join(map(re.escape, sorted(names))) + r")\s*\(")
+    return [m.start() for m in call.finditer(code) if not _DECLARES.search(code, max(0, m.start() - 40), m.start())]
+
+
+def file_makers(code: str, tree: list[Block], pattern: re.Pattern[str], known: set[str] | frozenset[str]) -> set[str]:
+    """The makers CODE declares: functions that return an animation and hold an infinite loop or call a maker."""
+    makers = {f.name for f in (_function_around(m.start(), tree) for m in pattern.finditer(code)) if _maker(code, f)}
+    while True:
+        more = {f.name for f in (_function_around(at, tree) for at in _maker_calls(code, set(known) | makers))
+                if _maker(code, f)} - makers
+        if not more:
+            return makers
+        makers |= more
+
+
+def group_makers(files: list[tuple[str, Path]], pattern: re.Pattern[str]) -> dict[str, frozenset[str]]:
+    """Each group's makers: a maker in one file of a package is called from another."""
+    parsed: dict[str, list[tuple[str, list[Block]]]] = {}
+    for group, path in files:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+        if "Animation" in raw:
+            code = mask(raw, "swift")
+            parsed.setdefault(group, []).append((code, blocks(code, "swift")))
+    out: dict[str, frozenset[str]] = {}
+    for group, items in parsed.items():
+        names: set[str] = set()
+        while True:
+            found = set().union(*(file_makers(code, tree, pattern, names) for code, tree in items))
+            if found <= names:
+                break
+            names |= found
+        out[group] = frozenset(names)
+    return out
+
+
+def loop_host_hits(code: str, tree: list[Block], pattern: re.Pattern[str], makers: frozenset[str] | None) -> list[int]:
+    """Where CODE runs an infinite loop outside a LoopHost: a site in a function that does not return the loop,
+    and each call of a maker that is neither a LoopHost attach's make closure nor inside a maker."""
+    names = file_makers(code, tree, pattern, makers or frozenset()) | (makers or frozenset())
+    bare = [m.start() for m in pattern.finditer(code) if not _maker(code, _function_around(m.start(), tree))]
+    calls = [at for at in _maker_calls(code, names)
+             if not _attached(at, code, tree) and not _maker(code, _function_around(at, tree))]
+    return sorted(bare + calls)
 
 
 def call_pattern(function: Block) -> str:
@@ -1303,9 +1422,12 @@ def audit(repo: Path, langs: list[str], budget: Path) -> tuple[list[Hit], list[s
                 prepared[path] = (raw, code, mods.test_ranges if mods else [])
             test_files = rust_test_files(modules)
             files = [(g, p) for g, p in files if p.resolve() not in test_files]
+        maker_rule = next((r for r in rules if r.maker and lang in r.langs), None)
+        makers = group_makers(files, maker_rule.pattern) if maker_rule else {}
         for group, path in files:
             raw, code, ranges = prepared.get(path, (None, None, []))
-            hits += audit_file(repo, lang, group, path, rules, owners, ranges, raw, code)
+            hits += audit_file(repo, lang, group, path, rules, owners, ranges, raw, code,
+                               makers.get(group, frozenset()) if maker_rule else None)
     return hits, problems
 
 

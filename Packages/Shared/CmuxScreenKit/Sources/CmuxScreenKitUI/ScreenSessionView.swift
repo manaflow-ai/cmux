@@ -185,6 +185,7 @@ public struct ScreenSessionView: View {
         switch session.phase {
         case .connecting:
             card {
+                // wakeup-allow: bounded shows only while a connect runs; iOS only (the Mac app links CmuxScreenKit, not this UI target)
                 ProgressView()
                 Text(session.isReconnecting ? "Reconnecting to \(session.title)…" : "Connecting to \(session.title)…").font(.headline)
             }

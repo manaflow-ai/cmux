@@ -1,3 +1,4 @@
+import CmuxHomeCore
 import CoreGraphics
 import CoreText
 import Foundation
@@ -36,8 +37,12 @@ final class ComposeLayer {
     static func height(lines: Int) -> CGFloat { 30 + 16 * CGFloat(lines - 1) + (lines >= 2 ? 1 : 0) }
     static func fieldWidth(_ viewportWidth: CGFloat) -> CGFloat { max(60, viewportWidth - sideRoom) }
 
-    init(palette: HomePalette) {
+    /// Where the caret's blink runs (the scene's host: on screen only while it is seen).
+    private let loops: any LoopHost
+
+    init(palette: HomePalette, loops: any LoopHost) {
         self.palette = palette
+        self.loops = loops
         for l in [layer, glass, placeholderLayer, textClip, textContent, caret] {
             l.actions = RowLayer.noActions
             l.contentsScale = Canvas.scale
@@ -199,10 +204,11 @@ final class ComposeLayer {
         caret.frame = caretRect
         caret.backgroundColor = palette.caret.cgColor
         guard motion.caretBlinks else {
+            loops.detach(caret, key: Animate.caretBlinkKey)
             caret.removeAllAnimations()
             return
         }
-        Animate.caret(caret, begin: begin, sent: sent, gray: palette.caretAfterSend.cgColor)
+        Animate.caret(caret, begin: begin, sent: sent, gray: palette.caretAfterSend.cgColor, loops: loops)
     }
 
     /// Hosts that draw their own caret (or show none while unfocused) hide this one.

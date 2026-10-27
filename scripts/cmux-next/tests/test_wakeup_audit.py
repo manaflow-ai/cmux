@@ -759,6 +759,88 @@ class FocusedFixtureTests(unittest.TestCase):
             (9, "timer"): "loop", (10, "timer"): "oneshot",
         })
 
+    # Infinite loops in Shared and SwiftUI loops (p14-energy-115) -------------------------------------------------
+
+    def shared(self, rel: str, text: str) -> None:
+        write(self.root, f"Packages/Shared/CmuxLinked/Sources/CmuxLinked/{rel}", text)
+
+    def loops(self, lang: str = "swift-shared") -> list[tuple[str, int, str]]:
+        return sorted((Path(h["file"]).name, h["line"], h["status"]) for h in self.audit.hits("--lang", lang)
+                      if h["rule"] in ("infinite-loop", "swiftui-loop"))
+
+    def test_a_shared_loop_runs_only_from_a_maker_through_a_loop_host_attach(self) -> None:
+        self.shared("Animate.swift", """\
+            import QuartzCore
+            enum Animate {
+                static func blink(begin: CFTimeInterval) -> CAAnimation {
+                    let a = CAKeyframeAnimation(keyPath: "opacity")
+                    a.repeatCount = .infinity
+                    return a
+                }
+                static func dots(_ layer: CALayer) {
+                    let a = CABasicAnimation(keyPath: "opacity")
+                    a.repeatCount = Float.infinity
+                    layer.add(a, forKey: "dots")
+                }
+                static func wrapped() -> CAAnimation? { blink(begin: 0) }
+            }
+            """)
+        self.shared("Caret.swift", """\
+            import QuartzCore
+            final class Caret {
+                let loops: any LoopHost
+                func start(_ layer: CALayer) {
+                    loops.attach(layer, key: "blink") {
+                        Animate.blink(begin: 1)
+                    }
+                    loops.attach(layer, key: "wrapped") { Animate.wrapped() }
+                }
+                func bare(_ layer: CALayer) {
+                    layer.add(Animate.blink(begin: 0), forKey: "blink")
+                    if let loop = Animate.wrapped() { layer.add(loop, forKey: "wrapped") }
+                }
+            }
+            """)
+        # The site in a function that adds its own loop, and each bare call of a maker (a wrapper of a maker is one
+        # too, so its bare call counts; the calls in another file of the package are judged with the package's makers).
+        self.assertEqual(self.loops(), [("Animate.swift", 10, "hit"), ("Caret.swift", 11, "hit"),
+                                        ("Caret.swift", 12, "hit")])
+
+    def test_the_loop_host_rule_is_shared_only(self) -> None:
+        write(self.root, "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Spin.swift", """\
+            import QuartzCore
+            func spin(_ layer: CALayer) {
+                let a = CABasicAnimation(keyPath: "transform.rotation.z")
+                a.repeatCount = .infinity
+                layer.add(a, forKey: "spin")
+            }
+            """)
+        # CmuxNext's own loops are LoopRegistrationTests' (p14-energy-056).
+        self.assertEqual(self.loops("swift"), [])
+
+    def test_swiftui_loops_are_hits_outside_visible_loop_effects(self) -> None:
+        source = """\
+            import SwiftUI
+            struct Sheet: View {
+                var running: Bool
+                var body: some View {
+                    VStack {
+                        Image(systemName: "arrow.clockwise").symbolEffect(.rotate, isActive: running)
+                        Image(systemName: "bell").symbolEffect(.bounce, value: running)
+                        ProgressView()
+                        ProgressView(value: 0.4)
+                        Text("x").animation(.linear.repeatForever(autoreverses: false), value: running)
+                        // wakeup-allow: bounded shows only while the sign-in request runs
+                        ProgressView("Signing In")
+                    }
+                }
+            }
+            """
+        write(self.root, "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Sheet.swift", source)
+        write(self.root, "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/VisibleLoopEffects.swift", source)
+        self.assertEqual(self.loops("swift"), [("Sheet.swift", 6, "hit"), ("Sheet.swift", 8, "hit"),
+                                               ("Sheet.swift", 10, "hit"), ("Sheet.swift", 12, "escaped")])
+
     # Escapes --------------------------------------------------------------------------------------------------
 
     def test_escape_needs_a_reason_and_may_continue_on_the_next_comment_line(self) -> None:

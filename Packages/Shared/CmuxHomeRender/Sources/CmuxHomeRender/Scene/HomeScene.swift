@@ -1,3 +1,4 @@
+import CmuxHomeCore
 import CoreGraphics
 import QuartzCore
 
@@ -65,10 +66,15 @@ final class HomeScene {
     /// lays out once to its final state).
     private(set) var isHidden = false
 
-    init(palette: HomePalette, memoryBudget: HomeMemoryBudget) {
+    /// Where the caret blink and the typing dots run: the host's ``LoopHost`` (on the Mac a
+    /// `LoopVisibility` that follows the view's window), so no loop runs while nobody sees it.
+    let loops: any LoopHost
+
+    init(palette: HomePalette, memoryBudget: HomeMemoryBudget, loops: any LoopHost) {
+        self.loops = loops
         bitmaps = RowBitmaps(palette: palette, maxBytes: memoryBudget.rowBitmapBytes)
         media = MediaStore(maxBytes: memoryBudget.pictureBytes)
-        compose = ComposeLayer(palette: palette)
+        compose = ComposeLayer(palette: palette, loops: loops)
         layout = ChatLayout(model: model)
         for l in [root, clip, clipMask, scrollLayer, morphLayer] {
             l.actions = RowLayer.noActions
@@ -307,7 +313,7 @@ final class HomeScene {
         if let p = pool.popLast() {
             r = p
         } else {
-            r = RowLayer()
+            r = RowLayer(loops: loops)
             scrollLayer.addSublayer(r.layer)
         }
         r.layer.isHidden = false

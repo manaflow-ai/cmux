@@ -1,3 +1,4 @@
+import CmuxHomeCore
 import Foundation
 import QuartzCore
 
@@ -127,8 +128,10 @@ enum Animate {
     }
 
     /// Typing dots: a Gaussian brightness pulse per dot, staggered, repeating
-    /// on the render server (no main-thread work per frame).
-    static func typingDot(_ layer: CALayer, index: Int, begin: CFTimeInterval) {
+    /// on the render server (no main-thread work per frame), from `begin`
+    /// (layer time). The make of a `LoopHost` attach (RowLayer.startTypingDots),
+    /// so the pulse runs only while the host's view is seen.
+    static func typingDot(index: Int, begin: CFTimeInterval) -> CAAnimation {
         let n = 60
         let width = HomeMotion.typingDotWidth
         var values: [NSNumber] = []
@@ -146,13 +149,12 @@ enum Animate {
         a.beginTime = begin
         a.isRemovedOnCompletion = false
         a.calculationMode = .linear
-        layer.add(a, forKey: "dots")
+        return a
     }
 
-    /// Caret: solid after an edit, then a blink (render server); grey for a
-    /// moment after a send.
-    static func caret(_ layer: CALayer, begin: CFTimeInterval, sent: Bool, gray: CGColor) {
-        layer.removeAnimation(forKey: "blink")
+    /// The caret's blink, solid until `begin` plus the hold after an edit
+    /// (layer time). The make of a `LoopHost` attach (``caret(_:begin:sent:gray:loops:)``).
+    static func caretBlink(begin: CFTimeInterval) -> CAAnimation {
         // motion-allow: the render core's motion module (motion.md rule 1)
         let a = CAKeyframeAnimation(keyPath: "opacity")
         a.values = [1, 1, 0, 0, 1].map { NSNumber(value: $0) }
@@ -161,7 +163,14 @@ enum Animate {
         a.repeatCount = .infinity
         a.beginTime = begin + HomeMotion.caretHold
         a.isRemovedOnCompletion = false
-        layer.add(a, forKey: "blink")
+        return a
+    }
+
+    /// Caret: solid after an edit, then a blink (render server, through
+    /// `loops`: on screen only while the host's view is seen); grey for a
+    /// moment after a send.
+    static func caret(_ layer: CALayer, begin: CFTimeInterval, sent: Bool, gray: CGColor, loops: any LoopHost) {
+        loops.attach(layer, key: caretBlinkKey) { caretBlink(begin: begin) }
         guard sent else { return }
         // motion-allow: the render core's motion module (motion.md rule 1)
         let g = CAKeyframeAnimation(keyPath: "backgroundColor")
@@ -171,4 +180,9 @@ enum Animate {
         g.isRemovedOnCompletion = true
         layer.add(g, forKey: "sendGray")
     }
+
+    /// The caret blink's animation key.
+    static let caretBlinkKey = "blink"
+    /// A typing dot's pulse key.
+    static let typingDotKey = "dots"
 }

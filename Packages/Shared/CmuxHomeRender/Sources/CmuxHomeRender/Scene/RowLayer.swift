@@ -1,3 +1,4 @@
+import CmuxHomeCore
 import CoreGraphics
 import QuartzCore
 
@@ -42,7 +43,12 @@ final class RowLayer {
         "frame": NSNull(), "mask": NSNull(), "sublayers": NSNull(), "onOrderIn": NSNull(), "onOrderOut": NSNull(),
     ]
 
-    init() {
+    /// Where the typing dots' pulse runs (the scene's host).
+    private let loops: any LoopHost
+
+    /// - Parameter loops: The scene's loop host; the typing dots attach to it.
+    init(loops: any LoopHost) {
+        self.loops = loops
         for l in [layer, content, fillContainer, fillGradient, fillMask, bitmap, typingContainer, receiptOld,
                   mediaContainer, mediaMask, mediaImage, playBadge, progressRing, progressTrack] {
             l.actions = RowLayer.noActions
@@ -110,6 +116,7 @@ final class RowLayer {
 
     private func clearAnimations() {
         for l in [layer, content, fillContainer, bitmap, typingContainer, receiptOld] { l.removeAllAnimations() }
+        stopTypingDots()
         dots.forEach { $0.sublayers?.first?.removeAllAnimations() }
     }
 
@@ -257,16 +264,22 @@ final class RowLayer {
         receiptOld.opacity = Animate.hiddenOpacity
     }
 
-    var hasTypingDots: Bool { dots.first?.sublayers?.first?.animation(forKey: "dots") != nil }
+    /// The dots are attached to the scene's loop host: they pulse whenever it is seen (a hidden
+    /// or occluded host keeps them off its layers, so this does not read the layers).
+    private(set) var hasTypingDots = false
 
     func stopTypingDots() {
-        dots.forEach { $0.sublayers?.first?.removeAnimation(forKey: "dots") }
+        hasTypingDots = false
+        for dot in dots {
+            if let highlight = dot.sublayers?.first { loops.detach(highlight, key: Animate.typingDotKey) }
+        }
     }
 
     func startTypingDots(begin: CFTimeInterval) {
+        hasTypingDots = true
         for (i, dot) in dots.enumerated() {
             guard let highlight = dot.sublayers?.first else { continue }
-            Animate.typingDot(highlight, index: i, begin: begin)
+            loops.attach(highlight, key: Animate.typingDotKey) { Animate.typingDot(index: i, begin: begin) }
         }
     }
 }

@@ -45,6 +45,9 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     // cmux: the neutral selection's fill (the host's theme tint, translucent); nil keeps the
     // unemphasized grey. In the compact list the selection is a disc behind the avatar.
     var neutralFill: NSColor? { didSet { colorsChanged() } }
+    // cmux: where the typing bubbles pulse (p14-energy-115): the host's LoopHost, so a hidden or
+    // occluded window keeps no pulse. A list no host gave one (tests) runs them as attached.
+    var loops: any SidebarLoopHost = SidebarStandaloneLoops()
     /// The resolved colors (tests).
     var currentPalette: SidebarPalette { palette }
     /// The highlighted row: a conversation id, or an extra result's internal id (`extraID`).
@@ -1026,7 +1029,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         l.time.isHidden = compact
         l.content.isHidden = compact
         if c.typing, !compact {
-            l.setTyping(palette, scale: renderContext.scale)
+            l.setTyping(palette, scale: renderContext.scale, loops: loops) // cmux: the list's LoopHost
             l.typing?.position = CGPoint(x: SidebarMetrics.textX + SidebarTypingLayer.size.width / 2, y: SidebarMetrics.previewBaseline - 4)
             if let t = l.typing, typingAppeared.remove(c.id) != nil { SidebarMotion.typingIn(t) }
         } else {
@@ -1202,7 +1205,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             l.pinRing.opacity = 0.45
         }
         if c.typing {
-            l.setTyping(palette, scale: s)
+            l.setTyping(palette, scale: s, loops: loops) // cmux: the list's LoopHost
             l.typing?.showsTail = true
             // Where the unread message bubble goes: centered over the avatar's top (to verify).
             l.typing?.position = CGPoint(x: ar.midX, y: ar.minY + ar.height * 0.30 - SidebarTypingLayer.size.height / 2)
@@ -1778,9 +1781,10 @@ final class SidebarRowLayer: CALayer {
     required init?(coder: NSCoder) { fatalError() }
     /// Hands the typing bubble to the caller (it fades it out elsewhere); the row has none after.
     func detachTyping() -> SidebarTypingLayer? { let t = typing; typing = nil; return t }
-    @MainActor func setTyping(_ p: SidebarPalette?, scale: CGFloat = 2) { // cmux: main actor (Swift 6), it starts the pulse
+    // cmux: main actor (Swift 6), it starts the pulse; `loops` is the list's LoopHost (p14-energy-115)
+    @MainActor func setTyping(_ p: SidebarPalette?, scale: CGFloat = 2, loops: (any SidebarLoopHost)? = nil) {
         guard let p else { typing?.removeFromSuperlayer(); typing = nil; return }
-        if typing == nil { let t = SidebarTypingLayer(); addSublayer(t); typing = t }
+        if typing == nil { let t = SidebarTypingLayer(); if let loops { t.loops = loops }; addSublayer(t); typing = t }
         typing?.apply(p, scale: scale)
         typing?.animate()
     }

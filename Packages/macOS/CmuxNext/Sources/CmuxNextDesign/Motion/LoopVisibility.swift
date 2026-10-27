@@ -116,15 +116,20 @@ public import QuartzCore
 
     /// Adds `loop` to `layer` so that its phase now is the shared clock's: a loop that starts late,
     /// or again after its view was hidden, sits where one running all along would. The loop's own
-    /// `timeOffset` (a star's or a row's offset from its neighbors) stays on top.
+    /// `timeOffset` (a star's or a row's offset from its neighbors) stays on top. A loop that sets
+    /// its own `beginTime` (layer time: a caret's solid hold before its blink, typing dots counted
+    /// from their row's insert) keeps it, as Core Animation reads 0 as "begin when added"
+    /// (``LoopHost``, p14-energy-115).
     /// - Parameters:
     ///   - loop: An infinite loop.
     ///   - layer: The layer it animates.
     ///   - key: The animation key.
     ///   - clock: The shared phase clock.
     public static func add(_ loop: CAAnimation, to layer: CALayer, forKey key: String, clock: SpinnerClock) {
-        let cycle = loop.duration * (loop.autoreverses ? 2 : 1)
-        loop.beginTime = layer.convertTime(clock.beginTime(cycle: cycle), from: nil)
+        if loop.beginTime == 0 {
+            let cycle = loop.duration * (loop.autoreverses ? 2 : 1)
+            loop.beginTime = layer.convertTime(clock.beginTime(cycle: cycle), from: nil)
+        }
         layer.add(loop, forKey: key)
     }
 
@@ -136,7 +141,8 @@ public import QuartzCore
     /// Subscribes to ``node``'s flips (and the motion signal, when given) while a loop is attached,
     /// and drops loops whose layer is gone.
     private func follow() {
-        loops = loops.filter { $0.value.layer != nil }
+        // An attach runs on each key press for the message box's caret: filter only when a layer is gone.
+        if loops.values.contains(where: { $0.layer == nil }) { loops = loops.filter { $0.value.layer != nil } }
         guard loops.isEmpty == (flips != nil) else { return }
         guard !loops.isEmpty else {
             flips = nil

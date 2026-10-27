@@ -751,26 +751,34 @@ final class SidebarTypingLayer: CALayer {
     /// cmux: the still phase, also the first dot's peak under Reduce Motion or the host's still loops
     /// (cx-sya4n: nothing loops; Energy Saver, p14-energy-027).
     @MainActor private var stillPhase: Double? { Self.stillPhase ?? (CmuxSidebarView.stillsLoops ? 0.45 : nil) }
+    /// cmux: where the pulse runs (p14-energy-115): the list's host, so a hidden or occluded window
+    /// keeps no pulse; a bubble made alone (tests) runs it as attached.
+    var loops: any SidebarLoopHost = SidebarStandaloneLoops()
     @MainActor func animate() { // cmux: main actor (Swift 6), the list's thread
         if let ph = stillPhase {
-            // cmux: a running pulse stops when Reduce Motion turns on (cx-sya4n).
-            for (i, d) in lit.enumerated() { d.removeAnimation(forKey: "pulse"); d.opacity = Float(Self.level(i, phase: ph)) }
+            // cmux: a running pulse stops when Reduce Motion turns on (cx-sya4n), and leaves the host (p14-energy-115).
+            for (i, d) in lit.enumerated() { loops.detach(d, key: "pulse"); d.opacity = Float(Self.level(i, phase: ph)) }
             return
         }
         let begin = (CACurrentMediaTime() / Self.period).rounded(.down) * Self.period
         for (i, d) in lit.enumerated() where d.animation(forKey: "pulse") == nil {
-            let n = 60
-            var values: [NSNumber] = []
-            for s in 0...n { values.append(NSNumber(value: Self.level(i, phase: Double(s) / Double(n)))) }
-            let a = CAKeyframeAnimation(keyPath: "opacity")
-            a.values = values
-            a.duration = Self.period
-            a.repeatCount = .infinity
-            a.beginTime = begin
-            a.calculationMode = .linear
-            a.isRemovedOnCompletion = false
-            d.add(a, forKey: "pulse")
+            // cmux: through the list's LoopHost (p14-energy-115); `begin` keeps it in step with the other bubbles.
+            loops.attach(d, key: "pulse") { Self.pulseLoop(i, begin: begin) }
         }
+    }
+    /// cmux: one lit dot's pulse from `begin` (media time), made each time the host shows it (p14-energy-115).
+    private static func pulseLoop(_ i: Int, begin: CFTimeInterval) -> CAAnimation {
+        let n = 60
+        var values: [NSNumber] = []
+        for s in 0...n { values.append(NSNumber(value: level(i, phase: Double(s) / Double(n)))) }
+        let a = CAKeyframeAnimation(keyPath: "opacity")
+        a.values = values
+        a.duration = period
+        a.repeatCount = .infinity
+        a.beginTime = begin
+        a.calculationMode = .linear
+        a.isRemovedOnCompletion = false
+        return a
     }
 }
 
