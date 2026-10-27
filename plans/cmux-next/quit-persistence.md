@@ -414,5 +414,7 @@ work.
     brains get the same pid and rule (`chief_brains.rs`).
   Not behind `leftoverDaemonIdleExit`. A host or owner that no app named (`cmux chief`, the
   always-on brain) is unchanged. Still kept: the app's cmux-tui daemon, its terminals and its
-  screen-detection plugin. That plugin is bound to its daemon: it does not stop when the daemon has
-  no terminal left.
+  screen-detection plugin. That plugin is bound to its daemon: it exits with it
+  (`CMUX_PLUGIN_HOST_PID`), and its own connection to that daemon is no client that keeps the
+  daemon (`Mux::client_count` skips the journal plugin's peer pid; before, every "no client" exit
+  of a daemon that ran the plugin, the Chief owner's included, could never fire).
