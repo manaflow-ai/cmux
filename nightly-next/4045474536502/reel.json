@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "build": "4045474536502",
+  "notes": "notes/4045474536502.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 25907,
+      "title": "ci(cmux-next): base autofix runs cmux-config's tests on a regenerated settings schema before it pushes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25506,
+      "title": "agent pane peer snapshots (8t/n): the pane's tests of the Mac's copy",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25919,
+      "title": "ci(cmux-next): a feed's run never places a job on hosted macos-26",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25833,
+      "title": "iPhone pairing code, Mac and hostd half: a single-use pre-approval in place of the Allow prompt",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25833/e3afb4ef/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "e3afb4ef",
+      "tour": "core"
+    },
+    {
+      "pr": 25836,
+      "title": "ci(nightly): keep the Ghostty CLI helper cache across hosted macos-15 runs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25549,
+      "title": "acpmux: under MDM's forced off, model probes and pooled agents never run in full access (#23322 a4)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
