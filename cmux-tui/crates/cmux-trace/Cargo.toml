@@ -12,3 +12,8 @@ workspace = true
 
 [dependencies]
 libc.workspace = true
+
+# Overhead bench (p09-observability-090): `cargo bench -p cmux-trace --bench ring`; std only, no criterion.
+[[bench]]
+name = "ring"
+harness = false
