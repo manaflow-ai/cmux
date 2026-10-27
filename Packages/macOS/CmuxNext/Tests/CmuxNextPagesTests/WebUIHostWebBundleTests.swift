@@ -163,7 +163,7 @@ struct WebUIHostWebBundleTests {
             try? FileManager.default.removeItem(at: root)
         }
         let shown = views[0], hidden = views[1]
-        #expect(views.allSatisfy(\.bundleServedByOverlay))
+        #expect(views.allSatisfy { $0.bundleServedByOverlay })
         #expect(Set(ids(host.webBundlePages)) == Set(ids(views)))
         #expect(ids(host.bundleAskedPages) == ids(reloadsOnShow ? [shown] : views))
 
