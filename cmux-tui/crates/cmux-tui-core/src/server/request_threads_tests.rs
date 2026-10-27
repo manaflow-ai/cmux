@@ -110,6 +110,44 @@ fn the_connection_dispatcher_is_a_request_thread_that_records_its_blocking() {
     );
 }
 
+/// The line of `next_request`'s wait for the connection's next request in
+/// connection_scheduler.rs.
+fn next_request_wait_line() -> u32 {
+    let source = include_str!("connection_scheduler.rs");
+    let start = source.find("fn next_request(").expect("next_request");
+    let wait = start + source[start..].find(".wait(").expect("next_request waits");
+    u32::try_from(source[..wait].lines().count()).expect("line")
+}
+
+/// The dispatcher waits for its connection's next request while idle
+/// (Chromium's `WaitableEvent::declare_only_used_while_idle`): on a request
+/// thread, a wait far over the 2 ms lock-wait budget records no site.
+#[test]
+fn an_idle_dispatcher_waiting_for_its_next_request_records_no_site() {
+    const IDLE: Duration = Duration::from_millis(20);
+    let scheduler = Arc::new(ConnectionSurfaceScheduler::default());
+    let (waiting_tx, waiting_rx) = std::sync::mpsc::channel();
+    let idle = scheduler.clone();
+    let waiter = spawn_request_thread("mux-test-idle-dispatch", move || {
+        waiting_tx.send(Instant::now()).expect("waiting");
+        let next = idle.next_request();
+        next.is_none()
+    })
+    .expect("start the request thread");
+    let waiting_since = waiting_rx.recv().expect("the dispatcher waits");
+    std::thread::sleep(IDLE);
+    scheduler.close();
+    assert!(waiter.join().expect("the request thread returns"), "a closed queue ends the wait");
+    assert!(waiting_since.elapsed() >= IDLE);
+    let file = file!().replace("request_threads_tests.rs", "connection_scheduler.rs");
+    let line = next_request_wait_line();
+    assert_eq!(
+        cmux_threads::blocking::snapshot().site(&file, line).copied(),
+        None,
+        "{file}:{line}"
+    );
+}
+
 /// A clear-history request runs as a `Mux::work` item on the system lane, not
 /// on a thread of its own (p02-threads 230): a person's request at
 /// UserBlocking, on a UserInitiated foreground worker. The test holds the

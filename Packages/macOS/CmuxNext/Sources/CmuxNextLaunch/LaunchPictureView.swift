@@ -11,7 +11,8 @@ public import Foundation
 ///
 /// The view draws nothing: its layer's contents are the decoded image at the window's backing scale, pinned to
 /// the top-left corner (a window whose height changes keeps its titlebar and sidebar where the picture has them).
-/// It takes no click and no key: hit tests pass through it to whatever is under it.
+/// It takes no key. Hit tests pass through it to whatever is under it, but where ``LaunchPictureInput`` holds the
+/// clicks on the picture (p08-startup-061): there a click on a point the picture still shows is its own.
 ///
 /// ```swift
 /// let picture = LaunchPictureView(image: front.image, scale: 2)
@@ -48,8 +49,36 @@ public final class LaunchPictureView: NSView {
         layer.masksToBounds = true
     }
 
-    /// Clicks reach the live views under the picture.
-    override public func hitTest(_ point: NSPoint) -> NSView? { nil }
+    /// Whether a click at a point of the view waits on the picture (``LaunchPictureInput``); nil, the picture takes none.
+    var takesClick: (@MainActor (CGPoint) -> Bool)?
+    /// A mouse-down on the picture and its point in the view.
+    var pressed: (@MainActor (NSEvent, CGPoint) -> Void)?
+    var released: (@MainActor (NSEvent) -> Void)?
+
+    /// Clicks reach the live views under the picture, but where the picture holds them.
+    override public func hitTest(_ point: NSPoint) -> NSView? {
+        guard let takesClick, !isHidden else { return nil }
+        return takesClick(superview.map { convert(point, from: $0) } ?? point) ? self : nil
+    }
+
+    /// The launch's first click often activates the app too: it is held like any other.
+    override public func acceptsFirstMouse(for event: NSEvent?) -> Bool { takesClick != nil }
+
+    override public func mouseDown(with event: NSEvent) { press(event) }
+    override public func rightMouseDown(with event: NSEvent) { press(event) }
+    override public func otherMouseDown(with event: NSEvent) { press(event) }
+    override public func mouseUp(with event: NSEvent) { released?(event) }
+    override public func rightMouseUp(with event: NSEvent) { released?(event) }
+    override public func otherMouseUp(with event: NSEvent) { released?(event) }
+    // A drag or a scroll on the picture means nothing: no view under it is built to take it.
+    override public func mouseDragged(with event: NSEvent) {}
+    override public func rightMouseDragged(with event: NSEvent) {}
+    override public func otherMouseDragged(with event: NSEvent) {}
+    override public func scrollWheel(with event: NSEvent) {}
+
+    private func press(_ event: NSEvent) {
+        pressed?(event, convert(event.locationInWindow, from: nil))
+    }
 }
 
 extension WindowPictureMeta {

@@ -76,11 +76,17 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// Fork API 34: `cmux_shim_browser_set_embedder_visibility` (a `cmux_shim_embedder_visibility_t`; 1 when the
     /// fork took it). Nil on a shim without the export (task p03-rendering-058).
     let browserSetEmbedderVisibility: (@convention(c) (Int32, Int32) -> Int32)?
+    /// Fork API 31: `cmux_shim_browser_set_page_visibility` (a ``ChromiumHostPageVisibility``), what cmux shows
+    /// of a detached page's window; host mode only (task p01-process-220).
+    let browserSetPageVisibility: @convention(c) (Int32, Int32) -> Int32
     /// Fork API 37: `cmux_shim_tab_set_visibility(browser, visibility, capture)` (a `cmux_shim_tab_visibility_t`
     /// and a `cmux_shim_tab_capture_t`): the tab's visibility tree node caps its WebContents' visibility
     /// (``CEFTab/followVisibility(of:capture:)``). A post in host mode, so no caller reads its answer. Nil on a
     /// shim without the export (task p06-scheduler-212).
     let tabSetVisibility: (@convention(c) (Int32, Int32, Int32) -> Int32)?
+    /// Fork API 31: `cmux_shim_browser_set_page_display(browser, display_id, screen_x, screen_y)`, the display a
+    /// detached page window takes its scale, color space and refresh rate from (task 221); 0 when the fork lacks it.
+    let browserSetPageDisplay: @convention(c) (Int32, UInt32, Double, Double) -> Int32
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
@@ -273,6 +279,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let widgets: CEFShimWidgetOps
     /// Drops into a detached page (task 050, fork API 31).
     let dragTarget: CEFShimDragTargetOps
+    /// <select> popups as data (task 060, fork API 31).
+    let popupMenus: CEFShimPopupMenuOps
+    /// Autofill, password and `<datalist>` suggestions as data (task 061, fork API 31).
+    let suggestions: CEFShimSuggestionOps
     let textInput: CEFShimTextInputOps
     /// `cmux_shim_browser_attach_view(browser, parent_view)` (fork API 36, p03-rendering-044, Track B): moves the
     /// browser's `WebContentsViewCocoa` into `parent_view` (an NSView), below its other subviews; 1 attached, 0

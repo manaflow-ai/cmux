@@ -18,6 +18,7 @@
 
 #include "cmux_cef_shim.h"
 #include "cmux_page_path.h"
+#include "host_energy_saver.h"
 #include "host_resize.h"
 #include "remote_shim_mirror.h"
 #include "remote_shim_runtime.h"
@@ -132,6 +133,7 @@ std::string ReplayKey(uint16_t op, const std::vector<Field>& fields) {
     case kOpSetBackgroundColor:
     case kOpSetNewTabPageUrl:
     case kOpSetPopupWindowsEnabled:
+    case kOpSetSuggestionEvents:
       return std::to_string(op);
     case kOpPageSchemeAdd:
     case kOpPageSchemeAddFirstParty:
@@ -150,8 +152,8 @@ std::string ReplayKey(uint16_t op, const std::vector<Field>& fields) {
 
 // The channel's coalescing key for a state op: one value per browser (a hosted widget's
 // geometry: per widget) that a newer call replaces, with no order against other ops
-// (geometry, zoom, hosting modes). Focus, the navigation guard and password fill are ordered
-// against later ops, so they are not state.
+// (geometry, zoom, hosting modes, page visibility). Focus, the navigation guard and password
+// fill are ordered against later ops, so they are not state.
 std::optional<uint64_t> StateKeyFor(uint16_t op, const std::vector<Field>& fields) {
   switch (op) {
     case kOpWidgetSetGeometry:
@@ -159,6 +161,7 @@ std::optional<uint64_t> StateKeyFor(uint16_t op, const std::vector<Field>& field
     case kOpTabSetTransparentBackground:
     case kOpBrowserSetResizeSync:
     case kOpBrowserSetDetachedHosting:
+    case kOpBrowserSetPageVisibility:
     case kOpSetZoomLevel:
     case kOpSetAccessibility:
     case kOpDevtoolsSetPlacement:
@@ -215,8 +218,10 @@ bool SendFenceRight(uint32_t channel, uint32_t fence, uint64_t seq) {
 #endif
 }
 
-// The symbol of an optional op (kOptionalExports), nullptr for a header op.
+// The name the host's HELLO lists when it takes `op`: an optional op's symbol (kOptionalExports)
+// or kEnergySaverHelloName; nullptr for an op every host takes.
 const char* OptionalExportName(uint16_t op) {
+  if (op == cmux_host::kOpEnergySaver) return cmux_host::kEnergySaverHelloName;
   for (const OptionalExport& entry : kOptionalExports) {
     if (entry.op == op && op != 0) return entry.name;
   }
@@ -266,6 +271,9 @@ class Runtime {
     }
     std::erase_if(replay_, [](const Replay& entry) { return !entry.keep; });
     if (initialize_) Send(*initialize_);
+    // A host starts with the saver off and applies this once initialize returned; it waits for
+    // the HELLO, which says whether the host has the saver.
+    if (energy_saver_ && energy_saver_->enabled) Route(EnergySaverMessage(*energy_saver_), std::nullopt);
     Flush();
     return 1;
   }
@@ -371,6 +379,26 @@ class Runtime {
                                                                      : CMUX_REMOTE_RESIZE_NOT_SENT;
   }
 
+  // cmux_shim_set_energy_saver: kept for every host of the session, posted to the attached one,
+  // which applies it only when its HELLO listed kEnergySaverHelloName (otherwise it is refused
+  // here, as an optional op the host lacks). 1 when the attached host has the saver and the op
+  // went out; 0 otherwise, as the in-process shim answers on a fork without the call. Before the
+  // HELLO the op waits for it and the answer is 0: whether the host applies it is not known yet.
+  int SetEnergySaver(int enabled, const char* exempt_scheme) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    cmux_host::EnergySaver saver;
+    saver.enabled = enabled != 0;
+    if (exempt_scheme != nullptr) saver.exempt_scheme = exempt_scheme;
+    energy_saver_ = saver;
+    // With no host attached, the next attach sends it.
+    if (link_ != Link::kAttached) return 0;
+    const bool known = hello_;
+    TlvWriter args;
+    cmux_host::WriteEnergySaver(saver, &args);
+    const bool sent = Post(cmux_host::kOpEnergySaver, 0, args);
+    return known && sent ? 1 : 0;
+  }
+
   void SetFenceSender(cmux_remote_fence_send_fn send) {
     CMUX_REMOTE_ASSERT_MAIN();
     fence_send_ = send;
@@ -474,6 +502,12 @@ class Runtime {
     Message message;  // token: a verdict still to ask, 0 once asked
     bool keep = true;  // false: replaced while its verdict was unasked; sent once more, then dropped
   };
+
+  static Message EnergySaverMessage(const cmux_host::EnergySaver& saver) {
+    TlvWriter args;
+    cmux_host::WriteEnergySaver(saver, &args);
+    return MakeMessage(cmux_host::kOpEnergySaver, 0, args.Take());
+  }
 
   // A post waiting for the first attach or for the host's HELLO.
   struct Queued {
@@ -741,6 +775,8 @@ class Runtime {
   // Tokens sent with PostForReply and not answered yet.
   std::unordered_set<uint32_t> awaiting_;
   std::unordered_set<std::string> host_exports_;
+  // The app's last Energy Saver state (cmux_shim_set_energy_saver), for the whole session.
+  std::optional<cmux_host::EnergySaver> energy_saver_;
   std::unordered_map<uint16_t, void*> policies_;
   uint32_t token_ = 0;
   // The token of the latest PostForReply or answered PostPreinit (0: that call sent nothing).
@@ -933,12 +969,10 @@ CMUX_SHIM_EXPORT int cmux_shim_set_schedule_delayed(cmux_shim_schedule_delayed_f
   return 0;
 }
 
-// The Chromium Host applies Energy Saver over its own versioned wire message
-// (p14-energy-045); until then host mode reports it unsupported.
+// The Chromium Host applies Energy Saver: kOpEnergySaver, its own versioned op
+// (ChromiumHost/src/host_energy_saver.h, p14-energy-045).
 CMUX_SHIM_EXPORT int cmux_shim_set_energy_saver(int enabled, const char* exempt_scheme) {
-  (void)enabled;
-  (void)exempt_scheme;
-  return 0;
+  return R().SetEnergySaver(enabled, exempt_scheme);
 }
 
 // Per-tab attribution is in-process only: a tab's renderer is the Chromium Host's child, which the

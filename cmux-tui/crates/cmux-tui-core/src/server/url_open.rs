@@ -10,9 +10,10 @@
 use crate::event_cause::EventCause;
 use crate::mux::mux_work::Answer;
 use crate::panic_free::RecoverPoison;
+use cmux_threads::sync::Mutex;
 use cmux_threads::work::{Lane, Shutdown};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};

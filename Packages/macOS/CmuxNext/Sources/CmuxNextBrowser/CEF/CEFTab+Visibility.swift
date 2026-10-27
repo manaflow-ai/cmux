@@ -8,15 +8,22 @@ extension CEFTab: BrowserContentVisibilityReporting, BrowserVisibilityFollowing 
         nodeVisibility.follow(node, capture: capture, of: self)
     }
 
-    /// The page window over this tab's content view, if the fork shows one
-    /// there: a visible, non-panel child of the host window whose frame
-    /// matches the host view's screen rect.
+    /// Whether this tab's page draws over its content view. Host mode: what the pane's page view
+    /// shows (``ChromiumHostPageView/contentVisibility``, task p01-process-220), since the host's
+    /// page windows are never in cmux. In process: the fork's page window over the view.
     public var contentVisibility: BrowserContentVisibility {
         guard !isClosed else { return .hidden("closed") }
         guard let window = container.window else { return .hidden("not_in_window") }
         guard host.visibleTab === self, host.hostView.superview === container else { return .hidden("host_elsewhere") }
         guard !host.hostView.isHiddenOrHasHiddenAncestor else { return .hidden("host_hidden") }
         guard browserID != nil else { return .hidden("no_page") }
+        if host.isHostMode { return host.hostedPageView?.contentVisibility ?? .hidden("no_page_view") }
+        return inProcessPageWindowVisibility(in: window)
+    }
+
+    /// In process: a visible, non-panel child of the host window whose frame matches the host
+    /// view's screen rect.
+    private func inProcessPageWindowVisibility(in window: NSWindow) -> BrowserContentVisibility {
         let rect = window.convertToScreen(host.hostView.convert(host.hostView.bounds, to: nil))
         let pages = (window.childWindows ?? []).filter { !($0 is NSPanel) && !devToolsContains(window: $0) }
         let placed = pages.filter { Self.frame($0.frame, isPlacedAt: rect) }

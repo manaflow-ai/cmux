@@ -22,8 +22,9 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use super::remote_entry::{RemoteGate, RemotePeer};
+use super::routes::{Route, RouteLine, RouteName};
 use super::{
-    BoundedOutbound, ClientTransport, MAX_JSON_LINE_BYTES, MessageWriter, QueuedSink,
+    BoundedOutbound, ClientTransport, FrameStage, MAX_JSON_LINE_BYTES, MessageWriter, QueuedSink,
     RenderService, SinkControl, transport,
 };
 use crate::fs_ops::stream::{self, StreamRequest};
@@ -47,23 +48,26 @@ impl RemoteGate for FsGate {
 }
 
 /// The `cmd` names this module answers (server/routes.rs).
-pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
-    &[crate::server::routes::Route {
-        names: &[crate::server::routes::RouteName::OneOf(&crate::fs_ops::FS_COMMANDS)],
-        stage: crate::server::FrameStage::Fs,
-        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
-    }];
+pub(in crate::server) const ROUTES: &[Route] = &[Route {
+    names: &[RouteName::OneOf(&crate::fs_ops::FS_COMMANDS)],
+    stage: FrameStage::Fs,
+    entry: handle,
+}];
 
-/// Handles an `fs.*` line; `None` when the message is not one.
-pub(super) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains("\"fs.") {
-        return None;
-    }
+/// True when `cmd` names one of the seven `fs-v1` ops: the lines
+/// [`handle`] answers. The remote relay finds its fs lines by it, as the
+/// connection's dispatch finds them by [`ROUTES`].
+pub(super) fn is_fs_op(cmd: &str) -> bool {
+    crate::fs_ops::FS_COMMANDS.contains(&cmd)
+}
+
+/// Answers a line whose `cmd` is an `fs-v1` op (found by name: the route,
+/// or the remote relay through [`is_fs_op`]). The line's one decode is its
+/// `Value`. `None` for a line with no `Value` (a number past `f64`, a lone
+/// surrogate) or one with a `protocol` member (not an fs frame,
+/// [`object_command`]); the caller's next handler answers it.
+pub(super) fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
     let Ok(Value::Object(request)) = crate::line_parses::parse::<Value>(message) else {
         return None;
     };

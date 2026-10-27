@@ -26,6 +26,7 @@
 //!   installed}` once the host listens, or an error with `error_code`.
 //! - `browser-runtime-stop {id, runtime}` answers `{stopped: true}`.
 
+use cmux_threads::sync::Mutex;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
@@ -33,7 +34,6 @@ use std::net::SocketAddr;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::ChildStdin;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, Weak};
 use std::time::Duration;
@@ -45,7 +45,8 @@ use cmux_threads::work::{Lane, Priority, Shutdown};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{MessageWriter, Response, send_response};
+use super::routes::{Route, RouteLine, RouteName};
+use super::{FrameStage, MessageWriter, Response, send_response};
 use crate::mux::Mux;
 
 pub const BROWSER_RUNTIME_CAPABILITY: &str = "browser-runtime-v1";
@@ -262,24 +263,19 @@ enum RuntimeCommand {
 }
 
 /// The `cmd` names this module answers (server/routes.rs).
-pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
-    &[crate::server::routes::Route {
-        names: &[crate::server::routes::RouteName::Prefix("browser-runtime-")],
-        stage: crate::server::FrameStage::BrowserRuntime,
-        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
-    }];
+pub(in crate::server) const ROUTES: &[Route] = &[Route {
+    names: &[RouteName::Prefix("browser-runtime-")],
+    stage: FrameStage::BrowserRuntime,
+    entry: handle,
+}];
 
-/// Handles a `browser-runtime-*` message on the connection's reader thread.
-/// A start runs on its own thread and answers when the host listens.
-pub(super) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains("\"browser-runtime-") {
-        return None;
-    }
+/// The route's typed handler for a `browser-runtime-*` line, on the
+/// connection's reader thread: the line's `cmd` named this family, so it
+/// decodes the line once into its [`RuntimeCommand`] and answers it. A start
+/// runs on its own thread and answers when the host listens. A line that is
+/// none of the three commands is left to the `Command` parse (`None`).
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
     let RuntimeRequest { id, command } = crate::line_parses::parse(message).ok()?;
     let runtimes = &mux.control_clients.browser_runtimes;
     if !(mux.control_clients.is_unix(client)

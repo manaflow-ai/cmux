@@ -34,10 +34,11 @@ public protocol PageChromiumHosting: AnyObject {
     ///   - page: The page's descriptor (its origin and policy).
     ///   - chatOpen: The agent chat open the page shows (``PageWebView/chatOpen``): the stages of the Chromium window
     ///     the page gets (its create, created and first contentful paint) go there too; nil for any other page.
+    ///   - window: The pane window the page joins (``PageChromiumWindow``); nil gives the page a window of its own.
     /// - Returns: The live page.
     /// - Throws: ``PageChromiumStartError/browserEnded`` when the browser ended with its Chromium Host
     ///   before it existed; another error when Chromium cannot start or the browser is not created.
-    func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?) async throws -> any PageChromiumPage
+    func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?, window: PageChromiumWindow?) async throws -> any PageChromiumPage
     /// What follows the end of a page's Chromium browser (``PageChromiumEvent/ended``): `answer` runs
     /// once Chromium runs again or its supervisor gave up (plans/cmux-next/cef-helper-app-DESIGN.md: a
     /// Chromium Host that ends again within 60 s of its start stays ended). Every page whose browser
@@ -46,6 +47,26 @@ public protocol PageChromiumHosting: AnyObject {
     ///
     /// - Parameter answer: Gets whether Chromium came back, on the main actor.
     func supervisorOutcome(then answer: @escaping @MainActor @Sendable (PageChromiumSupervisorOutcome) -> Void)
+}
+
+/// The Chromium window a page tab shows in (p13-webui-063): the page tabs of one cmux pane of one main
+/// window share one, as a Chrome `Browser` holds every tab of its tab strip in one window
+/// (chrome/browser/ui/browser.h, `Browser::tab_strip_model`). A second page in the pane joins that
+/// window instead of building one. A page with none (the update card, the icon picker panel, a
+/// preload) keeps a window of its own.
+public nonisolated struct PageChromiumWindow: Hashable, Sendable {
+    /// The main window's id.
+    public var window: String
+    /// The pane's key in that window.
+    public var pane: String
+
+    /// - Parameters:
+    ///   - window: The main window's id.
+    ///   - pane: The pane's key.
+    public init(window: String, pane: String) {
+        self.window = window
+        self.pane = pane
+    }
 }
 
 /// One Chromium page the page host shows. The page host drives it only through this protocol
@@ -118,6 +139,14 @@ public protocol PageChromiumPage: AnyObject {
     func setFocused(_ focused: Bool)
     /// Shows or hides and pauses the page.
     func setVisible(_ visible: Bool)
+    /// Moves the page into `window` (its tab moved to another pane), document, history and renderer
+    /// kept, as Chrome moves a dragged tab between tab strips with its `WebContents`
+    /// (chrome/browser/ui/tabs/tab_strip_model.cc, `DetachWebContentsAtForInsertion`, then
+    /// `InsertWebContentsAt`). The window it left closes once its last page left. No effect when the
+    /// page is in `window` already.
+    ///
+    /// - Parameter window: The pane window the page shows in now.
+    func moveWindow(to window: PageChromiumWindow)
     /// Freezes the hidden page (its timers, tasks and rendering stop; memory and state stay) or thaws
     /// it, as Chrome's `WebContents::SetPageFrozen` (content/public/browser/web_contents.h), which
     /// freezes hidden pages only: hide it (``setVisible(_:)`` false) before, and thaw it before it
@@ -183,7 +212,7 @@ public nonisolated struct PageEncodedSnapshot: Sendable, Equatable {
     }
 }
 
-/// Why a Chromium page did not get ready (``PageChromiumHosting/makePage(_:chatOpen:)``,
+/// Why a Chromium page did not get ready (``PageChromiumHosting/makePage(_:chatOpen:window:)``,
 /// ``PageChromiumPage/devTools(_:params:)``) when the page host must not reopen it in WebKit at once.
 public nonisolated enum PageChromiumStartError: Error, Sendable, Equatable {
     /// The page's browser ended with its Chromium Host while it was made or set up: the page waits

@@ -769,6 +769,52 @@
       "reason": "The drag was dropped on the page view (task 050, -performDragOperation:); AppKit gets YES at once, as Chrome's WebDragDest returns it."
     },
     {
+      "name": "cmux_shim_set_suggestion_events",
+      "class": "preinit",
+      "args": [
+        {
+          "name": "enabled",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Host mode with feature chromiumHostSuggestions (task 061): the host's browsers send their autofill, password and <datalist> suggestions as SUGGESTIONS events and cmux draws them, since Chromium's Views popup would open a window in the host. Sent once before initialize (CEFHostStart.attached) and replayed to every new host."
+    },
+    {
+      "name": "cmux_shim_browser_suggestion_action",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "token",
+          "type": "int64_t"
+        },
+        {
+          "name": "action",
+          "type": "int"
+        },
+        {
+          "name": "index",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The suggestion list's answer for a SUGGESTIONS token (task 061): SHOWN once on screen, the row under the pointer, a click, a delete button, a click outside. One-way, never awaited: Chromium's answer is the next SHOW or HIDE event, as Chrome's popup view calls its controller and waits for nothing."
+    },
+    {
       "name": "cmux_shim_set_color_chooser_handler",
       "class": "local",
       "args": [
@@ -1096,6 +1142,27 @@
       "reason": "Page-window placement: ChromiumHostPageView sends it when its window moves or changes display; only the display id and screen points cross (task 221)."
     },
     {
+      "name": "cmux_shim_browser_set_page_visibility",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "visibility",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "What cmux shows of a pane's page (ChromiumHostPageView.pageVisibility: window entry and exit, workspace hide, minimize, app hide, occlusion), one-way in call order and coalesced per browser, as Chrome's WebContentsViewCocoa tells its WebContents; the host keeps the last value and applies it again when it detaches the page window (task 220)."
+    },
+    {
       "name": "cmux_shim_tab_entry_page_state",
       "class": "async",
       "args": [
@@ -1349,7 +1416,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "The Chromium Host takes Energy Saver as its own versioned wire message (p14-energy-045), not a generated op: the remote shim returns 0, so debug.energy reports it unsupported in host mode until then (p14-energy-030)."
+      "reason": "The Chromium Host takes Energy Saver as its own versioned op, kOpEnergySaver (ChromiumHost/src/host_energy_saver.h, p14-energy-045), not a generated op: the remote shim keeps the state for every host it attaches and answers 1 only when the host's hello lists the saver (its fork has cmux_cef_set_energy_saver)."
     },
     {
       "name": "cmux_shim_create_window",
@@ -4300,6 +4367,48 @@
       "reason": "The Chromium Host turns cursor events on itself before initialize (its page windows never show; CURSOR and TOOLTIP events reach ChromiumHostPageView, tasks 045 and 054), so the remote export does nothing."
     },
     {
+      "name": "cmux_shim_set_popup_menus",
+      "class": "preinit",
+      "args": [
+        {
+          "name": "enabled",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "CEFRuntime.start calls it before cmux_shim_initialize (showHostPopupMenus, task 060) so every browser, the first one too, gets the fork's popup handler when it is made; a restarted host gets it from the replay log, as set_popup_windows_enabled."
+    },
+    {
+      "name": "cmux_shim_browser_popup_menu_reply",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "token",
+          "type": "int64_t"
+        },
+        {
+          "name": "index",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Answers a POPUP_MENU token once with the chosen item or -1 (task 060); like PopupMenuRunner's reply, one way."
+    },
+    {
       "name": "cmux_shim_tab_set_visibility",
       "class": "post",
       "args": [
@@ -4679,6 +4788,24 @@
       "value": 57,
       "refreshes": [],
       "reason": "The page's tooltip (OnTooltip, task 054): the host's page windows never show, so cmux's page view shows it, as Chrome's app shim view shows RenderWidgetHostNSView::SetTooltipText."
+    },
+    {
+      "kind": "CMUX_SHIM_POPUP_MENU",
+      "value": 58,
+      "refreshes": [],
+      "reason": "A <select> popup (fork API 31, task 171), after set_popup_menus(1): a = token, s1 = items, rect and selection as JSON; ChromiumHostPopupMenus shows an NSMenu and answers with browser_popup_menu_reply (task 060)."
+    },
+    {
+      "kind": "CMUX_SHIM_POPUP_MENU_HIDE",
+      "value": 59,
+      "refreshes": [],
+      "reason": "Chromium closed popup a before cmux answered (PopupMenuRunner.Hide): the menu closes with no answer (task 060)."
+    },
+    {
+      "kind": "CMUX_SHIM_SUGGESTIONS",
+      "value": 60,
+      "refreshes": [],
+      "reason": "A field's suggestions as data (fork API 31's suggestion handler, tasks 172 and 061): SHOW, SELECT, HIDE and ANNOUNCE for the page view's suggestion list (ChromiumHostSuggestionList), as Chrome's AutofillPopupController drives its view."
     }
   ],
   "optional_exports": [
@@ -5176,6 +5303,12 @@
       "value": 53,
       "refreshes": [],
       "reason": "The widget of WIDGET_CONTEXT closed: browser = owner, request = widget id (task 066)."
+    },
+    {
+      "kind": "CMUX_SHIM_WHEEL_ACK",
+      "value": 56,
+      "refreshes": [],
+      "reason": "Host mode only (task 234): Chromium's ack of one of the page's non-momentum wheels, paired in order with the wheels the host sent (GestureScrollEventAck and DidOverscroll, the fork's cmux_set_wheel_ack_handler). request = the wheel frame's input seq, a = DIPs scrolled in hundredths (x low 32 bits, y high), b = flags (1 scroll update, 2 consumed, 4 overscrolled; overscroll-behavior-x in bits 8-9) low and overscroll x in hundredths high (HOST/src/host_wheel_ack.h). cmux's swipe navigation decides from it (CEFSwipeNavigation)."
     }
   ],
   "host_mode_rewrites": [

@@ -16,8 +16,8 @@ One replay of a recorded manifest (schemas/perf/corpus-story-v1.schema.json):
      storage emptied, and its switch pair (bench_switches) in the app's launch environment as
      CMUX_NEXT_BENCH_CEF_SWITCHES. Agent tracks (agent_replay.py, task 114): the transcripts and the replay harness
      installed in the bench's acpmux home (install, bench_acpmux_home) and launch_env in the app's environment.
-     Then the bench app launches (bench_launch.BenchApp; a failed launch raises bench_launch.LaunchError) and the
-     layout is imported (session_io.import_layout).
+     Then the bench app launches (bench_launch.BenchApp, with the manifest's `config` settings over its default
+     config; a failed launch raises bench_launch.LaunchError) and the layout is imported (session_io.import_layout).
   3. Each PTY track's terminal gets `play.py pty-track --go FIFO -- <pty_replay.py args>` (task 112): pty_replay
      loads its recording, then its clock waits on the FIFO. The player waits until every track holds its FIFO.
      Each agent track's chat tab is resolved; its prompt `replay <transcript sha256>` (agent_replay's PROMPT) goes
@@ -964,8 +964,24 @@ def default_fetch(ref: Mapping[str, Any], root: Path = REPO_ROOT) -> Path:
     return cache.path(ref)
 
 
-def default_bench(app: str, *, out: Path, env: Mapping[str, str | None], session: str):
-    return bench_launch().BenchApp(app, out=str(out), env=dict(env), perf_session=session)
+def bench_config(base: Mapping[str, Any], settings: Mapping[str, Any]) -> dict[str, Any]:
+    """BASE (a cmux-next.json object) with SETTINGS (a story's `config`: dotted setting paths) set over it."""
+    config = json.loads(json.dumps(base))
+    for dotted, value in settings.items():
+        *parents, leaf = dotted.split(".")
+        node = config
+        for part in parents:
+            node = node.setdefault(part, {})
+        node[leaf] = value
+    return config
+
+
+def default_bench(app: str, *, out: Path, env: Mapping[str, str | None], session: str,
+                  config: Mapping[str, Any] | None = None):
+    """A BenchApp; a story's `config` settings go over BenchApp's default config (bench_launch.DEFAULT_CONFIG)."""
+    launch = bench_launch()
+    written = None if config is None else bench_config(launch.DEFAULT_CONFIG, config)
+    return launch.BenchApp(app, out=str(out), env=dict(env), config=written, perf_session=session)
 
 
 def default_import(rpc: Callable[..., Any], snapshot: Mapping[str, Any]):
@@ -1156,7 +1172,8 @@ class Player:
                 env.update(stack.enter_context(served))
             if manifest_doc["agents"]:
                 env.update(self.agents(out, manifest_doc["agents"], self.fetch, app))
-            bench = self.make_bench(app, out=out, env=env, session=f"corpus:{story.id}")
+            bench = self.make_bench(app, out=out, env=env, session=f"corpus:{story.id}",
+                                    config=manifest_doc.get("config"))
             stack.callback(bench.stop)
             bench.launch()  # bench_launch.LaunchError when the app does not come up
             stack.callback(self.import_layout(bench.rpc, story.snapshot).close)

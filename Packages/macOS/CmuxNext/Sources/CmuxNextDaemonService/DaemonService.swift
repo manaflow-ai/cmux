@@ -1,6 +1,8 @@
 import AppKit
 public import CmuxNextActions
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
 public import CmuxNextControl
 public import CmuxNextDaemon
 public import CmuxNextTrace
@@ -80,7 +82,7 @@ public final class DaemonService {
     @ObservationIgnored var launchSnapshotLocation = LaunchSnapshotLocation()
     /// Callers of `endpoint()` waiting for the first connection (terminals
     /// drawn from the launch snapshot attach as soon as it exists).
-    @ObservationIgnored var connectionWaiters: [CheckedContinuation<Void, Never>] = []
+    @ObservationIgnored var connectionWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
     /// Watches each line the service's connections and its terminal attachments read (their reader threads'
     /// `daemon.line` scopes); nil watches nothing.
     @ObservationIgnored public let hangWatch: (any HangWatchScoping)?
@@ -206,6 +208,9 @@ public final class DaemonService {
                                                     installKey: launcher.configuration.installKey,
                                                     echoesPlacementShift: echoesPlacementShift, retryWake: retryWake,
                                                     hangWatch: hangWatch)
+        // The launch's connect milestones: the prestart's, or this start's first attempt's when there is none.
+        let marks = prestart?.marks ?? Self.launchConnectMarks()
+        marks.mark(.connectStarted)
         var first: (@Sendable () async -> DaemonPrestart.Outcome)?
         if let prestart {
             // Cancelling the startup (shutdown) cancels the attempt too.
@@ -228,8 +233,8 @@ public final class DaemonService {
             logger.info("daemon handoff \(running, privacy: .public) -> \(target, privacy: .public)")
             return true
         }
-        start(first: first, handOff: handOff) {
-            DaemonConnection(configuration: configuration, endpointProvider: launcher.endpointProvider)
+        start(first: first, handOff: handOff, marks: marks) {
+            DaemonConnection(configuration: configuration, endpointProvider: marks.endpointProvider(of: launcher))
         }
     }
 
@@ -238,8 +243,11 @@ public final class DaemonService {
     /// The connection reconnects by itself afterwards. `handOff` runs before
     /// the app attaches; true means the daemon is exiting for a version
     /// handoff, so the app connects again and attaches to its successor only.
+    /// `marks` (the launch's connect milestones) attaches the connection the app runs, and closes when the startup
+    /// gives up.
     public func start(first: (@Sendable () async -> DaemonPrestart.Outcome)? = nil,
                handOff: (@Sendable (DaemonConnection, DaemonIdentity) async -> Bool)? = nil,
+               marks: DaemonConnectMarks? = nil,
                makeConnection: @escaping @Sendable () -> DaemonConnection) {
         guard runTask == nil else { return }
         let store = store
@@ -265,11 +273,16 @@ public final class DaemonService {
                                                                    onFailure: onFailure)
                 }
             }
-            guard let (connection, identity) = connected else { return }
+            guard let (connection, identity) = connected else {
+                marks?.close()
+                return
+            }
             guard let self, !Task.isCancelled else {
+                marks?.close()
                 await connection.close()
                 return
             }
+            await marks?.attach(connection)
             self.didConnect(connection, identity: identity)
             self.windowState = WindowStateStore(connection: connection)
             logger.info("cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")

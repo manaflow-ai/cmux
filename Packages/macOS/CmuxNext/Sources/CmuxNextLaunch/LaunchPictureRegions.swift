@@ -47,7 +47,12 @@ public final class LaunchPictureRegions {
     private let rest = CAShapeLayer()
     private var regions: [Region] = []
     private var isSealed = false
+    /// The bound took the picture down (``leaveAll()``): no part left for its content.
+    private var isExpired = false
     private var finished: (@MainActor () -> Void)?
+    /// Runs as a part or the rest leaves (p08-startup-061, ``LaunchPictureInput``'s held clicks): its name
+    /// (``holder(at:)``) and whether its region drew its content (false at the bound).
+    var partLeft: (@MainActor (_ holder: String, _ drawn: Bool) -> Void)?
     /// The whole picture left: every part and the rest.
     public private(set) var isFinished = false
 
@@ -92,6 +97,7 @@ public final class LaunchPictureRegions {
         guard !isFinished, regions.indices.contains(part.index), !regions[part.index].isLeaving else { return }
         regions[part.index].isLeaving = true
         fade(regions[part.index].layer)
+        partLeft?(Self.partName(part.index), true)
         finishIfLast()
     }
 
@@ -103,9 +109,11 @@ public final class LaunchPictureRegions {
 
     /// The bound: every part and the rest fade out now, content or not.
     public func leaveAll() {
-        for region in regions where !region.isLeaving {
+        isExpired = true
+        for (index, region) in regions.enumerated() where !region.isLeaving {
             region.isLeaving = true
             fade(region.layer)
+            partLeft?(Self.partName(index), false)
         }
         seal()
     }
@@ -138,6 +146,17 @@ public final class LaunchPictureRegions {
         return !region.isLeaving
     }
 
+    /// The name of the part that still shows the picture at `point` (``partLeft``), ``rest`` outside every part's
+    /// area; nil where the picture no longer shows.
+    func holder(at point: CGPoint) -> String? {
+        guard covers(point) else { return nil }
+        return regions.firstIndex { $0.layer.frame.contains(point) }.map(Self.partName) ?? Self.rest
+    }
+
+    nonisolated static let rest = "rest"
+
+    private static func partName(_ index: Int) -> String { "part-\(index)" }
+
     /// `part`'s layer in the mask (tests read its fade).
     func layer(of part: Part) -> CALayer? {
         regions.indices.contains(part.index) ? regions[part.index].layer : nil
@@ -147,6 +166,7 @@ public final class LaunchPictureRegions {
         guard isSealed, !isFinished, regions.allSatisfy(\.isLeaving), let finished else { return }
         isFinished = true
         self.finished = nil
+        partLeft?(Self.rest, !isExpired)
         // With animations off (or no screen to draw on) the rest goes in this frame, the picture with it.
         guard fades else {
             fade(rest)

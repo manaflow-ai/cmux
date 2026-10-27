@@ -1,3 +1,7 @@
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
+
 /// A ``ProcessRunning`` that runs at most `atOnce` requests of its base runner at a time; the others wait in
 /// arrival order. The bound is the instance's, shared by every copy, so one runner made at the composition root
 /// bounds every caller it is passed to, however many of them there are (the App's one `gh` runner: two at once
@@ -39,7 +43,7 @@ public struct BoundedProcessRunner: ProcessRunning {
 /// A fixed number of slots, handed out in arrival order.
 private actor ProcessSlots {
     private var free: Int
-    private var waiting: [CheckedContinuation<Void, Never>] = []
+    private var waiting: [OnceContinuation<Void, OnceContinuationError>] = []
 
     init(count: Int) {
         free = count
@@ -50,12 +54,16 @@ private actor ProcessSlots {
             free -= 1
             return
         }
-        await withCheckedContinuation { waiting.append($0) }
+        // The waiter waits in arrival order until release() hands it the slot.
+        try? await withOnceContinuation { (waiter: OnceContinuation<Void, OnceContinuationError>) in waiting.append(waiter) }
     }
 
     /// The slot passes to the first waiter, or back to the free ones.
     func release() {
-        guard waiting.isEmpty else { return waiting.removeFirst().resume() }
+        guard waiting.isEmpty else {
+            waiting.removeFirst().resume(returning: ())
+            return
+        }
         free += 1
     }
 }

@@ -231,6 +231,26 @@ class StoryRulesTest(unittest.TestCase):
         self.assertEqual(sum(error.startswith("$.compose") for error in errors), 2, errors)
 
 
+    def test_config_keys_are_settings_with_their_default_type(self):
+        story = recorded_story()
+        story["config"] = {"sidebar.numbering": "workspacesOnly", "browser.omnibar.remoteSuggestions": False,
+                           "browser.keepNeighborTabsAwake": 0}
+        self.assertEqual(errors_of(story), [])
+        story["config"] = {"sidebar.numberingg": "workspacesOnly", "browser.omnibar.remoteSuggestions": "off",
+                           "browser.keepNeighborTabsAwake": True}
+        errors = errors_of(story)
+        self.assertTrue(any(e.startswith("$.config.sidebar.numberingg: not a cmux-next.json setting") for e in errors), errors)
+        self.assertTrue(any(e.startswith("$.config.browser.omnibar.remoteSuggestions: a string") for e in errors), errors)
+        self.assertTrue(any(e.startswith("$.config.browser.keepNeighborTabsAwake: a boolean") for e in errors), errors)
+
+    def test_config_values_are_tokens(self):
+        story = recorded_story()
+        for config in ({"sidebar.numbering": "all items"}, {"sidebar": "workspacesOnly"},
+                       {"sidebar.numbering": ["workspacesOnly"]}):
+            story["config"] = config
+            self.assertTrue(cm.schema_errors(story, SCHEMA, SCHEMA), config)
+
+
 class TreeTest(unittest.TestCase):
     def tree(self):
         directory = tempfile.TemporaryDirectory()

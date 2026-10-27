@@ -8,33 +8,47 @@ import AppKit
 /// runs the slot widens (``listeningWidth``) and shows, left to right: a live waveform of thin
 /// bars that fade to dots at both ends, the return-key button that finishes and keeps the words,
 /// and the mic button, highlighted in the theme's accent, which stops it too.
-final class ComposeVoiceControls: NSView {
+///
+/// Layers of the compose bar's one controls view (`ComposeChromeView`, p03-rendering-074): it
+/// hit-tests the buttons and gives each an accessibility element; showing, moving or recolouring
+/// them changes layers only.
+@MainActor
+final class ComposeVoiceControls {
     var onMic: () -> Void = {}
     var onFinish: () -> Void = {}
+    /// The view the controls are drawn in.
+    weak var owner: ComposeChromeView? {
+        didSet {
+            mic.owner = owner
+            finish.owner = owner
+            wave.owner = owner
+        }
+    }
 
+    /// The controls' frame in the owner's coordinates (y down); the parts are laid out in it at once.
+    let layer = CALayer()
     let mic = ComposeVoiceButton(symbol: "mic", activeSymbol: "mic.fill")
     let finish = ComposeVoiceButton(symbol: "return", activeSymbol: "return")
     let wave = ComposeVoiceWave()
     private(set) var isListening = false
+    /// The mic's label now (Dictate, or Stop Dictation while a session runs).
+    private(set) var micLabel = CmuxStrings.dictate
 
     /// The trailing width the text leaves free while a session runs.
     static let listeningWidth: CGFloat = 4 + ComposeVoiceWave.width + 6 + ComposeSendSlot.target * 2 + 2
     /// The controls' height (the send button's hit target, centred on the last line).
     static let height: CGFloat = ComposeSendSlot.target
 
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        wantsLayer = true
-        for v: NSView in [wave, finish, mic] { addSubview(v) }
+    init() {
+        layer.actions = ["bounds": NSNull(), "position": NSNull(), "hidden": NSNull(), "sublayers": NSNull()]
+        for l in [wave.layer, finish.layer, mic.layer] { layer.addSublayer(l) }
         mic.onPress = { [weak self] in self?.onMic() }
         finish.onPress = { [weak self] in self?.onFinish() }
-        mic.setAccessibilityIdentifier("cmux.home.composer.mic")
-        finish.setAccessibilityIdentifier("cmux.home.composer.finishDictation")
+        mic.element.setAccessibilityIdentifier("cmux.home.composer.mic")
+        finish.element.setAccessibilityIdentifier("cmux.home.composer.finishDictation")
+        finish.element.setAccessibilityLabel(CmuxStrings.finishDictation)
         setListening(false)
     }
-    required init?(coder: NSCoder) { nil }
-
-    override var isFlipped: Bool { true }
 
     /// The controls' frame for the field `f` (the pane's coordinates, y down): the mic's centre is the
     /// send button's (`ComposeSendSlot`), the rest extends to its left.
@@ -45,90 +59,130 @@ final class ComposeVoiceControls: NSView {
         return CGRect(x: right - w, y: centre.y - height / 2, width: w, height: height)
     }
 
-    override func layout() {
-        super.layout()
-        let t = ComposeSendSlot.target
-        mic.frame = CGRect(x: bounds.width - t, y: 0, width: t, height: t)
-        finish.frame = CGRect(x: bounds.width - 2 * t - 2, y: 0, width: t, height: t)
-        wave.frame = CGRect(x: 0, y: (t - ComposeVoiceWave.height) / 2, width: ComposeVoiceWave.width, height: ComposeVoiceWave.height)
+    /// Hidden: no layer shows and no button takes a click or is an accessibility element.
+    var isHidden: Bool {
+        get { layer.isHidden }
+        set {
+            guard newValue != layer.isHidden else { return }
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            layer.isHidden = newValue
+            CATransaction.commit()
+            owner?.controlsChanged(visibility: true)
+        }
+    }
+
+    /// The controls' frame in the owner's coordinates.
+    var frame: CGRect {
+        get { layer.frame }
+        set {
+            guard newValue != layer.frame else { return }
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            layer.frame = newValue
+            placeParts()
+            CATransaction.commit()
+            owner?.controlsChanged(visibility: false)
+        }
+    }
+
+    /// The mic's and the finish button's hit targets in the owner's coordinates.
+    var micFrame: CGRect { mic.layer.frame.offsetBy(dx: layer.frame.minX, dy: layer.frame.minY) }
+    var finishFrame: CGRect { finish.layer.frame.offsetBy(dx: layer.frame.minX, dy: layer.frame.minY) }
+
+    /// The mic at the right, the finish button left of it, the waveform at the left.
+    private func placeParts() {
+        let t = ComposeSendSlot.target, w = layer.bounds.width
+        mic.layer.frame = CGRect(x: w - t, y: 0, width: t, height: t)
+        finish.layer.frame = CGRect(x: w - 2 * t - 2, y: 0, width: t, height: t)
+        wave.layer.frame = CGRect(x: 0, y: (t - ComposeVoiceWave.height) / 2, width: ComposeVoiceWave.width, height: ComposeVoiceWave.height)
+        mic.element.frameInView = micFrame
+        finish.element.frameInView = finishFrame
     }
 
     /// Idle (the mic alone) or a running session (waveform, finish, the highlighted mic).
     func setListening(_ listening: Bool) {
         isListening = listening
-        wave.isHidden = !listening
-        finish.isHidden = !listening
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        wave.layer.isHidden = !listening
+        finish.layer.isHidden = !listening
         mic.isActive = listening
-        let label = listening ? CmuxStrings.stopDictation : CmuxStrings.dictate
-        mic.setAccessibilityLabel(label)
-        mic.toolTip = label
-        finish.setAccessibilityLabel(CmuxStrings.finishDictation)
-        finish.toolTip = CmuxStrings.finishDictation
-        needsLayout = true
+        placeParts()
+        CATransaction.commit()
+        micLabel = listening ? CmuxStrings.stopDictation : CmuxStrings.dictate
+        mic.element.setAccessibilityLabel(micLabel)
+        owner?.controlsChanged(visibility: true)
     }
 
-    private var applied: (ink: NSColor, accent: NSColor, appearance: NSAppearance.Name)?
+    private var applied: (ink: NSColor, accent: NSColor, appearance: NSAppearance.Name?)?
 
     /// The theme's inks: the glyphs' resting colour and the accent. Unchanged inks in the same
     /// appearance touch nothing (this runs with every draft change).
     func applyColors(ink: NSColor, accent: NSColor) {
-        let appearance = effectiveAppearance.name
+        let appearance = owner?.effectiveAppearance.name
         if let applied, applied.ink == ink, applied.accent == accent, applied.appearance == appearance { return }
         applied = (ink, accent, appearance)
         mic.applyColors(ink: ink, accent: accent)
         finish.applyColors(ink: ink, accent: ink)
-        wave.ink = ink
-        wave.accent = accent
+        wave.setInks(ink: ink, accent: accent)
     }
 
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !isHidden else { return nil }
-        let p = convert(point, from: superview)
-        for b in [mic, finish] where !b.isHidden && b.frame.contains(p) { return b }
-        return nil
+    /// The owner's appearance changed: a dynamic ink resolves again for it.
+    func appearanceChanged() {
+        guard let applied else { return }
+        self.applied = nil
+        applyColors(ink: applied.ink, accent: applied.accent)
+    }
+
+    /// The window's scale: the glyphs draw again at it.
+    func rescale(_ s: CGFloat) {
+        if layer.contentsScale != s { layer.contentsScale = s }
+        mic.rescale(s)
+        finish.rescale(s)
+        wave.rescale(s)
     }
 }
 
 /// One round glyph button of the voice controls (the mic, the return key). Active: the accent
-/// rounded square behind an accent glyph (the mic while it records).
-final class ComposeVoiceButton: NSView {
+/// rounded square behind an accent glyph (the mic while it records). The glyph is the symbol as a
+/// mask over a fill of its ink, so a recolour is one layer property.
+@MainActor
+final class ComposeVoiceButton {
     var onPress: () -> Void = {}
-    private let glyph = NSImageView()
+    weak var owner: ComposeChromeView? {
+        didSet { element.view = owner; applyLook() }
+    }
+    /// The 28 pt hit target, in the voice controls' layer.
+    let layer = CALayer()
+    /// The button for VoiceOver and the accessibility API.
+    let element = ComposeChromeElement()
+    private let glyph = CALayer()
+    private let glyphMask = CALayer()
     private let backing = CALayer()
     private let symbol: String
     private let activeSymbol: String
     private var ink: NSColor = .secondaryLabelColor
     private var accent: NSColor = .controlAccentColor
     private var pressing = false
-    /// The symbol the glyph shows now (its image is made only when this changes).
-    private var shownSymbol: String?
+    private var scale: CGFloat = DisplayScale.current
+    /// The symbol and scale the glyph's mask shows now (its image is made only when one changes).
+    private var shownSymbol: (name: String, scale: CGFloat)?
     var isActive = false { didSet { if isActive != oldValue { applyLook() } } }
 
     init(symbol: String, activeSymbol: String) {
         self.symbol = symbol
         self.activeSymbol = activeSymbol
-        super.init(frame: NSRect(x: 0, y: 0, width: ComposeSendSlot.target, height: ComposeSendSlot.target))
-        wantsLayer = true
-        backing.actions = ["backgroundColor": NSNull(), "opacity": NSNull(), "frame": NSNull(), "bounds": NSNull(), "position": NSNull()]
+        let none: [String: CAAction] = ["backgroundColor": NSNull(), "opacity": NSNull(), "bounds": NSNull(), "position": NSNull(),
+                                        "contents": NSNull(), "hidden": NSNull(), "contentsScale": NSNull()]
+        for l in [layer, glyph, glyphMask, backing] { l.actions = none }
+        layer.bounds = CGRect(x: 0, y: 0, width: ComposeSendSlot.target, height: ComposeSendSlot.target)
         backing.cornerRadius = 7
         backing.cornerCurve = .continuous
-        layer?.addSublayer(backing)
-        glyph.imageScaling = .scaleNone
-        addSubview(glyph)
-        setAccessibilityRole(.button)
-        setAccessibilityElement(true)
+        backing.frame = layer.bounds.insetBy(dx: 1, dy: 1)
+        glyph.frame = layer.bounds
+        glyph.mask = glyphMask
+        layer.addSublayer(backing)
+        layer.addSublayer(glyph)
+        element.onPress = { [weak self] in self?.onPress(); return true }
         applyLook()
-    }
-    required init?(coder: NSCoder) { nil }
-
-    override var isFlipped: Bool { true }
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
-
-    override func layout() {
-        super.layout()
-        glyph.frame = bounds
-        backing.frame = bounds.insetBy(dx: 1, dy: 1)
     }
 
     func applyColors(ink: NSColor, accent: NSColor) {
@@ -137,68 +191,86 @@ final class ComposeVoiceButton: NSView {
         applyLook()
     }
 
+    /// A press is held on the button with the pointer over it.
+    func setPressing(_ on: Bool) {
+        guard on != pressing else { return }
+        pressing = on
+        applyLook()
+    }
+
+    func rescale(_ s: CGFloat) {
+        guard s != scale else { return }
+        scale = s
+        applyLook()
+    }
+
     private func applyLook() {
-        let name = isActive ? activeSymbol : symbol
-        if name != shownSymbol {
-            shownSymbol = name
-            glyph.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(FieldChrome.glyphConfig)
-        }
-        glyph.contentTintColor = isActive ? accent : ink
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        backing.backgroundColor = accent.withAlphaComponent(0.22).cgColor
+        let name = isActive ? activeSymbol : symbol
+        if shownSymbol.map({ $0.name != name || $0.scale != scale }) ?? true {
+            shownSymbol = (name, scale)
+            placeGlyph(NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(FieldChrome.glyphConfig))
+        }
+        let glyphInk = isActive ? accent : ink, backingInk = accent.withAlphaComponent(0.22)
+        glyph.backgroundColor = owner?.cgColor(glyphInk) ?? glyphInk.cgColor
+        backing.backgroundColor = owner?.cgColor(backingInk) ?? backingInk.cgColor
         backing.opacity = isActive ? 1 : 0
-        layer?.opacity = pressing ? 0.6 : 1
+        layer.opacity = pressing ? 0.6 : 1
         CATransaction.commit()
     }
 
-    override func mouseDown(with event: NSEvent) { pressing = true; applyLook() }
-    override func mouseDragged(with event: NSEvent) {
-        let inside = bounds.contains(convert(event.locationInWindow, from: nil))
-        if inside != pressing { pressing = inside; applyLook() }
+    /// The symbol's shape as the glyph's mask: drawn at its own size, centred in the button (as an
+    /// image view that does not scale it), at the window's scale.
+    private func placeGlyph(_ image: NSImage?) {
+        for l in [layer, glyph, glyphMask, backing] { l.contentsScale = scale }
+        glyphMask.frame = glyph.bounds
+        guard let image else { glyphMask.contents = nil; return }
+        let b = glyph.bounds, size = image.size
+        let box = CGRect(x: ((b.width - size.width) / 2).rounded(), y: ((b.height - size.height) / 2).rounded(),
+                         width: size.width, height: size.height)
+        let fmt = UIGraphicsImageRendererFormat()
+        fmt.scale = scale
+        fmt.opaque = false
+        // The renderer's context is y-down and current as a flipped NSGraphicsContext (ContextScope).
+        glyphMask.contents = UIGraphicsImageRenderer(size: b.size, format: fmt).image { _ in
+            image.draw(in: box, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        }.cgImage
     }
-    override func mouseUp(with event: NSEvent) {
-        let inside = bounds.contains(convert(event.locationInWindow, from: nil))
-        pressing = false; applyLook()
-        if inside { onPress() }
-    }
-    override func accessibilityPerformPress() -> Bool { onPress(); return true }
 }
 
 /// The live waveform: thin vertical bars whose height follows the input level, falling to dots at
 /// both ends. Each level moves the bars in one frame (no animation object); with the gate off
 /// (Reduce Motion, animations off) the bars stand still, tinted the accent while listening.
-final class ComposeVoiceWave: NSView {
+@MainActor
+final class ComposeVoiceWave {
     static let bars = 19
     static let pitch: CGFloat = 4
     static let barWidth: CGFloat = 1.6
     static let width: CGFloat = CGFloat(bars - 1) * pitch + barWidth
     static let height: CGFloat = 20
+    weak var owner: ComposeChromeView? { didSet { recolor() } }
     /// Whether the bars move with the level (the host's motion gate; MessagesLabHomeView.voiceMotionGate).
     var moves: () -> Bool = { MessagesLabHomeView.voiceMotionGate() }
-    // Set only when an ink or the appearance changed (`ComposeVoiceControls.applyColors`).
-    var ink: NSColor = .secondaryLabelColor { didSet { recolor() } }
-    var accent: NSColor = .controlAccentColor { didSet { recolor() } }
+    /// The bars' container, in the voice controls' layer.
+    let layer = CALayer()
+    private var ink: NSColor = .secondaryLabelColor
+    private var accent: NSColor = .controlAccentColor
     private var layers: [CALayer] = []
     /// A step through the bars' jitter so a steady level still looks alive.
     private var phase = 0
     private(set) var heights: [CGFloat] = []
 
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        wantsLayer = true
+    init() {
+        layer.actions = ["bounds": NSNull(), "position": NSNull(), "hidden": NSNull()]
         for _ in 0..<Self.bars {
             let l = CALayer()
-            l.actions = ["bounds": NSNull(), "position": NSNull(), "frame": NSNull(), "backgroundColor": NSNull()]
+            l.actions = ["bounds": NSNull(), "position": NSNull(), "frame": NSNull(), "backgroundColor": NSNull(), "contentsScale": NSNull()]
             l.cornerRadius = Self.barWidth / 2
-            layer?.addSublayer(l)
+            layer.addSublayer(l)
             layers.append(l)
         }
-        setAccessibilityElement(false)
         show(level: 0)
     }
-    required init?(coder: NSCoder) { nil }
-
-    override var isFlipped: Bool { true }
 
     /// The bar's share of the level: zero for the three dots at each end, a bell between them.
     static func weight(_ i: Int) -> CGFloat {
@@ -232,9 +304,21 @@ final class ComposeVoiceWave: NSView {
         recolor()
     }
 
+    /// The theme's inks (only when one or the appearance changed: `ComposeVoiceControls.applyColors`).
+    func setInks(ink: NSColor, accent: NSColor) {
+        self.ink = ink
+        self.accent = accent
+        recolor()
+    }
+
+    func rescale(_ s: CGFloat) {
+        for l in [layer] + layers where l.contentsScale != s { l.contentsScale = s }
+    }
+
     private func recolor() {
         // Still bars (no motion) say "listening" with the accent instead of movement.
-        let c = (moves() ? ink : accent).cgColor
+        let ink = moves() ? ink : accent
+        let c = owner?.cgColor(ink) ?? ink.cgColor
         CATransaction.begin(); CATransaction.setDisableActions(true)
         for l in layers { l.backgroundColor = c }
         CATransaction.commit()

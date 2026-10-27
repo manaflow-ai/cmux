@@ -55,8 +55,9 @@ public final class OmnibarTabBinding {
     private func render() {
         let state = tab.state
         if let http = httpsFallback.observe(state) {
-            // task-owner: one load, after this render (never a load inside the observed render).
-            Task { @MainActor [weak self] in self?.tab.load(http) }
+            // One load, after this render (never a load inside the observed render): the rest of the person's
+            // typed navigation, as BrowserChromeView's fallback.
+            mainWork.post(.userBlocking, owner: "browser.popup.httpsFallback") { [weak self] in self?.tab.load(http) }
         }
         addressBar.update(url: BrowserChromeView.omnibarURL(for: state), security: PageInfoSite.omnibarSecurity(for: state))
     }

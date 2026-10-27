@@ -143,6 +143,12 @@ impl HelloGate {
         self.window = Window::Closed;
     }
 
+    /// Whether the window has closed: no later line changes the connection's
+    /// role or proof, so its origin is final.
+    pub(super) fn is_closed(&self) -> bool {
+        matches!(self.window, Window::Closed)
+    }
+
     /// Sees every line before dispatch. `Some(reply)` answers the line here
     /// (a `client-hello`, or a page relay's legacy line) and nothing else
     /// sees it; `None` dispatches it as usual.

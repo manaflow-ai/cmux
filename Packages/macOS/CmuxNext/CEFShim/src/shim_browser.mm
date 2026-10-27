@@ -1,5 +1,5 @@
 // Per-browser commands: window creation, fork tab API, navigation, find,
-// zoom, DevTools methods, extension actions.
+// zoom, DevTools methods, extension actions, <select> popups.
 
 #import <AppKit/AppKit.h>
 
@@ -58,9 +58,53 @@ void BuiltInLoadAnswered(void* context, int loaded) {
   Emit(CMUX_SHIM_REPLY, 0, static_cast<int>(reinterpret_cast<intptr_t>(context)), loaded == 1 ? 1 : 0, 0);
 }
 
+// <select> popups go to the host while it takes them (cmux_shim_set_popup_menus).
+bool& popup_menus_on() {
+  static bool on = false;
+  return on;
+}
+
+bool HasPopupMenuCalls() {
+  return fork_api().browser_set_popup_menu_handler && fork_api().browser_popup_menu_reply;
+}
+
+// Fork API 31 (task 171): a page opened a <select> popup. The Chromium Host
+// is never the active app, so Chromium's NSMenu (content::PopupMenuHelper,
+// popup_menu_helper_mac.mm) would track in the wrong process; cmux shows the
+// menu, as Chrome's app shim does for its browser process (PopupMenuRunner,
+// content/common/render_widget_host_ns_view.mojom).
+void PopupMenuShow(void*, int browser_id, const ForkPopupMenu* menu) {
+  if (!menu) return;
+  if (!PopupMenuReadable(*menu)) {
+    // A struct this shim cannot read: the popup closes with no choice, so
+    // the page never waits for an answer.
+    fork_api().browser_popup_menu_reply(browser_id, menu->token, -1);
+    return;
+  }
+  Emit(CMUX_SHIM_POPUP_MENU, browser_id, 0, menu->token, 0, PopupMenuJson(*menu));
+}
+
+void PopupMenuHide(void*, int browser_id, int64_t token) {
+  Emit(CMUX_SHIM_POPUP_MENU_HIDE, browser_id, 0, token);
+}
+
+// Sets or removes browser_id's popup handler in the fork, which hides an
+// open popup of the handler it replaces through PopupMenuHide.
+void SetPopupMenuHandler(int browser_id, bool on) {
+  if (on) {
+    fork_api().browser_set_popup_menu_handler(browser_id, &PopupMenuShow, &PopupMenuHide, nullptr);
+  } else {
+    fork_api().browser_set_popup_menu_handler(browser_id, nullptr, nullptr, nullptr);
+  }
+}
+
 }  // namespace
 
 namespace cmux_shim {
+
+void ApplyPopupMenus(int browser_id) {
+  if (popup_menus_on() && HasPopupMenuCalls()) SetPopupMenuHandler(browser_id, true);
+}
 
 // Chromium asks to focus a page: after every navigation it starts (a new
 // browser's first load, LoadURL), and inside cmux's own SetFocus and
@@ -235,6 +279,15 @@ int cmux_shim_browser_set_embedder_visibility(int browser_id, int visibility) {
   return fork_api().browser_set_embedder_visibility(browser_id, visibility);
 }
 
+// The fork's call is Chromium's WasHidden / WasOccluded for the detached page
+// window (its widget's Hide and ShowInactive, its NSWindow's occluded state);
+// CefBrowserHost::WasHidden does nothing for a Chrome-style browser.
+int cmux_shim_browser_set_page_visibility(int browser_id, int visibility) {
+  if (visibility < CMUX_SHIM_PAGE_VISIBLE || visibility > CMUX_SHIM_PAGE_OCCLUDED) return 0;
+  if (!fork_api().browser_set_page_visibility) return 0;
+  return fork_api().browser_set_page_visibility(browser_id, visibility);
+}
+
 int cmux_shim_tab_set_visibility(int browser_id, int visibility, int capture) {
   if (!fork_api().tab_set_visibility) return 0;
   return fork_api().tab_set_visibility(browser_id, visibility, capture);
@@ -399,6 +452,24 @@ int cmux_shim_tab_restore_navigation(int browser_id, const char* state) {
 
 int cmux_shim_navigation_restore_supported(void) {
   return fork_api().tab_navigation_state && fork_api().tab_restore_navigation ? 1 : 0;
+}
+
+void cmux_shim_set_popup_menus(int enabled) {
+  const bool on = enabled != 0;
+  if (popup_menus_on() == on) return;
+  popup_menus_on() = on;
+  if (!HasPopupMenuCalls()) return;
+  for (const auto& [browser_id, browser] : browsers()) SetPopupMenuHandler(browser_id, on);
+  for (int browser_id : DevToolsBrowserIds()) SetPopupMenuHandler(browser_id, on);
+}
+
+void cmux_shim_browser_popup_menu_reply(int browser_id, int64_t token, int index) {
+  if (!fork_api().browser_popup_menu_reply) return;
+  // The fork refuses an item the page cannot take and keeps its popup open;
+  // cmux's menu has closed, so the page's popup closes too.
+  if (!fork_api().browser_popup_menu_reply(browser_id, token, index) && index != -1) {
+    fork_api().browser_popup_menu_reply(browser_id, token, -1);
+  }
 }
 
 void cmux_shim_free(char* s) {

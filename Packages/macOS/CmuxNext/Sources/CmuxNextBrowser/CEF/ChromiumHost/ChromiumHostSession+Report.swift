@@ -21,7 +21,7 @@ extension ChromiumHostSession {
                 "live": isLive, "idle_exit_armed": isIdleExitArmed, "stand_in": view.standIn != nil,
                 "exits": exits, "error": lastError ?? "", "log_file": configuration.logFile ?? "",
                 "wire_waiting": backlog?.waiting ?? 0, "wire_coalesced": Int(clamping: backlog?.coalesced ?? 0),
-                "input_presented_failed": failedInputPresentations]
+                "input_presented_failed": failedInputPresentations, "password_input": view.passwordInput.isOn]
         for (name, count) in view.textInput.stats.report { fields[name] = count }
         return fields
     }

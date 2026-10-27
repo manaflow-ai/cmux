@@ -26,6 +26,9 @@ public final class WebUIHost {
     /// The shared web content processes of the WebKit pages that ask for them
     /// (``PageEngineOptions/sharesWebKitProcess``, the agent pages).
     public let processGroups: WebProcessGroups
+    /// The daemon relay channels of the pages (one per daemon page id), kept here instead of a
+    /// static (p13-webui-066): each closes its daemon connection when idle.
+    public let relayChannels = PageRelayChannels()
     /// Every page's Active, Hidden, Frozen and Discarded states (p13-webui.md 3.C), fed by the tab
     /// content lifecycle; a page it holds leaves it on ``close(_:)``. Nil while `pageLifecycle` is off:
     /// the composition root sets it.
@@ -60,6 +63,9 @@ public final class WebUIHost {
     /// A page starts its document, and its renderer, at its first show, not when it opens
     /// (feature `pageRendererAtFirstShow`, PageWebView+FirstShow.swift).
     public let startsPagesAtFirstShow: Bool
+    /// Ends closed pages after the close's turn (``close(_:)``, p13-webui-064); the agent tabs retire
+    /// their panes on it too, so the app has one teardown deadline.
+    public let retirer: PageRetirer
     /// Every page this host opened and has not closed. Weak, so a view a provider drops without
     /// closing it still deinits (p13-webui-061 makes every tab close call ``close(_:)``).
     private let opened = NSHashTable<PageWebView>.weakObjects()
@@ -67,6 +73,13 @@ public final class WebUIHost {
     /// Yields when a page's oracle reading may have changed (the `webviews` facet's wait, p15-oracle-215): a page
     /// ``observeOracleState(of:)`` hooked posted ``PageRouter/oracleStateChangedOp`` or its document loaded.
     public let oracleChanges = PageOracleChangeFeed()
+    /// The engine page closes of this host's pages (`debug.webui` `retire`): a close in ``close(_:)``'s turn
+    /// is the Cmd-W cost the retirer removes.
+    public private(set) var engineCloses = WebUICensus.EngineCloses()
+    /// The system uptime each engine close is stamped with (tests pass their own).
+    var engineCloseUptime: @MainActor () -> Double = { ProcessInfo.processInfo.systemUptime }
+    /// ``close(_:)`` runs now (nested closes count each).
+    private var closing = 0
     #endif
 
     /// - Parameters:
@@ -79,11 +92,14 @@ public final class WebUIHost {
     ///   - processGroups: The shared WebKit processes (a test passes its own to read the groups).
     ///   - startsPagesAtFirstShow: Pages start their document at their first show (``startsPagesAtFirstShow``).
     ///   - hoverFrameInput: The frame-aligned pointer input of the pages' popups; nil: each move.
+    ///   - retirer: Ends closed pages after the close's turn (the app's is on `AppServices.mainDeadlines`).
     public init(chromium: (any PageChromiumHosting)?, openPanel: MadeAheadOpenPanel?,
                 memory: any MemoryConsumerRegistry, registry: PageRegistry = PageRegistry(),
                 clock: any Clock<Duration> = ContinuousClock(), processGroups: WebProcessGroups = WebProcessGroups(),
-                startsPagesAtFirstShow: Bool = false, hoverFrameInput: FrameInputCoalescers? = nil) {
+                startsPagesAtFirstShow: Bool = false, hoverFrameInput: FrameInputCoalescers? = nil,
+                retirer: PageRetirer = PageRetirer()) {
         self.chromium = chromium
+        self.retirer = retirer
         self.startsPagesAtFirstShow = startsPagesAtFirstShow
         self.hoverFrameInput = hoverFrameInput
         self.openPanel = openPanel
@@ -123,21 +139,35 @@ public final class WebUIHost {
         opened.add(view)
         #if DEBUG || CMUX_BENCH_HOOKS
         observeOracleState(of: view)
+        view.censusState.engineClosed = { [weak self] in self?.noteEngineClose() }
         #endif
         return view
     }
 
-    /// Ends `view`: its routes, bridge and engine page, and drops it from the host's lists and its own
-    /// crash budget. Safe to call twice and for a view this host did not open (it is only closed).
+    /// Ends `view`. Now: it leaves the view tree, the host's lists and its own crash budget, and its
+    /// routes, subscriptions and bridge end, so nothing serves a page no tab shows. At the
+    /// ``retirer``'s deadline: its engine page ends, never in the close's turn (Cmd-W makes no engine
+    /// close call). Safe to call twice and for a view this host did not open (it is only ended).
     ///
     /// - Parameter view: The page to end.
     public func close(_ view: PageWebView) {
-        view.close()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        closing += 1
+        defer { closing -= 1 }
+        #endif
         opened.remove(view)
         registry.remove(view)
         lifecycle?.forget(view)
         crashGroups.forget(ObjectIdentifier(view))
+        view.closeRoutes()
+        retirer.retire(view) { view.closeEngine() }
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    private func noteEngineClose() {
+        engineCloses.record(at: engineCloseUptime(), inCloseTurn: closing > 0)
+    }
+    #endif
 
     /// A configuration in the process pool and data store of the grouped WebKit pages
     /// (``processGroups``), for a page-less WebKit warm-up view: WebKit's first-use setup and the

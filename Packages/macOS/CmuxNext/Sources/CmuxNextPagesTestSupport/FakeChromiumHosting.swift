@@ -2,6 +2,8 @@ public import CmuxNextDesign
 public import CmuxNextPages
 public import CmuxNextSettings
 public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// A ``PageChromiumHosting`` that hands out ``FakeChromiumPage``s, or fails.
 @MainActor
@@ -10,10 +12,12 @@ public final class FakeChromiumHosting: PageChromiumHosting {
     public var preference: BrowserDefaultEngine = .chromium
     /// Whether Chromium is available.
     public var isAvailable = true
-    /// When true, ``makePage(_:chatOpen:)`` throws ``Refused``.
+    /// When true, ``makePage(_:chatOpen:window:)`` throws ``Refused``.
     public var fails = false
     /// Every page made, in order.
     public private(set) var made: [FakeChromiumPage] = []
+    /// The pane window each page made was asked for, in the order of ``made`` (nil: a window of its own).
+    public private(set) var windows: [PageChromiumWindow?] = []
     /// Runs on each page made, before the host gets it (a test sets ``FakeChromiumPage/answer`` here).
     public var onMade: ((FakeChromiumPage) -> Void)?
     /// The lanes the pages decode their large replies on (a test's own).
@@ -29,16 +33,16 @@ public final class FakeChromiumHosting: PageChromiumHosting {
     /// supervisor, the fake answers no page in the turn of its browser's end.
     private var supervisorWaiters: [@MainActor @Sendable (PageChromiumSupervisorOutcome) -> Void] = []
 
-    /// While set, ``makePage(_:chatOpen:)`` waits for its browser until ``endHeldBrowsers()``, as a
+    /// While set, ``makePage(_:chatOpen:window:)`` waits for its browser until ``endHeldBrowsers()``, as a
     /// page of the Chromium Host waits while the host makes its browser.
     public var holdsBrowsers = false
-    /// How many ``makePage(_:chatOpen:)`` calls wait for their browser now.
+    /// How many ``makePage(_:chatOpen:window:)`` calls wait for their browser now.
     public var heldBrowsers: Int { browserWaiters.count }
-    /// Runs each time a ``makePage(_:chatOpen:)`` call starts to wait (tests wait on it).
+    /// Runs each time a ``makePage(_:chatOpen:window:)`` call starts to wait (tests wait on it).
     public var onBrowserHeld: (() -> Void)?
-    private var browserWaiters: [CheckedContinuation<Void, any Error>] = []
+    private var browserWaiters: [OnceContinuation<Void, any Error>] = []
 
-    /// The error ``makePage(_:chatOpen:)`` throws while ``fails`` is set.
+    /// The error ``makePage(_:chatOpen:window:)`` throws while ``fails`` is set.
     public struct Refused: Error {}
 
     /// Makes a host that serves every page.
@@ -58,13 +62,15 @@ public final class FakeChromiumHosting: PageChromiumHosting {
     /// - Parameters:
     ///   - page: The page to show.
     ///   - chatOpen: The agent chat open the page shows, if any.
+    ///   - window: The pane window the page joins (``windows``).
     /// - Returns: The new page.
     /// - Throws: ``Refused`` while ``fails`` is set; ``PageChromiumStartError/browserEnded`` when
     ///   ``endHeldBrowsers()`` ended the browser it waited for.
-    public func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?) async throws -> any PageChromiumPage {
+    public func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?, window: PageChromiumWindow?) async throws
+        -> any PageChromiumPage {
         if fails { throw Refused() }
         if holdsBrowsers {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
                 browserWaiters.append(continuation)
                 onBrowserHeld?()
             }
@@ -72,6 +78,7 @@ public final class FakeChromiumHosting: PageChromiumHosting {
         let fake = FakeChromiumPage()
         fake.senderURL = page.url().absoluteString
         made.append(fake)
+        windows.append(window)
         onMade?(fake)
         return fake
     }
@@ -84,7 +91,7 @@ public final class FakeChromiumHosting: PageChromiumHosting {
         supervisorWaiters.append(answer)
     }
 
-    /// The Chromium Host ended with the browsers it was making: every ``makePage(_:chatOpen:)`` that
+    /// The Chromium Host ended with the browsers it was making: every ``makePage(_:chatOpen:window:)`` that
     /// waits throws ``PageChromiumStartError/browserEnded`` (its task resumes after this turn).
     public func endHeldBrowsers() {
         let waiters = browserWaiters

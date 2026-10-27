@@ -1,6 +1,9 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextTerminal
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The TextBox composer's actions (inventory row 23) on the targeted or focused terminal: Toggle
 /// TextBox, Focus TextBox (back and forth between the box and the terminal), Cycle TextBox Submit
@@ -72,13 +75,14 @@ enum TextBoxHandlers {
         panel.allowsMultipleSelection = true
         panel.title = TextBoxStrings.addFilesPanelTitle
         panel.prompt = TextBoxStrings.addFilesPanelPrompt
-        let response = await withCheckedContinuation { done in
+        // A panel that drops its reply was cancelled.
+        let response = (try? await withOnceContinuation { (done: OnceContinuation<NSApplication.ModalResponse, OnceContinuationError>) in
             if let window {
                 panel.beginSheetModal(for: window) { done.resume(returning: $0) }
             } else {
                 panel.begin { done.resume(returning: $0) }
             }
-        }
+        }) ?? .cancel
         return response == .OK ? panel.urls.map(\.path) : []
     }
 }

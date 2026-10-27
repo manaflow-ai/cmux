@@ -12,7 +12,7 @@ import CmuxNextDaemon
 /// engine take it.
 enum BrowserHitHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext,
-                     pasteboard: @escaping @MainActor () -> any BrowserPasteboard = { NSPasteboard.general }) {
+                     pasteboard: @escaping @MainActor @Sendable () -> any BrowserPasteboard = { NSPasteboard.general }) {
         bindOpen(registry, context)
         bindPlaces(registry, context)
         bindCopy(registry, context, pasteboard)

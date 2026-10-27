@@ -4,8 +4,9 @@
 //!
 //! Request threads (this dispatcher, the WebSocket connection thread) start
 //! through [`spawn_request_thread`]: UserInitiated, blocking disallowed
-//! (p02-threads task 211). A clear-history request runs as a `Mux::work`
-//! item at its cause's priority, blocking disallowed (task 230).
+//! (p02-threads task 211). The dispatcher then rests at its connection's
+//! class (connection_qos.rs, task 224). A clear-history request runs as a
+//! `Mux::work` item at its cause's priority, blocking disallowed (task 230).
 
 use super::MessageWriter;
 use crate::panic_free::RecoverPoison;
@@ -26,18 +27,21 @@ use super::send_request_error;
 use super::send_request_error_with_delivery;
 use super::terminal_create;
 use crate::Mux;
+#[path = "connection_qos.rs"]
+pub(super) mod connection_qos;
 use crate::SurfaceId;
 use crate::event_cause::EventCause;
 use crate::stream_interrupt::InterruptSet;
 use crate::stream_interrupt::StreamInterrupt;
 use crate::thread_qos::ThreadType;
 use cmux_threads::ThreadQos;
+use cmux_threads::sync::Condvar;
+use cmux_threads::sync::Mutex;
 use cmux_threads::work::{Lane, Shutdown};
+use connection_qos::{ConnectionClassCell, ConnectionThread, RestingClass};
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::Condvar;
-use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::thread::JoinHandle;
@@ -47,8 +51,8 @@ use std::time::Instant;
 /// The QoS of the threads that run a connection's requests and write its
 /// replies and events: the person waits on them (Chromium's kDefault,
 /// base/threading/platform_thread_apple.mm), [`ThreadType::Interactive`].
-/// Task 224 moves automation connections to Utility once they name their
-/// client.
+/// An automation connection's request threads rest at Utility once it is
+/// classified (connection_qos.rs, task 224).
 pub(super) const REQUEST_THREAD_QOS: ThreadQos = ThreadType::Interactive.qos();
 
 /// Starts request thread `name` at [`REQUEST_THREAD_QOS`] with blocking
@@ -154,6 +158,9 @@ pub(super) struct ConnectionSurfaceScheduler {
     pub(super) dispatcher: Mutex<Option<JoinHandle<()>>>,
     pub(super) connection_permit: Mutex<Option<ConnectionPermit>>,
     pub(super) creations: terminal_create::ConnectionCreations,
+    /// The connection's client class, set by its registry record; the
+    /// dispatcher rests at it (connection_qos.rs).
+    pub(super) class: Arc<ConnectionClassCell>,
 }
 
 impl Default for ConnectionSurfaceScheduler {
@@ -187,7 +194,19 @@ impl ConnectionSurfaceScheduler {
             dispatcher: Mutex::new(None),
             connection_permit: Mutex::new(connection_permit),
             creations: terminal_create::ConnectionCreations::default(),
+            class: Arc::default(),
         }
+    }
+
+    /// The scheduler of a connection whose client class is `class` (its
+    /// registry record's cell, `ClientRegistry::connection_class`).
+    pub(super) fn classed(mut self, class: Arc<ConnectionClassCell>) -> Self {
+        self.class = class;
+        self
+    }
+
+    fn resting_class(&self, mux: &Mux) -> RestingClass {
+        RestingClass::new(self.class.clone(), ConnectionThread::Request, mux.request_qos())
     }
 }
 
@@ -354,7 +373,8 @@ impl ConnectionSurfaceScheduler {
                 self.changed.notify_all();
                 return None;
             }
-            state = self.changed.wait(state).recover_poison();
+            // Idle for the connection's next request: not blocking work.
+            state = self.changed.idle().wait(state).recover_poison();
         }
     }
 
@@ -530,8 +550,10 @@ fn run_connection_surface_dispatcher(
     writer: MessageWriter,
 ) {
     let _dispatcher = ConnectionDispatcherGuard(scheduler.clone());
+    let mut resting = scheduler.resting_class(&mux);
     while writer.is_open() {
         let Some(pending) = scheduler.next_request() else { return };
+        resting.follow();
         if pending.request.cmd.is_clear_history()
             && let Some(surface) = pending.request.cmd.ordering_surface()
         {

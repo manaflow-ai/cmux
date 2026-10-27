@@ -22,6 +22,7 @@ use cmux_app_host::script::{LogSink, ScriptError};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::routes::RouteLine;
 use super::{MessageWriter, Response, send_response};
 use crate::mux::Mux;
 use crate::scripts::{Answer, FORBIDDEN, LogBudget, ScriptsSlot, UNAVAILABLE, timeout_from};
@@ -176,23 +177,17 @@ pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
     &[crate::server::routes::Route {
         names: &[crate::server::routes::RouteName::Prefix("script-")],
         stage: crate::server::FrameStage::Scripts,
-        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
+        entry: handle,
     }];
 
-/// Handles a `script-*` command; `None` when the message is not one.
-pub(super) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains("\"script-") {
-        return None;
-    }
+/// Answers a line whose `cmd` starts with `script-` (the route found it by
+/// name). The line's one decode is its `Value`: it gives every reply the
+/// `id` as written, a refused one too, and then the typed [`Request`].
+/// `None` only for a line with no `Value` (a number past `f64`, a lone
+/// surrogate); the `Command` parse answers it.
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
     let value: Value = crate::line_parses::parse(message).ok()?;
-    if !value.get("cmd").and_then(Value::as_str)?.starts_with("script-") {
-        return None;
-    }
     let id = value.get("id").cloned();
     let request = match serde_json::from_value::<Request>(value) {
         Ok(request) => request,

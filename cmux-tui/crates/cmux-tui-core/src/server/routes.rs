@@ -6,10 +6,15 @@
 //! same way (`mojo/public/cpp/bindings/lib/multiplex_router.cc`): the
 //! router reads the header and hands the message to its one endpoint.
 //!
-//! A module that has not moved to typed handlers yet (p05-ipc-063..070)
-//! is reached through its entry, `try_handle`, which still parses the line
-//! once itself; a typed handler reads its params from the head instead
-//! ([`RequestHead::params`]). A migration edits only its module's `ROUTES`.
+//! A route's entry decodes the line once itself, or reads its params from
+//! the head ([`RequestHead::params`]). A migration edits only its module's
+//! `ROUTES`.
+//!
+//! A `cmux.protocol/2` line names an `operation`, not a `cmd`. The
+//! operations outside the operation catalog that a module answers (the page
+//! router's routed namespaces, spec/page-router.json) are found the same
+//! way, by name in the module's own table: [`OPERATION_ROUTES`] lists those
+//! modules and [`find_operation`] picks the one route an `operation` names.
 //!
 //! Most route names are not in spec/sdk-schema.json yet, so the generated
 //! v12 table (`cmux_ipc::methods`) cannot resolve them: [`find`] looks a
@@ -28,7 +33,7 @@ pub(super) struct RouteLine<'l> {
     pub(super) client: u64,
     pub(super) message: &'l str,
     pub(super) writer: &'l MessageWriter,
-    #[expect(dead_code, reason = "read by the typed handlers of p05-ipc-063..070")]
+    #[expect(dead_code, reason = "read by the typed handlers that decode only params")]
     pub(super) head: &'l RequestHead<'l>,
 }
 
@@ -135,4 +140,24 @@ pub(super) fn find(cmd: &str) -> Option<&'static Route> {
 /// Every route.
 pub(super) fn all() -> impl Iterator<Item = &'static Route> {
     MODULE_ROUTES.iter().flat_map(|routes| routes.iter())
+}
+
+/// One v2 operation route: operations outside the operation catalog that a
+/// module's own table names.
+pub(super) struct OperationRoute {
+    /// Whether the module's table names `operation`.
+    pub(super) names: fn(&str) -> bool,
+    /// The stage the request watchdog names while the entry runs.
+    pub(super) stage: FrameStage,
+    pub(super) entry: RouteEntry,
+}
+
+/// Every module's v2 operation routes. No operation is named by two
+/// routes, and none is a catalog operation
+/// (`connection_frame_page_routed_operations_are_not_catalog_operations`).
+pub(super) const OPERATION_ROUTES: &[&[OperationRoute]] = &[super::page_router::OPERATION_ROUTES];
+
+/// The v2 operation route that names `operation`, if any.
+pub(super) fn find_operation(operation: &str) -> Option<&'static OperationRoute> {
+    OPERATION_ROUTES.iter().flat_map(|routes| routes.iter()).find(|route| (route.names)(operation))
 }

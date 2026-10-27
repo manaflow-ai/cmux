@@ -38,7 +38,7 @@ struct CloudFeedSourceWakeTests {
         }
         #expect(count.value == 2)
         // The same policy again closes nothing.
-        energy.update(EnergyPolicy(onBattery: true, networkResumes: 1))
+        energy.update(EnergyPolicy(networkResumes: 1, onBattery: true))
         source.stop()
         #expect(count.value == 2)
     }

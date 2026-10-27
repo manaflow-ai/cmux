@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use super::super::{handle_connection, transport};
+use super::super::{MessageWriter, RequestHead, handle_connection, routes, transport};
 use super::{BROWSER_RUNTIME_CAPABILITY, executable_in};
 use crate::mux::Mux;
 
@@ -68,7 +68,12 @@ impl Client {
         let id = self.next_id;
         self.next_id += 1;
         value["id"] = json!(id);
-        writeln!(self.writer, "{value}").unwrap();
+        self.request_line(id, &value.to_string())
+    }
+
+    /// Sends `line` as written and returns the reply whose `id` is `id`.
+    fn request_line(&mut self, id: u64, line: &str) -> Value {
+        writeln!(self.writer, "{line}").unwrap();
         self.writer.flush().unwrap();
         let deadline = Instant::now() + WAIT;
         let mut line = String::new();
@@ -91,7 +96,7 @@ impl Client {
                 Err(error) => panic!("read failed: {error}"),
             }
         }
-        panic!("no reply to {value}");
+        panic!("no reply to {line}");
     }
 
     fn opt_in(&mut self) {
@@ -109,6 +114,19 @@ impl Client {
             let _ = handler.join();
         }
     }
+}
+
+/// Hands `message` to the route its head's `cmd` names (server/routes.rs), as
+/// the connection's dispatch does: `None` when no route takes it.
+fn through_route(
+    mux: &Arc<Mux>,
+    client: u64,
+    message: &str,
+    writer: &MessageWriter,
+) -> Option<bool> {
+    let head = RequestHead::parse(message);
+    let route = head.cmd().and_then(routes::find)?;
+    (route.entry)(&routes::RouteLine { mux, client, message, writer, head: &head })
 }
 
 fn scratch(label: &str) -> PathBuf {
@@ -159,7 +177,7 @@ fn wait_for_file(path: &Path) -> bool {
 #[test]
 fn status_reads_the_install_off_the_reader_thread() {
     use super::super::request_thread_tests::{next_reply, on_request_thread_with};
-    use super::super::{BoundedOutbound, ClientTransport, MessageWriter, QueuedSink};
+    use super::super::{BoundedOutbound, ClientTransport, QueuedSink};
 
     let root = scratch("status-offreq");
     install(&root, "v-offreq", STAND_IN_HOST);
@@ -172,7 +190,7 @@ fn status_reads_the_install_off_the_reader_thread() {
         .unwrap();
     let line = json!({"id": 1, "cmd": "browser-runtime-status"}).to_string();
     let handled =
-        on_request_thread_with(&mux, move |mux| super::try_handle(mux, client, &line, &writer));
+        on_request_thread_with(&mux, move |mux| through_route(mux, client, &line, &writer));
     assert_eq!(handled, Some(true));
     let reply = next_reply(&outbound);
     assert_eq!(reply["ok"], json!(true), "{reply}");
@@ -187,7 +205,7 @@ fn status_reads_the_install_off_the_reader_thread() {
 #[test]
 fn start_reads_the_install_off_the_reader_thread() {
     use super::super::request_thread_tests::{next_reply, on_request_thread_with};
-    use super::super::{BoundedOutbound, ClientTransport, MessageWriter, QueuedSink};
+    use super::super::{BoundedOutbound, ClientTransport, QueuedSink};
 
     let root = scratch("start-offreq");
     let mux = daemon("rt-start-offreq", &root);
@@ -200,7 +218,7 @@ fn start_reads_the_install_off_the_reader_thread() {
     let start = |id: u64| {
         let line = json!({"id": id, "cmd": "browser-runtime-start"}).to_string();
         let writer = writer.clone();
-        on_request_thread_with(&mux, move |mux| super::try_handle(mux, client, &line, &writer))
+        on_request_thread_with(&mux, move |mux| through_route(mux, client, &line, &writer))
     };
 
     assert_eq!(start(1), Some(true));
@@ -237,7 +255,7 @@ fn a_stop_reaps_the_host_on_a_work_item() {
         .unwrap();
     let line = json!({"id": 1, "cmd": "browser-runtime-start"}).to_string();
     let handled =
-        on_request_thread_with(&mux, move |mux| super::try_handle(mux, client, &line, &writer));
+        on_request_thread_with(&mux, move |mux| through_route(mux, client, &line, &writer));
     assert_eq!(handled, Some(true));
     let started = next_reply(&outbound);
     assert_eq!(started["ok"], json!(true), "{started}");
@@ -258,7 +276,7 @@ fn a_stop_reaps_the_host_on_a_work_item() {
 /// status is refused at once, so one connection cannot fill the lane.
 #[test]
 fn status_reads_in_flight_are_bounded_per_connection() {
-    use super::super::{BoundedOutbound, ClientTransport, MessageWriter, QueuedSink};
+    use super::super::{BoundedOutbound, ClientTransport, QueuedSink};
     use super::{MAX_STATUS_READS_PER_CLIENT, StatusRead};
 
     let root = scratch("status-bound");
@@ -274,7 +292,7 @@ fn status_reads_in_flight_are_bounded_per_connection() {
         .map(|_| StatusRead::take(&mux, client).expect("a slot"))
         .collect();
     let line = json!({"id": 1, "cmd": "browser-runtime-status"}).to_string();
-    assert_eq!(super::try_handle(&mux, client, &line, &writer), Some(true));
+    assert_eq!(through_route(&mux, client, &line, &writer), Some(true));
     let refused: Value = serde_json::from_str(&outbound.try_pop().expect("an answer")).unwrap();
     assert_eq!(refused["error_code"], "browser-runtime.limit", "{refused}");
     // Another connection is not refused for this one's reads.
@@ -282,6 +300,21 @@ fn status_reads_in_flight_are_bounded_per_connection() {
     assert!(StatusRead::take(&mux, other).is_some());
     drop(held);
     assert!(StatusRead::take(&mux, client).is_some(), "a finished read frees its slot");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The route is found by the line's decoded `cmd`, so a `cmd` spelled with a
+/// JSON escape reaches the handler. The substring scan this replaced missed
+/// it, and the `Command` parse answered with an unknown command.
+#[test]
+fn an_escaped_browser_runtime_cmd_reaches_its_route() {
+    let root = scratch("escaped");
+    let mux = daemon("rt-escaped", &root);
+    let mut client = Client::connect(&mux, &root);
+    // The JSON escape of `-`.
+    let reply = client.request_line(7, r#"{"id":7,"cmd":"browser\u002druntime-status"}"#);
+    assert_eq!(reply["error_code"], "browser-runtime.not-enabled", "{reply}");
+    client.close();
     let _ = std::fs::remove_dir_all(&root);
 }
 

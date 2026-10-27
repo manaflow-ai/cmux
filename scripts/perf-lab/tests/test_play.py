@@ -230,8 +230,8 @@ class FakeProcess:
 
 
 class FakeBench:
-    def __init__(self, app, out, env, session, launch_error=None):
-        self.app, self.out, self.env, self.session = app, Path(out), env, session
+    def __init__(self, app, out, env, session, launch_error=None, config=None):
+        self.app, self.out, self.env, self.session, self.config = app, Path(out), env, session, config
         self.launch_error = launch_error
         self.process, self.cli, self.socket = FakeProcess(), "/x/cmux DEV t.app/Contents/Resources/bin/cmux", "/tmp/s"
         self.records, self.launched, self.stopped = [], False, False
@@ -431,10 +431,10 @@ class Fixture:
         path.write_bytes(self.blobs[ref["sha256"]])
         return path
 
-    def make_bench(self, app, *, out, env, session):
+    def make_bench(self, app, *, out, env, session, config=None):
         fake = FakeApp(self.clock, cost_ms=self.app_cost_ms)
         self.apps.append(fake)
-        bench = FakeBench(fake, out, env, session, self.launch_error)
+        bench = FakeBench(fake, out, env, session, self.launch_error, config)
         self.benches.append(bench)
         return bench
 
@@ -952,6 +952,32 @@ class Replay(unittest.TestCase):
             fixture.replay()
         self.assertIn("event 5 (action at 200 ms)", str(caught.exception))
         self.assertIn("no tab 9", str(caught.exception))
+
+    def test_the_manifest_config_launches_the_bench(self):
+        fixture = Fixture(self)
+        fixture.replay()
+        self.assertIsNone(fixture.benches[0].config, "no config: BenchApp keeps its default")
+        fixture = Fixture(self)
+        fixture.manifest["config"] = {"sidebar.numbering": "workspacesOnly", "browser.omnibar.remoteSuggestions": False}
+        fixture.replay()
+        self.assertEqual(fixture.benches[0].config, fixture.manifest["config"])
+
+    def test_bench_config_sets_the_story_settings_over_the_default(self):
+        base = {"appearance": {"backgroundOpacity": 1}, "browser": {"hibernation": "off"}}
+        written = play.bench_config(base, {"browser.omnibar.remoteSuggestions": False, "sidebar.numbering": "workspacesOnly"})
+        self.assertEqual(written, {"appearance": {"backgroundOpacity": 1},
+                                   "browser": {"hibernation": "off", "omnibar": {"remoteSuggestions": False}},
+                                   "sidebar": {"numbering": "workspacesOnly"}})
+        self.assertEqual(base, {"appearance": {"backgroundOpacity": 1}, "browser": {"hibernation": "off"}})
+        self.assertEqual(play.bench_config(bench_launch.DEFAULT_CONFIG, {})["appearance"], {"backgroundOpacity": 1})
+
+    def test_a_manifest_config_that_is_not_a_setting_is_refused_before_launch(self):
+        fixture = Fixture(self)
+        fixture.manifest["config"] = {"sidebar.numberingg": "workspacesOnly"}
+        with self.assertRaises(play.PlayError) as caught:
+            fixture.replay()
+        self.assertIn("$.config.sidebar.numberingg: not a cmux-next.json setting", str(caught.exception))
+        self.assertEqual(fixture.benches, [])
 
     def test_a_failed_launch_raises_bench_launchs_launch_error(self):
         fixture = Fixture(self)

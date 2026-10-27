@@ -204,6 +204,78 @@ class ValueSummaryTests(unittest.TestCase):
                          ["temperature cold", "page-ins 4100", "interrupted"])
 
 
+    def test_first_frame_threads_print_with_the_runs_that_had_a_runtime_thread(self):
+        """p08-startup-068: the threads right after the first frame, the runtime threads among them (target 0)."""
+        clean = {bs.FIRST_FRAME_THREADS: 41.0, bs.FIRST_FRAME_RUNTIME_THREADS: 0.0, bs.FIRST_FRAME_GHOSTTY_THREADS: 4.0}
+        runs = [dict(clean) for _ in range(3)] + [{**clean, bs.FIRST_FRAME_RUNTIME_THREADS: 2.0}]
+        self.assertTrue(set(bs.THREAD_MARKS) <= set(bs.VALUE_MARKS), "counts, not times")
+        self.assertEqual(bs.run_values(runs[0]), ["threads at first frame 41 (runtime 0, ghostty 4)"])
+        self.assertEqual(bs.run_values({"main_start": 1}), [])
+        lines = bs.first_frame_threads_summary(runs)
+        self.assertEqual([line.split(":")[0].strip() for line in lines[:3]], list(bs.THREAD_MARKS))
+        self.assertIn("p50 41", lines[0])
+        self.assertIn("n 4", lines[0])
+        self.assertEqual(lines[-1], "  runtime threads at first frame: runs 4 of 4 measured")
+        self.assertEqual(bs.first_frame_threads_summary(runs[:3])[-1], "  runtime threads at first frame: none of 3 measured")
+        self.assertEqual(bs.first_frame_threads_summary([{"main_start": 1}]), [], "an older build prints no thread line")
+        self.assertEqual(bs.value_summary(runs)[-1], "  launch.interrupted: none of 4 runs", "the interrupted line stays last")
+        self.assertNotIn(bs.FIRST_FRAME_THREADS, [row[1] for row in bs.table(runs)], "never a timed row")
+
+    def test_a_run_without_its_runtime_count_reads_missing_never_zero(self):
+        """p08-startup-068: a quit before the census's later lines is a missing measurement, not the 0 target."""
+        clean = {bs.FIRST_FRAME_THREADS: 41.0, bs.FIRST_FRAME_RUNTIME_THREADS: 0.0, bs.FIRST_FRAME_GHOSTTY_THREADS: 4.0}
+        partial = {bs.FIRST_FRAME_THREADS: 40.0}
+        runs = [dict(clean), partial, {"main_start": 1}]
+        self.assertEqual(bs.run_values(partial), ["threads at first frame 40 (runtime missing, ghostty missing)"])
+        lines = bs.first_frame_threads_summary(runs)
+        self.assertEqual(lines[-2], "  runtime threads at first frame: none of 1 measured")
+        self.assertEqual(lines[-1], f"  {bs.FIRST_FRAME_RUNTIME_THREADS}: missing in runs 2, 3 (2 of 3)")
+
+    def test_sidebar_launch_rows_print_against_the_visible_rows(self):
+        """p08-startup-064: the sidebar's row views built before startup_complete, against its visible rows."""
+        runs = [{bs.SIDEBAR_ROWS_BUILT: 18.0, bs.SIDEBAR_ROWS_VISIBLE: 17.0} for _ in range(4)]
+        runs += [{bs.SIDEBAR_ROWS_BUILT: 23.0, bs.SIDEBAR_ROWS_VISIBLE: 17.0}, {"main_start": 1}]
+        self.assertTrue(set([bs.SIDEBAR_ROWS_BUILT, bs.SIDEBAR_ROWS_VISIBLE]) <= set(bs.VALUE_MARKS), "counts, not times")
+        self.assertEqual(bs.run_values(runs[0]), ["sidebar rows built 18 for 17 visible"])
+        self.assertEqual(bs.run_values(runs[-1]), [])
+        lines = bs.value_summary(runs)
+        line = next(line for line in lines if line.startswith(f"  {bs.SIDEBAR_ROWS_BUILT}:"))
+        self.assertIn("p50 18", line)
+        self.assertIn("n 5; visible p50 17; 1 of 5 over visible + 2", line)
+        self.assertEqual(lines[-1], "  launch.interrupted: none of 6 runs", "the interrupted line stays last")
+        self.assertEqual(bs.sidebar_rows_summary([{"main_start": 1}]), [], "an older build prints no sidebar line")
+        self.assertNotIn(bs.SIDEBAR_ROWS_BUILT, [row[1] for row in bs.table(runs)], "never a timed row")
+
+
+class ViewsBuiltTests(unittest.TestCase):
+    """p08-startup-065: `launch.views_built` (the pane views made before startup_complete) is a value, sent before
+    startup_complete: printed per run and as a spread, never a time row or an --order term."""
+
+    def test_a_run_with_views_built_prints_the_value_and_never_a_row(self):
+        run = {"main_start": 3.0, bs.VIEWS_BUILT: 2.0, "startup_complete.launchPhaseSettled": 900.0,
+               bs.STARTUP_COMPLETE: 900.0}
+        self.assertEqual(bs.run_values(run), ["views built 2", "startup complete launchPhaseSettled"])
+        self.assertNotIn(bs.VIEWS_BUILT, [row[1] for row in bs.table([run])])
+        self.assertIn("  launch.views_built: p50 2  p95 2  p99 2  max 2  n 1 (== the visible panes)",
+                      bs.value_summary([run]))
+        with self.assertRaises(ValueError):
+            bs.parse_order(f"main_start<{bs.VIEWS_BUILT}")
+
+    def test_a_build_without_it_prints_no_line_for_it(self):
+        lines = bs.value_summary([{"startup_complete.launchPhaseSettled": 900.0}])
+        self.assertFalse([line for line in lines if bs.VIEWS_BUILT in line], lines)
+
+    def test_a_startup_complete_wait_reads_it_from_before_the_completion(self):
+        read_fd, write_fd = os.pipe()
+        os.write(write_fd, b"launch.views_built 2\nstartup_complete.launchPhaseSettled 900.0\nstartup_complete 900.0\n")
+        launch = bs.Launch.__new__(bs.Launch)
+        launch.read_fd, launch.buffer, launch.marks = read_fd, b"", {}
+        self.assertTrue(launch.wait_for(bs.STARTUP_COMPLETE, 2))
+        os.close(write_fd)
+        os.close(read_fd)
+        self.assertEqual(launch.marks[bs.VIEWS_BUILT], 2.0)
+
+
 class CompletionReasonTests(unittest.TestCase):
     """p08-startup-012: `startup_complete.<reason>` comes before `startup_complete`; the bench counts reasons."""
 
@@ -331,8 +403,9 @@ class OneRunTests(unittest.TestCase):
         saved = bs.WAIT_STARTUP_COMPLETE
         try:
             bs.one_run("t", "warm", 5)
-            self.assertEqual([mark for mark, _ in waited], [["first_terminal_frame", "agent_pane.handshake_end"]],
-                             "off by default: the run ends at the first content")
+            self.assertEqual(waited, [(["first_terminal_frame", "agent_pane.handshake_end"], 5),
+                                      (list(bs.THREAD_MARKS), bs.THREAD_MARKS_WAIT_S)],
+                             "off by default: the run ends at the first content and its first frame's thread counts")
             waited.clear()
             bs.WAIT_STARTUP_COMPLETE = True
             bs.one_run("t", "warm", 5)
@@ -827,10 +900,16 @@ class StoryCommandTests(unittest.TestCase):
                 self.assertEqual(story["command"][0], "scripts/cmux-next/bench-startup.py")
                 args = bs.parse_args(story["command"][1:] + BASE + ["--out", "/tmp/out"])
                 patterns = [m["name"] for m in story["metrics"]]
+                saved, root = bs.CORPUS, "launch"
+                self.addCleanup(setattr, bs, "CORPUS", saved)
+                if args.corpus:  # a corpus launch story (launch-restore-*): its series are under corpus.<id>
+                    bs.CORPUS = bs.corpus_module().load(args.corpus)
+                    root = bs.CORPUS.metric_root
+                    self.assertEqual(story["session"], bs.CORPUS.session)
                 for mode in args.mode:
                     self.assertEqual(bs.default_story(mode, args.profile, args.after_reboot), story["id"])
-                    written = [metric for metric, _, _ in bs.result_series(mode, [{}], args.profile)]
-                    written += [f"launch.{mode}.{mark}" for mark in bs.result_marks(args.profile)]
+                    written = [metric for metric, _, _ in bs.result_series(mode, [{}], args.profile, root)]
+                    written += [f"{root}.{mode}.{mark}" for mark in bs.result_marks(args.profile)]
                     for metric in written:
                         self.assertTrue(any(re.fullmatch(p, metric) for p in patterns), metric)
                     for pattern in patterns:

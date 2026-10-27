@@ -1,5 +1,8 @@
 import CmuxNextBrowser
 import CmuxNextHistory
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import Foundation
 
 /// Hands an in-memory profile history's changes to that profile's durable
@@ -12,7 +15,7 @@ final class BrowserVisitSink: BrowserHistoryPersistence {
         case remove(String)
         case clear(Date?)
         case removeHost(String)
-        case barrier(CheckedContinuation<Bool, Never>)
+        case barrier(OnceContinuation<Bool, OnceContinuationError>)
     }
 
     let log: BrowserVisitLog
@@ -71,7 +74,8 @@ final class BrowserVisitSink: BrowserHistoryPersistence {
     /// Waits until every local history write queued before this call finished.
     func flush() async -> Bool {
         guard !droppedWrite else { return false }
-        return await withCheckedContinuation { barrier in
+        // A barrier the stream dropped unread (the sink went away) did not flush.
+        return (try? await withOnceContinuation { (barrier: OnceContinuation<Bool, OnceContinuationError>) in
             switch continuation.yield(.barrier(barrier)) {
             case .enqueued:
                 break
@@ -84,7 +88,7 @@ final class BrowserVisitSink: BrowserHistoryPersistence {
             @unknown default:
                 barrier.resume(returning: false)
             }
-        }
+        }) ?? false
     }
 
     private func enqueue(_ operation: Operation) {

@@ -53,9 +53,12 @@ constexpr size_t kMaxSizedViews = 2 * kMaxPageViews;
 // create_window and create_placeholder_window calls whose AFTER_CREATED has
 // not come yet.
 constexpr size_t kMaxPendingBinds = 4096;
-// Page accessibility requests held for one browser's creation: cmux asks once
-// per page, window and context its page view shows.
+// Requests held for one browser's creation: cmux asks for the page's accessibility once per page,
+// window and context its page view shows, and holds one page display (the newest).
 constexpr size_t kMaxHeldPerBrowser = 16;
+// Browsers whose page visibility the host keeps (one per pane cmux shows; a
+// browser's entry goes at its BEFORE_CLOSE).
+constexpr size_t kMaxPageVisibilities = 65536;
 
 bool IsMirrorOp(uint16_t op) {
   for (const MirrorRefresh& row : kMirrorRefreshes) {
@@ -128,6 +131,9 @@ void HostContext::Attach() {
   for (const auto& entry : kOptionalExports) {
     if (OptionalExport(entry.op)) exports.push_back(entry.name);
   }
+  // Not an export: the host acks every wheel of a gesture (OnWheelAck), so cmux asks the page nothing.
+  if (set_wheel_ack_handler_) exports.push_back(kWheelAcksHelloName);
+  if (energy_saver_) exports.push_back(kEnergySaverHelloName);
   TlvWriter hello;
   hello.Str(kWireID);
   hello.StrList(exports.data(), static_cast<int>(exports.size()));
@@ -158,6 +164,10 @@ void HostContext::Resume() {
   if (state_ != State::kInitializing) return;
   state_ = State::kRunning;
   InstallHostPolicies();
+  if (set_wheel_ack_handler_ && !set_wheel_ack_handler_(&HostContext::OnWheelAck, this)) {
+    // The HELLO said acks come: the swipe waits for them, so a refusal is the fork's bug, logged.
+    fprintf(stderr, "cmux-chromium-host: the fork refused the wheel ack handler\n");
+  }
   Ack(initialize_token_);
   ProduceAttach(false);
   while (!waiting_.empty() && state_ == State::kRunning) {
@@ -165,6 +175,8 @@ void HostContext::Resume() {
     waiting_.pop_front();
     Handle(message);
   }
+  // Held since the start: with no page shown now, the host may nap.
+  UpdatePageActivity();
 }
 
 void HostContext::Handle(control::Message& message) {
@@ -186,7 +198,7 @@ void HostContext::Handle(control::Message& message) {
     case State::kPreinit:
       if (message.op == kOpInitialize) {
         if (!HandleInitialize(message)) Bad("a malformed initialize");
-      } else if (IsMirrorOp(message.op) || message.op == kOpPageResize) {
+      } else if (IsMirrorOp(message.op) || message.op == kOpPageResize || message.op == kOpEnergySaver) {
         waiting_.push_back(std::move(message));  // CEF state: read once initialize returned
       } else {
         Dispatch(message);  // a preinit op: the remote shim sends nothing else before initialize
@@ -227,8 +239,18 @@ void HostContext::Handle(control::Message& message) {
         if (!HandlePageResize(message)) Bad("a malformed page resize");
         return;
       }
+      if (message.op == kOpEnergySaver) {
+        if (!HandleEnergySaver(message)) Bad("a malformed energy saver");
+        return;
+      }
       if (IsMirrorOp(message.op)) return Watch(message.op, message.fields);
-      if (message.op == kOpBrowserAccessibilityToken && HoldForCreation(message)) return;
+      if ((message.op == kOpBrowserAccessibilityToken || message.op == kOpBrowserSetPageDisplay) &&
+          HoldForCreation(message)) {
+        return;
+      }
+      if (message.op == kOpBrowserSetPageVisibility && !KeepPageVisibility(message)) {
+        return Bad("too many page visibilities");
+      }
       Dispatch(message);
       return;
   }
@@ -240,8 +262,18 @@ bool HostContext::HoldForCreation(control::Message& message) {
   // A malformed op is the generated case's to refuse.
   if (!peek.ok() || !AwaitsCreation(client)) return false;
   std::vector<control::Message>& held = held_for_creation_[client];
+  // A page display replaces the one held before it: only the newest display places the page window
+  // (task 221), as only the newest geometry waits (HoldGeometry).
+  if (message.op == kOpBrowserSetPageDisplay) {
+    auto older = std::find_if(held.begin(), held.end(),
+                              [](const control::Message& m) { return m.op == kOpBrowserSetPageDisplay; });
+    if (older != held.end()) {
+      *older = std::move(message);
+      return true;
+    }
+  }
   if (held.size() >= kMaxHeldPerBrowser) {
-    Bad("too many accessibility requests waiting for a browser's creation");
+    Bad("too many requests waiting for a browser's creation");
     return true;
   }
   held.push_back(std::move(message));
@@ -279,6 +311,23 @@ bool HostContext::HandlePageResize(const control::Message& message) {
   if (message.token != 0) {
     TlvWriter reply;
     reply.I32(joined ? 1 : 0);
+    Reply(message.token, reply);
+  }
+  return true;
+}
+
+// The shim's call runs after CefInitialize returned (it is on the main
+// thread, as cmux_shim_set_energy_saver requires): a message from before
+// waited in waiting_.
+bool HostContext::HandleEnergySaver(const control::Message& message) {
+  const std::optional<EnergySaver> saver = DecodeEnergySaver(message.fields);
+  if (!saver) return false;
+  const int result = energy_saver_ ? energy_saver_(saver->enabled ? 1 : 0,
+                                                   saver->exempt_scheme ? saver->exempt_scheme->c_str() : nullptr)
+                                   : 0;
+  if (message.token != 0) {
+    TlvWriter reply;
+    reply.I32(result);
     Reply(message.token, reply);
   }
   return true;
@@ -378,10 +427,41 @@ bool HostContext::HandleLayerHosting(const control::Message& message) {
     cmux_shim_browser_set_layer_hosting(browser, 0);
     context = 0;
   }
+  // The fork took no visibility before the detach: cmux's last one applies now.
+  auto visibility = page_visibility_.find(client);
+  if (enabled && context != 0 && visibility != page_visibility_.end()) {
+    cmux_shim_browser_set_page_visibility(browser, visibility->second);
+  }
   TlvWriter reply;
   reply.U32(context);
   Reply(message.token, reply);
   return true;
+}
+
+bool HostContext::KeepPageVisibility(const control::Message& message) {
+  TlvReader peek(message.fields);
+  const int32_t client = peek.I32();
+  const int32_t visibility = peek.I32();
+  // A malformed op is the generated case's to refuse.
+  if (!peek.ok() || !peek.AtEnd()) return true;
+  if (!page_visibility_.count(client) && page_visibility_.size() >= kMaxPageVisibilities) return false;
+  page_visibility_[client] = visibility;
+  page_windows_.Post(mirrors_.WindowOf(client), client, visibility);
+  UpdatePageActivity();
+  return true;
+}
+
+void HostContext::FollowPageWindows(int32_t client, int64_t window_before, int64_t event_window) {
+  if (page_windows_.empty()) return;
+  if (const int64_t window = mirrors_.WindowOf(client); window != 0) page_windows_.Placed(client, window);
+  for (const int64_t window : {window_before, event_window}) {
+    if (window != 0 && !mirrors_.HasTabs(window)) page_windows_.WindowGone(window);
+  }
+  UpdatePageActivity();
+}
+
+void HostContext::UpdatePageActivity() {
+  if (page_activity_) page_activity_->SetShownPages(page_windows_.shown());
 }
 
 bool HostContext::PlaceFrame(const Header& frame) {
@@ -458,6 +538,17 @@ void HostContext::OnTextInput(void* ctx, int browser_id, const void* state) {
   if (!ReadForkTextInputState(state, &read)) read = TextInputState{};
   TrimToSelectionContext(&read);
   host->text_input_.Changed(browser_id, std::move(read));
+}
+
+void HostContext::OnWheelAck(void* ctx, int browser_id, const void* ack) {
+  auto* host = static_cast<HostContext*>(ctx);
+  if (host->state_ == State::kEnded) return;
+  WheelAck read;
+  // An unreadable ack still answers its wheel, so the next ack names the next wheel.
+  const bool readable = ReadForkWheelAck(ack, &read);
+  const std::optional<WheelAckEvent> event = host->wheel_acks_.Acked(browser_id, readable ? &read : nullptr);
+  if (!event) return;
+  host->ForwardEvent(kEventWheelAck, browser_id, event->request, event->a, event->b, "", "");
 }
 
 void HostContext::Dispatch(const control::Message& message) {
@@ -599,7 +690,9 @@ void HostContext::ForwardEvent(int kind, int browser_id, int request, int64_t a,
       devtools_ids_.erase(minted);
     }
   }
+  const int64_t window_before = mirrors_.WindowOf(client);
   Refresh(mirror_event);
+  FollowPageWindows(client, window_before, kind == CMUX_SHIM_TAB_EVENT ? a : 0);
   TlvWriter event;
   EncodeEvent(event, kind, client, out_request, a, b, s1, s2);
   Post(MessageOf(kOpEvent, false, 0, event.Take()));
@@ -638,8 +731,13 @@ void HostContext::Bind(int32_t client_id, int chromium_id) {
 void HostContext::Forget(int32_t client_id, int chromium_id) {
   chromium_of_.erase(client_id);
   geometry_awaiting_.erase(client_id);
+  page_visibility_.erase(client_id);
+  // Its window's value stays with the tabs that remain (FollowPageWindows).
+  page_windows_.BrowserClosed(client_id);
+  UpdatePageActivity();
   client_of_.erase(chromium_id);
   text_input_.Forget(chromium_id);  // the fork ends the watch with the page
+  wheel_acks_.Forget(chromium_id);
   for (auto& [op, keys] : watched_) {
     const size_t before = keys.size();
     std::erase_if(keys, [&](const std::vector<control::Field>& key) { return HostMirrors::NamesTab(op, key, client_id); });

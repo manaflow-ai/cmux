@@ -23,7 +23,8 @@ struct FeatureFlagsPage {
     /// What `features.list` and the card show: the launch's list, with each Debug toggle that still overrides a
     /// feature after launch read as its reader reads it (`agent.chromium` over `agentChromium`, as
     /// `AppServices.agentChromiumChat` reads it; `browserHost.helper` over `cefHelperHost`, through the Chromium
-    /// host's switch), so each row is the value the app runs with and a bench records the arm it measured.
+    /// host's switch), so each row is the value the app runs with and a bench records the arm it measured. Hang
+    /// reports and the Sentry scope read its ``FeatureFlagsReport/fieldState`` too, so they name the same arm.
     static func report(_ features: FeatureList, tunables: TunableStore) -> FeatureFlagsReport {
         var liveLocal: [String: FeatureFlagsReport.LiveLocalOverride] = [
             Feature.agentChromium.name: {
