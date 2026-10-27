@@ -14,6 +14,8 @@ enum SettingsHandlers {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        let previewTitle = SettingsSchema.descriptor(for: CmuxConfigSnapshot.previewFeaturesPath)?.title
+            ?? CmuxConfigSnapshot.previewFeaturesPath.joined(separator: ".")
         registry.bind("palette.openCmuxSettingsFile", run: { _ in try openCmuxConfig(context) })
         registry.bind("palette.openGhosttySettings", run: { _ in try openGhosttyConfig(context) })
         // R92: Settings > Terminal shows the Ghostty config diagnostics.
@@ -40,7 +42,7 @@ enum SettingsHandlers {
         UpdateHandlers.bind(into: registry, updater: context.services.updater,
                             openWhatsNew: { [weak services = context.services] in services.map { WhatsNewPage.open($0) } ?? false },
                             whatsNewUnavailable: { [weak services = context.services] in
-                                services?.settings?.snapshot.previewFeatures == true ? nil : SettingsText.text("settings.labs.previewFeatures", "Show Preview Features")
+                                services?.settings?.snapshot.previewFeatures == true ? nil : previewTitle
                             },
                             stateDirectories: { [weak services = context.services] in services?.environment.daemonStateDirectories ?? [nil] })
         OnboardingHandlers.bind(into: registry, context: context)
@@ -50,7 +52,7 @@ enum SettingsHandlers {
         registry.settingOffReason = { [weak services = context.services] id in
             if services?.settings?.snapshot.previewFeatures != true,
                id == "appStore.show" || id == "appStore.showInstalled" || id == "updates.whatsNew" {
-                return SettingsText.text("settings.labs.previewFeatures", "Show Preview Features")
+                return previewTitle
             }
             return previousSettingOffReason(id)
         }

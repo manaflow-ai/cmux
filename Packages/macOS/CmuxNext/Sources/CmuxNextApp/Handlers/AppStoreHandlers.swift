@@ -9,9 +9,11 @@ import CmuxNextSettings
 /// window's buttons.
 enum AppStoreHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        let previewTitle = SettingsSchema.descriptor(for: CmuxConfigSnapshot.previewFeaturesPath)?.title
+            ?? CmuxConfigSnapshot.previewFeaturesPath.joined(separator: ".")
         let services = context.services
         let preview: @MainActor () -> String? = { [weak services] in
-            services?.settings?.snapshot.previewFeatures == true ? nil : SettingsText.text("settings.labs.previewFeatures", "Show Preview Features")
+            services?.settings?.snapshot.previewFeatures == true ? nil : previewTitle
         }
         // The App Store is an internal page (a tab of the active window).
         services.pages.register(services.apps)
