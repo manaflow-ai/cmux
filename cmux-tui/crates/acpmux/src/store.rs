@@ -558,6 +558,17 @@ pub trait Store: Send + Sync {
         }
         Ok(())
     }
+    /// `scan`, but a record that cannot be read (a torn or malformed line) is an error instead of
+    /// being skipped: a reader that must see every record (the full-access bound's readback of a
+    /// left host, #23322) learns that it did not. A memory store holds only whole records.
+    fn scan_strict(
+        &self,
+        id: &str,
+        after: u64,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan(id, after, visit)
+    }
     /// Visit records with `after < seq < before` newest first until `visit`
     /// returns false: the reverse of `scan`, for pages taken from the end.
     /// `skip(dir, kind)` true says a record is surely not wanted: a file store
@@ -1133,35 +1144,16 @@ impl Store for LocalStore {
     /// not the log's prefix (perf100: a 70 MB log read in 10,000-record pages parsed
     /// every earlier record again on each page).
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
-        let segments = self.segments(id)?;
-        let mut line = Vec::new();
-        for (index, (_, path)) in segments.iter().enumerate() {
-            if after > 0
-                && let Some((_, next)) = segments.get(index + 1)
-                && first_seq(next)?.is_some_and(|first| first <= after.saturating_add(1))
-            {
-                continue;
-            }
-            let mut reader =
-                BufReader::with_capacity(256 * 1024, crate::config::private_state_file(path)?);
-            loop {
-                line.clear();
-                if reader.read_until(b'\n', &mut line)? == 0 {
-                    break;
-                }
-                if line.iter().all(u8::is_ascii_whitespace) {
-                    continue;
-                }
-                if record_seq(&line).is_some_and(|seq| seq <= after) {
-                    continue;
-                }
-                let Ok(rec) = serde_json::from_slice::<EventRecord>(&line) else { continue };
-                if rec.seq > after && !visit(rec) {
-                    return Ok(());
-                }
-            }
-        }
-        Ok(())
+        self.scan_lines(id, after, false, visit)
+    }
+
+    fn scan_strict(
+        &self,
+        id: &str,
+        after: u64,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_lines(id, after, true, visit)
     }
 
     fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
@@ -1507,3 +1499,50 @@ mod permission_tests {
 
 #[cfg(all(test, unix))]
 mod line_rev_tests;
+
+impl LocalStore {
+    /// `Store::scan`, and with `strict` `Store::scan_strict`.
+    fn scan_lines(
+        &self,
+        id: &str,
+        after: u64,
+        strict: bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        let segments = self.segments(id)?;
+        let mut line = Vec::new();
+        for (index, (_, path)) in segments.iter().enumerate() {
+            if after > 0
+                && let Some((_, next)) = segments.get(index + 1)
+                && first_seq(next)?.is_some_and(|first| first <= after.saturating_add(1))
+            {
+                continue;
+            }
+            let mut reader =
+                BufReader::with_capacity(256 * 1024, crate::config::private_state_file(path)?);
+            loop {
+                line.clear();
+                if reader.read_until(b'\n', &mut line)? == 0 {
+                    break;
+                }
+                if line.iter().all(u8::is_ascii_whitespace) {
+                    continue;
+                }
+                if record_seq(&line).is_some_and(|seq| seq <= after) {
+                    continue;
+                }
+                let rec = match serde_json::from_slice::<EventRecord>(&line) {
+                    Ok(rec) => rec,
+                    Err(e) if strict => {
+                        anyhow::bail!("{}: a record could not be read: {e}", path.display())
+                    }
+                    Err(_) => continue,
+                };
+                if rec.seq > after && !visit(rec) {
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
+}
