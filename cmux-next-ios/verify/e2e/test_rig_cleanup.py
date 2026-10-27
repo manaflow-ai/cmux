@@ -317,6 +317,20 @@ class RigCleanupTests(unittest.TestCase):
                 json.dump(bad, f)
             with self.assertRaises(rig_cleanup.Held):
                 rig_cleanup.register(self.rig, os.getpid(), rig_cleanup.process_start(os.getpid()))
+        good = {"schema": "cleanup-registry/v1", "tool": "cmux-next-ios-e2e", "kind": "job", "path": self.app_home,
+                "host": os.uname().nodename, "created": 1, "owner_pid": dead, "owner_start": 5,
+                "cleanup": "trap", "max_age_hours": 12}
+        self.assertEqual(rig_cleanup.invalid(good, self.app_home), "")
+        for key, value in (("owner_start", 0), ("owner_start", -1), ("owner_start", 1.5), ("owner_start", float("inf")),
+                           ("owner_pid", True), ("host", "elsewhere"), ("created", 0), ("max_age_hours", 0),
+                           ("cleanup", "lru-cap"), ("owner_pgid", -2)):
+            self.assertNotEqual(rig_cleanup.invalid(dict(good, **{key: value}), self.app_home), "", key)
+        for key in ("host", "created", "max_age_hours", "cleanup"):
+            self.assertNotEqual(rig_cleanup.invalid({k: v for k, v in good.items() if k != key}, self.app_home), "", key)
+        with open(rig_cleanup.record_file(self.app_home), "w") as f:
+            json.dump(dict(good, owner_start=0), f)
+        self.assertFalse(rig_cleanup.remove_recorded(self.app_home, dead, 0))
+        self.assertTrue(os.path.isdir(self.app_home))
         # A malformed record naming this owner does not let the removal act.
         mine = {"owner_pid": dead, "owner_start": 1}
         with open(rig_cleanup.record_file(self.app_home), "w") as f:

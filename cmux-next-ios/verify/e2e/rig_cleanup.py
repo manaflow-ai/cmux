@@ -150,7 +150,7 @@ def register(path, owner_pid, owner_start, kind="job", owner_pgid=0, directory=N
     """Write the record of PATH, owned by OWNER_PID (started at OWNER_START, a number), under the registry lock.
     Raises Held when another owner that still runs holds the path's record, ValueError without a start time.
     Returns the canonical path."""
-    if not isinstance(owner_start, (int, float)):
+    if not (_positive(owner_pid, integral=True) and _positive(owner_start, integral=True)):
         raise ValueError(f"no start time for owner pid {owner_pid}")
     path = canonical(path)
     directory = directory or registry_dir()
@@ -207,8 +207,11 @@ def remove_recorded(path, owner_pid, owner_start, directory=None):
         return True
 
 
-def _number(value):
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == value
+def _positive(value, integral=False):
+    """A finite number above zero (an int when INTEGRAL), never a bool."""
+    if isinstance(value, bool) or not isinstance(value, int if integral else (int, float)):
+        return False
+    return value == value and value not in (float("inf"), float("-inf")) and value > 0
 
 
 def invalid(record, path):
@@ -219,12 +222,17 @@ def invalid(record, path):
         return f"not a {SCHEMA} job record of {TOOL}"
     if record.get("path") != path:
         return f"names {record.get('path')!r}, not {path}"
-    pid = record.get("owner_pid")
-    if not (isinstance(pid, int) and not isinstance(pid, bool) and pid > 0 and _number(record.get("owner_start"))):
-        return "no owner_pid and owner_start"
+    if not (_positive(record.get("owner_pid"), integral=True) and _positive(record.get("owner_start"), integral=True)):
+        return "no owner_pid and owner_start (positive integers)"
     pgid = record.get("owner_pgid", 0)
-    if not (isinstance(pgid, int) and not isinstance(pgid, bool) and pgid >= 0):
+    if not (pgid == 0 or _positive(pgid, integral=True)):
         return "a bad owner_pgid"
+    if record.get("host") != os.uname().nodename:
+        return f"a record of host {record.get('host')!r}"
+    if not _positive(record.get("created")) or not _positive(record.get("max_age_hours")):
+        return "no created or max_age_hours"
+    if record.get("cleanup") != "trap":
+        return "cleanup is not trap"
     return ""
 
 
