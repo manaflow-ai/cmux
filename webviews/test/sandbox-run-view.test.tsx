@@ -37,6 +37,15 @@ test("a running card whose newest read failed says so and offers Check again", (
   expect(text(markup)).toContain(t("sandbox.unchecked"));
   expect(text(markup)).toContain(t("sandbox.checkAgain"));
   expect(markup).toContain("cv-spinner");
+  // A refusal that says the host holds another send offers it too once a read failed.
+  const held = { task: "go", state: "failed" as const, code: "sandbox_busy" };
+  const check = () => undefined;
+  expect(text(renderToStaticMarkup(<SandboxRunView run={held} onCheckAgain={check} />))).not.toContain(
+    t("sandbox.checkAgain"),
+  );
+  expect(text(renderToStaticMarkup(<SandboxRunView run={held} unread onCheckAgain={check} />))).toContain(
+    t("sandbox.checkAgain"),
+  );
 });
 
 test("a succeeded receipt reads reply first, then status, time, cost, artifacts and VM destroyed", () => {
