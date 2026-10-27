@@ -5863,12 +5863,21 @@ function AcpmuxPane() {
   const sandboxElsewhere =
     snapshot.sessionId && sandboxView && !sandboxRetryable(sandboxView) ? sandboxView : undefined;
   const [sandboxViewing, setSandboxViewing] = useState(false);
+  /// What only the composer held (shell mode, its line, attachments) while the receipt took its
+  /// place: Back puts it back. It belongs to that chat, so another chat or a new one drops it.
+  const sandboxWake = useRef<ComposerWake | undefined>(undefined);
   /// The New Tab page handed a prompt to a Sandboxed send: its draft isn't moved again as it goes.
   const newTabSandboxSent = useRef(false);
   useEffect(() => {
     setSandboxDraftMoved(false);
     setSandboxViewing(false);
+    sandboxWake.current = undefined;
   }, [snapshot.sessionId, newTabGeneration]);
+  /// Labs went off: Sandboxed is no longer offered or shown, so the composer is Persistent again
+  /// (a send from it isn't refused as Sandboxed). A run already out stays the tab's.
+  useEffect(() => {
+    if (!preview && sandbox.mode === "sandboxed") sandbox.setMode("persistent");
+  }, [preview, sandbox]);
   const viewedSandbox = sandboxViewing && snapshot.sessionId ? sandboxView : undefined;
   const environmentPlacement = useChatDisplay().environmentPlacement;
   /// The header's tools in the pane's tab row, while the App offers one (header/tabRow.ts).
@@ -9061,12 +9070,13 @@ function AcpmuxPane() {
         </Notice>
         {/* The tab's Sandboxed run while a chat shows here: it has no session to go back to, so it is
             offered here. */}
-        {/* No read of the host's sandbox state answered after a reload: say so, with Check again
-            (Labs only: without it there is no Sandboxed send to lose). */}
+        {/* The newest read of the host's sandbox state didn't answer: say so, with Check again. The
+            run the tab last knew stays in view. With nothing known, Labs only (without it there is no
+            Sandboxed send to lose); a failure card has its own Check again. */}
         <Notice
           id="sandbox-unchecked"
           tier="status"
-          when={preview && sandbox.host.kind === "unknown" && !sandboxHoldsChat}
+          when={sandbox.unread && (preview || sandboxView !== undefined) && sandboxView?.state !== "failed"}
         >
           <output className="acpmux-switch-notice acpmux-folder-choice">
             <span>{t("sandbox.unchecked")}</span>{" "}
@@ -9086,7 +9096,7 @@ function AcpmuxPane() {
               onClick={() => {
                 // The receipt takes the composer's place: what only the composer holds (shell
                 // mode, its line, attachments) comes back with it on Back.
-                pendingWake.current = composerHandle.current?.wakeState();
+                sandboxWake.current = composerHandle.current?.wakeState();
                 setSandboxViewing(true);
               }}
             >
@@ -9969,7 +9979,11 @@ function AcpmuxPane() {
                   <SandboxRunView
                     run={viewedSandbox}
                     onCheckAgain={() => void sandbox.read()}
-                    onBack={() => setSandboxViewing(false)}
+                    onBack={() => {
+                      pendingWake.current = sandboxWake.current ?? pendingWake.current;
+                      sandboxWake.current = undefined;
+                      setSandboxViewing(false);
+                    }}
                   />
                 ) : reviewing && handoff && snapshot.handoff ? (
                   <HandoffReviewMessage

@@ -40,6 +40,14 @@ public nonisolated final class AcpmuxPaneReplacements: Sendable {
         }
     }
 
+    /// A start or open that would be refused now, because a Sandboxed send runs: checked before the
+    /// frame spends a gesture or a start credit, so a refused start uses neither. Counting it
+    /// (``sending(method:connection:)``) still decides, under the lock.
+    func refuses(method: String?) -> Bool {
+        guard let method, Self.methods.contains(method) else { return false }
+        return state.withLock { $0.sandbox }
+    }
+
     /// A start or open ``sending(method:connection:)`` counted did not go out.
     func notSent(method: String?, connection: Int) {
         guard let method, Self.methods.contains(method) else { return }
