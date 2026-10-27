@@ -83,7 +83,9 @@ extension CloudHandlers {
             for await (readiness, currentUser, currentTeam) in ObservationStream({
                 (workspaceSetupReadiness(creation, in: cloud.creations), cloud.auth.user?.id, cloud.auth.teamID)
             }) {
-                guard currentUser == userID, currentTeam == teamID, readiness != .ended else { return }
+                try checkCreationScope(creation, in: cloud.creations, expectedUserID: userID, expectedTeamID: teamID,
+                                       currentUserID: currentUser, currentTeamID: currentTeam)
+                guard readiness != .ended else { return }
                 if readiness == .ready { break }
             }
             guard !creation.isTornDown, let session = creation.session else { return }
@@ -94,7 +96,9 @@ extension CloudHandlers {
                 for await (progress, currentUser, currentTeam) in ObservationStream({
                     (workspaceSetupCompletion(creation), cloud.auth.user?.id, cloud.auth.teamID)
                 }) {
-                    guard currentUser == userID, currentTeam == teamID, !progress.ended else { return }
+                    try checkCreationScope(creation, in: cloud.creations, expectedUserID: userID, expectedTeamID: teamID,
+                                           currentUserID: currentUser, currentTeamID: currentTeam)
+                    guard !progress.ended else { return }
                     guard let completion = progress.completion else { continue }
                     try Task.checkCancellation()
                     guard !creation.isTornDown, cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return }
