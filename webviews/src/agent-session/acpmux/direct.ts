@@ -1856,7 +1856,9 @@ export class AcpmuxDirectClient {
     this.rowsPeer = undefined;
     // A page still in flight belongs to the session before; it is dropped when it lands.
     this.loadingOlder = undefined;
-    this.rows.clear();
+    // A recreated session can restart sequence numbers. Give it a fresh producer; old snapshot
+    // metadata stays bound to the older instance and cannot take a live preview back to it.
+    this.rows = new OrderedRows();
     this.queueAuthors.clear();
     this.forkedAtSeq = undefined;
     this.failedPrompts.clear();
