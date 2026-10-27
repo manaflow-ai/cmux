@@ -1,6 +1,7 @@
 import CmuxNextAgentLanes
 import CmuxNextBridge
 @testable import CmuxNextDaemon
+import CmuxNextWakeups
 import Darwin
 import Foundation
 import os
@@ -33,7 +34,7 @@ struct AgentChatDoneDotTests {
     @Test func aChatShownInAnyPaneLosesItsDoneDot() async throws {
         let acpmux = try StandInAcpmux(sessions: [Self.summary("s1", turn: "t1", unread: true)])
         let turns = AgentTurnStateStore()
-        let feed = AgentTurnStateFeed(socketPath: acpmux.path, turns: turns)
+        let feed = AgentTurnStateFeed(socketPath: acpmux.path, turns: turns, deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
         feed.start(localHost: Self.host)
         let mapping = StatusMapping(turns: turns, seen: ProgramStatusSeenStore())
         let tab = Self.chatTab("s1")
@@ -56,7 +57,7 @@ struct AgentChatDoneDotTests {
         let acpmux = try StandInAcpmux(sessions: [Self.summary("s2", turn: "t1", unread: false),
                                                   Self.summary("s3", turn: "t1", unread: true)])
         let turns = AgentTurnStateStore()
-        let feed = AgentTurnStateFeed(socketPath: acpmux.path, turns: turns)
+        let feed = AgentTurnStateFeed(socketPath: acpmux.path, turns: turns, deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
         feed.start(localHost: Self.host)
         let mapping = StatusMapping(turns: turns, seen: ProgramStatusSeenStore())
         try await until { mapping.visibleTurn(Self.chatTab("s3")) != nil }

@@ -113,6 +113,7 @@ public actor DaemonConnection {
         self.endpointProvider = endpointProvider
         pacer = RetryPacer(configuration.retry)
         wake = configuration.retryWake ?? RetryWake(owner: "DaemonConnection.reconnect")
+        // timer-class-allow: off main: it marks a connection healthy on the connection's actor; no main-thread job
         healthy = DemandTimer(owner: "DaemonConnection.healthy", clock: clock)
         let heartbeat = ConnectionHeartbeat()
         self.heartbeat = heartbeat
