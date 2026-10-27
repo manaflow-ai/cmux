@@ -83,16 +83,17 @@ struct OffScreenWindowPageFreezeTests {
             services = AppServices(environment: AppEnvironment.current([:]))
             hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(),
                                              deadlines: services.mainDeadlines, followsTabVisibility: followsTabVisibility)
+            window = OccludedWindowDiscardTests.makeWindow(NSRect(x: 100, y: 100, width: 400, height: 300))
+            pane = OccludedWindowDiscardTests.Pane(window: window)
+            folder = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cn-offscreen-freeze-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
+            // Every stored property is set before the seams below capture `self`.
             services.cache.hibernation = hibernation
             hibernation.freezesOffScreenShownPages = feature
             hibernation.apply(BrowserHibernationSetting(mode: .minutes(60), freezeSeconds: 600))
             hibernation.freezer = { [weak self] tab in self?.freezers[tab.id.rawValue] }
             hibernation.tabVisibility.follower = { [weak self] tab in self?.followers[tab.id.rawValue] }
             hibernation.start()
-            window = OccludedWindowDiscardTests.makeWindow(NSRect(x: 100, y: 100, width: 400, height: 300))
-            pane = OccludedWindowDiscardTests.Pane(window: window)
-            folder = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cn-offscreen-freeze-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         }
 
