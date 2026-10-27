@@ -276,4 +276,29 @@ import Testing
         #expect(!keys.contains { $0.hasSuffix(".position") }, "the frame moved under Reduce Motion: \(keys)")
         #expect(keys.contains { $0.hasSuffix(".opacity") } == fades, "\(keys)")
     }
+
+    /// With movement off (Reduce Motion) a spring token's alpha change still crossfades on the layer, so
+    /// motion is in flight for the crossfade's length (``MotionActivity``, which ``MotionLateCommits`` judges
+    /// commits during), not for the spring's 0 seconds.
+    @Test func underReduceMotionASpringTokensCrossfadeIsMotionInFlight() throws {
+        let parent = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        parent.wantsLayer = true
+        let view = NSView(frame: Self.start)
+        view.wantsLayer = true
+        view.alphaValue = 0.4
+        parent.addSubview(view)
+        try #require(view.layer?.superlayer === parent.layer)
+        Motion.reduceMotionOverride = true
+        defer { Motion.reduceMotionOverride = nil }
+        try #require(!Motion.feedback.animatesMovement && Motion.feedback.duration(MotionSpring.move) == 0)
+        let crossfade = Motion.feedback.duration(MotionFade.crossfade)
+        try #require(crossfade > 0, "Reduce Motion keeps a crossfade")
+        MotionActivity.reset()
+        let start = CACurrentMediaTime()
+        Motion.feedback.animate(.move, in: view, frame: nil, alpha: 1)
+        let keys = view.layer?.animationKeys() ?? []
+        #expect(keys.contains { $0.hasSuffix(".opacity") }, "the alpha crossfades: \(keys)")
+        #expect(MotionActivity.isAnimating, "the crossfade is motion in flight")
+        #expect(MotionActivity.end >= start + crossfade, "motion ends at the crossfade's end")
+    }
 }

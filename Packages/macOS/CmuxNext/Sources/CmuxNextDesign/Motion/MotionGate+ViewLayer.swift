@@ -29,8 +29,9 @@ extension MotionGate {
         // One outer transaction: the rest values and their animations commit together.
         CATransaction.begin()
         let moves = Self.restMoves(of: view, frame: frame, alpha: alpha)
-        if moves.contains(where: { spring.animates($0.keyPath, in: view) }) { MotionActivity.began(seconds: duration(token)) }
-        spring.animateGroup(moves, in: view, completion: completion)
+        let shown = canAnimate(in: view)
+        let styles = moves.map { spring.style(for: $0.keyPath, shown: shown) }
+        Self.run(moves, styles: styles, trace: "render.\(token.rawValue)", completion: completion)
         CATransaction.commit()
     }
 
@@ -46,9 +47,16 @@ extension MotionGate {
         let styles = moves.map { move -> RenderSpring.Style in
             seconds > 0 && (RenderSpring.isFade(move.keyPath) || animatesMovement) ? .timed(seconds) : .snap
         }
-        if styles.contains(where: { $0 != .snap }) { MotionActivity.began(seconds: seconds) }
-        RenderSpring.run(moves, styles: styles, trace: "render.\(token.rawValue)", completion: completion)
+        Self.run(moves, styles: styles, trace: "render.\(token.rawValue)", completion: completion)
         CATransaction.commit()
+    }
+
+    /// Runs `moves` in `styles` and marks motion in flight (``MotionActivity``) for the longest change that
+    /// runs: a spring-token crossfade with movement off counts its crossfade, not the spring's 0.
+    private static func run(_ moves: [RenderSpring.Move], styles: [RenderSpring.Style], trace: String,
+                            completion: RenderSpring.Completion?) {
+        MotionActivity.began(seconds: styles.map(\.seconds).max() ?? 0)
+        RenderSpring.run(moves, styles: styles, trace: trace, completion: completion)
     }
 
     /// Writes `view`'s frame and alpha at their targets and returns the moves its layer shows the change

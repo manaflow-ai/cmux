@@ -160,6 +160,16 @@ public struct RenderSpring {
         /// An additive change of this many seconds on the fade curve: a fade key path while
         /// movement is off, or any key path a fade token moves (`MotionGate.animate(_:in:frame:alpha:completion:)`).
         case timed(CFTimeInterval)
+
+        /// How long the change runs: 0 for a snap, a spring's visible end (`perceivedDuration`, as
+        /// `MotionGate.duration(_:)`), a timed change's length.
+        var seconds: CFTimeInterval {
+            switch self {
+            case .snap: 0
+            case .spring(let spring): spring.perceivedDuration
+            case .timed(let seconds): seconds
+            }
+        }
     }
 
     /// Opacity is a fade in the motion policy (`animatesFades`, a crossfade under Reduce
