@@ -13,7 +13,8 @@ const hashOf = (chunks: number) => {
 
 afterEach(() => vi.unstubAllGlobals())
 
-const fixture = (chunks: number, options: { wrongHash?: boolean; sizeDelta?: number; failWrite?: boolean; corruptVm?: boolean; readFailure?: boolean; forbidden?: boolean; variant?: boolean } = {}) => {
+type StreamOptions = { wrongHash?: boolean; sizeDelta?: number; failWrite?: boolean; corruptVm?: boolean; readFailure?: boolean; forbidden?: boolean; variant?: boolean }
+const fixture = (chunks: number, options: StreamOptions = {}) => {
   const hash = options.wrongHash ? "a".repeat(64) : hashOf(chunks)
   const originalHash = options.variant ? "b".repeat(64) : hash
   const path = `${directory}/${originalHash}${options.variant ? ".preview.jpg" : ".bin"}`
@@ -85,7 +86,7 @@ describe("Chief original attachment streaming", () => {
     [{ readFailure: true }, "transfer"],
     [{ failWrite: true }, "write"],
     [{ corruptVm: true }, "write"]
-  ] as const)("cleans partial files on failed integrity or transport (%j)", async (options, reason) => {
+  ] as Array<[StreamOptions, string]>)("cleans partial files on failed integrity or transport (%j)", async (options, reason) => {
     const f = fixture(2, options)
     const result = await f.run()
     expect(result.written).toBe(0)
