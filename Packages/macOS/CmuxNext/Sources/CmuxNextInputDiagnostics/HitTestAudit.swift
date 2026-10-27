@@ -175,13 +175,12 @@ public final class HitTestAudit {
     private func converge() async {
         guard !isChanging else { return }
         isChanging = true
-        while true {
+        // Each step ends one wish: a state change sets isInstalled, a scan clears wantsRescan.
+        while wantsInstalled != isInstalled || (wantsRescan && isInstalled) {
             if wantsInstalled != isInstalled {
                 if wantsInstalled { await installNow() } else { await uninstallNow() }
-            } else if wantsRescan, isInstalled {
-                await hookLoadedClasses()
             } else {
-                break
+                await hookLoadedClasses()
             }
         }
         wantsRescan = false
