@@ -37,6 +37,8 @@ import Foundation
 // - `call` (`op`, `params`): one call message through the page's router, exactly as the page's
 //   bridge sends it (the host sets the calling page's id). With `page: "cmux.cloud"` and no live
 //   Cloud page, a hidden one is made first (so a probe needs no open Cloud tab).
+// - `ping`: one host call the page answers `unknown_op`: `{ms}`, its round trip (`bench-webui.py push`,
+//   p13-webui-079; `debug.webui` counts whether it went as data or a script);
 // - `hangOnClick`: the page's next mousedown never returns, so its renderer hangs on input Chromium
 //   waits for and the "Page unresponsive" card shows (scripts/cmux-next/page-hang-live.py --page).
 // The control router's deadline bounds every action.
@@ -168,10 +170,31 @@ enum DebugPages {
         case "connected":
             page.setConnected(params["value"]?.boolValue ?? true)
             return ["connected": .bool(page.router.connected)]
+        case "ping":
+            return await ping(page)
         default:
             return ["error": "unknown action"]
         }
     }
+
+    /// `ping` (p13-webui-079's delivery bench, `bench-webui.py push`): one host call the page serves no handler
+    /// for, so it answers `unknown_op`. `ms` is the call's round trip, from its send to the page's answer: one
+    /// delivery into the page (data on the page push channel, else a script) and the page's reply.
+    @MainActor
+    private static func ping(_ page: PageWebView) async -> JSONValue {
+        let started = ProcessInfo.processInfo.systemUptime
+        do {
+            _ = try await page.router.callPage(benchPingOp, params: [:])
+        } catch let error as PageError where error.code == PageError.unknownOp(benchPingOp).code {
+            // The answer the ping asks for.
+        } catch {
+            return ["error": .string("\(error)")]
+        }
+        return ["ms": .number((ProcessInfo.processInfo.systemUptime - started) * 1000)]
+    }
+
+    /// The op `ping` calls; no page serves it.
+    private static let benchPingOp = "cmux.bench.ping"
 
     /// Which live view a probe read.
     @MainActor

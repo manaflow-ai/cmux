@@ -2247,7 +2247,7 @@ fn run_server(
     // Windows hosts get no orphan grace (no app bundles there to classify).
     #[cfg(unix)]
     host_orphan_policy::install();
-    owner_start::prepare(&args)?;
+    owner_start::start_server_process(&args)?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
     let provider_management_listener = take_provider_management_listener()?;
@@ -2464,6 +2464,12 @@ fn run_server(
     // interactive client attaches. Install the non-terminal sink as soon as
     // the owner mux exists, before serving or adopting clients.
     app::install_mux_diagnostic_logger(&mux);
+    // The features each app's client hello is reconciled with, before the
+    // first client: this owner outlives the app that started it.
+    cmux_tui_core::server::install_daemon_features(
+        &mux,
+        cmux_features::Live::new(features.clone()),
+    );
     // After restore and adoption: a terminal that joins the catalog later
     // wakes the worker itself.
     if let Err(error) = mux.start_cold_scrollback(&features) {

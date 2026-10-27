@@ -224,10 +224,12 @@ impl Mux {
         );
         // Built here, on the thread that opens the session, so the Linux
         // launcher keeps the process's base nice value (work.rs `Launcher`).
-        let work = cmux_threads::work::Work::new(cmux_threads::work::WorkConfig {
+        let work = Arc::new(cmux_threads::work::Work::new(cmux_threads::work::WorkConfig {
             label: "mux".to_owned(),
             ..cmux_threads::work::WorkConfig::default()
-        })?;
+        })?);
+        #[cfg(unix)]
+        let reaper = Arc::new(cmux_threads::reaper::Reaper::new("mux", Arc::clone(&work))?);
         let mux = Arc::new(Mux {
             launch_identity,
             registry_connection: registry.connection.clone(),
@@ -465,8 +467,11 @@ impl Mux {
             surface_operation_admission: Arc::new(
                 crate::server::ServerSurfaceOperationAdmission::default(),
             ),
+            sequenced_pool: crate::server::SequencedPool::default(),
             request_watchdog: crate::server::RequestWatchdog::default(),
             work,
+            #[cfg(unix)]
+            reaper,
             git_sequences: crate::git_ops::Sequences::default(),
             pairing: PairingBroker::new(),
             #[cfg(test)]
@@ -491,6 +496,8 @@ impl Mux {
             // child generation to fence a replacement process.
             mux.record_journal_plugin_exit(plugin_id, generation);
         })));
+        #[cfg(unix)]
+        mux.journal_plugin.set_reaper(Arc::clone(&mux.reaper));
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
         mux.output_store.start(&mux)?;
         mux.materialize_interrupted_resource_workspaces()?;
