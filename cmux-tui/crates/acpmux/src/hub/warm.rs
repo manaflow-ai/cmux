@@ -42,11 +42,14 @@ impl Hub {
         expected_stops: &std::collections::BTreeMap<String, u64>,
     ) -> (Vec<Value>, Vec<Value>) {
         // `sessions()` is newest first already; filtering keeps that order.
-        let candidates: Vec<_> = self
-            .sessions()
-            .into_iter()
-            .filter(|s| requested.is_empty() || requested.iter().any(|id| id == &s.id))
-            .collect();
+        let candidates: Vec<_> = if requested.is_empty() {
+            self.sessions()
+        } else {
+            // Launch restore names explicit ids. Resolve them directly so one chat does not
+            // clone and sort the daemon's entire history before every warm RPC.
+            let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            requested.iter().filter_map(|id| sessions.get(id).cloned()).collect()
+        };
         // Capture every requested generation before any one session can block startup. A Stop
         // while an earlier session loads must fence the later session's first attempt too.
         let requested_stops: std::collections::BTreeMap<_, _> = candidates

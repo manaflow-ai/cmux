@@ -13,7 +13,7 @@ extension AcpmuxEnvironment {
     /// Stops a session's agent process and keeps the session to resume
     /// (`_acpmux/kill` without purge, `acpmux session stop`).
     public nonisolated func stopSession(id: String, deadline: Duration = .seconds(5)) async throws {
-        _ = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/kill",
+        _ = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/warm_stop",
                                               params: ["sessionId": id, "purge": false], deadline: deadline)
     }
 }
