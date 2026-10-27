@@ -354,6 +354,20 @@ test("a sign-in failure's card leads with Sign in again, then Retry, then Switch
   expect(host.querySelectorAll(".cv-turn-actions .cv-turn-auth-action").length).toBe(0);
 });
 
+test("a sign-in failure with a login but no Retry leads with Sign in again, Switch model after it", async () => {
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ switchModel: () => undefined, reauthenticate: () => undefined }}>
+        <TurnFooter row={failed(signedOut)} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  const labels = [...card().querySelectorAll(".cv-turn-error__actions > button")].map((element) => element.textContent);
+  expect(labels).toEqual(["Sign in again", "Switch model"]);
+  expect(card().querySelectorAll(".cv-turn-error__primary").length).toBe(1);
+  expect(button("Sign in again")!.classList.contains("cv-turn-error__primary")).toBe(true);
+});
+
 test("a sign-in failure with no login to run keeps Switch model alone, with no Retry that would fail again", async () => {
   await act(async () =>
     root.render(
