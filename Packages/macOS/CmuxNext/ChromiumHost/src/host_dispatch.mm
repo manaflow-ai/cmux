@@ -134,6 +134,8 @@ void HostContext::Attach() {
   // Not an export: the host acks every wheel of a gesture (OnWheelAck), so cmux asks the page nothing.
   if (set_wheel_ack_handler_) exports.push_back(kWheelAcksHelloName);
   if (energy_saver_) exports.push_back(kEnergySaverHelloName);
+  // Not an export: cmux sends each tab's key, which a later adoption's reply names (host_adoption.h).
+  if (adoptable_) exports.push_back(adoption::kAdoptionHelloName);
   TlvWriter hello;
   hello.Str(kWireID);
   hello.StrList(exports.data(), static_cast<int>(exports.size()));
@@ -179,8 +181,8 @@ void HostContext::Resume() {
   UpdatePageActivity();
 }
 
-void HostContext::Orphan() {
-  if (state_ != State::kRunning || orphaned_) return;
+std::vector<adoption::AdoptedPage> HostContext::Orphan(const adoption::Reply& reply) {
+  if (state_ != State::kRunning || orphaned_) return {};
   orphaned_ = true;
   peer_hello_ = false;
   adopted_ = false;
@@ -201,13 +203,49 @@ void HostContext::Orphan() {
     page_windows_.Post(mirrors_.WindowOf(client), client, CMUX_SHIM_PAGE_HIDDEN);
   }
   UpdatePageActivity();
+  std::vector<adoption::AdoptedPage> offered = adoption::FitReplyPages(reply, AdoptedPages());
+  offered_.clear();
+  for (const adoption::AdoptedPage& page : offered) offered_.insert(page.browser);
+  return offered;
 }
 
 void HostContext::Reattach() {
   if (!orphaned_) return;
   orphaned_ = false;
   adopted_ = true;
+  peer_quit_began_ = false;
   Attach();
+}
+
+std::vector<adoption::AdoptedPage> HostContext::AdoptedPages() const {
+  // A window's page view: the parent view of its create_window browser.
+  std::unordered_map<int64_t, uint64_t> view_of_window;
+  for (const auto& [chromium_id, token] : view_of_browser_) {
+    if (const int64_t window = mirrors_.WindowOf(ClientOf(chromium_id)); window != 0) view_of_window.emplace(window, token);
+  }
+  std::vector<adoption::AdoptedPage> pages;
+  for (const auto& [client, key] : page_keys_) {
+    const int64_t window = mirrors_.WindowOf(client);
+    if (window == 0) continue;  // closed, or in no window: nothing to show it in
+    adoption::AdoptedPage page;
+    page.browser = client;
+    page.window = static_cast<int32_t>(window);
+    if (auto view = view_of_window.find(window); view != view_of_window.end()) page.view = view->second;
+    if (auto context = hosted_contexts_.find(client); context != hosted_contexts_.end()) page.context = context->second;
+    page.key = key;
+    pages.push_back(std::move(page));
+  }
+  return pages;
+}
+
+bool HostContext::HandlePageKey(const control::Message& message) {
+  TlvReader r(message.fields);
+  const int32_t client = r.I32();
+  const std::optional<std::string> key = r.Str();
+  if (!r.ok() || !r.AtEnd() || !key || key->empty() || key->size() > adoption::kMaxPageKeyBytes) return false;
+  if (!page_keys_.count(client) && page_keys_.size() >= kMaxPageVisibilities) return false;
+  page_keys_[client] = *key;
+  return true;
 }
 
 const char* HostContext::WireId() {
@@ -222,6 +260,7 @@ HostContext::MintFloor HostContext::mint_floor() const {
   floor.browser = highest_minted_browser_ >= mint::kFirstBrowserID ? highest_minted_browser_ + 1 : mint::kFirstBrowserID;
   floor.devtools =
       highest_minted_devtools_ >= mint::kFirstDevToolsID ? highest_minted_devtools_ + 1 : mint::kFirstDevToolsID;
+  floor.view = highest_view_ + 1;
   return floor;
 }
 
@@ -250,6 +289,21 @@ bool HostContext::HandleAdoptedInitialize(const control::Message& message) {
   // cache learns each page that survived (every key parameter is a wildcard).
   ForEachMirrorRefreshedBy(CMUX_SHIM_AFTER_CREATED, -1,
                            [&](uint16_t op) { mirrors_.Refresh(*this, op, {}, ~uint32_t{0}); });
+  // A page the orphan offered that closed meanwhile: its BEFORE_CLOSE went to no peer, so it goes now and
+  // the new peer drops the page (a tab it bound to it closes, as at any close).
+  const std::vector<int32_t> open = mirrors_.OpenTabs();
+  for (const int32_t client : offered_) {
+    if (std::binary_search(open.begin(), open.end(), client)) continue;
+    TlvWriter event;
+    EncodeEvent(event, CMUX_SHIM_BEFORE_CLOSE, client, 0, 0, 0, "", "");
+    Post(MessageOf(kOpEvent, false, 0, event.Take()));
+  }
+  // An open page the orphan did not offer has no tab in the new peer (no key, made while orphaned, or past
+  // the reply's bound): it closes, never to run on unseen. Its BEFORE_CLOSE comes as any close's.
+  for (const int32_t client : open) {
+    if (!offered_.count(client)) cmux_shim_close(Browser(client));
+  }
+  offered_.clear();
   UpdatePageActivity();
   return true;
 }
@@ -273,7 +327,8 @@ void HostContext::Handle(control::Message& message) {
     case State::kPreinit:
       if (message.op == kOpInitialize) {
         if (!HandleInitialize(message)) Bad("a malformed initialize");
-      } else if (IsMirrorOp(message.op) || message.op == kOpPageResize || message.op == kOpEnergySaver) {
+      } else if (IsMirrorOp(message.op) || message.op == kOpPageResize || message.op == kOpEnergySaver ||
+                 message.op == adoption::kOpPageKey) {
         waiting_.push_back(std::move(message));  // CEF state: read once initialize returned
       } else {
         Dispatch(message);  // a preinit op: the remote shim sends nothing else before initialize
@@ -285,6 +340,13 @@ void HostContext::Handle(control::Message& message) {
         if (!HandleAdoptedInitialize(message)) Bad("a malformed initialize");
         return;
       }
+      if (message.op == adoption::kOpPageKey) {
+        if (!adoptable_) return Bad("a page key to a host that keeps no pages");
+        if (!HandlePageKey(message)) Bad("a malformed page key");
+        return;
+      }
+      // cmux closes every browser when its quit starts (CEFRuntime.shutdown): from here its end is a quit.
+      if (message.op == kOpCloseAll) peer_quit_began_ = true;
       if (message.op == kOpTextInputWatch) {
         if (!HandleTextInputWatch(message)) Bad("a malformed text input watch");
         return;
@@ -413,6 +475,7 @@ bool HostContext::HandleEnergySaver(const control::Message& message) {
 }
 
 void HostContext::RememberViewSize(uint64_t token, int32_t width, int32_t height) {
+  NoteView(token);
   if (auto found = view_sizes_.find(token); found != view_sizes_.end()) {
     view_size_order_.splice(view_size_order_.end(), view_size_order_, found->second.order);
     found->second.width = width;
@@ -505,6 +568,12 @@ bool HostContext::HandleLayerHosting(const control::Message& message) {
     fprintf(stderr, "cmux-chromium-host: the fork did not detach browser %d's page window\n", browser);
     cmux_shim_browser_set_layer_hosting(browser, 0);
     context = 0;
+  }
+  // The context an adopting cmux shows the page in again (AdoptedPages).
+  if (enabled && context != 0) {
+    hosted_contexts_[client] = context;
+  } else {
+    hosted_contexts_.erase(client);
   }
   // The fork took no visibility before the detach: cmux's last one applies now.
   auto visibility = page_visibility_.find(client);
@@ -811,6 +880,8 @@ void HostContext::Forget(int32_t client_id, int chromium_id) {
   chromium_of_.erase(client_id);
   geometry_awaiting_.erase(client_id);
   page_visibility_.erase(client_id);
+  page_keys_.erase(client_id);
+  hosted_contexts_.erase(client_id);
   // Its window's value stays with the tabs that remain (FollowPageWindows).
   page_windows_.BrowserClosed(client_id);
   UpdatePageActivity();
@@ -844,7 +915,10 @@ void HostContext::PlaceDevTools(int chromium_id, uint64_t token) {
     replaced = held->second;
     devtools_view_of_browser_.erase(held);
   }
-  if (token) devtools_view_of_browser_[chromium_id] = token;
+  if (token) {
+    NoteView(token);
+    devtools_view_of_browser_[chromium_id] = token;
+  }
   if (replaced && replaced != token) ReleaseView(replaced);
 }
 
@@ -863,6 +937,7 @@ void HostContext::ReleaseView(uint64_t token) {
 
 void* HostContext::PageView(uint64_t token) {
   if (!token) return nullptr;
+  NoteView(token);
   if (!open_views_.count(token)) {
     if (open_views_.size() >= kMaxPageViews) {
       Bad("too many page views");

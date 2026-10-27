@@ -13,7 +13,8 @@ import Testing
 /// end reaches the main thread as a visible post on the test's MainWorkScheduler (the test runs the main run loop).
 /// A SIGKILLed host that said hello reaches `onHostEnded` once, on the main thread, as killed; a host that ends before
 /// its hello (a failed start, or a crash while it starts), a clean exit and an end while cmux quits report nothing; a
-/// host that could not start is not started again.
+/// host that could not start is not started again. With crash survival on (task p01-process-150), a host found on the
+/// adoption socket that adopted nothing ends before the new host spawns.
 @MainActor
 @Suite struct ChromiumHostSupervisorTests {
     /// A stand-in host: `/bin/sh -c script`, its control channel on fd 3.
@@ -68,9 +69,11 @@ import Testing
         let attachment = try await BlockingViolationTable.$scoped.withValue(table) { try await rig.supervisor.attachment() }
         defer { Darwin.close(attachment.controlFD) }
         await table.flush()
-        // The spawn ran in the .system lane's item, never on the main thread.
+        // The spawn ran in the .system lane's item, never on the main thread; so did the launch's adoption try
+        // (task p01-process-150), which reads the plan first: with crash survival off it declines a leftover host.
         #expect(table.sites.filter { $0.kind == .processSpawn }.isEmpty, "posix_spawn ran on the main thread: \(table.sites)")
-        #expect(rig.planOnMain.withLock { $0 } == [false])
+        #expect(rig.planOnMain.withLock { $0 } == [false, false])
+        #expect(rig.supervisor.adoption == "the host's framework cannot be read", "the stand-in's plan names no framework")
         #expect(attachment.frameworkLocales == ["en.lproj"])
         #expect(attachment.inputRingFD == -1 && attachment.resizeFence == nil)
         // The handed-out descriptor is the host's fd 3: a byte written comes back.
@@ -163,7 +166,7 @@ import Testing
             _ = try await rig.supervisor.attachment()
         }
         #expect(rig.supervisor.hostsStarted == 1)
-        #expect(rig.planOnMain.withLock { $0.count } == 1)
+        #expect(rig.planOnMain.withLock { $0.count } == 2, "the adoption try and the one spawn")
     }
 
     @Test func aHostWhoseAttachFailedEndsSilentlyBeforeTheNextOneStarts() async throws {
@@ -182,6 +185,60 @@ import Testing
         try #require(kill(new, SIGKILL) == 0)
         rig.reports.untilEnds(2)
         #expect(rig.reports.reported.map(\.exit.reason) == [.killed])
+    }
+
+    /// Task p01-process-150: a process on the adoption socket that adopted nothing (it refused this cmux or gave no
+    /// reply; here a stand-in that ends after 1 s) holds the data folder until it ends: the new host spawns only
+    /// after, through the lane spawner's real wait for a process this one did not start.
+    @Test func theNewHostSpawnsOnlyAfterAHostThatAdoptedNothingEnded() async throws {
+        let orphan = try #require(await Task.detached { () -> (pid: pid_t, controlFD: Int32)? in
+            try? ChromiumHostLauncher.spawnControlled(executable: URL(filePath: "/bin/sleep"), arguments: ["1"], priority: .userBlocking)
+        }.value)
+        defer {
+            Darwin.close(orphan.controlFD)
+            var status: Int32 = 0
+            // SAFETY: waitpid writes one Int32 into `status` during the call.
+            _ = unsafe waitpid(orphan.pid, &status, WNOHANG)
+        }
+        let real = ChromiumHostLaneSpawner(work: BackgroundWork(label: "test.chromium-host-supervisor.ending"),
+                                           mainWork: MainWorkScheduler(budget: MainFrameBudget()), fencesResizes: false) { nil }
+        let spawner = EndingSpawner(orphan: orphan.pid, real: real)
+        let started = ContinuousClock.now
+        _ = try await ChromiumHostSupervisor(spawner: spawner, survivesAppCrash: true).attachment()
+        let ended = try #require(spawner.orphanEndedAtSpawn.withLock { $0 })
+        #expect(ended, "the new host spawned while the host found on the socket still ran")
+        #expect(ContinuousClock.now - started >= .milliseconds(800))
+    }
+
+    /// Adopts nothing from `orphan`, waits for its end with the lane spawner's real wait, and at its spawn records
+    /// whether `orphan` has exited (a child of this test: it stays a zombie until the test reaps it).
+    private nonisolated final class EndingSpawner: ChromiumHostSpawning {
+        let orphan: pid_t
+        let orphanEndedAtSpawn = OSAllocatedUnfairLock<Bool?>(initialState: nil)
+        private let real: ChromiumHostLaneSpawner
+
+        init(orphan: pid_t, real: ChromiumHostLaneSpawner) {
+            self.orphan = orphan
+            self.real = real
+        }
+
+        func spawn() async throws(ChromiumHostAttachError) -> ChromiumHostSpawn {
+            var info = siginfo_t()
+            // SAFETY: waitid writes one siginfo_t into `info` during the call; WNOWAIT leaves the zombie.
+            let result = unsafe waitid(P_PID, id_t(orphan), &info, WEXITED | WNOHANG | WNOWAIT)
+            orphanEndedAtSpawn.withLock { $0 = result == 0 && info.si_pid == orphan }
+            return ChromiumHostSpawn(pid: 999_999, attachment: ChromiumHostAttachment(controlFD: -1, remoteShim: URL(filePath: "/x"),
+                                                                                       frameworkLocales: []))
+        }
+        func watchExit(of pid: pid_t, _ ended: @escaping @MainActor @Sendable (ChromiumHostExit) -> Void) {}
+        func reap(_ pid: pid_t) {}
+        func kill(_ pid: pid_t) {}
+        func adopt(declining: Bool) async -> ChromiumHostAdoption.Outcome {
+            .notAdopted(hostPID: orphan, trusted: true, reason: "the host did not answer the offer")
+        }
+        func awaitAdoptedEnd(of pid: pid_t, limit: Duration, killsAtLimit: Bool) async {
+            await real.awaitAdoptedEnd(of: pid, limit: limit, killsAtLimit: killsAtLimit)
+        }
     }
 }
 #endif

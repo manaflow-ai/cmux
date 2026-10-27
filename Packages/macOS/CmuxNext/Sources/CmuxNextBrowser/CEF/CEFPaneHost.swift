@@ -286,6 +286,8 @@ final class CEFPaneHost {
             }
             // After the proxy gates: the extensions' first requests use the profile's proxy.
             guard builtInExtensionsReady(for: tab) else { return false }
+            // Host mode after a crash of cmux: the page the adopted host kept for this tab, never reloaded.
+            if bindAdoptedPage(tab) { return false }
             tab.isCreationPending = true
             windowTab = tab
             window = .creating(request: request)
@@ -346,6 +348,17 @@ final class CEFPaneHost {
             window = .none
             return false
         }
+        // Host mode after a crash of cmux: the tab's page the adopted host kept in this window.
+        if case .live(let live) = window, let adopted = adoptedPage(for: tab, inWindow: live) {
+            let activates = visibleTab === tab
+            runtime.register(tab, browser: adopted)
+            if activates {
+                lastActivated = adopted
+                _ = shim.tabActivate(adopted)
+            }
+            closeSparePlaceholder(joined: tab)
+            return activates
+        }
         // `tab_add` navigates in the call: the profile's built-in extensions are in first.
         guard builtInExtensionsReady(for: tab) else { return false }
         tab.isCreationPending = true
@@ -369,7 +382,9 @@ final class CEFPaneHost {
         return browser != 0 && activates
     }
 
-    func windowCreated(browser: Int32, request: Int32) {
+    /// `knownWindow`: the Chromium window of `browser` when the caller knows it (an adopted page's,
+    /// ``bindAdoptedPage(_:)``); else the shim's mirror.
+    func windowCreated(browser: Int32, request: Int32, knownWindow: Int32? = nil) {
         CEFStartSteps.shared.firstWindowEnded()
         guard case .creating(let expected) = window, expected == request, let tab = windowTab else {
             return lateWindowCreated(browser: browser, request: request)
@@ -379,7 +394,7 @@ final class CEFPaneHost {
         ChatOpenTrace.shared.mark(.cefWindowCreated, chromiumPane: key.pane.rawValue)
         runtime.benchMarks.point("cef.window_created")
         #endif
-        let windowID = runtime.shim?.tabWindowID(browser) ?? 0
+        let windowID = knownWindow ?? runtime.shim?.tabWindowID(browser) ?? 0
         window = .live(window: windowID)
         lastActivated = browser
         runtime.register(tab, browser: browser)

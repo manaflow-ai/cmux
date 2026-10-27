@@ -115,7 +115,8 @@ Per mode:
   kill_app --kill-app (task 150), instead of the modes, with every Chromium tab in the supervisor's host and the
            feature chromiumHostSurvivesAppCrash: SIGKILL of cmux leaves the host running on its adoption socket, the
            bench's unsigned offer is refused, the relaunch adopts the host (same pid) and the page keeps
-           performance.timeOrigin, and a host nobody adopts ends 30 s after the kill (chromium_host_kill_app.py).
+           performance.timeOrigin, a relaunch as another version ends the old host and the tab reloads at its last
+           committed URL, and a host nobody adopts ends 30 s after the kill (chromium_host_kill_app.py).
   profiles `--modes profiles` (task 080), with `browserHost.tabs` on (every Chromium tab in the supervisor's
            host): two browser profiles made with the app's CLI, a Chromium tab of each; pass when the backend is the
            host, both load, the supervisor's one host (`debug.cef` host_supervisor) serves both and their localStorage
@@ -1003,9 +1004,16 @@ class KillAppBench:
         os.kill(self.app.process.pid, signal.SIGKILL)  # the cmux process this bench started
         self.app.process.wait(30)
 
-    def relaunch(self):
+    def relaunch(self, env=None):
+        """A relaunch of the same tag that keeps its state; `env` is added for this launch only (the mismatch row's
+        wire override)."""
         self.app.fresh_state = False  # the tag's daemon and the orphaned host are the state under test
-        self.app.launch()
+        saved = dict(self.app.extra_env)
+        self.app.extra_env.update(env or {})
+        try:
+            self.app.launch()
+        finally:
+            self.app.extra_env = saved
         settle_host_feature(self.app)
 
     def pid_alive(self, pid):

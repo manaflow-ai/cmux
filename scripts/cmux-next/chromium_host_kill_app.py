@@ -11,34 +11,43 @@ In a Debug build with `browserHost.helper` and `browserHost.tabs` on and the fea
   adopted      the relaunched cmux's supervisor (`debug.cef` host_supervisor) reports hosts_adopted 1 and
                hosts_started 0, with the same host pid
   time_origin  the tab of the probe's URL after the relaunch has the same `performance.timeOrigin`: the page was
-               never reloaded (the relaunched cmux shows the adopted page; task 152 binds restored tabs to it)
-  expires      a second SIGKILL with no relaunch: the host ends between kGraceSeconds (30 s) and 30 s + the quit
+               never reloaded (the restored tab took back the page the adopted host kept for its key,
+               CEFPaneHost+AdoptedPages.swift)
+  mismatch     a second SIGKILL, then a relaunch as a cmux of another version (the Debug and bench override of the
+               offer's wire id, CMUX_CHROMIUM_HOST_ADOPTION_WIRE): the old host ends, a new one starts, and the tab
+               is back at its last committed URL, reloaded from its history record (a new timeOrigin)
+  expires      a third SIGKILL with no relaunch: the host ends between kGraceSeconds (30 s) and 30 s + the quit
                limit (15 s) + 2 s
-  mismatch     a relaunch of another wire version cannot be made from one build: not run here
-               (host_adoption_test.cpp and ChromiumHostAdoptionTests check the verdict and the restart)
 
-Pass: survives, refused, adopted, time_origin and expires. A build whose backend is not the host, or a build with no
-signing team (it never adopts, by design), says not_run for the rows after `survives`.
+Pass: every row. A build whose backend is not the host, or a build with no signing team (its host trusts no peer, so
+it never waits for an adoption), says not_run for the rows after `survives`.
 """
 
 GRACE_S = 30
 QUIT_LIMIT_S = 15
 TIME_ORIGIN = "performance.timeOrigin"
+HREF = "location.href"
+# ChromiumHostAdoption.offeredWireEnvironment, and a wire id no build has.
+ADOPTION_WIRE_ENV = "CMUX_CHROMIUM_HOST_ADOPTION_WIRE"
+MISMATCHED_WIRE = "bench-mismatch"
+ROWS = ("survives", "refused", "adopted", "time_origin", "mismatch", "expires")
 
 
 def run(bench, url):
     """The rows; returns (row, ok). `bench` is the bench's KillAppBench (the test passes a fake):
-    rpc(method), open_page(url) -> tab, page_eval(script, tab), find_tab(url) -> tab, kill_app(), relaunch(),
-    pid_alive(pid), socket_exists(), offer_refused() -> bool, sleep(seconds), monotonic()."""
+    rpc(method), open_page(url) -> tab, page_eval(script, tab), find_tab(url) -> tab, kill_app(), relaunch(env=None)
+    (env: variables for that launch only), pid_alive(pid), socket_exists(), offer_refused() -> bool, sleep(seconds),
+    monotonic()."""
     backend = (bench.rpc("debug.cef") or {}).get("backend")
     if backend != "host":
         return {"not_run": f"the Chromium backend is {backend!r}, not the Chromium Host", "pass": False}, False
     row = {"backend": backend}
     tab = bench.open_page(url)
     origin = bench.page_eval(TIME_ORIGIN, tab) if tab else None
+    href = bench.page_eval(HREF, tab) if tab else None
     supervisor = host_supervisor(bench)
     host = supervisor.get("pid")
-    row["before"] = {"tab": tab, "time_origin": origin, "host": host}
+    row["before"] = {"tab": tab, "time_origin": origin, "href": href, "host": host}
     if not tab or origin is None or not host:
         row["error"] = "the probe page did not load in the supervisor's host"
         row["pass"] = False
@@ -64,21 +73,49 @@ def run(bench, url):
     else:
         row["time_origin"] = {"not_run": "the relaunched cmux did not adopt the host", "pass": False}
 
-    expires = {"host": after.get("pid")}
-    if after.get("pid"):
+    row["mismatch"], last = mismatch(bench, url, after.get("pid"), href,
+                                     row["time_origin"].get("after") or origin)
+    expires = {"host": last}
+    if last:
         bench.kill_app()
         began = bench.monotonic()
-        while bench.pid_alive(after["pid"]) and bench.monotonic() - began < GRACE_S + QUIT_LIMIT_S + 5:
+        while bench.pid_alive(last) and bench.monotonic() - began < GRACE_S + QUIT_LIMIT_S + 5:
             bench.sleep(0.25)
-        expires["ended"] = not bench.pid_alive(after["pid"])
+        expires["ended"] = not bench.pid_alive(last)
         expires["seconds"] = round(bench.monotonic() - began, 2)
         expires["pass"] = expires["ended"] and GRACE_S - 1 <= expires["seconds"] <= GRACE_S + QUIT_LIMIT_S + 2
     else:
-        expires.update({"not_run": "no host after the relaunch", "pass": False})
+        expires.update({"not_run": "no host after the relaunches", "pass": False})
     row["expires"] = expires
-    row["mismatch"] = {"not_run": "needs a cmux of another wire version; host_adoption_test.cpp covers the verdict"}
-    row["pass"] = all(row[name].get("pass") is True for name in ("survives", "refused", "adopted", "time_origin", "expires"))
+    row["pass"] = all(row[name].get("pass") is True for name in ROWS)
     return row, True
+
+
+def mismatch(bench, url, host, href, origin):
+    """The `mismatch` row, and the pid of the host running after it (None when none runs): SIGKILL of cmux while
+    `host` serves the probe at `href` with `origin`, then a relaunch whose offer names a wire no host has. The orphan
+    answers a mismatch, closes its pages and quits; the supervisor waits for it, then starts a new host; the tab
+    restores from its history record: the same URL, a new timeOrigin."""
+    if not host:
+        return {"not_run": "no host to orphan", "pass": False}, None
+    bench.kill_app()
+    bench.sleep(2)
+    if not bench.pid_alive(host):
+        return {"host": host, "error": "the host did not outlive cmux", "pass": False}, None
+    bench.relaunch(env={ADOPTION_WIRE_ENV: MISMATCHED_WIRE})
+    after = host_supervisor(bench)
+    tab = bench.find_tab(url)
+    found = {"old_host": host, "old_host_ended": not bench.pid_alive(host), "host": after.get("pid"),
+             "hosts_started": after.get("hosts_started"), "hosts_adopted": after.get("hosts_adopted"),
+             "adoption": after.get("adoption"), "tab": tab,
+             "href_before": href, "href_after": bench.page_eval(HREF, tab) if tab else None,
+             "time_origin_before": origin, "time_origin_after": bench.page_eval(TIME_ORIGIN, tab) if tab else None}
+    found["pass"] = (found["old_host_ended"] and bool(found["host"]) and found["host"] != host
+                     and found["hosts_started"] == 1 and found["hosts_adopted"] == 0
+                     and "another version" in (found["adoption"] or "")
+                     and href is not None and found["href_after"] == href
+                     and found["time_origin_after"] is not None and found["time_origin_after"] != origin)
+    return found, found["host"]
 
 
 def host_supervisor(bench):

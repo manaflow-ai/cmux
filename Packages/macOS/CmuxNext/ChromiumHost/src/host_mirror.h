@@ -103,6 +103,13 @@ class HostMirrors {
   static bool NamesTab(uint16_t op, const std::vector<control::Field>& key, int32_t browser);
 
   size_t open_tabs() const { return tabs_.size(); }
+  // cmux's ids of the open tabs, in id order.
+  std::vector<int32_t> OpenTabs() const {
+    std::vector<int32_t> open;
+    open.reserve(tabs_.size());
+    for (const auto& [browser, tab] : tabs_) open.push_back(browser);
+    return open;
+  }
   // The tab's Chromium window, 0 when unknown or not open.
   int64_t WindowOf(int32_t browser) const;
   // Whether an open tab is in Chromium window `window`.

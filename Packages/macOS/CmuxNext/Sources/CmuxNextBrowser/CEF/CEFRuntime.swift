@@ -138,6 +138,10 @@ final class CEFRuntime {
     var nextSiteReply: Int32 = 1
     /// Host mode: the last page view token minted (``mintPageViewToken()``).
     var lastPageViewToken: UInt64 = 0
+    /// Host mode: the pages a host this cmux adopted kept, until restored tabs take them back (task p01-process-150,
+    /// CEFRuntime+AdoptedPages.swift), and the end of the window in which they may.
+    var adoptedPages = CEFAdoptedPages()
+    var adoptedPagesDeadline: AlignedWakeups.Ticket?
     /// Host mode: each profile proxy's verdict from the host (``applyProfileProxy(_:)``).
     var profileProxyChecks: [BrowserProfileID: CEFProfileProxyCheck] = [:]
     var shutdownSequence: CEFShutdownSequence?
@@ -452,6 +456,8 @@ final class CEFRuntime {
             try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, inputs: inputs, environment: environment) }
             launchMarks.send(.initializeEnded)
             state = .ready
+            // A host adopted from a crashed cmux: its pages wait for their restored tabs.
+            if case .host(let host) = library { takeAdoptedPages(host.adoptedPages, viewTokenFloor: host.viewTokenFloor) }
             CEFStartSteps.shared.timed("ready_hooks") {
                 // The app's pane host views exist in both modes; helpers, Chromium windows and page windows only in process.
                 observeDisplays()

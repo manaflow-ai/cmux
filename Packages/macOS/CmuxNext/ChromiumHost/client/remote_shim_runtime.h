@@ -139,6 +139,12 @@ CMUX_REMOTE_EXPORT void cmux_remote_shim_set_fence_sender(cmux_remote_fence_send
 // `devtools`, above every id the crashed cmux minted in that host. A floor below the counter, or
 // outside the minted ranges (chromium_host_mint.h), changes nothing. 1 when it moved a counter.
 CMUX_REMOTE_EXPORT int cmux_remote_shim_set_mint_floor(int32_t browser, int32_t devtools);
+// Main thread (task p01-process-150): tells the host cmux's key of the tab `browser` shows
+// (kOpPageKey, ChromiumHost/src/host_adoption.h), so a relaunch after a crash of cmux finds the
+// tab's page in the adoption reply. In order with the other ops; before the host's HELLO it waits
+// for it. 1 when it went or waits; 0 for an empty or over-long key, no host, or a host whose
+// HELLO does not list kAdoptionHelloName (it keeps no pages).
+CMUX_REMOTE_EXPORT int cmux_remote_shim_set_page_key(int32_t browser, const char* key);
 
 }  // extern "C"
 

@@ -74,6 +74,7 @@
 #include "host_dispatch.h"
 #include "host_page_activity.h"
 #include "host_peer.h"
+#include "host_quit.h"
 #include "host_switches.h"
 #include "host_user_input.h"
 #include "shim_internal.h"
@@ -382,25 +383,11 @@ class HostMain : public cmux_host::HostDelegate {
     CFRunLoopStop(CFRunLoopGetMain());
   }
 
-  void Quit() override {
-    ArmQuitDeadline();
-    if (!running_) {
-      quit_before_start_ = true;
-      CFRunLoopStop(CFRunLoopGetMain());
-      return;
-    }
-    if (quitting_) return;
-    quitting_ = true;
-    cmux_shim_close_all();  // BEFORE_CLOSE for each browser, then BrowserClosed
-    BrowserClosed();
-  }
+  // ArmQuitDeadline first, then every browser closes (BEFORE_CLOSE for each, then BrowserClosed)
+  // and the loop ends after the last (host_quit.h).
+  void Quit() override { quit_.Quit(); }
 
-  void BrowserClosed() override {
-    if (quitting_ && !loop_quit_ && cmux_shim_live_browser_count() == 0) {
-      loop_quit_ = true;
-      CefQuitMessageLoop();
-    }
-  }
+  void BrowserClosed() override { quit_.BrowserClosed(); }
 
   void BadMessage(const std::string& what) override {
     fprintf(stderr, "cmux-chromium-host: bad message from cmux: %s\n", what.c_str());
@@ -409,18 +396,17 @@ class HostMain : public cmux_host::HostDelegate {
   }
 
   std::optional<cmux_host::InitializeRequest>& request() { return request_; }
-  bool quit_before_start() const { return quit_before_start_; }
+  bool quit_before_start() const { return quit_.quit_before_start(); }
   // Chromium runs and no quit began: a channel end may leave an orphan (adoption::KeepsPages).
-  bool serving() const { return running_ && !quitting_; }
-  void set_running() { running_ = true; }
+  bool serving() const { return quit_.serving(); }
+  void set_running() { quit_.set_running(); }
   int exit_status() const { return exit_status_; }
 
  private:
   std::optional<cmux_host::InitializeRequest> request_;
-  bool running_ = false;  // CefInitialize returned
-  bool quit_before_start_ = false;
-  bool quitting_ = false;
-  bool loop_quit_ = false;
+  cmux_host::HostQuit quit_{cmux_host::HostQuit::Steps{
+      &ArmQuitDeadline, [] { CFRunLoopStop(CFRunLoopGetMain()); }, [] { cmux_shim_close_all(); },
+      [] { return cmux_shim_live_browser_count(); }, [] { CefQuitMessageLoop(); }}};
   int exit_status_ = 0;
 };
 
@@ -589,14 +575,17 @@ int main(int argc, char* argv[]) {
   // A relaunched cmux took the orphan, was refused, or none came in time. Main thread.
   auto adoption_done = [&](cmux_host::adoption::Listener::Outcome outcome) {
     using Kind = cmux_host::adoption::Listener::Outcome::Kind;
-    if (outcome.kind != Kind::kAdopted || !host.orphaned() || !host_main.serving()) {
+    if (cmux_host::adoption::AfterOutcome(outcome, host.orphaned(), host_main.serving()) ==
+        cmux_host::adoption::Next::kQuit) {
       if (outcome.fd >= 0) close(outcome.fd);
       if (outcome.kind == Kind::kVersionMismatch) {
         // Every page closes, so Chromium writes its profile; the new cmux restores each tab from
         // its history record with a new host once this one has ended.
-        fprintf(stderr, "cmux-chromium-host: the relaunched cmux speaks another version; quitting\n");
+        fprintf(stderr, "cmux-chromium-host: the relaunched cmux speaks another version or declined; quitting\n");
       } else if (outcome.kind == Kind::kFailed) {
         fprintf(stderr, "cmux-chromium-host: no adoption socket (errno %d); quitting\n", outcome.error);
+      } else if (outcome.kind == Kind::kUntrusting) {
+        fprintf(stderr, "cmux-chromium-host: this host trusts no peer (no team); quitting\n");
       }
       host_main.Quit();
       return;
@@ -607,12 +596,11 @@ int main(int argc, char* argv[]) {
     host.Reattach();
   };
   channel_ended = [&](cmux_host::control::End end) {
-    if (!cmux_host::adoption::KeepsPages(end, survives_app_crash, host_main.serving()) || !framework_identity ||
-        adoption_socket.empty()) {
+    if (!cmux_host::adoption::KeepsPages(end, survives_app_crash, host_main.serving(), host.peer_quit_began()) ||
+        !framework_identity || adoption_socket.empty()) {
       host_main.Quit();
       return;
     }
-    host.Orphan();
     cmux_host::adoption::Listener::Options options;
     options.path = adoption_socket;
     options.versions = {cmux_host::HostContext::WireId(), cmux_host::HostContext::ShimAbiId(),
@@ -622,8 +610,13 @@ int main(int argc, char* argv[]) {
     const cmux_host::HostContext::MintFloor floor = host.mint_floor();
     options.reply.mint_browser = floor.browser;
     options.reply.mint_devtools = floor.devtools;
+    options.reply.mint_view = floor.view;
     options.reply.resize_fence = fence_inbox ? Arg(args, cmux_host::kResizeFenceSwitch) : std::string();
+    // The pages a relaunched cmux binds its restored tabs to (an adopted reply lists them).
+    options.reply.pages = host.Orphan(options.reply);
     options.check_peer = [app_bundle](int fd) { return cmux_host::TrustedPeer(fd, app_bundle); };
+    // An ad-hoc or unsigned host trusts no peer: it quits as at a quit, never waiting for nobody.
+    options.trusts_any_peer = [app_bundle] { return cmux_host::TrustsAnyPeer(app_bundle); };
     options.done = [&adoption_done](cmux_host::adoption::Listener::Outcome outcome) {
       PostToMain([&adoption_done, outcome] { adoption_done(outcome); });
     };
@@ -635,6 +628,8 @@ int main(int argc, char* argv[]) {
   open_channel(kControlFd);
   // Chromium's ack of each wheel goes to cmux's swipe navigation (WHEEL_ACK, task p01-process-234).
   host.SetWheelAckHandler(fork_input.set_wheel_ack_handler);
+  // Each tab's key comes from cmux, so an adoption's reply names its page (host_adoption.h).
+  host.SetAdoptable(survives_app_crash);
   host.Attach();
 
   // Preinit ops apply as they arrive; INITIALIZE (or the channel's end) stops

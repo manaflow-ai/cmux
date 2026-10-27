@@ -105,6 +105,20 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
         return setMintFloor(floor.browser, floor.devtools) == 1
     }
 
+    /// Tells the host the key of the tab `browser` shows (task p01-process-150: `cmux_remote_shim_set_page_key`), so
+    /// a relaunch after a crash of cmux takes the page back for that tab. False when the dylib has no export or the
+    /// host keeps no pages (its HELLO lacks the adoption name).
+    @MainActor
+    @discardableResult
+    func setPageKey(_ key: String, browser: Int32) -> Bool {
+        typealias SetPageKeyFn = @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
+        guard let pointer = unsafe symbol("cmux_remote_shim_set_page_key") else { return false }
+        // SAFETY: the export's C type in remote_shim_runtime.h, `int (int32_t, const char*)`, on a dylib never closed.
+        let setPageKey = unsafe unsafeBitCast(pointer, to: SetPageKeyFn.self)
+        // SAFETY: the C string lives for the call; the remote shim copies the key before it returns.
+        return unsafe key.withCString { unsafe setPageKey(browser, $0) } == 1
+    }
+
     /// Hands the host's wire to the remote shim and returns, once the host's hello is in, the
     /// optional exports its shim defines. Fails when the shim refused the wire (its descriptors
     /// are closed here), the host ended first (the shim closed them), or no hello came within

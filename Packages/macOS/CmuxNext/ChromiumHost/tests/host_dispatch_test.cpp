@@ -23,6 +23,7 @@
 #include "cmux_cef_shim.h"
 #include "host_dispatch.h"
 #include "host_page_activity.h"
+#include "host_adoption.h"
 #include "host_switches.h"
 
 #include "generated/host_dispatch.inc"
@@ -155,6 +156,8 @@ int cmux_shim_browser_set_page_visibility(int browser_id, int visibility) {
   return 1;
 }
 void cmux_shim_shutdown(void) { shim.calls.push_back("shutdown"); }
+void cmux_shim_close(int browser_id) { shim.calls.push_back("close " + std::to_string(browser_id)); }
+void cmux_shim_close_all(void) { shim.calls.push_back("close_all"); }
 char* cmux_shim_tab_navigation_state(int browser_id) {
   shim.calls.push_back("nav_state " + std::to_string(browser_id));
   return strdup(("state of " + std::to_string(browser_id)).c_str());
@@ -1011,6 +1014,130 @@ void ReattachPushesEverySurvivingPage() {
   Check(f.delegate.calls.back() == "bad a second initialize", "only the adopting peer's INITIALIZE is acked");
 }
 
+// Task p01-process-150: an adoptable host's HELLO names the page key op, cmux's key of each tab
+// names its page, and the orphan offers every keyed open tab with its window, its window's page
+// view token and its layer hosting context; the floor of page view tokens is above every token cmux
+// sent. At the adopting INITIALIZE an offered page that closed meanwhile gets its BEFORE_CLOSE, and
+// every open page the orphan did not offer (no key) closes.
+void PageKeysNameTheAdoptedPages() {
+  {
+    Fixture g;
+    g.host.SetAdoptable(true);
+    g.host.Attach();
+    const std::vector<std::string> sent = g.Sent();
+    Check(!sent.empty() && sent.back() == "hello cmux_shim_tab_set_frozen cmux_host_adoption",
+          "an adoptable host's HELLO lists the page key op: " + Join(sent));
+  }
+  Fixture f;
+  f.host.SetAdoptable(true);
+  f.Start();
+  shim.create_at_once = false;
+  auto created = [&](int32_t minted, uint32_t request, uint64_t view, int browser, int64_t window) {
+    Writer create;
+    create.I32(minted);
+    create.I32(static_cast<int32_t>(request));
+    create.ViewToken(view);
+    create.I32(800);
+    create.I32(600);
+    create.Str("https://b/");
+    create.Str(nullptr);
+    f.host.OnMessages({Op(kOpCreateWindow, 0, create)});
+    ++shim.live;
+    HostContext::OnShimEvent(shim.host, CMUX_SHIM_AFTER_CREATED, browser, static_cast<int>(request), window, 0, "", "");
+  };
+  created(kMinted, 42, 9, 3, 11);
+  // A tab Chromium added to that window (a link's new tab): its id is the same on both sides.
+  ++shim.live;
+  HostContext::OnShimEvent(shim.host, CMUX_SHIM_AFTER_CREATED, 5, 0, 11, 0, "", "");
+  created(kMinted + 2, 44, 10, 6, 12);  // no key: cmux has no tab for it after a relaunch
+  auto key = [&](int32_t browser, const char* text) {
+    Writer w;
+    w.I32(browser);
+    w.Str(text);
+    f.host.OnMessages({Op(adoption::kOpPageKey, 0, w)});
+  };
+  key(kMinted, "tab-a");
+  key(5, "tab-b");
+  Writer hosting;
+  hosting.I32(kMinted);
+  hosting.I32(1);
+  f.host.OnMessages({Op(kOpBrowserSetLayerHosting, 30, hosting)});
+  f.Sent();
+  Check(f.host.mint_floor().view == 11, "the next peer's page view tokens start above 10");
+  Check(f.delegate.calls == std::vector<std::string>{"initialize /root"}, "no bad message: " + Join(f.delegate.calls));
+
+  const std::vector<adoption::AdoptedPage> offered = f.host.Orphan();
+  const std::vector<adoption::AdoptedPage> want = {{5, 11, 9, 0, "tab-b"}, {kMinted, 11, 9, 0xC0FFEEu, "tab-a"}};
+  std::string got;
+  for (const adoption::AdoptedPage& page : offered) {
+    got += " {" + std::to_string(page.browser) + " " + std::to_string(page.window) + " " + std::to_string(page.view) + " " +
+           std::to_string(page.context) + " " + page.key + "}";
+  }
+  Check(offered == want, "the keyed tabs, with their window, its page view and the hosted context:" + got);
+  // Tab 5 closes while no peer is there: its BEFORE_CLOSE reaches nobody.
+  shim.live = 2;
+  Emit(CMUX_SHIM_BEFORE_CLOSE, 5, 0);
+  Check(f.sent.empty(), "an orphan sends nothing");
+
+  shim.calls.clear();
+  f.host.Reattach();
+  f.Sent();
+  f.host.OnMessages({Hello()});
+  Writer init;
+  init.Str("/fw");
+  init.Str("/app");
+  init.Str("/helper");
+  init.Str("/root");
+  init.Str(nullptr);
+  init.I32(0);
+  init.Str("en-US");
+  init.Str(nullptr);
+  const char* switches[] = {"--a"};
+  init.StrList(switches, 1);
+  f.host.OnMessages({Op(kOpInitialize, 71, init)});
+  const std::vector<std::string> sent = f.Sent();
+  Check(std::find(sent.begin(), sent.end(), "event " + std::to_string(CMUX_SHIM_BEFORE_CLOSE) + " 5 0") != sent.end(),
+        "the offered page that closed while orphaned gets its BEFORE_CLOSE now: " + Join(sent));
+  Check(std::find(shim.calls.begin(), shim.calls.end(), "close 6") != shim.calls.end() &&
+            std::find(shim.calls.begin(), shim.calls.end(), "close 3") == shim.calls.end(),
+        "the page the orphan did not offer closes; the offered one stays: " + Join(shim.calls));
+
+  Writer empty;
+  empty.I32(kMinted);
+  empty.Str("");
+  f.host.OnMessages({Op(adoption::kOpPageKey, 0, empty)});
+  Check(f.delegate.calls.back() == "bad a malformed page key", "an empty key is bad");
+}
+
+// A host that keeps no pages (no --survives-app-crash) never gets a page key: one is a bad message.
+void PageKeyToAHostThatKeepsNoPagesIsBad() {
+  Fixture f;
+  f.Start();
+  Writer w;
+  w.I32(kMinted);
+  w.Str("tab-a");
+  f.host.OnMessages({Op(adoption::kOpPageKey, 0, w)});
+  Check(f.delegate.calls.back() == "bad a page key to a host that keeps no pages", "refused: " + Join(f.delegate.calls));
+}
+
+// cmux's quit starts with close-all (CEFRuntime.shutdown). When its close wait runs out it exits with no
+// shutdown op, and the host reads EOF: a quit, not a crash, so the host keeps no pages and waits for no one.
+void CloseAllMarksCmuxsQuit() {
+  Fixture f;
+  f.host.SetAdoptable(true);
+  f.Start();
+  Check(!f.host.peer_quit_began(), "no quit yet");
+  Check(adoption::KeepsPages(control::End::kPeerClosed, true, true, f.host.peer_quit_began()),
+        "an EOF now is a crash of cmux: the pages stay");
+  shim.calls.clear();
+  f.host.OnMessages({Op(kOpCloseAll, 80, Writer())});
+  Check(std::find(shim.calls.begin(), shim.calls.end(), "close_all") != shim.calls.end(), "close-all reaches the shim");
+  Check(f.host.peer_quit_began(), "cmux's quit began");
+  Check(!adoption::KeepsPages(control::End::kPeerClosed, true, true, f.host.peer_quit_began()),
+        "the EOF after close-all is a quit: no orphan");
+  Check(!adoption::KeepsPages(control::End::kIoError, true, true, f.host.peer_quit_began()), "nor a reset");
+}
+
 // Task p14-energy-128: the host holds its App Nap activity while cmux shows one of its pages and
 // lets App Nap apply when every page is hidden or occluded. It starts held, through Chromium's
 // start; 1 shown page begins it, 0 ends it, and the same count again changes nothing.
@@ -1466,6 +1593,9 @@ int main() {
   HostSwitchesFitTheHostsLoop();
   OrphanKeepsPagesForTheNextPeer();
   ReattachPushesEverySurvivingPage();
+  PageKeysNameTheAdoptedPages();
+  PageKeyToAHostThatKeepsNoPagesIsBad();
+  CloseAllMarksCmuxsQuit();
   if (failures) return EXIT_FAILURE;
   std::puts("chromium-host-dispatch tests: ok");
   return EXIT_SUCCESS;

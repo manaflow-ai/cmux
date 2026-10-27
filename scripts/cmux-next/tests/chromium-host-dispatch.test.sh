@@ -80,7 +80,8 @@ for e in exports:
 print("}")
 PY
 
-sources=("$work/src/host_dispatch.mm" "$work/src/host_mirror.mm" "$work/src/host_text_input.mm" "$work/shim_stubs.cpp")
+sources=("$work/src/host_dispatch.mm" "$work/src/host_mirror.mm" "$work/src/host_text_input.mm" "$work/src/host_adoption.cc"
+  "$work/shim_stubs.cpp")
 "${cxx[@]}" "${flags[@]}" -O1 -o "$work/host_dispatch_test" "$host/tests/host_dispatch_test.cpp" \
   -x c++ "${sources[@]}" -x none "$work/src/chromium_host_control.cc"
 "$work/host_dispatch_test"

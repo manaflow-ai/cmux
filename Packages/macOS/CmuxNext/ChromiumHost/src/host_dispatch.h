@@ -63,12 +63,21 @@
 //                                              that display's, task 221); held as
 //                                              kOpBrowserAccessibilityToken is, the newest
 //                                              one only
+//   kOpPageKey                                  i32 browser, str cmux's key of its tab
+//                                              (host_adoption.h, task p01-process-150): an
+//                                              adoption's reply names the page by it; only
+//                                              to a host whose HELLO lists kAdoptionHelloName
+//   kOpCloseAll                                 the generated case; it also marks cmux's
+//                                              quit as begun (peer_quit_began), so the
+//                                              channel's end after it is a quit, never an
+//                                              orphan
 // Every preinit op comes before kOpInitialize (the remote shim queues them,
 // task 014); everything else after it.
 //
 // Messages the host sends:
 //   kOpHello   str kWireID, StrList of the optional exports its shim defines
-//              (and kEnergySaverHelloName when its fork has the saver);
+//              (and kEnergySaverHelloName when its fork has the saver,
+//              kAdoptionHelloName when it outlives a crash of cmux);
 //              once, after the MIRRORs whose only refresh is attach
 //   kOpMirror  i32 mirror op, bytes key (EncodeFields), then bytes value
 //              (EncodeFields), or no value: cmux forgets the key
@@ -90,7 +99,9 @@
 #include <deque>
 #include <functional>
 #include <list>
+#include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -100,6 +111,7 @@
 #include "chromium_host_control.h"
 #include "chromium_host_tlv.h"
 #include "chromium_host_wire.h"
+#include "host_adoption.h"
 #include "host_energy_saver.h"
 #include "host_mirror.h"
 #include "host_page_activity.h"
@@ -222,6 +234,10 @@ class HostContext {
   // it has none. Before Attach: the HELLO lists kWheelAcksHelloName with it,
   // and Resume installs OnWheelAck through it.
   void SetWheelAckHandler(SetWheelAckHandlerFn set) { set_wheel_ack_handler_ = set; }
+  // Before Attach: the host outlives a crash of cmux (--survives-app-crash,
+  // task p01-process-150), so its HELLO lists kAdoptionHelloName and cmux
+  // sends each tab's key (kOpPageKey).
+  void SetAdoptable(bool adoptable) { adoptable_ = adoptable; }
   // The mirrors whose only refresh is attach, then the hello. Once, before
   // the first OnMessages; the framework is loaded, CEF not started.
   void Attach();
@@ -236,22 +252,33 @@ class HostContext {
   // peer could use goes: its mirror watches, text input watches and held
   // replies. Every shown page is hidden, as Chrome hides a WebContents whose
   // window went away (WebContentsImpl::WasHidden), so an orphan draws nothing.
-  // The next message must be a new peer's HELLO. Running only.
-  void Orphan();
+  // The next message must be a new peer's HELLO. Running only. Returns the
+  // pages an adopting cmux may take back (adoption::FitReplyPages of
+  // AdoptedPages with `reply`'s other fields); the adopting INITIALIZE closes
+  // every other page.
+  std::vector<adoption::AdoptedPage> Orphan(const adoption::Reply& reply = {});
   // A new peer adopted the host: the attach mirrors and the HELLO again
   // (Attach). The peer's INITIALIZE is acked with no second CefInitialize;
   // then every open tab's mirrors go out, so its cache holds each page that
-  // survived, under the ids the old peer minted.
+  // survived, under the ids the old peer minted. A page the orphan offered
+  // that closed meanwhile gets its BEFORE_CLOSE then; every open page it did
+  // not offer closes (cmux has no tab for it).
   void Reattach();
-  // Where the next peer mints ids (cmux_remote_shim_set_mint_floor): above
-  // every minted id cmux sent this host, so a new peer never names a page
-  // the old one created.
+  // Where the next peer mints ids (cmux_remote_shim_set_mint_floor) and page
+  // view tokens: above every minted id and token cmux sent this host, so a
+  // new peer never names a page or a view the old one created.
   struct MintFloor {
     int32_t browser = 0;
     int32_t devtools = 0;
+    uint64_t view = 1;
   };
   MintFloor mint_floor() const;
   bool orphaned() const { return orphaned_; }
+  // Every open tab whose key cmux sent (kOpPageKey), in id order: its window,
+  // its window's page view token and its Core Animation context.
+  std::vector<adoption::AdoptedPage> AdoptedPages() const;
+  // cmux sent kOpCloseAll: its quit began, so the channel's end is a quit.
+  bool peer_quit_began() const { return peer_quit_began_; }
   // The generated op table's wire and shim ABI ids (kWireID, kShimAbiID), which an adoption offer must name.
   static const char* WireId();
   static const char* ShimAbiId();
@@ -367,6 +394,11 @@ class HostContext {
   bool HandleAdoptedInitialize(const control::Message& message);
   // A minted id cmux sent in a create or a DevTools call: mint_floor() stays above it.
   void NoteMinted(uint16_t op, int32_t minted);
+  // A page view token cmux sent: mint_floor().view stays above it.
+  void NoteView(uint64_t token) {
+    if (token > highest_view_) highest_view_ = token;
+  }
+  bool HandlePageKey(const control::Message& message);
   void Dispatch(const control::Message& message);
   bool HandleInitialize(const control::Message& message);
   bool HandleTextInputWatch(const control::Message& message);
@@ -437,8 +469,18 @@ class HostContext {
   bool peer_hello_ = false;  // cmux's HELLO came: every other op must follow it
   bool orphaned_ = false;  // Orphan: no peer until Reattach
   bool adopted_ = false;   // Reattach: the peer's INITIALIZE is acked with no call
+  bool adoptable_ = false;  // SetAdoptable
+  bool peer_quit_began_ = false;
   int32_t highest_minted_browser_ = 0;
   int32_t highest_minted_devtools_ = 0;
+  uint64_t highest_view_ = 0;
+  // cmux's key of each tab (kOpPageKey) by client id, until its BEFORE_CLOSE.
+  // At most kMaxPageVisibilities (host_dispatch.mm).
+  std::map<int32_t, std::string> page_keys_;
+  // The Core Animation context each layer-hosted page shows in, by client id.
+  std::unordered_map<int32_t, uint32_t> hosted_contexts_;
+  // The pages the orphan offered (Orphan), by client id, until the adopting INITIALIZE.
+  std::set<int32_t> offered_;
   // Messages that arrived while initialize runs, or mirror watches before it.
   std::deque<control::Message> waiting_;
   uint32_t initialize_token_ = 0;

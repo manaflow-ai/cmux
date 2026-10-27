@@ -118,6 +118,14 @@ control::Message EncodeReply(const Reply& reply) {
   w.I32(reply.mint_browser);
   w.I32(reply.mint_devtools);
   w.Str(reply.resize_fence.c_str());
+  w.I64(static_cast<int64_t>(reply.mint_view));
+  for (const AdoptedPage& page : reply.pages) {
+    w.I32(page.browser);
+    w.I32(page.window);
+    w.I64(static_cast<int64_t>(page.view));
+    w.U32(page.context);
+    w.Str(page.key.c_str());
+  }
   return MessageOf(kOpAdoptReply, w.Take());
 }
 
@@ -131,12 +139,50 @@ std::optional<Reply> ReadReply(const control::Message& message) {
   reply.mint_browser = r.I32();
   reply.mint_devtools = r.I32();
   const std::optional<std::string> fence = r.Str();
-  if (!r.ok() || !r.AtEnd() || !fence || verdict < 0 || verdict > static_cast<int32_t>(Verdict::kMalformed)) {
-    return std::nullopt;
+  reply.mint_view = static_cast<uint64_t>(r.I64());
+  if (!r.ok() || !fence || verdict < 0 || verdict > static_cast<int32_t>(Verdict::kMalformed)) return std::nullopt;
+  while (!r.AtEnd()) {
+    AdoptedPage page;
+    page.browser = r.I32();
+    page.window = r.I32();
+    page.view = static_cast<uint64_t>(r.I64());
+    page.context = r.U32();
+    const std::optional<std::string> key = r.Str();
+    if (!r.ok() || !key || key->empty() || key->size() > kMaxPageKeyBytes) return std::nullopt;
+    page.key = *key;
+    reply.pages.push_back(std::move(page));
   }
+  if (!reply.pages.empty() && static_cast<Verdict>(verdict) != Verdict::kAdopted) return std::nullopt;
   reply.verdict = static_cast<Verdict>(verdict);
   reply.resize_fence = *fence;
   return reply;
+}
+
+std::vector<AdoptedPage> FitReplyPages(const Reply& reply, std::vector<AdoptedPage> pages) {
+  // A frame body's bytes: each field's header and payload (chromium_host_control.h).
+  auto body_of = [](const std::vector<control::Field>& fields) {
+    size_t size = 0;
+    for (const control::Field& field : fields) {
+      const size_t payload = field.type == control::Type::kI32                                          ? 4
+                             : field.type == control::Type::kI64 || field.type == control::Type::kF64 ? 8
+                                                                                                       : field.bytes.size();
+      size += control::kFieldHeaderSize + payload;
+    }
+    return size;
+  };
+  Reply bare = reply;
+  bare.pages.clear();
+  size_t body = body_of(EncodeReply(bare).fields);
+  std::vector<AdoptedPage> fit;
+  for (AdoptedPage& page : pages) {
+    if (page.key.empty() || page.key.size() > kMaxPageKeyBytes) continue;
+    // i32 browser, i32 window, i64 view, i32 context, str key.
+    const size_t size = 5 * control::kFieldHeaderSize + 4 + 4 + 8 + 4 + page.key.size();
+    if (body + size > control::kMaxBody) break;
+    body += size;
+    fit.push_back(std::move(page));
+  }
+  return fit;
 }
 
 uint64_t Fnv1a64(const std::string& text) {
@@ -288,6 +334,12 @@ void Listener::Start(Options options) {
 }
 
 void Listener::Run(Options options) {
+  if (options.trusts_any_peer && !options.trusts_any_peer()) {
+    Outcome untrusting;
+    untrusting.kind = Outcome::Kind::kUntrusting;
+    options.done(untrusting);
+    return;
+  }
   const int listener = Listen(options.path);
   if (listener < 0) {
     Outcome failed;
@@ -328,6 +380,7 @@ void Listener::Run(Options options) {
     if (offer && offer->app_pid != *peer) offer.reset();  // the offer names another process
     Reply reply = options.reply;
     reply.verdict = Judge(offer, options.versions);
+    if (reply.verdict != Verdict::kAdopted) reply.pages.clear();  // only the adopting cmux learns the pages
     std::vector<uint8_t> bytes;
     const bool answered = control::Encode(EncodeReply(reply), &bytes) && WriteAll(fd, bytes);
     if (!answered || reply.verdict == Verdict::kMalformed) {
@@ -349,9 +402,13 @@ void Listener::Run(Options options) {
   }
 }
 
-bool KeepsPages(control::End end, bool survives, bool running) {
-  if (!survives || !running) return false;
+bool KeepsPages(control::End end, bool survives, bool running, bool quit_began) {
+  if (!survives || !running || quit_began) return false;
   return end == control::End::kPeerClosed || end == control::End::kIoError;
+}
+
+Next AfterOutcome(const Listener::Outcome& outcome, bool orphaned, bool serving) {
+  return outcome.kind == Listener::Outcome::Kind::kAdopted && orphaned && serving ? Next::kReattach : Next::kQuit;
 }
 
 }  // namespace cmux_host::adoption

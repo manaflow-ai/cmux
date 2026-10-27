@@ -1,6 +1,7 @@
 #if DEBUG
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 @testable import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextWakeups
 import Darwin
 import Dispatch
@@ -10,19 +11,22 @@ import Testing
 
 /// A relaunched cmux adopts the Chromium Host a crashed cmux left (task p01-process-150): the offer and reply frames
 /// are the bytes host_adoption_test.cpp checks; the socket path is the host's; a peer the trust check refuses gets
-/// nothing written; an adoption hands over the socket as the control channel with the host's mint floor and fence; a
-/// version mismatch and a reply that names another process start no adoption; and the supervisor adopts once per
-/// launch, before it spawns, and waits for a mismatched host to end before it starts a new one.
+/// nothing written; an adoption hands over the socket as the control channel with the host's mint floors, fence and
+/// the pages this cmux's restored tabs take back; a version mismatch and a reply that names another process start no
+/// adoption; and the supervisor adopts once per launch, before it spawns, declines with crash survival off, and starts
+/// a new host only once a host found on the socket ended (a mismatched or declined one, and one that adopted
+/// nothing), since both would use one data folder.
 @MainActor
 @Suite struct ChromiumHostAdoptionTests {
     /// The same bytes as host_adoption_test.cpp's kGoldenOffer.
     static let goldenOffer =
         "4c0000002080000000000000050002007731050002006131010004001e0000000200080001000000000000000200080002000000"
         + "000000000200080003000000000000000200080004000000000000000100040092100000"
-    /// The same bytes as host_adoption_test.cpp's kGoldenReply.
+    /// The same bytes as host_adoption_test.cpp's kGoldenReply: an adopted reply with one page.
     static let goldenReply =
-        "4000000021800000000000000100040001000000010004004d000000010004001f0000000100040000001000010004000000002005"
-        + "001400636f6d2e636d75787465726d2e66656e63652e31"
+        "7900000021800000000000000100040000000000010004004d000000010004001f0000000100040000001000010004000000002005"
+        + "001400636f6d2e636d75787465726d2e66656e63652e31020008000500000000000000010004000200100001000400070000000200"
+        + "080003000000000000000100040034120000050005007461622d31"
 
     private static func hex(_ bytes: [UInt8]) -> String {
         bytes.map { String(format: "%02x", $0) }.joined()
@@ -56,9 +60,29 @@ import Testing
             return
         }
         let reply = try #require(ChromiumHostAdoption.Reply(message))
-        #expect(reply.verdict == .versionMismatch && reply.hostPID == 77 && reply.forkAPI == 31)
-        #expect(reply.mintFloor == ChromiumHostMintFloor(browser: 1 << 20, devtools: 1 << 29))
+        #expect(reply.verdict == .adopted && reply.hostPID == 77 && reply.forkAPI == 31)
+        #expect(reply.mintFloor == ChromiumHostMintFloor(browser: 1 << 20, devtools: 1 << 29, view: 5))
         #expect(reply.resizeFence == "com.cmuxterm.fence.1")
+        #expect(reply.pages == [ChromiumHostAdoptedPage(browser: (1 << 20) + 2, window: 7, view: 3, context: 0x1234, key: "tab-1")])
+    }
+
+    /// Only the adopting cmux learns the pages: a mismatch that lists one, or a page with no key, is no reply.
+    @Test func aReplyListsPagesOnlyWhenAdopted() {
+        let page: [ChromiumHostControlMessage.Value] = [.i32(5), .i32(7), .i64(3), .i32(0), .str("tab-1")]
+        #expect(ChromiumHostAdoption.Reply(Self.reply(.versionMismatch, pages: page)) == nil)
+        #expect(ChromiumHostAdoption.Reply(Self.reply(.adopted, pages: [.i32(5), .i32(7), .i64(3), .i32(0), .str("")])) == nil)
+        #expect(ChromiumHostAdoption.Reply(Self.reply(.adopted, pages: Array(page.dropLast()))) == nil)
+        #expect(ChromiumHostAdoption.Reply(Self.reply(.adopted, pages: page))?.pages.map(\.key) == ["tab-1"])
+    }
+
+    /// The offer's wire: this build's; none when crash survival is off (the host quits on it); the bench's override.
+    @Test func theOfferNamesNoWireWhenItDeclines() {
+        #expect(ChromiumHostAdoption.offeredWire(declining: false, environment: [:]) == ChromiumHostOp.wireIdentity)
+        #expect(ChromiumHostAdoption.offeredWire(declining: true, environment: [:]) == ChromiumHostAdoption.declinedWire)
+        #expect(ChromiumHostAdoption.declinedWire.isEmpty)
+        let bench = [ChromiumHostAdoption.offeredWireEnvironment: "bench-mismatch"]
+        #expect(ChromiumHostAdoption.offeredWire(declining: false, environment: bench) == "bench-mismatch")
+        #expect(ChromiumHostAdoption.offeredWire(declining: true, environment: bench) == ChromiumHostAdoption.declinedWire)
     }
 
     @Test func theSocketPathIsTheHosts() {
@@ -141,9 +165,10 @@ import Testing
         }
     }
 
-    private nonisolated static func reply(_ verdict: ChromiumHostAdoption.Verdict, pid: Int32 = getpid()) -> ChromiumHostControlMessage {
+    private nonisolated static func reply(_ verdict: ChromiumHostAdoption.Verdict, pid: Int32 = getpid(),
+                                          pages: [ChromiumHostControlMessage.Value] = []) -> ChromiumHostControlMessage {
         let values: [ChromiumHostControlMessage.Value] = [.i32(verdict.rawValue), .i32(pid), .i32(31), .i32((1 << 20) + 9),
-                                                          .i32((1 << 29) + 3), .str("fence")]
+                                                          .i32((1 << 29) + 3), .str("fence"), .i64(12)] + pages
         return ChromiumHostControlMessage(op: ChromiumHostAdoption.adoptReplyOp, fields: values.map { .init(tag: 0, value: $0) })
     }
 
@@ -155,7 +180,7 @@ import Testing
     }
 
     @Test func anAdoptionHandsOverTheSocketWithTheMintFloor() throws {
-        let host = try StandIn { _ in Self.reply(.adopted) }
+        let host = try StandIn { _ in Self.reply(.adopted, pages: [.i32((1 << 20) + 1), .i32(7), .i64(3), .i32(0x1234), .str("tab-a")]) }
         let outcome = Self.adoption(host.path, trusts: true).adopt()
         host.finish()
         guard case .adopted(let adopted) = outcome else {
@@ -164,7 +189,9 @@ import Testing
         }
         defer { Darwin.close(adopted.attachment.controlFD) }
         #expect(adopted.adopted && adopted.pid == getpid())
-        #expect(adopted.attachment.mintFloor == ChromiumHostMintFloor(browser: (1 << 20) + 9, devtools: (1 << 29) + 3))
+        #expect(adopted.attachment.mintFloor == ChromiumHostMintFloor(browser: (1 << 20) + 9, devtools: (1 << 29) + 3, view: 12))
+        #expect(adopted.attachment.adoptedPages
+                    == [ChromiumHostAdoptedPage(browser: (1 << 20) + 1, window: 7, view: 3, context: 0x1234, key: "tab-a")])
         #expect(adopted.attachment.resizeFence == "fence" && adopted.attachment.frameworkLocales == ["en.lproj"])
         let offer = try #require(host.offer.withLock { $0 })
         var fds: [Int32] = []
@@ -184,7 +211,8 @@ import Testing
         let host = try StandIn { _ in Self.reply(.adopted) }
         let outcome = Self.adoption(host.path, trusts: false).adopt()
         host.finish()
-        #expect(outcome == .noHost("the process on \(host.path) is not this app's Chromium Host"))
+        #expect(outcome == .notAdopted(hostPID: getpid(), trusted: false,
+                                       reason: "the process on \(host.path) is not this app's Chromium Host"))
         #expect(host.offer.withLock { $0 } == nil, "an offer went to a peer the trust check refused")
     }
 
@@ -199,7 +227,15 @@ import Testing
         let host = try StandIn { _ in Self.reply(.adopted, pid: getpid() + 1) }
         let outcome = Self.adoption(host.path, trusts: true).adopt()
         host.finish()
-        #expect(outcome == .noHost("the host's reply names another process"))
+        #expect(outcome == .notAdopted(hostPID: getpid(), trusted: true, reason: "the host's reply names another process"))
+    }
+
+    /// A host that refuses this cmux closes the connection unread: it still holds the data folder, so it is named.
+    @Test func aHostThatGivesNoReplyIsNamed() throws {
+        let host = try StandIn { _ in nil }
+        let outcome = Self.adoption(host.path, trusts: true).adopt()
+        host.finish()
+        #expect(outcome == .notAdopted(hostPID: getpid(), trusted: true, reason: "the host did not answer the offer"))
     }
 
     @Test func noSocketIsNoHost() {
@@ -226,15 +262,15 @@ import Testing
         }
         func reap(_ pid: pid_t) { calls.withLock { $0.append("reap \(pid)") } }
         func kill(_ pid: pid_t) { calls.withLock { $0.append("kill \(pid)") } }
-        func adopt() async -> ChromiumHostAdoption.Outcome {
-            calls.withLock { $0.append("adopt") }
+        func adopt(declining: Bool) async -> ChromiumHostAdoption.Outcome {
+            calls.withLock { $0.append(declining ? "decline" : "adopt") }
             return outcome
         }
         func watchAdoptedExit(of pid: pid_t, _ ended: @escaping @MainActor @Sendable (ChromiumHostExit) -> Void) {
             calls.withLock { $0.append("watch adopted \(pid)") }
         }
-        func awaitAdoptedEnd(of pid: pid_t, limit: Duration) async {
-            calls.withLock { $0.append("await end \(pid)") }
+        func awaitAdoptedEnd(of pid: pid_t, limit: Duration, killsAtLimit: Bool) async {
+            calls.withLock { $0.append("await end \(pid) \(limit.components.seconds) s\(killsAtLimit ? " kill" : "")") }
         }
         func killAdopted(_ pid: pid_t) { calls.withLock { $0.append("kill adopted \(pid)") } }
     }
@@ -262,15 +298,31 @@ import Testing
         let spawner = Spawner(adoption: .versionMismatch(hostPID: 4321))
         let supervisor = ChromiumHostSupervisor(spawner: spawner, survivesAppCrash: true)
         _ = try await supervisor.attachment()
-        #expect(spawner.calls.withLock { $0 } == ["adopt", "await end 4321", "spawn", "watch 999999"])
+        // The old host quits within its quit limit (15 s), then is killed.
+        #expect(spawner.calls.withLock { $0 } == ["adopt", "await end 4321 16 s kill", "spawn", "watch 999999"])
         #expect(supervisor.hostsAdopted == 0 && supervisor.hostsStarted == 1)
     }
 
-    @Test func survivalOffNeverAdopts() async throws {
-        let spawner = Spawner(adoption: .adopted(Self.adopted))
+    /// Crash survival off at this launch: a host a launch with it on left is declined, so it quits before a new
+    /// host starts on the same data folder.
+    @Test func survivalOffDeclinesALeftoverHost() async throws {
+        let spawner = Spawner(adoption: .versionMismatch(hostPID: 4321))
         let supervisor = ChromiumHostSupervisor(spawner: spawner)
         _ = try await supervisor.attachment()
-        #expect(spawner.calls.withLock { $0 } == ["spawn", "watch 999999"])
+        #expect(spawner.calls.withLock { $0 } == ["decline", "await end 4321 16 s kill", "spawn", "watch 999999"])
+        #expect(supervisor.adoption == "host 4321 was declined (crash survival is off): it closed its pages, and a new host starts")
+        #expect(supervisor.hostsAdopted == 0 && supervisor.hostsStarted == 1)
+    }
+
+    /// A host that adopted nothing keeps the data folder until its grace and quit end: the new host starts after;
+    /// only one that passed the trust check is killed at the limit.
+    @Test func aHostThatAdoptedNothingIsWaitedForAndKilledOnlyWhenTrusted() async throws {
+        let trusted = Spawner(adoption: .notAdopted(hostPID: 4321, trusted: true, reason: "the host did not answer the offer"))
+        _ = try await ChromiumHostSupervisor(spawner: trusted, survivesAppCrash: true).attachment()
+        #expect(trusted.calls.withLock { $0 } == ["adopt", "await end 4321 46 s kill", "spawn", "watch 999999"])
+        let stranger = Spawner(adoption: .notAdopted(hostPID: 4321, trusted: false, reason: "not this app's Chromium Host"))
+        _ = try await ChromiumHostSupervisor(spawner: stranger, survivesAppCrash: true).attachment()
+        #expect(stranger.calls.withLock { $0 } == ["adopt", "await end 4321 46 s", "spawn", "watch 999999"])
     }
 }
 #endif

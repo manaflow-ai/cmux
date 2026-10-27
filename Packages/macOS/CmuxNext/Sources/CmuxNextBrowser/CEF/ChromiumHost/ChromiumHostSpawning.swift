@@ -23,14 +23,16 @@ nonisolated protocol ChromiumHostSpawning: Sendable {
     /// SIGKILL to `pid`, a host this spawner started and nobody reaped yet.
     func kill(_ pid: pid_t)
 
-    /// Tries to adopt the host a crashed cmux left running (task p01-process-150), off the main thread.
-    func adopt() async -> ChromiumHostAdoption.Outcome
+    /// Tries to adopt the host a crashed cmux left running (task p01-process-150), off the main thread. `declining`:
+    /// crash survival is off, so a host found there is asked to quit (``ChromiumHostAdoption/declinedWire``).
+    func adopt(declining: Bool) async -> ChromiumHostAdoption.Outcome
     /// Watches a host this process did not start (an adopted one) off the main thread and runs `ended` on the main
     /// thread when it ends; its status cannot be read.
     func watchAdoptedExit(of pid: pid_t, _ ended: @escaping @MainActor @Sendable (ChromiumHostExit) -> Void)
-    /// Returns once `pid`, a host this process did not start, has ended, or after `limit` (then it is SIGKILLed: its
-    /// exit was not seen, so the pid is still the host's).
-    func awaitAdoptedEnd(of pid: pid_t, limit: Duration) async
+    /// Returns once `pid`, a host this process did not start, has ended, or after `limit`. Then, with `killsAtLimit`
+    /// (the pid passed this cmux's trust check), it is SIGKILLed: its exit was not seen, so the pid is still the
+    /// host's. A pid that failed the check is never killed.
+    func awaitAdoptedEnd(of pid: pid_t, limit: Duration, killsAtLimit: Bool) async
     /// SIGKILL to an adopted `pid` whose exit the caller has not seen yet (the supervisor's running host). It is no
     /// child, so no zombie holds its pid: only a host whose `NOTE_EXIT` has not come is killed.
     func killAdopted(_ pid: pid_t)
@@ -38,11 +40,11 @@ nonisolated protocol ChromiumHostSpawning: Sendable {
 
 nonisolated extension ChromiumHostSpawning {
     // Stand-ins that start their own hosts adopt nothing.
-    func adopt() async -> ChromiumHostAdoption.Outcome { .noHost("this spawner adopts no host") }
+    func adopt(declining: Bool) async -> ChromiumHostAdoption.Outcome { .noHost("this spawner adopts no host") }
     func watchAdoptedExit(of pid: pid_t, _ ended: @escaping @MainActor @Sendable (ChromiumHostExit) -> Void) {
         watchExit(of: pid, ended)
     }
-    func awaitAdoptedEnd(of pid: pid_t, limit: Duration) async {}
+    func awaitAdoptedEnd(of pid: pid_t, limit: Duration, killsAtLimit: Bool) async {}
     func killAdopted(_ pid: pid_t) { kill(pid) }
 }
 #endif

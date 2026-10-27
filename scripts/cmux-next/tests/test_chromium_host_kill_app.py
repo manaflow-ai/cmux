@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """chromium_host_kill_app.py, the --kill-app rows of chromium-host-bench.py (p01-process-150), against a fake app: a
 host that outlives cmux, refuses the bench's unsigned offer, is adopted by the relaunch with the page's timeOrigin
-kept and ends 30 s after a second kill passes; a host that dies with cmux, a relaunch that starts a new host, a page
-that reloads, a host that accepts an unsigned peer or one that never ends fails its row; a build without the host
-backend does not run. The bench's offer frame is the golden offer of host_adoption_test.cpp. Runs anywhere (no app).
+kept, ends when a relaunch of another version offers (a new host starts and the tab reloads at its URL) and ends 30 s
+after a last kill passes; a host that dies with cmux, a relaunch that starts a new host, a page that reloads, a host
+that accepts an unsigned peer, a mismatched host that keeps running or a tab not back at its URL, or one that never
+ends fails its row; a build without the host backend does not run. The bench's offer frame is the golden offer of host_adoption_test.cpp. Runs anywhere (no app).
 Run: python3 -I scripts/cmux-next/tests/test_chromium_host_kill_app.py"""
 import os, sys, unittest
 
@@ -21,17 +22,23 @@ class FakeBench:
     adopts it (else it starts a new host); `reloads`: the page after the relaunch has a new timeOrigin; `answers_unsigned`:
     the host replies to the bench's offer; `grace`: seconds an orphan lives (None: forever)."""
 
-    def __init__(self, backend="host", survives=True, adopts=True, reloads=False, answers_unsigned=False, grace=30.0):
+    HREF = "file:///probe.html?probe=kill-app"
+
+    def __init__(self, backend="host", survives=True, adopts=True, reloads=False, answers_unsigned=False, grace=30.0,
+                 mismatch_ends=True, mismatch_reloads=True, mismatch_href=HREF):
         self.backend, self.survives, self.adopts, self.reloads = backend, survives, adopts, reloads
         self.answers_unsigned, self.grace = answers_unsigned, grace
+        self.mismatch_ends, self.mismatch_reloads, self.mismatch_href = mismatch_ends, mismatch_reloads, mismatch_href
         self.now, self.app_running, self.host, self.orphaned_at = 0.0, True, 500, None
-        self.adopted, self.started, self.origin = 0, 1, 1000.5
+        self.adopted, self.started, self.origin, self.href = 0, 1, 1000.5, self.HREF
+        self.adoption, self.lingering = None, None
         self.events = []
 
     def rpc(self, method, params=None):
         if method != "debug.cef" or not self.app_running:
             return None
-        supervisor = {"pid": self.host, "hosts_adopted": self.adopted, "hosts_started": self.started - 1 if self.adopted else self.started}
+        supervisor = {"pid": self.host, "hosts_adopted": self.adopted,
+                      "hosts_started": self.started - 1 if self.adopted else self.started, "adoption": self.adoption}
         return {"backend": self.backend, "host_supervisor": supervisor}
 
     def open_page(self, url):
@@ -41,7 +48,7 @@ class FakeBench:
         return "tab-2"
 
     def page_eval(self, script, tab):
-        return self.origin if script == kill_app.TIME_ORIGIN else None
+        return {kill_app.TIME_ORIGIN: self.origin, kill_app.HREF: self.href}.get(script)
 
     def kill_app(self):
         self.events.append("kill")
@@ -51,9 +58,17 @@ class FakeBench:
         else:
             self.host = None
 
-    def relaunch(self):
-        self.events.append("relaunch")
+    def relaunch(self, env=None):
         self.app_running = True
+        if (env or {}).get(kill_app.ADOPTION_WIRE_ENV) == kill_app.MISMATCHED_WIRE:
+            self.events.append("relaunch as another version")
+            self.lingering = None if self.mismatch_ends else self.host
+            self.host, self.started, self.adopted, self.orphaned_at = 700, 1, 0, None
+            self.adoption = "host 600 speaks another version: it closed its pages, and a new host starts"
+            self.origin += 7 if self.mismatch_reloads else 0
+            self.href = self.mismatch_href
+            return
+        self.events.append("relaunch")
         if self.adopts and self.pid_alive(self.host or 0):
             self.adopted, self.orphaned_at = 1, None
             if self.reloads:
@@ -62,6 +77,8 @@ class FakeBench:
             self.host, self.started, self.adopted, self.origin = 600, 1, 0, self.origin + 5
 
     def pid_alive(self, pid):
+        if pid and pid == self.lingering:
+            return True
         if pid != self.host or not pid:
             return False
         if self.orphaned_at is not None and self.grace is not None and self.now - self.orphaned_at >= self.grace + 0.5:
@@ -90,7 +107,23 @@ class KillAppRowsTests(unittest.TestCase):
         self.assertTrue(row["pass"], row)
         self.assertEqual(row["time_origin"]["before"], row["time_origin"]["after"])
         self.assertTrue(29 <= row["expires"]["seconds"] <= 47, row["expires"])
-        self.assertEqual(bench.events, ["kill", "relaunch", "kill"])
+        self.assertTrue(row["mismatch"]["pass"], row["mismatch"])
+        self.assertEqual(row["expires"]["host"], 700, "the expiring orphan is the host the mismatched relaunch started")
+        self.assertEqual(bench.events, ["kill", "relaunch", "kill", "relaunch as another version", "kill"])
+
+    def test_a_mismatched_host_that_keeps_running_fails(self):
+        row, _ = kill_app.run(FakeBench(mismatch_ends=False), "file:///probe.html")
+        self.assertFalse(row["mismatch"]["old_host_ended"])
+        self.assertFalse(row["pass"])
+
+    def test_a_tab_that_keeps_the_mismatched_hosts_page_fails(self):
+        row, _ = kill_app.run(FakeBench(mismatch_reloads=False), "file:///probe.html")
+        self.assertFalse(row["mismatch"]["pass"], "the tab was not restored from its history record")
+
+    def test_a_tab_not_back_at_its_url_fails(self):
+        row, _ = kill_app.run(FakeBench(mismatch_href="about:blank"), "file:///probe.html")
+        self.assertFalse(row["mismatch"]["pass"])
+        self.assertFalse(row["pass"])
 
     def test_a_host_that_dies_with_cmux_fails(self):
         row, _ = kill_app.run(FakeBench(survives=False), "file:///probe.html")

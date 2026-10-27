@@ -16,4 +16,10 @@ namespace cmux_host {
 // with no team. Asks securityd: never on the UI thread.
 std::optional<pid_t> TrustedPeer(int fd, const std::string& app_bundle);
 
+// Whether any peer can pass TrustedPeer: the host has a team and the app
+// bundle at `app_bundle` a designated requirement. An ad-hoc or unsigned host
+// trusts nobody, so it never waits for an adoption (host_adoption.h). Asks
+// securityd: never on the UI thread.
+bool TrustsAnyPeer(const std::string& app_bundle);
+
 }  // namespace cmux_host

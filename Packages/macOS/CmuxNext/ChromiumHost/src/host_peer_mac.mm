@@ -68,7 +68,23 @@ SecRequirementRef AppRequirement(const std::string& path) {
   return status == errSecSuccess ? requirement : nullptr;
 }
 
+// The host's own team, read once.
+const std::string& Team() {
+  static const std::string team = OwnTeam();
+  return team;
+}
+
 }  // namespace
+
+bool TrustsAnyPeer(const std::string& app_bundle) {
+  @autoreleasepool {
+    if (!PlainTeam(Team()) || app_bundle.empty()) return false;
+    SecRequirementRef app = AppRequirement(app_bundle);
+    if (!app) return false;
+    CFRelease(app);
+    return true;
+  }
+}
 
 std::optional<pid_t> TrustedPeer(int fd, const std::string& app_bundle) {
   @autoreleasepool {
@@ -84,7 +100,7 @@ std::optional<pid_t> TrustedPeer(int fd, const std::string& app_bundle) {
     audit_token_t token{};
     size = sizeof token;
     if (getsockopt(fd, SOL_LOCAL, LOCAL_PEERTOKEN, &token, &size) != 0) return std::nullopt;
-    static const std::string team = OwnTeam();
+    const std::string& team = Team();
     if (!PlainTeam(team) || app_bundle.empty()) return std::nullopt;
 
     NSData* token_data = [NSData dataWithBytes:&token length:sizeof token];

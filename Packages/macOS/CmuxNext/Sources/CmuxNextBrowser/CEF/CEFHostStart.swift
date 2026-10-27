@@ -154,7 +154,8 @@ final class CEFHostStart {
             return .success(CEFAttachedHost(shim: shim, remote: remote, shimABI: CEFShimABI.bundledIdentity() ?? "",
                                             locale: locale, loadDuration: elapsed.now - started,
                                             mapsClientIDs: hostExports.contains(CEFAttachedHost.clientIDsHelloName),
-                                            acksWheels: hostExports.contains(CEFAttachedHost.wheelAcksHelloName)))
+                                            acksWheels: hostExports.contains(CEFAttachedHost.wheelAcksHelloName),
+                                            adoptedPages: attachment.adoptedPages, viewTokenFloor: attachment.mintFloor?.view ?? 0))
         } catch {
             // The shim holds the host's wire from the attach on.
             remote.detach()
@@ -180,6 +181,10 @@ nonisolated struct CEFAttachedHost: Sendable {
     /// The host sends WHEEL_ACK for each trackpad wheel of a gesture (its HELLO lists
     /// ``wheelAcksHelloName``: its fork reports Chromium's gesture acks; HOST/src/host_wheel_ack.h).
     var acksWheels = false
+    /// A host adopted from a crashed cmux (task p01-process-150): the pages it kept, which restored tabs take back
+    /// (`CEFRuntime.takeAdoptedPages(of:)`), and the first page view token this cmux may mint (0: any).
+    var adoptedPages: [ChromiumHostAdoptedPage] = []
+    var viewTokenFloor: UInt64 = 0
 
     /// `cmux_host::mint::kClientIdsHelloName` (HOST/src/chromium_host_mint.h).
     static let clientIDsHelloName = "cmux_host_client_ids"

@@ -105,14 +105,15 @@ nonisolated struct ChromiumHostLaneSpawner: ChromiumHostSpawning {
         processes.kill(pid)
     }
 
-    func adopt() async -> ChromiumHostAdoption.Outcome {
-        guard survivesAppCrash else { return .noHost("crash survival is off") }
+    func adopt(declining: Bool) async -> ChromiumHostAdoption.Outcome {
         let plan = plan
         do {
             // userBlocking: the relaunched cmux's first Chromium tab waits for this answer.
             return try await work.run(.userBlocking, mayBlock: .system) {
                 guard let plan = plan() else { return .noHost("this build has no Chromium Host") }
-                guard let adoption = ChromiumHostAdoption(plan: plan) else { return .noHost("the host's framework cannot be read") }
+                guard let adoption = ChromiumHostAdoption(plan: plan, declining: declining) else {
+                    return .noHost("the host's framework cannot be read")
+                }
                 return adoption.adopt()
             }
         } catch {
@@ -129,9 +130,10 @@ nonisolated struct ChromiumHostLaneSpawner: ChromiumHostSpawning {
         }
     }
 
-    func awaitAdoptedEnd(of pid: pid_t, limit: Duration) async {
+    func awaitAdoptedEnd(of pid: pid_t, limit: Duration, killsAtLimit: Bool) async {
         let processes = processes
         if await Deadline(limit).value("chromium-host.adopted-end", { await processes.foreignExit(of: pid) }) != nil { return }
+        guard killsAtLimit else { return }
         killAdopted(pid)
         _ = await Deadline(.seconds(1)).value("chromium-host.adopted-kill", { await processes.foreignExit(of: pid) })
     }

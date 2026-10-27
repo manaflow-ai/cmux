@@ -27,6 +27,8 @@ extension CEFRuntime {
         let tabs = Array(tabsByBrowser.values) + hosts.values.flatMap(\.tabs).filter { $0.browserID == nil && $0.isCreationPending }
         (tabsByBrowser, pendingWindows, tabBeingAdded) = ([:], [:], nil)
         (orphans.ledger, orphans.unplaced) = (CEFAdoptionLedger(), [:])
+        // An adopted host's pages that no tab took went with it.
+        dropAdoptedPages()
         // The new host has none of the old one's contexts.
         offTheRecordContexts = [:]
         for host in hosts.values { host.hostEnded() }

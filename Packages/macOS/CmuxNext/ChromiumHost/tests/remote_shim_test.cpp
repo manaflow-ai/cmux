@@ -541,6 +541,50 @@ void TestEnergySaver() {
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));
 }
 
+// The page keys among `messages`: "<browser> <key>".
+std::vector<std::string> PageKeyFrames(const std::vector<Message>& messages) {
+  std::vector<std::string> out;
+  for (const Message& m : messages) {
+    if (m.op != cmux_host::adoption::kOpPageKey) continue;
+    TlvReader r(m.fields);
+    const int32_t browser = r.I32();
+    const std::optional<std::string> key = r.Str();
+    CHECK(r.ok() && r.AtEnd() && m.token == 0);
+    out.push_back(std::to_string(browser) + " " + key.value_or("<null>"));
+  }
+  return out;
+}
+
+// cmux_remote_shim_set_page_key (task p01-process-150): a tab's key goes to a host whose HELLO lists
+// kAdoptionHelloName (one that outlives a crash of cmux), after that HELLO; a host without it never
+// gets the op, which it would read as a bad message; an empty or over-long key and no host send nothing.
+void TestPageKeys() {
+  CHECK(cmux_remote_shim_attached() == 0);
+  CHECK(cmux_remote_shim_set_page_key(5, "tab-a") == 0);  // no host: a key names a page of the host it went to
+  Host keeps;
+  CHECK(AttachNew(&keeps) == 1);
+  CHECK(cmux_remote_shim_set_page_key(6, "tab-b") == 1);  // waits for the HELLO
+  CHECK(PageKeyFrames(Drain(&keeps)).empty());
+  SayHello(&keeps, {cmux_host::adoption::kAdoptionHelloName});
+  CHECK(cmux_remote_shim_set_page_key(7, "tab-c") == 1);
+  CHECK(cmux_remote_shim_set_page_key(8, "") == 0);
+  CHECK(cmux_remote_shim_set_page_key(8, nullptr) == 0);
+  const std::string long_key(cmux_host::adoption::kMaxPageKeyBytes + 1, 'k');
+  CHECK(cmux_remote_shim_set_page_key(8, long_key.c_str()) == 0);
+  CHECK(PageKeyFrames(Drain(&keeps)) == std::vector<std::string>({"6 tab-b", "7 tab-c"}));
+  cmux_remote_shim_detach();
+  ::close(keeps.fd);
+
+  Host plain;
+  CHECK(AttachNew(&plain) == 1);
+  SayHello(&plain, {});
+  CHECK(cmux_remote_shim_set_page_key(9, "tab-d") == 0);
+  CHECK(PageKeyFrames(Drain(&plain)).empty());
+  cmux_remote_shim_detach();
+  ::close(plain.fd);
+  PumpUntil([] { return false; }, std::chrono::milliseconds(100));
+}
+
 // The fence rights cmux_remote_shim_page_resize sent (cmux_remote_shim_set_fence_sender): there
 // is no Mach off macOS, so the fenced path is driven through this one.
 struct FenceSend {
@@ -1078,6 +1122,7 @@ int main() {
 
   TestOrderingThroughTheRuntime();
   TestEnergySaver();
+  TestPageKeys();
 
   // View tokens: cmux passes the page view's token where the ABI takes a parent NSView*, and it
   // travels as is (never a pointer the client reads); NULL is 0.

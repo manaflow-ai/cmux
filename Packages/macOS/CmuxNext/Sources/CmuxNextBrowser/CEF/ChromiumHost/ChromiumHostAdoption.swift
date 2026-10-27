@@ -16,7 +16,10 @@ import Security
 /// the process that answers on the host's socket, by the audit token of this very connection: this user's, signed by
 /// this app's team, and satisfying the designated requirement of the host executable this app bundles. The host
 /// checks cmux the same way. Then one offer (wire, shim ABI, fork API floor, the framework file) and one reply; on an
-/// adoption the connection becomes the control channel and the remote shim takes it, as a spawned host's socket.
+/// adoption the connection becomes the control channel and the remote shim takes it, as a spawned host's socket, and
+/// the reply lists the pages this cmux's restored tabs take back (``ChromiumHostAdoptedPage``). A cmux with crash
+/// survival off still asks, with an offer that names no wire (``declinedWire``): the host answers a mismatch and
+/// quits, so it never holds the data folder a new host needs.
 ///
 /// ``adopt()`` blocks (connect, securityd, a bounded read): call it on a lane.
 nonisolated struct ChromiumHostAdoption: Sendable {
@@ -31,6 +34,14 @@ nonisolated struct ChromiumHostAdoption: Sendable {
     static let minForkAPI: Int32 = 30
     /// How long the host may take to answer the offer.
     static let replyLimit: Duration = .seconds(2)
+    /// How long an orphaned host keeps its pages (`adoption::kGraceSeconds`).
+    static let grace: Duration = .seconds(30)
+    /// The wire id of an offer that declines the host (crash survival is off): no host has it, so the host's
+    /// verdict is a mismatch and it quits.
+    static let declinedWire = ""
+    /// Debug and bench builds: the wire id the offer names instead of this build's, so chromium-host-bench.py
+    /// --kill-app can relaunch as a cmux of another version (its `mismatch` row).
+    static let offeredWireEnvironment = "CMUX_CHROMIUM_HOST_ADOPTION_WIRE"
 
     /// The framework binary a host runs, by its file: an update that replaces the framework gives it another inode,
     /// so a host started before the update is never adopted after it.
@@ -75,34 +86,59 @@ nonisolated struct ChromiumHostAdoption: Sendable {
     }
 
     /// `kOpAdoptReply`: i32 verdict, i32 host pid, i32 host fork API, i32 the first browser and DevTools ids cmux may
-    /// mint, str the host's resize fence inbox ("" none).
+    /// mint, str the host's resize fence inbox ("" none), i64 the first page view token cmux may mint, then for each
+    /// page cmux may take back (adopted replies only): i32 browser, i32 window, i64 page view token, i32 context, str
+    /// tab key.
     nonisolated struct Reply: Equatable, Sendable {
         var verdict: Verdict
         var hostPID: Int32
         var forkAPI: Int32
         var mintFloor: ChromiumHostMintFloor
         var resizeFence: String?
+        var pages: [ChromiumHostAdoptedPage] = []
+
+        /// `adoption::kMaxPageKeyBytes`.
+        static let maxPageKeyBytes = 256
 
         /// Nil for any other frame or layout.
         init?(_ message: ChromiumHostControlMessage) {
+            let fields = message.fields.map(\.value)
             guard message.op == ChromiumHostAdoption.adoptReplyOp, !message.isReply, message.fds.isEmpty,
-                  message.fields.count == 6,
-                  case .i32(let verdict) = message.fields[0].value, let known = Verdict(rawValue: verdict),
-                  case .i32(let pid) = message.fields[1].value,
-                  case .i32(let forkAPI) = message.fields[2].value,
-                  case .i32(let browser) = message.fields[3].value,
-                  case .i32(let devtools) = message.fields[4].value,
-                  case .str(let fence) = message.fields[5].value else { return nil }
+                  fields.count >= 7, (fields.count - 7) % 5 == 0,
+                  case .i32(let verdict) = fields[0], let known = Verdict(rawValue: verdict),
+                  case .i32(let pid) = fields[1],
+                  case .i32(let forkAPI) = fields[2],
+                  case .i32(let browser) = fields[3],
+                  case .i32(let devtools) = fields[4],
+                  case .str(let fence) = fields[5],
+                  case .i64(let view) = fields[6] else { return nil }
+            var pages: [ChromiumHostAdoptedPage] = []
+            var index = 7
+            while index < fields.count {
+                guard case .i32(let page) = fields[index], case .i32(let window) = fields[index + 1],
+                      case .i64(let token) = fields[index + 2], case .i32(let context) = fields[index + 3],
+                      case .str(let key) = fields[index + 4], !key.isEmpty, key.utf8.count <= Self.maxPageKeyBytes else {
+                    return nil
+                }
+                pages.append(ChromiumHostAdoptedPage(browser: page, window: window, view: UInt64(bitPattern: token),
+                                                     context: UInt32(bitPattern: context), key: key))
+                index += 5
+            }
+            // Only the adopting cmux learns the pages.
+            guard pages.isEmpty || known == .adopted else { return nil }
             self.init(verdict: known, hostPID: pid, forkAPI: forkAPI,
-                      mintFloor: ChromiumHostMintFloor(browser: browser, devtools: devtools), resizeFence: fence.isEmpty ? nil : fence)
+                      mintFloor: ChromiumHostMintFloor(browser: browser, devtools: devtools, view: UInt64(bitPattern: view)),
+                      resizeFence: fence.isEmpty ? nil : fence, pages: pages)
         }
 
-        init(verdict: Verdict, hostPID: Int32, forkAPI: Int32, mintFloor: ChromiumHostMintFloor, resizeFence: String?) {
+        init(verdict: Verdict, hostPID: Int32, forkAPI: Int32, mintFloor: ChromiumHostMintFloor, resizeFence: String?,
+             pages: [ChromiumHostAdoptedPage] = []) {
             self.verdict = verdict
             self.hostPID = hostPID
             self.forkAPI = forkAPI
             self.mintFloor = mintFloor
             self.resizeFence = resizeFence
+            self.pages = pages
         }
     }
 
@@ -110,9 +146,14 @@ nonisolated struct ChromiumHostAdoption: Sendable {
     nonisolated enum Outcome: Equatable, Sendable {
         /// The host is this cmux's now: its pid and wire (the socket, the remote shim's from here).
         case adopted(ChromiumHostSpawn)
-        /// A host runs that speaks another version: it closes its pages and quits; a new host may start once it ended.
+        /// A host runs that speaks another version, or this cmux declined it: it closes its pages and quits; a new
+        /// host may start once it ended.
         case versionMismatch(hostPID: pid_t)
-        /// No host to adopt (no socket, nobody answers, a peer that is not this app's host): start one.
+        /// A process answered on the socket and adopted nothing: it refused this cmux, gave no or a wrong reply, or
+        /// fails this cmux's trust check (`trusted` false). An orphan keeps the data folder until its grace and quit
+        /// end, so a new host starts only once it ended; only a trusted one (this app's host) may be killed then.
+        case notAdopted(hostPID: pid_t, trusted: Bool, reason: String)
+        /// No host to adopt (no socket, nobody listens on it): start one.
         case noHost(String)
     }
 
@@ -123,8 +164,10 @@ nonisolated struct ChromiumHostAdoption: Sendable {
     /// Whether the process on the socket may get the offer (``trusts(_:hostExecutable:team:)``; tests pass a stand-in).
     let trusts: @Sendable (UnixSocketPeer) -> Bool
 
-    /// The adoption of `plan`'s host, or nil when the plan names no data folder or framework file.
-    init?(plan: ChromiumHostLaunchPlan, appPID: Int32 = getpid(), uid: uid_t = geteuid(),
+    /// The adoption of `plan`'s host, or nil when the plan names no data folder or framework file. `declining`: crash
+    /// survival is off, so the offer names ``declinedWire`` and a host found there quits.
+    init?(plan: ChromiumHostLaunchPlan, declining: Bool = false, appPID: Int32 = getpid(), uid: uid_t = geteuid(),
+          environment: [String: String] = ProcessInfo.processInfo.environment,
           trusts: (@Sendable (UnixSocketPeer) -> Bool)? = nil) {
         guard let rootCache = plan.configuration.argument("root-cache"),
               let framework = plan.configuration.argument("framework"),
@@ -134,8 +177,8 @@ nonisolated struct ChromiumHostAdoption: Sendable {
             Self.trusts(peer, hostExecutable: executable, team: SigningTeamInstall.process.team)
         }
         self.init(socketPath: Self.socketPath(rootCache: rootCache, uid: uid), plan: plan,
-                  offer: Offer(wireID: ChromiumHostOp.wireIdentity, abiID: ChromiumHostOp.abiIdentity, minForkAPI: Self.minForkAPI,
-                               framework: identity, appPID: appPID),
+                  offer: Offer(wireID: Self.offeredWire(declining: declining, environment: environment),
+                               abiID: ChromiumHostOp.abiIdentity, minForkAPI: Self.minForkAPI, framework: identity, appPID: appPID),
                   trusts: check)
     }
 
@@ -144,6 +187,13 @@ nonisolated struct ChromiumHostAdoption: Sendable {
         self.plan = plan
         self.offer = offer
         self.trusts = trusts
+    }
+
+    /// The wire id the offer names: this build's, ``declinedWire`` when `declining`, or the bench's override.
+    static func offeredWire(declining: Bool, environment: [String: String]) -> String {
+        if declining { return declinedWire }
+        if let override = environment[offeredWireEnvironment], !override.isEmpty { return override }
+        return ChromiumHostOp.wireIdentity
     }
 
     /// `<rootCache>/chromium-host.sock`, or the short path when that does not fit `sun_path`.
@@ -196,31 +246,36 @@ nonisolated struct ChromiumHostAdoption: Sendable {
         case .success(let connected): fd = connected
         case .failure(let reason): return .noHost(reason)
         }
-        guard let peer = UnixSocketPeer(descriptor: fd), trusts(peer) else {
+        guard let peer = UnixSocketPeer(descriptor: fd) else {
             Darwin.close(fd)
-            return .noHost("the process on \(socketPath) is not this app's Chromium Host")
+            return .noHost("the process on \(socketPath) cannot be named")
+        }
+        guard trusts(peer) else {
+            Darwin.close(fd)
+            return .notAdopted(hostPID: peer.pid, trusted: false, reason: "the process on \(socketPath) is not this app's Chromium Host")
         }
         guard let reply = Self.exchange(offer.message, on: fd) else {
             Darwin.close(fd)
-            return .noHost("the host did not answer the offer")
+            return .notAdopted(hostPID: peer.pid, trusted: true, reason: "the host did not answer the offer")
         }
         // The pid the reply names is the one the kernel vouched for, or the host is not believed.
         guard reply.hostPID == peer.pid else {
             Darwin.close(fd)
-            return .noHost("the host's reply names another process")
+            return .notAdopted(hostPID: peer.pid, trusted: true, reason: "the host's reply names another process")
         }
         switch reply.verdict {
         case .adopted:
             Self.setTimeouts(fd, .zero)  // the remote shim's channel sets its own mode
             let attachment = ChromiumHostAttachment(controlFD: fd, remoteShim: plan.remoteShim, frameworkLocales: plan.frameworkLocales,
-                                                    resizeFence: reply.resizeFence, mintFloor: reply.mintFloor)
+                                                    resizeFence: reply.resizeFence, mintFloor: reply.mintFloor,
+                                                    adoptedPages: reply.pages)
             return .adopted(ChromiumHostSpawn(pid: peer.pid, attachment: attachment, adopted: true))
         case .versionMismatch:
             Darwin.close(fd)
             return .versionMismatch(hostPID: peer.pid)
         case .malformed:
             Darwin.close(fd)
-            return .noHost("the host refused the offer as malformed")
+            return .notAdopted(hostPID: peer.pid, trusted: true, reason: "the host refused the offer as malformed")
         }
     }
 

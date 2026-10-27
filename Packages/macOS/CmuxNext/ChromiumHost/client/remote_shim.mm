@@ -18,6 +18,7 @@
 
 #include "cmux_cef_shim.h"
 #include "cmux_page_path.h"
+#include "host_adoption.h"
 #include "host_energy_saver.h"
 #include "host_resize.h"
 #include "remote_shim_mirror.h"
@@ -222,6 +223,7 @@ bool SendFenceRight(uint32_t channel, uint32_t fence, uint64_t seq) {
 // or kEnergySaverHelloName; nullptr for an op every host takes.
 const char* OptionalExportName(uint16_t op) {
   if (op == cmux_host::kOpEnergySaver) return cmux_host::kEnergySaverHelloName;
+  if (op == cmux_host::adoption::kOpPageKey) return cmux_host::adoption::kAdoptionHelloName;
   for (const OptionalExport& entry : kOptionalExports) {
     if (entry.op == op && op != 0) return entry.name;
   }
@@ -458,6 +460,17 @@ class Runtime {
     CMUX_REMOTE_ASSERT_MAIN();
     if (op == kOpDevtoolsCall) return next_devtools_id_ < kEndMintedDevToolsID ? next_devtools_id_++ : 0;
     return next_browser_id_ < std::numeric_limits<int32_t>::max() ? next_browser_id_++ : 0;
+  }
+
+  // kOpPageKey: an optional op (OptionalExportName), so a host whose HELLO lacks the name never gets it.
+  int SetPageKey(int32_t browser, const char* key) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    if (key == nullptr || key[0] == '\0' || std::strlen(key) > cmux_host::adoption::kMaxPageKeyBytes) return 0;
+    if (link_ != Link::kAttached) return 0;  // a key names a page of the host it went to
+    TlvWriter args;
+    args.I32(browser);
+    args.Str(key);
+    return Post(cmux_host::adoption::kOpPageKey, 0, args) ? 1 : 0;
   }
 
   bool SetMintFloor(int32_t browser, int32_t devtools) {
@@ -928,6 +941,10 @@ uint32_t cmux_remote_shim_order_input(uint32_t* ctl_seq) {
 
 int cmux_remote_shim_set_mint_floor(int32_t browser, int32_t devtools) {
   return R().SetMintFloor(browser, devtools) ? 1 : 0;
+}
+
+int cmux_remote_shim_set_page_key(int32_t browser, const char* key) {
+  return R().SetPageKey(browser, key);
 }
 
 // --- local exports (chromium-host-ops.json class local) --------------------------------------

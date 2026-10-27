@@ -245,6 +245,8 @@ extension CEFRuntime {
         }
         startInput()
         tabsByBrowser[browser] = tab
+        // Host mode: a relaunch after a crash of cmux finds this page by the tab's key (task p01-process-150).
+        sendPageKey(of: tab, browser: browser)
         tab.attach(browser: browser)
         accessibility.attached(browser)
         signInCallbacks.attached(tab)
@@ -279,8 +281,9 @@ extension CEFRuntime {
             pageWindowWidgetsBrowserClosed(browser)
             tab.browserDidClose(closesTab: shutdownSequence == nil)
         } else {
-            // Never registered: drop a pending adoption of it.
+            // Never registered: drop a pending adoption of it, and an adopted host's page no tab took yet.
             orphans.closedUnregistered(browser)
+            adoptedPages.closed(browser: browser)
         }
         devToolsCalls.failAll(where: { $0.browser == browser }, with: BrowserTabError.closed)
         siteReplies.failAll(where: { siteReplyBrowsers[$0] == browser }, with: BrowserTabError.closed)

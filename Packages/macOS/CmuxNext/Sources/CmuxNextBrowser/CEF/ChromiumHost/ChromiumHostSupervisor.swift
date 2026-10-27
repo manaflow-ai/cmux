@@ -21,9 +21,13 @@ import Darwin
 ///   (``ChromiumHostExit/startFailure``) is not started again: a new one would fail the same way.
 /// - Crash survival (feature `chromiumHostSurvivesAppCrash`, task 150): every host is spawned to keep its pages for 30 s
 ///   after a crash of cmux, and the first attach of a launch adopts the host a crashed cmux left
-///   (``ChromiumHostAdoption``) before it starts one. A host that speaks another version quits on the offer; the new
-///   host starts once it ended, since both use one data folder. An adopted host is no child of this process: its end
-///   is watched by `NOTE_EXIT` without a status, and it is killed only while that end has not come.
+///   (``ChromiumHostAdoption``) before it starts one. With the feature off the first attach still asks, and declines:
+///   a host left by a launch that had it on quits. Every host of one data folder holds that folder's Chromium profile
+///   until it ended, so no new host starts while one found there runs: a host that speaks another version (or was
+///   declined) quits on the offer and is waited for up to the quit limit; one that adopted nothing (it refused this
+///   cmux, gave no or a wrong reply) is waited for up to its grace and quit limit; either is killed then only when it
+///   passed this cmux's trust check. An adopted host is no child of this process: its end is watched by `NOTE_EXIT`
+///   without a status, and it is killed only while that end has not come.
 @MainActor
 public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     public var onHostEnded: (@MainActor (BrowserProcessExit) -> Void)?
@@ -52,7 +56,8 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     }
 
     private let spawner: any ChromiumHostSpawning
-    /// The launch's first attach tries an adoption (``ChromiumHostLaneSpawner/survivesAppCrash``).
+    /// The launch's first attach adopts a host a crashed cmux left (``ChromiumHostLaneSpawner/survivesAppCrash``); off,
+    /// it declines one.
     private let survivesAppCrash: Bool
     private var adoptionTried = false
     private var host: Host?
@@ -98,24 +103,34 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
         return spawned.attachment
     }
 
-    /// The host the launch's first attach adopts, when a crashed cmux left one that passes both checks; else a new one.
+    /// The host the launch's first attach adopts, when a crashed cmux left one that passes both checks; else a new one,
+    /// once a host found on the socket ended.
     private func nextHost() async throws(ChromiumHostAttachError) -> ChromiumHostSpawn {
-        if survivesAppCrash, !adoptionTried {
+        if !adoptionTried {
             adoptionTried = true
-            switch await spawner.adopt() {
+            switch await spawner.adopt(declining: !survivesAppCrash) {
             case .adopted(let adopted):
                 adoption = "adopted host \(adopted.pid)"
                 return adopted
             case .versionMismatch(let pid):
-                adoption = "host \(pid) speaks another version: it closed its pages, and a new host starts"
+                adoption = survivesAppCrash
+                    ? "host \(pid) speaks another version: it closed its pages, and a new host starts"
+                    : "host \(pid) was declined (crash survival is off): it closed its pages, and a new host starts"
                 // Both use one data folder, whose Chromium profile the old host holds until it ended.
-                await spawner.awaitAdoptedEnd(of: pid, limit: ChromiumHostFrame.quitLimit + .seconds(1))
+                await spawner.awaitAdoptedEnd(of: pid, limit: ChromiumHostFrame.quitLimit + .seconds(1), killsAtLimit: true)
+            case .notAdopted(let pid, let trusted, let reason):
+                adoption = "\(reason): host \(pid) ended before a new host started"
+                // It keeps the data folder until its grace and its quit end.
+                await spawner.awaitAdoptedEnd(of: pid, limit: Self.orphanLimit, killsAtLimit: trusted)
             case .noHost(let reason):
                 adoption = reason
             }
         }
         return try await spawner.spawn()
     }
+
+    /// How long an orphan that adopted nothing may hold the data folder: its grace, its quit, a second's margin.
+    static let orphanLimit: Duration = ChromiumHostAdoption.grace + ChromiumHostFrame.quitLimit + .seconds(1)
 
     /// The running host said hello to the attach that took its wire (`CEFHostStart`): its end is reported from now on.
     /// Nothing when it already ended.
