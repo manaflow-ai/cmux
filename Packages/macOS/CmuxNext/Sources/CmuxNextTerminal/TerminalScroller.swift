@@ -106,6 +106,17 @@ final class TerminalScroller: NSScrollView, ScrollGeometryClient {
         }
     }
 
+    /// The scroll view sizes its clip here. A taller clip at the bottom of the scrollback (the window
+    /// or the pane grows) gets its origin clamped into the document by AppKit: that move is this
+    /// layout's, not a person's scroll, so it asks Ghostty for no row (``scrollGeometryDidChange(_:)``),
+    /// and ``layout()`` places the knob for the new clip size.
+    override func tile() {
+        let wasApplying = applying
+        applying = true
+        defer { applying = wasApplying }
+        super.tile()
+    }
+
     override func layout() {
         super.layout()
         // Only a new clip size moves the knob; the scroller's own document change lays out again.
@@ -135,8 +146,10 @@ final class TerminalScroller: NSScrollView, ScrollGeometryClient {
 
     /// A knob drag: every clip move reports its row at once, in order, unless the terminal is already
     /// going to be at it (the row last asked for while Ghostty has not answered, else Ghostty's own).
+    /// A move that comes with a new clip size is never a drag: AppKit clamped the origin of a resized
+    /// clip into the document, and the row it gives is the old scrollbar read at the new size.
     func scrollGeometryDidChange(_ change: ScrollGeometryChange) {
-        guard change.contains(.scrolled), !applying, let shown else { return }
+        guard change.contains(.scrolled), !change.contains(.resized), !applying, let shown else { return }
         let geometry = TerminalScrollerGeometry(bar: shown, viewportHeight: contentView.bounds.height)
         let row = geometry.row(forOriginY: contentView.bounds.origin.y)
         guard row != (requestedRow ?? shown.offsetRows) else { return }
