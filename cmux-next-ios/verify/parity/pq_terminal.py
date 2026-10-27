@@ -157,17 +157,23 @@ def clear(j, label):
         time.sleep(5)
         rows_after = history_rows(surface)
         pq.shot(f"clear-{label}-after")
-        return {"mac_history_before": rows_before, "mac_history_after": rows_after}
+        j.sim.swipe(200, 300, 200, 700, 0.3)
+        time.sleep(1.5)
+        pq.shot(f"clear-{label}-scrolled-up")
+        return {"mac_history_before": rows_before, "mac_history_after": rows_after,
+                "phone_old_rows_scrolled_up": sorted({o[4].strip() for o in j.sim.ocr() if o[4].strip().isdigit()})[:10]}
     (rows_after, ), took = t.until(lambda: (lambda n: (n, ) if n == 0 else None)(history_rows(surface)), timeout=20,
                                     what="the Mac's scrollback to clear")
     time.sleep(2.5)
     pq.shot(f"clear-{label}-after")
-    # Scrolling up on the phone finds nothing of the old output.
+    old_rows = lambda: sorted({o[4].strip() for o in j.sim.ocr() if o[4].strip().isdigit()})
+    shown_after = old_rows()
+    # Scrolling up on the phone finds nothing of the old output either.
     j.sim.swipe(200, 300, 200, 700, 0.3)
     time.sleep(1.5)
     pq.shot(f"clear-{label}-scrolled-up")
     return {"mac_history_before": rows_before, "mac_history_after": rows_after, "cleared_s": round(took, 1),
-            "phone_shows_300": bool(j.sim.ocr_find("300"))}
+            "phone_old_rows_after": shown_after[:10], "phone_old_rows_scrolled_up": old_rows()[:10]}
 
 
 FLOWS = {"link": link, "find": find, "clear": clear}
