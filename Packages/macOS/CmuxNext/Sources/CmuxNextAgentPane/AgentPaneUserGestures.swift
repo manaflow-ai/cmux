@@ -35,6 +35,15 @@ import CmuxNextCompat
     /// while the person types cannot spend the person's keystroke.
     public var hasFreshAnswerGesture: Bool { lastClick.map { now() - $0 <= Self.answerWindow } ?? false }
 
+    /// Spends the person's fresh click for one answer in another chat (``AgentPaneAskAnswer``):
+    /// true once per click, and it takes the click with the grant, so typing after the click (which
+    /// records a new grant) cannot let the same click answer again.
+    func consumeAnswerClick() -> Bool {
+        guard hasFreshAnswerGesture else { return false }
+        lastClick = nil
+        return consume()
+    }
+
     /// Uses the gesture: true once per recorded gesture, false when there is none or it expired.
     public func consume() -> Bool {
         guard let last else { return false }
@@ -141,7 +150,7 @@ import CmuxNextCompat
     public func issueSeedTicket() -> (promptId: String, ticket: String) {
         let issued = SeedTicket(ticket: UUID().uuidString, promptId: UUID().uuidString.lowercased(), at: now())
         seedTicket = issued
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         lastSeed = (issued.promptId, issued.ticket)
         #endif
         return (issued.promptId, issued.ticket)
@@ -165,7 +174,7 @@ import CmuxNextCompat
             && pick?.method == "session/prompt" && pick?.params == ["promptId": .string(seed.promptId)]
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// The last seed ticket issued, for the DEBUG replay check (`gesture_state replay_seed`).
     private var lastSeed: (promptId: String, ticket: String)?
 
@@ -272,9 +281,7 @@ public nonisolated final class AcpmuxPermissionOptions: Sendable {
 
     /// The item ids and prompts of `request.toolCall._meta.acpmux.question`, when it is an object.
     static func questionKeys(_ request: [String: Any]) -> Set<String>? {
-        let tool = request["toolCall"] as? [String: Any]
-        let acpmux = (tool?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
-        guard let question = acpmux?["question"] as? [String: Any] else { return nil }
+        guard let question = AcpmuxPermissionPrompt.question(request) else { return nil }
         var keys = Set<String>()
         for case let item as [String: Any] in question["items"] as? [Any] ?? [] {
             for key in ["id", "prompt"] { if let value = item[key] as? String { keys.insert(value) } }

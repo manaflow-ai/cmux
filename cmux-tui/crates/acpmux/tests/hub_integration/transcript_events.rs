@@ -359,7 +359,9 @@ fn segmented_config(segment_bytes: u64) -> Config {
 }
 
 /// A daemon over [`segmented_config`] in a fresh directory.
-async fn setup_segmented(segment_bytes: u64) -> (Arc<Hub>, TestClient, std::path::PathBuf) {
+pub(super) async fn setup_segmented(
+    segment_bytes: u64,
+) -> (Arc<Hub>, TestClient, std::path::PathBuf) {
     let dir = std::env::temp_dir().join(format!("acpmux-tail-{}", uuid::Uuid::now_v7()));
     let cfg = segmented_config(segment_bytes);
     let store = acpmux::store::open(&cfg.store, &dir).unwrap();
@@ -392,14 +394,17 @@ async fn tail_pages_read_only_the_newest_segments() {
         c.request(method::SESSION_PROMPT, prompt(&id, &text, None)).await.unwrap();
     }
     let session = hub.resolve("long").unwrap();
-    let transcript = seqs(
-        &c.request(
+    // The whole transcript (~1.7 MB of JSON) in one page: a page ends at
+    // maxBytes, 1 MiB by default and 4 MiB at most (1b665b2d58a).
+    let all = c
+        .request(
             method::MUX_EVENTS,
-            json!({"sessionId": id, "kinds": ["transcript"], "limit": 10_000}),
+            json!({"sessionId": id, "kinds": ["transcript"], "limit": 10_000, "maxBytes": 4 << 20}),
         )
         .await
-        .unwrap(),
-    );
+        .unwrap();
+    assert_ne!(all["hasMore"], true, "the whole transcript fits one page");
+    let transcript = seqs(&all);
     let events = dir.join("sessions").join(&session.id).join("events");
     let mut segments: Vec<_> = std::fs::read_dir(&events)
         .unwrap()

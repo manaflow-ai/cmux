@@ -96,6 +96,7 @@ impl WorkspaceRegistry {
         validate_workspace_group_id(id)?;
         let before =
             read_group(tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown personal group {id}"))?;
+        let home_before = crate::state::home_store::home_first(tx)?;
         let top = match top_index {
             None => None,
             Some(index) => Some(tx.query_row(
@@ -111,7 +112,7 @@ impl WorkspaceRegistry {
             "UPDATE personal_groups SET top_position = ?2 WHERE group_id = ?1",
             params![id, top],
         )?;
-        crate::state::home_store::require_home_first(tx)?;
+        crate::state::home_store::require_home_first(tx, home_before)?;
         let after =
             read_group(tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown personal group {id}"))?;
         let changed = after != before;

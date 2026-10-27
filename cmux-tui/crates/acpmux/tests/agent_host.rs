@@ -7,7 +7,8 @@
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+const HERMETIC: daemon_env::Process =
+    daemon_env::Process::stand_in().with_env(&[("LC_API_TOKEN", "synthetic-locale-shaped-secret")]);
 
 use acpmux::agent_host::link::{self, Connect, HostLauncher, Link};
 use acpmux::agent_host::{
@@ -47,6 +48,7 @@ fn spec(dir: &Path, session: &str) -> SpawnSpec {
         hosts_dir: hosts,
         buffer_cap: agent_host::DEFAULT_BUFFER_CAP,
         router_owner_fifo: None,
+        cwd_pin: None,
     }
 }
 
@@ -121,6 +123,52 @@ fn make_fifo(path: &Path) {
     let c = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
     // SAFETY: valid NUL-terminated path.
     assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+}
+
+fn write_executable(path: &Path, text: &str) {
+    use std::io::Write as _;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("/bin/sh")
+        .args(["-c", "cat >\"$1\" && chmod 755 \"$1\"", "sh"])
+        .arg(path)
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(text.as_bytes()).unwrap();
+    assert!(child.wait().unwrap().success());
+}
+
+#[tokio::test]
+async fn agent_host_parent_does_not_retain_the_controller_environment() {
+    let dir = scratch("parent-env");
+    let parent = dir.join("parent.txt");
+    let wrapper = dir.join("agent");
+    write_executable(
+        &wrapper,
+        &format!(
+            "#!/bin/sh\nps eww -p \"$PPID\" > \"$PARENT_ENV_PROBE\" || exit 97\nexec python3 {}\n",
+            daemon_env::sh_quote(FAKE)
+        ),
+    );
+    let mut launch = spec(&dir, "s-parent-env");
+    launch.program = wrapper.to_string_lossy().into_owned();
+    launch.args.clear();
+    launch.env.push(("PARENT_ENV_PROBE".into(), parent.to_string_lossy().into_owned()));
+    let record = link::spawn(&launcher(), &launch).await.expect("spawn host");
+    let lock = live_lock(&dir, &record);
+    let (owner, _) = connected(&record, 0).await;
+    let mut logged = 0;
+    request(&owner, 1, "initialize", json!({"protocolVersion": 1})).await;
+    read_until(&owner, &mut logged, |e| is_response(e, 1)).await;
+    let observed = std::fs::read_to_string(&parent).unwrap();
+    assert!(observed.contains("HOME="), "the parent-environment control was empty");
+    for name in ["ACPMUX_TEST_HERMETIC=", "CARGO_MANIFEST_DIR=", "LC_API_TOKEN="] {
+        assert!(!observed.contains(name), "agent host parent retained {name}");
+    }
+    owner.terminate(Duration::from_millis(500)).await.unwrap();
+    read_until(&owner, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
+    wait_dead(lock).await;
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[tokio::test]
@@ -373,6 +421,58 @@ async fn a_failed_start_leaves_no_live_file() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[tokio::test]
+async fn a_start_waits_for_a_harness_binary_an_update_is_replacing() {
+    // `npm install --global` removes the package and its bin link and writes
+    // them again; a chat started in between failed with "spawn harness
+    // process: No such file or directory (os error 2)".
+    let dir = scratch("replaced");
+    let bin = dir.join("lib").join("bin");
+    let program = bin.join("agent");
+    let mut launch = spec(&dir, "s-replaced");
+    launch.program = program.to_string_lossy().into_owned();
+    launch.args.clear();
+    let host = launcher();
+    let mut start = std::pin::pin!(agent_host::program_wait::spawn_within(
+        &host,
+        &launch,
+        Duration::from_secs(20)
+    ));
+    // The start waits while the program is missing.
+    assert!(
+        tokio::time::timeout(Duration::from_millis(300), &mut start).await.is_err(),
+        "the start did not wait for the missing program"
+    );
+    // The update writes the package, then links the program into place.
+    std::fs::create_dir_all(&bin).unwrap();
+    let staged = dir.join("agent.staged");
+    write_executable(&staged, &format!("#!/bin/sh\nexec python3 {}\n", daemon_env::sh_quote(FAKE)));
+    std::fs::rename(&staged, &program).unwrap();
+    let record = start.await.expect("the start waited for the program");
+    let lock = live_lock(&dir, &record);
+    let (owner, _) = connected(&record, 0).await;
+    let mut logged = 0;
+    request(&owner, 1, "initialize", json!({"protocolVersion": 1})).await;
+    read_until(&owner, &mut logged, |e| is_response(e, 1)).await;
+    owner.terminate(Duration::from_millis(500)).await.unwrap();
+    read_until(&owner, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
+    wait_dead(lock).await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn a_harness_binary_that_never_comes_back_names_its_path() {
+    let dir = scratch("gone");
+    let mut launch = spec(&dir, "s-gone");
+    launch.program = dir.join("missing").join("agent").to_string_lossy().into_owned();
+    let error =
+        agent_host::program_wait::spawn_within(&launcher(), &launch, Duration::from_millis(200))
+            .await
+            .expect_err("a missing harness started");
+    assert!(error.to_string().contains(&launch.program), "{error:#}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn discovery_rejects_linked_records_and_socket_paths_outside_the_host_namespace() {
     use std::os::unix::fs::PermissionsExt;
@@ -391,6 +491,7 @@ fn discovery_rejects_linked_records_and_socket_paths_outside_the_host_namespace(
         start_nonce: "22".repeat(16),
         harness_pid: None,
         owner_token: "33".repeat(32),
+        caller_token: None,
         protocol_min: acpmux::agent_host::PROTOCOL_MIN,
         protocol_max: acpmux::agent_host::PROTOCOL_MAX,
         host_build: "test".into(),

@@ -21,6 +21,18 @@ fn git(args: &[&str]) -> Option<String> {
 }
 
 fn main() {
+    // clap builds the complete acpmux command tree before dispatch. On Windows,
+    // that now exceeds the linker's 1 MiB default main-thread stack and the
+    // process aborts before parsing even `status`. Reserve 8 MiB (committed
+    // pages still grow on demand) for both supported Windows linkers.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        let flag = match std::env::var("CARGO_CFG_TARGET_ENV").as_deref() {
+            Ok("msvc") => "/STACK:8388608",
+            _ => "-Wl,--stack,8388608",
+        };
+        println!("cargo:rustc-link-arg-bin=acpmux={flag}");
+    }
+
     // Git counts only when it tracks this crate, so an archive unpacked inside
     // some other repository does not take that repository's commit.
     let git_hash = git(&["ls-files", "--error-unmatch", "--", "build.rs"])

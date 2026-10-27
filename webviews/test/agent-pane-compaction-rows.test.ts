@@ -5,8 +5,10 @@
 // limit, went on with nothing in the transcript saying so.
 import { expect, test } from "bun:test";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
-import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { compactTokens } from "../src/agent-session/acpmux/conversation/CompactionNote";
+import type { AcpmuxCompaction, AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { CompactionNote, compactTokens } from "../src/agent-session/acpmux/conversation/CompactionNote";
 
 const CHAT = "0190a000-0000-7000-8000-0000000000c7";
 const START = Date.UTC(2026, 9, 18, 9, 0, 0);
@@ -23,7 +25,8 @@ const record = (steps: Step[], from = 1) =>
   }));
 
 /// A daemon over a fake socket: attach answers with `history`'s newest `page` events; `push` sends live ones.
-function fakeDaemon(history: ReturnType<typeof record>, page = history.length) {
+/// An older read answers with at most `older` events, newest first, and says whether more are left.
+function fakeDaemon(history: ReturnType<typeof record>, page = history.length, older = Infinity) {
   let socket: any;
   const session = {
     sessionId: CHAT,
@@ -49,8 +52,10 @@ function fakeDaemon(history: ReturnType<typeof record>, page = history.length) {
       case "_acpmux/events": {
         const before = params?.beforeSeq ?? Infinity;
         const after = params?.afterSeq ?? 0;
-        const events = history.filter((event) => event.seq > after && event.seq < before);
-        return { events, hasMore: false, more: false, lastSeq: history.at(-1)?.seq ?? 0 };
+        const found = history.filter((event) => event.seq > after && event.seq < before);
+        const events = before === Infinity ? found : found.slice(-older);
+        const more = events.length < found.length;
+        return { events, hasMore: more, more, lastSeq: history.at(-1)?.seq ?? 0 };
       }
       default:
         return null;
@@ -250,4 +255,484 @@ test("a compaction that ends after a forced Stop ended its turn stays one row", 
   // Reload: the same history gives the same one row.
   const reloaded = await connect(fakeDaemon(record([...steps, late])));
   expect(compactions(reloaded.rows())).toEqual([[3, "completed"]]);
+});
+
+// Recorded from a claude-sr2 chat (2026-10-20): Claude Code repeats `status: compacting` every 30s
+// while a compaction runs, so one compaction sends several running updates. Each used to start its
+// own row, and the turn's end noted every one the completion did not replace as failed: three
+// "Compaction failed" rows above "Conversation compacted · context 352k → 24k".
+test("a compaction's repeated running updates stay its one row", async () => {
+  const running = update({ sessionUpdate: "compaction", state: "running" });
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "steer-default: standing down" }],
+      ["mux", "turn_started", {}],
+      ["in", "compaction", running],
+      ["in", "compaction", running],
+      ["in", "compaction", running],
+      ["in", "compaction", running],
+    ]),
+  );
+  const { rows } = await connect(daemon);
+  const compactions = () =>
+    rows()
+      .filter((row) => row.kind === "compaction")
+      .map((row) => [row.seq, row.compaction]);
+  expect(compactions()).toEqual([[3, { state: "running" }]]);
+  daemon.push(
+    record(
+      [
+        [
+          "in",
+          "compaction",
+          update({
+            sessionUpdate: "compaction",
+            state: "completed",
+            trigger: "auto",
+            preTokens: 352235,
+            postTokens: 24315,
+          }),
+        ],
+        ["mux", "turn_result", { status: "completed" }],
+      ],
+      7,
+    ),
+  );
+  expect(compactions()).toEqual([[3, { state: "completed", preTokens: 352235, postTokens: 24315 }]]);
+});
+
+// The same chat later: sr2 started an account-switch compaction between turns, the next prompt's
+// turn started while it ran (which settles it), and its next running update and its end came after.
+test("a compaction still running when the next turn starts is taken back by its next running update", async () => {
+  const steps: Step[] = [
+    ["mux", "user_message", { text: "newtab-minimal: PR open" }],
+    ["mux", "turn_started", {}],
+    ["mux", "turn_result", { status: "completed" }],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    ["mux", "user_message", { text: "prompt-queue-edit: taken" }],
+    ["mux", "turn_started", {}],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    [
+      "in",
+      "compaction",
+      update({
+        sessionUpdate: "compaction",
+        state: "completed",
+        trigger: "manual",
+        reason: "account_switch",
+        preTokens: 58163,
+        postTokens: 20129,
+      }),
+    ],
+  ];
+  const compactions = (rows: AcpmuxRow[]) =>
+    rows.filter((row) => row.kind === "compaction").map((row) => [row.seq, row.compaction?.state]);
+  const { rows } = await connect(fakeDaemon(record(steps)));
+  expect(compactions(rows())).toEqual([[4, "completed"]]);
+});
+
+test("a compaction that says it failed keeps its reason", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "/compact" }],
+      ["mux", "turn_started", {}],
+      ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+      ["in", "compaction", update({ sessionUpdate: "compaction", state: "failed", error: "Prompt is too long" })],
+      ["mux", "turn_result", { status: "completed" }],
+    ]),
+  );
+  const { rows } = await connect(daemon);
+  expect(
+    rows()
+      .filter((row) => row.kind === "compaction")
+      .map((row) => [row.seq, row.compaction]),
+  ).toEqual([[3, { state: "failed", error: "Prompt is too long" }]]);
+});
+
+// Leo's chat, 2026-10-20: two "Compacting the conversation…" rows stacked, both spinning. A row
+// the next turn's start noted as failed is taken back only by a running note that comes on time
+// (Claude Code repeats it every 30s); a compaction long after is a new one, below the turns since.
+test("a compaction that went quiet is not taken back by a later compaction", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "go on" }],
+      ["mux", "turn_started", {}],
+      ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+      ["mux", "user_message", { text: "and on", steer: true }],
+      ["mux", "turn_started", {}],
+    ]),
+  );
+  const { rows } = await connect(daemon);
+  const compactions = () =>
+    rows()
+      .filter((row) => row.kind === "compaction")
+      .map((row) => [row.seq, row.compaction?.state]);
+  expect(compactions()).toEqual([[3, "failed"]]);
+  // Five minutes later (seq 300 is 300s after the start): the next turn compacts.
+  daemon.push(
+    record(
+      [
+        ["mux", "user_message", { text: "next" }],
+        ["mux", "turn_started", {}],
+        ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+        ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+        [
+          "in",
+          "compaction",
+          update({ sessionUpdate: "compaction", state: "completed", preTokens: 300_000, postTokens: 20_000 }),
+        ],
+      ],
+      300,
+    ),
+  );
+  expect(compactions()).toEqual([
+    [3, "failed"],
+    [302, "completed"],
+  ]);
+});
+
+// Review of #22727: a page boundary at the next prompt left an account switch's compaction, which
+// runs between turns, spinning above the row the newer page drew for it once the older page loaded.
+test("a compaction an older page leaves running is the newer page's row of it", async () => {
+  const steps: Step[] = [
+    ["mux", "user_message", { text: "newtab-minimal: PR open" }],
+    ["mux", "turn_started", {}],
+    ["mux", "turn_result", { status: "completed" }],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    ["mux", "user_message", { text: "prompt-queue-edit: taken" }],
+    ["mux", "turn_started", {}],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    [
+      "in",
+      "compaction",
+      update({ sessionUpdate: "compaction", state: "completed", preTokens: 58163, postTokens: 20129 }),
+    ],
+  ];
+  const compactions = (rows: AcpmuxRow[]) =>
+    rows.filter((row) => row.kind === "compaction").map((row) => row.compaction?.state);
+  const { client, rows } = await connect(fakeDaemon(record(steps), 4));
+  expect(compactions(rows())).toEqual(["completed"]);
+  await client.loadOlder();
+  expect(compactions(rows())).toEqual(["completed"]);
+});
+
+test("a compaction an older page leaves running long before the newer page's stops running", async () => {
+  const steps: Step[] = [
+    ["mux", "user_message", { text: "go on" }],
+    ["mux", "turn_started", {}],
+    ["mux", "turn_result", { status: "completed" }],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+  ];
+  const later: Step[] = [
+    ["mux", "user_message", { text: "next" }],
+    ["mux", "turn_started", {}],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+  ];
+  const compactions = (rows: AcpmuxRow[]) =>
+    rows.filter((row) => row.kind === "compaction").map((row) => [row.seq, row.compaction?.state]);
+  const { client, rows } = await connect(fakeDaemon([...record(steps), ...record(later, 300)], 3));
+  await client.loadOlder();
+  expect(compactions(rows())).toEqual([
+    [4, "failed"],
+    [302, "running"],
+  ]);
+});
+
+// Review of #22791: a compaction a forced Stop noted as failed on the older page ended on the newer one.
+test("a compaction an older page noted as failed after a forced Stop is the newer page's row of it", async () => {
+  const steps: Step[] = [
+    ["mux", "user_message", { text: "go on" }],
+    ["mux", "turn_started", {}],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    ["mux", "turn_result", { status: "cancelled", cancelForced: true }],
+    ["mux", "user_message", { text: "next" }],
+    ["mux", "turn_started", {}],
+    [
+      "in",
+      "compaction",
+      update({ sessionUpdate: "compaction", state: "completed", preTokens: 58163, postTokens: 20129 }),
+    ],
+  ];
+  const compactions = (rows: AcpmuxRow[]) =>
+    rows.filter((row) => row.kind === "compaction").map((row) => row.compaction?.state);
+  const { client, rows } = await connect(fakeDaemon(record(steps), 3));
+  await client.loadOlder();
+  expect(compactions(rows())).toEqual(["completed"]);
+});
+
+// Leo, 2026-10-21: "And why the hell does it show that it's supposedly compacting multiple times?"
+// His chat's 15 compactions, replayed from its acpmux log through the client before #22727, drew 51
+// rows with up to 5 spinning at once; since #22727 and #22791 they draw 15, never more than one
+// spinning. These pin that against the ways the same events reach the pane again.
+const spinners = (rows: AcpmuxRow[]) =>
+  rows
+    .filter((row) => row.kind === "compaction" && row.compaction)
+    .map((row) => renderToStaticMarkup(createElement(CompactionNote, { compaction: row.compaction! })))
+    .join("")
+    .split('class="cv-spinner"').length - 1;
+const compactionSteps = (prompt: string, preTokens: number): Step[] => [
+  ["mux", "user_message", { text: prompt }],
+  ["mux", "turn_started", {}],
+  ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+  ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+  ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+  [
+    "in",
+    "compaction",
+    update({ sessionUpdate: "compaction", state: "completed", trigger: "auto", preTokens, postTokens: 25_000 }),
+  ],
+  ["mux", "turn_result", { status: "completed" }],
+];
+
+test("one compaction is one row after its events reach the pane again", async () => {
+  const events = record(compactionSteps("go on", 352_000));
+  const daemon = fakeDaemon(events.slice(0, 3));
+  const { rows } = await connect(daemon);
+  const compactions = () =>
+    rows()
+      .filter((row) => row.kind === "compaction")
+      .map((row) => [row.seq, row.compaction?.state]);
+  expect(compactions()).toEqual([[3, "running"]]);
+  expect(spinners(rows())).toBe(1);
+  daemon.push(events.slice(3));
+  expect(compactions()).toEqual([[3, "completed"]]);
+  // The same events delivered live again keep their seqs.
+  daemon.push(events);
+  expect(compactions()).toEqual([[3, "completed"]]);
+  expect(spinners(rows())).toBe(0);
+  // A fresh client attaches: the whole record, or a page that starts among the running notes.
+  const again = await connect(fakeDaemon(events));
+  expect(
+    again
+      .rows()
+      .filter((row) => row.kind === "compaction")
+      .map((row) => row.compaction?.state),
+  ).toEqual(["completed"]);
+  const paged = await connect(fakeDaemon(events, 3));
+  await paged.client.loadOlder();
+  expect(
+    paged
+      .rows()
+      .filter((row) => row.kind === "compaction")
+      .map((row) => row.compaction?.state),
+  ).toEqual(["completed"]);
+});
+
+test("two compactions are two rows, and only one spins at a time", async () => {
+  const events = [...record(compactionSteps("go on", 352_000)), ...record(compactionSteps("next", 353_000), 300)];
+  const daemon = fakeDaemon(events.slice(0, 1));
+  const { rows } = await connect(daemon);
+  let most = 0;
+  for (const event of events.slice(1)) {
+    daemon.push([event]);
+    most = Math.max(most, spinners(rows()));
+  }
+  expect(most).toBe(1);
+  expect(
+    rows()
+      .filter((row) => row.kind === "compaction")
+      .map((row) => [row.seq, row.compaction?.state]),
+  ).toEqual([
+    [3, "completed"],
+    [302, "completed"],
+  ]);
+  expect(spinners(rows())).toBe(0);
+});
+
+// Review of #24296 (Codex): an account switch's compaction runs between turns and can say how it
+// ended more than 90s after its one running note. Read whole it is one row; read a page at a time,
+// the older page's running row stayed beside the newer page's end as a second row.
+test("a compaction whose end alone is on the newer page is one row, however late it came", async () => {
+  const steps: Step[] = [
+    ["mux", "user_message", { text: "go on" }],
+    ["mux", "turn_started", {}],
+    ["mux", "turn_result", { status: "completed" }],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running", reason: "account_switch" })],
+    ["mux", "user_message", { text: "next" }],
+    ["mux", "turn_started", {}],
+    [
+      "in",
+      "compaction",
+      update({
+        sessionUpdate: "compaction",
+        state: "completed",
+        reason: "account_switch",
+        preTokens: 58163,
+        postTokens: 20129,
+      }),
+    ],
+  ];
+  const events = record(steps);
+  events[6]!.at = events[3]!.at + 91_000;
+  const compactions = (rows: AcpmuxRow[]) =>
+    rows.filter((row) => row.kind === "compaction").map((row) => row.compaction?.state);
+  const whole = await connect(fakeDaemon(events));
+  expect(compactions(whole.rows())).toEqual(["completed"]);
+  const { client, rows } = await connect(fakeDaemon(events, 3));
+  await client.loadOlder();
+  expect(compactions(rows())).toEqual(["completed"]);
+});
+
+// Review of #24296 (Claude): the end the newer page held kept its own row, so the next older page
+// let it take a second compaction, one that never said how it ended. Paged reads draw what the
+// whole record draws.
+test("a compaction's end on a newer page takes only its own compaction from the pages further back", async () => {
+  const steps: Step[] = [
+    ["mux", "user_message", { text: "a" }],
+    ["mux", "turn_started", {}],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    ["mux", "turn_result", { status: "completed" }],
+    ["mux", "user_message", { text: "b" }],
+    ["mux", "turn_started", {}],
+    ["mux", "turn_result", { status: "completed" }],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running", reason: "account_switch" })],
+    ["mux", "user_message", { text: "c" }],
+    ["mux", "turn_started", {}],
+    [
+      "in",
+      "compaction",
+      update({
+        sessionUpdate: "compaction",
+        state: "completed",
+        reason: "account_switch",
+        preTokens: 58163,
+        postTokens: 20129,
+      }),
+    ],
+  ];
+  const events = record(steps);
+  events[10]!.at = events[7]!.at + 91_000;
+  const compactions = (rows: AcpmuxRow[]) =>
+    rows.filter((row) => row.kind === "compaction").map((row) => [row.seq, row.compaction?.state]);
+  const whole = await connect(fakeDaemon(events));
+  expect(compactions(whole.rows())).toEqual([
+    [3, "failed"],
+    [8, "completed"],
+  ]);
+  const { client, rows } = await connect(fakeDaemon(events, 3, 4));
+  await client.loadOlder();
+  await client.loadOlder();
+  expect(compactions(rows())).toEqual(compactions(whole.rows()));
+});
+
+// Review of #24296 (Codex): a newer page that holds two ends, neither with its running note, took
+// only one older compaction; reading the whole record, each end takes the next one back.
+const secondEnds: AcpmuxCompaction[] = [
+  { state: "completed", preTokens: 222, postTokens: 22 },
+  { state: "failed", error: "Prompt is too long" },
+];
+for (const second of secondEnds)
+  test(`two ends on a newer page each take their own older compaction (${second.state})`, async () => {
+    const turn = (text: string): Step[] => [
+      ["mux", "user_message", { text }],
+      ["mux", "turn_started", {}],
+      ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+      ["mux", "turn_result", { status: "completed" }],
+    ];
+    const events = record([
+      ...turn("x"),
+      ...turn("y"),
+      ["mux", "user_message", { text: "z" }],
+      ["mux", "turn_started", {}],
+      ["in", "compaction", update({ sessionUpdate: "compaction", state: "completed", preTokens: 111, postTokens: 11 })],
+      ["in", "compaction", update({ sessionUpdate: "compaction", ...second })],
+    ]);
+    const compactions = (rows: AcpmuxRow[]) =>
+      rows.filter((row) => row.kind === "compaction").map((row) => [row.seq, row.compaction]);
+    const whole = await connect(fakeDaemon(events));
+    expect(compactions(whole.rows())).toEqual([
+      [3, second],
+      [7, { state: "completed", preTokens: 111, postTokens: 11 }],
+    ]);
+    const { client, rows } = await connect(fakeDaemon(events, 4));
+    await client.loadOlder();
+    expect(compactions(rows())).toEqual(compactions(whole.rows()));
+  });
+
+// Review of #24296 (Claude): a held compaction that starts with a running note on time continues
+// the one the older page left open before a later end-only record can take it.
+test("a compaction the newer page goes on with keeps its end; a later end-only record gets its own row", async () => {
+  const events = record([
+    ["mux", "user_message", { text: "a" }],
+    ["mux", "turn_started", {}],
+    ["mux", "turn_result", { status: "completed" }],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running", reason: "account_switch" })],
+    ["mux", "user_message", { text: "b" }],
+    ["mux", "turn_started", {}],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    [
+      "in",
+      "compaction",
+      update({ sessionUpdate: "compaction", state: "completed", preTokens: 58163, postTokens: 20129 }),
+    ],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "failed", error: "Prompt is too long" })],
+  ]);
+  const compactions = (rows: AcpmuxRow[]) =>
+    rows.filter((row) => row.kind === "compaction").map((row) => row.compaction);
+  const whole = await connect(fakeDaemon(events));
+  expect(compactions(whole.rows())).toEqual([
+    { state: "completed", preTokens: 58163, postTokens: 20129 },
+    { state: "failed", error: "Prompt is too long" },
+  ]);
+  const { client, rows } = await connect(fakeDaemon(events, 5));
+  await client.loadOlder();
+  expect(compactions(rows())).toEqual(compactions(whole.rows()));
+});
+
+// Review of #24296 (Codex): a compaction still running across three pages drew its oldest page's
+// row as failed beside the newer one: each page's fold kept the newer row, so the next page back
+// compared its notes with a start that was not the compaction's. Its live end then left both.
+test("a compaction running across three pages stays one row, and its live end ends that row", async () => {
+  const events = record([
+    ["mux", "user_message", { text: "a" }],
+    ["mux", "turn_started", {}],
+    ["mux", "turn_result", { status: "completed" }],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running", reason: "account_switch" })],
+    ["mux", "user_message", { text: "b" }],
+    ["mux", "turn_started", {}],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    ["mux", "user_message", { text: "c" }],
+    ["mux", "turn_started", {}],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+  ]);
+  // Claude Code's note every 30 seconds: at 0, 30, 60, 90 and 120.
+  const t0 = events[3]!.at;
+  for (const [index, at] of [
+    [3, 0],
+    [4, 10],
+    [5, 20],
+    [6, 30],
+    [7, 60],
+    [8, 90],
+    [9, 100],
+    [10, 110],
+    [11, 120],
+  ] as const)
+    events[index]!.at = t0 + at * 1000;
+  const end = record(
+    [
+      [
+        "in",
+        "compaction",
+        update({ sessionUpdate: "compaction", state: "completed", preTokens: 352235, postTokens: 24315 }),
+      ],
+    ],
+    13,
+  );
+  end[0]!.at = t0 + 130_000;
+  const compactions = (rows: AcpmuxRow[]) =>
+    rows.filter((row) => row.kind === "compaction").map((row) => [row.seq, row.compaction?.state]);
+  const whole = await connect(fakeDaemon([...events]));
+  expect(compactions(whole.rows())).toEqual([[4, "running"]]);
+  const daemon = fakeDaemon([...events], 3, 5);
+  const { client, rows } = await connect(daemon);
+  await client.loadOlder();
+  await client.loadOlder();
+  expect(compactions(rows())).toEqual([[4, "running"]]);
+  expect(spinners(rows())).toBe(1);
+  daemon.push(end);
+  expect(compactions(rows())).toEqual([[4, "completed"]]);
+  expect(spinners(rows())).toBe(0);
 });

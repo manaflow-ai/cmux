@@ -61,14 +61,10 @@ impl Hub {
         if roots == meta.harness_roots {
             return;
         }
-        let saved = {
-            let mut m = session.meta.lock().unwrap_or_else(|p| p.into_inner());
-            m.harness_roots = roots;
-            m.clone()
-        };
-        if let Err(e) = self.store.save(&saved) {
-            tracing::warn!(session = %session.id, "save launch roots: {e:#}");
-        }
+        session.meta.lock().unwrap_or_else(|p| p.into_inner()).harness_roots = roots;
+        // Through save_meta: a session purged while its roots were read
+        // stays purged.
+        self.save_meta(session);
     }
 }
 

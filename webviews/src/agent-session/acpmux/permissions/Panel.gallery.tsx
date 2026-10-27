@@ -162,8 +162,12 @@ const openReceipt: Play = async (ctx) => {
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".acpmux-permission-receipt[open]")));
 };
 
+/// A chat-wide allowance alone draws no card: its remove lives in the composer's access menu
+/// (ComposerPickers.gallery `access-grants`). The panel still answers the Revoke menu action, which
+/// the app relays as `cmux-acpmux-permissionRevoke`.
 const revokeAllowance: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: "Revoke" });
+  if (ctx.document.querySelector(".acpmux-permission-panel")) throw new Error("An allowance alone drew a card");
+  window.dispatchEvent(new CustomEvent("cmux-acpmux-permissionRevoke"));
   await ctx.waitFor(() => ctx.document.querySelector('[data-permission-action="revoke"]'));
 };
 
@@ -274,7 +278,7 @@ export default componentEntry<Props>({
       play: openReceipt,
     },
     allowance: {
-      note: "Chat-wide allowance exposes a quiet revoke affordance after approval.",
+      note: "A chat-wide allowance draws no card (its remove is in the composer's access menu); the Revoke menu action still revokes it.",
       props: { state: allowanceState, ...callbacks },
       play: revokeAllowance,
     },

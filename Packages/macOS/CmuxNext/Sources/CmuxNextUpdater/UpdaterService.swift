@@ -1,5 +1,5 @@
 public import CmuxUpdater
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import Network
 public import Foundation
 import Observation
@@ -19,6 +19,9 @@ import Observation
 @Observable
 public final class UpdaterService {
     public let identity: UpdateBuildIdentity
+    /// The blocking-work lanes the kept-versions listing runs on (the app's one, AppServices; tests and
+    /// previews get lanes of their own).
+    let work: BackgroundWork
     public let log: UpdateLogBuffer
     /// The Sparkle driver; nil when Sparkle cannot run in this build.
     public let controller: UpdateController?
@@ -41,15 +44,34 @@ public final class UpdaterService {
     }
     /// The R114 install gate over ``indicatorPhase``.
     public internal(set) var flow = UpdateFlow()
+    /// How many times the gate's phase moved (``syncFlowPhase()``): a caller that follows one
+    /// request (the CLI's install) tells a phase its request reached from one already shown,
+    /// even when observation coalesces the moves in between.
+    public internal(set) var flowMoves = 0
     /// UPDATE-CARD-CLOSE: the update version whose card the person closed and the end of a
     /// "Remind Me Later" (``UpdateSnooze``, kept in `defaults`).
     public internal(set) var updateSnooze = UpdateSnooze()
     /// The pending reminder's end, on the injected clock (one-shot; re-armed at launch).
     @ObservationIgnored let snoozeTimer: DemandTimer
+    /// The pulled-build banner (made on first use; it needs `self`).
+    @ObservationIgnored public private(set) lazy var pulledWatch = PulledBuildWatch(updater: self)
     /// The notice whose timeout is pending, and its one-shot deadline on the
     /// injected clock (no `asyncAfter`).
     @ObservationIgnored var expiringCard: UpdateCard?
     @ObservationIgnored let cardTimer: DemandTimer
+    /// When the install phase began (``installStatus``), nil outside it.
+    @ObservationIgnored var installStartedAt: Date?
+    /// Bumped by ``installTimer`` so the installing card's seconds move.
+    var installTick = 0
+    /// The person closed the card of an install that never relaunched.
+    var installCardDismissed = false
+    /// The install already gave up (``UpdateInstallStatus/Stage/stalled``) once.
+    @ObservationIgnored var installGaveUp = false
+    /// The installing card's one-second tick, only while an install runs.
+    @ObservationIgnored let installTimer: DemandTimer
+    @ObservationIgnored let stagedRefresh: StagedUpdateRefresh
+    /// The tip app's 5-minute feed read while nothing waits (``TipUpdateCheck``).
+    @ObservationIgnored let tipCheck: TipUpdateCheck
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
     /// Opens the changelog page for the releases after `from` up to `to`
@@ -119,38 +141,63 @@ public final class UpdaterService {
     @ObservationIgnored var activationObservation: Task<Void, Never>?
     /// The test feed in use ("Use Test Update Feed"), or nil.
     public internal(set) var testFeedURL: String?
+    /// The release ring followed in the cmux-next appcast (`updates.channel`, ``follow(ring:)``).
+    public internal(set) var ring: UpdateRing = .nightly
+    /// The App applied `updates.channel` once (launch); a later move is the person's pick and checks at once.
+    @ObservationIgnored var ringFollowed = false
     /// The `updates.*` settings the gate reads (set by the App).
     public var preferences = UpdatePreferences.defaults
     /// Sparkle's staged install and its cancel (replaced by tests).
     @ObservationIgnored var installStaged: () -> Void = {}
-    @ObservationIgnored var cancelStaged: () -> Void = {}
+    /// The install click replaced a stale staged build (``StagedUpdateRefresh/beforeInstall(updater:install:)``):
+    /// the click carries over to the newer build's check and download (``carryInstallClick(_:)``).
+    @ObservationIgnored var installAfterSwap = false
+    /// Replaces the install click's disk preflight (``installPreflightFailure()``) in tests.
+    @ObservationIgnored var preflightOverride: (() -> UpdateInstallPreflight.Failure?)?
+    /// The cancel returns whether an installer was held and is now cancelled.
+    @ObservationIgnored var cancelStaged: () -> Bool = { false }
     @ObservationIgnored var acceptAvailable: () -> Void = {}
     @ObservationIgnored var phaseObservation: Task<Void, Never>?
     @ObservationIgnored var pathMonitor: NWPathMonitor?
     @ObservationIgnored var network: (constrained: Bool, expensive: Bool) = (false, false)
-    @ObservationIgnored var downloadSetting: (enabled: Bool, metered: UpdateMeteredMode) = (true, .deferLowData)
+    /// `updates.downloadAutomatically` and `meteredNetwork` as last configured; nothing downloads
+    /// by itself until the settings load (``configure``).
+    @ObservationIgnored var downloadSetting: (enabled: Bool, metered: UpdateMeteredMode) = (false, .deferLowData)
+    /// Whether found updates download by themselves now (``applyDownloadPolicy()``).
+    @ObservationIgnored var downloadsFoundUpdates = false
     /// The App's observation of the `updates.*` settings.
     @ObservationIgnored public var settingsObservation: Task<Void, Never>?
     @ObservationIgnored let now: () -> Date
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// The card kind last written to the update harness's timeline.
     @ObservationIgnored var markedCardKind: String?
     #endif
 
-    /// Asks the App to show the update sheet (set by the App): a failure's
-    /// details only.
+    /// Asks the App to show the update sheet (set by the App): a failure's details only.
     @ObservationIgnored public var presentUpdateUI: (() -> Void)?
-    /// Sparkle is about to relaunch into the update (set by the App: the quit
-    /// keeps every terminal).
+    /// Sparkle is about to relaunch into the update (set by the App: the quit keeps every terminal).
     @ObservationIgnored public var willRelaunch: (() -> Void)?
+    /// Reads the executable's live session and input state before Sparkle relaunches.
+    @ObservationIgnored public var relaunchBlockers: () -> UpdateRelaunchBlockers = { .daemonUnavailable }
+    /// How long input must be quiet before a nightly installs by itself (`updates.idleInstallQuietSeconds`).
+    @ObservationIgnored public internal(set) var idleInstallQuiet: Duration = UpdateRelaunchBlockers.quietInputPeriod
+    /// The install in flight started by itself (the idle policy): a failure opens nothing.
+    @ObservationIgnored var automaticInstallInFlight = false
+    /// The build Sparkle said it installs (`updaterWillInstallUpdate`): the relaunch's focus record names it.
+    @ObservationIgnored var installingBuild: String?
+    /// The frontmost app when the automatic install in flight started (``UpdateRelaunchFocus``).
+    @ObservationIgnored var automaticInstallFrontmost: UpdateFrontmostApp?
+    /// Whether this app is the frontmost one, and the app that is (``UpdateRelaunchFocus``); AppKit in
+    /// the app, a fake in tests.
+    @ObservationIgnored public var frontmost: () -> UpdateFrontmostApp = { UpdateFrontmostApp.current() }
     /// Whether a window shows the update notice (the sidebar footer's
     /// pill). Without it, checks and installs open the update sheet.
     @ObservationIgnored public var showsIndicator: () -> Bool = { true }
     /// Whether the update sheet is on screen (set by the App): a note's
     /// timeout then leaves the state alone so the sheet keeps its details.
     @ObservationIgnored public var isSheetPresented: () -> Bool = { false }
-    @ObservationIgnored private let policy: ManagedUpdatePolicy
-    @ObservationIgnored private let prober: UpdateProber
+    @ObservationIgnored let policy: ManagedUpdatePolicy
+    @ObservationIgnored let prober: UpdateProber
     @ObservationIgnored let defaults: UserDefaults
     @ObservationIgnored private let switcher: AppChannelSwitcher
     @ObservationIgnored private var probeTask: Task<String?, Never>?
@@ -173,10 +220,16 @@ public final class UpdaterService {
                 enableSparkle: Bool = true,
                 recordsUpdates: Bool = true,
                 now: @escaping () -> Date = Date.init,
-                clock: any Clock<Duration> = ContinuousClock()) {
+                clock: any Clock<Duration> = ContinuousClock(),
+                work: BackgroundWork = BackgroundWork(label: "com.cmuxterm.next.work.updater")) {
         self.now = now
+        self.work = work
+        automaticUpdates = identity.track.downloadsAutomaticallyByDefault
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
+        installTimer = DemandTimer(owner: "UpdaterService.install", clock: clock)
         snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)
+        stagedRefresh = StagedUpdateRefresh(clock: clock)
+        tipCheck = TipUpdateCheck(clock: clock)
         self.identity = identity
         self.policy = policy
         self.prober = prober
@@ -191,14 +244,27 @@ public final class UpdaterService {
         // The managed policy is re-read by the driver on every start and check,
         // so it is not a reason to skip building it.
         if enableSparkle, identity.sparkleDisabledReason(managedPolicyDisablesUpdates: false) == nil {
-            let controller = UpdateController(log: log, defaults: defaults, isDisabledByPolicy: { policy.disablesUpdates })
+            // The track decides, not the bundle id: the tip app has a DEV id but runs Sparkle.
+            let controller = UpdateController(log: log, defaults: defaults, isDevLikeBundle: identity.track == .development,
+                                              isDisabledByPolicy: { policy.disablesUpdates })
             // Never prompt: download in the background and wait for a click.
             // Set on this updater only; no defaults change, so the legacy app
             // sharing the domain keeps its own behavior.
             controller.installsUpdatesInBackground = true
+            // The daemon keeps every terminal, agent and running turn, so all app relaunches are
+            // immediate. `UpdateDriver` uses this same flag for automatic installs.
+            controller.holdsUserInstalls = false
+            // A found update is offered at once, deltas listed or not: no check holds a build back
+            // for deltas that come minutes later (a later check uses them for the next build).
+            // Until the settings load (``configure``), a launch check's update waits: nothing
+            // downloads or installs by itself, whichever way `updates.downloadAutomatically` is set.
+            // Once it is on, a downloaded update installs by itself once staged; the daemon preserves
+            // agents, commands and turns while the app relaunches.
+            controller.installsUpdatesWhenIdle = false
+            controller.downloadsUpdatesInBackground = false
             self.controller = controller
         } else {
-            #if DEBUG
+            #if DEBUG || CMUX_BENCH_HOOKS
             controller = enableSparkle ? UpdateHarness.current?.controller(identity: identity, log: log, defaults: defaults, policy: policy) : nil
             #else
             controller = nil
@@ -206,7 +272,7 @@ public final class UpdaterService {
         }
         if let controller {
             installStaged = { [weak controller] in controller?.installStagedUpdate() }
-            cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() }
+            cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() ?? false }
             acceptAvailable = { [weak controller] in controller?.acceptAvailableUpdate() }
             stagedBuild = { [weak controller] in controller?.stagedUpdate?.versionString }
         }
@@ -224,8 +290,7 @@ public final class UpdaterService {
         return policy.disablesUpdates ? .managedPolicy : nil
     }
 
-    /// Starts Sparkle (scheduled checks and the launch probe honor
-    /// `SUEnableAutomaticChecks`). Idempotent; no-op without a driver.
+    /// Starts Sparkle (its checks honor `SUEnableAutomaticChecks`). Idempotent; no-op without a driver.
     public func start() {
         guard !started else { return }
         started = true
@@ -233,13 +298,15 @@ public final class UpdaterService {
         refreshAnnouncements()
         refreshTip()
         refreshUpdateSnooze()
+        tipCheck.refresh(self)
         guard let controller else {
             log.append("sparkle not started (\(disabledReason?.rawValue ?? "no driver"), track=\(identity.track.rawValue))")
             return
         }
         controller.actionDelegate = self
+        pulledWatch.start(controller: controller)
         controller.startUpdaterIfNeeded()
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if UpdateHarness.current?.backgroundCheck == true {
             UpdateHarness.mark("background_check")
             controller.checkInBackground()
@@ -272,14 +339,14 @@ public final class UpdaterService {
             log.append("check suppressed (managed policy)")
             return nil
         case nil:
-            guard let controller else { return nil }
             syncFlowPhase()
             if case .ready = flow.phase {
-                // Sparkle ignores a check while an update waits; the staged
-                // update card answers instead (``readyCard``).
+                // Sparkle ignores a check while an update waits: the card answers, and a newer ring build replaces it.
                 log.append("check while an update waits: showing the staged update")
+                if stagedRefresh.run(reason: "check", updater: self) == nil { flow.askAnswered() }
                 return nil
             }
+            guard let controller else { return nil }
             if userCheckRunning, case .checking = flow.phase {
                 // Sparkle would queue a second check after this one, which only delays the answer.
                 log.append("check while the person's check runs: joined")
@@ -302,12 +369,14 @@ public final class UpdaterService {
         if let probeTask { return probeTask }
         isProbing = true
         let prober = prober
+        // Sparkle's allowedChannels reads the baked feed, not a test feed: the probe does the same.
+        let allowed = identity.feed().channel.allowedSparkleChannels(ring: ring)
         var identity = identity
         if let testFeedURL { identity.infoFeedURL = testFeedURL }
         let task = Task { [weak self] () -> String? in
             let failure: String?
             do {
-                let result = try await prober.probe(identity)
+                let result = try await prober.probe(identity, allowedChannels: allowed)
                 self?.lastProbe = result
                 self?.lastProbeError = nil
                 self?.log.append("probe \(result.outcome.kind) feed=\(result.feedURL) items=\(result.itemCount)")
@@ -334,7 +403,7 @@ public final class UpdaterService {
     /// card (Restart to Update).
     public func installAvailableUpdate() throws {
         guard let controller, disabledReason == nil else { throw UpdaterUnavailable(reason: disabledReason) }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("install_clicked")
         #endif
         if needsSheet { presentUpdateUI?() }
@@ -416,6 +485,7 @@ public final class UpdaterService {
             lastProbeError: lastProbeError,
             channelSwitchTarget: identity.channelSwitchTarget,
             testFeedURL: testFeedURL,
+            ring: ring,
             card: card,
             cardPresentation: cardPresentation,
             badge: footerPill?.title
@@ -424,29 +494,6 @@ public final class UpdaterService {
 
     private func bool(_ key: String, fallback: Bool) -> Bool {
         (defaults.object(forKey: key) as? Bool) ?? (Bundle.main.object(forInfoDictionaryKey: key) as? Bool) ?? fallback
-    }
-}
-
-extension UpdaterService: UpdateActionDelegate {
-    public func updaterRequestsRetryCheckForUpdates() {
-        checkForUpdates()
-    }
-
-    /// Nothing to save: terminals and layout live in the cmux-tui daemon and
-    /// survive the relaunch. Sparkle's terminate goes through the normal
-    /// `applicationShouldTerminate` path.
-    public func updaterWillRelaunchApplication() {
-        log.append("relaunching for update")
-        #if DEBUG
-        UpdateHarness.mark("will_relaunch")
-        #endif
-        willRelaunch?()
-    }
-
-    /// A relaunch interrupts nothing (the daemon keeps every terminal and
-    /// agent running), so a ready update is never held.
-    public func updaterRelaunchBlockers() -> UpdateRelaunchBlockers {
-        .empty
     }
 }
 

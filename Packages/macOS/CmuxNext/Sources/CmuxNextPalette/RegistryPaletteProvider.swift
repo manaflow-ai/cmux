@@ -12,6 +12,8 @@ public final class RegistryPaletteProvider: PaletteProvider {
     public let id = "registry"
     public let registry: ActionRegistry
     public var includeUnbound: Bool
+    /// Only the root curates its empty query; the Commands scope retains the full list.
+    var curatesEmptyRoot = false
     public var effectOverrides: [ActionID: @MainActor () -> PaletteEffect?] = [:]
     /// Lists objects for target arguments (workspace, tab group, ...).
     public var targets: (any PaletteTargetSource)?
@@ -52,6 +54,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
 
     public func makeItems() -> [PaletteItem] {
         var items: [PaletteItem] = []
+        var tiers: [String: PaletteTier] = [:]
         // Localized once per open, not once per action (hundreds of rows).
         let unbound = PaletteStrings.unbound
         let copyActionID = PaletteStrings.copyActionID
@@ -113,9 +116,13 @@ public final class RegistryPaletteProvider: PaletteProvider {
             item.actionRefs = [PaletteActionRef(actionID, isDestructive: descriptor.isDestructive)]
             item.ball = PaletteGroupColor.ball(forAction: actionID)
             item.suggestedRank = descriptor.paletteSuggestionRank
+            item.keywords += ActionDescriptor.paletteAliases[actionID] ?? []
+            item.rankBias = Self.rankBias(for: descriptor.paletteTier)
+            tiers[item.id] = descriptor.paletteTier
             items.append(item)
         }
-        return items
+        let arranged = Self.arranged(items, tiers: tiers)
+        return curatesEmptyRoot ? curatedRootItems(arranged) : arranged
     }
 
     /// Decided when the row runs (`PaletteEffect.deferred`): an action

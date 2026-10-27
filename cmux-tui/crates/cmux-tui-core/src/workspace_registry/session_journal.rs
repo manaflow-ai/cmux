@@ -141,7 +141,9 @@ pub(crate) struct SessionJournalSubjectPage {
     pub(crate) records: Vec<SessionJournalRecord>,
 }
 
-/// One retained `terminal.output` record's content and stream coverage.
+/// One retained `terminal.output` record's content and stream coverage
+/// (test-only: shipped builds read output from output_store.rs).
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TerminalOutputChunk {
     pub(crate) stream_offset_start: u64,
@@ -150,6 +152,7 @@ pub(crate) struct TerminalOutputChunk {
 }
 
 /// A record-boundary window over one terminal generation's output stream.
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TerminalOutputRecordsWindow {
     pub(crate) chunks: Vec<TerminalOutputChunk>,
@@ -351,7 +354,7 @@ impl JournalRestoreCursor {
             "SELECT segment_id, start_sequence
              FROM journal_segments
              WHERE end_sequence > ?1 AND start_sequence > ?2
-             ORDER BY start_sequence ASC
+             ORDER BY end_sequence ASC
              LIMIT 1",
         )?;
         let segment = statement
@@ -1219,8 +1222,8 @@ impl WorkspaceRegistry {
         Ok(Some((version, cursor, snapshot)))
     }
 
-    /// Durably record a reducer's fold position and state snapshot. Cursor
-    /// values are stored as strings so 64-bit sequences survive JSON.
+    /// Durably record a reducer's fold position and state snapshot
+    /// ([`RegistryConnection::put_journal_reducer_state`]).
     pub(crate) fn put_journal_reducer_state(
         &self,
         reducer_id: &str,
@@ -1228,21 +1231,12 @@ impl WorkspaceRegistry {
         cursor: u64,
         snapshot: &str,
     ) -> anyhow::Result<()> {
-        let value = serde_json::json!({
-            "version": version,
-            "cursor": cursor.to_string(),
-            "snapshot": snapshot,
-        });
-        self.connection.get().execute(
-            "INSERT INTO meta(key, value) VALUES(?1, ?2)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![format!("journal_reducer.{reducer_id}"), value.to_string()],
-        )?;
-        Ok(())
+        self.connection.put_journal_reducer_state(reducer_id, version, cursor, snapshot)
     }
 
     /// The most recently started journal output stream for one terminal:
     /// its generation and the exclusive end offset of its journaled bytes.
+    #[cfg(test)]
     pub(crate) fn terminal_stream_latest(
         &self,
         terminal_id: &str,
@@ -1276,6 +1270,7 @@ impl WorkspaceRegistry {
     /// retained vt-replay snapshot (a checkpoint blob for live terminals, the
     /// terminal exit snapshot for exited ones) and readers see the coverage
     /// clamp through the window's start offset.
+    #[cfg(test)]
     pub(crate) fn terminal_output_records_after(
         &self,
         terminal_id: &str,
@@ -1516,7 +1511,7 @@ fn archived_non_output_after(
         "SELECT segment_id, start_sequence, end_sequence
          FROM journal_segments
          WHERE end_sequence > ?1 AND start_sequence <= ?2
-         ORDER BY start_sequence ASC",
+         ORDER BY end_sequence ASC",
     )?;
     let rows = statement
         .query_map(params![i64::try_from(sequence)?, i64::try_from(through)?], |row| {
@@ -1897,6 +1892,14 @@ fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJourn
     Ok(DecodedJournalSegment { start_sequence, end_sequence, records })
 }
 
+/// Sealed segments never overlap (sealing appends them in sequence order and
+/// the readers below reject a gap or overlap), so `ORDER BY end_sequence`
+/// is the same order as `ORDER BY start_sequence`. Ordering by the column
+/// the range filters on lets SQLite seek its unique index to the cursor.
+/// Ordering by `start_sequence` scanned every segment row on every read: the
+/// journal fanout tailer reads after each commit, and on a registry with 5 353
+/// segments that took about 10 ms per read, about 100% CPU at 100 commits/s
+/// (NIGHTLY 2026-10-20). The seek takes about 0.02 ms on the same file.
 fn archived_records_after(
     connection: &Connection,
     sequence: u64,
@@ -1907,7 +1910,7 @@ fn archived_records_after(
                 content, uncompressed_bytes, sha256
          FROM journal_segments
          WHERE end_sequence > ?1
-         ORDER BY start_sequence ASC
+         ORDER BY end_sequence ASC
          LIMIT ?2",
     )?;
     let mut segments = statement
@@ -2463,3 +2466,36 @@ mod actor_tests;
 #[cfg(test)]
 pub(crate) use actors::journal_actor;
 pub(crate) use actors::{ledger_actor, resource_record_actor, segment_actors_json};
+
+/// Reducer snapshots on the connection alone (issue 23038). A snapshot row
+/// (`journal_reducer.<id>` in `meta`) is one statement of its own, written
+/// by its reducer and read back only at restore; no state commit reads it.
+/// So a save needs only the connection lock, like the journal writer, never
+/// the workspace registry lock: an agent history or roster snapshot written
+/// under the registry lock held every state commit (Cmd-N's pin, create and
+/// first tab) behind it.
+impl RegistryConnection {
+    /// Durably record a reducer's fold position and state snapshot. Cursor
+    /// values are stored as strings so 64-bit sequences survive JSON. The
+    /// caller need not hold the workspace registry lock.
+    #[track_caller]
+    pub(crate) fn put_journal_reducer_state(
+        &self,
+        reducer_id: &str,
+        version: u32,
+        cursor: u64,
+        snapshot: &str,
+    ) -> anyhow::Result<()> {
+        let value = serde_json::json!({
+            "version": version,
+            "cursor": cursor.to_string(),
+            "snapshot": snapshot,
+        });
+        self.get().execute(
+            "INSERT INTO meta(key, value) VALUES(?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![format!("journal_reducer.{reducer_id}"), value.to_string()],
+        )?;
+        Ok(())
+    }
+}

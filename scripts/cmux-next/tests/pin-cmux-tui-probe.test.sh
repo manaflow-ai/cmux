@@ -74,6 +74,17 @@ if [[ "\$method" == POST ]]; then
   esac
   exit 22
 fi
+# A head_sha= run query lists only that commit's runs (a run without head_sha
+# matches every query, as the older fixtures expect).
+if [[ -z "\$url" && "\$api" == *"head_sha="* ]]; then
+  want="\${api##*head_sha=}"; want="\${want%%&*}"
+  "$real_curl" "\$@" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+data["workflow_runs"] = [r for r in data.get("workflow_runs", []) if r.get("head_sha", sys.argv[1]) == sys.argv[1]]
+print(json.dumps(data))' "\$want"
+  exit "\${PIPESTATUS[0]}"
+fi
 if [[ -z "\$url" ]]; then exec "$real_curl" "\$@"; fi
 path="$TMP/cdn/\${url#https://cdn.test/}"; path="\${path%%\\?*}"
 [[ -f "\$path" ]] || exit 22
@@ -151,10 +162,8 @@ expect "pull request, published" pull_request ready
 
 # A pull request job resolves its artifact by the SOURCE tree key of the merge
 # tree. GitHub runs pull_request_target only from the default branch, so no
-# workflow publishes a merge tree by itself (#18121, #18130). With
-# CMUX_TUI_TREE_DISPATCH=1 (same-repository PRs only) the probe starts ONE
-# cmux-tui-artifacts run on a cmux-tui-pin-<sha12> ref at the merge commit and
-# defers: that run's publish starts the tree jobs (cmux_next_tree_notify.py).
+# workflow publishes a merge tree by itself (#18121, #18130). A missing merge
+# tree is reported for trusted fleet publication; no helper ref is created.
 posts() { grep -c "$1" "$TMP/posts.log" 2>/dev/null || true; }
 : > "$TMP/posts.log"
 
@@ -185,15 +194,15 @@ expect "pull request, changed hash, dispatch off (fork)" pull_request failed "no
 [[ "$(posts dispatches)" == 0 ]] || fail "(b) a fork PR (no CMUX_TUI_TREE_DISPATCH) must not dispatch"
 unset CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS
 export CMUX_TUI_TREE_DISPATCH=1
-expect "pull request, changed hash" pull_request deferred
-[[ "$(posts dispatches)" == 1 && "$(posts git/refs)" == 1 ]] || fail "(b) a changed hash needs one pin ref and one dispatch: $(cat "$TMP/posts.log")"
-grep -q "cmux-tui-pin-${merge_sha:0:12}.*$merge_sha" "$TMP/posts.log" || fail "(b) the pin ref must point at the merge commit: $(cat "$TMP/posts.log")"
-# The post-marker probe sees the queued run: still one dispatch.
-expect "pull request, changed hash, second look" pull_request deferred
-[[ "$(posts dispatches)" == 1 ]] || fail "(b) a second probe must not dispatch again: $(cat "$TMP/posts.log")"
+export CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS=0
+expect "pull request, changed hash" pull_request failed
+[[ "$(posts dispatches)" == 0 && "$(posts git/refs)" == 0 ]] || fail "(b) a changed hash must not create a ref or dispatch: $(cat "$TMP/posts.log")"
+# A second probe remains a read-only failure until a trusted publisher appears.
+expect "pull request, changed hash, second look" pull_request failed
+[[ "$(posts dispatches)" == 0 && "$(posts git/refs)" == 0 ]] || fail "(b) a second probe must not dispatch: $(cat "$TMP/posts.log")"
 
-# (c) The API refuses a ref at the merge commit: the PR head is pinned instead,
-# but only when its tree key is the merge's (a PR whose base left cmux-tui alone).
+# (c) A merge whose tree is not published is still reported without creating a
+# ref at either the merge commit or the PR head.
 : > "$TMP/posts.log"
 git_q -C "$TMP/src" checkout -b pr2 "$base_sha"
 echo head2 > "$TMP/src/cmux-tui/a"
@@ -204,11 +213,10 @@ git_q -C "$TMP/src" merge --no-ff -m merge2 pr2
 merge2_sha=$(git -C "$TMP/src" rev-parse HEAD)
 key=$(cd "$TMP/src" && bash scripts/cmux-next/pin-cmux-tui.sh key)
 set_runs "$none"
-export REFUSE_REF_SHA="$merge2_sha" CMUX_TUI_TREE_HEAD_SHA="$head2_sha"
-expect "pull request, merge ref refused, head has the tree" pull_request deferred
-grep -q "cmux-tui-pin-${head2_sha:0:12}.*$head2_sha" "$TMP/posts.log" || fail "(c) the PR head must be pinned: $(cat "$TMP/posts.log")"
-[[ "$(posts dispatches)" == 1 ]] || fail "(c) one dispatch: $(cat "$TMP/posts.log")"
-unset REFUSE_REF_SHA CMUX_TUI_TREE_HEAD_SHA CMUX_TUI_TREE_DISPATCH
+export REFUSE_REF_SHA="$merge2_sha" CMUX_TUI_TREE_HEAD_SHA="$head2_sha" CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS=0
+expect "pull request, merge ref refused, head has the tree" pull_request failed
+[[ "$(posts dispatches)" == 0 && "$(posts git/refs)" == 0 ]] || fail "(c) the PR head must not be published through a helper ref: $(cat "$TMP/posts.log")"
+unset REFUSE_REF_SHA CMUX_TUI_TREE_HEAD_SHA CMUX_TUI_TREE_DISPATCH CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS
 
 # (d) The pull request's own token may write nothing (HTTP 403 on the pin ref
 # and the dispatch): main's cmux-next-pr-merge-tree.yml (pull_request_target)
@@ -294,10 +302,12 @@ unset CMUX_TUI_TREE_BASE_FALLBACK
 
 # A scheduled DEV snapshot owns its exact SHA after the source branch moves.
 # Since e93faa5f1fb0 path routing is read-only (CMUX_TUI_TREE_DISPATCH=""), so
-# the probe never writes a pin ref or a dispatch. Current behavior: a cold tree
-# reads failed, and ready once published. Failed is not the intended result
-# while a trusted publisher for the exact SHA is running; the probe skips that
-# read-only lookup too. Follow-up: ci-green/dev-tree-readonly-lookup.
+# the probe never writes a pin ref or a dispatch. It still looks once, read-only,
+# for an artifacts run that publishes the tree: a cold tree with none reads
+# failed, one whose push run (or the same-key run that push handed the build
+# to) is running defers to it so dev-daily-tree-wait waits, and a published
+# tree reads ready. DEV run 39499536927 (2026-10-20) failed while push run
+# 39499455843 for its SHA and same-key owner run 39498123849 were running.
 sha=$(git -C "$TMP/src" rev-parse HEAD)
 set_head "$newer"
 set_runs "$none"
@@ -327,6 +337,24 @@ expect "scheduled dev, cold exact tree" workflow_dispatch failed "no cmux-tui ar
 eval "$(dev_probe_environment tree-final)"
 expect "scheduled dev, second probe" workflow_dispatch failed "no cmux-tui artifacts run can publish tree $key"
 [[ ! -s "$TMP/posts.log" ]] || fail "dev second probe must not write: $(cat "$TMP/posts.log")"
+# The push's artifacts run for the exact SHA is still running: defer, one look
+# (no wait), no write.
+set_runs "{\"total_count\":1,\"workflow_runs\":[{\"id\":5,\"status\":\"in_progress\",\"conclusion\":null,\"html_url\":\"u5\",\"head_sha\":\"$sha\",\"pull_requests\":[]}]}"
+eval "$(dev_probe_environment tree)"
+expect "scheduled dev, cold tree, push publisher running" workflow_dispatch deferred "$sha"
+(( took == 0 )) || fail "scheduled dev: the lookup must not wait (${took}s)"
+[[ ! -s "$TMP/posts.log" ]] || fail "dev probe with a running publisher must not write: $(cat "$TMP/posts.log")"
+eval "$(dev_probe_environment tree-final)"
+expect "scheduled dev, second probe, push publisher running" workflow_dispatch deferred "$sha"
+[[ ! -s "$TMP/posts.log" ]] || fail "dev second probe with a running publisher must not write: $(cat "$TMP/posts.log")"
+# A same-tree run of another commit is the active owner (the push's own run
+# handed the build to it): the probe defers to that commit.
+owner_sha=$(git -c user.name=t -c user.email=t@example.com -C "$TMP/src" commit-tree "$sha^{tree}" -p "$sha" -m "same tree")
+set_runs "{\"total_count\":1,\"workflow_runs\":[{\"id\":6,\"status\":\"in_progress\",\"conclusion\":null,\"html_url\":\"u6\",\"head_sha\":\"$owner_sha\",\"pull_requests\":[]}]}"
+eval "$(dev_probe_environment tree)"
+expect "scheduled dev, cold tree, same-key owner running" workflow_dispatch deferred "$owner_sha"
+[[ ! -s "$TMP/posts.log" ]] || fail "dev probe with a same-key owner must not write: $(cat "$TMP/posts.log")"
+set_runs "$none"
 mkdir -p "$TMP/cdn/cmux-tui/tree/$key"
 printf '%064d  cmux-tui-aarch64-apple-darwin\n' 0 > "$TMP/cdn/cmux-tui/tree/$key/cmux-tui-aarch64-apple-darwin.sha256"
 expect "scheduled dev, published by a trusted publisher" workflow_dispatch ready

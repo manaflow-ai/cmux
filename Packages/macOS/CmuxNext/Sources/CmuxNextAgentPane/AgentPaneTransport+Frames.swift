@@ -180,7 +180,11 @@ extension AgentPaneTransport {
             case .decide(let facts, let box):
                 complete(await decide(facts, box, connection: entry.connection, socket: socket, ids: ids))
             }
-            if wasFirst, sentFirst { await provePerson(socket: socket, ids: ids) }
+            if wasFirst, sentFirst {
+                let relay = promptRelay
+                await provePerson(socket: socket, ids: ids)
+                if self.socket === socket { await relay?.resend(socket: socket, ids: ids) }
+            }
         }
         draining = false
     }
@@ -232,7 +236,8 @@ extension AgentPaneTransport {
     /// The frame's paths against the pane's roots and the folders the user added.
     private func checkPathsInScope(_ box: FrameBox) async -> Result<[String], AcpmuxPathPolicy.Refusal> {
         let scope = AcpmuxPathPolicy.Scope(roots: roots(), gestureRoots: gestureRoots(), fillCwd: primaryRoot(),
-                                           agentHome: agentHome(), home: homeFolder, granted: addedRoots)
+                                           agentHome: agentHome(), home: homeFolder, granted: addedRoots,
+                                           workspaceID: workspaceID())
         return await Self.checkPaths(box, scope: scope)
     }
 
@@ -310,7 +315,10 @@ extension AgentPaneTransport {
                 granted = !facts.needsGesture || (AcpmuxPaneMethods.answerAllowed(facts.method, gestures) && gestures.consume()) || credit
                 // A new chat on this Mac needs no gesture, but its send's (or the folder pick's) goes with its first
                 // prompt however long the start takes, past ``AgentPaneUserGestures/lifetime`` (hq#2569 item 5).
-                if facts.startsLocalSession, startGesture || gestures.consume() {
+                // A folder pick that took the Send's gesture (``grantPicked(_:)``) gives it to this start.
+                if facts.startsLocalSession, startGesture
+                    || pickCredit.take(connection: id, now: gestures.uptime, lifetime: AgentPaneUserGestures.lifetime) == true
+                    || gestures.consume() {
                     startCredit.give(connection: id, at: gestures.uptime)
                 }
                 if granted, facts.needsGesture, remoteWire, facts.method == "acp.trust.set" {
@@ -322,9 +330,9 @@ extension AgentPaneTransport {
                 return Self.refuse(.refuse(.gestureRequired, method: facts.method, requestID: facts.pageID), socket: socket)
             }
         }
-        // P2: a config option that is not free needs the user's native confirmation unless the
-        // daemon says that the value keeps the session asking. A mode needs only the gesture rule
-        // (Lawrence 2026-10-07: no sheet for full access).
+        if let refusal = fullAccessRefusal(facts, socket: socket) { return refusal }
+        // P2: a config option that is not free needs the native confirmation unless the daemon says the value
+        // keeps the session asking. A mode needs only the gesture rule (Lawrence 2026-10-07: no sheet for full access).
         if let setting = facts.setting, setting.asked.needsSheet {
             let answer = await webModes(setting.sessionId, setting.configId, setting.value)
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
@@ -357,7 +365,8 @@ extension AgentPaneTransport {
         // The daemon sees only relay-owned ids; a page id is used by one request at a time.
         var relayID: Int?
         if let pageID = facts.pageID {
-            guard let next = ids.begin(pageID: pageID, method: facts.method ?? "") else { return Self.refuseInFlight() }
+            let subject = facts.method == AgentPaneAgentReply.method ? box.param("sessionId") : nil
+            guard let next = ids.begin(pageID: pageID, method: facts.method ?? "", subject: subject) else { return Self.refuseInFlight() }
             relayID = next
         }
         // A fork or handoff from a session outside the scope: the click's scope credit, used only
@@ -367,6 +376,10 @@ extension AgentPaneTransport {
             Self.logger.info("agent pane transport scope refused method=\(facts.method ?? "-", privacy: .public) \(self.gestures.debugDescription, privacy: .public)")
             return Self.refuse(.refuse(.gestureRequired, method: facts.method, requestID: facts.pageID), socket: socket)
         }
+        // The person's prompt is on disk before it goes, until acpmux acknowledges it.
+        let relay = facts.method == "session/prompt" ? promptRelay : nil
+        let journaled = await relay?.record(box, ids: ids, relayID: relayID)
+        if let relay, journaled != nil, id != current || self.socket !== socket { return await relay.withdraw(journaled, relayID: relayID, ids: ids) }
         if facts.isFirst {
             sentFirst = true
             localAppToken = nil
@@ -374,42 +387,17 @@ extension AgentPaneTransport {
             noteSent(facts, relayID: relayID)
             // The switch's queued prompt goes out: the switch has ended, its tickets with it.
             // A prompt went out: a seed ticket it did not redeem and the start's credit end too.
-            if facts.method == "session/prompt" { gestures.clearTickets(); gestures.dropSeedTicket(); startCredit.clear() }
+            if facts.method == "session/prompt" {
+                gestures.clearTickets(); gestures.dropSeedTicket(); startCredit.clear(); pickCredit.clear()
+            }
         }
         if let error = await Self.encodeAndSend(box, relayID: relayID, socket: socket) {
             if let relayID { ids.cancel(relayID) }
+            await relay?.withdraw(journaled, relayID: nil, ids: ids)
             if error == .outboundOverflow { socket.close(code: 1008, reason: "outbound overflow", error: error) }
             return .stop(error)
         }
         return .sent
-    }
-
-    /// The decision proof of an allow for a prompt of another daemon run, from the newest
-    /// `permission_pending` of that prompt. The daemon's own prompts need none (this connection
-    /// is the person). Signed only in a chat on another machine, only with the key bound to that
-    /// chat's own machine and to the run that asks, and only for the prompt and option the person
-    /// picked (`ticketPick`). A peer of this Mac's daemon has no key of this app (the app has no
-    /// exec channel of its own there). Otherwise the allow goes unproved (that daemon refuses
-    /// it), and the pane says so.
-    private func signRelayedAllow(_ box: FrameBox, sessionId: String?, ticketPick: Bool) {
-        guard let session = sessionId, let permission = box.param("permissionId"), let option = box.param("optionId"),
-              let context = decisions.context(session: session, permission: permission),
-              context.instance != decisions.localInstance else { return }
-        // No key bound for the chat's machine and the run that asks: approvals are off there.
-        guard let machine = remoteApprovals?.machineID,
-              let key = AcpmuxRemotePersonKeys.shared.key(machine: machine, instance: context.instance) else {
-            onRemoteApprovalsOff?(remoteApprovals)
-            return
-        }
-        // A bound key, but no ticket for this pick: the allow goes unproved and that daemon
-        // refuses it. Approvals are on there, so the pane shows no notice.
-        guard ticketPick else {
-            Self.logger.info("agent pane transport relayed allow without the person's ticket: sent without a proof")
-            return
-        }
-        let proof = key.decisionProof(instance: context.instance, session: session, permission: permission, option: option,
-                                      nonce: context.nonce)
-        box.setDecision(nonce: context.nonce, proof: proof)
     }
 
     /// Asks the user to confirm a mode that does not ask (the native sheet); false without one.

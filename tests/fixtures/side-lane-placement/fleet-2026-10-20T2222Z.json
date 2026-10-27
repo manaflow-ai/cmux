@@ -1,0 +1,2057 @@
+{
+ "_source": "cmux-lawrences-mac-mini:8444/data.json at 2026-10-20T22:22:07Z (runners: name, status, busy, labels; pools: the dashboard's per-label counts)",
+ "updated": "2026-10-20T22:22:07Z",
+ "pools": {
+  "glaeda-gui-std-xcode-26.6": {
+   "queued": 0,
+   "online": 0,
+   "busy": 0,
+   "idle": 0,
+   "total": 0
+  },
+  "glaeda-light-xcode-26.6": {
+   "queued": 0,
+   "online": 5,
+   "busy": 3,
+   "idle": 2,
+   "total": 12
+  },
+  "glaeda-promote-root-trusted-std-xcode-26.6": {
+   "queued": 0,
+   "online": 1,
+   "busy": 0,
+   "idle": 1,
+   "total": 1
+  },
+  "glaeda-promote-side-trusted-std-xcode-26.6": {
+   "queued": 0,
+   "online": 0,
+   "busy": 0,
+   "idle": 0,
+   "total": 4
+  },
+  "glaeda-promote-trusted-std-xcode-26.6": {
+   "queued": 0,
+   "online": 1,
+   "busy": 0,
+   "idle": 1,
+   "total": 5
+  },
+  "glaeda-root-light-xcode-26.6": {
+   "queued": 0,
+   "online": 2,
+   "busy": 0,
+   "idle": 2,
+   "total": 6
+  },
+  "glaeda-root-std-xcode-26.6": {
+   "queued": 0,
+   "online": 9,
+   "busy": 0,
+   "idle": 9,
+   "total": 22
+  },
+  "glaeda-root-trusted-std-xcode-26.6": {
+   "queued": 0,
+   "online": 2,
+   "busy": 0,
+   "idle": 2,
+   "total": 2
+  },
+  "glaeda-session-std-xcode-26.6": {
+   "queued": 1,
+   "online": 0,
+   "busy": 0,
+   "idle": 0,
+   "total": 0
+  },
+  "glaeda-side-light-xcode-26.6": {
+   "queued": 133,
+   "online": 3,
+   "busy": 3,
+   "idle": 0,
+   "total": 6
+  },
+  "glaeda-side-std-xcode-26.6": {
+   "queued": 0,
+   "online": 60,
+   "busy": 9,
+   "idle": 51,
+   "total": 104
+  },
+  "glaeda-std-xcode-26.6": {
+   "queued": 0,
+   "online": 69,
+   "busy": 9,
+   "idle": 60,
+   "total": 126
+  },
+  "glaeda-trusted-light-xcode-26.6": {
+   "queued": 0,
+   "online": 0,
+   "busy": 0,
+   "idle": 0,
+   "total": 0
+  },
+  "glaeda-trusted-std-xcode-26.6": {
+   "queued": 0,
+   "online": 2,
+   "busy": 0,
+   "idle": 2,
+   "total": 2
+  }
+ },
+ "runners": [
+  {
+   "name": "aws-m4pro-9-glaeda",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-promote-trusted-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-promote-root-trusted-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "aws-m4pro-9-glaeda-1",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-promote-trusted-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-promote-side-trusted-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "aws-m4pro-9-glaeda-2",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-promote-trusted-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-promote-side-trusted-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "aws-m4pro-9-glaeda-3",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-promote-trusted-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-promote-side-trusted-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "aws-m4pro-9-glaeda-4",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-promote-trusted-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-promote-side-trusted-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux-austin-mini-0-glaeda",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-light-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-light-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux-austin-mini-0-glaeda-1",
+   "status": "online",
+   "busy": true,
+   "labels": [
+    {
+     "name": "glaeda-light-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-light-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux-austin-mini-1-glaeda",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-light-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-light-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux-austin-mini-1-glaeda-1",
+   "status": "online",
+   "busy": true,
+   "labels": [
+    {
+     "name": "glaeda-light-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-light-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux10s-mac-mini-glaeda",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux10s-mac-mini-glaeda-1",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux10s-mac-mini-glaeda-10",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux10s-mac-mini-glaeda-11",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux10s-mac-mini-glaeda-2",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux10s-mac-mini-glaeda-3",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux10s-mac-mini-glaeda-4",
+   "status": "online",
+   "busy": true,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux10s-mac-mini-glaeda-5",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux10s-mac-mini-glaeda-6",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux10s-mac-mini-glaeda-7",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux10s-mac-mini-glaeda-8",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux10s-mac-mini-glaeda-9",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux11s-mac-mini-glaeda",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux11s-mac-mini-glaeda-1",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux11s-mac-mini-glaeda-10",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux11s-mac-mini-glaeda-11",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux11s-mac-mini-glaeda-2",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux11s-mac-mini-glaeda-3",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux11s-mac-mini-glaeda-4",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux11s-mac-mini-glaeda-5",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux11s-mac-mini-glaeda-6",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux11s-mac-mini-glaeda-7",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux11s-mac-mini-glaeda-8",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux11s-mac-mini-glaeda-9",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux12s-mac-mini-glaeda",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux12s-mac-mini-glaeda-1",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux12s-mac-mini-glaeda-10",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux12s-mac-mini-glaeda-11",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux12s-mac-mini-glaeda-2",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux12s-mac-mini-glaeda-3",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux12s-mac-mini-glaeda-4",
+   "status": "online",
+   "busy": true,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux12s-mac-mini-glaeda-5",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux12s-mac-mini-glaeda-6",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux12s-mac-mini-glaeda-7",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux12s-mac-mini-glaeda-8",
+   "status": "online",
+   "busy": true,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux12s-mac-mini-glaeda-9",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux13s-mac-mini-glaeda",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux13s-mac-mini-glaeda-1",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux13s-mac-mini-glaeda-10",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux13s-mac-mini-glaeda-11",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux13s-mac-mini-glaeda-2",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux13s-mac-mini-glaeda-3",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux13s-mac-mini-glaeda-4",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux13s-mac-mini-glaeda-5",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux13s-mac-mini-glaeda-6",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux13s-mac-mini-glaeda-7",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux13s-mac-mini-glaeda-8",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux13s-mac-mini-glaeda-9",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux14-glaeda",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux14-glaeda-1",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux14-glaeda-10",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux14-glaeda-11",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux14-glaeda-2",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux14-glaeda-3",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux14-glaeda-4",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux14-glaeda-5",
+   "status": "online",
+   "busy": true,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux14-glaeda-6",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux14-glaeda-7",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux14-glaeda-8",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux14-glaeda-9",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux15-glaeda",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "self-hosted"
+    },
+    {
+     "name": "macOS"
+    },
+    {
+     "name": "ARM64"
+    },
+    {
+     "name": "glaeda-mini"
+    },
+    {
+     "name": "xcode-26.6"
+    },
+    {
+     "name": "glaeda-class-std"
+    },
+    {
+     "name": "glaeda-dedicated"
+    },
+    {
+     "name": "glaeda-trusted"
+    },
+    {
+     "name": "glaeda-trusted-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-trusted-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-runner-cmux15-glaeda"
+    },
+    {
+     "name": "glaeda-trusted-next-nightly"
+    },
+    {
+     "name": "glaeda-macos-27"
+    }
+   ]
+  },
+  {
+   "name": "cmux15-glaeda-1",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "self-hosted"
+    },
+    {
+     "name": "macOS"
+    },
+    {
+     "name": "ARM64"
+    },
+    {
+     "name": "glaeda-mini"
+    },
+    {
+     "name": "xcode-26.6"
+    },
+    {
+     "name": "glaeda-class-std"
+    },
+    {
+     "name": "glaeda-dedicated"
+    },
+    {
+     "name": "glaeda-trusted"
+    },
+    {
+     "name": "glaeda-trusted-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-trusted-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-runner-cmux15-glaeda-1"
+    },
+    {
+     "name": "glaeda-trusted-next-nightly"
+    },
+    {
+     "name": "glaeda-macos-27"
+    }
+   ]
+  },
+  {
+   "name": "cmux17-glaeda",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-light-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-light-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux17-glaeda-1",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-light-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-light-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux18-glaeda",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-light-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-light-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux18-glaeda-1",
+   "status": "online",
+   "busy": true,
+   "labels": [
+    {
+     "name": "glaeda-light-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-light-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux19-glaeda",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-light-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-light-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux19-glaeda-1",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-light-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-light-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux24-glaeda",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-light-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-light-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux24-glaeda-1",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-light-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-light-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux7s-mac-mini-glaeda",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux7s-mac-mini-glaeda-1",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux7s-mac-mini-glaeda-2",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux7s-mac-mini-glaeda-3",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux7s-mac-mini-glaeda-4",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux7s-mac-mini-glaeda-5",
+   "status": "online",
+   "busy": true,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux8s-mac-mini-glaeda",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux8s-mac-mini-glaeda-1",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux8s-mac-mini-glaeda-10",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux8s-mac-mini-glaeda-11",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux8s-mac-mini-glaeda-2",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux8s-mac-mini-glaeda-3",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux8s-mac-mini-glaeda-4",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux8s-mac-mini-glaeda-5",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux8s-mac-mini-glaeda-6",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux8s-mac-mini-glaeda-7",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux8s-mac-mini-glaeda-8",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux8s-mac-mini-glaeda-9",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux9s-mac-mini-glaeda",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux9s-mac-mini-glaeda-1",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux9s-mac-mini-glaeda-10",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux9s-mac-mini-glaeda-11",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux9s-mac-mini-glaeda-2",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux9s-mac-mini-glaeda-3",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux9s-mac-mini-glaeda-4",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux9s-mac-mini-glaeda-5",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux9s-mac-mini-glaeda-6",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux9s-mac-mini-glaeda-7",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux9s-mac-mini-glaeda-8",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmux9s-mac-mini-glaeda-9",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-3-glaeda",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-3-glaeda-1",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-3-glaeda-10",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-3-glaeda-11",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-3-glaeda-2",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-3-glaeda-3",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-3-glaeda-4",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-3-glaeda-5",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-3-glaeda-6",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-3-glaeda-7",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-3-glaeda-8",
+   "status": "online",
+   "busy": true,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-3-glaeda-9",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-5-glaeda",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-5-glaeda-1",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-5-glaeda-10",
+   "status": "online",
+   "busy": true,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-5-glaeda-11",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-5-glaeda-2",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-5-glaeda-3",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-5-glaeda-4",
+   "status": "offline",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-5-glaeda-5",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-5-glaeda-6",
+   "status": "online",
+   "busy": true,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-5-glaeda-7",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-5-glaeda-8",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-5-glaeda-9",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-6-glaeda",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-6-glaeda-1",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-root-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-6-glaeda-10",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-6-glaeda-11",
+   "status": "online",
+   "busy": true,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-6-glaeda-2",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-6-glaeda-3",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-6-glaeda-4",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-6-glaeda-5",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-6-glaeda-6",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-6-glaeda-7",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-6-glaeda-8",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  },
+  {
+   "name": "cmuxs-mac-mini-6-glaeda-9",
+   "status": "online",
+   "busy": false,
+   "labels": [
+    {
+     "name": "glaeda-std-xcode-26.6"
+    },
+    {
+     "name": "glaeda-side-std-xcode-26.6"
+    }
+   ]
+  }
+ ]
+}

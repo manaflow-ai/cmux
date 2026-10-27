@@ -448,6 +448,8 @@ fn keyed_tells_and_cancels_are_idempotent() {
     let first = run(&mut h, cancel(&sp)).unwrap();
     assert!(first.starts_with("outcome: done."), "{first}");
     assert_eq!(h.agents.inner.lock().unwrap().cancels.len(), 1);
+    // Its background shells end with the turn.
+    assert_eq!(h.agents.inner.lock().unwrap().killed_processes.len(), 1);
     let second = run(&mut h, cancel(&sp)).unwrap();
     assert!(second.starts_with("outcome: noop."), "{second}");
     assert_eq!(h.agents.inner.lock().unwrap().cancels.len(), 1);

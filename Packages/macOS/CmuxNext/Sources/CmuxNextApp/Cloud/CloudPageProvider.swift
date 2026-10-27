@@ -31,12 +31,18 @@ final class CloudPageProvider: PageProvider {
     ///   - op: Runs one Cloud app server op (the app passes ``CloudAppLinks/ops(local:)``; tests a fake).
     ///   - signIn: The app's Cloud sign-in; true when the person signed in.
     ///   - signOut: The app's Cloud sign-out.
-    init(op: @escaping CloudAppOp, signIn: @escaping @MainActor () async -> Bool = { false },
-         signOut: @escaping @MainActor () async -> Void = {}) {
+    ///   Both default to named functions, not async closure literals (cx-bsue).
+    init(op: @escaping CloudAppOp, signIn: @escaping @MainActor () async -> Bool = CloudPageProvider.noSignIn,
+         signOut: @escaping @MainActor () async -> Void = CloudPageProvider.noSignOut) {
         self.op = op
         self.signIn = signIn
         self.signOut = signOut
     }
+
+    /// The default sign-in: nobody signs in.
+    static func noSignIn() async -> Bool { false }
+    /// The default sign-out: nothing to end.
+    static func noSignOut() async {}
 
     /// Live watch streams (one per Cloud page that loaded its list).
     var watcherCount: Int { watchers.count }
@@ -108,8 +114,9 @@ final class CloudPageProvider: PageProvider {
     }
 }
 
-/// The daemon's JSON as the page's (the two modules each define the same shape).
-private func pageJSON(_ value: CmuxNextDaemon.JSONValue) -> CmuxNextSettings.JSONValue {
+/// The daemon's JSON as the page's (the two modules each define the same shape); also
+/// `cmux cloud open-browser`'s route for ``BrowserTabOpen``.
+func pageJSON(_ value: CmuxNextDaemon.JSONValue) -> CmuxNextSettings.JSONValue {
     switch value {
     case .null: .null
     case .bool(let flag): .bool(flag)

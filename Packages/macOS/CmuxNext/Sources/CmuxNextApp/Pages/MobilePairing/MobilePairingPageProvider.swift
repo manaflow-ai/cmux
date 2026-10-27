@@ -22,7 +22,7 @@ final class MobilePairingPageProvider: PageProvider {
     /// How long a shown attach URL lasts; the page asks for a new one when it expires.
     static let ticketLifetime: TimeInterval = 600
 
-    private unowned let services: AppServices
+    private weak var services: AppServices?
     private let qr = PairingQRCode()
     /// The code shown now, for the listener that minted it.
     private var ticket: (host: ObjectIdentifier, url: String, image: String, expiresAt: Date)?
@@ -32,9 +32,10 @@ final class MobilePairingPageProvider: PageProvider {
     }
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+        guard let services else { throw PageError.closed }
         switch op {
         case Self.statusOp:
-            return await status()
+            return await status(services)
         case Self.setAllowedOp:
             guard context.userGesture || context.isConfirmedUser else {
                 throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
@@ -53,7 +54,7 @@ final class MobilePairingPageProvider: PageProvider {
     func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         guard stream == Self.changesStream else { throw PageError.unknownOp(stream) }
-        let services = services
+        guard let services else { throw PageError.closed }
         // task-owner: lives as long as the page's subscription; event-driven (Observation)
         let task = Task { @MainActor in
             var last: String?
@@ -76,14 +77,14 @@ final class MobilePairingPageProvider: PageProvider {
                 String(describing: status.phase), String(status.connectedPhones)].joined(separator: "|")
     }
 
-    private func status() async -> JSONValue {
+    private func status(_ services: AppServices) async -> JSONValue {
         let cloud = services.cloud
         let signedIn = cloud.isSignedIn
         let allowed = services.settings?.snapshot.sessions.allowsPhone ?? false
         let state = MobilePairingState.resolve(signedIn: signedIn, allowed: allowed, phase: services.mobile.status.phase)
         var reply: [String: JSONValue] = [
             "state": .string(state.wireName),
-            "macName": .string(await MacName().computerName()),
+            "macName": .string(await MacName().displayName()),
             "allowed": .bool(allowed),
             "connectedPhones": JSONValue(services.mobile.status.connectedPhones),
         ]
@@ -91,7 +92,7 @@ final class MobilePairingPageProvider: PageProvider {
             reply["account"] = .string(account)
         }
         if case .failed(let reason) = state { reply["failure"] = .string(reason) }
-        if state == .ready, let code = await currentTicket() {
+        if state == .ready, let code = await currentTicket(services) {
             reply["qr"] = ["url": .string(code.url), "image": .string(code.image),
                            "expiresAt": .number((code.expiresAt.timeIntervalSince1970 * 1000).rounded())]
         }
@@ -101,7 +102,7 @@ final class MobilePairingPageProvider: PageProvider {
     /// The attach URL and its QR code for the running listener: reused until a
     /// minute before it expires. Nil when this build has no iPhone app to address
     /// (no pairing URL scheme) or the listener has no relay yet.
-    private func currentTicket() async -> (url: String, image: String, expiresAt: Date)? {
+    private func currentTicket(_ services: AppServices) async -> (url: String, image: String, expiresAt: Date)? {
         guard let host = services.mobile.host else { return nil }
         let id = ObjectIdentifier(host)
         let now = Date()

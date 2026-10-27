@@ -35,6 +35,30 @@ chats at the bottom of the sidebar. Open one to resume it.
 - **A picture for each New entry people can see.** Stable and RC releases require one for every New
   entry, in light and dark. Nightlies show a picture when it is there.
 
+## A clip for each change people can see
+
+Leo, 2026-10-24: "I also think the What's New video is kind of, uh, it's like you're not even showing
+anything properly off. It's just sort of weird." Each New or Improved change people can see gets a
+3 to 8 second loop of the feature being used, cropped to where it happens. What's New shows it
+uncut beside its caption. The clip is recorded on the fleet from a spec, so the next release's clips
+come out the same way:
+
+1. Write `release-notes/next/clips/<highlight id>.json` (the format is in the docstring of
+   `scripts/cmux-next/media/whats-new-clips.py`):
+   - `caption`: one sentence of what you can now do.
+   - `steps`: capture steps that set the scene, then the steps that perform the feature, marked
+     `"clip": true`.
+   - `crop`: the part of the window where it happens, as fractions.
+   - Use made-up names, no real chats and no other products' names.
+2. Record it: `CMUX_HQ=<cmuxterm-hq checkout> scripts/cmux-next/media/whats-new-clips.py record <id>
+   --sha <commit>` (a commit that has the feature; the tip of feat-cmux-next). The fleet builds the app and a capture mini drives it, so nothing runs on your
+   Mac. Read every frame of the WebP it writes. A clip that shows no change is refused.
+3. Publish it: `whats-new-clips.py publish <id> <file>.webp`. This uploads it to pr-media (after
+   the privacy check) and writes the highlight's `clip:` line, which the signed notes carry. A clip
+   added within a week of its highlight comes again with the next nightly.
+
+`whats-new-clips.py check` (CI) holds every spec and `clip:` line to that shape.
+
 ## Release title
 
 A nightly's title is its first New entry's title, "and N more" when it has more. Order the

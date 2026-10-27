@@ -46,6 +46,24 @@ extension BrowserExtensionActionHosting {
 }
 
 
+/// Tabs whose page runs its `beforeunload` before a person closes the tab
+/// (Chrome: "Leave site?"). The tab and its view stay until the engine
+/// closes the page, which then asks for its tab's close (`.close`); when the
+/// person stays, nothing closes. Automation closes and quit never ask.
+public protocol BrowserUserClosing: AnyObject {
+    /// Starts a person's close. False: nothing can refuse it, close the tab
+    /// now. True: the page decides; the caller keeps the tab.
+    func beginUserClose() -> Bool
+}
+
+extension BrowserTab {
+    /// ``BrowserUserClosing/beginUserClose()`` for a page that can refuse a
+    /// person's close; false (close now) for every other page.
+    public func pageDecidesUserClose() -> Bool {
+        (self as? any BrowserUserClosing)?.beginUserClose() ?? false
+    }
+}
+
 /// Tabs whose engine reports a hung page and lets the user choose ("Page
 /// unresponsive": Wait or Exit page).
 public protocol BrowserHangAnswering: AnyObject {
@@ -61,5 +79,8 @@ public protocol BrowserHangAnswering: AnyObject {
 public protocol BrowserFreezing: AnyObject {
     /// Freezes or thaws the page. The request leaves before this returns, so a
     /// call made after a thaw runs on a live page. A closed page ignores it.
-    func setFrozen(_ frozen: Bool)
+    /// - Returns: False when nothing changed: the page is closed, or (freezing) the engine still
+    ///   counts it visible (`WebContents::SetPageFrozen` freezes hidden pages only).
+    @discardableResult
+    func setFrozen(_ frozen: Bool) -> Bool
 }

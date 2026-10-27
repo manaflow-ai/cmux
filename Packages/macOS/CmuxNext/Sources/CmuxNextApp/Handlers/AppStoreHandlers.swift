@@ -11,12 +11,13 @@ enum AppStoreHandlers {
         let services = context.services
         // The App Store is an internal page (a tab of the active window).
         services.pages.register(services.apps)
+        // `category` (cmux's features) is still accepted and ignored: those are Settings now.
         registry.bind("appStore.show", run: { invocation in
             let app = invocation["app"]?.stringValue?.trimmingCharacters(in: .whitespaces)
-            services.apps.showStore(appID: app?.isEmpty == false ? app : nil, focus: invocation.allowsViewChange)
+            services.apps.showStore(appID: app?.isEmpty == false ? app : nil, tab: invocation["tab"]?.stringValue.flatMap(AppStoreTab.init(argument:)), focus: invocation.allowsViewChange)
         })
         registry.bind("appStore.showInstalled", run: { invocation in
-            services.apps.showStore(installed: true, focus: invocation.allowsViewChange)
+            services.apps.showStore(tab: .installed, focus: invocation.allowsViewChange)
         })
         // Hide and unhide (V9): apps-set hidden on the supervisor with the
         // invocation's origin; the supervisor decides which origins may hide.

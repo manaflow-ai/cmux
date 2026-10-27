@@ -1,17 +1,14 @@
 import CmuxNextActions
 import CmuxNextSettings
 import CmuxNextSidebar
-import os
 
 /// Projects hides from its header's menu and comes back from the sidebar's
-/// menu or Settings (`sidebar.showProjects`; Leo 2026-10-06). Chats, the
-/// All chats, the section under the workspaces (on by default, cx-xub5), hides
-/// from its header by turning off `sidebar.showChats`; Show All Chats in
-/// Settings or Show Hidden Sections brings it back. Each is a setting, so the
-/// choice follows cmux.json.
+/// menu or Settings (`sidebar.showProjects`; Leo 2026-10-06). All chats left
+/// the sidebar for the New Tab page (cx-n0i9): Hide Section on its old header
+/// still turns off `sidebar.showChats` (Show All Chats on New Tab), but Show
+/// Hidden Sections brings back only sidebar sections. Each is a setting, so
+/// the choice follows cmux.json.
 enum SidebarHiddenSections {
-    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
-
     /// The rows a section header's menu leaves out. Every hideable header
     /// (Recents and each app section) shows the same one row, Hide <Section>
     /// (`sidebar.section.hide`, cx-w1r5: one visibility path everywhere); the
@@ -35,8 +32,8 @@ enum SidebarHiddenSections {
 
     /// The setting Hide Section turns off.
     static let hidePath = SidebarSectionsSetting.showChatsPath
-    /// The settings Show Hidden Sections turns back on: Projects and All chats.
-    static let showHiddenPaths = [SidebarSectionsSetting.showProjectsPath, SidebarSectionsSetting.showChatsPath]
+    /// The settings Show Hidden Sections turns back on: Projects (All chats is no sidebar section).
+    static let showHiddenPaths = [SidebarSectionsSetting.showProjectsPath]
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let settings = { context.services.settings?.snapshot.sidebarSections ?? .defaults }
@@ -59,7 +56,7 @@ enum SidebarHiddenSections {
             try write([(SidebarSectionsSetting.showProjectsPath, false)], invocation, context)
         }
         registry.bind("sidebar.sections.showHidden", unavailable: {
-            settings().showProjects && settings().showChats ? SidebarSectionStrings.noneHidden : nil
+            settings().showProjects ? SidebarSectionStrings.noneHidden : nil
         }) { invocation in
             try write(showHiddenPaths.map { ($0, true) }, invocation, context)
         }
@@ -97,16 +94,7 @@ enum SidebarHiddenSections {
 
     /// Writes each toggle through the settings schema (managed keys refuse).
     private static func write(_ values: [([String], Bool)], _ invocation: ActionInvocation, _ context: AppActionContext) throws {
-        guard let settings = context.services.settings else { return }
         for (path, _) in values { try AppearanceHandlers.requireUnmanaged(path, context) }
-        let writer = SettingWriter(invocation.origin)
-        Task {
-            for (path, value) in values {
-                guard let descriptor = SettingsSchema.descriptor(for: path) else { continue }
-                do { try await settings.setSetting(descriptor, to: .bool(value), by: writer) } catch {
-                    logger.error("sidebar section setting \(path.joined(separator: "."), privacy: .public) failed: \(String(describing: error), privacy: .public)")
-                }
-            }
-        }
+        context.writeSettings("sidebar section setting", values.map { ($0.0, JSONValue.bool($0.1)) })
     }
 }

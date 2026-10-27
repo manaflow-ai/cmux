@@ -118,6 +118,16 @@ import Testing
         #expect(ActionRegistry.standard().shortcutConflicts().isEmpty)
     }
 
+    /// Open Files as Pane and Open Find as Pane are `cmux pane open-files-as` /
+    /// `open-find-as` and MCP tools, and a script can name the folder (`--path`).
+    @Test(arguments: ["palette.openFilesPane", "palette.openFindPane"])
+    func openFilesAndFindAsPaneAreCLIVerbsAndMCPTools(id: String) throws {
+        let descriptor = try #require(catalog.first { $0.id.rawValue == id })
+        #expect(descriptor.surfacePlan.cli == .offered)
+        #expect(descriptor.surfacePlan.mcp == .offered)
+        #expect(descriptor.arguments.contains { $0.name == "path" && !$0.isRequired })
+    }
+
     /// Every right-click item runs the action it shows through
     /// `ActionRegistry.perform` with the item's target and the user origin:
     /// the same path the palette, the keyboard and the CLI use.

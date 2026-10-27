@@ -8,7 +8,13 @@
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().with_env(&[
+    ("ANTHROPIC_AUTH_TOKEN", "synthetic-daemon-token"),
+    ("CMUX_REMOTE_TEST_SECRET", "synthetic-cmux-secret"),
+    ("LC_API_TOKEN", "synthetic-locale-shaped-secret"),
+    ("SSH_AUTH_SOCK", "/synthetic/ssh-agent.sock"),
+    ("UNRELATED_TOKEN", "synthetic-unrelated-token"),
+]);
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -21,6 +27,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+const FAKE_AGENT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
 fn dir(tag: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("ars-{tag}-{}", std::process::id()));
@@ -29,17 +36,42 @@ fn dir(tag: &str) -> PathBuf {
     std::fs::canonicalize(&d).unwrap()
 }
 
-fn hub(d: &Path) -> Arc<Hub> {
+fn hub_with(d: &Path, vm_host: bool) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fakeclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"}},
+        "harnesses": {
+            "fakeclaude": {
+                "argv": ["python3", FAKE_CLAUDE],
+                "kind": "claude-stdio",
+                "env": {
+                    "ANTHROPIC_AUTH_TOKEN": "synthetic-profile-token",
+                    "REMOTE_PROFILE_VALUE": "profile-authorized",
+                    "FAKE_KEYCHAIN_PATH": d.join("work/test.keychain-db")
+                }
+            },
+            "fakeacp": {
+                "argv": ["python3", FAKE_AGENT],
+                "family": "sample",
+                "env": {
+                    "FAKE_ASK_MODE": "1",
+                    "REMOTE_PROFILE_VALUE": "profile-authorized",
+                    "__ACPMUX_REMOTE_ENV_CLEARED": "profile-collision"
+                }
+            }
+        },
         "defaultHarness": "fakeclaude",
         "permissionPolicy": "ask",
         "webRoots": [d.join("work")],
+        "webAskingModes": {"sample": ["ask"]},
+        "vmHost": vm_host,
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     Hub::new(cfg, store)
+}
+
+fn hub(d: &Path) -> Arc<Hub> {
+    hub_with(d, false)
 }
 
 struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
@@ -71,7 +103,20 @@ impl Client {
     /// A new session in `d/work` and one prompt; the error of whichever
     /// failed, else the text the agent streamed for the prompt.
     async fn run(&mut self, d: &Path, text: &str) -> Result<String, Value> {
-        let r = self.call("session/new", json!({"cwd": d.join("work"), "mcpServers": []})).await;
+        self.run_harness(d, None, text).await
+    }
+
+    async fn run_harness(
+        &mut self,
+        d: &Path,
+        harness: Option<&str>,
+        text: &str,
+    ) -> Result<String, Value> {
+        let mut params = json!({"cwd": d.join("work"), "mcpServers": []});
+        if let Some(harness) = harness {
+            params["_meta"] = json!({"acpmux": {"harness": harness}});
+        }
+        let r = self.call("session/new", params).await;
         let Some(s) = r["result"]["sessionId"].as_str().map(str::to_owned) else {
             return Err(r);
         };
@@ -91,6 +136,94 @@ impl Client {
             .filter_map(|e| e.pointer("/msg/params/update/content/text").and_then(Value::as_str))
             .collect())
     }
+}
+
+#[tokio::test]
+async fn every_remote_harness_inherits_only_its_explicit_environment() {
+    let d = dir("acp-environment");
+    let hub = hub_with(&d, true);
+    let prompt = "envs: CMUX_REMOTE_TEST_SECRET,LC_API_TOKEN,SSH_AUTH_SOCK,UNRELATED_TOKEN,REMOTE_PROFILE_VALUE,HOME,PATH";
+    let mut web = Client::new(&hub, Origin::Web);
+    let remote: Value = serde_json::from_str(
+        &web.run_harness(&d, Some("fakeacp"), prompt).await.unwrap_or_else(|e| panic!("{e}")),
+    )
+    .unwrap();
+    assert_eq!(remote["REMOTE_PROFILE_VALUE"], "profile-authorized");
+    for dropped in ["CMUX_REMOTE_TEST_SECRET", "LC_API_TOKEN", "SSH_AUTH_SOCK", "UNRELATED_TOKEN"] {
+        assert_eq!(remote[dropped], "", "remote ACP child inherited {dropped}: {remote}");
+    }
+    assert!(remote["HOME"].as_str().is_some_and(|v| !v.is_empty()), "{remote}");
+    assert!(remote["PATH"].as_str().is_some_and(|v| !v.is_empty()), "{remote}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[tokio::test]
+async fn a_remote_claude_gets_only_the_selected_login_credential() {
+    let d = dir("login-credential");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fakeclaude": {
+            "argv": ["python3", FAKE_CLAUDE],
+            "kind": "claude-stdio"
+        }},
+        "defaultHarness": "fakeclaude",
+        "permissionPolicy": "ask",
+        "webRoots": [d.join("work")],
+        "vmHost": true
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let mut web = Client::new(&hub, Origin::Web);
+    let remote: Value = serde_json::from_str(
+        &web.run(&d, "envs: ANTHROPIC_AUTH_TOKEN,UNRELATED_TOKEN")
+            .await
+            .unwrap_or_else(|e| panic!("{e}")),
+    )
+    .unwrap();
+    assert_eq!(remote["ANTHROPIC_AUTH_TOKEN"], "synthetic-daemon-token");
+    assert_eq!(remote["UNRELATED_TOKEN"], "");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[tokio::test]
+async fn a_remote_chain_inherits_only_profile_and_safe_base_environment() {
+    let d = dir("environment");
+    // Off macOS, vmHost is the sandbox boundary and still needs the same
+    // least-authority process environment. A Mac keeps Seatbelt too.
+    let hub = hub_with(&d, true);
+    let names = [
+        "ANTHROPIC_AUTH_TOKEN",
+        "CMUX_REMOTE_TEST_SECRET",
+        "LC_API_TOKEN",
+        "SSH_AUTH_SOCK",
+        "UNRELATED_TOKEN",
+        "REMOTE_PROFILE_VALUE",
+        "HOME",
+        "PATH",
+    ];
+    let prompt = format!("envs: {}", names.join(","));
+
+    let mut local = Client::new(&hub, Origin::Local);
+    let inherited: Value =
+        serde_json::from_str(&local.run(&d, &prompt).await.unwrap_or_else(|e| panic!("{e}")))
+            .unwrap();
+    assert_eq!(inherited["CMUX_REMOTE_TEST_SECRET"], "synthetic-cmux-secret");
+    assert_eq!(inherited["SSH_AUTH_SOCK"], "/synthetic/ssh-agent.sock");
+    assert_eq!(inherited["UNRELATED_TOKEN"], "synthetic-unrelated-token");
+
+    let mut web = Client::new(&hub, Origin::Web);
+    let remote: Value =
+        serde_json::from_str(&web.run(&d, &prompt).await.unwrap_or_else(|e| panic!("{e}")))
+            .unwrap();
+    assert_eq!(remote["ANTHROPIC_AUTH_TOKEN"], "synthetic-profile-token");
+    assert_eq!(remote["REMOTE_PROFILE_VALUE"], "profile-authorized");
+    for dropped in ["CMUX_REMOTE_TEST_SECRET", "LC_API_TOKEN", "SSH_AUTH_SOCK", "UNRELATED_TOKEN"] {
+        assert_eq!(remote[dropped], "", "remote child inherited {dropped}: {remote}");
+    }
+    assert!(remote["HOME"].as_str().is_some_and(|v| !v.is_empty()), "{remote}");
+    assert!(remote["PATH"].as_str().is_some_and(|v| !v.is_empty()), "{remote}");
+    let _ = std::fs::remove_dir_all(&d);
 }
 
 #[tokio::test]
@@ -173,6 +306,27 @@ fn dirs_home() -> PathBuf {
 #[tokio::test]
 async fn a_remote_chain_cannot_query_the_keychain() {
     let d = dir("keychain");
+    let keychain = d.join("work/test.keychain-db");
+    let created = std::process::Command::new("/usr/bin/security")
+        .args(["create-keychain", "-p", "synthetic-password"])
+        .arg(&keychain)
+        .status()
+        .unwrap();
+    assert!(created.success());
+    let added = std::process::Command::new("/usr/bin/security")
+        .args([
+            "add-generic-password",
+            "-a",
+            "synthetic-account",
+            "-s",
+            "synthetic-service",
+            "-w",
+            "synthetic-value",
+        ])
+        .arg(&keychain)
+        .status()
+        .unwrap();
+    assert!(added.success());
     let hub = hub(&d);
     // The control: a local session's agent may.
     let mut local = Client::new(&hub, Origin::Local);

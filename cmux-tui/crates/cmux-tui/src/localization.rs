@@ -6,12 +6,14 @@ mod agent_wrapper;
 mod agents_doctor;
 mod app_control;
 mod attach;
+mod billing;
 mod browser;
 mod cli_connection;
 mod coderouter;
 mod config;
 mod foreign_viewport;
 mod graphics;
+mod host_share;
 mod layout;
 mod local_server;
 mod machine_agent;
@@ -36,6 +38,7 @@ pub(crate) use agent_wrapper::AgentWrapperMessages;
 pub(crate) use agents_doctor::AgentsDoctorMessages;
 pub(crate) use app_control::{AppControlMessages, VersionLabels};
 pub(crate) use attach::AttachMessages;
+pub(crate) use billing::BillingMessages;
 pub(crate) use browser::BrowserMessages;
 pub(crate) use cli_connection::CliConnectionMessages;
 pub(crate) use coderouter::CodeRouterMessages;
@@ -147,8 +150,10 @@ pub(crate) struct Catalog {
     pub sidebar: SidebarMessages,
     pub agent_wrapper: AgentWrapperMessages,
     pub agents_doctor: AgentsDoctorMessages,
+    pub host_share: host_share::Messages,
     pub app_control: AppControlMessages,
     pub coderouter: CodeRouterMessages,
+    pub billing: BillingMessages,
     pub update_notice: UpdateNoticeMessages,
 }
 
@@ -162,10 +167,12 @@ impl Catalog {
 static ENGLISH: Catalog = Catalog {
     japanese: false,
     coderouter: coderouter::ENGLISH,
+    billing: billing::ENGLISH,
     update_notice: update_notice::ENGLISH,
     app_control: app_control::ENGLISH,
     agent_wrapper: agent_wrapper::ENGLISH,
     agents_doctor: agents_doctor::ENGLISH,
+    host_share: host_share::ENGLISH,
     startup: startup::ENGLISH,
     terminal_input: terminal_input::ENGLISH,
     local_server: local_server::ENGLISH,
@@ -193,10 +200,12 @@ static ENGLISH: Catalog = Catalog {
 static JAPANESE: Catalog = Catalog {
     japanese: true,
     coderouter: coderouter::JAPANESE,
+    billing: billing::JAPANESE,
     update_notice: update_notice::JAPANESE,
     app_control: app_control::JAPANESE,
     agent_wrapper: agent_wrapper::JAPANESE,
     agents_doctor: agents_doctor::JAPANESE,
+    host_share: host_share::JAPANESE,
     startup: startup::JAPANESE,
     terminal_input: terminal_input::JAPANESE,
     local_server: local_server::JAPANESE,

@@ -1,0 +1,87 @@
+# cmux device hub: device keys, Mac Screen permissions, session tickets and
+# WebRTC signaling. Contract: docs/device-hub/PROTOCOL.md.
+#
+# No account_id here: the account comes from the deploy environment
+# (CLOUDFLARE_ACCOUNT_ID). Both targets are in Lawrence's account.
+# The top level is production (cmux-device-hub on workers.dev, deploy with
+# --env=""); [env.dev] is dev. The app builds both addresses in. DEPLOY.md.
+#
+# Secrets (wrangler secret put, or .dev.vars for wrangler dev):
+#   SESSION_KEY        private P-256 JWK (JSON) that signs account session JWTs
+#   TICKET_KEY         private P-256 JWK (JSON) that signs session tickets
+#   TURN_KEY_ID        optional, Cloudflare Realtime TURN key id
+#   TURN_KEY_API_TOKEN optional, its API token. Without both, the cmux relay ICE is [].
+# `npm run dev-secrets` writes a fresh .dev.vars with both keys.
+
+name = "cmux-device-hub"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+workers_dev = true
+preview_urls = false
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+# Ticket URLs carry a credential in the query string.
+invocation_logs = false
+
+[vars]
+# Stack Auth projects accepted by /v1/auth/stack (comma list; STACK_PROJECT_ID
+# is the fallback when this is empty). Production: cmux prod only.
+STACK_PROJECT_IDS = "9790718f-14cd-4f7e-824d-eaf527a82b82"
+# cmux web backend per Stack project, asked with the caller's own Stack token
+# (GET /api/billing/plan) before each cmux relay grant: Pro, Max or Team get
+# it; anything else, or a failed lookup, gets none. src/billing.ts.
+BILLING_ORIGINS = "9790718f-14cd-4f7e-824d-eaf527a82b82=https://cmux.com"
+# Optional public origin used in signalURL (e.g. https://hub.example). Empty:
+# derived from the request URL.
+PUBLIC_BASE_URL = ""
+
+[[durable_objects.bindings]]
+name = "USER_DO"
+class_name = "UserDO"
+
+[[durable_objects.bindings]]
+name = "SESSION_DO"
+class_name = "SessionDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["UserDO", "SessionDO"]
+
+# ---- dev deployment: cmux-device-hub-dev on workers.dev ----
+# Bindings, vars and migrations are not inherited by environments, so they are
+# repeated here. Deploy steps: DEPLOY.md.
+[env.dev]
+name = "cmux-device-hub-dev"
+workers_dev = true
+preview_urls = false
+
+[env.dev.observability]
+enabled = true
+
+[env.dev.observability.logs]
+enabled = true
+invocation_logs = false
+
+[env.dev.vars]
+# cmux prod and the Stack development project used by DEBUG/tagged builds.
+STACK_PROJECT_IDS = "9790718f-14cd-4f7e-824d-eaf527a82b82,454ecd03-1db2-4050-845e-4ce5b0cd9895"
+# Prod-project users ask cmux.com; development-project users ask the staging
+# web deployment (its Stack project is the development one).
+BILLING_ORIGINS = "9790718f-14cd-4f7e-824d-eaf527a82b82=https://cmux.com,454ecd03-1db2-4050-845e-4ce5b0cd9895=https://cmux-staging.vercel.app"
+PUBLIC_BASE_URL = ""
+
+[[env.dev.durable_objects.bindings]]
+name = "USER_DO"
+class_name = "UserDO"
+
+[[env.dev.durable_objects.bindings]]
+name = "SESSION_DO"
+class_name = "SessionDO"
+
+[[env.dev.migrations]]
+tag = "v1"
+new_sqlite_classes = ["UserDO", "SessionDO"]

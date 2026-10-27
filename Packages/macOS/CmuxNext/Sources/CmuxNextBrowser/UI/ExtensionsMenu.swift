@@ -34,6 +34,7 @@ public struct ExtensionsMenu {
     public static func rowIdentifier(_ id: String) -> String { "browser.extensions.menu.row.\(id)" }
     public static func pinIdentifier(_ id: String) -> String { "browser.extensions.menu.pin.\(id)" }
     public static func moreIdentifier(_ id: String) -> String { "browser.extensions.menu.more.\(id)" }
+    public static func sidePanelIdentifier(_ id: String) -> String { "browser.extensions.menu.sidePanel.\(id)" }
     public static func footerIdentifier(_ operation: ExtensionMenuOperation) -> String { "browser.extensions.menu.\(operation.rawValue)" }
 
     public func defaultTitle(_ operation: ExtensionMenuOperation) -> String { Strings.extensionMenuTitle(operation) }

@@ -30,6 +30,21 @@ extension BrowserPageScripts {
         """)
     }
 
+    /// Clicks `selector` to open the page's file chooser, as the person's click does: a file input (hidden
+    /// ones too), its label, or a button whose handler opens one. Answers `{value: {fileInput}, at}`, or
+    /// `{error, code}` for a missing or disabled element.
+    static func openFileChooser(_ selector: String) -> String {
+        wrap(find(selector) + """
+        const W = (el.ownerDocument && el.ownerDocument.defaultView) || window;
+        const fileInput = el instanceof W.HTMLInputElement && String(el.type).toLowerCase() === 'file';
+        if (el.disabled) { return { error: 'Element is disabled: ' + raw, code: 'disabled' }; }
+        const at = cmuxAt(el);
+        if (!fileInput) { el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' }); }
+        el.click();
+        return { value: { fileInput }, at };
+        """)
+    }
+
     /// Puts `files` (name, MIME type, base64 bytes) into the file input
     /// `selector` through a `DataTransfer`, then fires `input` and `change`.
     static func upload(_ selector: String, files: [(name: String, type: String, base64: String)]) -> String {
@@ -39,8 +54,7 @@ extension BrowserPageScripts {
         const W = (el.ownerDocument && el.ownerDocument.defaultView) || window;
         if (!(el instanceof W.HTMLInputElement) || String(el.type).toLowerCase() !== 'file') { return { error: 'Element is not a file input: ' + raw, code: 'not_file_input' }; }
         const dt = new W.DataTransfer();
-        for (const f of [\(list)]) { const bin = atob(f.b64); const bytes = new Uint8Array(bin.length);
-          for (let i = 0; i < bin.length; i++) { bytes[i] = bin.charCodeAt(i); }
+        for (const f of [\(list)]) { const bytes = Uint8Array.from(atob(f.b64), (c) => c.charCodeAt(0));
           dt.items.add(new W.File([bytes], f.name, { type: f.type })); }
         el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
         el.files = dt.files;

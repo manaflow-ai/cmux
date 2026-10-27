@@ -11,7 +11,7 @@ nonisolated final class AcpmuxLogProgress: Sendable {
     // lock carve-out (an actor would add hops to a one-value compare).
     private let lastWrite = Mutex(ContinuousClock.now)
     // DispatchSource file watching has no async equivalent; it lives and dies with this object.
-    private nonisolated(unsafe) let source: (any DispatchSourceFileSystemObject)?
+    private nonisolated(unsafe) let source: (any DispatchSourceFileSystemObject)? // crash-allow: an immutable let set once in init; a dispatch source is a thread-safe libdispatch object (handlers, resume, cancel from any thread)
 
     /// Watches `logPath` (created when missing) for writes from now on.
     init(logPath: String) {

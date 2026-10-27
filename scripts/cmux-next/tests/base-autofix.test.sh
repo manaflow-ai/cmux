@@ -69,4 +69,23 @@ bash "$FIX" --no-fmt --docs-shortcuts --app-host --unverified-exports "$repo" > 
 [[ "$(cat "$repo/web/data/cmux-shortcuts.generated.json")" == current ]] || fail "the docs shortcuts must wait for verified action exports"
 [[ "$(cat "$repo/cmux-tui/crates/cmux-app-host/generated/scopes.json")" == current ]] || fail "the app-host files must wait for verified action exports"
 grep -q '^left: web/data/cmux-shortcuts.generated.json' "$tmp/out" || fail "the waiting docs shortcuts must be reported"
+# The read-only webviews job's patch may carry the rebuilt Chief memory
+# inspector page (a stale one fails every webviews bundle build), but no other
+# path outside webviews/.
+page=Native/OptChat/optchat-chief/inspector/index.html
+mkdir -p "$repo/$(dirname "$page")" "$repo/Native/OptChat/other" "$repo/webviews/src"
+echo stale > "$repo/$page"; echo keep > "$repo/Native/OptChat/other/x.txt"; echo 'a  =1' > "$repo/webviews/src/a.ts"
+git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm pages
+echo rebuilt > "$repo/$page"; echo 'a = 1' > "$repo/webviews/src/a.ts"
+git -C "$repo" diff --binary > "$tmp/fmt.patch"; git -C "$repo" checkout -q -- .
+bash "$FIX" --no-fmt --webviews-fmt-patch "$tmp/fmt.patch" "$repo" > "$tmp/out" 2>&1 || fail "the fixer must apply the webviews patch"
+[[ "$(cat "$repo/$page")" == rebuilt ]] || fail "the rebuilt inspector page must be applied"
+[[ "$(cat "$repo/webviews/src/a.ts")" == 'a = 1' ]] || fail "the formatting in the same patch must be applied"
+grep -q "^fixed: rebuilt $page" "$tmp/out" || fail "the rebuilt inspector page must be reported"
+git -C "$repo" checkout -q -- .
+echo changed > "$repo/Native/OptChat/other/x.txt"; echo rebuilt > "$repo/$page"
+git -C "$repo" diff --binary > "$tmp/fmt.patch"; git -C "$repo" checkout -q -- .
+bash "$FIX" --no-fmt --webviews-fmt-patch "$tmp/fmt.patch" "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed on a patch it refuses"
+[[ "$(cat "$repo/Native/OptChat/other/x.txt")" == keep && "$(cat "$repo/$page")" == stale ]] || fail "a patch reaching another path outside webviews/ must apply nothing"
+grep -q '^left: the webviews formatting patch reaches Native/OptChat/other/x.txt' "$tmp/out" || fail "the refused path must be reported"
 echo "base autofix: ok"

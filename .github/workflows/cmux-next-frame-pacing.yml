@@ -1,6 +1,6 @@
 name: cmux-next frame pacing
 
-# Nightly fling bench of the cmux-next agent pane at 120 Hz. The minis' own
+# Fling bench of the cmux-next agent pane at 120 Hz, started by the perf cron on idle fleet time. The minis' own
 # displays are 60 Hz, so the bench adds a 120 Hz virtual display
 # (scripts/ci/frame-pacing/vdisplay.m, the private CGVirtualDisplay API) and
 # measures the pane at both render rates: capped (CMUX_NEXT_AGENT_PANE_FULL_RATE=0,
@@ -25,9 +25,9 @@ name: cmux-next frame pacing
 # into feat-cmux-next that touch the measured paths.
 
 on:
-  schedule:
-    # 09:37 UTC, 02:37 in San Francisco: the fleet's quietest hour.
-    - cron: "37 9 * * *"
+  # No schedule (Lawrence 2026-10-23: nothing perf-related slows a nightly or a dev build): the perf cron
+  # (cmux-next-perf-budgets.yml) starts this at most once in 24 h, only when no nightly or dev build waits
+  # for a Mac; cmux-next-motion-golden.yml starts golden-only runs for labeled pull requests.
   workflow_dispatch:
     inputs:
       ref:
@@ -232,6 +232,7 @@ jobs:
             scripts/ci/xcode-pins.txt
             scripts/ci/frame-pacing
             scripts/cmux-next/instant-new-surfaces-bench.py
+            scripts/cmux-next/cmd-n-paint-e2e.py
             scripts/cmux-next/bench-startup.py
             scripts/cmux-next/bench_memory.py
             scripts/lib/stop-cmux-tui-owners.sh
@@ -291,6 +292,19 @@ jobs:
           scripts/ci/frame-pacing/console-session.sh /usr/bin/python3 scripts/cmux-next/instant-new-surfaces-bench.py \
             --tag "$CMUX_TAG" --app "$app" --runs 10 --budget-frames 1 --budget-key-ms 20 --out "$RUNNER_TEMP/frame-pacing/out" \
             --json "$RUNNER_TEMP/frame-pacing/out/instant-new-surfaces.json"
+
+      # Cmd-N from a workspace split into three panes (Leo 2026-10-20: "the layout shifts"): the new
+      # workspace's New Tab page shows in one step, in its final layout, never a frame of the page
+      # laid out at the split pane's size first. A guard: it fails the job. The frame strips land in
+      # the artifact (cmd-n-split/cmd-n-*/strip.png).
+      - name: Cmd-N from a split workspace paints in one step
+        if: steps.gui.outputs.taken == 'true' && contains(env.SUITES, 'instant')
+        timeout-minutes: 10
+        run: |
+          app="$(ls -d "$RUNNER_TEMP"/frame-pacing/app/*.app | head -1)"
+          scripts/ci/frame-pacing/console-session.sh /usr/bin/python3 scripts/cmux-next/cmd-n-paint-e2e.py \
+            --app "$app" --tag "$CMUX_TAG" --split 3 --keys n --runs 3 --duration-ms 900 \
+            --out "$RUNNER_TEMP/frame-pacing/out/cmd-n-split"
 
       # Ctrl-` (New Terminal Tab) at 10 and 100 workspaces, idle and loaded (ctrl-backtick-instant):
       # the new tab shows in the first display frame after the key (p95) with under 20 ms of main

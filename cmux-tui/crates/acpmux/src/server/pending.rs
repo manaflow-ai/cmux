@@ -2,13 +2,8 @@
 //! prompt of this daemon's session, or a peer's (`hub/person.rs` (c)).
 
 use super::*;
+use crate::no_panic::JsonExt;
 use crate::store::EventRecord;
-
-/// A record that asks a client to answer a prompt: a new one, or one the
-/// next daemon adopted with a new decision nonce (`hub/hosts.rs`).
-pub(super) fn is_permission_ask(kind: &str) -> bool {
-    matches!(kind, "permission_request" | "permission_reissued")
-}
 
 /// The `_acpmux/permission_pending` notification. The record's
 /// `decisionNonce` and `personInstance` (the daemon run that asks, also for a
@@ -16,9 +11,9 @@ pub(super) fn is_permission_ask(kind: &str) -> bool {
 /// (`hub/person.rs`, cx-0q7o).
 pub(super) fn permission_pending(session_id: &str, rec: &EventRecord, via: &str) -> Value {
     let mut p = rec.msg.clone();
-    p["sessionId"] = Value::String(session_id.to_owned());
-    p["seq"] = json!(rec.seq);
-    p["via"] = Value::String(via.to_owned());
+    p.set("sessionId", Value::String(session_id.to_owned()));
+    p.set("seq", json!(rec.seq));
+    p.set("via", Value::String(via.to_owned()));
     p
 }
 
@@ -28,14 +23,27 @@ pub(super) fn permission_pending(session_id: &str, rec: &EventRecord, via: &str)
 /// session it was checked for (`hub/peers.rs`), with which peer asks.
 pub(super) fn peer_permission_pending(session_id: &str, rec: &EventRecord, peer: &str) -> Value {
     let mut p = rec.msg.clone();
-    p["sessionId"] = Value::String(session_id.to_owned());
-    p["peer"] = Value::String(peer.to_owned());
-    p["via"] = Value::String("peer".into());
+    p.set("sessionId", Value::String(session_id.to_owned()));
+    p.set("peer", Value::String(peer.to_owned()));
+    p.set("via", Value::String("peer".into()));
     p
 }
 
 /// A record as `_acpmux/event` sends it.
 pub fn event_value(session_id: &str, rec: &EventRecord) -> Value {
+    let event = crate::protocol::events::SessionEvent {
+        session_id: session_id.to_owned(),
+        seq: rec.seq,
+        at: rec.at,
+        dir: rec.dir.clone(),
+        kind: rec.kind.clone(),
+        msg: rec.msg.clone(),
+    };
+    serde_json::to_value(event).unwrap_or(Value::Null)
+}
+
+/// [`event_value`] that takes the record, so its message moves instead of being copied.
+pub fn into_event_value(session_id: &str, rec: EventRecord) -> Value {
     json!({
         "sessionId": session_id,
         "seq": rec.seq,

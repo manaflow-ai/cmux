@@ -7,7 +7,32 @@ extension UpdateController {
     /// Whether found updates download without a prompt and wait staged for the user.
     public var installsUpdatesInBackground: Bool {
         get { driver.installsInBackground }
-        set { driver.installsInBackground = newValue }
+        set {
+            driver.installsInBackground = newValue
+            guard newValue, disableSparkleSilentStagingIfNeeded() else { return }
+            log.append("background install: disabled Sparkle silent staging; using the replaceable app-owned installer")
+        }
+    }
+
+    /// Whether a staged background update should install automatically once ready. A host that
+    /// preserves daemon sessions across app relaunches bypasses the relaunch gate entirely.
+    public var installsUpdatesWhenIdle: Bool {
+        get { driver.installsWhenIdle }
+        set { driver.installsWhenIdle = newValue }
+    }
+
+    /// The legacy idle-install wait cap for hosts that opt into ``UpdateRelaunchGate``. cmux-next
+    /// leaves the setting available for diagnostics but disables the gate with `holdsUserInstalls`.
+    public var idleInstallWaitCap: Duration {
+        get { driver.relaunchGate.automaticWaitCap }
+        set { driver.relaunchGate.automaticWaitCap = newValue }
+    }
+
+    /// Whether this host uses the relaunch gate for user and automatic installs. Set this to false
+    /// when the daemon keeps agents and running commands alive across an app relaunch.
+    public var holdsUserInstalls: Bool {
+        get { driver.holdsUserInstalls }
+        set { driver.holdsUserInstalls = newValue }
     }
 
     /// The downloaded update waiting for ``installStagedUpdate()``, or nil.
@@ -41,9 +66,18 @@ extension UpdateController {
             armStagedInstallWatchdog()
             return
         }
+        if case .installing(let installing) = model.state, installing.relaunchBlockers != nil {
+            // An automatic install the relaunch gate holds: the click is Install Now.
+            log.append("background install: click on a held relaunch; installing now")
+            installing.retryTerminatingApplication()
+            armStagedInstallWatchdog()
+            return
+        }
         if case .installing(let installing) = model.state, installing.isAutoUpdate {
             log.append("background install: installing the update Sparkle staged silently")
+            driver.quitInstallItem = nil
             model.setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
+            driver.relaunchIsAutomatic = false
             installing.retryTerminatingApplication()
             armStagedInstallWatchdog()
             return
@@ -68,9 +102,16 @@ extension UpdateController {
     }
 
     /// Cancels the staged update's pending installer (Sparkle would install it when the app
-    /// quits) without skipping its version. No-op without one.
-    public func cancelStagedUpdate() {
+    /// quits) without skipping its version. No-op without one; returns whether one was cancelled.
+    @discardableResult
+    public func cancelStagedUpdate() -> Bool {
         driver.cancelStaged()
+    }
+
+    /// Whether this driver holds the staged update's installer, so ``cancelStagedUpdate()`` would
+    /// cancel it (not Sparkle's own silent install, nor one already handed to the installer).
+    public var canCancelStagedUpdate: Bool {
+        driver.stagedCancel != nil
     }
 
     /// With ``installsUpdatesInBackground``: whether a found update downloads at once (true,
@@ -98,6 +139,13 @@ extension UpdateController {
     public var feedOverride: String? {
         get { driver.feedOverride }
         set { driver.feedOverride = newValue }
+    }
+
+    /// The release ring (`updates.channel`) whose appcast items are offered; the next check
+    /// uses it. Only the cmux-next feed has rings.
+    public var ring: UpdateRing {
+        get { driver.ring }
+        set { driver.ring = newValue }
     }
 
     /// Builds at or below this `sparkle:version` are not offered (the build a rollback left).

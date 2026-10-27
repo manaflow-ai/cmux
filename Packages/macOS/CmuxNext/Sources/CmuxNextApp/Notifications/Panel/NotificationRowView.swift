@@ -128,7 +128,6 @@ final class NotificationRowView: NSView {
         close.setAccessibilityLabel(NotificationsPanelStrings.dismiss)
         close.isBordered = false
         self.close = close
-        close.themedToolTip = NotificationsPanelStrings.dismiss
         close.setAccessibilityIdentifier("cmux.notifications.dismiss")
         close.translatesAutoresizingMaskIntoConstraints = false
 

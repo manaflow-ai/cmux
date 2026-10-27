@@ -31,6 +31,8 @@ pub mod notify;
 mod picker;
 pub mod render;
 pub use menu::{Menu, MenuAction};
+#[cfg(all(test, unix))]
+mod answering_tests;
 pub(crate) mod directory;
 mod keymap;
 pub mod markdown;
@@ -765,6 +767,22 @@ pub(super) mod interaction_tests {
         let draft = app.draft().unwrap();
         assert_eq!(draft.peer.as_deref(), Some("providers"));
         assert_eq!(draft.harness, "deepseek");
+    }
+
+    /// The TUI offers steer from the session's own `steering` (acpmux sets it from the agent's
+    /// `_meta.steering` at initialize). It read `agentCapabilities._meta`, which acpmux never
+    /// stores, and a list row's `agentInfo`, which it never sends, so Ctrl-s never steered.
+    #[tokio::test]
+    async fn a_steering_session_offers_steer() {
+        let (mut app, _) = app().await;
+        app.sessions = vec![
+            json!({"sessionId": "steers", "status": "running", "steering": true}),
+            json!({"sessionId": "stops", "status": "running", "steering": false}),
+        ];
+        app.selected = app.drafts.len();
+        assert!(app.selected_supports_steer(), "a steering session does not offer steer");
+        app.selected = app.drafts.len() + 1;
+        assert!(!app.selected_supports_steer(), "a session that cannot steer offers it");
     }
 
     #[tokio::test]

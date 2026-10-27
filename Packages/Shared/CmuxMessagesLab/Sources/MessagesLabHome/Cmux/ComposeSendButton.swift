@@ -98,7 +98,8 @@ final class ComposeSendButton: NSView {
     private func transition(animated: Bool) {
         let toScale = isShown ? 1 : Self.hiddenScale
         let toOpacity: Float = isShown ? (isEnabled ? 1 : Self.disabledOpacity) : 0
-        let fromScale = (disc.presentation()?.value(forKeyPath: "transform.scale.x") as? CGFloat) ?? (isShown ? Self.hiddenScale : 1)
+        // The disc only ever has a scale transform, so its x scale is m11 (no KVC key path read).
+        let fromScale = disc.presentation().map { $0.transform.m11 } ?? (isShown ? Self.hiddenScale : 1)
         let fromOpacity = disc.presentation()?.opacity ?? disc.opacity
         disc.removeAnimation(forKey: "show")
         disc.removeAnimation(forKey: "fade")

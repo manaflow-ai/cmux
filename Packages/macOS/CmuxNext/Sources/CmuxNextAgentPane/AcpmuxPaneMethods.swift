@@ -21,11 +21,13 @@ nonisolated enum AcpmuxPaneMethods {
         // Sessions (direct.ts).
         "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option",
         // acpmux extensions (direct.ts). `_acpmux/attachment` reads a sent prompt's image by content hash.
-        "_acpmux/watch", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/warm",
+        "_acpmux/watch", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/typing", "_acpmux/warm",
         // The session list's later pages (sessionPages.ts, cx-2lv1k): the same summaries watch answers,
         // read by cursor after watch's first page.
         "_acpmux/sessions",
         "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
+        // Take Over a View Only chat (direct.ts takeOver): the chat runs the conversation from then on.
+        "_acpmux/watch_take_over",
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
         "_acpmux/status", "_acpmux/draft_get",
         // Session-scoped draft writes are kept separate from the filtered replies above.
@@ -78,66 +80,39 @@ nonisolated enum AcpmuxPaneMethods {
         // for that child (claude_stdio/workflows.rs). It stops work like `_acpmux/kill`, so no
         // gesture; caller params never reach Claude.
         "_acpmux/subagent_stop",
+        // Resume a paused agent pair of a chat in the pane's scope (the pause row's Resume; acpmux
+        // hub/agent_pairs.rs): delivers the messages the two agents already sent and the guard held.
+        // `peerSessionId` only picks one of that chat's paused pairs; acpmux resumes no pair the
+        // chat is not in, and only for a connection that proved the person key (hub/person.rs).
+        "_acpmux/agent_pair_resume",
+        // Reply in place to another agent's message as the chat the pane shows (direct.ts reply,
+        // IncomingMessageCard.tsx): acpmux checks it and answers it signed, prompting nothing, and
+        // the host sends it on as that chat's cmux agent message (``AgentPaneAgentReply``).
+        "_acpmux/app_reply",
+        // A chat's background processes (direct.ts listProcesses, tailProcess; the Inspector and an
+        // opened background task note): read only, like `_acpmux/events`. acpmux serves them only to
+        // this Mac's clients (server/processes.rs).
+        "_acpmux/process/list", "_acpmux/process/tail",
+        // Stop one (direct.ts killProcess) or send a chat's running work to the background (Ctrl-B,
+        // backgroundWork) of a chat in the pane's scope: they stop or move work like `_acpmux/kill`,
+        // so no gesture. A kill names its chat; acpmux stops only that chat's process.
+        "_acpmux/process/kill", "_acpmux/process/background",
+        // The composer's Account menu (direct.ts routes, setChatRoute): read the routes, and pick
+        // one for a chat in the pane's scope. Adding or changing a route stays the unix socket's.
+        "_acpmux/route/list", "_acpmux/chat/route.set",
+        // Reconnect a failed MCP server of a chat in the pane's scope (direct.ts reconnectMcp, the
+        // Inspector's Connectors): acpmux sends Claude Code's mcp_reconnect for a server the chat
+        // already lists, on its running process; it starts nothing and refuses other harnesses.
+        "_acpmux/mcp/reconnect",
+        // The forum's current rules for the rules card above the composer (direct.ts forumRules,
+        // RulesNotice.tsx; acpmux server/forum.rs, hq#2570). Read only and without params: the
+        // rules every agent on this Mac is told already. Posting, acking and retiring stay off the pane.
+        "_acpmux/forum/rules",
+        // Use tools in the summary's Sources + (direct.ts setTool, cx-thur3): turns one of a chat's
+        // MCP servers off or on again for that chat only; acpmux restarts its Claude Code and
+        // resumes it (now, after the running turn, or at its next start).
+        "_acpmux/set_tools",
     ]
-
-    /// The shape of a reply the relay filters itself, without relying on the daemon's redaction.
-    public nonisolated indirect enum ReplyShape: Sendable {
-        case string
-        case object([String: ReplyShape])
-        case list(ReplyShape)
-        /// Only the scheme of the URL in the sibling field `source` (`ssh`, `ws`, `wss`), so the
-        /// page learns a peer's transport without its URL (which can carry a user or a token).
-        case scheme(from: String)
-    }
-
-    /// The URL schemes a `.scheme` field may report; any other scheme is dropped.
-    static let reportedSchemes: Set<String> = ["ssh", "ws", "wss"]
-
-    /// Replies filtered to the fields the pane renders; everything else is dropped, at every depth.
-    /// `_acpmux/status`: the pane reads only `peers[].name` and each peer's `transport`, the
-    /// scheme of its `url` (direct.ts, after initialize; environments.ts peerKindsFromStatus).
-    public static let replyShapes: [String: ReplyShape] = [
-        "_acpmux/status": .object([
-            "peers": .list(.object(["name": .string, "transport": .scheme(from: "url")])),
-        ]),
-    ]
-
-    /// `value` cut to `shape`: nil when it does not fit (a list keeps only the items that fit).
-    static func filtered(_ value: Any, to shape: ReplyShape) -> Any? {
-        switch shape {
-        case .string:
-            return value as? String
-        case .scheme:
-            guard let scheme = (value as? String).flatMap({ URLComponents(string: $0)?.scheme?.lowercased() }),
-                  reportedSchemes.contains(scheme) else { return nil }
-            return scheme
-        case .list(let item):
-            return (value as? [Any])?.compactMap { filtered($0, to: item) }
-        case .object(let fields):
-            guard let object = value as? [String: Any] else { return nil }
-            let kept = fields.compactMap { key, field -> (String, Any)? in
-                let source: String
-                if case .scheme(let from) = field { source = from } else { source = key }
-                return object[source].flatMap { filtered($0, to: field) }.map { (key, $0) }
-            }
-            // An object with none of its fields is dropped (a peer with no name renders nothing).
-            return kept.isEmpty ? nil : Dictionary(uniqueKeysWithValues: kept)
-        }
-    }
-
-    /// A reply to a filtered request, rebuilt with the page's id (raw JSON) and its filtered
-    /// result. An error keeps only its code and message.
-    static func filteredReply(_ object: [String: Any], shape: ReplyShape, pageID: String) -> String {
-        let id = (try? JSONSerialization.jsonObject(with: Data(pageID.utf8), options: [.fragmentsAllowed])) ?? NSNull()
-        var reply: [String: Any] = ["jsonrpc": "2.0", "id": id]
-        if let error = object["error"] as? [String: Any] {
-            reply["error"] = ["code": error["code"] as? Int ?? -32603, "message": error["message"] as? String ?? ""]
-        } else {
-            reply["result"] = object["result"].flatMap { filtered($0, to: shape) } ?? [String: Any]()
-        }
-        let data = (try? JSONSerialization.data(withJSONObject: reply, options: [.sortedKeys])) ?? Data()
-        return String(decoding: data, as: UTF8.self)
-    }
 
     /// Notifications (no `id`).
     public static let notifications: Set<String> = ["session/cancel"]
@@ -232,7 +207,10 @@ nonisolated enum AcpmuxPaneMethods {
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
-        "_acpmux/offer_respond", "_acpmux/subagent_stop",
+        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/app_reply",
+        "_acpmux/watch_take_over",
+        "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
+        "_acpmux/mcp/reconnect",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
@@ -304,9 +282,14 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/permission_group_respond": .whenDecisionAllows,
         // The card's Provide hands over a secret (its Decline is a click too).
         "_acpmux/secret_submit": .always,
+        // Resume runs turns: the held messages go to both chats of the pair.
+        "_acpmux/agent_pair_resume": .always,
+        "_acpmux/app_reply": .always,
         // _acpmux/permission_chat_revoke revokes: no gesture.
         // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work
         // Start begins is its session/prompt, which has one).
+        // _acpmux/set_tools: no gesture. It only turns off, or back on, an MCP server the chat
+        // already had from the person's own config; it adds none.
     ]
 
     /// Whether a granting frame of `method` may use the current gesture: a permission allow needs

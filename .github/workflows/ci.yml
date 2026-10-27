@@ -61,6 +61,9 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
+      # true for a pull request on the cmux NEXT line, stacked ones included
+      # (scripts/ci/next_line.sh); the legacy lanes below skip it.
+      next_line: ${{ steps.line.outputs.next_line }}
       macos: ${{ steps.next-route.outputs.macos || steps.detect.outputs.macos }}
       # The last green head a merge-only head was routed from; empty otherwise.
       delta_base_sha: ${{ steps.delta.outputs.base_sha }}
@@ -148,6 +151,14 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 2
+
+      - name: Which line this pull request is on
+        id: line
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: echo "next_line=$(scripts/ci/next_line.sh "$EVENT_NAME" "$BASE_REF" "$BASE_SHA")" >> "$GITHUB_OUTPUT"
 
       - name: Reject superseded manual dispatch before routing
         if: github.event_name == 'workflow_dispatch'
@@ -474,11 +485,10 @@ jobs:
       - name: Route cmux-next pull requests away from legacy product lanes
         id: next-route
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          NEXT_LINE: ${{ steps.line.outputs.next_line }}
         run: |
           set -euo pipefail
-          if [[ "$EVENT_NAME" == pull_request && "$BASE_REF" == feat-cmux-next ]]; then
+          if [[ "$NEXT_LINE" == true ]]; then
             # The cmux-next workflow owns its Swift, Rust, web and webview
             # checks. Keep the generic changes job for shared web routing, but
             # do not send a next-line PR through the legacy app-host suite.
@@ -690,12 +700,15 @@ jobs:
           CMUX_CI_XCODE_APP_PR: ${{ (github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name)) || github.event_name == 'workflow_dispatch') && vars.CMUX_CI_XCODE_APP_PR || '' }}
           # Handed to the macOS 15 pool's jobs only when the run lands there.
           CMUX_CI_XCODE_APP_MACOS_15: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
-          # The run's machine count. A chosen label is never split.
-          RUN_MACOS: ${{ steps.detect.outputs.macos }}
-          RUN_FULL_SUITE: ${{ steps.suite.outputs.full_suite }}
+          # The run's machine count. A chosen label is never split. Read the
+          # routes the job outputs carry: next-route turns the macOS lanes off
+          # for a feat-cmux-next pull request, and with no macOS job planned
+          # the picker makes no API call.
+          RUN_MACOS: ${{ steps.next-route.outputs.macos || steps.detect.outputs.macos }}
+          RUN_FULL_SUITE: ${{ steps.next-route.outputs.full_suite || steps.suite.outputs.full_suite }}
           RUN_REMOTE_DAEMON: ${{ steps.standalone.outputs.remote_daemon }}
-          RUN_SWIFT_PACKAGES: ${{ steps.detect.outputs.swift_packages }}
-          RUN_RELEASE_BUILD: ${{ steps.detect.outputs.release_build }}
+          RUN_SWIFT_PACKAGES: ${{ steps.next-route.outputs.swift_packages || steps.detect.outputs.swift_packages }}
+          RUN_RELEASE_BUILD: ${{ steps.next-route.outputs.release_build || steps.detect.outputs.release_build }}
           MERGED_ONTO: ${{ steps.source-identity.outputs.parent1 || github.event.pull_request.base.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           OWNED_WARM: ${{ vars.CI_OWNED_WARM }}
@@ -927,12 +940,30 @@ jobs:
           retention-days: 7
           overwrite: true
 
+      # compile_admitted only matters while the macOS route is on. next-route
+      # turns it off for every feat-cmux-next pull request, so the lookup's
+      # runs listing and per-run jobs reads would answer nothing there.
+      # Reads go through the manaflow-glaeda-route App's own budget, not the GITHUB_TOKEN
+      # budget every workflow shares (it ran out on 2026-10-25 and the nightly publish
+      # failed). No key (a fork) or a failed mint leaves it empty: GITHUB_TOKEN reads.
+      - name: Mint the glaeda read token
+        id: admitted-read-token
+        if: ${{ (steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && steps.unchanged_inputs.outputs.compile_admitted != 'true' && steps.next-route.outputs.macos != 'false') && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
+          permission-pull-requests: read
+
       - name: Look for an earlier run that compiled these inputs
         id: admitted
         continue-on-error: true
-        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && steps.unchanged_inputs.outputs.compile_admitted != 'true' }}
+        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && steps.unchanged_inputs.outputs.compile_admitted != 'true' && steps.next-route.outputs.macos != 'false' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.admitted-read-token.outputs.token || github.token }}
           BRANCH: ${{ github.head_ref }}
           FINGERPRINT: ${{ steps.inputs.outputs.fingerprint }}
         run: |
@@ -957,7 +988,17 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Which line this pull request is on
+        # The if above misses a stacked cmux NEXT pull request (scripts/ci/next_line.sh).
+        id: line
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: echo "next_line=$(scripts/ci/next_line.sh "$EVENT_NAME" "$BASE_REF" "$BASE_SHA")" >> "$GITHUB_OUTPUT"
+
       - name: Run the fast guard tests
+        if: steps.line.outputs.next_line != 'true'
         env:
           CMUX_GUARDS_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before || '' }}
         run: scripts/ci/guards-local.sh --no-stamp --jobs 8
@@ -980,7 +1021,17 @@ jobs:
           # reviewBy only on the change that edits that flag.
           fetch-depth: 2
 
+      - name: Which line this pull request is on
+        # The if above misses a stacked cmux NEXT pull request (scripts/ci/next_line.sh).
+        id: line
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: echo "next_line=$(scripts/ci/next_line.sh "$EVENT_NAME" "$BASE_REF" "$BASE_SHA")" >> "$GITHUB_OUTPUT"
+
       - name: Run the contributor static preflight
+        if: steps.line.outputs.next_line != 'true'
         # The recipe is read-only and each check owns its temporary state, so
         # bounded overlap cuts the Linux gate's wall time without changing
         # which checks run. Keep verify-local's local default serial.
@@ -992,7 +1043,7 @@ jobs:
     # gate still requires static-preflight, so starting them together lets it
     # decline ~25 s sooner without admitting macOS on a rejected diff.
     needs: [changes]
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && (needs.changes.outputs.linux_guard_tests != 'false' || needs.changes.outputs.linux_guard_history != 'false' || needs.changes.outputs.linux_guard_cli != 'false' || needs.changes.outputs.linux_guard_source != 'false') }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.next_line != 'true' && (needs.changes.outputs.linux_guard_tests != 'false' || needs.changes.outputs.linux_guard_history != 'false' || needs.changes.outputs.linux_guard_cli != 'false' || needs.changes.outputs.linux_guard_source != 'false') }}
     permissions:
       contents: read
     uses: ./.github/workflows/ci-guards.yml
@@ -1036,12 +1087,12 @@ jobs:
 
   browser:
     needs: [changes]
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.browser == 'true' }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.next_line != 'true' && needs.changes.outputs.browser == 'true' }}
     uses: ./.github/workflows/cmux-browser.yml
 
   remote-daemon:
     needs: [changes, static-preflight]
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.remote_daemon == 'true' }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.next_line != 'true' && needs.changes.outputs.remote_daemon == 'true' }}
     permissions:
       contents: read
       pull-requests: read
@@ -1170,7 +1221,7 @@ jobs:
     # This replaces the old unconditional `if: ${{ always() }}`: if the change
     # router explicitly says macOS is irrelevant, skip the runner allocation.
     # Missing/invalid route output fails open by running the preflight.
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.macos != 'false' }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.next_line != 'true' && needs.changes.outputs.macos != 'false' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
@@ -1276,7 +1327,7 @@ jobs:
     # <!-- cmux:dogfood-build -->
     name: "Dogfood build #${{ github.event.pull_request.number }}"
     needs: [changes, static-preflight]
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'feat-cmux-next' && contains(github.event.pull_request.labels.*.name, 'dev-build') && github.event.action != 'unlabeled' && (github.event.action != 'labeled' || github.event.label.name == 'dev-build') && github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.macos != 'false' || needs.changes.outputs.delta_base_sha != '') }}
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'feat-cmux-next' && needs.changes.outputs.next_line != 'true' && contains(github.event.pull_request.labels.*.name, 'dev-build') && github.event.action != 'unlabeled' && (github.event.action != 'labeled' || github.event.label.name == 'dev-build') && github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.macos != 'false' || needs.changes.outputs.delta_base_sha != '') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     # This job is intentionally outside ci-status, so a build or publication
@@ -1366,8 +1417,9 @@ jobs:
 
           needs = json.loads(os.environ["PLATFORM_NEEDS"])
           # The retired `tests` rollup skipped pull requests into feat-cmux-next;
-          # this verdict, folded in from it, does too.
-          if os.environ.get("GITHUB_EVENT_NAME") == "pull_request" and os.environ.get("GITHUB_BASE_REF") == "feat-cmux-next":
+          # this verdict, folded in from it, does too (stacked ones: next_line.sh).
+          if needs.get("changes", {}).get("outputs", {}).get("next_line") == "true" or (
+              os.environ.get("GITHUB_EVENT_NAME") == "pull_request" and os.environ.get("GITHUB_BASE_REF") == "feat-cmux-next"):
               print("feat-cmux-next uses cmux-next and its current product lanes")
               raise SystemExit(0)
           # A cancelled job reaches this gate as a `cancelled` result, and the
@@ -1454,7 +1506,8 @@ jobs:
           import sys
 
           needs = json.loads(os.environ["CI_NEEDS"])
-          if os.environ.get("GITHUB_EVENT_NAME") == "pull_request" and os.environ.get("GITHUB_BASE_REF") == "feat-cmux-next":
+          if needs.get("changes", {}).get("outputs", {}).get("next_line") == "true" or (
+              os.environ.get("GITHUB_EVENT_NAME") == "pull_request" and os.environ.get("GITHUB_BASE_REF") == "feat-cmux-next"):
               print("feat-cmux-next uses cmux-next and its current product lanes")
               raise SystemExit(0)
           allowed = {"success", "skipped"}
@@ -1485,6 +1538,8 @@ jobs:
       contents: read
       pull-requests: write
     uses: ./.github/workflows/pr-red-checks-comment.yml
+    with:
+      own_checks_green: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
 
   ci-timing:
     # The run's timing readout in the job summary: the chain of jobs that set
@@ -1505,7 +1560,7 @@ jobs:
       - linux-preflight
       - macos-admission-gate
       - macos
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.next_line != 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     continue-on-error: true

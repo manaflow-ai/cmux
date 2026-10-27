@@ -1,0 +1,61 @@
+/* SPEC 2.1 / 2.2 tokens as CSS variables. Kept in step with CmuxMobileDesign/ChatTokens.swift. */
+:root {
+  --label: #000; --label2: rgba(60,60,67,.6); --label3: rgba(60,60,67,.3);
+  --fill: rgba(0,0,0,.05); --fill-selected: rgba(0,0,0,.09);
+  --code-bg: #F5F5F7; --separator: #C6C6C8; --fade: #FFFFFF;
+  --add: #1A7F37; --del: #CF222E; --hunk: #326D74;
+  --kw: #AD3DA4; --str: #D12F1B; --num: #272AD8; --type: #0B4F79; --fn: #326D74; --comment: #707F8C;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --label: #FFF; --label2: rgba(235,235,245,.6); --label3: rgba(235,235,245,.3);
+    --fill: rgba(255,255,255,.08); --fill-selected: rgba(255,255,255,.16);
+    --code-bg: #1C1C1E; --separator: #38383A; --fade: #000000;
+    --add: #3FB950; --del: #F85149; --hunk: #67B7A4;
+    --kw: #FF7AB2; --str: #FC6A5D; --num: #D9C97C; --type: #5DD8FF; --fn: #67B7A4; --comment: #7F8C98;
+  }
+}
+html, body { margin: 0; padding: 0; background: transparent; -webkit-text-size-adjust: 100%; }
+body { font: -apple-system-body; line-height: 1.6; color: var(--label); overflow: hidden;
+  -webkit-user-select: none; -webkit-touch-callout: none; word-wrap: break-word; }
+body.compact { font: -apple-system-subheadline; line-height: 1.5; }
+#content { padding: 0; }
+#content > :first-child { margin-top: 0 !important; }
+#content > :last-child { margin-bottom: 0 !important; }
+p { margin: 0 0 12px; }
+h1 { font: -apple-system-title3; font-weight: 700; margin: 18px 0 8px; }
+h2 { font: -apple-system-headline; margin: 16px 0 8px; }
+h3, h4, h5, h6 { font: -apple-system-subheadline; font-weight: 700; margin: 14px 0 6px; }
+ul, ol { margin: 0 0 12px; padding-left: 22px; }
+li { margin: 4px 0; }
+li::marker { color: var(--label2); }
+li input[type=checkbox] { margin: 0 6px 0 -2px; }
+a { color: var(--label); text-decoration: underline; }
+strong { font-weight: 600; }
+code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .88em; background: var(--fill-selected);
+  border-radius: 4px; padding: 1px 3px; }
+blockquote { margin: 0 0 12px; padding-left: 12px; border-left: 3px solid var(--separator); color: var(--label2); }
+hr { border: 0; border-top: 0.5px solid var(--separator); margin: 14px 0; }
+.code { background: var(--code-bg); border-radius: 16px; margin: 0 0 12px; overflow: hidden; }
+.code-h { font: -apple-system-footnote; font-weight: 500; color: var(--label2); padding: 10px 14px 2px; }
+/* Code never soft-wraps (the chat's behavior): it scrolls inside its card, with a trailing
+   fade while more is off screen (`.more`, toggled by render.js). */
+.code pre { margin: 0; padding: 4px 14px 14px; white-space: pre; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.code pre.more, .table-wrap.more {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent); }
+.code pre code { background: none; padding: 0; font-size: 13px; line-height: 19px; }
+.hljs-keyword, .hljs-built_in, .hljs-literal, .hljs-meta { color: var(--kw); }
+.hljs-string, .hljs-regexp { color: var(--str); }
+.hljs-number { color: var(--num); }
+.hljs-type, .hljs-class, .hljs-title.class_ { color: var(--type); }
+.hljs-title, .hljs-title.function_ { color: var(--fn); }
+.hljs-comment { color: var(--comment); }
+.d-add { color: var(--add); } .d-del { color: var(--del); } .d-hunk { color: var(--hunk); } .d-meta { color: var(--label3); }
+.table-wrap { overflow-x: auto; margin: 0 0 12px; }
+table { border-collapse: collapse; font: -apple-system-subheadline; }
+th { font-weight: 600; text-align: left; }
+th, td { padding: 8px 12px 8px 0; border-bottom: 0.5px solid var(--separator); vertical-align: top; min-width: 64px; }
+.math-block { overflow: hidden; margin: 4px 0 12px; text-align: center; }
+math { font-family: "STIX Two Math", "Cambria Math", math; }
+img { max-width: 100%; border-radius: 12px; }

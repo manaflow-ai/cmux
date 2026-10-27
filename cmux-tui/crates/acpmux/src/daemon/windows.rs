@@ -290,7 +290,7 @@ async fn wait_for_winner(home: &Path, deadline: tokio::time::Instant) {
         // empty file, which std returns as Ok(0). Proven on NTFS (Windows
         // Server 2022) for an empty and a 1-byte lock file (cx-ncc.54). A
         // free lock means the winner has already exited.
-        let held = File::open(&lock).is_ok_and(|file| {
+        let held = crate::config::private_state_file(&lock).is_ok_and(|file| {
             let mut byte = [0u8; 1];
             let read = file.seek_read(&mut byte, 0);
             read.is_err_and(|e| e.raw_os_error() == Some(ERROR_LOCK_VIOLATION as i32))

@@ -76,6 +76,18 @@ export function formatDay(day: string, language: string): string {
   }).format(new Date(`${day}T00:00:00Z`));
 }
 
+/**
+ * A day strip's label under `day`: the weekday over a week; over a month the day of the month on
+ * today and every seventh day before it (`fromEnd` counts back from today), else none.
+ */
+export function stripLabel(day: string, fromEnd: number, rangeDays: number, language: string): string {
+  if (rangeDays > 7 && fromEnd % 7 !== 0) return "";
+  return new Intl.DateTimeFormat(language, {
+    ...(rangeDays > 7 ? { day: "numeric" } : { weekday: "short" }),
+    timeZone: "UTC",
+  }).format(new Date(`${day}T00:00:00Z`));
+}
+
 /** `1 PM` or `13 Uhr` for an hour of the day, in the person's language. */
 export function formatHour(hour: number, language: string): string {
   return new Intl.DateTimeFormat(language, { hour: "numeric", timeZone: "UTC" }).format(Date.UTC(2026, 0, 1, hour));

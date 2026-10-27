@@ -4,10 +4,10 @@
 Apple finds these only in processing, after the build is uploaded (cmux INTERNAL builds on
 2026-10-20 failed with ITMS-90626 for "transcribed on this iPhone" in an App Intent description).
 This check finds them before upload: on the source tree (pre-push gate, CI) and on the built app
-(cnx-ios/scripts/testflight-build.sh and the INTERNAL builder, before signing).
+(cmux-next-ios/scripts/testflight-build.sh and the INTERNAL builder, before signing).
 
-  check-app-store-rules.py --source ROOT   # cnx-ios sources under ROOT (a checkout or the gate's tree)
-  check-app-store-rules.py --app APP       # a built CnxApp.app
+  check-app-store-rules.py --source ROOT   # cmux-next-ios sources under ROOT (a checkout or the gate's tree)
+  check-app-store-rules.py --app APP       # a built CmuxMobileApp.app
 
 Rules (each finding names its rule):
   90626-reserved-term    App Intents text (intent titles and descriptions, App Shortcut phrases and
@@ -166,7 +166,7 @@ def catalog_values(catalog: dict, key: str) -> list[tuple[str, str]]:
 
 
 def project_info(project_yml: Path) -> dict:
-    """The CnxApp target's Info.plist properties in project.yml (xcodegen `info: properties:`)."""
+    """The CmuxMobileApp target's Info.plist properties in project.yml (xcodegen `info: properties:`)."""
     try:
         import yaml  # noqa: PLC0415  (only the source mode needs it)
     except ImportError:
@@ -203,7 +203,7 @@ def _project_info_without_yaml(text: str) -> dict:
 
 
 def check_source(root: Path, findings: Findings) -> None:
-    app_root = root / "cnx-ios"
+    app_root = root / "cmux-next-ios"
     swift_files = sorted(p for p in app_root.rglob("*.swift") if ".build" not in p.parts and "verify" not in p.parts)
     intent_keys: set[str] = set()
     used_apis: set[str] = set()
@@ -323,13 +323,13 @@ def check_app(app: Path, findings: Findings) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--source", type=Path, help="a tree holding cnx-ios/")
+    mode.add_argument("--source", type=Path, help="a tree holding cmux-next-ios/")
     mode.add_argument("--app", type=Path, help="a built .app bundle")
     args = parser.parse_args(argv)
     findings = Findings()
     if args.source:
         check_source(args.source.resolve(), findings)
-        what = "cnx-ios sources"
+        what = "cmux-next-ios sources"
     else:
         check_app(args.app.resolve(), findings)
         what = args.app.name

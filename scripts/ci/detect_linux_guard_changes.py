@@ -130,6 +130,58 @@ def classify_test_groups(paths: list[str], *, event: str, macos: str) -> tuple[s
     return tuple(group for group in GROUPS if group in selected)
 
 
+# --- feat-cmux-next ------------------------------------------------------------------
+#
+# ci.yml routes these groups only for pull requests into main. cmux-next-guards.yml's guard group
+# job runs ci-guards.yml's `ci` group on every feat-cmux-next pull request and push, and
+# release-notary runs in its own job; classify_feat picks the other groups (and the lockfile and
+# source-lint jobs) from the same ownership as ci.yml: groups_for_path and classify's routes.
+FEAT_ALWAYS = ("ci", "release-notary")
+# Guards main's iOS release path only (ios-testflight.yml, ios-appstore-upload.yml and the
+# ios/scripts upload tooling): those workflows upload only from refs/heads/main, and
+# feat-cmux-next never ships from them. tests/pr-lane-exemptions.json holds the reasons.
+FEAT_MAIN_ONLY = ("release-ios",)
+FEAT_ROUTED = tuple(group for group in GROUPS if group not in FEAT_ALWAYS + FEAT_MAIN_ONLY) + (
+    "workflow-guard-history", "workflow-guard-source-lints",
+)
+FEAT_ROUTE_JOBS = {"linux_guard_history": "workflow-guard-history", "linux_guard_source": "workflow-guard-source-lints"}
+# Product source areas no guard group reads beyond what groups_for_path and classify already
+# declare. ci.yml runs every group for an unknown path; on feat-cmux-next that was 254 of the last
+# 300 commits, because most of them touch these areas. An unknown path here runs no extra group;
+# an unknown path anywhere else (workflows, scripts, tests, Resources, ios, agent-chat, a new
+# top-level area) still runs every routed group.
+FEAT_PRODUCT_AREAS = (
+    "Packages/", "webviews/", "cmux-tui/", "Native/", "backend/", "web/", "schemas/",
+    "release-notes/", "plans/", "docs/", "design/", "skills/", "unavailable-features/",
+    "clients/", "cmux-next-ios/", "workers/", "experiments/", "first-party-apps/",
+)
+
+
+def classify_feat(paths: list[str]) -> tuple[str, ...]:
+    """The guard groups and jobs a feat-cmux-next change runs beside the `ci` group.
+
+    No diff, an unsafe path, or an unknown path outside FEAT_PRODUCT_AREAS runs every routed one.
+    """
+    if not paths:
+        return FEAT_ROUTED
+    selected: set[str] = set()
+    for path in paths:
+        if not path or path.startswith("/") or ".." in path.split("/"):
+            return FEAT_ROUTED
+        if plain_documentation(path):
+            continue
+        owners = groups_for_path(path)
+        routes = classify([path], event="pull_request", macos="false")
+        fails_open = routes == dict.fromkeys(ROUTES, True)
+        if owners is None or fails_open:
+            if not path.startswith(FEAT_PRODUCT_AREAS):
+                return FEAT_ROUTED
+        selected.update(owners or ())
+        if not fails_open:
+            selected.update(job for route, job in FEAT_ROUTE_JOBS.items() if routes[route])
+    return tuple(name for name in FEAT_ROUTED if name in selected)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--event-name", required=True)

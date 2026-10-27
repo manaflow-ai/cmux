@@ -38,6 +38,12 @@ impl Memory for OptChat {
     }
 }
 
+/// The Chief tools a turn another person started may call only with
+/// some arguments (`approval::CHIEF_TOOLS`, by their socket names).
+const TURN_GATED: [&str; 10] = [
+    "send", "reply", "react", "stop", "sleep", "spawn", "tell", "control", "profile", "remember",
+];
+
 /// Section 9's subagent tools, answered by the host (subagents.rs).
 pub trait Orchestrator: Send + Sync {
     /// Starts one subagent per task, in `cwd` when it exists on this host;
@@ -86,6 +92,12 @@ pub trait Orchestrator: Send + Sync {
         let _ = queue;
         self.tell_keyed(id, message, key)
     }
+    /// Whether the running turn may call Chief tool `tool` with `input`
+    /// (`Brain::turn_gate`); a host with no turns allows it.
+    fn turn_gate(&self, _tool: &str, _input: &Value) -> Result<(), String> {
+        Ok(())
+    }
+
     /// `control(action, ...)`: see, interrupt, answer, pause, resume,
     /// cancel, restart, reorder subagents and set the live cap.
     fn control(&self, request: ControlCall) -> Result<String, String> {
@@ -99,6 +111,12 @@ pub trait Orchestrator: Send + Sync {
     fn react(&self, id: u64, reaction: &str) -> Result<String, String> {
         let _ = (id, reaction);
         Err("this Chief host cannot react".into())
+    }
+    /// `transcript(n, before)`: the last `n` messages of the Chief
+    /// conversation (before seq `before`) as the daemon stores them.
+    fn transcript(&self, n: u32, before: Option<u64>) -> Result<String, String> {
+        let _ = (n, before);
+        Err("this Chief host has no conversation to read".into())
     }
     /// `reply(id, text)`: `text` now, in the thread of the user message of
     /// view line `id`.
@@ -119,6 +137,12 @@ pub trait Orchestrator: Send + Sync {
     fn sleep(&self, call: SleepCall) -> Result<String, String> {
         let _ = call;
         Err("this Chief host cannot sleep".into())
+    }
+    /// `remember(text)` (remember.rs): keeps a lasting preference of the
+    /// person in their profile.
+    fn remember(&self, text: &str) -> Result<String, String> {
+        let _ = text;
+        Err("this Chief host has no person profile to remember in".into())
     }
     /// `escalate_auth`: subagent `agent` needs the user's sign-in; the Chief
     /// gets it as an urgent note (ahead of the queue, steered into a running
@@ -371,12 +395,20 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
             Call::parse("send", &serde_json::json!({"text": text.join(" ")}))
         }
         ("stop", []) => Call::parse("stop", &serde_json::json!({})),
+        ("transcript", []) => Call::parse("transcript", &serde_json::json!({})),
+        ("transcript", [n]) => Call::parse("transcript", &serde_json::json!({"n": n})),
+        ("transcript", [n, "--before", before]) => {
+            Call::parse("transcript", &serde_json::json!({"n": n, "before": before}))
+        }
         ("sleep", [seconds, note @ ..]) => {
             let mut v = serde_json::json!({"seconds": seconds});
             if !note.is_empty() {
                 v["note"] = serde_json::json!(note.join(" "));
             }
             Call::parse("sleep", &v)
+        }
+        ("remember", text) if !text.is_empty() => {
+            Call::parse("remember", &serde_json::json!({"text": text.join(" ")}))
         }
         ("peers", []) => Call::parse("peers", &serde_json::json!({})),
         ("profile", []) => Call::parse("profile", &serde_json::json!({})),
@@ -445,7 +477,9 @@ pub fn usage(tool: &str) -> String {
             "reply" => "ID \"text\"",
             "send" => "[--reply-to ID] \"text\"",
             "stop" => "",
+            "transcript" => "[N] [--before SEQ]",
             "sleep" => "SECONDS [\"note\"]",
+            "remember" => "\"the preference, one short line\"",
             "escalate-auth" | "escalate_auth" =>
                 "password|passkey|2fa|oauth SITE URL \"why you need it\"",
             "peers" => "",
@@ -470,7 +504,14 @@ pub fn agent_id(id: &str) -> bool {
 pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 
 /// Where `spawn` runs its subagents (`place`).
-pub const PLACES: [&str; 2] = ["cloud", "local"];
+/// `cloud:SIZE` also picks the VM size with one VM per subagent.
+pub const PLACES: [&str; 5] = [
+    "cloud",
+    "local",
+    "cloud:small",
+    "cloud:medium",
+    "cloud:large",
+];
 
 /// The `control` tool's actions.
 pub const CONTROL_ACTIONS: [&str; 10] = [
@@ -613,10 +654,21 @@ pub enum Call {
     /// `send` (brain/send.rs): one message now, with files, optionally in
     /// a thread.
     Send(SendCall),
+    /// `transcript` (brain/transcript.rs): the last `n` messages of the
+    /// Chief conversation, before seq `before` (None: the newest), as the
+    /// daemon stores them.
+    Transcript {
+        n: u32,
+        before: Option<u64>,
+    },
     /// `stop` (brain/wakes.rs): ends the running turn now.
     Stop,
     /// `sleep` (brain/wakes.rs): ends the turn and wakes the Chief later.
     Sleep(SleepCall),
+    /// `remember` (remember.rs): a lasting preference into the profile.
+    Remember {
+        text: String,
+    },
     /// `control` (brain/control.rs): subagent control.
     Control(ControlCall),
     /// `escalate_auth` (a subagent's only write tool): the Chief drives a
@@ -710,8 +762,14 @@ impl Call {
                     .map(str::to_owned);
                 if let Some(p) = place.as_deref()
                     && !PLACES.contains(&p)
+                    && !p
+                        .strip_prefix("cloud:")
+                        .is_some_and(|s| crate::subagents::SIZES.contains(&s))
                 {
-                    return Err(format!("spawn: no place {p}; one of {}", PLACES.join(", ")));
+                    return Err(format!(
+                        "spawn: no place {p}; one of {}, or cloud:small|medium|large",
+                        PLACES.join(", ")
+                    ));
                 }
                 Ok(Call::Spawn {
                     tasks,
@@ -734,6 +792,21 @@ impl Call {
                     message: text("message")?,
                     key: text("key").ok(),
                     queue: args.get("queue").and_then(Value::as_bool).unwrap_or(false),
+                })
+            }
+            "transcript" => {
+                let opt = |key: &str| -> Result<Option<u64>, String> {
+                    match args.get(key) {
+                        None | Some(Value::Null) => Ok(None),
+                        Some(_) => num(key).map(Some),
+                    }
+                };
+                let n = opt("n")?
+                    .unwrap_or(u64::from(crate::brain::TRANSCRIPT_DEFAULT))
+                    .clamp(1, u64::from(crate::brain::TRANSCRIPT_MAX));
+                Ok(Call::Transcript {
+                    n: n as u32,
+                    before: opt("before")?,
                 })
             }
             "react" => {
@@ -764,6 +837,10 @@ impl Call {
             "send" => SendCall::parse(args).map(Call::Send),
             "stop" => Ok(Call::Stop),
             "sleep" => SleepCall::parse(args).map(Call::Sleep),
+            "remember" => {
+                let text = args.get("text").and_then(Value::as_str).unwrap_or_default();
+                crate::remember::clean(text).map(|text| Call::Remember { text })
+            }
             "control" => ControlCall::parse(args).map(Call::Control),
             "escalate_auth" => {
                 let text = |key: &str| {
@@ -832,8 +909,10 @@ impl Call {
             | Call::React { .. }
             | Call::Reply { .. }
             | Call::Send(_)
+            | Call::Transcript { .. }
             | Call::Stop
             | Call::Sleep(_)
+            | Call::Remember { .. }
             | Call::Control(_)
             | Call::Peers
             | Call::ZoomAgent { .. }
@@ -889,9 +968,19 @@ impl Call {
                 json!({"tool": "react", "id": id, "reaction": reaction})
             }
             Call::Reply { id, text } => json!({"tool": "reply", "id": id, "text": text}),
+            Call::Transcript { n, before } => {
+                let mut v = json!({"tool": "transcript", "n": n});
+                if let Some(before) = before {
+                    v["before"] = json!(before);
+                }
+                v
+            }
             Call::Send(c) => c.to_json(),
-            Call::Stop => json!({"tool": "stop"}),
+            // `end_turn` marks the model's tool: the owner's chief.stop
+            // reaches this socket as a bare `{"tool": "stop"}`.
+            Call::Stop => json!({"tool": "stop", "end_turn": true}),
             Call::Sleep(c) => c.to_json(),
+            Call::Remember { text } => json!({"tool": "remember", "text": text}),
             Call::Control(c) => c.to_json(),
             Call::EscalateAuth { request, agent } => {
                 let mut v = json!({
@@ -931,8 +1020,7 @@ impl Call {
 
 /// The host's per-Chief settings over the socket (`optchat-chief settings`):
 /// `Some((key, value))` sets one, None shows them all. Not a model tool:
-/// the MCP server never offers it, and the host refuses turning
-/// `remote.autoApprove` on during remote-origin work.
+/// the MCP server never offers it.
 pub type Control = Arc<dyn Fn(ControlRequest) -> Result<String, String> + Send + Sync>;
 
 /// What `optchat-chief settings` and `chief agents spawn` ask the host.
@@ -950,6 +1038,12 @@ pub enum ControlRequest {
     Stop,
     /// chief.stop {name}: stops that one subagent.
     StopSubagent(String),
+    /// chief.stop {all: true}: the turn and every subagent ("Stop all
+    /// agents").
+    StopAll,
+    /// chief.stop {restart: [ids]}: those subagents go on (Restart on the
+    /// stop-all toast).
+    Restart(Vec<String>),
 }
 
 /// What the tools socket serves: the memory, the subagent tools when the
@@ -970,6 +1064,9 @@ pub struct Served {
     /// caller under one of its subagents is a subagent whatever it says.
     /// None: no caller is a turn.
     pub turn: Option<crate::turn_caller::TurnBinding>,
+    /// The Chiefs on other machines (peer_chiefs.rs): `tell("chief:<name>")`
+    /// posts to them through the agent hub and `chiefs` lists them. None: off.
+    pub peers: Option<Arc<crate::peer_chiefs::PeerChiefs>>,
 }
 
 /// Serves the tools on `path` until the process ends. The host holds the
@@ -993,6 +1090,7 @@ pub fn serve_with(
             inspector: None,
             chief: None,
             turn: None,
+            peers: None,
         },
     )
 }
@@ -1094,14 +1192,36 @@ fn connection(conn: UnixStream, served: &Served) {
                 }
                 // chief.engine.get / chief.engine.set / chief.stop: the
                 // brain's JSON value as the answer line (the daemon's
-                // owner-gated chief-control forwards these lines).
-                if tool == "engine" || tool == "stop" {
+                // owner-gated chief-control forwards these lines). The
+                // model's own `stop` tool (`end_turn`, or any call from a
+                // turn session) only ends its turn: taken for chief.stop, it
+                // stopped every subagent (2026-10-20).
+                let model_stop = tool == "stop"
+                    && (req.get("end_turn").and_then(Value::as_bool) == Some(true)
+                        || role() == crate::turn_caller::Role::Turn);
+                if tool == "engine" || (tool == "stop" && !model_stop) {
                     let field = |k: &str| req.get(k).and_then(Value::as_str).map(str::to_owned);
                     let ask = match (tool, field("action").as_deref()) {
-                        ("stop", _) => Some(match field("name").filter(|n| !n.trim().is_empty()) {
-                            Some(name) => ControlRequest::StopSubagent(name.trim().to_owned()),
-                            None => ControlRequest::Stop,
-                        }),
+                        ("stop", _) => {
+                            let restart = req.get("restart").and_then(Value::as_array).map(|ids| {
+                                ids.iter()
+                                    .filter_map(Value::as_str)
+                                    .map(str::to_owned)
+                                    .collect::<Vec<_>>()
+                            });
+                            let all = req.get("all").and_then(Value::as_bool) == Some(true);
+                            Some(
+                                match (restart, all, field("name").filter(|n| !n.trim().is_empty()))
+                                {
+                                    (Some(ids), _, _) => ControlRequest::Restart(ids),
+                                    (None, true, _) => ControlRequest::StopAll,
+                                    (None, false, Some(name)) => {
+                                        ControlRequest::StopSubagent(name.trim().to_owned())
+                                    }
+                                    (None, false, None) => ControlRequest::Stop,
+                                },
+                            )
+                        }
                         (_, Some("show") | None) => {
                             Some(ControlRequest::Engine(crate::brain::EngineRequest::Show))
                         }
@@ -1114,6 +1234,12 @@ fn connection(conn: UnixStream, served: &Served) {
                                 compactor_speed: field("compactor_speed"),
                                 compactor_harness: field("compactor_harness"),
                                 compactor_model: field("compactor_model"),
+                                reactions: Box::new(crate::brain::ReactionFields {
+                                    classifier_harness: field("classifier_harness"),
+                                    classifier_model: field("classifier_model"),
+                                    classifier_prompt: field("classifier_prompt"),
+                                    reactions_can_wake: field("reactions_can_wake"),
+                                }),
                             }))
                         }
                         _ => None,
@@ -1185,7 +1311,20 @@ fn connection(conn: UnixStream, served: &Served) {
                     || role() == crate::turn_caller::Role::Subagent;
                 let grant = served.chief.as_ref().map(|c| c.grant());
                 let grant = grant.as_ref();
-                let answer = match Call::parse(tool, &req) {
+                // The turn's settings allow the Chief's tools with no
+                // permission request; a turn another person started is
+                // held to its input rules here.
+                let gated = if subagent || !TURN_GATED.contains(&tool) {
+                    Ok(())
+                } else {
+                    let mut input = req.as_object().cloned().unwrap_or_default();
+                    input.remove("tool");
+                    input.remove("from");
+                    served.orchestrator.as_ref().map_or(Ok(()), |o| {
+                        o.turn_gate(&format!("mcp__optchat__{tool}"), &Value::Object(input))
+                    })
+                };
+                let answer = match gated.and_then(|()| Call::parse(tool, &req)) {
                     // A subagent tells another subagent (acp-chief-issues.md
                     // #11), as the one its session is; never as the Chief.
                     Ok(Call::Tell {
@@ -1207,13 +1346,15 @@ fn connection(conn: UnixStream, served: &Served) {
                         | Call::React { .. }
                         | Call::Reply { .. }
                         | Call::Send(_)
+                        | Call::Transcript { .. }
                         | Call::Stop
                         | Call::Sleep(_)
+                        | Call::Remember { .. }
                         | Call::Control(_)
                         | Call::Profile { .. }
                         | Call::Chiefs { .. },
                     ) if subagent => Err(
-                        "subagents have no spawn, react, reply, send, stop, sleep, control, profile or chiefs"
+                        "subagents have no spawn, react, reply, send, transcript, stop, sleep, remember, control, profile or chiefs"
                             .to_owned(),
                     ),
                     // `chiefs` only for this host's own turn: the turn key the
@@ -1225,7 +1366,11 @@ fn connection(conn: UnixStream, served: &Served) {
                             if chief.is_turn(turn_key.as_deref())
                                 && role() == crate::turn_caller::Role::Turn =>
                         {
-                            chief.chiefs_call(&args)
+                            let answer = chief.chiefs_call(&args);
+                            match &served.peers {
+                                Some(peers) => peers.merge_list(&args, answer),
+                                None => answer,
+                            }
                         }
                         Some(_) => Err(NOT_THE_TURN.to_owned()),
                         None => Err(crate::chief_profile::Grant::refusal("chiefs")),
@@ -1239,6 +1384,20 @@ fn connection(conn: UnixStream, served: &Served) {
                         if grant.is_some_and(|g| !g.allows("tell")) =>
                     {
                         Err(crate::chief_profile::Grant::refusal("tell"))
+                    }
+                    // A Chief on another machine (peer_chiefs.rs), through the agent hub.
+                    Ok(Call::Tell {
+                        ref id,
+                        ref message,
+                        ref key,
+                        ..
+                    }) if id.trim().starts_with(crate::peer_chiefs::PREFIX) => {
+                        match &served.peers {
+                            Some(peers) => peers.tell(id, message, key.as_deref()),
+                            None => Err(format!(
+                                "tell: no peer Chiefs are set up on this host, so {id} cannot be reached (peer-chiefs.json)"
+                            )),
+                        }
                     }
                     Ok(Call::Profile { args }) => match &served.chief {
                         Some(chief) => chief.profile_call(&args),
@@ -1270,6 +1429,10 @@ fn connection(conn: UnixStream, served: &Served) {
                         Some(o) => o.reply(id, &text),
                         None => Err("this Chief host has no conversation to reply in".to_owned()),
                     },
+                    Ok(Call::Transcript { n, before }) => match &served.orchestrator {
+                        Some(o) => o.transcript(n, before),
+                        None => Err("this Chief host has no conversation to read".to_owned()),
+                    },
                     Ok(Call::Send(call)) => match &served.orchestrator {
                         Some(o) => o.send(call),
                         None => Err("this Chief host has no conversation to send in".to_owned()),
@@ -1281,6 +1444,10 @@ fn connection(conn: UnixStream, served: &Served) {
                     Ok(Call::Sleep(call)) => match &served.orchestrator {
                         Some(o) => o.sleep(call),
                         None => Err("this Chief host runs no turns".to_owned()),
+                    },
+                    Ok(Call::Remember { text }) => match &served.orchestrator {
+                        Some(o) => o.remember(&text),
+                        None => Err("this Chief host has no person profile to remember in".to_owned()),
                     },
                     Ok(Call::Control(request)) => match &served.orchestrator {
                         Some(o) => o.control(request),

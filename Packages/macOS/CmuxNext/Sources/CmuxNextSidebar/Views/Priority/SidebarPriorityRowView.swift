@@ -1,0 +1,210 @@
+import AppKit
+import CmuxNextDesign
+
+/// One chat in the Priority view: the title and its project or machine tag on the first line with
+/// the state chip at the right, then up to two lines of its latest message. The pointer over the
+/// row swaps the chip for its actions (mark read, pin, snooze, archive); a click opens the chat.
+/// The buttons and the right-click menu run the same registered actions (the App maps them).
+final class SidebarPriorityRowView: NSView {
+    private(set) var entry: SidebarPriorityEntry
+    var onAction: ((SidebarPriorityAction) -> Void)?
+
+    private let title = ChromeLabel(labelWithString: "")
+    private let placeLabel = ChromeLabel(labelWithString: "")
+    private let preview = ChromeLabel(wrappingLabelWithString: "")
+    private let chip = ChromeLabel(labelWithString: "")
+    private let indicator = StatusIndicatorView()
+    private let unreadDot = CALayer()
+    private let markRead = SidebarIconButton(symbol: "checkmark.circle", label: Strings.priorityMarkRead)
+    private let pin = SidebarIconButton(symbol: "pin", label: Strings.priorityPin)
+    private let snooze = SidebarIconButton(symbol: "moon.zzz", label: Strings.prioritySnooze)
+    private let archive = SidebarIconButton(symbol: "archivebox", label: Strings.priorityArchive)
+    private var actionButtons: [SidebarIconButton] { [markRead, pin, snooze, archive] }
+    private var pointerHover: PointerHover?
+    private var isHovered = false { didSet { if isHovered != oldValue { needsLayout = true; needsDisplay = true } } }
+
+    init(entry: SidebarPriorityEntry) {
+        self.entry = entry
+        super.init(frame: .zero)
+        wantsLayer = true
+        title.lineBreakMode = .byTruncatingTail
+        placeLabel.lineBreakMode = .byTruncatingTail
+        preview.maximumNumberOfLines = 2
+        preview.truncatesLastVisibleLine = true
+        [title, placeLabel, preview, chip, indicator].forEach(addSubview)
+        layer?.addSublayer(unreadDot)
+        for button in actionButtons { addSubview(button) }
+        markRead.onPress = { [weak self] in self.map { $0.onAction?(.markRead($0.entry.id)) } }
+        pin.onPress = { [weak self] in self.map { $0.onAction?(.togglePin($0.entry.id)) } }
+        snooze.onPress = { [weak self] in self.map { $0.onAction?(.snooze($0.entry.id)) } }
+        archive.onPress = { [weak self] in self.map { $0.onAction?(.archive($0.entry.id)) } }
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        pointerHover = PointerHover(self) { [weak self] hovering in self?.isHovered = hovering }
+        configure(entry)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    nonisolated override var isFlipped: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    func configure(_ entry: SidebarPriorityEntry) {
+        self.entry = entry
+        title.stringValue = entry.title
+        placeLabel.stringValue = [entry.project, entry.machine].compactMap(\.self).joined(separator: " · ")
+        preview.stringValue = entry.preview ?? ""
+        preview.isHidden = entry.preview == nil
+        chip.stringValue = Self.chipText(entry.state, now: Date())
+        indicator.configure(Self.indicatorState(entry.state))
+        pin.label = entry.pinTitle
+        markRead.isEnabled = entry.canMarkRead
+        setAccessibilityLabel([entry.title, chip.stringValue, entry.preview].compactMap(\.self).joined(separator: ", "))
+        needsLayout = true
+        needsDisplay = true
+    }
+
+    /// Refreshes a working chip's elapsed time.
+    func tick(now: Date) {
+        guard case .working = entry.state else { return }
+        chip.stringValue = Self.chipText(entry.state, now: now)
+        needsLayout = true
+    }
+
+    static func chipText(_ state: SidebarPriorityEntry.State, now: Date) -> String {
+        switch state {
+        case .needsYou: Strings.priorityNeedsYou
+        case .done: Strings.priorityDone
+        case .failed: Strings.priorityFailed
+        case .lost: Strings.priorityLost
+        case .ciFailing: Strings.priorityCIFailing
+        case .working(let since):
+            since.flatMap { elapsed(from: $0, to: now) }.map(Strings.priorityWorking(for:)) ?? Strings.priorityWorking
+        case .idle: Strings.priorityIdle
+        }
+    }
+
+    /// "5m", "2h": the largest whole unit, nil under a minute.
+    static func elapsed(from start: Date, to now: Date) -> String? {
+        let seconds = now.timeIntervalSince(start)
+        guard seconds >= 60 else { return nil }
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .abbreviated
+        formatter.maximumUnitCount = 1
+        formatter.allowedUnits = [.minute, .hour, .day]
+        return formatter.string(from: seconds)
+    }
+
+    /// Attention for needs you, danger for failed, lost or Red CI, dim otherwise; workspace rows use it too.
+    static func chipColor(_ state: SidebarPriorityEntry.State) -> NSColor {
+        switch state {
+        case .needsYou: Palette.attention
+        case .failed, .lost, .ciFailing: Palette.danger
+        case .done, .working, .idle: Palette.textTertiary
+        }
+    }
+
+    static func indicatorState(_ state: SidebarPriorityEntry.State) -> StatusIndicatorState {
+        switch state {
+        case .needsYou: .waiting
+        case .working: .working
+        case .failed, .lost, .ciFailing: .error
+        case .done, .idle: .idle
+        }
+    }
+
+    /// The row's height at the current type sizes: padding, the title line, and two preview lines.
+    static func height(hasPreview: Bool) -> CGFloat {
+        let titleLine = ceil(SidebarStyle.titleFont.boundingRectForFont.height)
+        let previewLines = hasPreview ? ceil(SidebarStyle.subtitleFont.boundingRectForFont.height) * 2 + Metrics.space1 : 0
+        return Metrics.space2 * 2 + titleLine + previewLines
+    }
+
+    override func layout() {
+        super.layout()
+        let b = bounds, inset = SidebarStyle.horizontalInset, pad = Metrics.space2
+        title.font = SidebarStyle.titleFont
+        placeLabel.font = SidebarStyle.titleFont
+        preview.font = SidebarStyle.subtitleFont
+        chip.font = SidebarStyle.subtitleFont
+        let lineHeight = ceil(SidebarStyle.titleFont.boundingRectForFont.height)
+        var trailing = b.width - inset
+        // The pointer over the row shows its actions in the chip's place.
+        let button = lineHeight
+        for (index, view) in actionButtons.reversed().enumerated() {
+            view.isHidden = !isHovered
+            view.frame = NSRect(x: trailing - CGFloat(index + 1) * button, y: pad, width: button, height: button)
+        }
+        chip.isHidden = isHovered
+        indicator.isHidden = isHovered || !indicator.state.isVisible
+        unreadDot.isHidden = isHovered || !entry.unread
+        if isHovered {
+            trailing -= CGFloat(actionButtons.count) * button + Metrics.space1
+        } else {
+            let chipSize = chip.naturalSize
+            chip.frame = NSRect(x: trailing - chipSize.width, y: pad + (lineHeight - chipSize.height) / 2,
+                                width: chipSize.width, height: chipSize.height)
+            trailing = chip.frame.minX - Metrics.space1
+            let mark = SidebarStyle.indicatorSize
+            if indicator.state.isVisible {
+                indicator.frame = NSRect(x: trailing - mark, y: pad + (lineHeight - mark) / 2, width: mark, height: mark)
+                trailing = indicator.frame.minX - Metrics.space1
+            }
+            let dot = SidebarStyle.dotSize
+            unreadDot.frame = CGRect(x: trailing - dot, y: pad + (lineHeight - dot) / 2, width: dot, height: dot)
+            unreadDot.cornerRadius = dot / 2
+            if entry.unread { trailing = unreadDot.frame.minX - Metrics.space1 }
+        }
+        let textWidth = max(0, trailing - inset)
+        let tagWidth = placeLabel.stringValue.isEmpty ? 0 : min(placeLabel.naturalSize.width, textWidth * 0.4)
+        let titleWidth = min(title.naturalSize.width, textWidth - tagWidth - (tagWidth > 0 ? Metrics.space2 : 0))
+        title.frame = NSRect(x: inset, y: pad, width: max(0, titleWidth), height: lineHeight)
+        placeLabel.frame = NSRect(x: title.frame.maxX + Metrics.space2, y: pad, width: tagWidth, height: lineHeight)
+        let previewTop = pad + lineHeight + Metrics.space1
+        // The full row's lines, not the bounds': an opening or closing slot clips them, never squeezes them.
+        let fullHeight = Self.height(hasPreview: entry.preview != nil)
+        preview.frame = NSRect(x: inset, y: previewTop, width: max(0, b.width - 2 * inset), height: max(0, fullHeight - previewTop - pad))
+    }
+
+    override func updateLayer() {
+        performWithTheme {
+            title.textColor = Palette.textPrimary
+            placeLabel.textColor = entry.machine.map(Self.machineColor) ?? Palette.textTertiary
+            preview.textColor = Palette.textSecondary
+            chip.textColor = Self.chipColor(entry.state)
+            unreadDot.backgroundColor = Palette.notificationBlue.cgColor
+            if let layer {
+                layer.cornerRadius = SidebarStyle.rowCornerRadius
+                ChromeHover.paint(layer, isHovered ? Palette.hoverFill : nil, animated: window != nil)
+            }
+        }
+    }
+
+    /// A machine's tag takes a stable color of the group palette, so one machine reads the same in every row.
+    static func machineColor(_ machine: String) -> NSColor {
+        let colors = GroupColor.allCases.filter { $0 != .grey }
+        let sum = machine.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xFFFF }
+        return SidebarStyle.color(colors[sum % colors.count])
+    }
+
+    override func mouseDown(with event: NSEvent) {}
+
+    /// The App's menu for the row's chat (`SidebarContextTarget.priorityChat`): the same actions as
+    /// the hover buttons.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let sidebar = sequence(first: superview, next: { $0?.superview }).lazy.compactMap { $0 as? SidebarView }.first
+        return sidebar?.contextMenuProvider?(.priorityChat(entry.id))
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
+        onAction?(.open(entry.id))
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        onAction?(.open(entry.id))
+        return true
+    }
+}

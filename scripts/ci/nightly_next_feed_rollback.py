@@ -12,6 +12,14 @@ keep it until a newer build is published, or roll back to the build they kept
 the whole procedure.
 
   plan --feed FILE [--bad BUILD | --to BUILD] --out FILE
+  pulled [--existing FILE] --pulled "BUILD ..." --serve BUILD --reason TEXT --at ISO8601 --out FILE
+
+pulled writes pulled.json, the list the app reads next to the appcast with each
+update check (PulledBuildWatch.swift): [{"build", "reason", "pulledAt",
+"serve"}], newest build first. It merges into the existing list (a missing
+or unreadable FILE counts as empty), replaces an entry for a build pulled
+again, drops the build now served (a --to that serves a pulled build again
+clears it) and keeps the newest MAX_PULLED entries.
 
 --bad pulls BUILD and everything newer (default: the newest item).
 --to keeps BUILD as the newest item and pulls everything above it.
@@ -85,6 +93,28 @@ def plan(text: str, bad: str | None = None, to: str | None = None) -> tuple[str,
     return "".join(out), {"pulled": pulled_builds, "serving": serving, "serving_url": enclosure(match), "changed": True}
 
 
+MAX_PULLED = 50
+
+
+def pulled_list(existing: str | None, pulled: list[str], serve: str, reason: str, at: str) -> list[dict]:
+    """The merged pulled.json entries, newest build first."""
+    for value in [*pulled, serve]:
+        if not value.isdigit():
+            raise Refused(f"build {value!r} is not a number")
+    entries: dict[str, dict] = {}
+    try:
+        old = json.loads(existing) if existing else []
+    except json.JSONDecodeError:
+        old = []
+    for entry in old if isinstance(old, list) else []:
+        if isinstance(entry, dict) and str(entry.get("build", "")).isdigit():
+            entries[str(entry["build"])] = entry
+    for build in pulled:
+        entries[build] = {"build": build, "reason": reason, "pulledAt": at, "serve": serve}
+    entries.pop(serve, None)
+    return sorted(entries.values(), key=lambda entry: int(entry["build"]), reverse=True)[:MAX_PULLED]
+
+
 def enclosure(match: re.Match[str]) -> str:
     url = ENCLOSURE.search(match.group(0))
     if url is None:
@@ -101,7 +131,32 @@ def main(argv: list[str] | None = None) -> int:
     target.add_argument("--bad")
     target.add_argument("--to")
     p.add_argument("--out", required=True)
+    q = sub.add_parser("pulled")
+    q.add_argument("--existing")
+    q.add_argument("--pulled", required=True, help="space-separated builds")
+    q.add_argument("--serve", required=True)
+    q.add_argument("--reason", required=True)
+    q.add_argument("--at", required=True)
+    q.add_argument("--out", required=True)
     args = parser.parse_args(argv)
+    if args.command == "pulled":
+        existing = None
+        if args.existing:
+            try:
+                with open(args.existing, encoding="utf-8") as handle:
+                    existing = handle.read()
+            except (OSError, UnicodeDecodeError):
+                existing = None
+        try:
+            entries = pulled_list(existing, args.pulled.split(), args.serve, args.reason, args.at)
+        except Refused as error:
+            print(f"refused: {error}", file=sys.stderr)
+            return 1
+        with open(args.out, "w", encoding="utf-8") as handle:
+            json.dump(entries, handle, indent=2)
+            handle.write("\n")
+        print(json.dumps({"pulled": [entry["build"] for entry in entries]}))
+        return 0
     try:
         with open(args.feed, encoding="utf-8") as handle:
             text = handle.read()

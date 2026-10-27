@@ -1,5 +1,8 @@
 # cmux-next INTERNAL iOS TestFlight builder
 
+> **Moved 2026-10-25.** All nine M6 minis (cmux16..cmux24) are reserved for the cmux Performance Lead
+> (Lawrence). The INTERNAL iOS archive now runs on cmux9s (M4 Pro, runner `cmux9s-mac-mini-ios-internal`, `CI_IOS_INTERNAL_RUNNER=glaeda-runner-cmux9s-mac-mini-ios-internal`). Install with `scripts/ci/ios-internal-builder-install.sh HOST`; the old M6 runner is removed.
+
 Owner: Chief subagent "iOS internal TestFlight builder" (2026-10-20). User ask:
 "a builder for cmux-next cmux INTERNAL iOS ... that just keeps on churning out
 new testflight builds, similar to what we have for the mac app".
@@ -8,16 +11,16 @@ Sibling: `plans/cmux-next/nightly-builder-DESIGN.md` (the Mac nightly on cmux22)
 
 ## What exists today (2026-10-20)
 
-- **The app.** cmux-next's iPhone app is Aziz's `cnx-ios/` (target `CnxApp`,
+- **The app.** cmux-next's iPhone app is Aziz's `cmux-next-ios/` (target `CmuxMobileApp`,
   App Store Connect app "cmux INTERNAL", bundle `dev.cmux.app.internal`, app id
   6791408425). It lives on `rc/cnx-ios-internal-20261019` and is not yet on
   `feat-cmux-next`; a191 is merging it. The old `ios/` app is not built.
-- **Aziz's build script** `cnx-ios/scripts/testflight-build.sh` already does the
+- **Aziz's build script** `cmux-next-ios/scripts/testflight-build.sh` already does the
   hard parts: archive, export, entitlement and binary checks, Apple validation,
   `--internal-only`, version and build number checks against App Store Connect,
   and a split mode: `--unsigned --no-asc` archives on a host with no secrets,
   and `--from-archive` signs, validates and uploads that archive elsewhere.
-- **The retired manual workflow** `cnx-ios-testflight.yml` uploaded from
+- **The retired manual workflow** `cmux-next-ios-testflight.yml` uploaded from
   `rc/cnx-ios-internal-*` in one job that also installed rolling tools, built
   branch code and held signing/upload credentials. The continuous split
   builder below replaces it; the legacy workflow was removed after the round-3
@@ -65,12 +68,12 @@ Sibling: `plans/cmux-next/nightly-builder-DESIGN.md` (the Mac nightly on cmux22)
    on a 2-hour schedule once the file reaches the default branch, and on
    dispatch). Its `decide` job (`ios_internal_builder.py plan`, Ubuntu, no
    secrets) dispatches the build with the head SHA when:
-   - `cnx-ios/` exists at the head (until a191's merge lands, it skips);
+   - `cmux-next-ios/` exists at the head (until a191's merge lands, it skips);
    - the head is not the last uploaded SHA, and no build of the head is queued
      or running, and the head did not already fail (a failed head is retried
      only after the fallback interval);
-   - the change since the last upload touches an iOS path: `cnx-ios/`, every
-     local package `cnx-ios/CnxKit/Package.swift` names (today
+   - the change since the last upload touches an iOS path: `cmux-next-ios/`, every
+     local package `cmux-next-ios/CmuxMobileKit/Package.swift` names (today
      `Packages/Shared/*`, `Packages/iOS/CmuxTabsKit`, `CmuxConversation`,
      `vendor/stack-auth-swift-sdk-prerelease`), `cmux-tui/crates/cmux-wg`,
      `cmux-tui/crates/cmux-transport`, `AppIcon.icon`, and the builder files; or
@@ -89,14 +92,14 @@ Sibling: `plans/cmux-next/nightly-builder-DESIGN.md` (the Mac nightly on cmux22)
    serialized by the concurrency group, so numbers only go up. The signing job
    checks the number is above the newest build in App Store Connect before it
    uploads (`testflight-build.sh`). `MARKETING_VERSION` comes from
-   `cnx-ios/project.yml` at the SHA; the signer refuses a version below the
+   `cmux-next-ios/project.yml` at the SHA; the signer refuses a version below the
    highest one in cmux INTERNAL.
 8. **Internal testers only.** Every upload passes `--internal-only`
    (`testFlightInternalTestingOnly`), so the build can never go to an external
    group. "What to Test" lists what changed since the last upload (below).
-9. **Warm cache on cmux23.** `CNX_BUILDS_ROOT=~/cnx-ios-builds` persists between
-   builds: `.cache/xcframework/<key>` (the Rust `CnxFFI.xcframework`, keyed by
-   the Rust tree SHAs), `.cache/cnx-rust-target` (cargo), `.cache/spm`
+9. **Warm cache on cmux23.** `CMUX_MOBILE_BUILDS_ROOT=~/cmux-mobile-builds` persists between
+   builds: `.cache/xcframework/<key>` (the Rust `CmuxMobileLinkFFI.xcframework`, keyed by
+   the Rust tree SHAs), `.cache/cmux-mobile-rust-target` (cargo), `.cache/spm`
    (SwiftPM checkouts). Each archive starts DerivedData empty (the script's
    choice), like the Mac nightly.
 
@@ -107,9 +110,9 @@ a signing secret (`scripts/ci/ios_internal_notes.py`, tests in
 `tests/test_ios_internal_notes.py`).
 
 - **Content.** The `## Changelog` lines (Added / Changed / Fixed / Removed) of the
-  pull requests whose commits in BASE..SHA change the app: `cnx-ios/`,
-  `AppIcon.icon/`, `cmux-wg`, `cmux-transport` and every local package
-  `cnx-ios/CnxKit/Package.swift` names at SHA. Builder files are not app
+  pull requests whose commits in BASE..SHA change the app: `cmux-next-ios/`
+  (`cnx-ios/` before the rename), `AppIcon.icon/`, `cmux-wg`, `cmux-transport` and
+  every local package `cmux-next-ios/CmuxMobileKit/Package.swift` names at SHA. Builder files are not app
   changes. Lines are grouped, `none` is dropped, repeats are dropped, and
   markdown, template comments and footers after the section are left out. A PR
   with no Changelog section contributes its title. A commit pushed straight to
@@ -146,7 +149,15 @@ free disk, the newest build runs (public API, every 5 min), and
 `~/Library/Application Support/ios-internal-builder/status.json` and a JSON line
 per change to `~/Library/Logs/ios-internal-builder.log`. Alerts: `runner-down`,
 `disk-low`, `build-failed`. It prunes runner `_diag` logs older than 7 days and
-build outputs older than 3 days; it never deletes `.cache`.
+build outputs older than 3 days or beyond the newest 5 `*-testflight` folders. Below 60 GiB
+free, and only while no build runs (no `Runner.Worker`, `testflight-build.sh` or
+`build-xcframework.sh` process), it also trims caches, moving each into `.trash` first: the pre-rename `~/cnx-ios-builds`,
+every `.work` folder (failed builds' source and DerivedData), xcframeworks beyond the
+newest 3 keys, and the cargo target (rebuilt only on an xcframework cache miss).
+SwiftPM checkouts stay. `~/cmux-mobile-builds` on cmux23 belongs to this builder only. The admission hook does the same trim once before it refuses
+an archive job for disk, then checks again. (cmux23 fell to 39.9 GiB free on
+2026-10-22 and refused every archive job; the old root and failed builds' `.work`
+had no cleanup.)
 
 ```bash
 ssh cmux23 'python3 ~/ios-internal-builder/ios_internal_builder.py status'
@@ -174,6 +185,15 @@ ssh cmux23 'python3 ~/ios-internal-builder/ios_internal_builder.py status'
   once, dispatch `ios-internal-nightly.yml` on `rc/cnx-ios-builder` with `sha`.
 - Pause: set repo variable `IOS_INTERNAL_HOLD=1`; the trigger then dispatches
   nothing.
+- Production naming (2026-10-20): the app moved from `cnx-ios/` to `cmux-next-ios/`
+  (archive `CmuxMobileApp.xcarchive`, artifacts `cmux-mobile-internal-*`, build root
+  `~/cmux-mobile-builds`). The signing job runs `rc/cnx-ios-builder`'s own copy of the
+  workflow and of `testflight-build.sh`, so until an admin fast-forwards that branch to a
+  feat-cmux-next commit with the rename, the trigger skips with "has no
+  cmux-next-ios/scripts/testflight-build.sh" and nothing uploads (the last upload stays
+  installable). Admin step, once the rename is on feat-cmux-next:
+  `git push origin <feat-cmux-next sha>:refs/heads/rc/cnx-ios-builder`. The branch keeps
+  its name. After it, copy `scripts/ci/ios_internal_builder.py` to the mini as above.
 
 ## Not done (follow-ups)
 
@@ -198,7 +218,7 @@ app name, missing or empty purpose strings for APIs the binary uses (ITMS-90683)
 descriptions that name one Apple device, unknown `UIBackgroundModes`, and iPad orientations
 (ITMS-90474). It runs in four places:
 
-1. the pre-push gate (`--source`, on pushes that change `cnx-ios/`);
+1. the pre-push gate (`--source`, on pushes that change `cmux-next-ios/`);
 2. the cmux-next checks job (`--source` plus `tests/test_app_store_rules.py`);
 3. this builder's archive job, on the source and on the built app, before the archive goes to the
    signer;

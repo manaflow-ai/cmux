@@ -8,6 +8,7 @@ use cmux_tui_core::terminal_respawn_text::{ENGLISH, TerminalRespawnText};
 static JAPANESE: TerminalRespawnText = TerminalRespawnText {
     restored: "\u{2014} セッションを復元しました（前のプロセスは終了しました） \u{2014}",
     restored_command: "\u{2014} セッションを復元しました（前のプロセスは終了しました。実行していたコマンド: {program}） \u{2014}",
+    restored_agent: "\u{2014} セッションを復元しました（再開: {command}） \u{2014}",
     recovered_workspace: "復元されたターミナル",
     stopped: "\u{2014} このタブを閉じたときに {program} を停止しました \u{2014}",
 };
@@ -31,6 +32,7 @@ mod tests {
         assert!(
             ja.restored_command.contains("{program}") && en.restored_command.contains("{program}")
         );
+        assert!(ja.restored_agent.contains("{command}") && en.restored_agent.contains("{command}"));
         assert_ne!(en.restored, ja.restored);
         assert_ne!(en.recovered_workspace, ja.recovered_workspace);
         assert!(ja.stopped.contains("{program}") && en.stopped.contains("{program}"));

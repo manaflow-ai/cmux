@@ -32,6 +32,19 @@ flock -n 9 || finish "SKIP busy another upgrade run holds the lock"
 daemon_pid() { pgrep -f "cmux-tui server start --session cloud" | head -1; }
 host_pids() { ps -eo pid=,args= | awk '$2 ~ /(cmux-tui|\/proc\/self\/exe)$/ && $3=="__terminal-host"{print $1}' | sort -n | tr '\n' ' '; }
 daemon_has_trusted_carrier() { tr '\0' ' ' < "/proc/$1/cmdline" | grep -q -- --remote-ws-trusted-carrier; }
+daemon_has_supported_cloud_entry() {
+  daemon_has_trusted_carrier "$1" && return 0
+  python3 - /etc/cmux/host.json <<'PYTHON'
+import json, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as source:
+        config = json.load(source)
+    ok = config.get("remoteWs", {}).get("carrier") == "freestyle-edge-grant"
+except (OSError, ValueError, AttributeError):
+    ok = False
+sys.exit(0 if ok else 1)
+PYTHON
+}
 term_count() { if [ "$H" = /root ]; then U=root; else U=cmux; fi; sudo -n -u "$U" env HOME="$H" "$BIN" --session cloud --json terminal list 2>/dev/null | python3 -c 'import json,sys
 d=json.load(sys.stdin); print(len(d if isinstance(d,list) else (d.get("terminals") or [])))' 2>/dev/null || echo "?"; }
 exe_sha() { sha256sum "/proc/$1/exe" 2>/dev/null | cut -d' ' -f1; }
@@ -155,7 +168,7 @@ BIN="$H/.cmux/bin/cmux-tui"
 # live child, its carrier contract cannot be proven; retry after inspecting it.
 D=$(daemon_pid)
 [ -n "$D" ] || finish "SKIP no-daemon"
-daemon_has_trusted_carrier "$D" || finish "SKIP no-trusted-carrier"
+daemon_has_supported_cloud_entry "$D" || finish "SKIP unsupported-cloud-auth"
 if [ "$(exe_sha "$D")" = "$TARGET_SHA" ]; then
   install_state_mount || {
     restore_state_mount || finish "FAIL state-mount-restore reason=$STATE_MOUNT_FAILURE"

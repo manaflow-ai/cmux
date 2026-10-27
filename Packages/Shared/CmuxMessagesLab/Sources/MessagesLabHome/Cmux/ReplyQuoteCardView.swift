@@ -22,10 +22,10 @@ final class ReplyQuoteCardView: NSView {
         addSubview(glass)
         bar.wantsLayer = true
         bar.layer?.cornerRadius = 1.5
-        title.font = .systemFont(ofSize: 11, weight: .semibold)
+        title.font = HomeFonts.system(ofSize: 11, weight: .semibold)
         title.textColor = .secondaryLabelColor
         title.lineBreakMode = .byTruncatingTail
-        excerpt.font = .systemFont(ofSize: 13)
+        excerpt.font = HomeFonts.system(ofSize: 13)
         excerpt.textColor = .labelColor
         excerpt.maximumNumberOfLines = 2
         excerpt.lineBreakMode = .byTruncatingTail
@@ -47,6 +47,15 @@ final class ReplyQuoteCardView: NSView {
     override var isFlipped: Bool { true }
 
     @objc private func removeClicked() { onRemove() }
+
+    /// Right-click: Copy the quoted words, and Remove Quote.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu()
+        HomeContentMenu().textItems(excerpt.stringValue, selection: nil).forEach(menu.addItem)
+        menu.addItem(.separator())
+        menu.addItem(MenuAction(title: CmuxStrings.replyQuoteRemove, symbol: "xmark.circle") { [weak self] in self?.onRemove() })
+        return menu
+    }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()

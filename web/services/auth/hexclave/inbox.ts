@@ -30,6 +30,8 @@ export type HexclaveInboxEntry = {
   readonly eventType: string;
   readonly target: HexclaveSyncTarget;
   readonly attempts: number;
+  /** Exact lease token written by claimDue; renewals compare-and-swap it. */
+  readonly claimUntil: Date;
 };
 
 export type DrainSlotLease = { readonly slot: number; readonly leaseId: string };
@@ -51,19 +53,21 @@ export type HexclaveInboxStore = {
    * oldest entity first. Concurrent drains claim disjoint entries.
    */
   claimDue(now: Date, entityLimit: number, leaseUntil: Date): Promise<readonly HexclaveInboxEntry[]>;
-  /** Applied: delete the entries. */
-  complete(svixIds: readonly string[]): Promise<void>;
+  /** Extend this worker's exact claims; false means another worker owns one. */
+  renewClaims(svixIds: readonly string[], expectedUntil: Date, nextUntil: Date): Promise<boolean>;
+  /** Applied: delete the entries only while this worker still owns every claim. */
+  complete(svixIds: readonly string[], expectedUntil: Date): Promise<boolean>;
   /** The entity failed: count an attempt, release, schedule; dead-letter at the cap. */
-  recordFailure(svixIds: readonly string[], input: {
+  recordFailure(svixIds: readonly string[], expectedUntil: Date, input: {
     readonly now: Date;
     readonly nextAttemptAt: Date;
     readonly error: string;
     readonly maxAttempts: number;
-  }): Promise<void>;
+    /** Install the global provider backoff in the same transaction. */
+    readonly throttleUntil?: Date;
+  }): Promise<boolean>;
   /** Not tried: release the claim and schedule, without counting an attempt. */
-  defer(svixIds: readonly string[], nextAttemptAt: Date): Promise<void>;
-  /** The user or team is gone: drop every entry still naming it. */
-  purgeEntity(target: Pick<HexclaveSyncTarget, "kind" | "id">): Promise<void>;
+  defer(svixIds: readonly string[], expectedUntil: Date, nextAttemptAt: Date): Promise<boolean>;
   /** Live entries with at least `attempts` failures, and dead-lettered entries. */
   health(attempts: number): Promise<{ readonly stuck: number; readonly deadLettered: number }>;
   /** Store the counts last alerted on; answers whether they changed. */
@@ -76,6 +80,7 @@ export type HexclaveInboxStore = {
 
 export const DRAIN_SLOTS = 2;
 const DRAIN_LEASE_MS = 2 * 60_000;
+const DRAIN_HEARTBEAT_MS = 30_000;
 const RETRY_BASE_MS = 30_000;
 const RETRY_MAX_MS = 60 * 60_000;
 /** Without a Retry-After, hold every drain this long after a Hexclave throttle. */
@@ -126,29 +131,105 @@ async function applyGroups(
 ): Promise<DrainResult> {
   let entities = 0;
   let events = 0;
-  for (let index = 0; index < groups.length; index++) {
-    const group = groups[index]!;
-    const ids = group.entries.map((entry) => entry.svixId);
-    let gone = false;
-    try {
-      gone = (await applyHexclaveTarget(group.target, input.sync)).gone;
-    } catch (error) {
-      const throttled = await recordGroupFailure(group, error, input.inbox, now(), log);
-      if (!throttled) continue;
-      const untried = groups.slice(index + 1).flatMap((rest) => rest.entries.map((entry) => entry.svixId));
-      await input.inbox.defer(untried, throttled);
-      return { skipped: false, entities, events, deferredEvents: untried.length + ids.length, throttled: true };
+  const heartbeat = startClaimHeartbeat(input.inbox, groups.flatMap((group) => group.entries), now);
+  try {
+    for (let index = 0; index < groups.length; index++) {
+      const group = groups[index]!;
+      const ids = group.entries.map((entry) => entry.svixId);
+      try {
+        await applyHexclaveTarget(group.target, input.sync);
+      } catch (error) {
+        const claimUntil = await heartbeat.withdraw(ids);
+        if (!claimUntil) throw claimLost(group);
+        const throttled = await recordGroupFailure(group, error, input.inbox, claimUntil, now(), log);
+        if (!throttled) continue;
+        const untried = groups.slice(index + 1).flatMap((rest) => rest.entries.map((entry) => entry.svixId));
+        const untriedClaimUntil = await heartbeat.withdraw(untried);
+        if (untried.length > 0 && (!untriedClaimUntil || !await input.inbox.defer(untried, untriedClaimUntil, throttled))) {
+          throw claimLost(group);
+        }
+        return { skipped: false, entities, events, deferredEvents: untried.length + ids.length, throttled: true };
+      }
+      const claimUntil = await heartbeat.withdraw(ids);
+      if (!claimUntil) throw claimLost(group);
+      for (const entry of group.entries) {
+        await input.sync.store.recordEvent({ svixId: entry.svixId, eventType: entry.eventType, outcome: "processed" });
+      }
+      if (!await input.inbox.complete(ids, claimUntil)) throw claimLost(group);
+      // A new event that arrived while this entity was running is intentionally
+      // left queued. A broad entity purge could delete a legitimate re-create.
+      entities += 1;
+      events += ids.length;
     }
-    for (const entry of group.entries) {
-      await input.sync.store.recordEvent({ svixId: entry.svixId, eventType: entry.eventType, outcome: "processed" });
-    }
-    await input.inbox.complete(ids);
-    // A deleted user or team needs nothing more: drop entries still naming it.
-    if (gone) await input.inbox.purgeEntity(group.target);
-    entities += 1;
-    events += ids.length;
+    return { skipped: false, entities, events, deferredEvents: 0, throttled: false };
+  } finally {
+    await heartbeat.stop();
   }
-  return { skipped: false, entities, events, deferredEvents: 0, throttled: false };
+}
+
+function startClaimHeartbeat(
+  inbox: HexclaveInboxStore,
+  entries: readonly HexclaveInboxEntry[],
+  now: () => Date,
+): { readonly withdraw: (ids: readonly string[]) => Promise<Date | null>; readonly stop: () => Promise<void> } {
+  const activeIds = new Set(entries.map((entry) => entry.svixId));
+  let expectedUntil = entries[0]?.claimUntil;
+  let stopped = false;
+  let claimLost = false;
+  let paused = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let renewal: Promise<void> | null = null;
+
+  const schedule = () => {
+    if (stopped || paused > 0 || claimLost || !expectedUntil || activeIds.size === 0 || timer || renewal) return;
+    timer = setTimeout(() => {
+      timer = undefined;
+      if (stopped || paused > 0 || claimLost || !expectedUntil || activeIds.size === 0) return;
+      const ids = [...activeIds];
+      const claimedUntil = expectedUntil;
+      const nextUntil = new Date(Math.max(now().getTime() + DRAIN_LEASE_MS, claimedUntil.getTime() + 1));
+      renewal = inbox.renewClaims(ids, claimedUntil, nextUntil).then((renewed) => {
+        if (renewed) expectedUntil = nextUntil;
+        else claimLost = true;
+      }, () => { claimLost = true; }).finally(() => {
+        renewal = null;
+        schedule();
+      });
+    }, DRAIN_HEARTBEAT_MS);
+  };
+  schedule();
+
+  const pause = async () => {
+    paused += 1;
+    if (timer) clearTimeout(timer);
+    timer = undefined;
+    if (renewal) await renewal;
+  };
+  const resume = () => {
+    paused -= 1;
+    schedule();
+  };
+  return {
+    withdraw: async (ids) => {
+      await pause();
+      try {
+        for (const id of ids) activeIds.delete(id);
+        return claimLost ? null : expectedUntil ?? null;
+      } finally {
+        resume();
+      }
+    },
+    stop: async () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      timer = undefined;
+      if (renewal) await renewal;
+    },
+  };
+}
+
+function claimLost(group: EntityGroup): Error {
+  return new Error(`Hexclave inbox claim lost for ${group.target.kind}:${group.target.id}`);
 }
 
 /**
@@ -159,6 +240,7 @@ async function recordGroupFailure(
   group: EntityGroup,
   error: unknown,
   inbox: HexclaveInboxStore,
+  claimUntil: Date,
   at: Date,
   log: DrainLog,
 ): Promise<Date | null> {
@@ -167,13 +249,22 @@ async function recordGroupFailure(
   const ids = group.entries.map((entry) => entry.svixId);
   if (!isTransientHexclaveFailure(error)) {
     log("error", "stack_webhook_inbox_apply_failed", { entity: group.target.kind, attempts, error: summary });
-    await inbox.recordFailure(ids, { now: at, nextAttemptAt: new Date(at.getTime() + backoffMs(attempts)), error: summary, maxAttempts: MAX_ATTEMPTS });
+    if (!await inbox.recordFailure(ids, claimUntil, { now: at, nextAttemptAt: new Date(at.getTime() + backoffMs(attempts)), error: summary, maxAttempts: MAX_ATTEMPTS })) {
+      throw claimLost(group);
+    }
     return null;
   }
   const throttledUntil = new Date(at.getTime() + (retryAfterMs(error) ?? THROTTLE_DEFAULT_MS));
-  await inbox.throttleUntil(throttledUntil);
   const entityRetryAt = new Date(Math.max(throttledUntil.getTime(), at.getTime() + backoffMs(attempts)));
-  await inbox.recordFailure(ids, { now: at, nextAttemptAt: entityRetryAt, error: summary, maxAttempts: MAX_ATTEMPTS });
+  if (!await inbox.recordFailure(ids, claimUntil, {
+    now: at,
+    nextAttemptAt: entityRetryAt,
+    error: summary,
+    maxAttempts: MAX_ATTEMPTS,
+    throttleUntil: throttledUntil,
+  })) {
+    throw claimLost(group);
+  }
   log("warn", "stack_webhook_inbox_provider_unavailable", { attempts, throttledUntil: throttledUntil.toISOString(), error: summary });
   return throttledUntil;
 }

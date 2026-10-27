@@ -56,8 +56,9 @@ function record(value: unknown): Record<string, unknown> {
 
 const message = (error: unknown) => (error instanceof Error ? error.message.trim() : "");
 
-/// An agent CLI update on offer (hq#2569 #12): never a banner over the chat. The model chip wears a
-/// small dot and its picker offers Update and Skip This Version (`UpdateOfferContext`).
+/// An agent CLI update on offer (hq#2569 #12): never a banner over the chat, and never a dot on the
+/// model chip (Leo 2026-10-21). The chip's tooltip names it and its menu and picker offer Update and
+/// Skip This Version (`UpdateOfferContext`).
 export type UpdateOffer = {
   harness: string;
   agent: string;
@@ -270,13 +271,15 @@ export function HarnessHealthNotice({
       aria-busy={busy || undefined}
     >
       <div className="acpmux-host-error-card">
+        {/* The spinner trails the text, so starting or finishing work never moves the words. */}
         <p className="acpmux-host-error-message">
-          {busy && <Spinner size={12} className="acpmux-harness-spinner" />}
           {text}
+          {busy && <Spinner size={12} className="acpmux-harness-spinner" loading />}
         </p>
+        {/* Not Now leads, so Restart Chat or Try Again appearing or going never moves it. */}
         <div className="acpmux-host-error-actions">
-          {buttons}
           {notNow}
+          {buttons}
         </div>
       </div>
     </output>

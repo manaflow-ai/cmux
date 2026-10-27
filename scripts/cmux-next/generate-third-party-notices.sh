@@ -31,7 +31,7 @@
 #   rust-cmux-cloud         bin/cmux-cloud                   first-party-apps/cloud/server
 #   rust-cmux-diff-sidecar  bin/cmux-diff-sidecar            Native/DiffSidecar/Cargo.lock (this tree)
 #   rust-optchat-chief      bin/optchat-chief (nightly-next) Native/OptChat/optchat-chief/Cargo.lock (this tree)
-#   rust-cnx-hostd          bin/cnx-hostd                    cnx-ios/rust/Cargo.lock (this tree)
+#   rust-mobile-host          bin/cmux-mobile-host                    cmux-next-ios/rust/Cargo.lock (this tree)
 #   rust-cmux-remote-browser-host  Helpers/cmux-remote-browser-host.app
 #                           cmux-tui/crates/cmux-remote-browser-host/Cargo.lock at the
 #                           pinned binary's source_commit (remote-browser-host.pin.json)
@@ -176,7 +176,7 @@ if [[ "$WRITE_TREES" == 1 ]]; then
   cargo_tree rust-cmux-cloud "$tui_src/first-party-apps/cloud/server" cmux-cloud
   cargo_tree rust-cmux-diff-sidecar "$ROOT/Native/DiffSidecar" cmux-diff-sidecar
   cargo_tree rust-optchat-chief "$ROOT/Native/OptChat/optchat-chief" optchat-chief
-  cargo_tree rust-cnx-hostd "$ROOT/cnx-ios/rust" cnx-hostd
+  cargo_tree rust-mobile-host "$ROOT/cmux-next-ios/rust" cmux-mobile-host
   cargo_tree rust-cmux-remote-browser-host "$rbh_src/$rbh_crate" cmux-remote-browser-host
   cargo_tree rust-iroh-ffi "$iroh_src" iroh-ffi
   cargo_tree rust-cmux-cua "$cua_rust" cmux-cua
@@ -187,7 +187,7 @@ python3 "$NOTICES/fetch_crates.py" --cache "$CACHE" \
   --lock "$tui_src/first-party-apps/cloud/server/Cargo.lock" \
   --lock "$ROOT/Native/DiffSidecar/Cargo.lock" \
   --lock "$ROOT/Native/OptChat/optchat-chief/Cargo.lock" \
-  --lock "$ROOT/cnx-ios/rust/Cargo.lock" \
+  --lock "$ROOT/cmux-next-ios/rust/Cargo.lock" \
   --lock "$rbh_src/$rbh_crate/Cargo.lock" \
   --lock "$iroh_src/Cargo.lock" \
   --lock "$cua_rust/Cargo.lock"
@@ -232,10 +232,10 @@ section rust-optchat-chief "Rust crates: Home Chief brain host (bin/optchat-chie
   --lock "$ROOT/Native/OptChat/optchat-chief/Cargo.lock" --lock-label "Native/OptChat/optchat-chief/Cargo.lock" \
   --root optchat-chief --workspace "$ROOT/Native/OptChat/optchat-chief" --workspace "$ROOT/Native/OptChat/optchat-core" --workspace "$ROOT/Native/OptChat/optchat-host" --workspace "$ROOT/cmux-tui" --repo-root "$ROOT" \
   --first-party 'Native/OptChat/*' --first-party 'cmux-tui/crates/*' --first-party 'cmux-tui/bindings/*'
-section rust-cnx-hostd "Rust crates: iPhone connection host (bin/cnx-hostd)" \
-  --lock "$ROOT/cnx-ios/rust/Cargo.lock" --lock-label "cnx-ios/rust/Cargo.lock" \
-  --root cnx-hostd --workspace "$ROOT/cnx-ios/rust" --workspace "$ROOT/cmux-tui" --repo-root "$ROOT" \
-  --first-party 'cnx-ios/rust/crates/*' --first-party 'cmux-tui/crates/*' --first-party 'cmux-tui/bindings/*'
+section rust-mobile-host "Rust crates: iPhone connection host (bin/cmux-mobile-host)" \
+  --lock "$ROOT/cmux-next-ios/rust/Cargo.lock" --lock-label "cmux-next-ios/rust/Cargo.lock" \
+  --root cmux-mobile-host --workspace "$ROOT/cmux-next-ios/rust" --workspace "$ROOT/cmux-tui" --repo-root "$ROOT" \
+  --first-party 'cmux-next-ios/rust/crates/*' --first-party 'cmux-tui/crates/*' --first-party 'cmux-tui/bindings/*'
 section rust-cmux-remote-browser-host "Rust crates: remote browser host (Helpers/cmux-remote-browser-host.app)" \
   --lock "$rbh_src/$rbh_crate/Cargo.lock" --lock-label "$rbh_crate/Cargo.lock at ${rbh_rev:0:11} (the pinned binary's source)" \
   --root cmux-remote-browser-host --workspace "$rbh_src/$rbh_crate" --repo-root "$rbh_src" \
@@ -257,7 +257,7 @@ compose=(python3 "$ROOT/scripts/cmux-next/notices/compose_notices.py"
   --section "$work/rust-cmux-browser-host.md"
   --section "$work/rust-cmux-cloud.md" --section "$work/rust-cmux-diff-sidecar.md"
   --section "$work/rust-optchat-chief.md"
-  --section "$work/rust-cnx-hostd.md"
+  --section "$work/rust-mobile-host.md"
   --section "$work/rust-cmux-remote-browser-host.md"
   --section "$work/rust-iroh-ffi.md"
   --section "$work/rust-cmux-cua.md"
@@ -265,7 +265,7 @@ compose=(python3 "$ROOT/scripts/cmux-next/notices/compose_notices.py"
 review=(python3 "$NOTICES/review_list.py" --cache "$CACHE"
   --lock "$tui_src/cmux-tui/Cargo.lock" --lock "$tui_src/first-party-apps/cloud/server/Cargo.lock"
   --lock "$ROOT/Native/DiffSidecar/Cargo.lock" --lock "$ROOT/Native/OptChat/optchat-chief/Cargo.lock" --lock "$iroh_src/Cargo.lock"
-  --lock "$ROOT/cnx-ios/rust/Cargo.lock" --lock "$rbh_src/$rbh_crate/Cargo.lock"
+  --lock "$ROOT/cmux-next-ios/rust/Cargo.lock" --lock "$rbh_src/$rbh_crate/Cargo.lock"
   --lock "$cua_rust/Cargo.lock")
 if [[ "$TUI_SOURCE" == tree ]]; then
   "${compose[@]}"

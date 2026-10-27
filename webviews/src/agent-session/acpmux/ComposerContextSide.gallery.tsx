@@ -60,6 +60,7 @@ export default componentEntry<Props>({
   id: "agent-pane.composer-context-side",
   title: "Composer location menu keeps its side",
   area: "Agent pane",
+  pane: true,
   covers: ["agent-session/acpmux/ComposerContext.tsx#ComposerContext"],
   // The location menu's own rules load first, so they must win over styles.css's .acpmux-menu
   // placement by specificity, not by load order (the pane's bundle and a cold dev page differ).

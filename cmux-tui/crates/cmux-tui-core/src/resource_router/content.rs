@@ -445,10 +445,11 @@ fn browser_effect(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Valu
         if request.envelope.operation != ResourceOperation::BrowserClose
             && surface.browser_source().is_none()
         {
-            return Err(browser_not_ready_error(
-                &surface,
-                super::operation_name(request.envelope.operation),
-            ));
+            let operation = super::operation_name(request.envelope.operation);
+            if mux.is_frontend_browser_surface(&surface) {
+                return Err(browser_rendered_by_app_error(&surface, &browser_id, operation));
+            }
+            return Err(browser_not_ready_error(&surface, operation));
         }
         Ok(json!({"browser_id":browser_id,"fields":fields}))
     })?;
@@ -556,6 +557,30 @@ fn execute_browser_effect(
             | "browser.activate"
     );
     commit_projected_browser_effect(mux, prepared, &browser_id, returns_browser)
+}
+
+/// The refusal of a browser effect on a browser the cmux app draws itself
+/// (WebKit or CEF): the daemon has no automation session for that page. The
+/// `extra.code` is `browser_rendered_by_app` and `extra.tab_id` names the
+/// tab the app knows the page by, so the CLI and MCP run the verb through the
+/// app's `browser.page.*` methods (`cli/app_browser_route.rs`).
+fn browser_rendered_by_app_error(
+    surface: &Surface,
+    browser_id: &BrowserPublicId,
+    operation: impl Into<String>,
+) -> ResourceError {
+    let tab_id = surface.resource_identity().map(|identity| identity.tab_id.as_str().to_string());
+    ResourceError::operation_failed(
+        operation,
+        "the cmux app draws this browser, so the daemon cannot drive it; \
+         run the command through the app (`cmux browser <tab_id> <verb>`)",
+        json!({
+            "code":"browser_rendered_by_app",
+            "browser_id":browser_id.as_str(),
+            "tab_id":tab_id,
+            "status":surface.browser_status().as_ref().map(|status| status.as_str()),
+        }),
+    )
 }
 
 fn browser_not_ready_error(surface: &Surface, operation: impl Into<String>) -> ResourceError {

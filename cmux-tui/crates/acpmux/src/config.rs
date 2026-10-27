@@ -3,6 +3,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 static HOME_OVERRIDE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
@@ -37,7 +38,9 @@ pub fn default_home() -> PathBuf {
 pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
     use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 
+    validate_private_state_ancestors(dir)?;
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    validate_private_state_ancestors(dir)?;
     let opened = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
@@ -51,11 +54,94 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
         "{} is not a state directory owned by this user",
         dir.display()
     );
+    anyhow::ensure!(
+        metadata.mode() & 0o022 == 0,
+        "{}",
+        writable_refusal(dir, metadata.mode(), "700")
+    );
     refuse_extended_acl(&opened, dir)?;
     if metadata.mode() & 0o077 != 0 {
         opened
             .set_permissions(std::fs::Permissions::from_mode(0o700))
             .with_context(|| format!("make {} owner-only", dir.display()))?;
+    }
+    let reopened = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(dir)
+        .with_context(|| format!("reopen private state directory {}", dir.display()))?;
+    let again = reopened.metadata()?;
+    anyhow::ensure!(
+        metadata.dev() == again.dev() && metadata.ino() == again.ino(),
+        "{} changed while its private permissions were checked",
+        dir.display()
+    );
+    Ok(())
+}
+
+/// Why a state path another account may write is refused, and the exact
+/// `chmod` (to `owner_only`, 700 or 600) that fixes it. Such a path is never
+/// narrowed here: another account may have changed what is in it, and it came
+/// from elsewhere (a `mkdir` or a shell redirect under umask 002), since acpmux
+/// makes its own state owner-only whatever the umask.
+#[cfg(unix)]
+fn writable_refusal(path: &Path, mode: u32, owner_only: &str) -> String {
+    let text = path.display().to_string();
+    let plain = !text.is_empty()
+        && text.bytes().all(|b| b.is_ascii_alphanumeric() || b"/._-+,:@%".contains(&b));
+    let word = if plain { text } else { format!("'{}'", text.replace('\'', r"'\''")) };
+    format!(
+        "{} is writable by another user (mode {:o}): check that nothing in it was changed, then make it owner-only with `chmod {owner_only} {word}`",
+        path.display(),
+        mode & 0o777
+    )
+}
+
+/// Every namespace owner above an acpmux state directory must be this user
+/// or root, and no other account may replace a child. A root/current-user
+/// sticky temporary directory is safe because another account cannot rename
+/// this user's entry there.
+#[cfg(unix)]
+fn validate_private_state_ancestors(dir: &Path) -> Result<()> {
+    use std::os::unix::fs::MetadataExt;
+
+    let uid = unsafe { libc::getuid() };
+    let check = |path: &Path, metadata: &std::fs::Metadata| -> Result<()> {
+        anyhow::ensure!(
+            metadata.uid() == uid || metadata.uid() == 0,
+            "{} is a state path ancestor owned by another user",
+            path.display()
+        );
+        if metadata.file_type().is_dir() && metadata.mode() & 0o022 != 0 {
+            anyhow::ensure!(
+                metadata.mode() & 0o1000 != 0,
+                "{} is a non-sticky writable ancestor of the state directory",
+                path.display()
+            );
+        }
+        if metadata.file_type().is_dir() {
+            use std::os::unix::fs::OpenOptionsExt;
+            let opened = std::fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+                .open(path)?;
+            refuse_writable_extended_acl(&opened, path)?;
+        }
+        Ok(())
+    };
+
+    let mut existing = dir.parent().unwrap_or_else(|| Path::new("/"));
+    while std::fs::symlink_metadata(existing).is_err() {
+        let Some(parent) = existing.parent() else { break };
+        existing = parent;
+    }
+    for path in existing.ancestors() {
+        check(path, &std::fs::symlink_metadata(path)?)?;
+    }
+    let canonical = std::fs::canonicalize(existing)
+        .with_context(|| format!("resolve state path ancestor {}", existing.display()))?;
+    for path in canonical.ancestors() {
+        check(path, &std::fs::symlink_metadata(path)?)?;
     }
     Ok(())
 }
@@ -64,13 +150,21 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
 /// owner and type, and narrow an older file to mode 0600 before reading it.
 #[cfg(unix)]
 pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+    use std::os::unix::fs::OpenOptionsExt;
 
     let file = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)
         .with_context(|| format!("open private state file {}", path.display()))?;
+    validate_private_state_file(&file, path)?;
+    Ok(file)
+}
+
+#[cfg(unix)]
+fn validate_private_state_file(file: &std::fs::File, path: &Path) -> Result<()> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
     let metadata = file.metadata()?;
     // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
@@ -79,11 +173,51 @@ pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
         "{} is not a state file owned by this user",
         path.display()
     );
-    refuse_extended_acl(&file, path)?;
+    anyhow::ensure!(
+        metadata.mode() & 0o022 == 0,
+        "{}",
+        writable_refusal(path, metadata.mode(), "600")
+    );
+    refuse_extended_acl(file, path)?;
     if metadata.mode() & 0o077 != 0 {
         file.set_permissions(std::fs::Permissions::from_mode(0o600))
             .with_context(|| format!("make {} owner-only", path.display()))?;
     }
+    Ok(())
+}
+
+/// Open or create an owner-only regular state file for read/write without
+/// following a pre-positioned final symlink (daemon.lock).
+#[cfg(unix)]
+pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .with_context(|| format!("open private state file {}", path.display()))?;
+    validate_private_state_file(&file, path)?;
+    Ok(file)
+}
+
+/// Open or create an owner-only regular state file for append without
+/// following a pre-positioned final symlink (daemon.log).
+#[cfg(unix)]
+pub(crate) fn private_state_append(path: &Path) -> Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let file = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .with_context(|| format!("open private state file {}", path.display()))?;
+    validate_private_state_file(&file, path)?;
     Ok(file)
 }
 
@@ -113,6 +247,63 @@ fn refuse_extended_acl(file: &std::fs::File, path: &Path) -> Result<()> {
     anyhow::bail!("{} has an extended ACL", path.display())
 }
 
+#[cfg(target_os = "macos")]
+fn refuse_writable_extended_acl(file: &std::fs::File, path: &Path) -> Result<()> {
+    use std::ffi::CStr;
+    use std::os::fd::AsRawFd;
+
+    type Acl = *mut core::ffi::c_void;
+    const ACL_TYPE_EXTENDED: libc::c_int = 0x0000_0100;
+    unsafe extern "C" {
+        fn acl_get_fd_np(fd: libc::c_int, acl_type: libc::c_int) -> Acl;
+        fn acl_to_text(acl: Acl, len: *mut libc::ssize_t) -> *mut libc::c_char;
+        fn acl_free(object: *mut core::ffi::c_void) -> libc::c_int;
+    }
+
+    let acl = unsafe { acl_get_fd_np(file.as_raw_fd(), ACL_TYPE_EXTENDED) };
+    if acl.is_null() {
+        let error = std::io::Error::last_os_error();
+        return if error.raw_os_error() == Some(libc::ENOENT) { Ok(()) } else { Err(error.into()) };
+    }
+    let mut len = 0;
+    let text = unsafe { acl_to_text(acl, &mut len) };
+    if text.is_null() {
+        unsafe { acl_free(acl) };
+        return Err(std::io::Error::last_os_error().into());
+    }
+    let rendered = unsafe { CStr::from_ptr(text) }.to_string_lossy().to_ascii_lowercase();
+    unsafe {
+        acl_free(text.cast());
+        acl_free(acl);
+    }
+    let token = |line: &str, wanted: &str| {
+        line.split(|c: char| c == ':' || c == ',' || c.is_ascii_whitespace())
+            .any(|part| part == wanted)
+    };
+    let change = [
+        "write",
+        "append",
+        "add_file",
+        "add_subdirectory",
+        "delete",
+        "delete_child",
+        "writeattr",
+        "writeextattr",
+        "writesecurity",
+        "chown",
+    ];
+    let writable = rendered
+        .lines()
+        .any(|line| token(line, "allow") && change.iter().any(|right| token(line, right)));
+    anyhow::ensure!(!writable, "{} has a writable extended ACL", path.display());
+    Ok(())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn refuse_writable_extended_acl(_file: &std::fs::File, _path: &Path) -> Result<()> {
+    Ok(())
+}
+
 #[cfg(all(unix, not(target_os = "macos")))]
 fn refuse_extended_acl(_file: &std::fs::File, _path: &Path) -> Result<()> {
     Ok(())
@@ -131,6 +322,16 @@ pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
     Ok(crate::owner_only::open_read(path)?)
 }
 
+#[cfg(windows)]
+pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
+    Ok(crate::owner_only::open_rw(path)?)
+}
+
+#[cfg(windows)]
+pub(crate) fn private_state_append(path: &Path) -> Result<std::fs::File> {
+    Ok(crate::owner_only::open_append(path)?)
+}
+
 /// Unix socket path, by the rule every host and client shares
 /// (cmux-agent-pane-policy `environment::socket_path`): `ACPMUX_SOCKET`, else
 /// `<home>/acpmux.sock`. A long home, or an absolute `ACPMUX_SOCKET` past the
@@ -142,20 +343,63 @@ pub fn socket_path() -> PathBuf {
     let configured = std::env::var("ACPMUX_SOCKET").ok().filter(|v| !v.is_empty());
     // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
+    let cwd = std::env::current_dir().ok();
+    let (configured, home) = socket_inputs(configured.as_deref(), &home(), cwd.as_deref());
     let resolved = PathBuf::from(cmux_agent_pane_policy::environment::socket_path(
         configured.as_deref(),
-        &home(),
+        &home,
         uid,
     ));
     // Another user owns or can write the shared directory: never trust a
     // socket there. The long path fails to bind with a clear error instead.
     let dir = PathBuf::from(format!("/tmp/acpmux-{uid}"));
     if resolved.parent() == Some(dir.as_path()) && !private_dir(&dir, uid) {
-        return absolute(
-            configured.map(PathBuf::from).unwrap_or_else(|| home().join("acpmux.sock")),
-        );
+        return absolute(configured.map(PathBuf::from).unwrap_or_else(|| home.join("acpmux.sock")));
     }
     absolute(resolved)
+}
+
+/// The configured socket and the home [`socket_path`] derives the socket from.
+#[cfg(unix)]
+fn socket_inputs(
+    configured: Option<&str>,
+    home: &Path,
+    cwd: Option<&Path>,
+) -> (Option<String>, PathBuf) {
+    // Both absolute before the short alias is derived from them: a started daemon gets them
+    // absolute (`daemon/login_placement.rs` `daemon_env`) and must derive the same one.
+    let absolute = |p: &Path| match cwd {
+        Some(cwd) if p.is_relative() => cwd.join(p),
+        _ => p.to_path_buf(),
+    };
+    let configured = configured.map(|c| absolute(Path::new(c)).to_string_lossy().into_owned());
+    (configured, absolute(home))
+}
+
+#[cfg(all(test, unix))]
+mod socket_input_tests {
+    use super::*;
+
+    /// A daemon a command starts is handed its home and socket absolute
+    /// (`daemon/login_placement.rs` `daemon_env`): from relative ones, the command must derive
+    /// the same socket, short alias included, or it waits on one the daemon never binds.
+    #[test]
+    fn a_long_relative_home_or_socket_uses_the_same_socket_alias() {
+        let cwd = Path::new("/work/a-folder-long-enough-that-its-socket-needs-a-short-alias");
+        let long = "x".repeat(80);
+        let alias = |configured: Option<&str>, home: &Path, cwd: &Path| {
+            let (configured, home) = socket_inputs(configured, home, Some(cwd));
+            cmux_agent_pane_policy::environment::socket_path(configured.as_deref(), &home, 501)
+        };
+        let elsewhere = Path::new("/elsewhere");
+        assert_eq!(alias(None, Path::new(&long), cwd), alias(None, &cwd.join(&long), elsewhere));
+        let sock = format!("{long}/a.sock");
+        let abs_sock = cwd.join(&sock).to_string_lossy().into_owned();
+        assert_eq!(
+            alias(Some(&sock), Path::new("/h"), cwd),
+            alias(Some(&abs_sock), Path::new("/h"), elsewhere)
+        );
+    }
 }
 
 /// A relative `ACPMUX_SOCKET` against this process's folder: the daemon
@@ -398,6 +642,21 @@ pub struct StoreConfig {
     /// Segment roll size in bytes for the event log.
     #[serde(default = "default_segment_bytes")]
     pub segment_bytes: u64,
+    /// Days a closed chat's event log is kept whole (`hub/retention.rs`): after them, the
+    /// harness's raw lines and long tool output are removed from it, the chat's messages kept.
+    /// Default 14; 0 keeps every log whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closed_log_days: Option<u32>,
+}
+
+impl StoreConfig {
+    /// How long a closed chat's log is kept whole; None: always.
+    pub fn closed_log_retention(&self) -> Option<std::time::Duration> {
+        match self.closed_log_days.unwrap_or(14) {
+            0 => None,
+            days => Some(std::time::Duration::from_secs(u64::from(days) * 86_400)),
+        }
+    }
 }
 
 fn default_segment_bytes() -> u64 {
@@ -406,7 +665,11 @@ fn default_segment_bytes() -> u64 {
 
 impl Default for StoreConfig {
     fn default() -> Self {
-        Self { mode: StoreMode::Local, segment_bytes: default_segment_bytes() }
+        Self {
+            mode: StoreMode::Local,
+            segment_bytes: default_segment_bytes(),
+            closed_log_days: None,
+        }
     }
 }
 
@@ -536,7 +799,8 @@ impl Default for TuiConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct TitlesConfig {
-    /// `generate`: title such a chat after its first turn. Default on.
+    /// `generate`: title such a chat after its first user message. Default on; a thin first
+    /// message may get one refresh after its first turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generate: Option<bool>,
     /// `command`: an argv that reads the request on stdin and prints the
@@ -583,19 +847,14 @@ pub struct Config {
     pub store: StoreConfig,
     #[serde(default)]
     pub permission_policy: PermissionPolicy,
-    /// `defaultPermissionMode`: the permission mode a new chat starts in when
-    /// the person has not picked one for its harness (`hub/start_mode.rs`):
-    /// `fullAccess`, `standard` or `ask`. Absent: the cmux setting
-    /// `agents.defaultPermissionMode`, else `fullAccess`. For acpmux without
-    /// the cmux app, and for hermetic tests.
+    /// `defaultPermissionMode`: the permission mode a new chat starts in
+    /// (`hub/start_mode.rs`): `fullAccess`, `standard` or `ask`. Absent: the
+    /// cmux setting `agents.defaultPermissionMode`, else `fullAccess`. For
+    /// acpmux without the cmux app, and for hermetic tests. A
+    /// `lastPermissionMode` an older build wrote beside it is ignored and
+    /// dropped at the next save.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_permission_mode: Option<String>,
-    /// `lastPermissionMode`, `lastPermissionModeSetting`: the level of the latest mode pick
-    /// from the app pane, and the cmux setting then (`hub/start_mode.rs` `start_level`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_permission_mode: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_permission_mode_setting: Option<String>,
     /// `composerMaxRows`: most rows the TUI composer grows to before it
     /// scrolls. Env `ACPMUX_COMPOSER_ROWS` overrides. Default 12.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -605,14 +864,44 @@ pub struct Config {
     /// ACPMUX_SESSION_ID, ACPMUX_SESSION_NAME and ACPMUX_TEXT in its env.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notify_command: Option<String>,
+    /// `uploadsMaxAgeDays`: files dropped into a chat (`_acpmux/file_put`) are deleted once
+    /// older than this many days (`hub/file_uploads.rs`). Default 30; 0 keeps them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uploads_max_age_days: Option<u64>,
     /// `agentStartTimeoutMs`: the longest one agent start (spawn or adopt,
     /// `initialize`, session load or new, config replay) may take. Past it
     /// the request fails with a `deadline_exceeded` error and the agent is
     /// ended. Default 90000.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_start_timeout_ms: Option<u64>,
+    /// Free bytes on acpmux's disk under which `daemon status` says `disk.low`
+    /// (`recovery.rs`; 1 GiB when unset).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk_low_bytes: Option<u64>,
+    /// `silentTurnMs`: how long a turn may go with no sign of its model at work
+    /// (no message, thought, tool call, plan, request or model harness line;
+    /// the agent's own bookkeeping does not count) before the chat logs
+    /// `turn_silent`, so a client can say the model has not answered
+    /// (`hub/silent_turn.rs`).
+    /// Default 90000; 0 turns it off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub silent_turn_ms: Option<u64>,
+    /// `stalledTurnMs`: how long a running turn may go with no tool call in
+    /// flight and no sign of its model at work before its lane says it has
+    /// stalled (`lane.stalledSince`, `hub/views.rs`). A long build in one tool
+    /// call never stalls. Default 600000; 0 turns it off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stalled_turn_ms: Option<u64>,
+    /// `stalledTurnEndMs`: how long a running turn may go with no sign of its model at work (as
+    /// `silentTurnMs` counts them, also across a daemon restart) before acpmux ends it as failed,
+    /// `detail` `stalled` (`hub/stalled_turn.rs`); four times that inside a tool call that has
+    /// not ended. Only a turn nobody holds: no client attached,
+    /// no permission waiting, and its recorded owner (a sub-session's parent, a `spawnedBy` tag)
+    /// gone or not busy. Default 21600000 (6 h); 0 turns it off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stalled_turn_end_ms: Option<u64>,
     /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
-    /// connection error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
+    /// connection or capacity error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
     /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 4
     /// entries of 1 s to 1 h; anything else falls back to the default with a warning.
     #[serde(
@@ -719,6 +1008,38 @@ impl Config {
         std::time::Duration::from_millis(self.agent_start_timeout_ms.unwrap_or(90_000))
     }
 
+    /// `uploadsMaxAgeDays`, or its 30-day default; None when it is 0 (keep them).
+    pub fn uploads_max_age(&self) -> Option<std::time::Duration> {
+        match self.uploads_max_age_days.unwrap_or(30) {
+            0 => None,
+            days => Some(std::time::Duration::from_secs(days.saturating_mul(24 * 60 * 60))),
+        }
+    }
+
+    /// `silentTurnMs`, or its 90 s default; None when it is 0 (off).
+    pub fn silent_turn(&self) -> Option<std::time::Duration> {
+        match self.silent_turn_ms.unwrap_or(90_000) {
+            0 => None,
+            ms => Some(std::time::Duration::from_millis(ms)),
+        }
+    }
+
+    /// `stalledTurnMs`, or its 10 minute default; None when it is 0 (off).
+    pub fn stalled_turn(&self) -> Option<u64> {
+        match self.stalled_turn_ms.unwrap_or(600_000) {
+            0 => None,
+            ms => Some(ms),
+        }
+    }
+
+    /// `stalledTurnEndMs`, or its 6 h default; None when it is 0 (off).
+    pub fn stalled_turn_end(&self) -> Option<std::time::Duration> {
+        match self.stalled_turn_end_ms.unwrap_or(6 * 60 * 60 * 1000) {
+            0 => None,
+            ms => Some(std::time::Duration::from_millis(ms)),
+        }
+    }
+
     /// Family of a configured profile.
     pub fn family(&self, profile: &str) -> Option<String> {
         self.harnesses.get(profile).map(|p| derive_family(profile, p))
@@ -822,13 +1143,17 @@ impl Config {
     /// `load_from` with explicit profile file sources.
     pub fn load_from_with(path: &Path, sources: &ProfileSources) -> Result<Self> {
         let path = path.to_owned();
-        let mut cfg = if path.exists() {
-            let text = std::fs::read_to_string(&path)
-                .with_context(|| format!("read {}", path.display()))?;
-            serde_json::from_str::<Config>(&text)
-                .with_context(|| format!("parse {}", path.display()))?
-        } else {
-            Config::default()
+        let mut cfg = match std::fs::symlink_metadata(&path) {
+            Ok(_) => {
+                let mut text = String::new();
+                private_state_file(&path)?
+                    .read_to_string(&mut text)
+                    .with_context(|| format!("read {}", path.display()))?;
+                serde_json::from_str::<Config>(&text)
+                    .with_context(|| format!("parse {}", path.display()))?
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Config::default(),
+            Err(error) => return Err(error.into()),
         };
         cfg.join_profiles(profiles::load(sources));
         let route = coderouter_claude_route(cfg.coderouter_claude_route.as_deref());
@@ -984,6 +1309,16 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
+    let written = write_then_rename(&tmp, path, bytes);
+    // A failed write (a full disk) leaves no partial temporary file to hold
+    // the space it ran out of; every retry uses a new name.
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written
+}
+
+fn write_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
     // Owner-only from creation: these files hold tokens and session data.
     #[cfg(unix)]
     {
@@ -995,7 +1330,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
             .truncate(true)
             .mode(0o600)
             .custom_flags(libc::O_NOFOLLOW)
-            .open(&tmp)
+            .open(tmp)
             .with_context(|| format!("write {}", tmp.display()))?;
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
         // On disk before the rename: a power loss never leaves an empty
@@ -1007,10 +1342,10 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     {
         use std::io::Write;
         // A file a crashed process left under a reused pid is stale.
-        let mut f = match crate::owner_only::create_new(&tmp) {
+        let mut f = match crate::owner_only::create_new(tmp) {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                std::fs::remove_file(&tmp).with_context(|| format!("remove {}", tmp.display()))?;
-                crate::owner_only::create_new(&tmp)
+                std::fs::remove_file(tmp).with_context(|| format!("remove {}", tmp.display()))?;
+                crate::owner_only::create_new(tmp)
             }
             other => other,
         }
@@ -1018,7 +1353,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
         f.sync_all().with_context(|| format!("sync {}", tmp.display()))?;
     }
-    std::fs::rename(&tmp, path).with_context(|| format!("rename to {}", path.display()))?;
+    std::fs::rename(tmp, path).with_context(|| format!("rename to {}", path.display()))?;
     // The rename itself is durable once its directory is synced.
     #[cfg(unix)]
     if let Some(dir) = path.parent()
@@ -1044,7 +1379,7 @@ mod codex_adapter;
 mod discover;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};
 pub use discover::{
-    CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, add_coderouter_route,
+    CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, UNIICHAT_PROFILE, add_coderouter_route,
     coderouter_claude_route, discover_harnesses, discover_harnesses_from,
 };
 mod peer;

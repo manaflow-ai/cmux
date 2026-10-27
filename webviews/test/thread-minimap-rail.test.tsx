@@ -1,14 +1,16 @@
 // The thread minimap as the Codex desktop app's prompt rail (minimap-ref SPEC): it shows from four
-// prompts with room left of the column; hover magnifies like the Dock and opens a preview card on
-// Codex's timing; every row is a tab stop whose focus opens the card at once; a click or Return
-// jumps; a drag scrubs; bookmarks show as a dot past the tick, toggle from the dot, the card and
-// the prompt's own row, and the Previous and Next Bookmarked Prompt actions step through them.
-// Scroll motion and the landing highlight run under Reduce Motion here (instant); the browser test
-// (thread-minimap-motion.test.ts) checks their curves.
+// prompts at any pane width (a narrow one: thread-minimap-narrow.test.tsx); hover magnifies like
+// the Dock and opens a preview card on Codex's timing; every row is a tab stop whose focus opens
+// the card at once; a click or Return jumps; a drag scrubs; bookmarks show as a dot past the tick,
+// toggle from the dot, the card and the prompt's own row, and the Previous and Next Bookmarked
+// Prompt actions step through them. Scroll motion and the landing highlight run under Reduce
+// Motion here (instant); the browser test (thread-minimap-motion.test.ts) checks their curves.
 import { afterAll, afterEach, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+// These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
+(globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -38,6 +40,8 @@ const replacements: Record<string, unknown> = {
     unobserve() {}
     disconnect() {}
   },
+  WheelEvent: dom.window.WheelEvent,
+  KeyboardEvent: dom.window.KeyboardEvent,
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
@@ -143,13 +147,9 @@ const pointer = (type: string, target: Element, init: Record<string, unknown> = 
 const enter = (index: number) => pointer("pointerover", tick(index), { relatedTarget: document.body });
 const leave = (index: number) => pointer("pointerout", tick(index), { relatedTarget: document.body });
 const advance = (ms: number) => act(async () => void jest.advanceTimersByTime(ms));
-/// The top of a mounted row in the thread, from its transform.
+/// The place of a mounted row in the thread: its `top` less the thread's 16 px top padding.
 const rowTop = (id: string) =>
-  Number(
-    /translateY\(([\d.]+)px\)/.exec(
-      document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${id}"]`)!.style.transform,
-    )?.[1],
-  );
+  Number.parseFloat(document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${id}"]`)!.style.top) - 16;
 /// Where a jump to turn `index` leaves the scroller: the prompt's bubble 35 px below the viewport
 /// top (the thread pads its rows 16 px down).
 const landing = (index: number) => {
@@ -157,12 +157,12 @@ const landing = (index: number) => {
   return Math.max(0, Math.min(16 + rowTop(`user-${index + 1}`) - 35, total - VIEWPORT));
 };
 
-test("the rail shows from four prompts, and only with 48 px of room left of the column", async () => {
+test("the rail shows from four prompts, at any pane width", async () => {
   for (const [prompts, width, shown] of [
     [3, 1040, false],
     [4, 1040, true],
-    // An 800 px pane starts the column 40 px in: no room.
-    [6, 800, false],
+    // An 800 px pane starts the column 40 px in: the narrow rail (thread-minimap-narrow.test.tsx).
+    [6, 800, true],
     [6, 1040, true],
   ] as const) {
     paneWidth = width;
@@ -288,8 +288,9 @@ test("focus in the card keeps it; Escape there or focus leaving rail and card cl
 
 test("the rail never outgrows a short transcript", async () => {
   const { railHeight } = await import("../src/agent-session/acpmux/threadMinimap/model");
-  // 60 prompts in an 820 px window over a 400 px transcript: the rail fits the transcript, less 8 px each end.
-  expect(railHeight(60, 820, 400)).toBe(384);
+  // 60 prompts in an 820 px window over a 400 px transcript: the rail fits the transcript, less the
+  // mask's bands (18 and 56 px) and 4 px past each.
+  expect(railHeight(60, 820, 400)).toBe(400 - 22 - 60);
   expect(railHeight(60, 820, 820)).toBe(Math.min(600, Math.floor(820 * 0.7)));
   // Not measured yet: the window caps it alone.
   expect(railHeight(60, 820, 0)).toBe(railHeight(60, 820));
@@ -356,31 +357,27 @@ test("a press released off the rail ends there: a later hover does not scrub", a
   }
 });
 
-test("a bookmark shows as the tick's dot and in the prompt's row; the dot, the card and the row toggle it", async () => {
+test("a bookmark shows as the tick's dot; the dot and the card toggle it; a prompt's row has no Pin", async () => {
   const view = await mount(8);
-  const rowButton = (index: number) =>
-    document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="user-${index + 1}"] .cv-user__bookmark`)!;
   try {
+    // Leo's prompt row (2026-10-21): check, age, Copy, Retry, Fork; no Pin under a prompt.
+    expect(document.querySelector('.acpmux-row[data-row-id^="user-"] .cv-message-pin')).toBeNull();
     expect(tick(2).hasAttribute("data-bookmarked")).toBe(false);
-    expect(rowButton(2).getAttribute("aria-pressed")).toBe("false");
-    // The prompt's own row marks it: the rail's tick gets its dot.
-    await act(async () => rowButton(2).click());
+    // The card marks it: the rail's tick gets its dot.
+    await act(async () => tick(2).focus());
+    const cardButton = () => card()!.querySelector<HTMLElement>(".acpmux-minimap__bookmark")!;
+    await act(async () => cardButton().click());
     expect(tick(2).hasAttribute("data-bookmarked")).toBe(true);
     expect(tick(2).querySelector(".acpmux-minimap__dot")).not.toBeNull();
-    expect(rowButton(2).getAttribute("aria-pressed")).toBe("true");
     // The card shows it filled, and its button removes it.
-    await act(async () => tick(2).focus());
-    const cardButton = card()!.querySelector<HTMLElement>(".acpmux-minimap__bookmark")!;
-    expect(cardButton.getAttribute("aria-pressed")).toBe("true");
-    await act(async () => cardButton.click());
+    expect(cardButton().getAttribute("aria-pressed")).toBe("true");
+    await act(async () => cardButton().click());
     expect(tick(2).hasAttribute("data-bookmarked")).toBe(false);
-    expect(rowButton(2).getAttribute("aria-pressed")).toBe("false");
     // A click on the dot's spot past a hovered tick toggles the mark and does not jump.
     const before = view.scroller.scrollTop;
     await enter(5);
     await act(async () => tick(5).querySelector<HTMLElement>("[data-dot-hit]")!.click());
     expect(tick(5).hasAttribute("data-bookmarked")).toBe(true);
-    expect(rowButton(5).getAttribute("aria-pressed")).toBe("true");
     expect(view.scroller.scrollTop).toBe(before);
     await act(async () => tick(5).querySelector<HTMLElement>("[data-dot-hit]")!.click());
     expect(tick(5).hasAttribute("data-bookmarked")).toBe(false);
@@ -391,6 +388,7 @@ test("a bookmark shows as the tick's dot and in the prompt's row; the dot, the c
 
 test("Next and Previous Bookmarked Prompt scroll to the bookmarked prompts after and before the one being read", async () => {
   const view = await mount(12);
+  const nextFrame = () => new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
   // Marked from the card: the later prompts' rows are not mounted at the top of the chat.
   const mark = async (index: number) => {
     await act(async () => tick(index).focus());
@@ -399,6 +397,12 @@ test("Next and Previous Bookmarked Prompt scroll to the bookmarked prompts after
   const step = async (name: "nextBookmarkedPrompt" | "previousBookmarkedPrompt") => {
     await act(async () => void dom.window.dispatchEvent(new dom.window.CustomEvent(`cmux-acpmux-${name}`)));
     await view.scrolled();
+    // The jump's direct scroll and the transcript's paced state commit land on consecutive frames;
+    // wait through both before reading the virtualized target row.
+    await act(async () => {
+      await nextFrame();
+      await nextFrame();
+    });
   };
   try {
     await mark(2);
@@ -415,6 +419,90 @@ test("Next and Previous Bookmarked Prompt scroll to the bookmarked prompts after
     await mark(2);
     await mark(8);
   } finally {
+    await view.unmount();
+  }
+});
+
+test("the card draws outside the transcript scroller, whose edge mask would keep its blur from the rows", async () => {
+  const view = await mount(8);
+  try {
+    await act(async () => tick(3).focus());
+    expect(card()?.textContent).toContain("Question 3");
+    // The scroller masks its soft edges (conversation.css), and a masked ancestor is the card's
+    // backdrop root: inside it the glass showed the rows sharp through its tint (#23782).
+    expect(card()!.closest(".acpmux-scroll")).toBeNull();
+    expect(card()!.parentElement).toBe(view.scroller.parentElement);
+    // The rail keeps an anchor where the card's x and y count from.
+    expect(view.scroller.querySelector(".acpmux-minimap > .acpmux-minimap__anchor")).not.toBeNull();
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("the wheel and the scrolling keys over the card reach the transcript's own listeners, as inside it", async () => {
+  const { followTrace } = await import("../src/agent-session/acpmux/followTrace");
+  const { animateScroll } = await import("../src/agent-session/acpmux/threadMinimap/scrollMotion");
+  const view = await mount(8);
+  const input = jest.spyOn(followTrace, "input");
+  try {
+    await act(async () => tick(3).focus());
+    expect(card()?.textContent).toContain("Question 3");
+    // jsdom has no scrollBy: a card that only called it (and skipped the listeners) would scroll here.
+    view.scroller.scrollBy = ((options: ScrollToOptions) => {
+      view.scroller.scrollTop += options.top ?? 0;
+    }) as typeof view.scroller.scrollBy;
+    const heard: string[] = [];
+    view.scroller.addEventListener("wheel", (event) => heard.push(`wheel ${(event as WheelEvent).deltaY}`));
+    view.scroller.addEventListener("keydown", (event) => heard.push(`key ${(event as KeyboardEvent).key}`));
+    // A minimap jump in flight: the reader's own wheel over the card ends it where it is.
+    view.scroller.scrollTop = 1000;
+    animateScroll(view.scroller, () => 5000, 60_000, [0, 0, 1, 1]);
+    input.mockClear();
+    await act(async () => {
+      card()!.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -3, bubbles: true, cancelable: true }));
+    });
+    // The transcript's own wheel listeners ran: the scroll is the reader's (App.tsx), so a slow
+    // scroll up from the latest row is not taken for a stray and snapped back.
+    expect(heard).toEqual(["wheel -3"]);
+    expect(input).toHaveBeenCalledTimes(1);
+    // The jump ended where it was: the frames that follow move the transcript no further.
+    const after = view.scroller.scrollTop;
+    for (let frame = 0; frame < 4; frame += 1) await new Promise((resolve) => requestAnimationFrame(resolve));
+    expect(view.scroller.scrollTop).toBe(after);
+    // A page (deltaMode 2) is the scroller's height.
+    view.scroller.scrollTop = 1000;
+    await act(async () => {
+      card()!.dispatchEvent(
+        new dom.window.WheelEvent("wheel", { deltaY: 1, deltaMode: 2, bubbles: true, cancelable: true }),
+      );
+    });
+    expect(view.scroller.scrollTop).toBe(1000 + VIEWPORT);
+    // A pinch (ctrl) is not a scroll.
+    await act(async () => {
+      card()!.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: 40, ctrlKey: true, bubbles: true }));
+    });
+    expect(view.scroller.scrollTop).toBe(1000 + VIEWPORT);
+    // Page Down with focus on the card's bookmark pages the transcript, as it did inside it.
+    heard.length = 0;
+    input.mockClear();
+    const bookmark = card()!.querySelector<HTMLButtonElement>(".acpmux-minimap__bookmark")!;
+    await act(async () => {
+      bookmark.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: "PageDown", bubbles: true, cancelable: true }),
+      );
+    });
+    expect(heard).toEqual(["key PageDown"]);
+    expect(input).toHaveBeenCalledTimes(1);
+    expect(view.scroller.scrollTop).toBe(1000 + VIEWPORT + VIEWPORT * 0.875);
+    // Return on the bookmark is its own: it scrolls nothing.
+    await act(async () => {
+      bookmark.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      );
+    });
+    expect(heard).toEqual(["key PageDown"]);
+  } finally {
+    input.mockRestore();
     await view.unmount();
   }
 });

@@ -86,6 +86,32 @@ public final class HostedChiefMigration {
         return HostedChiefCopy.HTTP(base: wiring.apiBase(), token: wiring.token)
     }
 
+    /// The Cloud Chief brain route as the signed-in user, for a hosted Chief's settings card
+    /// (``HomeChiefHostedEngine``): signed out (or no token) throws its `signedOut`.
+    public var brainRoute: HomeChiefHostedEngine.Send {
+        { [weak self] method, path, body in
+            guard let self, let wiring, wiring.user() != nil, let http else { throw HomeChiefHostedEngine.Failure.signedOut }
+            let token: String
+            do { token = try await wiring.token() } catch { throw HomeChiefHostedEngine.Failure.signedOut }
+            return try await HostedChiefCopy.HTTP(base: http.base, token: { token }).send(method, path, data: body)
+        }
+    }
+
+    /// Turns on the brain of a hosted Chief the user just made (New Chief): a new Chief's brain
+    /// starts off, and one left off never answers. A service with no Chief brains is left alone.
+    /// Whether it is on; a failure is logged.
+    @discardableResult
+    public func enableBrain(of chief: String) async -> Bool {
+        guard let wiring, let http, await brainsAvailable() == true else { return false }
+        do {
+            try await HostedChiefCopy(http: http, ops: wiring.ops, chief: chief, conversation: "").setBrain(enabled: true)
+            return true
+        } catch {
+            logger.error("hosted chief: a new Chief's brain could not be turned on: \(String(describing: error), privacy: .public)")
+            return false
+        }
+    }
+
     /// Whether this service runs Cloud Chief brains, asked once per launch (nil: unknown, asked again on the next connect).
     public func brainsAvailable() async -> Bool? {
         if let brains { return brains }
@@ -262,7 +288,7 @@ public final class HostedChiefMigration {
     /// The local Chief conversation's messages, read from the Chief home's owner.
     private static func localHistory(_ owner: ChiefConversationOwner) async throws -> LocalHistory {
         var connection: DaemonConnection?
-        for await next in ObservationStream({ owner.supports(DaemonCapabilities.shared.localConversations) ? owner.connection : nil }) {
+        for await next in ObservationStream({ owner.supports(DaemonCapability.localConversations.rawValue) ? owner.connection : nil }) {
             if let next { connection = next; break }
         }
         guard let connection else { return .none("no_owner") }

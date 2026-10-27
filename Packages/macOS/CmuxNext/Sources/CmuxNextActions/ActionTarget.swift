@@ -25,6 +25,10 @@ public nonisolated enum ActionTargetKind: String, CaseIterable, Sendable, Hashab
     case sidebarItem = "sidebar-item"
     /// A sidebar section (`sidebar-section:sec_…`).
     case sidebarSection = "sidebar-section"
+    /// An agent chat by its acpmux session id, as the sidebar's Priority view lists it
+    /// (`agent-chat:<session id>`). It stands in for a focused agent chat
+    /// (`ActionContext.implied(byTargetKind:)`).
+    case agentChat = "agent-chat"
 }
 
 extension ActionTargetKind {
@@ -105,6 +109,8 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     case bookmark
     /// The bookmarks bar's empty area.
     case bookmarksBar
+    /// The bookmark manager page's more (⋮) button: the shown folder and the page's profile go as arguments.
+    case bookmarkManager
     /// The screen bar's empty area or its new screen (+) button.
     case screenBar
     /// A row of the notifications panel.
@@ -122,6 +128,11 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     case windowBackground
     /// The sidebar's Now Playing card (u2437): Play/Pause and its hide rows.
     case nowPlayingCard
+    /// A row of the right sidebar's Files section: the explorer's actions on its selection
+    /// (the right-clicked row, which the list selects first).
+    case fileExplorerRow
+    /// A row of the sidebar's Priority view: mark read, pin, snooze and archive its chat.
+    case priorityRow
 
     /// The object a right-click in this context targets, if any.
     public var targetKind: ActionTargetKind? {
@@ -137,17 +148,20 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .workspaceRow: .workspace
         case .workspaceGroup: .workspaceGroup
         case .sidebarBackground, .sidebarFooter, .nowPlayingCard: nil
+        // The explorer's actions act on its selection, not a target.
+        case .fileExplorerRow: nil
         case .cloudMachine, .sshMachine, .machineSection: .machine
         case .profile: .profile
         case .browserProfile: .browserProfile
         case .bookmark: .bookmark
-        case .bookmarksBar, .screenBar, .notification: nil
+        case .bookmarksBar, .bookmarkManager, .screenBar, .notification: nil
         // The workspace whose background it is.
         case .windowBackground: .workspace
         case .sidebarItem: .sidebarItem
         case .sidebarSection: .sidebarSection
         // The chat's tab (the App passes it).
         case .agentChat: .tab
+        case .priorityRow: .agentChat
         }
     }
 }

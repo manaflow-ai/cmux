@@ -12,7 +12,7 @@
 # codesign --verify --deep --strict passes on the app; a strict verify of the
 # host app alone rejects the symlink, so a notarized release needs the host to
 # load CEF from an explicit path first (tracker cx-0y2y; unproven either way,
-# see cnx-ios/SECURITY.md `browser`). Also:
+# see cmux-next-ios/SECURITY.md `browser`). Also:
 #   - a Release build that cannot embed it (no pinned artifact reachable, a CEF
 #     pin mismatch) builds without it and says so, unless
 #     CMUX_NEXT_REQUIRE_RB_HOST=1; a DEV build fails, as below;
@@ -42,12 +42,15 @@ OPT_OUT_FILE="RemoteBrowserHostOptOut.txt"
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 dest="$app/Contents/Helpers/$RBH_NAME.app"
 stamp="${TARGET_TEMP_DIR:-$TARGET_BUILD_DIR}/embed-remote-browser-host.stamp"
+rm -f "$stamp"
 opt_out="$app/Contents/Resources/$OPT_OUT_FILE"
 rm -f "$opt_out"
 
 skip() { # <reason>
   echo "note: not embedding the remote browser host: $1"
-  rm -rf "$dest" "$stamp"
+  rm -rf "$dest"
+  mkdir -p "$(dirname "$stamp")"
+  printf 'skipped:%s\n' "$1" > "$stamp"
   rmdir "$app/Contents/Helpers" 2>/dev/null || true
   exit 0
 }

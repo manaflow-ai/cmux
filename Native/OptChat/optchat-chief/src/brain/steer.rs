@@ -7,13 +7,29 @@
 //! them, and at once on a harness that answers a steer only at the turn's
 //! end (codex-acp). A message too big to go in whole (over the view's
 //! budget, or over 20 images: the reference's Memory.whole) is not steered;
-//! it waits for the next turn, which builds its node first. When the session cannot steer now (acpmux refuses, or the
-//! harness does not steer), the messages wait at the head of the queue and
-//! the next turn starts the moment this one ends. A message never stops a
-//! turn (decision 2026-10-09); only chief.stop does.
+//! it waits for the next turn, which builds its node first.
+//!
+//! A person's message interrupts at once when it cannot go in now (user
+//! 2026-10-21: "we need to immediately interrupt and steer"; replaces the
+//! 2026-10-09 "a message never stops a turn"). When acpmux refuses its
+//! steer, or Claude Code has not read it within [`STEER_DEADLINE`] (a long
+//! tool call or a long think: it reads steers only at tool boundaries), the
+//! turn is stopped at once, even mid-tool (`session/cancel`), its end posts
+//! nothing, and the next turn starts with the message and the view of
+//! everything the stopped turn did. The host never posts a message of its
+//! own about it ("no fake messages": the front desk receipt is gone). A
+//! subagent's report never stops a turn: refused, it waits at the head of
+//! the queue and the next turn starts the moment this one ends.
+
+use std::time::{Duration, Instant};
 
 use super::{Brain, Input, Phase, Queued, Source};
 use crate::acpmux::Family;
+
+/// How long a person's message steered into the running turn may stay
+/// unread before the turn is interrupted (the host's default;
+/// `OPTCHAT_STEER_DEADLINE_SECONDS`, 0 waits for the next tool boundary).
+pub const STEER_DEADLINE: Duration = Duration::from_secs(3);
 
 /// Most images one steer carries (the reference's PICS).
 const STEER_IMAGES: usize = 20;
@@ -27,7 +43,21 @@ pub(super) struct Steering {
     pub(super) logged: bool,
 }
 
+/// Whether `items` hold a person's message (a report never interrupts).
+fn has_person(items: &[Queued]) -> bool {
+    items
+        .iter()
+        .any(|i| matches!(i.source, Source::Message { .. }))
+}
+
 impl Brain {
+    /// How long a person's steered message may stay unread before the turn
+    /// is interrupted; None or zero: it waits for the next tool boundary
+    /// (the default; the host sets it).
+    pub fn set_steer_deadline(&mut self, deadline: Option<Duration>) {
+        self.steer_deadline = deadline.filter(|d| !d.is_zero());
+    }
+
     /// Steers what is queued for the running turn's conversation into its
     /// session, now: the request is written on the brain thread, so steers
     /// keep their order, and its answer is awaited off it. False: this turn
@@ -86,6 +116,16 @@ impl Brain {
             .is_none_or(|e| self.family_of(&e.harness) != Family::Claude);
         let started = self.agents.start_steer(&session, blocks, &prompt_id);
         let logged = at_end && started.is_ok() && self.log_delivered(&items);
+        // Claude Code says when it read the message: one it has not read by
+        // the deadline interrupts the turn (`on_steer_deadline`).
+        if started.is_ok()
+            && !logged
+            && has_person(&items)
+            && self.steer_due.is_none()
+            && let Some(deadline) = self.steer_deadline
+        {
+            self.steer_due = Some((Instant::now() + deadline, key.clone()));
+        }
         self.steering.push(Steering {
             id,
             key,
@@ -134,39 +174,94 @@ impl Brain {
                 }
             }
             Err(e) => {
-                // Never a stop: the messages go back to the head of the
-                // queue, and the next turn starts the moment this one ends.
+                // The messages go back to the head of the queue. A person's
+                // stops the turn now, and the next turn takes it; a report
+                // waits for this turn's end.
+                let person = current && has_person(&steer.items);
                 (self.log)(&format!(
-                    "turn {}: the message could not reach the running turn ({e}); it waits for the next turn",
-                    steer.key
+                    "turn {}: the message could not reach the running turn ({e}); {}",
+                    steer.key,
+                    if person {
+                        "interrupting the turn"
+                    } else {
+                        "it waits for the next turn"
+                    }
                 ));
                 for mut item in steer.items.into_iter().rev() {
                     item.logged = steer.logged;
                     self.queue.push_front(item);
+                }
+                if person {
+                    self.interrupt_for_person("steer refused");
                 }
             }
         }
         self.maybe_start_turn();
     }
 
-    /// Applies the strictest policy of a batch delivered to a running ask
-    /// turn. A paired device follows remote.autoApprove; a non-owner always
-    /// keeps the gate on.
+    /// The steer deadline passed: a person's message Claude Code has not
+    /// read yet interrupts the turn. Its unread steers go back to the head
+    /// of the queue (an answer that comes later is dropped), so the next
+    /// turn takes them; one read just before the stop is read again, which
+    /// costs a line, never a lost message.
+    pub(super) fn on_steer_deadline(&mut self, now: Instant) {
+        if self.steer_due.as_ref().is_none_or(|(at, _)| *at > now) {
+            return;
+        }
+        let Some((_, key)) = self.steer_due.take() else {
+            return;
+        };
+        let current =
+            self.phase == Phase::Running && self.state.turn.as_ref().is_some_and(|t| t.key == key);
+        if !current {
+            return;
+        }
+        let (unread, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.steering)
+            .into_iter()
+            .partition(|s| s.key == key && !s.logged);
+        self.steering = kept;
+        if !unread.iter().any(|s| has_person(&s.items)) {
+            self.steering.extend(unread);
+            return;
+        }
+        for steer in unread.into_iter().rev() {
+            for item in steer.items.into_iter().rev() {
+                self.queue.push_front(item);
+            }
+        }
+        self.interrupt_for_person("steer unread past the deadline");
+    }
+
+    /// Stops the running turn for a person's message it cannot take now:
+    /// at once, even mid-tool; its end posts nothing, and the next turn
+    /// starts with the message.
+    fn interrupt_for_person(&mut self, why: &str) {
+        if self.phase != Phase::Running || self.stop_wanted {
+            return;
+        }
+        let key = self.state.turn.as_ref().map(|t| t.key.clone());
+        (self.log)(&format!(
+            "turn {}: a new message cannot reach it ({why}); interrupting",
+            key.as_deref().unwrap_or("?")
+        ));
+        if self.trace.is_on() {
+            self.trace.emit(
+                "turn.interrupt",
+                serde_json::json!({"turn": key, "why": why}),
+            );
+        }
+        self.stop_wanted = true;
+        self.steer_due = None;
+        self.interrupt.request_hard();
+    }
+
+    /// Another person's text delivered to a running turn keeps that turn's
+    /// local effects refused until it ends.
     pub(super) fn taint_approval(&mut self, items: &[Queued]) {
-        let remote = items.iter().any(|i| {
-            matches!(
-                i.source,
-                Source::Message {
-                    remote: Some(_),
-                    ..
-                }
-            )
-        });
-        let non_owner = items.iter().any(Queued::requires_approval);
-        if remote || non_owner {
-            self.turn_remote |= remote;
-            self.turn_ask |= non_owner || (remote && !self.chief.remote_auto_approve);
-            self.interrupt.set_gate(self.turn_ask);
+        if items.iter().any(Queued::requires_approval) {
+            self.turn_ask = true;
+            self.last_turn_ask = true;
+            self.interrupt.set_gate(true);
         }
     }
 }

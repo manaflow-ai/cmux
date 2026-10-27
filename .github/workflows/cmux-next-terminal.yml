@@ -47,7 +47,7 @@ jobs:
   rust-terminal-linux:
     name: terminal crates (Linux)
     if: github.repository_owner == 'manaflow-ai'
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: ${{ !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
@@ -105,7 +105,8 @@ jobs:
   rust-terminal:
     name: terminal crates (cmux-pty and corpus snapshot, macOS)
     if: github.repository_owner == 'manaflow-ai' && vars.CI_SIDE_LANE_RUNNER != ''
-    runs-on: ${{ vars.CI_SIDE_LANE_RUNNER }}
+    # The bot's third attempt leaves the minis, as in ci-macos.yml, so a refused run cannot loop there.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 40
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
@@ -120,6 +121,10 @@ jobs:
 
       - name: Use short temporary directory for macOS socket tests
         run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
+
+      # Zig and cargo find the macOS SDK through xcrun, so the selected Xcode's, on any runner.
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
 
       - name: Init ghostty-next
         run: git submodule update --init --depth 1 ghostty-next
@@ -142,7 +147,8 @@ jobs:
   swift-terminal:
     name: Swift terminal packages (CmuxTerminalClient FFI, macOS)
     if: github.repository_owner == 'manaflow-ai' && vars.CI_SIDE_LANE_RUNNER != ''
-    runs-on: ${{ vars.CI_SIDE_LANE_RUNNER }}
+    # The bot's third attempt leaves the minis, as in ci-macos.yml, so a refused run cannot loop there.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

@@ -24,7 +24,7 @@ pub(super) fn terminal_launch_spec(options: &SurfaceOptions) -> Value {
         // both contain credentials. The respawn recipe is the relaunch record
         // (`relaunch_store`): it keeps a command's argv, minus arguments that
         // look like credentials, so a later daemon can offer the command
-        // again (typed on the prompt, never run). Nothing here needs it.
+        // again (named on the marker line, never run). Nothing here needs it.
         "command_present": options.command.is_some(),
         "cwd_present": options.cwd.is_some(),
         "term": options.term,

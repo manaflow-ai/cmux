@@ -391,7 +391,10 @@ fn short_lived_terminal_launch_converges_to_durable_exited_result() {
 }
 
 #[test]
-fn short_lived_resource_terminal_journals_initial_output_after_its_topology() {
+/// Terminal output never enters the session journal (output_store.rs): the
+/// journal of a short-lived terminal holds its run and its exit, and the
+/// output reader still has every byte it printed.
+fn short_lived_resource_terminal_keeps_its_output_out_of_the_journal() {
     let harness = RecoveryHarness::start_with_host_ready_delay("journal-initial-output", 250);
     let marker = format!("fast-journal-marker-{}", std::process::id());
     let workspace = &create_empty_workspace(
@@ -459,49 +462,29 @@ fn short_lived_resource_terminal_journals_initial_output_after_its_topology() {
     assert_eq!(opened["ok"], true, "journal subscription failed: {opened}");
 
     let mut run_sequence = None;
-    let mut output_sequence = None;
     let mut exit_sequence = None;
     while exit_sequence.is_none() {
         line.clear();
-        reader.read_line(&mut line).expect("journal stream omitted short-lived terminal output");
+        reader.read_line(&mut line).expect("journal stream omitted the terminal exit");
         let envelope: serde_json::Value = serde_json::from_str(&line).unwrap();
         let record = &envelope["item"];
         let sequence = record["sequence"].as_str().unwrap().parse::<u64>().unwrap();
         match record["kind"].as_str().unwrap() {
             "workspace.run" => run_sequence = Some(sequence),
-            "terminal.output" => {
-                let bytes = base64::engine::general_purpose::STANDARD
-                    .decode(record["payload"]["data"].as_str().unwrap())
-                    .unwrap();
-                assert!(
-                    bytes.windows(marker.len()).any(|window| window == marker.as_bytes()),
-                    "journal output omitted marker: {:?}",
-                    String::from_utf8_lossy(&bytes)
-                );
-                for (kind, id) in [
-                    ("terminal", terminal),
-                    ("tab", path["tab_id"].as_str().unwrap()),
-                    ("pane", path["pane_id"].as_str().unwrap()),
-                    ("screen", path["screen_id"].as_str().unwrap()),
-                    ("workspace", path["workspace_id"].as_str().unwrap()),
-                ] {
-                    assert!(
-                        record["subjects"].as_array().unwrap().iter().any(|subject| {
-                            subject["kind"].as_str() == Some(kind)
-                                && subject["id"].as_str() == Some(id)
-                        }),
-                        "terminal output omitted {kind}:{id}: {record}"
-                    );
-                }
-                output_sequence = Some(sequence);
-            }
             "terminal.exited" => exit_sequence = Some(sequence),
-            other => panic!("unexpected journal record {other}: {record}"),
+            other => {
+                panic!("the journal holds terminal output or another record {other}: {record}")
+            }
         }
     }
     assert!(
-        run_sequence < output_sequence && output_sequence < exit_sequence,
-        "journal order was run={run_sequence:?}, output={output_sequence:?}, exit={exit_sequence:?}"
+        run_sequence < exit_sequence,
+        "journal order was run={run_sequence:?}, exit={exit_sequence:?}"
+    );
+    let read = output_read(&harness.socket, "journal-initial-output-read", terminal, None, None);
+    assert!(
+        read["text"].as_str().unwrap().contains(&marker),
+        "the output reader lost the short-lived terminal's output: {read}"
     );
 }
 
@@ -525,11 +508,11 @@ fn keep_on_exit_retains_tab_and_final_screen_until_close_and_degrades_on_restart
                 "session":"current",
                 "workspace":workspace,
                 "argv":["/bin/sh","-c","exit 0"],
-                "on_exit":"shell",
+                "on_exit":"linger",
             },
         }),
     );
-    assert_eq!(unsupported["ok"], false, "on_exit shell must be rejected: {unsupported}");
+    assert_eq!(unsupported["ok"], false, "on_exit linger must be rejected: {unsupported}");
     assert_eq!(unsupported["error"]["code"], "validation.invalid");
 
     let run = resource_request(
@@ -2368,6 +2351,9 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
     assert_eq!(wait_for_host_records(&harness.host_root(), 1)[0].1.terminal_id, terminal_id);
 
     harness.restart();
+    // The owner answers before its hosts are adopted; each one runs once its
+    // host has answered (answers_before_adoption.rs).
+    wait_for_terminal_lifecycle(&harness.socket, &terminal_id, "running");
     let recovered =
         request(&harness.socket, serde_json::json!({"id": 4, "cmd": "list-workspaces"}));
     let recovered_workspace = recovered["workspaces"]
@@ -2421,6 +2407,7 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
     // only in the disposable daemon-side Ghostty mirror.
     harness.sigkill();
     harness.restart();
+    wait_for_terminal_lifecycle(&harness.socket, &terminal_id, "running");
     let recovered =
         request(&harness.socket, serde_json::json!({"id": 8, "cmd": "list-workspaces"}));
     let recovered_workspace = recovered["workspaces"]
@@ -3582,6 +3569,13 @@ fn interrupted_creation_waits_for_transient_host_adoption_before_serving() {
     assert!(
         started.elapsed() >= Duration::from_millis(400),
         "daemon served before interrupted host adoption settled"
+    );
+    // The host answers after 500 ms: the start waits for that answer, not
+    // for the 2 s an adoption thread gives a start that never says ready.
+    assert!(
+        started.elapsed() < Duration::from_millis(1_800),
+        "the interrupted creation waited {:?} for its host's adoption",
+        started.elapsed()
     );
 
     let resolved = request(
@@ -5270,6 +5264,9 @@ fn exclusive_process_test() -> std::sync::MutexGuard<'static, ()> {
 #[path = "terminal_host_recovery/close_path.rs"]
 mod close_path;
 
+#[path = "terminal_host_recovery/graceful_close.rs"]
+mod graceful_close;
+
 #[path = "terminal_host_recovery/reopen_closed_kinds.rs"]
 mod reopen_closed_kinds;
 
@@ -5325,6 +5322,15 @@ mod parallel_new_tabs;
 #[path = "terminal_host_recovery/host_scrollback.rs"]
 mod host_scrollback;
 
+#[path = "terminal_host_recovery/output_coalescing.rs"]
+mod output_coalescing;
+
+#[path = "terminal_host_recovery/answers_before_adoption.rs"]
+mod answers_before_adoption;
+
+#[path = "terminal_host_recovery/adoption_startup_state.rs"]
+mod adoption_startup_state;
+
 #[cfg(target_os = "macos")]
 #[path = "terminal_host_recovery/slim_host.rs"]
 mod slim_host;
@@ -5336,9 +5342,8 @@ mod slim_host;
 /// Prints `service-start: {...}` for plans/cmux-next/service-start-PERF.md;
 /// `CMUX_TUI_STARTUP_BENCH_TERMINALS` sets the terminal count (default 60)
 /// and `CMUX_TUI_STARTUP_BUDGET_MS` the budget for the first answer. The budget
-/// guards today's level (951 ms for 60 terminals on a Mac mini, 2026-10-20: hosts
-/// re-attach one at a time before the first answer, plans/cmux-next/service-start-PERF.md);
-/// lower it when that becomes parallel.
+/// is 250 ms: hosts adopt after the first answer (plans/cmux-next/service-start-PERF.md 5b;
+/// 951 ms for 60 terminals on a Mac mini while they re-attached one at a time first).
 #[test]
 fn restart_with_many_live_terminals_answers_within_budget() {
     let count: usize = std::env::var("CMUX_TUI_STARTUP_BENCH_TERMINALS")
@@ -5348,7 +5353,7 @@ fn restart_with_many_live_terminals_answers_within_budget() {
     let budget_ms: u128 = std::env::var("CMUX_TUI_STARTUP_BUDGET_MS")
         .ok()
         .and_then(|value| value.parse().ok())
-        .unwrap_or(2_000);
+        .unwrap_or(250);
     let mut harness = RecoveryHarness::start("startup-many-terminals");
     let mut terminals = Vec::with_capacity(count);
     for index in 0..count {

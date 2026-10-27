@@ -31,14 +31,14 @@ extension AgentPaneView {
         let width = notice.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -32)
         width.priority = .defaultHigh
         NSLayoutConstraint.activate([
-            notice.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            notice.topAnchor.constraint(equalTo: tabRowCover.bottomAnchor, constant: 8), // below a shared tab row
             notice.centerXAnchor.constraint(equalTo: centerXAnchor),
             width,
         ])
         remoteApprovalsNotice = notice
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// Debug socket (cx-kvmz T2): the notice's text lines and whether it offers the restart; nil
     /// without a notice. Reads the views a person sees, nothing else.
     public var remoteApprovalsNoticeLines: (lines: [String], restart: Bool)? {

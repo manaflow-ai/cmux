@@ -36,7 +36,7 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 id: "browser.openInChromium",
                 title: String(localized: "action.browser.openInChromium", defaultValue: "Open in Chromium", bundle: .module),
                 keywords: ["browser", "engine", "chrome", "chromium", "cef", "switch"],
-                category: .browser, symbol: "circle.circle", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
+                category: .browser, symbol: "arrow.up.right.square", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
                 targets: [.tab], cliName: "browser open-in-chromium"
             ),
             ActionDescriptor(
@@ -138,13 +138,19 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 symbol: "eye", surfaces: [.palette, .keyboard, .menu, .contextMenu], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser toggle-focus-mode", mainMenu: .view
             ),
-            ActionDescriptor(
-                id: "toggleBrowserDesignMode",
-                title: String(localized: "action.toggleBrowserDesignMode", defaultValue: "Toggle Browser Design Mode", bundle: .module),
-                keywords: ["browser", "edit"], defaultShortcut: Shortcut("d", modifiers: [.control, .option, .command]),
-                category: .browser, symbol: "paintbrush.pointed", surfaces: [.keyboard, .menu],
-                requires: [.browserFocused], targets: [.pane], cliName: "browser toggle-design-mode", mainMenu: .view
-            ),
+            {
+                var designMode = ActionDescriptor(
+                    id: "toggleBrowserDesignMode",
+                    title: String(localized: "action.toggleBrowserDesignMode", defaultValue: "Toggle Browser Design Mode", bundle: .module),
+                    keywords: ["browser", "edit"], defaultShortcut: Shortcut("d", modifiers: [.control, .option, .command]),
+                    category: .browser, symbol: "paintbrush.pointed", surfaces: [.keyboard, .menu],
+                    requires: [.browserFocused], targets: [.pane], cliName: "browser toggle-design-mode", mainMenu: .view
+                )
+                // Design mode snapshots selected page pixels into a composer. Keep that raw capture
+                // on the in-app person path until it shares the browser host's secret masker.
+                designMode.isPersonOnly = true
+                return designMode
+            }(),
             ActionDescriptor(
                 id: "toggleReactGrab",
                 title: String(localized: "action.toggleReactGrab", defaultValue: "Toggle React Grab", bundle: .module),
@@ -198,7 +204,7 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.browserClearHistory",
-                title: String(localized: "action.palette.browserClearHistory", defaultValue: "Clear Browser History", bundle: .module),
+                title: String(localized: "action.palette.browserClearHistory", defaultValue: "Clear Browser History…", bundle: .module),
                 keywords: ["browser", "privacy", "clear", "delete"], category: .browser, symbol: "clock.badge.xmark", surfaces: [.palette],
                 arguments: [HistoryActionCatalog.historyRange, CatalogArgument.browserProfile],
                 targets: [.pane], cliName: "browser clear-history", destructive: true
@@ -442,7 +448,7 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 id: "browserFit",
                 title: String(localized: "action.browserFit", defaultValue: "Fit as Desktop…", bundle: .module),
                 keywords: ["browser", "fit", "desktop", "aspect", "ratio", "16:9", "16:10", "4:3", "21:9", "1280", "1440", "1920", "width", "scale", "viewport"],
-                category: .browser, symbol: "rectangle.ratio.16.to.9", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
+                category: .browser, symbol: "rectangle.dashed", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
                 arguments: [CatalogArgument.fitChoice], targets: [.pane], cliName: "browser fit"
             ),
             // Fit as Desktop (1280) (cx-2ftlq): the same toggle with a fixed 1280 CSS px layout
@@ -451,7 +457,7 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 id: "browserFitDesktop1280",
                 title: String(localized: "action.browserFitDesktop1280", defaultValue: "Fit as Desktop (1280)", bundle: .module),
                 keywords: ["browser", "fit", "1280", "desktop", "scale", "zoom out", "viewport", "emulation", "split", "narrow"],
-                category: .browser, symbol: "rectangle.ratio.16.to.9", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
+                category: .browser, symbol: "desktopcomputer", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser fit-desktop-1280"
             ),
         ] + vscodeServerDescriptors() + agentGuardDescriptors() + importFilesDescriptors() + importCookiesDescriptors() + pinnedPageDescriptors()

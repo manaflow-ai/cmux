@@ -1,5 +1,5 @@
 {
-  "about": "The static status glyphs (Leo 2026-10-14, the Static status mode for Reduce Motion): one shape per state, no animation, tinted by a theme role. gen-status-glyphs.py writes the Swift and web copies. Coordinates run y-down. `master` sits on a 20-unit grid (10 pt at 2x: one unit is one pixel), `x1art` is the 10 px (1x) drawing as pixel art (# is ink), so every edge falls on a pixel. Ops: [M x y], [L x y], [C x1 y1 x2 y2 x y], [arc cx cy r fromDeg toDeg] (continues the path, degrees grow clockwise on screen), [circle cx cy r], [Z]. Every glyph fills even-odd, so an inner shape cuts out. A glyph's `set` says which set draws it (static unless named). `sets` maps each state of another set to a glyph and a tint: the Codex-like set (Leo's team, 2026-10-14) draws Codex's thin line symbols, a neutral spinner (the app's own spinner, re-tinted) and Codex's blue dot.",
+  "about": "The static status glyphs (Leo 2026-10-14, the Static status mode for Reduce Motion): one shape per state, no animation, tinted by a theme role. gen-status-glyphs.py writes the Swift and web copies. Coordinates run y-down. `master` sits on a 20-unit grid (10 pt at 2x: one unit is one pixel), `x1art` is the 10 px (1x) drawing as pixel art (# is ink), so every edge falls on a pixel. Ops: [M x y], [L x y], [C x1 y1 x2 y2 x y], [arc cx cy r fromDeg toDeg] (continues the path, degrees grow clockwise on screen), [circle cx cy r], [Z]. Every glyph fills even-odd, so an inner shape cuts out. A glyph's `set` says which set draws it (static unless named). `sets` maps each state of another set to a glyph and a tint: the Codex-like set (Leo's team, 2026-10-14) draws Codex's thin line symbols, a neutral spinner (the app's own spinner, re-tinted) and Codex's blue dot. The Dots and Pictograms sets (hq#1957 status glyph thunderdome, behind the Debug status icon switch) draw the same states with the static set's tints.",
   "glyphs": [
     {
       "name": "idle",
@@ -165,6 +165,234 @@
         "..........",
         ".........."
       ]
+    },
+    {
+      "name": "dotsIdle",
+      "set": "dots",
+      "for": "nothing running (Dots): a hollow dot",
+      "tint": "loading",
+      "master": [["circle", 10, 10, 8], ["circle", 10, 10, 6]],
+      "x1art": [
+        "..........",
+        "...####...",
+        "..#....#..",
+        ".#......#.",
+        ".#......#.",
+        ".#......#.",
+        ".#......#.",
+        "..#....#..",
+        "...####...",
+        ".........."
+      ]
+    },
+    {
+      "name": "dotsWorking",
+      "set": "dots",
+      "for": "an agent works (Dots): the hollow dot, its lower half filled",
+      "tint": "accent",
+      "master": [["circle", 10, 10, 8], ["circle", 10, 10, 6], ["M", 4, 10], ["L", 16, 10], ["arc", 10, 10, 6, 0, 180], ["Z"]],
+      "x1art": [
+        "..........",
+        "...####...",
+        "..#....#..",
+        ".#......#.",
+        ".#......#.",
+        ".########.",
+        ".########.",
+        "..######..",
+        "...####...",
+        ".........."
+      ]
+    },
+    {
+      "name": "dotsWaiting",
+      "set": "dots",
+      "for": "waiting on you, a question or blocked with no reason (Dots): a dot in a ring",
+      "tint": "attention",
+      "master": [["circle", 10, 10, 8], ["circle", 10, 10, 6], ["circle", 10, 10, 4]],
+      "x1art": [
+        "..........",
+        "...####...",
+        "..#....#..",
+        ".#..##..#.",
+        ".#.####.#.",
+        ".#.####.#.",
+        ".#..##..#.",
+        "..#....#..",
+        "...####...",
+        ".........."
+      ]
+    },
+    {
+      "name": "dotsPermission",
+      "set": "dots",
+      "for": "needs permission or a sign-in (Dots): a dot with a bar cut out",
+      "tint": "attention",
+      "master": [["circle", 10, 10, 8], ["M", 8, 4], ["L", 12, 4], ["L", 12, 16], ["L", 8, 16], ["Z"]],
+      "x1art": [
+        "..........",
+        "...####...",
+        "..##..##..",
+        ".###..###.",
+        ".###..###.",
+        ".###..###.",
+        ".###..###.",
+        "..##..##..",
+        "...####...",
+        ".........."
+      ]
+    },
+    {
+      "name": "dotsDone",
+      "set": "dots",
+      "for": "finished (Dots): a dot with a check cut out",
+      "tint": "success",
+      "master": [["circle", 10, 10, 8], ["M", 4.5, 10], ["L", 6.5, 8], ["L", 8.5, 10], ["L", 13, 5.5], ["L", 15, 7.5], ["L", 8.5, 14], ["Z"]],
+      "x1art": [
+        "..........",
+        "...####...",
+        "..######..",
+        ".######.#.",
+        ".#.###..#.",
+        ".#..#..##.",
+        ".##...###.",
+        "..##.###..",
+        "...####...",
+        ".........."
+      ]
+    },
+    {
+      "name": "dotsError",
+      "set": "dots",
+      "for": "failed (Dots): a dot with an x cut out",
+      "tint": "danger",
+      "master": [["circle", 10, 10, 8], ["M", 5, 7], ["L", 7, 5], ["L", 10, 8], ["L", 13, 5], ["L", 15, 7], ["L", 12, 10], ["L", 15, 13], ["L", 13, 15], ["L", 10, 12], ["L", 7, 15], ["L", 5, 13], ["L", 8, 10], ["Z"]],
+      "x1art": [
+        "..........",
+        "...####...",
+        "..######..",
+        ".##.##.##.",
+        ".###..###.",
+        ".###..###.",
+        ".##.##.##.",
+        "..######..",
+        "...####...",
+        ".........."
+      ]
+    },
+    {
+      "name": "pictogramsIdle",
+      "set": "pictograms",
+      "for": "nothing running (Pictograms): a crescent moon",
+      "tint": "loading",
+      "master": [["M", 10.4, 1.01], ["arc", 10, 10, 9, 272.56, 20.06], ["arc", 16, 6, 7.5, 70.9, 221.72], ["Z"]],
+      "x1art": [
+        "..........",
+        "..###.....",
+        ".###......",
+        ".##.......",
+        ".##.......",
+        ".###......",
+        ".####...#.",
+        "..#######.",
+        "...####...",
+        ".........."
+      ]
+    },
+    {
+      "name": "pictogramsWorking",
+      "set": "pictograms",
+      "for": "an agent works (Pictograms): an hourglass, its sand run down",
+      "tint": "accent",
+      "master": [["M", 0, 0], ["L", 20, 0], ["L", 20, 2], ["L", 12, 10], ["L", 20, 18], ["L", 20, 20], ["L", 0, 20], ["L", 0, 18], ["L", 8, 10], ["L", 0, 2], ["Z"], ["M", 3, 2], ["L", 17, 2], ["L", 10, 9], ["Z"]],
+      "x1art": [
+        "##########",
+        ".#......#.",
+        "..#....#..",
+        "...#..#...",
+        "....##....",
+        "....##....",
+        "...####...",
+        "..######..",
+        ".########.",
+        "##########"
+      ]
+    },
+    {
+      "name": "pictogramsWaiting",
+      "set": "pictograms",
+      "for": "waiting on you, a question or blocked with no reason (Pictograms): a speech bubble with three dots",
+      "tint": "attention",
+      "master": [["M", 3, 2], ["L", 17, 2], ["arc", 17, 5, 3, -90, 0], ["L", 20, 11], ["arc", 17, 11, 3, 0, 90], ["L", 8, 14], ["L", 2, 18], ["L", 3, 14], ["arc", 3, 11, 3, 90, 180], ["L", 0, 5], ["arc", 3, 5, 3, 180, 270], ["Z"], ["circle", 4, 8, 2], ["circle", 10, 8, 2], ["circle", 16, 8, 2]],
+      "x1art": [
+        "..........",
+        ".########.",
+        "##########",
+        "#..#..#..#",
+        "#..#..#..#",
+        "##########",
+        ".########.",
+        ".###......",
+        ".#........",
+        ".........."
+      ]
+    },
+    {
+      "name": "pictogramsPermission",
+      "set": "pictograms",
+      "for": "needs permission or a sign-in (Pictograms): a padlock",
+      "tint": "attention",
+      "master": [["M", 4, 8], ["L", 4, 6], ["arc", 10, 6, 6, 180, 360], ["L", 16, 8], ["L", 14, 8], ["L", 14, 6], ["arc", 10, 6, 4, 0, -180], ["L", 6, 8], ["Z"], ["M", 2, 8], ["L", 18, 8], ["L", 18, 20], ["L", 2, 20], ["Z"], ["M", 8, 12], ["L", 12, 12], ["L", 12, 16], ["L", 8, 16], ["Z"]],
+      "x1art": [
+        "...####...",
+        "..#....#..",
+        "..#....#..",
+        "..#....#..",
+        ".########.",
+        ".########.",
+        ".###..###.",
+        ".###..###.",
+        ".########.",
+        ".########."
+      ]
+    },
+    {
+      "name": "pictogramsDone",
+      "set": "pictograms",
+      "for": "finished (Pictograms): a check",
+      "tint": "success",
+      "master": [["M", 0, 11], ["L", 3, 8], ["L", 7, 12], ["L", 17, 2], ["L", 20, 5], ["L", 7, 18], ["Z"]],
+      "x1art": [
+        "..........",
+        ".........#",
+        "........##",
+        ".......###",
+        "#.....###.",
+        "##...###..",
+        "###.###...",
+        ".#####....",
+        "..###.....",
+        "...#......"
+      ]
+    },
+    {
+      "name": "pictogramsError",
+      "set": "pictograms",
+      "for": "failed (Pictograms): a warning triangle with ! cut out",
+      "tint": "danger",
+      "master": [["M", 9, 0], ["L", 11, 0], ["L", 20, 18], ["L", 20, 20], ["L", 0, 20], ["L", 0, 18], ["Z"], ["M", 9, 6], ["L", 11, 6], ["L", 11, 12], ["L", 9, 12], ["Z"], ["M", 9, 14], ["L", 11, 14], ["L", 11, 16], ["L", 9, 16], ["Z"]],
+      "x1art": [
+        "....##....",
+        "....##....",
+        "...####...",
+        "...#..#...",
+        "..##..##..",
+        "..##..##..",
+        ".########.",
+        ".###..###.",
+        "##########",
+        "##########"
+      ]
     }
   ],
   "tints": {
@@ -184,6 +412,22 @@
       "permission": ["shieldLine", "loading"],
       "done": ["dot", "unread"],
       "error": ["info", "danger"]
+    },
+    "dots": {
+      "about": "Dots (hq#1957 status glyph thunderdome): the quiet set: every glyph is the same 8 pt dot; hollow while nothing needs you (idle, working, waiting), solid with a figure cut out when something does.",
+      "working": ["dotsWorking", "accent"],
+      "waiting": ["dotsWaiting", "attention"],
+      "permission": ["dotsPermission", "attention"],
+      "done": ["dotsDone", "success"],
+      "error": ["dotsError", "danger"]
+    },
+    "pictograms": {
+      "about": "Pictograms (hq#1957 status glyph thunderdome): the bold set: a picture per state that reads without color: moon, hourglass, chat bubble, padlock, check, warning triangle.",
+      "working": ["pictogramsWorking", "accent"],
+      "waiting": ["pictogramsWaiting", "attention"],
+      "permission": ["pictogramsPermission", "attention"],
+      "done": ["pictogramsDone", "success"],
+      "error": ["pictogramsError", "danger"]
     }
   }
 }

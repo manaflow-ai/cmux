@@ -1,19 +1,20 @@
 import { describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { runChild } from "./helpers/run-child";
 
 // The cloud browser role of the devbox image (plans/cmux-next/cloud-browser-DESIGN.md
 // CB-2, section 4a): the launcher runs `cmux-rd host --browser` on the desktop display
 // with CDP on loopback for an agent on the VM. Off by default. These tests run the
 // shipped launcher against a fake `cmux-rd` and check what it actually starts.
 
-const LAUNCHER = join(import.meta.dir, "../services/vms/images/devbox/desktop/cmux-cloud-browser");
+const LAUNCHER = join(dirname(fileURLToPath(import.meta.url)), "../services/vms/images/devbox/desktop/cmux-cloud-browser");
 
 type Run = { code: number; stderr: string; argv: string[] | null; token: string | null; tokenFileMode: number | null };
 
-function run(env: Record<string, string>): Run {
+async function run(env: Record<string, string>): Promise<Run> {
   const dir = mkdtempSync(join(tmpdir(), "cmux-cloud-browser-"));
   try {
     const fake = join(dir, "cmux-rd");
@@ -29,9 +30,9 @@ exit 0
 `,
     );
     chmodSync(fake, 0o755);
-    const r = spawnSync("bash", [LAUNCHER], {
-      env: { PATH: `${dir}:/usr/bin:/bin`, HOME: dir, CMUX_CLOUD_BROWSER_STATE_DIR: dir, ...env },
-      encoding: "utf8",
+    const r = await runChild("bash", [LAUNCHER], {
+      env: { NODE_ENV: "test", PATH: `${dir}:/usr/bin:/bin`, HOME: dir, CMUX_CLOUD_BROWSER_STATE_DIR: dir, ...env },
+      timeout: 5_000,
     });
     const read = (f: string) => {
       try {
@@ -56,14 +57,14 @@ exit 0
 const after = (argv: string[], flag: string) => argv[argv.indexOf(flag) + 1];
 
 describe("devbox cloud browser launcher", () => {
-  test("is off by default: without CMUX_CLOUD_BROWSER=1 it starts nothing", () => {
-    const r = run({});
+  test("is off by default: without CMUX_CLOUD_BROWSER=1 it starts nothing", async () => {
+    const r = await run({});
     expect(r.code).toBe(0);
     expect(r.argv).toBeNull();
   });
 
-  test("when on, runs the cmux-rd host with the browser on the desktop display and CDP on loopback", () => {
-    const r = run({ CMUX_CLOUD_BROWSER: "1", CMUX_CLOUD_BROWSER_URL: "https://example.com/" });
+  test("when on, runs the cmux-rd host with the browser on the desktop display and CDP on loopback", async () => {
+    const r = await run({ CMUX_CLOUD_BROWSER: "1", CMUX_CLOUD_BROWSER_URL: "https://example.com/" });
     expect(r.code).toBe(0);
     const argv = r.argv!;
     expect(argv[0]).toBe("host");
@@ -79,18 +80,18 @@ describe("devbox cloud browser launcher", () => {
     expect(r.tokenFileMode).toBe(0o600);
   });
 
-  test("refuses a CDP port that is not a number, instead of starting Chrome with it", () => {
-    const r = run({ CMUX_CLOUD_BROWSER: "1", CMUX_CLOUD_BROWSER_CDP_PORT: "9222; rm -rf /" });
+  test("refuses a CDP port that is not a number, instead of starting Chrome with it", async () => {
+    const r = await run({ CMUX_CLOUD_BROWSER: "1", CMUX_CLOUD_BROWSER_CDP_PORT: "9222; rm -rf /" });
     expect(r.code).not.toBe(0);
     expect(r.argv).toBeNull();
   });
 
-  test("names the missing binary when cmux-rd is not installed", () => {
+  test("names the missing binary when cmux-rd is not installed", async () => {
     const dir = mkdtempSync(join(tmpdir(), "cmux-cloud-browser-none-"));
     try {
-      const r = spawnSync("bash", [LAUNCHER], {
-        env: { PATH: "/usr/bin:/bin", HOME: dir, CMUX_CLOUD_BROWSER_STATE_DIR: dir, CMUX_CLOUD_BROWSER: "1" },
-        encoding: "utf8",
+      const r = await runChild("bash", [LAUNCHER], {
+        env: { NODE_ENV: "test", PATH: "/usr/bin:/bin", HOME: dir, CMUX_CLOUD_BROWSER_STATE_DIR: dir, CMUX_CLOUD_BROWSER: "1" },
+        timeout: 5_000,
       });
       expect(r.status).not.toBe(0);
       expect(r.stderr).toContain("cmux-rd");

@@ -48,6 +48,7 @@ import {
 } from "./errors";
 import { recordSpanTiming } from "./timings";
 import { nextUpgradePlanId, planIncludes } from "../billing/planTier";
+import { GO_PLAN_ID } from "../billing/pro";
 import { authProviderErrorResponse } from "./authErrors";
 import { goCapacityConstraint } from "./goUsage";
 import { isSyntheticAccountEmail, rememberSyntheticUser } from "../analytics/syntheticAccounts";
@@ -80,6 +81,7 @@ import {
   vmRequestLocale,
   vmRequiresProCopy,
   vmMemoryErrorCopy,
+  vmMutationGuardCopy,
   vmGoLimitCopy,
   vmPlanBudgetCopy,
   vmActiveLimitCountedCopy,
@@ -394,7 +396,7 @@ export function vmErrorResponse(input: VmErrorResponseInput): Response {
 
 /**
  * The paywall response for a free-plan machine whose access window lapsed:
- * the machine and its data are preserved, reconnecting requires Pro. 402 with
+ * the machine and its data are preserved, reconnecting requires a paid plan. 402 with
  * `upgradeRequired`/`upgradeUrl` so clients render an upgrade prompt, mirroring
  * the free-plan variant of `vmActiveLimitExceededResponse`.
  */
@@ -405,8 +407,8 @@ export function vmFreeAccessExpiredResponse(input: {
   return vmErrorResponse({
     error: "vm_access_requires_pro",
     status: 402,
-    message: `The free plan includes ${input.windowDays} days of access to a machine. ${input.vmId} is past that window — the machine and everything on it are preserved, and upgrading to Pro reconnects it.`,
-    action: `Upgrade to Pro at ${VM_UPGRADE_URL} to reconnect ${input.vmId}, or delete it with \`cmux vm rm ${input.vmId}\`.`,
+    message: `The free plan includes ${input.windowDays} days of access to a machine. ${input.vmId} is past that window — the machine and everything on it are preserved, and upgrading to a paid plan reconnects it.`,
+    action: `Upgrade at ${VM_UPGRADE_URL} to reconnect ${input.vmId}, or delete it with \`cmux cloud kill-machine --target machine:${input.vmId} --confirm\`.`,
     extra: { upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
     details: { vmId: input.vmId, windowDays: input.windowDays },
   });
@@ -417,7 +419,7 @@ export function notFoundVm(vmId: string): Response {
     error: "vm_not_found",
     status: 404,
     message: `Cloud VM ${vmId} was not found.`,
-    action: "Run `cmux vm ls` to see available Cloud VMs. If the VM stopped while idle, start a new one with `cmux vm new`.",
+    action: "Run `cmux cloud list-machines` to see available Cloud machines. If the machine stopped while idle, start a new one with `cmux cloud new-machine`.",
     details: { vmId },
   });
 }
@@ -604,8 +606,8 @@ export function vmCreateCreditsCheckoutExtra(amount: number, planId: string | nu
  * catalog so non-English clients get a translated upgrade instruction; the
  * machine-readable `upgradeUrl`/`upgradeRequired` fields stay locale-free.
  */
-export async function vmRequiresProResponse(locale: Locale = "en"): Promise<Response> {
-  const copy = await vmRequiresProCopy(locale, { upgradeUrl: VM_UPGRADE_URL });
+export async function vmRequiresProResponse(locale: Locale = "en", planId: string = GO_PLAN_ID): Promise<Response> {
+  const copy = await vmRequiresProCopy(locale, { upgradeUrl: VM_UPGRADE_URL, planId });
   return vmErrorResponse({
     error: "vm_requires_pro",
     status: 402,
@@ -713,11 +715,12 @@ export async function vmActiveLimitExceededResponse(input: {
   if (input.limit <= 0) {
     // Free plans have no allowance at all: this is the subscribe gate, not a
     // "free a slot" situation.
+    const copy = await vmRequiresProCopy(input.locale ?? "en", { upgradeUrl: VM_UPGRADE_URL, planId: GO_PLAN_ID });
     return vmErrorResponse({
       error: "vm_active_limit_exceeded",
       status: 402,
-      message: "Cloud VMs require a cmux Pro subscription.",
-      action: `Subscribe to cmux Pro at ${VM_UPGRADE_URL} to get access to Cloud VMs.`,
+      message: copy.message,
+      action: copy.action,
       extra: { limit: input.limit, upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
       details: { limit: input.limit, upgradeRequired: true },
       ...(input.phase ? { phase: input.phase } : {}),
@@ -727,8 +730,8 @@ export async function vmActiveLimitExceededResponse(input: {
     error: "vm_active_limit_exceeded",
     status: 402,
     message: `The free plan includes ${input.limit} Cloud VM${plural}.${counted}`,
-    action: `Upgrade to cmux Pro at ${VM_UPGRADE_URL} for more active machines, ` +
-      "or free a slot with `cmux vm rm <id>`.",
+    action: `Upgrade at ${VM_UPGRADE_URL} for more active machines, ` +
+      "or free a slot with `cmux cloud kill-machine --target machine:<id> --confirm`.",
     extra: { limit: input.limit, upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
     details: { limit: input.limit, upgradeRequired: true, ...countedDetails },
     ...(input.phase ? { phase: input.phase } : {}),
@@ -827,7 +830,7 @@ const vmFirewallRuleNotFoundResponse = (error: VmFirewallRuleNotFoundError): Res
     error: "vm_firewall_rule_not_found",
     status: 404,
     message: "This firewall rule is not in your Cloud VM network.",
-    action: "List your rules with GET /api/vm/firewall; a retried delete of a removed rule is already done.",
+    action: "List your rules with `cmux cloud firewall-list`; a retried delete of a removed rule is already done.",
     displayTitle: "Firewall rule not found",
     details: { ruleId: error.ruleId },
   });
@@ -1081,25 +1084,44 @@ export const vmWorkflowErrorResponders = {
     retryable: false,
     details: { resource: error.resource, requested: error.requested, max: error.max, planId: error.planId, upgradePlanId: error.upgradePlanId ?? null },
   }),
-  VmSnapshotInProgressError: () =>
-    vmErrorResponse({
+  VmSnapshotInProgressError: async (_error, context) => {
+    const copy = await vmMutationGuardCopy("snapshotInProgress", context.locale);
+    return vmErrorResponse({
       error: "vm_snapshot_in_progress",
       status: 409,
-      message: "A snapshot with this idempotency key is still running for this Cloud VM.",
-      action: "Wait for the first snapshot to finish, then retry with the same idempotency key.",
+      message: copy.message,
+      action: copy.action,
+      displayTitle: copy.title,
       phase: "snapshot",
       retryable: true,
       retryAfterSeconds: 5,
-    }),
-  VmSnapshotIdempotencyConflictError: () =>
-    vmErrorResponse({
+    });
+  },
+  VmSnapshotIdempotencyConflictError: async (_error, context) => {
+    const copy = await vmMutationGuardCopy("snapshotIdempotencyConflict", context.locale);
+    return vmErrorResponse({
       error: "vm_snapshot_idempotency_conflict",
       status: 409,
-      message: "This idempotency key was already used for another snapshot request on this Cloud VM.",
-      action: "Use a new idempotency key for a snapshot with another name.",
+      message: copy.message,
+      action: copy.action,
+      displayTitle: copy.title,
       phase: "snapshot",
       retryable: false,
-    }),
+    });
+  },
+  VmSnapshotQuotaExceededError: async (error, context) => {
+    const copy = await vmMutationGuardCopy("snapshotQuota", context.locale);
+    return vmErrorResponse({
+      error: "vm_snapshot_quota_exceeded",
+      status: 409,
+      message: copy.message,
+      action: copy.action,
+      displayTitle: copy.title,
+      phase: "snapshot",
+      retryable: false,
+      details: { limit: error.limit },
+    });
+  },
   VmResizeInProgressError: () =>
     vmErrorResponse({
       error: "vm_resize_in_progress",
@@ -1128,7 +1150,7 @@ export const vmWorkflowErrorResponders = {
       error: "vm_tunnel_not_found",
       status: 404,
       message: "This computer is not enrolled on your Cloud VM network.",
-      action: "Enroll it with POST /api/vm/tunnel, then bring the WireGuard tunnel up.",
+      action: "Run `cmux cloud sign-out`, then `cmux cloud sign-in` to enroll this Mac again; after that, bring the WireGuard tunnel up.",
       phase: "network",
       retryable: false,
       details: { deviceFingerprint: error.deviceFingerprint },
@@ -1548,7 +1570,7 @@ function vmNetworkFullResponse(error: VmProviderOperationError): Response {
     message,
     reason: "Every address in this account's private network is assigned to a machine or an enrolled Mac.",
     action:
-      "Delete machines you no longer use with `cmux vm rm <id>`, or revoke Macs you no longer use on the " +
+      "Delete machines you no longer use with `cmux cloud kill-machine --target machine:<id> --confirm`, or revoke Macs you no longer use on the " +
       "Cloud Mac access page at https://cmux.com/dashboard/cloud, then try again.",
     phase: vmPhaseForOperation(error.operation),
     retryable: false,
@@ -1627,7 +1649,7 @@ function vmProviderOperationErrorResponse(error: VmProviderOperationError): Resp
       reason: "The image this machine kind resolves to is not published for this environment.",
       action:
         "Ask an admin to publish the Cloud VM image for this environment, then retry. " +
-        "A different machine kind (for example `cmux vm new --base`) may still be available.",
+        "Run `cmux cloud list-machines` to find an existing machine while the image is unavailable.",
       phase,
       retryable: false,
       displayTitle: "Cloud VM image unavailable",
@@ -1747,14 +1769,14 @@ function cloudServiceAction(operation: string, retryAfterSeconds: number | undef
     : "";
   switch (operation) {
     case "create":
-      return `${retryPrefix}Retry once. If it fails again, run \`cmux vm ls\` to check whether a VM was created, then try \`cmux vm new\` again or contact support.`;
+      return `${retryPrefix}Retry once. If it fails again, run \`cmux cloud list-machines\` to check whether a machine was created, then try \`cmux cloud new-machine\` again or contact support.`;
     case "openAttach":
     case "openSSH":
-      return `${retryPrefix}cmux is retrying attach while the Cloud VM service recovers. Run \`cmux vm ls\` to confirm the VM still exists.`;
+      return `${retryPrefix}cmux is retrying attach while the Cloud VM service recovers. Run \`cmux cloud list-machines\` to confirm the machine still exists.`;
     case "exec":
-      return `${retryPrefix}Check that the VM is still running with \`cmux vm ls\`, then retry the command. For long commands, increase the exec timeout.`;
+      return `${retryPrefix}Check that the machine is still running with \`cmux cloud list-machines\`, then retry the command. For long commands, open a terminal with \`cmux cloud ssh --target machine:<id>\`.`;
     case "destroy":
-      return `${retryPrefix}Run \`cmux vm ls\` to see whether the VM is already gone. If it still appears, retry \`cmux vm rm <id>\`.`;
+      return `${retryPrefix}Run \`cmux cloud list-machines\` to see whether the machine is already gone. If it still appears, retry \`cmux cloud kill-machine --target machine:<id> --confirm\`.`;
     default:
       return `${retryPrefix}Retry the command. If it keeps failing, copy this error and contact support.`;
   }

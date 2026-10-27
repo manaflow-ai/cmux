@@ -4,7 +4,7 @@ import Foundation
 /// The FSEventStream behind one ``FolderWatcher`` stream.
 // FSEvents has no async API; the stream is created, scheduled, and stopped on
 // `queue`, and its callback runs there too, so every mutation happens on `queue`.
-final class FolderWatchStream: @unchecked Sendable {
+final class FolderWatchStream: @unchecked Sendable { // crash-allow: `stream` changes only on the serial `queue` (start, stop, and the FSEvents callback there); the rest is immutable
     private let folderPath: String
     private let latency: CFTimeInterval
     private let continuation: AsyncStream<FolderChange>.Continuation

@@ -102,6 +102,7 @@ fn launch_round_trip_preserves_ghostty_defaults() {
             placements: 20,
         },
         seed: b"seeded".to_vec(),
+        workspace_key: String::new(),
     };
 
     let decoded = HostLaunch::decode(&launch.encode().unwrap()).unwrap();
@@ -153,6 +154,7 @@ fn launch_failure_is_reported_before_bootstrap_pipe_closes() {
         default_colors: DefaultColors::default(),
         kitty_graphics_limits: KittyGraphicsLimits::default(),
         seed: Vec::new(),
+        workspace_key: String::new(),
     };
     let mut input = Vec::new();
     write_frame(&mut input, &bootstrap.into_frame(1)).unwrap();
@@ -513,6 +515,7 @@ fn clear_history_ack_preserves_known_not_delivered_failure() {
         control_responses: control_responses.clone(),
         next_request: AtomicU64::new(2),
         viewer_size: Mutex::new(None),
+        viewer_size_acks: false,
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,

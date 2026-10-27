@@ -6,7 +6,7 @@ import Foundation
 import Observation
 import os
 
-/// Pushes the config owner's effective privacy settings to the local daemon. Socket replacement
+/// Pushes the config owner's effective privacy settings and new-chat permission mode to the local daemon. Socket replacement
 /// and settings observation are the only wakeups; no retry timer or polling is used.
 @MainActor
 final class ChatSettingsPush {
@@ -21,9 +21,10 @@ final class ChatSettingsPush {
     init(socketPath: String) { socket = socketPath }
 
     /// App-lifetime observation, started at composition after the initial settings load.
-    static func start(settings: SettingsController, environment: AcpmuxEnvironment?) {
-        guard let environment else { return }
-        let push = ChatSettingsPush(socketPath: environment.socketPath)
+    /// The observation task keeps the push alive for the app's lifetime (tests pass their own socket).
+    static func start(settings: SettingsController, socketPath: String?) {
+        guard let socketPath else { return }
+        let push = ChatSettingsPush(socketPath: socketPath)
         push.watchSocket()
         Task { @MainActor in
             for await value in ObservationStream({ settings.chatSettings }) {
@@ -33,12 +34,10 @@ final class ChatSettingsPush {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // The connection cancels from any thread, so a release off main cleans up too. The watcher is
+    // not stopped here: its own deinit cancels its sources, and stop() must not run on its queue.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            watcher?.stop()
-            connection?.cancel()
-        }
+        connection?.cancel()
     }
 
     private func watchSocket() {

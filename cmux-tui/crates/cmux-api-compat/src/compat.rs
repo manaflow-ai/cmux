@@ -3,7 +3,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, PoisonError, RwLock};
 
 use serde_json::Value;
 
@@ -105,7 +105,9 @@ impl Compat {
         let mut changes = Vec::new();
         for revision in &schema.revisions {
             for message_change in &revision.changes {
-                let index = u32::try_from(changes.len()).expect("fewer than 2^32 changes");
+                let index = u32::try_from(changes.len()).map_err(|_| {
+                    CompatError::InvalidSchema("more than 2^32 changes".to_string())
+                })?;
                 changes.push(message_change.change.clone());
                 kinds
                     .entry(message_change.message.clone())
@@ -158,17 +160,25 @@ impl Compat {
         let Some(entry) = self.kinds.get(kind) else {
             return Ok(self.identity.clone());
         };
-        if let Some(program) = entry.cache.read().expect("cache lock").get(&(from, to)) {
+        if let Some(program) =
+            entry.cache.read().unwrap_or_else(PoisonError::into_inner).get(&(from, to))
+        {
             return Ok(program.clone());
         }
         let steps = chain(&entry.changes, from, to);
         let program = if steps.is_empty() { self.identity.clone() } else { self.intern(steps)? };
-        entry.cache.write().expect("cache lock").insert((from, to), program.clone());
+        entry
+            .cache
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert((from, to), program.clone());
         Ok(program)
     }
 
     fn intern(&self, steps: Vec<Step>) -> Result<Arc<Program>, CompatError> {
-        if let Some(program) = self.interned.read().expect("intern lock").get(&steps) {
+        if let Some(program) =
+            self.interned.read().unwrap_or_else(PoisonError::into_inner).get(&steps)
+        {
             return Ok(program.clone());
         }
         let ops = steps
@@ -179,7 +189,13 @@ impl Compat {
             .flatten()
             .collect();
         let program = Arc::new(Program::compile(ops));
-        Ok(self.interned.write().expect("intern lock").entry(steps).or_insert(program).clone())
+        Ok(self
+            .interned
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(steps)
+            .or_insert(program)
+            .clone())
     }
 
     /// Translates one message. Borrows the input when nothing changes.

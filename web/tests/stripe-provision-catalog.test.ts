@@ -145,6 +145,23 @@ describe("Stripe catalog provisioning", () => {
     expect(portalArgs).toContain("business_profile[headline]=cmux");
   });
 
+  test("provisions a Team portal that cannot change subscription quantity", async () => {
+    const result = await runProvision("test", "valid");
+
+    expect(result.exitCode).toBe(0);
+    const teamPortal = result.calls.find((call) =>
+      call.args.includes("https://api.stripe.com/v1/billing_portal/configurations") &&
+      call.args.includes("POST") &&
+      call.args.includes("metadata[purpose]=team_billing")
+    );
+    expect(teamPortal).toBeDefined();
+    const args = teamPortal!.args.join("\n");
+    expect(args).toContain("features[subscription_update][enabled]=false");
+    expect(args).toContain("features[subscription_cancel][enabled]=true");
+    expect(args).toContain("features[invoice_history][enabled]=true");
+    expect(args).toContain("features[payment_method_update][enabled]=true");
+  });
+
   // Every listed price is also a choice for any subscriber in the portal.
   // Yearly subscribers switch in the dashboard (which keeps their interval),
   // so Pro yearly would only let a monthly subscriber, Max included, move onto
@@ -197,13 +214,10 @@ describe("Stripe catalog provisioning", () => {
     const result = await runProvision("test", "portal-switch-exists");
 
     expect(result.exitCode).toBe(0);
-    expect(
-      result.calls.some(
-        (call) =>
-          call.args.includes("https://api.stripe.com/v1/billing_portal/configurations") &&
-          call.args.includes("POST"),
-      ),
-    ).toBe(false);
+    expect(result.calls.filter((call) =>
+      call.args.includes("https://api.stripe.com/v1/billing_portal/configurations") &&
+      call.args.includes("POST")
+    )).toHaveLength(1);
     expect(
       result.calls.some(
         (call) =>

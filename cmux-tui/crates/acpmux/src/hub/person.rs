@@ -37,50 +37,46 @@
 //!   makes a new key for each daemon it starts or enrolls, so a key from a
 //!   daemon that went away proves nothing to the next one.
 //!
-//! - A relayed allow (cx-0q7o, #13742 D16): a prompt can be answered from
-//!   another machine's app through a connection that is never the person (a
-//!   peer daemon, the remote cmux-tui server). Each pending prompt has a new
-//!   random `decisionNonce` and each daemon run a random `personInstance`;
-//!   both are in `_acpmux/permission_pending`. `permission_respond` with an
-//!   allow then counts only with `_meta.acpmux.decisionNonce` and
-//!   `personDecision` = lowercase hex HMAC-SHA256(key,
-//!   "acpmux-person-decision-v1" 0 instance 0 session 0 permission 0 option
-//!   0 nonce) ([`decision_proof`]), for the prompt that is pending with that
-//!   nonce. A nonce counts once: the answer that counts spends it under
-//!   the prompt's lock, together with taking the prompt (so a refused answer
-//!   spends nothing, and of two racing answers one counts), and a bounded
-//!   store of spent nonces ([`SPENT_LIMIT`] entries, [`SPENT_TTL`]) refuses
-//!   it again. A prompt the next daemon adopts gets a new nonce under the
-//!   new run (`permission_reissued`, also a `permission_pending`). A restarted daemon has a new instance, so an old proof proves
-//!   nothing. A proof never covers question answers, a group's allow, a
-//!   policy, a rule or a mode: those widen and stay the person's own.
-//!   A keyed daemon is not dumpable (`daemon.rs`), so an agent it starts
-//!   cannot read the key from its memory.
-//! - Through a peer (slice 2a, 2b): a daemon that only mirrors a peer's
-//!   session cannot check a proof made with the peer's key, so it forwards
-//!   every answer for that session (allow, deny, cancel) and the peer
-//!   decides; a forwarded answer counts hops (`server/peer_forward.rs`). `answeredBy` from a
-//!   connection that is not the person counts only together with a proof
-//!   that counts. `initialize` and `_acpmux/status` name the run
-//!   (`personInstance`); status says whether it holds a key (`personKey`).
-//!   `_acpmux/person_holds {nonce}` (slice 2c, unix socket only, 8 per
-//!   connection) answers HMAC(key, "acpmux-person-holds-v1" 0 instance 0
-//!   nonce), so the app can check that a daemon it started holds ITS key: a
-//!   `person_prove` reply alone proves nothing (whatever answers on the
-//!   socket path can say `person: true`).
+//! - A relayed allow (cx-0q7o, #13742 D16): a prompt can be answered from another machine's app
+//!   through a connection that is never the person (a peer daemon, the remote cmux-tui server).
+//!   Each pending prompt has a new random `decisionNonce` and each daemon run a random
+//!   `personInstance`; both are in `_acpmux/permission_pending`. `permission_respond` with an allow
+//!   then counts only with `_meta.acpmux.decisionNonce` and `personDecision` = lowercase hex
+//!   HMAC-SHA256(key, "acpmux-person-decision-v1" 0 instance 0 session 0 permission 0 option 0
+//!   nonce) ([`decision_proof`]), for the prompt that is pending with that nonce. A nonce counts
+//!   once: the answer that counts spends it under the prompt's lock, together with taking the
+//!   prompt (so a refused answer spends nothing, and of two racing answers one counts), and a
+//!   bounded store of spent nonces ([`SPENT_LIMIT`] entries, [`SPENT_TTL`]) refuses it again. A
+//!   prompt the next daemon adopts gets a new nonce under the new run (`permission_reissued`, also
+//!   a `permission_pending`). A restarted daemon has a new instance, so an old proof proves
+//!   nothing. A question's answers, and their annotations, count only under
+//!   [`decision_answers_proof`]. A proof never
+//!   covers a group's allow, a policy, a rule or a mode: those widen and stay the person's own. A keyed daemon is not dumpable (`daemon.rs`), so an
+//!   agent it starts cannot read the key from its memory.
+//! - Through a peer (slice 2a, 2b): a daemon that only mirrors a peer's session cannot check a
+//!   proof made with the peer's key, so it forwards every answer for that session (allow, deny,
+//!   cancel) and the peer decides; a forwarded answer counts hops (`server/peer_forward.rs`).
+//!   `answeredBy` from a connection that is not the person counts only together with a proof that
+//!   counts. `initialize` and `_acpmux/status` name the run (`personInstance`); status says whether
+//!   it holds a key (`personKey`). `_acpmux/person_holds {nonce}` (slice 2c, unix socket only, 8
+//!   per connection) answers HMAC(key, "acpmux-person-holds-v1" 0 instance 0 nonce), so the app can
+//!   check that a daemon it started holds ITS key: a `person_prove` reply alone proves nothing
+//!   (whatever answers on the socket path can say `person: true`).
 //!   The key reaches a daemon that `acpmux daemon start --person-key-fd 0`
 //!   launches over a socket pair, only after the daemon said it is not
 //!   dumpable (`daemon.rs`).
 //!
-//! [`Hub::person_check`] is the one check, run for every request before it
-//! is handled or forwarded. Without the person, a client may read prompts and
-//! deny or cancel them, and may narrow (ask, deny-all, deny rules, asking
-//! modes). It may never allow (a permission answer, a question's answer, a
-//! group's allow) and never widen what runs without asking (a policy other
-//! than ask or deny-all for a session, the daemon default, a family default
-//! or a preset; a rule that could auto-approve; a mode the reviewed asking
-//! table does not list; a spawn env). Such a request gets
-//! [`REASON`] and changes nothing: a prompt stays pending.
+//! [`Hub::person_check`] is the one check, run for every request before it is handled or forwarded.
+//! Without the person, a client may read prompts and deny or cancel them, and may narrow (ask,
+//! deny-all, deny rules, asking modes). It may never allow (a permission answer, a question's
+//! answer, a group's allow) and never widen what runs without asking (a policy other than ask or
+//! deny-all for a session, the daemon default, a family default or a preset; a rule that could
+//! auto-approve; a mode the reviewed asking table does not list; a spawn env). Such a request gets
+//! [`REASON`] and changes nothing: a prompt stays pending. One exception, off by default
+//! (`agents.subsessions.answerQuestions`): a proven caller session (a) may answer a question a
+//! session under it asked, never a permission prompt, a plan approval or a lasting allow. The hub
+//! checks it under the prompt's lock ([`Answerer`] `ancestor`) and names the caller in
+//! `answeredBy`; the threat model is in `hub/subsession_answer.rs`.
 //!
 //! Starting in a mode that does not ask (a `session/new` with
 //! `_meta.acpmux.mode`, or a preset's `mode`), without the person, needs
@@ -103,7 +99,7 @@
 //!   `ACPMUX_SESSION_TOKEN_SOCKET`, this daemon's socket, and the CLI sends
 //!   the token only to that socket ([`caller_env`], `client.rs`). A
 //!   profile's, preset's or request's env never sets either variable: the
-//!   spawn drops them from every env it layers after `caller_env`.
+//!   spawn drops them from every env it layers after `caller_env`; adoption: `adopted_callers`.
 //! - No start mode that does not ask applies to an adopt without the
 //!   person: an adopt may find a session already running
 //!   (`hub/adoption.rs`, `ifLive: "open"`), and only the person widens a
@@ -164,8 +160,8 @@
 //!   `personInstance` is a daemon it enrolled directly (an app follow-up).
 //!
 //! The default start mode (`hub/start_mode.rs`, cx-wx93i) is not a request:
-//! with no `mode` asked, a new chat starts in the person's latest pick, else
-//! `defaultPermissionMode` / `agents.defaultPermissionMode`, else the
+//! with no `mode` asked, a new chat starts in `defaultPermissionMode` /
+//! `agents.defaultPermissionMode`, else the
 //! harness's full-access mode, for every non-Web origin (also the unix
 //! socket CLI). It never widens a proven caller session: one in a mode
 //! that asks starts its chats in the harness's own mode
@@ -326,6 +322,10 @@ pub struct Answerer<'a> {
     pub decision: Option<(&'a str, &'a str)>,
     /// A phone's signed decision (`approvers.rs`), with its `decisionNonce`.
     pub approver: Option<(&'a str, &'a Value)>,
+    /// A caller session answering its descendant's question: set by the hub, never by a request.
+    pub(crate) ancestor: Option<&'a str>,
+    /// The person who answered (`author.rs`), recorded in `answeredBy`: it proves nothing.
+    pub author: Option<&'a crate::author::Author>,
 }
 
 impl<'a> Answerer<'a> {
@@ -344,7 +344,7 @@ impl<'a> Answerer<'a> {
             (Some(nonce), Some(signed)) => Some((nonce, signed)),
             _ => None,
         };
-        Self { person, decision, approver }
+        Self { person, decision, approver, ancestor: None, author: None }
     }
 }
 
@@ -506,19 +506,35 @@ impl PersonGate {
     /// option and nonce on this daemon run (constant time), with a nonce that
     /// has not counted yet. It spends nothing: the answer spends the nonce
     /// when it counts ([`Self::spend_decision`]).
+    #[allow(clippy::too_many_arguments)]
     pub fn decision_proves(
         &self,
         session: &str,
         permission: &str,
         option: &str,
         nonce: &str,
+        answers: Option<&Value>,
+        annotations: Option<&Value>,
         proof: &str,
     ) -> bool {
         let key = self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
         let instance = self.instance();
-        let Some(expected) =
-            key.and_then(|k| decision_proof(&k, instance, session, permission, option, nonce))
-        else {
+        let annotations = annotations.filter(|a| !a.is_null());
+        let Some(expected) = key.and_then(|k| match answers.filter(|a| !a.is_null()) {
+            // Annotations go only with answers: no proof covers them alone.
+            None if annotations.is_some() => None,
+            None => decision_proof(&k, instance, session, permission, option, nonce),
+            Some(a) => decision_answers_proof(
+                &k,
+                instance,
+                session,
+                permission,
+                option,
+                nonce,
+                a,
+                annotations,
+            ),
+        }) else {
             return false;
         };
         cmux_local_auth::tokens_match(proof, &expected) && !self.spent(nonce)
@@ -657,6 +673,8 @@ pub fn person_proof(key: &str, transport: &str, nonce: &str, connection: &str) -
     )))
 }
 
+mod decision_answers;
+pub use decision_answers::decision_answers_proof;
 /// The bytes a decision proof covers.
 fn decision_message(parts: [&str; 5]) -> Vec<u8> {
     let mut message = b"acpmux-person-decision-v1".to_vec();
@@ -833,6 +851,11 @@ impl Hub {
             }
             method::MUX_NEW_CHAT_PICKS_SET => Err(person_required("changing the new chat picks")),
             method::MUX_PERMISSION_RESPOND => {
+                // Answered already: `respond_permission` tells this one who answered first
+                // (`permission_settled.rs`), and it changes nothing.
+                if self.permission_settled(params) {
+                    return Ok(());
+                }
                 let option = params.get("optionId").filter(|v| !v.is_null());
                 // A phone's signed allow or answer (`approvers.rs`). Never
                 // with `answeredBy`: that stays the person's own claim.
@@ -911,7 +934,7 @@ impl Hub {
                     return Ok(());
                 };
                 let default = self.config.read().await.permission_policy;
-                if asks(self.policy_for(&s, default)) {
+                if asks(Self::stored_policy_for(&s, default)) {
                     Ok(())
                 } else {
                     Err(person_required(
@@ -1013,8 +1036,8 @@ impl Hub {
     }
 
     /// Whether a relayed allow carries the person's decision proof for the
-    /// pending prompt it answers (module docs, cx-0q7o). Question answers
-    /// are never covered by a proof.
+    /// pending prompt it answers (module docs, cx-0q7o), over its answers and
+    /// annotations too.
     fn person_decided(&self, params: &Value, option: &Value) -> bool {
         let meta = params.pointer("/_meta/acpmux");
         let field = |f: &str| meta.and_then(|m| m.get(f)).and_then(Value::as_str);
@@ -1023,9 +1046,6 @@ impl Hub {
         else {
             return false;
         };
-        if params.get("answers").is_some_and(|v| !v.is_null()) {
-            return false;
-        }
         let Some(s) = crate::server::session_key(params).ok().and_then(|k| self.resolve(k).ok())
         else {
             return false;
@@ -1037,13 +1057,32 @@ impl Hub {
             p.decision_nonce.clone()
         };
         cmux_local_auth::tokens_match(nonce, &pending_nonce)
-            && self.person.decision_proves(&s.id, pid, option, nonce, proof)
+            && self.person.decision_proves(
+                &s.id,
+                pid,
+                option,
+                nonce,
+                params.get("answers"),
+                params.get("annotations"),
+                proof,
+            )
     }
 
     /// Whether `option` is a reject the pending permission offered. Unknown
     /// sessions, permissions and options are not rejects: the handler still
     /// answers not-found or invalid params for a person, and a client
     /// without the person learns nothing more than its refusal.
+    /// Whether the prompt a `permission_respond` names was answered, and is no longer pending.
+    fn permission_settled(&self, params: &Value) -> bool {
+        let Some(s) = crate::server::session_key(params).ok().and_then(|k| self.resolve(k).ok())
+        else {
+            return false;
+        };
+        let Some(pid) = params.get("permissionId").and_then(Value::as_str) else { return false };
+        let state = s.permissions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        !state.pending.contains_key(pid) && state.settled.lost(pid).is_some()
+    }
+
     fn option_rejects(&self, params: &Value, option: &Value) -> bool {
         let Some(s) = crate::server::session_key(params).ok().and_then(|k| self.resolve(k).ok())
         else {

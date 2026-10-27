@@ -4,19 +4,28 @@ import { sections } from "../schema";
 import { text } from "../strings";
 import { AccountsSection } from "./AccountsSection";
 import { AgentHarnesses } from "./AgentHarnesses";
-import { ChiefsCard } from "./ChiefsCard";
+import { AgentIntegrations } from "./AgentIntegrations";
+import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
+import { ChannelsCard } from "./ChannelsCard";
+import { CHIEFS_ROWS, ChiefsCard } from "./ChiefsCard";
 import { ComputerUseCard } from "./ComputerUseCard";
+import { DevicesCard } from "./DevicesCard";
 import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
 import { GroupList } from "./GroupList";
 import { HarnessesCard } from "./HarnessesCard";
 import { APPEARANCE_CATEGORIES } from "../appearanceUndo";
 import { AppearanceBar } from "./AppearanceBar";
 import { MobileCard } from "./MobileCard";
+import { NoticesCard } from "./NoticesCard";
+import { ImportSuggestionsCard } from "./ImportSuggestionsCard";
 import { AdvancedInfo, BACKDROP_ROWS, Backdrops, TerminalInfo, useBackdropsShown } from "./HostCards";
 import { DENSITY_ROWS } from "../density";
 import { DensityCard } from "./DensityCard";
-import { BrowserProfiles, MachinesSection, SpacesSection } from "./HostSections";
+import { BrowserProfiles, MACHINE_COLORS_KEY, MachinesSection, SpacesSection } from "./HostSections";
 import { PlaceholderSection } from "./PlaceholderSection";
+import { WebUpdatesCard } from "./WebUpdatesCard";
+import { VoiceInputCard } from "./VoiceInputCard";
+import { ServerCard } from "./ServerCard";
 import { SectionActions } from "./SectionActions";
 import { ACCENT_KEY, APP_THEME_KEY, THEME_EDITS_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
 
@@ -35,12 +44,21 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   machines: () => <MachinesSection title={machinesTitle()} />,
   accounts: () => <AccountsSection />,
   agentHarnesses: (focus) => <AgentHarnesses focus={focus} />,
-  chiefs: () => <ChiefsCard />,
+  agentIntegrations: (focus) => <AgentIntegrations focus={focus} />,
+  chiefs: (focus) => <ChiefsCard focus={focus} />,
   advancedInfo: () => <AdvancedInfo />,
   advancedActions: () => <PlaceholderSection section="advanced" />,
   backdrops: (focus, workspace) => <Backdrops focus={focus} workspace={workspace} />,
   mobile: () => <MobileCard />,
+  devices: () => <DevicesCard />,
+  chiefPet: (focus) => <ChiefPetCard focus={focus} />,
   density: () => <DensityCard />,
+  importSuggestions: () => <ImportSuggestionsCard />,
+  channels: () => <ChannelsCard />,
+  webUpdates: () => <WebUpdatesCard />,
+  voiceInput: () => <VoiceInputCard />,
+  notices: () => <NoticesCard />,
+  server: () => <ServerCard />,
 };
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */
@@ -60,8 +78,14 @@ export function SectionView({
   const drawn = new Set(studio ? [THEME_KEY, APP_THEME_KEY, ACCENT_KEY] : []);
   // The background picker draws appearance.background and its Opacity while it shows.
   const picker = useBackdropsShown() && [...category.lead, ...category.trail].includes("backdrops");
+  // The Chief Pet card draws home.chiefPetEnabled and home.chiefPetMascot.
+  const pet = category.lead.includes("chiefPet");
+  // The Chiefs card draws its Engine row (home.chiefEngine).
+  const chiefsCard = [...category.lead, ...category.trail].includes("chiefs");
   // The density card draws appearance.density and the custom density keys.
   const densityCard = [...category.lead, ...category.trail].includes("density");
+  // The Machines card draws appearance.machineColors: a color well on each machine's row.
+  const machinesCard = [...category.lead, ...category.trail].includes("machines");
   // appearance.themeEdits is the pickers' "(custom)" themes, never a row of its own.
   const groups = category.groups
     .map((group) => ({
@@ -71,6 +95,9 @@ export function SectionView({
           row.key !== THEME_EDITS_KEY &&
           !drawn.has(row.key) &&
           !(picker && BACKDROP_ROWS.has(row.key)) &&
+          !(pet && CHIEF_PET_ROWS.has(row.key)) &&
+          !(chiefsCard && CHIEFS_ROWS.has(row.key)) &&
+          !(machinesCard && row.key === MACHINE_COLORS_KEY) &&
           !(densityCard && DENSITY_ROWS.has(row.key)),
       ),
     }))

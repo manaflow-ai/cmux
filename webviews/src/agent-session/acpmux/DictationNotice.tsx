@@ -19,7 +19,6 @@ export function DictationNotice({ dictation }: { dictation: Dictation }) {
         type="button"
         className="acpmux-dictation-dismiss"
         aria-label={t("dictation.dismiss")}
-        title={t("dictation.dismiss")}
         onClick={dictation.dismiss}
       >
         ×

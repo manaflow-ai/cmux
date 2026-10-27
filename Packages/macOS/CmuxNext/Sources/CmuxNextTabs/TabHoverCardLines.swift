@@ -21,13 +21,15 @@ struct TabHoverCardLines: Equatable {
     /// hibernated.
     static func make(_ item: TabItem, report: ResourceReport?, now: Date) -> Self {
         let facts = item.hover
-        let where_ = facts.kind == .browser ? item.subtitle.flatMap(host) : [item.subtitle, facts.branch].compactMap(\.self).nilIfEmpty
+        // A folder the title already names (a shell at `~` titled `~`) is said once.
+        let folder = item.subtitle == item.title ? nil : item.subtitle
+        let where_ = facts.kind == .browser ? item.subtitle.flatMap(host) : [folder, facts.branch].compactMap(\.self).nilIfEmpty
         let badges = [item.profileBadge.map { Strings.browserProfile($0.name) }, item.machineBadgeHelp,
                       item.themeBadge.map { Strings.axTheme($0.name) }, where_]
         return TabHoverCardLines(
             title: title(item),
             place: badges.compactMap(\.self).nilIfEmpty,
-            status: status(facts, now: now) ?? exitStatus(item),
+            status: status(facts, now: now) ?? exitStatus(item) ?? output(facts, now: now),
             detail: item.statusDetail.flatMap { $0.isEmpty ? nil : $0 },
             memory: memory(item, report: report)
         )
@@ -55,7 +57,7 @@ struct TabHoverCardLines: Equatable {
         case .failure: return .danger
         case .success: return .success
         case .needsInput: return .attention
-        case .none: return nil
+        case .none: return item.hover.lastOutput == nil ? nil : .secondary
         }
     }
 
@@ -75,6 +77,17 @@ struct TabHoverCardLines: Equatable {
         }
         let duration: String? = word == nil ? nil : facts.since.map { Self.elapsed(since: $0, now: now) }
         return [word, duration, facts.model].compactMap(\.self).nilIfEmpty
+    }
+
+    /// Output this recent reads as "Output · 12s"; older, the shell reads as "Idle · 5m".
+    static let recentOutput: TimeInterval = 60
+
+    /// A plain shell at its prompt (Leo 2026-10-21): "Output · 12s" when it printed under
+    /// `recentOutput` ago, "Idle · 5m" after; nil without a prompt and last output.
+    static func output(_ facts: TabHoverFacts, now: Date) -> String? {
+        guard let at = facts.lastOutput else { return nil }
+        let word = now.timeIntervalSince(at) < recentOutput ? Strings.hoverOutput : Strings.hoverIdle
+        return [word, elapsed(since: at, now: now)].nilIfEmpty
     }
 
     /// A terminal whose last command ended: "Done" or "Failed" (its exit status), nil otherwise.

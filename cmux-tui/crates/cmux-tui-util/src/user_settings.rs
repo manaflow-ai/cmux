@@ -156,6 +156,37 @@ impl Drop for ScopedPlacement {
     }
 }
 
+/// Settings-file `sessions.resumeAgents` ("Resume Agents After Restart"):
+/// whether a terminal respawned after its host died (a crash or reboot)
+/// runs its agent's resume (`claude --resume <id>`, `codex resume <id>`).
+/// On by default. A file that does not parse, or a value that is not a
+/// boolean, gives `false`: the person's choice is unknown, so the resume is
+/// only shown, never run.
+pub fn resume_agents_from_config_text(text: &str) -> bool {
+    if text.trim().is_empty() {
+        return true;
+    }
+    let Ok(document) = serde_json::from_str::<Value>(&strip_jsonc(text)) else { return false };
+    match document.pointer("/sessions/resumeAgents") {
+        None | Some(Value::Null) => true,
+        Some(Value::Bool(on)) => *on,
+        Some(_) => false,
+    }
+}
+
+/// [`resume_agents_from_config_text`] of the settings file, read at each
+/// respawn (a change applies with no reload); on without a file.
+pub fn resume_agents() -> bool {
+    let path = config_path();
+    match std::fs::metadata(&path) {
+        Ok(metadata) if metadata.is_file() => std::fs::read_to_string(&path)
+            .map(|text| resume_agents_from_config_text(&text))
+            .unwrap_or(false),
+        Ok(_) => false,
+        Err(error) => error.kind() == std::io::ErrorKind::NotFound,
+    }
+}
+
 /// JSONC to JSON: drops `//` and `/* */` comments, then trailing commas,
 /// outside strings (the dialect the app's `JSONC` parser reads).
 pub fn strip_jsonc(text: &str) -> String {
@@ -248,6 +279,17 @@ fn drop_trailing_commas(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::NewWorkspacePlacement as Placement;
+    use super::resume_agents_from_config_text as resume_agents;
+
+    #[test]
+    fn agents_resume_after_restart_unless_the_file_says_no() {
+        assert!(resume_agents(""));
+        assert!(resume_agents("{}"));
+        assert!(resume_agents(r#"{"sessions": {"resumeAgents": true}}"#));
+        assert!(!resume_agents("{\n  // off\n  \"sessions\": {\"resumeAgents\": false,},\n}"));
+        assert!(!resume_agents(r#"{"sessions": {"resumeAgents": "yes"}}"#), "not a boolean");
+        assert!(!resume_agents("{not json"), "an unreadable file never runs a resume");
+    }
 
     #[test]
     fn new_placement_reads_cmux_json_with_the_app_default() {

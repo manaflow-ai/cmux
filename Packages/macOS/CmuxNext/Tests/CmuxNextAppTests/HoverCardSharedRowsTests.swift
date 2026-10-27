@@ -61,6 +61,14 @@ import Testing
         #expect(lines.place == nil)
     }
 
+    @Test func aTerminalTitledByItsFolderSaysTheFolderOnce() {
+        var shell = TabItem(id: TabID("home"), title: "~", subtitle: "~")
+        shell.hover = TabHoverFacts(kind: .terminal)
+        #expect(TabHoverCardLines.make(shell, report: nil, now: Date()).place == nil)
+        shell.title = "cargo build"
+        #expect(TabHoverCardLines.make(shell, report: nil, now: Date()).place == "~")
+    }
+
     @Test func aTerminalSaysHowItsLastCommandEnded() {
         var failed = TabItem(id: TabID("t-failed"), title: "swift test", status: .failure)
         failed.hover = TabHoverFacts(kind: .terminal)
@@ -85,8 +93,10 @@ import Testing
     @Test(arguments: [true, false])
     func theGalleryShowsEveryKind(tabs: Bool) {
         let cards = tabs ? TabHoverCardGallery.cards() : WorkspaceHoverCardGallery.cards()
-        #expect(cards.count == 5)
-        #expect(Set(cards.map(\.name)).count == 5)
+        // The sidebar adds a chat that never left the home folder (no folder line, Leo 2026-10-21).
+        let count = tabs ? 5 : 6
+        #expect(cards.count == count)
+        #expect(Set(cards.map(\.name)).count == count)
     }
 
     private static func rows(in view: NSView) -> [HoverCardRowView] {

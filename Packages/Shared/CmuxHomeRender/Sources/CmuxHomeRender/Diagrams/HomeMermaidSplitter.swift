@@ -26,16 +26,15 @@ public struct HomeMermaidSplitter: Sendable {
         let scalars = text.unicodeScalars
         var lines: [Range<String.Index>] = []
         var start = scalars.startIndex
-        var index = start
-        while index < scalars.endIndex {
-            if scalars[index] == "\n" {
-                lines.append(start..<index)
-                start = scalars.index(after: index)
-            }
-            index = scalars.index(after: index)
+        for (index, scalar) in zip(scalars.indices, scalars) where scalar == "\n" {
+            lines.append(start..<index)
+            start = scalars.index(after: index)
         }
         lines.append(start..<scalars.endIndex)
-        func line(_ k: Int) -> String { String(scalars[lines[k]]) }
+        func line(_ k: Int) -> String {
+            guard let range = lines[checked: k] else { return "" }
+            return String(scalars.slice(range.lowerBound, range.upperBound))
+        }
 
         var blocks: [(open: Int, close: Int, indent: Int)] = []
         var i = 0
@@ -52,13 +51,13 @@ public struct HomeMermaidSplitter: Sendable {
         var out: [HomeTextSegment] = []
         var cursor = scalars.startIndex
         for block in blocks {
-            let from = lines[block.open].lowerBound, to = lines[block.close].upperBound
-            if cursor < from { out.append(.text(String(scalars[cursor..<from]))) }
+            guard let from = lines[checked: block.open]?.lowerBound, let to = lines[checked: block.close]?.upperBound else { continue }
+            if cursor < from { out.append(.text(String(scalars.slice(cursor, from)))) }
             let source = ((block.open + 1)..<block.close).map { dedent(line($0), block.indent) }.joined(separator: "\n")
-            out.append(.mermaid(source: source, fenced: String(scalars[from..<to])))
+            out.append(.mermaid(source: source, fenced: String(scalars.slice(from, to))))
             cursor = to
         }
-        if cursor < scalars.endIndex { out.append(.text(String(scalars[cursor..<scalars.endIndex]))) }
+        if cursor < scalars.endIndex { out.append(.text(String(scalars.slice(from: cursor)))) }
         return out
     }
 

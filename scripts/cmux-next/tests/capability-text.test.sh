@@ -49,5 +49,10 @@ if out="$(python3 "$check" --root "$tmp")"; then fail "a longer literal with an 
 case "$out" in *"cmux-tui-core/src/release.rs:5"*) ;; *) fail "the longer release.rs literal not named: $out" ;; esac
 rm -r "$tmp/cmux-tui/crates/cmux-tui-core"
 
-python3 "$check" --root "$repo" || fail "the repository has capability texts that say update"
+# The repository's own texts: a copy lint, so a warning while CMUX_NEXT_STYLE_GUARDS is
+# `warn` (cmux-next.yml, Leo 2026-10-19). The fixture cases above always fail.
+if ! python3 "$check" --root "$repo"; then
+  [[ "${CMUX_NEXT_STYLE_GUARDS:-}" == warn ]] || fail "the repository has capability texts that say update"
+  echo "::warning title=capability text (warn-only)::the repository has capability texts that say update"
+fi
 echo "capability-text tests: ok"
