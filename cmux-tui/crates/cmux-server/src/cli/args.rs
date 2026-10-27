@@ -129,6 +129,15 @@ impl Args {
         }
     }
 
+    /// The positional at `index`, named `name` in the usage error when it is
+    /// missing ([`parse`] already checked the count against the verb).
+    pub fn positional(&self, index: usize, name: &str) -> Result<&str> {
+        self.positionals
+            .get(index)
+            .map(String::as_str)
+            .ok_or_else(|| Error::usage(format!("missing <{name}>")))
+    }
+
     pub fn verb_str(&self) -> String {
         self.verb.join(" ")
     }
@@ -158,11 +167,16 @@ impl Args {
     }
 }
 
-fn find_spec(words: &[String]) -> Option<&'static VerbSpec> {
+/// The verb with the longest path that prefixes `words`, and the words
+/// after that path.
+fn find_spec(words: &[String]) -> Option<(&'static VerbSpec, &[String])> {
     VERBS
         .iter()
-        .filter(|v| v.path.len() <= words.len() && v.path.iter().zip(words).all(|(a, b)| a == b))
-        .max_by_key(|v| v.path.len())
+        .filter_map(|v| {
+            let (path, rest) = words.split_at_checked(v.path.len())?;
+            v.path.iter().zip(path).all(|(a, b)| a == b).then_some((v, rest))
+        })
+        .max_by_key(|(v, _)| v.path.len())
 }
 
 /// Parses `args` (after `cmux server`; a leading `server` word is skipped,
@@ -175,17 +189,20 @@ pub fn parse(args: &[String]) -> Result<Args> {
     let mut iter = args.iter().peekable();
     let mut only_positional = false;
     while let Some(arg) = iter.next() {
-        if only_positional || !arg.starts_with("--") {
-            words.push(arg.clone());
-            continue;
-        }
-        if arg == "--" {
+        let flag = match arg.strip_prefix("--") {
+            Some(flag) if !only_positional => flag,
+            _ => {
+                words.push(arg.clone());
+                continue;
+            }
+        };
+        if flag.is_empty() {
             only_positional = true;
             continue;
         }
-        let (name, inline) = match arg[2..].split_once('=') {
+        let (name, inline) = match flag.split_once('=') {
             Some((n, v)) => (n.to_owned(), Some(v.to_owned())),
-            None => (arg[2..].to_owned(), None),
+            None => (flag.to_owned(), None),
         };
         // A value for a flag that takes one may be the following word.
         let inline = match inline {
@@ -213,14 +230,14 @@ pub fn parse(args: &[String]) -> Result<Args> {
             }
         }
     }
-    if words.is_empty() || words[0] == "help" {
+    if words.first().is_none_or(|word| word == "help") {
         out.help = true;
         return Ok(out);
     }
-    let spec = find_spec(&words)
+    let (spec, positionals) = find_spec(&words)
         .ok_or_else(|| Error::usage(format!("unknown verb: {}", words.join(" "))))?;
     out.verb = spec.path.iter().map(|s| (*s).to_owned()).collect();
-    out.positionals = words[spec.path.len()..].to_vec();
+    out.positionals = positionals.to_vec();
     check_spec(spec, &out)?;
     Ok(out)
 }
