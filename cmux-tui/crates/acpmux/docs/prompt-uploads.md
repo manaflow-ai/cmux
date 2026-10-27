@@ -25,7 +25,7 @@ binding, and calls this API over its daemon connection.
 | `promptUploads` feature flag | landed, #25730 |
 | `_acpmux/file_put_status`, finish `sha256` and its `{path, size, uploadId}` answer, the `upload.*` error reasons, `upload.diskFull` | #25793, flag `uploadResume` |
 | binary data frames `_acpmux/file_put_data` on the app's WebSocket, peer chats included | #25803, flag `uploadFrames` |
-| `acpmux send --attach` and `send_message` send any size and number by reference (no 8 MiB / 10 MiB / 16-file refusal), begin `forPrompt` | #25840 |
+| `acpmux send --attach` and `send_message` send any size and number by reference (no 8 MiB / 10 MiB / 16-file refusal), begin `forPrompt`, `owned` references deleted when their prompt is refused, cancel deletes a finished upload | #25840 |
 
 A native caller checks the flags, not the PRs. Without `uploadFrames` it sends data with
 `_acpmux/file_put_chunk`; the base64 then travels only on the native-to-daemon socket, never on
@@ -283,7 +283,9 @@ repeated finish answers the same.
 
 `_acpmux/file_put_cancel {sessionId, uploadId}` returns `{}`.
 
-- It removes the partial file, and it is idempotent.
+- It removes the upload, and it is idempotent. From #25840 on it removes a finished upload too
+  (its whole folder), so a sender that will not send the prompt naming an upload leaves
+  nothing behind; a prompt that still names it is then refused with `upload.missing`.
 
 ### How long uploads stay
 
@@ -344,6 +346,10 @@ before it is resolved:
 - An image block has no `data` and no `uri`.
 - The daemon sets `mimeType` from the file's bytes, so a sent `mimeType` is ignored.
 - `inlineParts` display metadata works as before. Point its `blockIndex` at the reference block.
+- `upload.owned: true` (from #25840) says the upload was made for this prompt alone. If the
+  prompt is refused before the chat takes it, the daemon deletes that upload. A prompt the chat
+  takes, a duplicate and a held prompt keep it. Leave it out for an upload that another prompt
+  or a retry may name, such as the app's uploads, which stay finished across retries.
 
 These are refused before anything is recorded:
 
