@@ -83,6 +83,10 @@ extension DiffPageProvider {
     /// Answers `cmux.diff.openFile`; nil for any other op.
     func openFileCall(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue? {
         guard op == Self.openFileOp else { return nil }
+        // A remote chat's files have no tab that reads them; a Cloud workspace's do (#25581).
+        guard !remote || machine != nil else {
+            throw PageError(code: "remoteOpenUnavailable", message: "Opening files from a remote chat is unavailable")
+        }
         guard let host else { throw PageError.unknownOp(op) }
         // One open per gesture: the gesture's time must be newer than the last one an open spent.
         guard context.userGesture, let gesture = context.gestureEvent, gesture > (spentOpenGesture ?? -.infinity) else {
@@ -98,11 +102,11 @@ extension DiffPageProvider {
             throw PageError(code: "sidecarUnavailable", message: failure.message)
         }
         let file: URL
-        if machine != nil {
-            // A repository on another machine (#25581): its file tab reads the file there, and says
-            // so when it is gone. The editor app and Finder would open a path of this Mac.
+        if remote {
+            // The machine's file tab reads the file there and says so when it is gone. The editor
+            // app and Finder would open a path of this Mac.
             guard request.target == .tab else {
-                throw PageError(code: Self.machineUnsupported, message: DiffPageStrings.machineUnsupported)
+                throw PageError(code: "remoteOpenUnavailable", message: DiffPageStrings.machineUnsupported)
             }
             file = URL(fileURLWithPath: repository, isDirectory: true).appending(path: request.path).standardizedFileURL
         } else {
@@ -119,7 +123,7 @@ extension DiffPageProvider {
 
     /// `config` listing `cmux.diff.openFile`, when this tab has a host that opens files.
     func withOpenFile(_ config: JSONValue) -> JSONValue {
-        guard host != nil, case .object(var members) = config, members["pick"] == nil else { return config }
+        guard !remote || machine != nil, host != nil, case .object(var members) = config, members["pick"] == nil else { return config }
         members["ops"] = .array((members["ops"]?.arrayValue ?? []) + [.string(Self.openFileOp)])
         return .object(members)
     }

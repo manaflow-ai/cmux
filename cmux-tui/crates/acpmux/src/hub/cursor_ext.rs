@@ -240,7 +240,7 @@ impl Hub {
         // The agent's own session id, as in its session/request_permission.
         request["sessionId"] = json!(session.meta().agent_session_id);
         let outcome =
-            self.handle_permission_for(session, request, epoch, turn_id, None, None).await;
+            self.handle_permission_for(session, request, epoch, turn_id, None, None, None).await;
         Ok(match kind {
             CursorRequest::AskQuestion => question_reply(&questions, &outcome),
             CursorRequest::CreatePlan => plan_reply(&outcome),

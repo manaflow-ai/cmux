@@ -9,9 +9,8 @@ import CmuxNextCompat
 ///   token may open sessions for exactly this repository;
 /// - `.manifest-<token>.json`: the files the token may read. The sidecar adds
 ///   each session's patch; it never creates a manifest, so this one starts with
-///   a placeholder entry, the tab's turn patch (``turnPatchURL``, written
-///   when the page opens Last turn) and its machine patch (``machinePatchURL``,
-///   written for each open of a tab whose repository is on another machine);
+///   a placeholder entry, and the tab's turn patch (``turnPatchURL``, written
+///   when the page opens Last turn);
 /// - `.session-lease-<token>.lock`, held (flock) while the tab lives, so the
 ///   sidecar's orphan sweep never removes a live tab's patches.
 ///
@@ -55,7 +54,7 @@ nonisolated final class DiffSessionGrant: Sendable {
                            "remote_url": NSNull()],
                           ["request_path": DiffTurnPatch.requestPath, "file_path": grant.turnPatchURL.path,
                            "mime_type": DiffPatchResolver.mimeType, "remote_url": NSNull()],
-                          ["request_path": DiffMachinePatch.requestPath, "file_path": grant.machinePatchURL.path,
+                          ["request_path": Self.remotePatchRequestPath, "file_path": grant.remotePatchURL.path,
                            "mime_type": DiffPatchResolver.mimeType, "remote_url": NSNull()]],
             ]
             try write(JSONSerialization.data(withJSONObject: manifest), to: grant.manifestURL)
@@ -71,25 +70,25 @@ nonisolated final class DiffSessionGrant: Sendable {
     var manifestURL: URL { root.appending(path: ".manifest-\(token).json") }
     /// The tab's turn patch (``DiffTurnPatch``); the manifest lists it from the start.
     var turnPatchURL: URL { root.appending(path: ".turn-\(token).patch") }
-
-    /// The tab's machine patch (``DiffMachinePatch``); the manifest lists it from the start.
-    var machinePatchURL: URL { root.appending(path: ".machine-\(token).patch") }
+    /// The remote repository patch; replaced for each remote session under this tab's grant.
+    var remotePatchURL: URL { root.appending(path: ".remote-\(token).patch") }
+    static let remotePatchRequestPath = "/remote.patch"
 
     /// Replaces the turn patch with `text` (a temporary file of its own, then a rename, so two
     /// writes never share one). Blocking file IO.
     func writeTurnPatch(_ text: String) throws {
-        try writePatch(text, to: turnPatchURL)
+        try writePatch(text, to: turnPatchURL, temporaryPrefix: Self.turnTemporaryPrefix(token))
     }
 
-    /// Replaces the machine patch with `text`, as ``writeTurnPatch(_:)``. Blocking file IO.
-    func writeMachinePatch(_ text: String) throws {
-        try writePatch(text, to: machinePatchURL)
+    /// Replaces the remote git patch with `text`, atomically and off the main actor.
+    func writeRemotePatch(_ text: String) throws {
+        try writePatch(text, to: remotePatchURL, temporaryPrefix: ".remote-\(token).patch.tmp-")
     }
 
-    private func writePatch(_ text: String, to target: URL) throws {
-        let temporary = root.appending(path: "\(Self.turnTemporaryPrefix(token))\(Self.randomHex(bytes: 8))")
+    private func writePatch(_ text: String, to destination: URL, temporaryPrefix: String) throws {
+        let temporary = root.appending(path: "\(temporaryPrefix)\(Self.randomHex(bytes: 8))")
         try Self.write(Data(text.utf8), to: temporary)
-        guard Darwin.rename(temporary.path, target.path) == 0 else {
+        guard Darwin.rename(temporary.path, destination.path) == 0 else {
             try? FileManager.default.removeItem(at: temporary)
             throw CocoaError(.fileWriteUnknown)
         }

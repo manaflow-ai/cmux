@@ -41,8 +41,9 @@ export function pageHostClient(): PageClient | null {
 
 /// Calls `method` on the page host. Rejects with a `NativeError` as the old bridge did: the host's
 /// code, message, retryable, and the `origin` and `details` the host put in the error's details. A
-/// request the host refused before it reached the pane is origin `native`; a lost link leaves code
-/// and origin unset, because nothing tells whether the request ran.
+/// request the host refused before it reached the pane is origin `native`, with the protocol's own
+/// code in `details.protocol` (`cmux.protocol.unknown_op`: this host has no such op); a lost link
+/// leaves code and origin unset, because nothing tells whether the request ran.
 export async function callPageHost<T>(
   page: PageClient,
   method: string,
@@ -53,7 +54,12 @@ export async function callPageHost<T>(
   } catch (error) {
     if (!isPageError(error)) throw new NativeError(undefined, String(error));
     if (error.code === "cmux.protocol.unknown_op" || error.code === "cmux.protocol.invalid_params")
-      throw new NativeError({ code: "native.invalid_request", origin: "native", userMessage: error.message });
+      throw new NativeError({
+        code: "native.invalid_request",
+        origin: "native",
+        userMessage: error.message,
+        details: { protocol: error.code },
+      });
     if (error.code.startsWith("cmux.protocol.")) throw new NativeError({ userMessage: error.message });
     const details = (error as { details?: { origin?: unknown; details?: unknown } }).details;
     throw new NativeError({

@@ -69,11 +69,23 @@ export class MobilePairingStore {
     if (qr && this.now() >= qr.expiresAt) await this.refresh();
   }
 
-  /** Turns phone access on or off; the host takes it only from the person's own click. */
+  /** Turns iPhone connections on or off; the host takes it only from the person's own click. */
   async setAllowed(on: boolean): Promise<void> {
     if (!this.client) return;
     try {
       await this.client.call(MobilePairingOps.setAllowed, { on });
+    } catch {
+      this.set({ ...this.snapshot, failed: {} });
+      return;
+    }
+    await this.refresh();
+  }
+
+  /** Allow or Don't Allow on a phone's waiting request; the host takes it only from the person's own click. */
+  async answerPair(id: string, allow: boolean): Promise<void> {
+    if (!this.client) return;
+    try {
+      await this.client.call(MobilePairingOps.answerPair, { id, allow });
     } catch {
       this.set({ ...this.snapshot, failed: {} });
       return;

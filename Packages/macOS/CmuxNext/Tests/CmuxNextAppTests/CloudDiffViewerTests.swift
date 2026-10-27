@@ -6,31 +6,33 @@ import Testing
 @testable import CmuxNextApp
 @testable import CmuxNextDiff
 
-/// The diff viewer in a Cloud workspace (#25581): a tab whose repository is on another machine
-/// reads every diff from that machine's session host and renders it as a patch with this Mac's
-/// sidecar, keeps the page's own source (so Refresh-on-change reads the same machine), and never
-/// asks the sidecar, the editor app, Finder or this Mac's git for that repository's path. Before,
-/// the tab ran the local sidecar and git on the VM's path, which shows nothing or this Mac's
-/// unrelated folder of the same name.
+/// The diff viewer in a Cloud workspace (#25581), on the remote diff tab of #26113: a tab whose
+/// repository is on a Cloud machine reads every diff from that machine's session host and never
+/// this Mac's sidecar, says by name when the machine does not answer, offers none of this Mac's
+/// folders, and opens a file in the machine's file tab by its path there. Before, the tab ran the
+/// local sidecar and git on the VM's path, which shows nothing or this Mac's unrelated folder of
+/// the same name.
 @MainActor
 @Suite(.serialized)
 struct CloudDiffViewerTests {
     static let repository = "/home/cmux/uploader"
     static let machine = "dev-vm"
 
-    /// A machine's session host: `git.diff` answers `reply` (or `failure`), recording each read.
+    /// A Cloud machine's session host: `git.diff` answers `reply` (or `failure`), recording each read.
     final class MachineGit: DiffGitRunning {
         var reply: JSONValue = [:]
         var failure: AgentPaneGitFailure?
-        var diffs: [(String, AgentPaneGitScope, Bool)] = []
+        var diffs: [(String, AgentPaneGitScope)] = []
         var staged: [AgentPaneGitStage] = []
+
+        var isRemote: Bool { true }
 
         func status(_ repository: String) async throws(AgentPaneGitFailure) -> JSONValue {
             if let failure { throw failure }
             return ["root": .string(repository)]
         }
         func diff(_ repository: String, scope: AgentPaneGitScope, includePatch: Bool) async throws(AgentPaneGitFailure) -> JSONValue {
-            diffs.append((repository, scope, includePatch))
+            diffs.append((repository, scope))
             if let failure { throw failure }
             return reply
         }
@@ -41,24 +43,15 @@ struct CloudDiffViewerTests {
         }
     }
 
-    /// A sidecar that records each request and opens any source as a session of it.
+    /// A sidecar that records each request; a Cloud tab must never send it one.
     nonisolated final class RecordingSidecar: DiffSidecarRunning, @unchecked Sendable {
         private let lock = NSLock()
-        private var _requests: [JSONValue] = []
-        var requests: [JSONValue] { lock.withLock { _requests } }
+        private var _requests: [Data] = []
+        var requests: [Data] { lock.withLock { _requests } }
 
         func run(_ request: Data) async throws -> Data {
-            let body = try JSONValue.parse(request)
-            lock.withLock { _requests.append(body) }
-            let id: JSONValue = body["id"] ?? .null
-            let source: JSONValue = body["params"]?["source"] ?? .null
-            let reply: JSONValue = ["id": id, "version": 1, "result": [
-                "type": "sessionOpened",
-                "value": ["sessionId": "11111111-2222-3333-4444-555555555555", "source": source,
-                          "patch": ["id": "cmux-page://cmux.diff/__patch/t/machine.patch", "mediaType": "text/x-diff", "revision": 1],
-                          "generatedPaths": []],
-            ]]
-            return Data(reply.compactText.utf8)
+            lock.withLock { _requests.append(request) }
+            throw CancellationError()
         }
     }
 
@@ -75,49 +68,29 @@ struct CloudDiffViewerTests {
         return try await provider.call(op, params: params, context: context)
     }
 
-    @Test func aCloudTabOpensEachGitSourceAsTheMachinesDiff() async throws {
+    @Test func aCloudTabReadsTheMachinesDiffNeverThisMacsSidecar() async throws {
         let (grant, root) = try Self.grant()
         defer { grant.remove(); try? FileManager.default.removeItem(at: root) }
         let git = MachineGit(), sidecar = RecordingSidecar()
         git.reply = ["files": [["path": "src/a.ts", "status": "modified", "patch": "@@ -1 +1 @@\n-old\n+new\n"]]]
         let provider = DiffPageProvider(ready: Task { DiffTabReady(grant: grant, config: [:]) }, sidecar: sidecar, languages: nil,
                                         git: git, machine: Self.machine)
-        let repoRoot = JSONValue.string(Self.repository)
-        let sources: [(JSONValue, AgentPaneGitScope)] = [
-            (["kind": "unstaged", "repoRoot": repoRoot], .unstaged),
-            (["kind": "staged", "repoRoot": repoRoot], .staged),
-            (["kind": "branch", "repoRoot": repoRoot, "baseRef": "HEAD"], .uncommitted),
-            (["kind": "branch", "repoRoot": repoRoot, "baseRef": "origin/main"], .branch),
-        ]
-        for (source, scope) in sources {
-            let opened = try await Self.call(provider, "cmux.diff.sessionOpen", ["source": source, "ignoreWhitespace": true])
-            // The page keeps the source it asked for: its scope menu and freshness check follow it.
-            #expect(opened["value"]?["source"] == source)
-            #expect(git.diffs.last?.0 == Self.repository)
-            #expect(git.diffs.last?.1 == scope)
-            #expect(git.diffs.last?.2 == true)
-        }
-        // This Mac's sidecar only ever got the machine patch, never the VM's repository path.
-        let opens = sidecar.requests.filter { $0["method"]?.stringValue == "sessionOpen" }
-        #expect(opens.count == sources.count)
-        for open in opens {
-            #expect(open["params"]?["source"] == DiffMachinePatch.sidecarSource)
-            #expect(open["params"]?["ignoreWhitespace"] == nil)
-        }
-        let written = try String(contentsOf: grant.machinePatchURL, encoding: .utf8)
-        #expect(written.hasPrefix("diff --git a/src/a.ts b/src/a.ts\n"))
-        // The grant's manifest lists it, so the page host serves it to this tab only.
-        let listed = DiffPatchResolver(root: grant.root, token: grant.token).listedFiles().map(\.lastPathComponent)
-        #expect(listed.contains(grant.machinePatchURL.lastPathComponent))
+        let source: JSONValue = ["kind": "unstaged", "repoRoot": .string(Self.repository)]
+        let opened = try await Self.call(provider, "cmux.diff.sessionOpen", ["source": source])
+        #expect(opened["value"]?["source"] == source)
+        #expect(git.diffs.map(\.0) == [Self.repository])
+        #expect(git.diffs.map(\.1) == [.unstaged])
+        #expect(try String(contentsOf: grant.remotePatchURL, encoding: .utf8).contains("diff --git a/src/a.ts b/src/a.ts"))
+        #expect(sidecar.requests.isEmpty)
         await provider.close()
     }
 
     @Test func aCloudTabThatCannotReachItsMachineSaysSo() async throws {
         let (grant, root) = try Self.grant()
         defer { grant.remove(); try? FileManager.default.removeItem(at: root) }
-        let git = MachineGit(), sidecar = RecordingSidecar()
+        let git = MachineGit()
         git.failure = .notConnected
-        let provider = DiffPageProvider(ready: Task { DiffTabReady(grant: grant, config: [:]) }, sidecar: sidecar, languages: nil,
+        let provider = DiffPageProvider(ready: Task { DiffTabReady(grant: grant, config: [:]) }, sidecar: nil, languages: nil,
                                         git: git, machine: Self.machine)
         do {
             _ = try await Self.call(provider, "cmux.diff.sessionOpen", ["source": ["kind": "unstaged", "repoRoot": .string(Self.repository)]])
@@ -125,55 +98,32 @@ struct CloudDiffViewerTests {
         } catch let error as PageError {
             #expect(error.code == "cmux.diff.machine_offline")
             #expect(error.message.contains(Self.machine))
+            #expect(error.retryable)
         }
-        // Nothing reached the sidecar, so it showed no stale or local diff.
-        #expect(!sidecar.requests.contains { $0["method"]?.stringValue == "sessionOpen" })
         // The freshness check says it too, instead of a bare session host code.
-        await #expect(throws: PageError.self) {
+        do {
             _ = try await Self.call(provider, "cmux.diff.git.fingerprint", ["scope": "unstaged"])
+            Issue.record("an offline machine answered the freshness check")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.diff.machine_offline")
         }
         await provider.close()
     }
 
-    @Test func aCloudTabNeverReadsOrChangesThisMacsCopyOfThePath() async throws {
+    @Test func aCloudTabOffersNoneOfThisMacsFoldersAndChangesNothing() async throws {
         let (grant, root) = try Self.grant()
         defer { grant.remove(); try? FileManager.default.removeItem(at: root) }
-        let git = MachineGit(), sidecar = RecordingSidecar()
-        let provider = DiffPageProvider(ready: Task { DiffTabReady(grant: grant, config: [:]) }, sidecar: sidecar, languages: nil,
-                                        git: git, machine: Self.machine)
-        // Whole files, other bases and branch changes are the sidecar's reads of the repository.
-        for method in ["fileContents", "branchList", "branchChange"] {
-            do {
-                _ = try await Self.call(provider, "cmux.diff.\(method)", ["sessionId": "x", "path": "src/a.ts"])
-                Issue.record("\(method) reached the sidecar")
-            } catch let error as PageError {
-                #expect(error.code == "cmux.diff.machine_unsupported", "\(method)")
-            }
-        }
-        #expect(sidecar.requests.isEmpty)
-        // Stage and revert run git on this Mac: not offered, and refused when asked.
-        let config = try await Self.call(provider, "cmux.diff.config")
-        let ops = Set(config["ops"]?.arrayValue?.compactMap(\.stringValue) ?? [])
-        #expect(ops.isSuperset(of: DiffPageProvider.machineGitOps))
-        #expect(!ops.contains("cmux.diff.git.stage"))
-        #expect(!ops.contains("cmux.diff.git.commit"))
-        #expect(!ops.contains("cmux.diff.git.discard"))
+        let git = MachineGit(), host = DiffOpenFileTests.RecordingHost()
+        let provider = DiffPageProvider(ready: Task { DiffTabReady(grant: grant, config: [:]) }, sidecar: nil, languages: nil,
+                                        host: host, git: git, machine: Self.machine)
+        // This Mac's recent folders and folder picker would name paths the machine does not have.
+        await #expect(throws: PageError.self) { _ = try await Self.call(provider, "cmux.diff.recents") }
+        await #expect(throws: PageError.self) { _ = try await Self.call(provider, "cmux.diff.chooseFolder") }
         await #expect(throws: PageError.self) {
             _ = try await Self.call(provider, "cmux.diff.git.stage", ["paths": ["src/a.ts"]], gesture: 1)
         }
-        await #expect(throws: PageError.self) {
-            _ = try await Self.call(provider, "cmux.diff.git.discard", ["paths": ["src/a.ts"]], gesture: 2)
-        }
         #expect(git.staged.isEmpty)
         await provider.close()
-    }
-
-    @Test func aCloudTabsConfigOffersNoWholeFilesOrWhitespace() {
-        let repository = DiffRepository(root: Self.repository, branch: "main", base: "origin/main")
-        let local = DiffPageConfig.make(repository: repository, token: "t")["payload"]?["sessionCapabilities"]?.arrayValue
-        let machine = DiffPageConfig.make(repository: repository, token: "t", onMachine: true)["payload"]?["sessionCapabilities"]?.arrayValue
-        #expect(local?.isEmpty == false)
-        #expect(machine == [])
     }
 
     @Test func aCloudTabOpensTheFileByItsPathOnTheMachine() async throws {
@@ -181,7 +131,9 @@ struct CloudDiffViewerTests {
         defer { grant.remove(); try? FileManager.default.removeItem(at: root) }
         let host = DiffOpenFileTests.RecordingHost()
         let provider = DiffPageProvider(ready: Task { DiffTabReady(grant: grant, config: [:]) }, sidecar: nil, languages: nil,
-                                        host: host, machine: Self.machine)
+                                        host: host, git: MachineGit(), machine: Self.machine)
+        let config = try await Self.call(provider, "cmux.diff.config")
+        #expect(config["ops"]?.arrayValue?.contains("cmux.diff.openFile") == true)
         // The path does not exist on this Mac; the file tab reads it on the machine.
         _ = try await Self.call(provider, "cmux.diff.openFile", ["path": "src/a.ts", "line": 3], gesture: 1)
         #expect(host.opened.map(\.0.path) == [Self.repository + "/src/a.ts"])
@@ -191,9 +143,22 @@ struct CloudDiffViewerTests {
             _ = try await Self.call(provider, "cmux.diff.openFile", ["path": "src/a.ts", "where": "finder"], gesture: 2)
         }
         #expect(host.opened.count == 1)
-        // This Mac's recent folders and folder picker are not offered to it.
-        await #expect(throws: PageError.self) { _ = try await Self.call(provider, "cmux.diff.recents") }
-        await #expect(throws: PageError.self) { _ = try await Self.call(provider, "cmux.diff.chooseFolder") }
+        await provider.close()
+    }
+
+    @Test func aRemoteChatsTabStillOpensNoFile() async throws {
+        let (grant, root) = try Self.grant()
+        defer { grant.remove(); try? FileManager.default.removeItem(at: root) }
+        let host = DiffOpenFileTests.RecordingHost()
+        // No machine: a remote chat's tab (#26113), whose files no tab of this Mac reads.
+        let provider = DiffPageProvider(ready: Task { DiffTabReady(grant: grant, config: [:]) }, sidecar: nil, languages: nil,
+                                        host: host, git: MachineGit())
+        let config = try await Self.call(provider, "cmux.diff.config")
+        #expect(config["ops"]?.arrayValue?.contains("cmux.diff.openFile") != true)
+        await #expect(throws: PageError.self) {
+            _ = try await Self.call(provider, "cmux.diff.openFile", ["path": "src/a.ts"], gesture: 1)
+        }
+        #expect(host.opened.isEmpty)
         await provider.close()
     }
 }

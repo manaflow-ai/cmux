@@ -8,10 +8,16 @@ import Foundation
 /// Runs the diff tab's git reads and writes (cx-ueuc8) in a repository: the agent pane's git
 /// link and staging, so the viewer stages, commits and pushes as the chat's changes view does.
 public protocol DiffGitRunning: AnyObject {
+    /// True when reads belong to a daemon on another machine. Remote tabs never
+    /// fall back to a same-path local checkout.
+    var isRemote: Bool { get }
     /// The session host's `git.status` of `repository`.
     func status(_ repository: String) async throws(AgentPaneGitFailure) -> JSONValue
     /// The session host's `git.diff` of `repository` in `scope`, with each file's patch or only its counts.
     func diff(_ repository: String, scope: AgentPaneGitScope, includePatch: Bool) async throws(AgentPaneGitFailure) -> JSONValue
+    /// A diff with explicit paths and context, used for bounded remote full-file reads.
+    func diff(_ repository: String, scope: AgentPaneGitScope, includePatch: Bool,
+              options: AgentPaneGitDiffOptions) async throws(AgentPaneGitFailure) -> JSONValue
     /// The session host's commit or push in `repository`, under the request's key.
     func write(_ request: AgentPaneGitWrite, in repository: String) async throws(AgentPaneGitFailure) -> JSONValue
     /// `git add` / `git restore --staged` (or one hunk) in `repository`; nil on success, else
@@ -23,6 +29,13 @@ public protocol DiffGitRunning: AnyObject {
 }
 
 extension DiffGitRunning {
+    public var isRemote: Bool { false }
+
+    public func diff(_ repository: String, scope: AgentPaneGitScope, includePatch: Bool,
+                     options: AgentPaneGitDiffOptions) async throws(AgentPaneGitFailure) -> JSONValue {
+        try await diff(repository, scope: scope, includePatch: includePatch)
+    }
+
     /// A git without checkpoint reads (tests): every turn read fails.
     public func checkpointDiff(_ repository: String, from: String, to: String) async throws(AgentPaneGitFailure) -> JSONValue {
         throw AgentPaneGitFailure.failed
@@ -43,9 +56,6 @@ extension DiffPageProvider {
         "cmux.diff.git.status", "cmux.diff.git.diff", "cmux.diff.git.fingerprint", "cmux.diff.git.commit", "cmux.diff.git.push",
         "cmux.diff.git.stage", "cmux.diff.git.unstage", "cmux.diff.git.stageHunk", "cmux.diff.git.unstageHunk",
     ]
-    /// The ops of a tab whose repository is on another machine (#25581): the reads only. Stage and
-    /// Revert run git on this Mac, so the page shows no git controls there, only fresh diffs.
-    static let machineGitOps: Set<String> = ["cmux.diff.git.status", "cmux.diff.git.diff", "cmux.diff.git.fingerprint"]
     /// The session the writes name: the diff tab has no chat, and the session host keys only on
     /// the page's idempotency key.
     static let gitSession = "diff-tab"
@@ -54,6 +64,9 @@ extension DiffPageProvider {
     func gitCall(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue? {
         guard Self.gitOps.contains(op) else { return nil }
         guard let git else { throw PageError.unknownOp(op) }
+        if git.isRemote && (op.contains("commit") || op.contains("push") || op.contains("stage") || op.contains("unstage") || op.contains("revert")) {
+            throw PageError(code: "remoteUnsupported", message: "This remote diff is read-only")
+        }
         let repository = try await gitRepository()
         let method = "git." + op.dropFirst("cmux.diff.git.".count)
         let scope = params["scope"]?.stringValue.flatMap(AgentPaneGitScope.init(rawValue:)) ?? .uncommitted
@@ -65,9 +78,8 @@ extension DiffPageProvider {
             default: break
             }
         } catch {
-            throw machine.map { Self.machineError(error, machine: $0) } ?? Self.pageError(error)
+            throw remote ? remoteError(error) : Self.pageError(error)
         }
-        guard machine == nil else { throw PageError(code: Self.machineUnsupported, message: DiffPageStrings.machineUnsupported) }
         guard context.userGesture else {
             throw PageError(code: "transport.gesture_required", message: AgentPaneGitStage.needsGestureMessage)
         }
@@ -98,7 +110,9 @@ extension DiffPageProvider {
     /// `config` listing the git ops, when this tab serves them.
     func withGit(_ config: JSONValue) -> JSONValue {
         guard git != nil, case .object(var members) = config, members["pick"] == nil else { return config }
-        let ops = machine != nil ? Self.machineGitOps : Self.gitOps.union(git is any DiffGitReverting ? Self.revertOps : [])
+        let ops = git?.isRemote == true
+            ? Self.gitOps.filter { $0.hasSuffix(".status") || $0.hasSuffix(".diff") || $0.hasSuffix(".fingerprint") }
+            : Self.gitOps.union(git is any DiffGitReverting ? Self.revertOps : [])
         members["ops"] = .array((members["ops"]?.arrayValue ?? []) + ops.sorted().map(JSONValue.string))
         return .object(members)
     }
@@ -120,6 +134,13 @@ extension DiffPageProvider {
 
     /// The page's failure for a session host or native git failure, its details kept so the
     /// changes view reads the reason and git's output.
+    static func pageError(_ error: any Error) -> PageError {
+        guard let failure = error as? AgentPaneGitFailure else {
+            return PageError(code: "remoteUnavailable", message: "The remote git service failed")
+        }
+        return pageError(failure)
+    }
+
     static func pageError(_ failure: AgentPaneGitFailure) -> PageError {
         var details = failure.details.flatMap { try? JSONValue.parse($0) }
         if failure.origin == .native {
@@ -139,12 +160,19 @@ public final class DiffAgentGit: DiffGitRunning {
         self.link = link
     }
 
+    public var isRemote: Bool { !link.isLocal }
+
     public func status(_ repository: String) async throws(AgentPaneGitFailure) -> JSONValue {
         try Self.parse(try await link.read(.status(cwd: repository)))
     }
 
     public func diff(_ repository: String, scope: AgentPaneGitScope, includePatch: Bool) async throws(AgentPaneGitFailure) -> JSONValue {
         try Self.parse(try await link.read(.diff(cwd: repository, scope: scope, includePatch: includePatch)))
+    }
+
+    public func diff(_ repository: String, scope: AgentPaneGitScope, includePatch: Bool,
+                     options: AgentPaneGitDiffOptions) async throws(AgentPaneGitFailure) -> JSONValue {
+        try Self.parse(try await link.read(.diff(cwd: repository, scope: scope, includePatch: includePatch, options: options)))
     }
 
     public func write(_ request: AgentPaneGitWrite, in repository: String) async throws(AgentPaneGitFailure) -> JSONValue {
@@ -162,35 +190,5 @@ public final class DiffAgentGit: DiffGitRunning {
     private static func parse(_ data: Data) throws(AgentPaneGitFailure) -> JSONValue {
         guard let value = try? JSONValue.parse(data) else { throw AgentPaneGitFailure.failed }
         return value
-    }
-}
-
-/// A diff tab's git on another machine (#25581, a Cloud workspace): reads and Last turn through
-/// that machine's session host. It stages and reverts nothing: both run git on this Mac.
-public final class DiffMachineGit: DiffGitRunning {
-    private let reads: DiffAgentGit
-
-    public init(link: AgentPaneGitLink) {
-        reads = DiffAgentGit(link: link)
-    }
-
-    public func status(_ repository: String) async throws(AgentPaneGitFailure) -> JSONValue {
-        try await reads.status(repository)
-    }
-
-    public func diff(_ repository: String, scope: AgentPaneGitScope, includePatch: Bool) async throws(AgentPaneGitFailure) -> JSONValue {
-        try await reads.diff(repository, scope: scope, includePatch: includePatch)
-    }
-
-    public func write(_ request: AgentPaneGitWrite, in repository: String) async throws(AgentPaneGitFailure) -> JSONValue {
-        throw AgentPaneGitFailure.failed
-    }
-
-    public func stage(_ request: AgentPaneGitStage, in repository: String) async -> String? {
-        DiffPageStrings.machineUnsupported
-    }
-
-    public func checkpointDiff(_ repository: String, from: String, to: String) async throws(AgentPaneGitFailure) -> JSONValue {
-        try await reads.checkpointDiff(repository, from: from, to: to)
     }
 }

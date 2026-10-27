@@ -29,6 +29,11 @@
 # per runner instance from the checkout (release-derived-data-path.sh, still
 # with the cache). Nothing waits for another job and no host is reserved.
 #
+# CMUX_NEXT_DEV_COMPILE_REPORT, when set, gets mode=, derived_data= and, in host
+# mode, previous_sha= (the commit the host tree held before this build, the
+# newest build its cache holds) before the compile starts. A host build also
+# prints `compilation cache source sha: <sha>` for the per-landing harness.
+#
 # Usage: compile-dev-release.sh ARCHIVE
 set -euo pipefail
 
@@ -47,11 +52,13 @@ build_root="$workspace"
 derived_data=""
 mode=instance
 reason=""
+previous_sha=""
 
 # The host tree for this commit, or a failure (the caller falls back).
 host_setup() {
   local src="$host_root/src" head
   head="$(git -C "$workspace" rev-parse HEAD)" || return 1
+  previous_sha="$(git -C "$src" rev-parse HEAD 2>/dev/null || true)"
   env -u GITHUB_ENV CMUX_CI_CANONICAL_ROOT="$host_root" \
     "$workspace/scripts/ci/canonical-build-root.sh" "$workspace" >&2 || return 1
   [[ "$(git -C "$src" rev-parse HEAD 2>/dev/null)" == "$head" ]] || {
@@ -78,6 +85,7 @@ else
       else
         reason="host tree setup failed"
         derived_data=""
+        previous_sha=""
         build_root="$workspace"
         release_lock
       fi
@@ -95,7 +103,17 @@ if [[ "$mode" == host ]]; then
 else
   derived_data="$("$here/release-derived-data-path.sh" dev-daily-release Release)"
 fi
+if [[ -n "${CMUX_NEXT_DEV_COMPILE_REPORT:-}" ]]; then
+  { mkdir -p "$(dirname "$CMUX_NEXT_DEV_COMPILE_REPORT")" &&
+    printf 'mode=%s\nderived_data=%s\nprevious_sha=%s\n' "$mode" "$derived_data" "$previous_sha" \
+      > "$CMUX_NEXT_DEV_COMPILE_REPORT"; } || true
+fi
 echo "compile-dev-release: $mode build root${reason:+ ($reason)}: $build_root, DerivedData $derived_data"
+# The per-landing harness (measure_next_build.py) reads this line for the commit gap.
+[[ ! "$previous_sha" =~ ^[0-9a-f]{40}$ ]] || echo "compilation cache source sha: $previous_sha"
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  printf 'build_mode=%s\nbuild_root=%s\nderived_data=%s\n' "$mode" "$build_root" "$derived_data" >> "$GITHUB_OUTPUT" || true
+fi
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   echo "DEV Release compile: $mode build root${reason:+ ($reason)}" >> "$GITHUB_STEP_SUMMARY" || true
 fi
@@ -105,3 +123,16 @@ app="$(find "$derived_data/Build/Products/Release" -maxdepth 1 -type d -name 'cm
 test -d "$app"
 "$build_root/scripts/cmux-next/check-app-personalities.sh" "$app"
 ditto -c -k --keepParent "$app" "$archive"
+
+# The fleet build's REF capture (cmux-next.yml, after this step) reads this build. The host tree
+# and DerivedData are another build's as soon as this script's lock goes, so with the capture on
+# they are cloned first, while the lock is held: one clonefile(2) each, about a second. A failed
+# clone only means no capture.
+if [[ "$mode" == host && "${CMUX_NEXT_EMIT_FRONTEND_COMMAND_LINES:-}" == 1 && -n "${RUNNER_TEMP:-}" ]]; then
+  snapshot="$RUNNER_TEMP/hybrid-ref-snapshot"
+  rm -rf -- "$snapshot" && mkdir -p "$snapshot" \
+    && python3 -I "$build_root/scripts/ci/apfs_clone.py" "$build_root" "$snapshot/src" \
+    && python3 -I "$build_root/scripts/ci/apfs_clone.py" "$derived_data" "$snapshot/dd" \
+    && { [[ -z "${GITHUB_OUTPUT:-}" ]] || printf 'snapshot=%s\n' "$snapshot" >> "$GITHUB_OUTPUT"; } \
+    || { echo "::warning::compile-dev-release: no snapshot for the REF capture" >&2; rm -rf -- "$snapshot" || true; }
+fi

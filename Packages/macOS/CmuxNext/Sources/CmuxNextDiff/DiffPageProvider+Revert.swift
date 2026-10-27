@@ -99,8 +99,8 @@ extension DiffPageProvider {
     /// Answers a revert op; nil for any other op.
     func revertCall(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue? {
         guard Self.revertOps.contains(op) else { return nil }
-        // A repository on another machine is never reverted with this Mac's git.
-        guard machine == nil, let reverter = git as? any DiffGitReverting else { throw PageError.unknownOp(op) }
+        guard git?.isRemote != true else { throw PageError(code: "remoteUnsupported", message: "This remote diff is read-only") }
+        guard let reverter = git as? any DiffGitReverting else { throw PageError.unknownOp(op) }
         guard context.userGesture, let event = context.gestureEvent, event != revertState.spentGesture else {
             throw PageError(code: "transport.gesture_required", message: DiffPageStrings.revertNeedsGesture)
         }

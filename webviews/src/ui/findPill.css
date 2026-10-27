@@ -32,11 +32,12 @@
   /* The popup rim and drop; a page that loads no popupSurface.css (the code editor) gets the drop. */
   box-shadow: var(--ui-popup-shadow, var(--elevation-2));
   color: var(--cmux-text, CanvasText);
-  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-size: var(--text-body);
   line-height: 1;
   animation: find-pill-in var(--ui-popup-open, 120ms) ease-out;
   pointer-events: auto;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 /* Reduce Transparency: the opaque popup surface, no blur (desktop.css also swaps the tint tokens). */
@@ -104,6 +105,7 @@
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* Nothing matched: the count reads as an answer, in the danger ink. */
 .find-pill__count[data-none] {
@@ -130,7 +132,6 @@
   border-radius: calc(var(--find-pill-button) / 2);
   background: none;
   color: color-mix(in srgb, currentColor 62%, transparent);
-  cursor: default;
 }
 .find-pill__button:hover:not(:disabled) {
   background: color-mix(in srgb, currentColor 9%, transparent);
@@ -147,6 +148,7 @@
   padding: 0 6px;
   font-size: var(--text-caption);
   font-weight: 600;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .find-pill__button[aria-pressed="true"] {
   background: color-mix(in srgb, var(--agent-accent, var(--cmux-accent)) 20%, transparent);

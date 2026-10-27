@@ -344,6 +344,9 @@ final class KeyRouter: BrowserKeyRouting {
     /// Set while the Keyboard Shortcuts page records keys: returns whether
     /// it took the key-down (only its own window's keys).
     var keyRecorder: ((NSEvent, NSWindow?) -> Bool)?
+    /// The page whose recorder holds ``keyRecorder`` (one slot for every window's page): only it
+    /// clears the slot, and a page that starts recording ends the holder's capture first.
+    weak var keyRecorderOwner: AnyObject?
     /// Ends the topmost sheet on a window as cancelled; returns whether one
     /// ended. A seam: tests without a window session (no sheets) replace it.
     var endTopmostSheet: (NSWindow) -> Bool = { SheetDismissal.endTopmost(of: $0) }

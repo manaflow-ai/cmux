@@ -21,6 +21,12 @@
   min-width: 0;
   height: 24px;
 }
+/* An agent session's own avatar (agentAvatar.ts), in place of its harness mark: also the sender chip's. */
+.cv-agent-avatar {
+  display: block;
+  border-radius: 50%;
+  object-fit: cover;
+}
 .cv-agent-card__icon {
   display: inline-flex;
   flex: none;
@@ -40,6 +46,7 @@
   flex: none;
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-agent-card__state {
   display: inline-flex;
@@ -58,6 +65,7 @@
   cursor: pointer;
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-agent-card__open:hover,
 .cv-agent-card__open:focus-visible {
@@ -73,6 +81,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* A run's command behind Raw (AgentRunCard.tsx): the code font, wrapped, at most a few lines tall. */
 .cv-agent-run__command {
