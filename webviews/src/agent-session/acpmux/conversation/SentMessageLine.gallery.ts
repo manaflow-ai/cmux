@@ -55,6 +55,22 @@ const fromFile = bash(
   "completed",
   { output: "queued" },
 );
+const capturedFile = bash(
+  "acpmux send --no-wait reports:leo - < /tmp/net-retries/summary.md",
+  "Send the captured summary to Leo's reports",
+  "completed",
+  { output: "queued" },
+);
+capturedFile.inputPath = { path: "/tmp/net-retries/summary.md", canonical: "/tmp/net-retries/summary.md" };
+capturedFile.diffs = [
+  {
+    path: "/tmp/net-retries/summary.md",
+    canonical: "/tmp/net-retries/summary.md",
+    newText: "## Captured summary\n\n- **Ready** for review.",
+    fragment: true,
+    fromInput: true,
+  },
+];
 const failed = bash(
   "acpmux send perf-lane 'Profile the transcript scroll on the long fixture.'",
   "Hand the profile to perf-lane",
@@ -94,7 +110,7 @@ const sent = () => {
   const snapshot = chat(
     [
       user("Report the merge, tell scroll-jitter, and ask for the re-review.", 4),
-      activity([reported, viaTimeout, viaHeredoc, viaReach, fromFile, subsessionSend], 3.8),
+      activity([reported, viaTimeout, viaHeredoc, viaReach, fromFile, capturedFile, subsessionSend], 3.8),
       assistant("Reported to coord-deputy, told scroll-jitter, and asked review-astra for a re-review.", 3.5),
       summary(3.5, { status: "completed" }),
     ],
@@ -138,6 +154,15 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-md h2"));
         await ctx.click({ selector: ".cv-subsession__under .cv-subsession__toggle" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-shell"));
+      },
+    },
+    "captured-file": {
+      note: "A file-backed send renders captured event content as Markdown; if the event has no captured body, the command remains behind Raw.",
+      snapshot: sent(),
+      play: async (ctx) => {
+        await openTurn(ctx);
+        await ctx.click({ role: "button", name: /Captured summary/ });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-md h2"));
       },
     },
     failed: {
