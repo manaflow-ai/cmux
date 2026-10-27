@@ -374,6 +374,7 @@
         "CmuxNextActions",
         "CmuxNextAgentCursor",
         "CmuxNextAgentLanes",
+        "CmuxNextAgentPermissions",
         "CmuxNextAgentUpdates",
         "CmuxNextApp",
         "CmuxNextApps",
