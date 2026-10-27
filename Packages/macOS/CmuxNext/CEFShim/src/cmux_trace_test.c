@@ -4,10 +4,11 @@
  * - 8 threads decode exactly once in per-thread order; overwrite keeps only whole, newest records;
  *   a writer stopped inside a record keeps its chunk and its record never decodes torn;
  * - heap-then-file adoption, recordings (start, stop, a lap past the last), thread entry reuse;
- * - the crash-key page, and its slots agree with CrashKeySlot.swift;
+ * - the crash-key page: its slots agree with CrashKeySlot.swift, its header with CrashKeys.swift,
+ *   and its bytes with the fixture CrashKeysTests decodes;
  * - the header names no allocator, mapping or lock (poisoned below, so it would not compile).
  *
- * Usage: cmux_trace_test GOLDEN_FILE CRASH_KEY_SLOT_SWIFT */
+ * Usage: cmux_trace_test GOLDEN_FILE CRASH_KEY_SLOT_SWIFT CRASH_KEYS_SWIFT CRASH_KEYS_FIXTURE */
 #if defined(__linux__) && !defined(_GNU_SOURCE)
 #define _GNU_SOURCE
 #endif
@@ -715,19 +716,126 @@ static void test_crash_key_slots_match_swift(const char *swift_path) {
   test_release(source);
 }
 
+/* `text` with each run of whitespace as one space, in `out` (NUL terminated, cut at `size`). */
+static void squeeze_spaces(const char *text, size_t length, char *out, size_t size) {
+  size_t used = 0, index;
+  bool space = false;
+  for (index = 0; index < length && used + 2 < size; index++) {
+    char c = text[index];
+    if (c == ' ' || c == '\n' || c == '\t' || c == '\r') {
+      space = used > 0;
+      continue;
+    }
+    if (space) out[used++] = ' ';
+    space = false;
+    out[used++] = c;
+  }
+  out[used] = '\0';
+}
+
+/* The number right after `prefix` in `source` (hex after 0x, `_` separators allowed); false when absent. */
+static bool swift_number_after(const char *source, const char *prefix, uint64_t *value) {
+  const char *at = strstr(source, prefix);
+  unsigned base = 10;
+  bool any = false;
+  *value = 0;
+  if (!at) return false;
+  at += strlen(prefix);
+  if (at[0] == '0' && at[1] == 'x') {
+    base = 16;
+    at += 2;
+  }
+  for (;; at++) {
+    unsigned digit;
+    if (*at == '_') continue;
+    if (*at >= '0' && *at <= '9') {
+      digit = (unsigned)(*at - '0');
+    } else if (base == 16 && *at >= 'A' && *at <= 'F') {
+      digit = (unsigned)(*at - 'A' + 10);
+    } else if (base == 16 && *at >= 'a' && *at <= 'f') {
+      digit = (unsigned)(*at - 'a' + 10);
+    } else {
+      break;
+    }
+    *value = *value * base + digit;
+    any = true;
+  }
+  return any;
+}
+
+/* CrashKeyPage.header in CrashKeys.swift writes the words cmux_crash_keys_init writes: the same
+ * magic, version and page size, and the same word order. A change to either header fails here. */
+static void test_crash_keys_header_matches_swift(const char *swift_path) {
+  size_t length = 0, index;
+  uint8_t *source = read_file(swift_path, &length);
+  const char *text = (const char *)source, *body, *list, *end;
+  char words[512];
+  uint64_t magic = 0, swift_magic = 0, version = 0, page_words = 0;
+  CHECK(source != NULL);
+  if (!source) return;
+  for (index = 0; index < 8; index++) magic |= (uint64_t)(uint8_t)CMUX_CRASH_KEYS_MAGIC[index] << (8 * index);
+  CHECK(swift_number_after(text, "static var magic: UInt64 { ", &swift_magic));
+  CHECK_EQ_U64(swift_magic, magic);
+  CHECK(swift_number_after(text, "static var version: UInt64 { ", &version));
+  CHECK_EQ_U64(version, CMUX_CRASH_KEYS_VERSION);
+  CHECK(swift_number_after(text, "static var wordCount: Int { ", &page_words));
+  CHECK_EQ_U64(page_words, CMUX_CRASH_KEYS_PAGE_WORDS);
+  body = strstr(text, "static func header(_ identity: Identity) -> [UInt64] {");
+  CHECK(body != NULL);
+  if (body) {
+    CHECK(strstr(body, "let low = uuid.prefix(8)") != NULL);
+    CHECK(strstr(body, "let high = uuid.dropFirst(8)") != NULL);
+    list = strstr(body, "return [");
+    end = list ? strchr(list, ']') : NULL;
+    CHECK(end != NULL);
+    if (list && end) {
+      list += strlen("return [");
+      squeeze_spaces(list, (size_t)(end - list), words, sizeof words);
+      /* Word for word what cmux_crash_keys_init stores at words 0-7. */
+      if (strcmp(words, "magic, version | UInt64(CrashKeySlot.headerWordCount) << 16 | UInt64(wordCount) << 32, "
+                        "UInt64(identity.pid) | UInt64(identity.role.rawValue) << 32, low, high, "
+                        "identity.processStartUnixMicros, identity.startUptimeNanos, 0,") != 0) {
+        fprintf(stderr, "CrashKeyPage.header is not the header cmux_crash_keys_init writes: %s\n", words);
+        failures++;
+      }
+    }
+  }
+  test_release(source);
+}
+
+/* The page cmux_crash_keys_init and three keys make: the shared fixture's bytes, which CrashKeysTests
+ * decodes with CrashKeyPage.decode and compares with the page the Swift writer makes. */
+static void crash_keys_fixture_page(uint8_t *page) {
+  const uint8_t uuid[16] = {0xA0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 0xAF};
+  cmux_crash_keys keys =
+      cmux_crash_keys_init(page, CMUX_TRACE_ROLE_CHROMIUM_HOST, 321, UINT64_C(1700000000000000), uuid, 66);
+  cmux_crash_keys_set(keys, CMUX_CRASH_KEY_IN_CEF_PUMP, 1);
+  cmux_crash_keys_set(keys, CMUX_CRASH_KEY_DAEMON_PID, 777);
+  cmux_crash_keys_set(keys, CMUX_CRASH_KEY_GHOSTTY_COMMIT, UINT64_C(0xABCDEF0123456789));
+}
+
+static void test_crash_keys_fixture(const char *fixture_path) {
+  size_t length = 0;
+  uint8_t *fixture = read_file(fixture_path, &length);
+  uint8_t *page = (uint8_t *)test_zeroed(CMUX_CRASH_KEYS_PAGE_BYTES);
+  crash_keys_fixture_page(page);
+  CHECK(fixture != NULL);
+  CHECK_EQ_U64(length, CMUX_CRASH_KEYS_PAGE_BYTES);
+  if (fixture && length == CMUX_CRASH_KEYS_PAGE_BYTES) CHECK(memcmp(page, fixture, CMUX_CRASH_KEYS_PAGE_BYTES) == 0);
+  if (fixture) test_release(fixture);
+  test_release(page);
+}
+
 static void test_crash_keys(void) {
   uint8_t *page = (uint8_t *)test_zeroed(CMUX_CRASH_KEYS_PAGE_BYTES);
   const uint8_t uuid[16] = {0xA0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 0xAF};
   cmux_crash_keys keys = cmux_crash_keys_init(page, CMUX_TRACE_ROLE_CHROMIUM_HOST, 321, 55, uuid, 66);
-  CHECK(memcmp(page, "CMXCKEYS", 8) == 0);
-  CHECK_EQ_U64(u32_at(page, 8), 1);
-  CHECK_EQ_U64(u16_at(page, 12), CMUX_TRACE_ROLE_CHROMIUM_HOST);
-  CHECK_EQ_U64(u16_at(page, 14), 8);
-  CHECK_EQ_U64(u32_at(page, 16), 321);
-  CHECK_EQ_U64(u32_at(page, 20), 512);
-  CHECK_EQ_U64(u64_at(page, 24), 55);
-  CHECK_EQ_U64(page[32], 0xA0);
-  CHECK_EQ_U64(page[47], 0xAF);
+  CHECK(memcmp(page, "CMXKEYS1", 8) == 0);
+  CHECK_EQ_U64(u64_at(page, 8), 1 | UINT64_C(8) << 16 | UINT64_C(512) << 32);
+  CHECK_EQ_U64(u64_at(page, 16), 321 | (uint64_t)CMUX_TRACE_ROLE_CHROMIUM_HOST << 32);
+  CHECK_EQ_U64(page[24], 0xA0);
+  CHECK_EQ_U64(page[39], 0xAF);
+  CHECK_EQ_U64(u64_at(page, 40), 55);
   CHECK_EQ_U64(u64_at(page, 48), 66);
   CHECK_EQ_U64(u64_at(page, 56), 0);
   CHECK(cmux_crash_keys_set(keys, CMUX_CRASH_KEY_IN_CEF_PUMP, 1));
@@ -738,7 +846,7 @@ static void test_crash_keys(void) {
   CHECK(!cmux_crash_keys_set(keys, 3, 9)); /* the header */
   CHECK(!cmux_crash_keys_set_word(keys, CMUX_CRASH_KEY_HANG_IN_PROGRESS_FRAMES, 512, 9));
   CHECK(!cmux_crash_keys_set(keys, 512, 9));
-  CHECK_EQ_U64(u64_at(page, 24), 55);
+  CHECK_EQ_U64(u64_at(page, 40), 55);
   CHECK_EQ_U64(cmux_crash_keys_get(keys, 600), 0);
   test_release(page);
 }
@@ -771,8 +879,8 @@ static void test_shared_values(void) {
 }
 
 int main(int argc, char **argv) {
-  if (argc != 3) {
-    fprintf(stderr, "usage: %s GOLDEN_FILE CRASH_KEY_SLOT_SWIFT\n", argv[0]);
+  if (argc != 5) {
+    fprintf(stderr, "usage: %s GOLDEN_FILE CRASH_KEY_SLOT_SWIFT CRASH_KEYS_SWIFT CRASH_KEYS_FIXTURE\n", argv[0]);
     return 2;
   }
   test_shared_values();
@@ -786,6 +894,8 @@ int main(int argc, char **argv) {
   test_trace_point();
   test_crash_keys();
   test_crash_key_slots_match_swift(argv[2]);
+  test_crash_keys_header_matches_swift(argv[3]);
+  test_crash_keys_fixture(argv[4]);
   test_contended();
   if (failures) {
     fprintf(stderr, "cmux_trace_test: %d failure(s)\n", failures);

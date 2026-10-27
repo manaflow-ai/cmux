@@ -77,6 +77,7 @@ static inline bool cmux_trace__cas64(void *at, uint64_t *expected, uint64_t desi
   return __atomic_compare_exchange_n((uint64_t *)at, expected, desired, false, success, failure);
 }
 static inline void cmux_trace__fence(cmux_trace__order order) { __atomic_thread_fence(order); }
+static inline void cmux_trace__signal_fence(void) { __atomic_signal_fence(__ATOMIC_SEQ_CST); }
 #else
 #include <stdatomic.h>
 #define CMUX_TRACE__STATIC_ASSERT(cond, why) _Static_assert(cond, why)
@@ -118,6 +119,7 @@ static inline bool cmux_trace__cas64(void *at, uint64_t *expected, uint64_t desi
                                                  failure);
 }
 static inline void cmux_trace__fence(cmux_trace__order order) { atomic_thread_fence(order); }
+static inline void cmux_trace__signal_fence(void) { atomic_signal_fence(memory_order_seq_cst); }
 #endif
 
 /* ---- The format's numbers (trace.md tables; layout.rs and TraceRuntime pin the same). -------- */
@@ -887,6 +889,9 @@ static inline void cmux_trace__copy_chunk(const cmux_trace_ring *src, const cmux
   thread = cmux_trace__ld32_at(src, at + CMUX_TRACE_OFF_C_THREAD, CMUX_TRACE__RELAXED);
   generation = cmux_trace__ld32_at(src, at + CMUX_TRACE_OFF_C_GENERATION, CMUX_TRACE__RELAXED);
   published = cmux_trace__ld32_at(src, at + CMUX_TRACE_OFF_C_PUBLISHED, CMUX_TRACE__RELAXED);
+  /* The seqlock's read side: the owner loads above come before the lap re-check, so a takeover that
+   * wrote them makes `second` differ from `first`. */
+  cmux_trace__fence(CMUX_TRACE__ACQUIRE);
   second = cmux_trace__ld64_at(src, at + CMUX_TRACE_OFF_C_LAP_SEQ, CMUX_TRACE__RELAXED);
   if (cmux_trace_lap_of(second) != cmux_trace_lap_of(first)) return;
   cmux_trace__st32_at(dst, at + CMUX_TRACE_OFF_C_THREAD, thread, CMUX_TRACE__RELAXED);
@@ -1002,7 +1007,10 @@ typedef struct cmux_trace_writer {
   uint8_t has_identity;
   uint8_t registered; /* bit per ring slot */
   uint8_t owns_chunk;
-  uint8_t busy; /* a signal handler that writes on this thread while it writes drops its record */
+  /* 1 while this thread writes: a signal handler that writes on the thread then drops its record.
+   * A lock-free atomic (relaxed loads and stores) with signal fences around the write, as C11
+   * 7.14.1.1p5 and 7.17.4 allow a handler to read it; cmux_trace__writer_enter and _leave. */
+  uint32_t busy;
   uint32_t owned_slot;
   uint32_t entry_index[CMUX_TRACE_SLOTS];
   uint32_t entry_generation[CMUX_TRACE_SLOTS];
@@ -1021,11 +1029,26 @@ static inline void cmux_trace_writer_init(cmux_trace_writer *writer, const cmux_
   if (identity) writer->identity = *identity;
   writer->registered = 0;
   writer->owns_chunk = 0;
-  writer->busy = 0;
+  cmux_trace__st32(&writer->busy, 0, CMUX_TRACE__RELAXED);
   writer->owned_slot = 0;
   for (slot = 0; slot < CMUX_TRACE_SLOTS; slot++) writer->entry_index[slot] = writer->entry_generation[slot] = 0;
   writer->chunk = writer->next_slot = 0;
   writer->epoch = writer->lap = 0;
+}
+
+/* False when the thread is already inside a write (a signal handler interrupted it). Else marks the
+ * writer busy; the signal fence keeps every write access after the mark, as the handler sees it. */
+static inline bool cmux_trace__writer_enter(cmux_trace_writer *writer) {
+  if (cmux_trace__ld32(&writer->busy, CMUX_TRACE__RELAXED)) return false;
+  cmux_trace__st32(&writer->busy, 1, CMUX_TRACE__RELAXED);
+  cmux_trace__signal_fence();
+  return true;
+}
+
+/* Ends the write: the signal fence keeps every write access before the clear. */
+static inline void cmux_trace__writer_leave(cmux_trace_writer *writer) {
+  cmux_trace__signal_fence();
+  cmux_trace__st32(&writer->busy, 0, CMUX_TRACE__RELAXED);
 }
 
 static inline void cmux_trace__writer_entry(cmux_trace_writer *writer, const cmux_trace_ring *ring, uint32_t slot) {
@@ -1051,8 +1074,7 @@ static inline void cmux_trace_write_named(cmux_trace_tracer *tracer, cmux_trace_
   uint64_t epoch = word >> 8;
   const cmux_trace_ring *ring = &tracer->rings[slot];
   cmux_trace_record out = *record;
-  if (writer->busy) return;
-  writer->busy = 1;
+  if (!cmux_trace__writer_enter(writer)) return;
   if (writer->owns_chunk && writer->epoch != epoch) {
     cmux_trace_ring_complete(&tracer->rings[writer->owned_slot], writer->chunk, writer->lap);
     writer->owns_chunk = 0;
@@ -1077,7 +1099,7 @@ static inline void cmux_trace_write_named(cmux_trace_tracer *tracer, cmux_trace_
   if (!writer->owns_chunk) {
     if (!cmux_trace_ring_claim(ring, writer->entry_index[slot], writer->entry_generation[slot], &writer->chunk,
                                &writer->lap)) {
-      writer->busy = 0;
+      cmux_trace__writer_leave(writer);
       return;
     }
     writer->owns_chunk = 1;
@@ -1092,7 +1114,7 @@ static inline void cmux_trace_write_named(cmux_trace_tracer *tracer, cmux_trace_
   } else {
     writer->next_slot++;
   }
-  writer->busy = 0;
+  cmux_trace__writer_leave(writer);
 }
 
 static inline void cmux_trace_write(cmux_trace_tracer *tracer, cmux_trace_writer *writer,
@@ -1241,21 +1263,22 @@ static inline cmux_trace_error cmux_trace_tracer_stop(cmux_trace_tracer *tracer)
  * reads from the dead process; setting one is a store, not an allocation. Values are ids, counts,
  * states and times only, never a person's text.
  *
- * Words 0-7 are the page header:
- *   0   8  magic        ASCII "CMXCKEYS"
- *   8   4  version u32  1
- *   12  2  role u16     the ring header's role
- *   14  2  header_words u16  8
- *   16  4  pid u32
- *   20  4  page_words u32    512
- *   24  8  process_start_unix_us u64
- *   32  16 build_uuid
- *   48  8  start_uptime_ns u64 (the trace clock when the page was made)
- *   56  8  reserved, zero
+ * Words 0-7 are the page header, the same as CrashKeys.swift's (CrashKeyPage.header):
+ *   0  magic             ASCII "CMXKEYS1" (little-endian bytes)
+ *   1  shape             version 1 | header_words 8 << 16 | page_words 512 << 32
+ *   2  pid | role << 32  role is the ring header's role
+ *   3  build_uuid bytes 0-7
+ *   4  build_uuid bytes 8-15
+ *   5  process_start_unix_us
+ *   6  start_uptime_ns   the trace clock when the page was made
+ *   7  reserved, zero
+ * CrashKeyPage.decode reads a page only when words 0 and 1 are these.
  * The slots are CrashKeySlot.swift's (its raw value is the slot's first word; fixed, append-only);
- * a process sets the ones that apply to it. cmux_trace_test.c checks the two tables agree. */
+ * a process sets the ones that apply to it. cmux_trace_test.c checks the header against
+ * CrashKeys.swift and the slots against CrashKeySlot.swift, and writes the page that
+ * Tests/CmuxNextTraceTests/Fixtures/crash-keys-v1-golden.crashkeys holds (CrashKeysTests decodes it). */
 
-#define CMUX_CRASH_KEYS_MAGIC "CMXCKEYS"
+#define CMUX_CRASH_KEYS_MAGIC "CMXKEYS1"
 #define CMUX_CRASH_KEYS_VERSION 1u
 #define CMUX_CRASH_KEYS_PAGE_BYTES 4096u
 #define CMUX_CRASH_KEYS_PAGE_WORDS 512u
@@ -1292,23 +1315,25 @@ static inline cmux_crash_keys cmux_crash_keys_init(void *zeroed_page, uint16_t r
                                                    uint64_t process_start_unix_us, const uint8_t build_uuid[16],
                                                    uint64_t start_uptime_ns) {
   cmux_crash_keys keys;
-  const uint8_t magic[8] = {'C', 'M', 'X', 'C', 'K', 'E', 'Y', 'S'};
+  const char *magic = CMUX_CRASH_KEYS_MAGIC;
   uint64_t magic_word = 0, uuid_low = 0, uuid_high = 0;
   size_t index;
   keys.base = (uint8_t *)zeroed_page;
   for (index = 0; index < 8; index++) {
-    magic_word |= (uint64_t)magic[index] << (8 * index);
+    magic_word |= (uint64_t)(uint8_t)magic[index] << (8 * index);
     uuid_low |= (uint64_t)build_uuid[index] << (8 * index);
     uuid_high |= (uint64_t)build_uuid[8 + index] << (8 * index);
   }
-  cmux_trace__st32(keys.base + 8, CMUX_CRASH_KEYS_VERSION, CMUX_TRACE__RELAXED);
-  cmux_trace__st32(keys.base + 12, (uint32_t)role | (uint32_t)CMUX_CRASH_KEYS_HEADER_WORDS << 16, CMUX_TRACE__RELAXED);
-  cmux_trace__st32(keys.base + 16, pid, CMUX_TRACE__RELAXED);
-  cmux_trace__st32(keys.base + 20, CMUX_CRASH_KEYS_PAGE_WORDS, CMUX_TRACE__RELAXED);
-  cmux_trace__st64(keys.base + 24, process_start_unix_us, CMUX_TRACE__RELAXED);
-  cmux_trace__st64(keys.base + 32, uuid_low, CMUX_TRACE__RELAXED);
-  cmux_trace__st64(keys.base + 40, uuid_high, CMUX_TRACE__RELAXED);
+  cmux_trace__st64(keys.base + 8,
+                   (uint64_t)CMUX_CRASH_KEYS_VERSION | (uint64_t)CMUX_CRASH_KEYS_HEADER_WORDS << 16 |
+                       (uint64_t)CMUX_CRASH_KEYS_PAGE_WORDS << 32,
+                   CMUX_TRACE__RELAXED);
+  cmux_trace__st64(keys.base + 16, (uint64_t)pid | (uint64_t)role << 32, CMUX_TRACE__RELAXED);
+  cmux_trace__st64(keys.base + 24, uuid_low, CMUX_TRACE__RELAXED);
+  cmux_trace__st64(keys.base + 32, uuid_high, CMUX_TRACE__RELAXED);
+  cmux_trace__st64(keys.base + 40, process_start_unix_us, CMUX_TRACE__RELAXED);
   cmux_trace__st64(keys.base + 48, start_uptime_ns, CMUX_TRACE__RELAXED);
+  cmux_trace__st64(keys.base + 56, 0, CMUX_TRACE__RELAXED);
   cmux_trace__st64(keys.base, magic_word, CMUX_TRACE__RELEASE);
   return keys;
 }

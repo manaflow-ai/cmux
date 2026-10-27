@@ -130,6 +130,23 @@ import Testing
         #expect(CrashKeyPage.decode(Array(bytes.prefix(64))) == nil)
     }
 
+    /// The C writer's page (CEFShim/src/cmux_trace.h, which the Chromium host writes; cmux_trace_test.c makes the
+    /// same bytes) decodes here and is word for word the page this writer makes with the same header and keys.
+    @Test func theCWritersPageDecodesAndMatchesTheSwiftPage() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/crash-keys-v1-golden.crashkeys")
+        let decoded = try #require(CrashKeyPage.decode([UInt8](Data(contentsOf: url))), "the C page did not decode")
+        let identity = CrashKeyPage.Identity(pid: 321, role: .chromiumHost,
+                                             buildUUID: [0xA0] + (1 ... 14).map { UInt8($0) } + [0xAF],
+                                             processStartUnixMicros: 1_700_000_000_000_000, startUptimeNanos: 66)
+        #expect(decoded.identity == identity)
+        let page = CrashKeyPage(identity: identity)
+        page.set(.inCEFPump, 1)
+        page.set(.daemonPID, 777)
+        page.set(.ghosttyCommit, 0xABCD_EF01_2345_6789)
+        #expect(page.snapshot().words == decoded.words)
+    }
+
     @Test func theRuntimeStoresIntoItsAttachedPage() {
         let runtime = TraceRuntime(role: .daemon)
         runtime.setCrashKey(.daemonPID, 1)
