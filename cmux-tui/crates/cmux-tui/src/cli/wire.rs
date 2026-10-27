@@ -1,6 +1,7 @@
 use std::io::{self, BufRead, BufReader, Read, Write};
 #[cfg(unix)]
 use std::net::Shutdown;
+use std::path::Path;
 use std::time::Duration;
 
 use cmux_tui_core::platform::transport;
@@ -114,21 +115,22 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
     // The caller's terminal belongs to the session its environment names; an
     // explicit route targets that session's current workspace.
     let caller_route = global.socket.is_none() && global.session.is_none();
-    // A browser tab in a session a cmux app owns is the app's to render.
+    // An agent's terminal with no place goes beside its chat (beside.rs).
     #[cfg(unix)]
-    if let Some(code) = super::frontend_browser::run_in_app(
+    match super::beside::run_cli(
         global,
-        &plan,
-        &request,
+        &mut plan,
+        &mut request,
         &mut reader,
-        &socket,
         caller_route,
         &key_report,
     ) {
-        return code;
+        Ok(Some(reencoded)) => encoded = reencoded,
+        Ok(None) => {}
+        Err(code) => return code,
     }
     if !plan.resolve.is_empty() {
-        let route = super::resolve::SocketRoute { path: &socket, derived: socket_is_derived };
+        let route = super::resolve::SocketRoute::new(&socket, socket_is_derived, global);
         if let Err(failure) = super::resolve::apply(&mut reader, &mut plan, caller_route, &route) {
             // A browser tab's page zoom: the app hosts the page and owns it.
             #[cfg(unix)]
@@ -150,6 +152,19 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
             Ok(encoded) => encoded,
             Err(code) => return code,
         };
+    }
+    // A browser tab in a session a cmux app owns is the app's to render (after the lookups).
+    #[cfg(unix)]
+    if let Some(code) = super::frontend_browser::run_in_app(
+        global,
+        &plan,
+        &request,
+        &mut reader,
+        &socket,
+        caller_route,
+        &key_report,
+    ) {
+        return code;
     }
     if notify_desktop::drop_unsupported(&mut reader, &socket, &mut request)
         | super::launch_credential::attach(&mut reader, &socket, &mut request)
@@ -193,14 +208,14 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
         key_report.finish(global.output);
         return 3;
     }
-    let code = run_response(&mut reader, global, &plan, &request_id, &key_report, tries);
+    let code = run_response(&mut reader, global, &plan, &request_id, &key_report, tries, &socket);
     if code != 0 && code != retry::AGAIN {
         key_report.finish(global.output);
     }
     code
 }
 
-fn encode_request(request: &Value) -> Result<Vec<u8>, i32> {
+pub(super) fn encode_request(request: &Value) -> Result<Vec<u8>, i32> {
     super::resolve::encode_request_bytes(request).map_err(|error| {
         eprintln!("cmux: {error}");
         2
@@ -477,7 +492,10 @@ fn run_response(
     request_id: &str,
     key_report: &KeyReport,
     tries: &retry::Tries,
+    daemon_socket: &Path,
 ) -> i32 {
+    #[cfg(not(unix))]
+    let _ = daemon_socket;
     let mut accepted_stream = false;
     let expose_stream_lifecycle = matches!(
         &plan.operation,
@@ -535,6 +553,22 @@ fn run_response(
                 if !response.ok {
                     let mut error = serde_json::to_value(response.error.expect("validated error"))
                         .expect("resource errors serialize");
+                    // A browser the cmux app draws: the app runs the verb.
+                    #[cfg(unix)]
+                    if let Some(routed) =
+                        super::app_browser_route::run(global, plan, &error, daemon_socket)
+                    {
+                        return match routed {
+                            Ok(result) => {
+                                key_report.succeeded();
+                                print_result(global, plan, result)
+                            }
+                            Err(mut error) => {
+                                key_report.annotate(&mut error, global.output);
+                                print_operation_error(&error, global.output)
+                            }
+                        };
+                    }
                     if matches!(global.output, OutputMode::Quiet | OutputMode::Human) {
                         localize_operation_error(plan, &mut error);
                     }
@@ -557,6 +591,14 @@ fn run_response(
                             }
                         }
                         WireOperation::Raw { .. } => result,
+                    };
+                    // The app's Cloud machines join the daemon's machine list.
+                    #[cfg(unix)]
+                    let result = match &plan.operation {
+                        WireOperation::Typed(
+                            cmux_tui_core::resource::ResourceOperation::MachineList,
+                        ) => super::cloud_machines::merge(global, result),
+                        _ => result,
                     };
                     let result = agent_roster::with_terminals(reader, plan, result);
                     return super::agent_input_hint::print_result(global, plan, reader, result);
@@ -856,6 +898,14 @@ fn localize_operation_error_with_catalog(
         if let Some(message) = message {
             error["message"] = Value::String(message.into());
         }
+    }
+
+    // A browser the cmux app draws, with no app method for the verb (or no
+    // app owning the session): name the tab verbs that work.
+    let extra = &error["details"]["extra"];
+    if error["code"] == "operation.failed" && extra["code"] == "browser_rendered_by_app" {
+        let tab = extra["tab_id"].as_str().unwrap_or("tab_…").to_owned();
+        error["message"] = Value::String(catalog.browser.rendered_by_app.replace("{tab}", &tab));
     }
 
     let is_lifecycle_operation = matches!(

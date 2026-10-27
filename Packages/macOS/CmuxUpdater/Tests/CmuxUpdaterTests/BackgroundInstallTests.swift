@@ -30,6 +30,17 @@ import Testing
         })
     }
 
+    /// Pumps the cooperative pool until `condition` holds (the controller's reactions run as
+    /// main-actor tasks).
+    private func waitUntil(_ what: String,
+                           sourceLocation: SourceLocation = #_sourceLocation,
+                           _ condition: () -> Bool) async {
+        for _ in 0..<20_000 where !condition() {
+            await Task.yield()
+        }
+        #expect(condition(), "timed out waiting for \(what)", sourceLocation: sourceLocation)
+    }
+
     private func persisted(_ harness: Harness) -> NSDictionary {
         (harness.defaults.persistentDomain(forName: harness.suiteName) ?? [:]) as NSDictionary
     }
@@ -66,6 +77,16 @@ import Testing
         if case .updateAvailable = harness.model.state {
             Issue.record("background mode must not surface the Update Available prompt")
         }
+    }
+
+    /// Background mode owns the staged installer so the app can replace it when a newer feed
+    /// item arrives. A persisted Sparkle silent-install preference would bypass that replacement
+    /// path and make Restart to Update install an older build first.
+    @Test func backgroundModeDisablesSparkleSilentInstallPath() {
+        let harness = Harness(automaticDownloads: true)
+        #expect(harness.defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+        harness.controller.installsUpdatesInBackground = true
+        #expect(!harness.defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
     }
 
     @Test func backgroundModeSkipsThePromptForAUserInitiatedCheckToo() {
@@ -105,6 +126,30 @@ import Testing
         readyBox.choice = nil
         harness.controller.installStagedUpdate()
         #expect(readyBox.choice == nil)
+    }
+
+    /// Lawrence 2026-10-23 ("dyt we can just remove this"): a nightly's idle install held for
+    /// 9 busy agents and 5 commands showed a "Waiting to Relaunch" card. The hold now shows as the
+    /// staged update, so the person's click on it is an install they asked for: it relaunches at
+    /// once instead of failing as "install clicked with no staged update".
+    @Test func aClickOnAnIdleInstallHeldForBusyWorkRelaunchesNow() {
+        let harness = Harness()
+        let host = HeldBlockersHost()
+        harness.controller.driver.actionDelegate = host
+        let installs = CallCounterBox()
+        harness.controller.driver.relaunchIsAutomatic = true
+        #expect(harness.controller.driver.handleShouldPostponeRelaunch(item: item, installHandler: { installs.count += 1 }))
+        #expect(harness.controller.driver.relaunchGate.isWaiting)
+        #expect(harness.controller.stagedUpdate?.displayVersionString == "0.64.17",
+                "the held update has no version, so the rail hides it and nothing can relaunch it")
+
+        harness.controller.installStagedUpdate()
+
+        #expect(installs.count == 1, "the click did not relaunch the held install")
+        #expect(!harness.controller.driver.relaunchGate.isWaiting)
+        if case .error = harness.model.state {
+            Issue.record("the click on a held install became an error: \(harness.model.state)")
+        }
     }
 
     @Test func aClickDuringTheDownloadInstallsAsSoonAsItIsReady() {
@@ -220,6 +265,35 @@ import Testing
         #expect(harness.controller.stagedUpdate?.displayVersionString == "0.64.17")
     }
 
+    /// `updates.downloadAutomatically` off (or a metered network) and the user
+    /// clicks Install Update: the controller runs a fresh check and answers
+    /// Sparkle's update-found prompt itself. The build that download stages is
+    /// the one the user asked for, so it must be known; a staged update of
+    /// unknown version is one the host hides and (before #22874's review fix)
+    /// cancelled, dropping a newer build the user had just asked for.
+    @Test func anInstallClickWithDownloadsOffStagesTheBuildItFound() async {
+        let harness = Harness()
+        harness.controller.installsUpdatesInBackground = true
+        harness.controller.downloadsUpdatesInBackground = false
+
+        harness.controller.attemptUpdate()
+        await waitUntil("the fresh check") { harness.updater.checkForUpdatesCallCount == 1 }
+        harness.controller.driver.showUserInitiatedUpdateCheck(cancellation: {})
+        let found = ChoiceBox()
+        find(harness, into: found)
+        await waitUntil("the install reply") { found.choice == .install }
+        harness.controller.driver.showDownloadInitiated(cancellation: {})
+
+        let readyBox = ChoiceBox()
+        ready(harness, into: readyBox)
+        #expect(readyBox.choice == nil, "the staged update was answered before the user installed it")
+        #expect(harness.controller.stagedUpdate?.versionString == "0.64.17",
+                "the build the Install click downloaded staged with no item: the host cannot tell it is newer")
+
+        harness.controller.installStagedUpdate()
+        #expect(readyBox.choice == .install)
+    }
+
     /// A test feed (cmux-next NIGHTLY/DEV, "Use Test Update Feed") replaces the baked feed for
     /// every check; clearing it returns to the baked feed. Signatures are unchanged.
     @Test func aFeedOverrideReplacesTheBakedFeed() {
@@ -247,4 +321,19 @@ import Testing
         find(harness, into: newer)
         #expect(newer.choice == .install)
     }
+}
+
+/// Host that reports busy agents and running commands, as the nightly did when the card showed.
+@MainActor
+private final class HeldBlockersHost: UpdateActionDelegate {
+    func updaterRequestsRetryCheckForUpdates() {}
+    func updaterPrepareAutomaticInstall() -> Bool { true }
+    func updaterWillRelaunchApplication() {}
+    func updaterRelaunchBlockers() -> UpdateRelaunchBlockers {
+        UpdateRelaunchBlockers(busyAgentCount: 9, runningCommandCount: 5)
+    }
+}
+
+private final class CallCounterBox: @unchecked Sendable {
+    var count = 0
 }

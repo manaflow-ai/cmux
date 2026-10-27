@@ -1,5 +1,6 @@
-/* The Stats page: tiles, a week-column heatmap, hour bars and per-agent rows on the shared page
-   backdrop (pageBase.css). Heat and bars are the accent at rising strength. */
+/* The Stats page: tiles, a week-column heatmap (a row of days for a week or a month), hour bars
+   and per-agent rows on the shared page backdrop (pageBase.css). Heat and bars are the accent at
+   rising strength. */
 .stats {
   max-width: 880px;
   margin: 0 auto;
@@ -24,6 +25,7 @@
 
 .stats-private,
 .stats-muted,
+.stats-day-label,
 .stats-tile-label,
 .stats-tile-detail {
   color: var(--page-text-3);
@@ -119,11 +121,50 @@
   background: var(--page-hover);
 }
 
-.stats-heat.is-padding { background: transparent; }
-.stats-heat-1 { background: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 25%, transparent); }
-.stats-heat-2 { background: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 45%, transparent); }
-.stats-heat-3 { background: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 70%, transparent); }
-.stats-heat-4 { background: var(--cmux-accent, var(--page-text)); }
+/* A week or a month: one row of days across the width on the hour bars' 2px gap, each over its
+   label (the weekday, or the date every seventh day). */
+.stats-days {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 2px;
+}
+
+.stats-day {
+  min-width: 0;
+}
+
+.stats-day > .stats-heat {
+  height: 24px;
+  border-radius: 2px;
+}
+
+/* Centered under its day even where a date is wider than a month's narrow column. */
+.stats-day-label {
+  display: flex;
+  justify-content: center;
+  margin-top: 4px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.stats-heat.is-padding {
+  background: transparent;
+}
+.stats-heat-1 {
+  background: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 25%, transparent);
+}
+.stats-heat-2 {
+  background: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 45%, transparent);
+}
+.stats-heat-3 {
+  background: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 70%, transparent);
+}
+.stats-heat-4 {
+  background: var(--cmux-accent, var(--page-text));
+}
 
 .stats-hours {
   display: grid;
@@ -176,7 +217,9 @@
   overflow: hidden;
 }
 
-.stats-harness-bar { height: 100%; }
+.stats-harness-bar {
+  height: 100%;
+}
 
 .stats-harness-value {
   min-width: 4ch;

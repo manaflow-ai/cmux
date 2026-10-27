@@ -9,13 +9,18 @@ export type Environment = { id: string; label: string; kind: EnvironmentKind; co
 /// The location row's connect choices and the app action each runs (the agent pane allows exactly
 /// these; AgentPaneModel.connectActions): SSH… connects a machine, New Cloud Machine creates one on
 /// the plan's default size, and Open Cloud… opens the Cloud page, whose storefront lists
-/// the plan's sizes (the pane knows no plan).
+/// the plan's sizes (the pane knows no plan). A started chat's picker offers its one move instead:
+/// Move to Cloud on this Mac, Bring Back Local on a Cloud machine (the tab menu's same actions).
 export const CONNECT_ACTIONS = {
   ssh: "remote.connect",
   cloud: "newCloudMachine",
   cloudPage: "palette.openCloudPane",
+  move: "cloudMove",
+  bringBack: "cloudBringBack",
 } as const;
 export type ConnectKind = keyof typeof CONNECT_ACTIONS;
+/// A started chat's move: to a Cloud machine, or back to this Mac.
+export type OffloadKind = Extract<ConnectKind, "move" | "bringBack">;
 
 const SECTION_ORDER: readonly EnvironmentKind[] = ["local", "ssh", "cloud"];
 
@@ -71,4 +76,125 @@ export function environmentDigit(
   if (!event.altKey || !event.metaKey || event.ctrlKey || event.shiftKey) return undefined;
   const match = /^Digit([1-9])$/.exec(event.code);
   return match ? Number(match[1]) : undefined;
+}
+
+type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+
+/// A saved environment as the page edits it (New Tab page, preview): a name for where a chat
+/// starts. This computer or an SSH machine (an acpmux peer), a folder on it and, on this computer,
+/// a new git worktree of that folder for each chat. The host keeps them (`environment.list`,
+/// `environment.save`, `environment.remove`; AgentPaneEnvironmentRequest.swift); the page never
+/// stores them itself. No id before its first save.
+export type SavedEnvironmentDraft = {
+  id?: string;
+  name: string;
+  kind: "local" | "ssh";
+  /// Kind `ssh`: the peer's name.
+  host?: string;
+  folder?: string;
+  /// Kind `local` with a folder: each chat starts in a new worktree of it.
+  worktree?: boolean;
+};
+
+/// A saved environment: the host assigned its id and time.
+export type SavedEnvironment = SavedEnvironmentDraft & { id: string; updatedAt: number };
+
+export type SavedEnvironmentHost = {
+  list(): Promise<SavedEnvironment[]>;
+  save(environment: SavedEnvironmentDraft): Promise<SavedEnvironment>;
+  remove(id: string): Promise<void>;
+};
+
+/// The host's caps (AgentPaneEnvironment.swift).
+export const SAVED_ENVIRONMENT_NAME_LIMIT = 80;
+
+/// The host's environment methods over the page's native call.
+export function savedEnvironmentHost(callNative: Native): SavedEnvironmentHost {
+  return {
+    list: () =>
+      callNative("environment.list", {}).then((reply) =>
+        ((reply as { environments?: unknown[] } | undefined)?.environments ?? []).filter(isSavedEnvironment),
+      ),
+    save: (environment) =>
+      callNative("environment.save", { environment }).then((reply) => {
+        const saved = (reply as { environment?: unknown } | undefined)?.environment;
+        if (!isSavedEnvironment(saved)) throw new Error("environment.save");
+        return saved;
+      }),
+    remove: (id) => callNative("environment.remove", { id }).then(() => undefined),
+  };
+}
+
+function isSavedEnvironment(value: unknown): value is SavedEnvironment {
+  const environment = value as Partial<SavedEnvironment> | null;
+  return (
+    typeof environment?.id === "string" &&
+    typeof environment.name === "string" &&
+    (environment.kind === "local" || environment.kind === "ssh") &&
+    typeof environment.updatedAt === "number"
+  );
+}
+
+/// What the host gets for a draft: the name trimmed, a blank folder dropped, and only the fields
+/// the kind uses (an SSH machine's host; a worktree only of a folder on this computer).
+export function savedEnvironmentToSave(draft: SavedEnvironmentDraft): SavedEnvironmentDraft {
+  const folder = draft.folder?.trim();
+  return {
+    ...(draft.id ? { id: draft.id } : {}),
+    name: draft.name.trim(),
+    kind: draft.kind,
+    ...(draft.kind === "ssh" && draft.host ? { host: draft.host } : {}),
+    ...(folder ? { folder } : {}),
+    ...(draft.kind === "local" && folder && draft.worktree ? { worktree: true } : {}),
+  };
+}
+
+/// Whether a draft can be saved as it is: a name within the cap, an SSH machine for an SSH one,
+/// and a folder the host takes (absolute, or from the home folder).
+export function savedEnvironmentReady(draft: SavedEnvironmentDraft): boolean {
+  const saved = savedEnvironmentToSave(draft);
+  if (!saved.name || saved.name.length > SAVED_ENVIRONMENT_NAME_LIMIT) return false;
+  if (saved.kind === "ssh" && !saved.host) return false;
+  return saved.folder === undefined || /^(\/|~$|~\/)/.test(saved.folder);
+}
+
+/// The list after a save: the saved one first (the host sorts by `updatedAt`), replacing itself.
+export function withSavedEnvironment(list: readonly SavedEnvironment[], saved: SavedEnvironment): SavedEnvironment[] {
+  return [saved, ...list.filter((environment) => environment.id !== saved.id)];
+}
+
+type Host = { peer?: string | undefined; host?: string | undefined; hostKind?: string | undefined };
+
+/// The machines besides this one, in order: acpmux's peers, then the hosts its chats ran on (a
+/// chat's peer, else a Cloud chat's host), then `extra`, each once, never this one (`local`). A peer's transport names its
+/// kind (`peerKinds`): an `ssh://` peer is SSH, any other, or a Cloud chat's host acpmux no longer
+/// lists, is Cloud. A peer carries what acpmux last said of its connection (`peerConnected`); a
+/// Cloud chat's host carries none. The composer's computers and the New Tab machines widget both
+/// list these.
+export function knownMachines(
+  peers: readonly string[],
+  chats: readonly Host[],
+  peerKinds: Record<string, "ssh" | "cloud">,
+  extra: readonly Host[] = [],
+  peerConnected: Record<string, boolean> = {},
+): Environment[] {
+  const machines: Environment[] = [];
+  const seen = new Set<string>();
+  const add = (id: string, label: string, cloudHost: boolean) => {
+    if (id === "local" || seen.has(id)) return;
+    seen.add(id);
+    const connected = cloudHost ? undefined : peerConnected[id];
+    machines.push({
+      id,
+      label,
+      kind: !cloudHost && peerKinds[id] === "ssh" ? "ssh" : "cloud",
+      ...(connected !== undefined ? { connected } : {}),
+    });
+  };
+  for (const peer of peers) add(peer, peer, false);
+  for (const chat of [...chats, ...extra]) {
+    const peer = chat.peer ?? (chat.hostKind === "cloud" ? chat.host : undefined);
+    if (peer) add(peer, chat.host ?? peer, !chat.peer);
+  }
+  return machines;
 }

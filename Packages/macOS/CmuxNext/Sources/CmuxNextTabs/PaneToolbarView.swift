@@ -25,10 +25,11 @@ public struct PaneToolbarItem: Equatable, Sendable {
 /// 2026-10-12): the pinned actions' buttons, then "…". They hide at rest (`tabs.restingControlOpacity`,
 /// 0 by default; Lawrence 2026-10-20) and fade in while the pointer is over the tab bar or these
 /// controls (`HoverReveal`, like the strip's plus), while "…"'s menu is open and while one has keyboard
-/// focus, and stay shown, "…" lit, while the pane is zoomed. Their width is kept while they are faded,
-/// so no tab moves when they appear; "…" slides right into its slot as it fades in (not under Reduce
-/// Motion). "…"'s menu opens on press (press-drag-release) and lists what opens in the pane, then the
-/// actions without a button, Search Tabs, then Show in Tab Bar.
+/// focus, and stay shown, "…" and the zoom button lit, while the pane is zoomed (the zoom button
+/// shows then even when not pinned, and its click restores the layout). Their width is kept while they are faded,
+/// so no tab moves when they appear. The overflow glyph also stays in its trailing slot throughout
+/// the opacity fade (Leo 2026-10-26). "…"'s menu opens on press (press-drag-release) and lists what
+/// opens in the pane, then the actions without a button, Search Tabs, then Show in Tab Bar.
 public final class PaneToolbarView: NSView {
     /// "…"'s menu; nil or empty offers nothing.
     public var moreMenu: (() -> NSMenu?)?
@@ -43,7 +44,8 @@ public final class PaneToolbarView: NSView {
     /// Buttons' room the bar keeps even while fewer show (``show(_:more:lit:reserving:)``).
     public private(set) var reservedCount = 0
     public private(set) var buttons: [TitlebarBandButton] = []
-    public let moreButton = TitlebarBandButton(symbol: "ellipsis")
+    /// The app's one more button (⋮, OverflowButton); its menu opens on press.
+    public let moreButton = OverflowButton(label: Strings.paneMore)
     /// The tab bar's tracking area (``refreshCorner()``) reports the pointer.
     public private(set) lazy var reveal = HoverReveal(region: self, tracksPointer: false)
     private var corner: NSTrackingArea?
@@ -52,13 +54,9 @@ public final class PaneToolbarView: NSView {
 
     override public init(frame: NSRect) {
         super.init(frame: frame)
-        moreButton.target = self
-        moreButton.action = #selector(openMore)
-        moreButton.longPressOpensMenu = false
-        moreButton.setAccessibilityLabel(Strings.paneMore)
         moreButton.setAccessibilityIdentifier("cmux.pane.more")
         moreButton.pressMenu = { [weak self] in self?.moreMenu?() }
-        // "…" stays shown while its menu is up: the pointer leaves the corner for the menu.
+        // "⋮" stays shown while its menu is up: the pointer leaves the corner for the menu.
         let present = moreButton.presentMenu
         moreButton.presentMenu = { [weak self] menu, button in
             let hold = self?.reveal.hold()
@@ -67,8 +65,6 @@ public final class PaneToolbarView: NSView {
         }
         moreButton.isHidden = true
         addSubview(moreButton)
-        // "…" slides right into its slot as it fades in, and back as it fades out (Lawrence 2026-10-20).
-        reveal.onChange = { [weak self] revealed in self?.slideMore(revealed: revealed) }
         // Hidden at rest by default (Lawrence 2026-10-20; Leo's muted look is a value above 0); a Debug
         // Settings change applies at once. task-owner: this view (cancelled in deinit); event-driven.
         reveal.restAlpha = TabTunables.restingControlOpacity.value
@@ -149,37 +145,19 @@ public final class PaneToolbarView: NSView {
         // only at the leading end.
         let y = Self.edgeInset(height: bounds.height)
         func slotX(_ fromTrailing: Int) -> CGFloat { bounds.width - y - side - CGFloat(fromTrailing) * (side + gap) }
-        moreButton.frame = moreFrame(revealed: reveal.isRevealed)
+        moreButton.frame = moreFrame()
         for (index, button) in buttons.enumerated() {
             button.frame = NSRect(x: max(0, slotX(buttons.count - index)), y: y, width: side, height: side)
         }
         applyTint()
     }
 
-    /// "…"'s frame: the trailing slot when `revealed`; at rest a short way left of it, so the reveal
-    /// moves it right. Reduce Motion (or animations off) keeps it in the slot: the fade alone.
-    /// The resting frame may start left of this view's bounds (a bar with "…" alone is one slot wide):
-    /// that part is invisible at rest and takes no clicks, since AppKit hit-tests inside the bounds only.
-    func moreFrame(revealed: Bool) -> NSRect {
+    /// The trailing slot is independent of hover, focus and menu holds. HoverReveal owns only
+    /// opacity, so the glyph and its hit target stay aligned throughout the fade.
+    func moreFrame() -> NSRect {
         let side = TitlebarBandButton.side
         let inset = Self.edgeInset(height: bounds.height)
-        let slot = max(0, bounds.width - inset - side)
-        let x = revealed || !Motion.tabs.animatesMovement ? slot : slot - Self.moreSlide
-        return NSRect(x: x, y: inset, width: side, height: side)
-    }
-
-    /// How far "…" travels as it appears: two grid steps.
-    private static var moreSlide: CGFloat { Metrics.space2 * 2 }
-
-    /// Moves "…" with the reveal's fade (same `MotionFade.hover` timing).
-    private func slideMore(revealed: Bool) {
-        let target = moreFrame(revealed: revealed)
-        guard moreButton.frame != target else { return }
-        guard Motion.tabs.animatesMovement, window != nil else {
-            moreButton.frame = target
-            return
-        }
-        Motion.feedback.animate(.hover, in: self) { moreButton.animator().frame = target }
+        return NSRect(x: max(0, bounds.width - inset - side), y: inset, width: side, height: side)
     }
 
     /// The buttons' gap above them in a bar `height` tall, which is also the "…" button's gap to
@@ -193,10 +171,11 @@ public final class PaneToolbarView: NSView {
         applyTint()
     }
 
-    /// Lit: the accent; else the chrome's secondary text. Runs again on a theme change.
+    /// Lit: the lit glyph (the accent, never fainter than at rest); else the chrome's secondary text.
+    /// Runs again on a theme change.
     private func applyTint() {
-        moreButton.contentTintColor = performWithTheme { lit ? Palette.accent : Palette.textSecondary }
-        for (button, item) in zip(buttons, items) { button.contentTintColor = performWithTheme { item.lit ? Palette.accent : Palette.textSecondary } }
+        moreButton.tintOverride = lit ? performWithTheme { Palette.litGlyph } : nil
+        for (button, item) in zip(buttons, items) { button.contentTintColor = performWithTheme { item.lit ? Palette.litGlyph : Palette.textSecondary } }
     }
 
     // MARK: The tab bar
@@ -258,12 +237,6 @@ public final class PaneToolbarView: NSView {
         guard items.indices.contains(sender.tag) else { return }
         onPerform?(items[sender.tag].id)
     }
-
-    /// A keyboard or VoiceOver press; a pointer press opens the menu on mouse-down.
-    @objc private func openMore() {
-        guard let menu = moreMenu?(), !menu.items.isEmpty else { return }
-        moreButton.presentMenu(menu, moreButton)
-    }
 }
 
 // Like the strip's empty space (TabStripView+TitlebarDrag): in the window's top row, a press
@@ -271,7 +244,7 @@ public final class PaneToolbarView: NSView {
 extension PaneToolbarView: TitlebarPressDeciding {
     public func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress {
         let point = convert(windowPoint, from: nil)
-        let onButton = (buttons + [moreButton]).contains { !$0.isHidden && $0.frame.contains(point) }
+        let onButton = (buttons as [NSView] + [moreButton]).contains { !$0.isHidden && $0.frame.contains(point) }
         return !onButton && WindowTitlebar.isInTopRow(self) ? .movesWindow : .staysPut
     }
 }

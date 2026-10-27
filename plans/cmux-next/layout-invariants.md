@@ -36,6 +36,8 @@ Split with respawn (user requirement 2026-10-02): a pane's only tab dropped on i
 
 Since #22287 (2026-10-20) a tab drag no longer sends the respawn: a pane's only tab (or a group that is all of it) dropped on its own edge stays in its pane, and the App opens the New Tab page in a new pane on the far side (`TabMoves.splitBehind`, `NewTabPage.split`). The zone is never refused, so it never flickers, and it needs no daemon capability. `MoveTabToSplit { respawn }` remains for dock-to-column.
 
+A pane-edge drop lands where its target drew it. `DropPreviewLayout` is the one prediction: the daemon's move (the emptied pane gone, the target split at 0.5), the close sizing `LayoutModel.apply` sends for the emptied pane, then the split's even sizing. The target draws that layout, and the drop sends its `ratioChanges` once the move landed (`LayoutModel.dropSizingChanges`). `DropPreviewLandingParityTests` checks every edge of every pane in its layouts.
+
 A landed commit settles only once the store holds its result: `DaemonService.whenApplied` waits for the transaction's echo, the write barrier (every event the daemon emitted before the reply; bounds a command that changed nothing), or a snapshot (only for a waiter without a barrier: a resync that started before the reply can predate the move). Waiters run after a whole event batch, never inside it, and all of them run when the connection is lost. Then `TabDragLifecycle.release` pushes the store's tabs into the source strip and ends the presentation, so a tab that left never shows back for a moment.
 
 Ownership note: the session's `commitsInFlight` (transactions sent and not yet settled) is drag gesture state that only gates DP1; it holds no copy of layout state.

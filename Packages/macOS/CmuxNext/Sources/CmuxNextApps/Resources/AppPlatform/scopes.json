@@ -865,6 +865,10 @@
       "scope": "memory_app:read",
       "class": "read"
     },
+    "memory.search": {
+      "scope": "memory:read",
+      "class": "read"
+    },
     "message.edit": {
       "scope": "message:write",
       "class": "mutation"

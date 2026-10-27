@@ -3,6 +3,14 @@
 use super::person::ANSWERED_BY_SLOT;
 use super::*;
 
+// A losing answer is told the first one (`respond_permission`).
+#[path = "permission_settled.rs"]
+pub(super) mod settled;
+
+/// The person-readable line on a request (`toolCall._meta.acpmux.display`).
+mod display;
+pub(crate) use display::{ChildTags, drop_display_lines};
+
 impl Hub {
     // ------------------------------------------------------------- inbound
 
@@ -13,9 +21,29 @@ impl Hub {
     ) {
         while let Some(item) = rx.recv().await {
             match item {
-                Inbound::Notification { method: m, params } => {
+                Inbound::Notification { method: m, params, agent } => {
                     if m == method::SESSION_UPDATE {
-                        self.on_update(&session, params.as_ref());
+                        // A /context breakdown or usage limits from an agent that was replaced
+                        // (a failover's dying primary answering late) are not the chat's now. The
+                        // child lock is held while it is applied: a failover takes it to retire
+                        // the old agent, and again to detach it, before it clears the
+                        // breakdown, so the check and the write cannot straddle the failover.
+                        if params.as_ref().is_some_and(crate::agent::process_state) {
+                            let child = session.child.lock().await;
+                            if child
+                                .as_ref()
+                                .is_some_and(|c| c.generation == agent && !c.is_retired())
+                            {
+                                self.on_update(&session, params.as_ref(), false);
+                            }
+                            continue;
+                        }
+                        let replayed = session
+                            .replaying
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .contains(&agent);
+                        self.on_update(&session, params.as_ref(), replayed);
                     }
                 }
                 Inbound::Request { id, method: m, params } => {
@@ -52,6 +80,7 @@ impl Hub {
                 Inbound::Barrier(done) => {
                     let _ = done.send(());
                 }
+                Inbound::ReplayDone { agent } => session.end_replay(agent),
                 Inbound::Exited { pid, code, host_seq } => {
                     {
                         let mut slot = session.child.lock().await;
@@ -70,6 +99,8 @@ impl Hub {
                     *session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) = None;
                     // Its background processes ended with it (`processes.rs`).
                     self.processes_lost(&session, processes::HARNESS_EXIT);
+                    // So did its background subagents (`work_below.rs`).
+                    self.end_background_subagents(&session);
                     let intentional =
                         matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
                     // An agent host's exit was logged before its ack.
@@ -89,7 +120,8 @@ impl Hub {
         }
     }
 
-    pub(super) fn on_update(&self, session: &Session, params: Option<&Value>) {
+    /// `replayed`: the update is history an agent's load replays (`Session::replaying`).
+    pub(super) fn on_update(&self, session: &Session, params: Option<&Value>, replayed: bool) {
         let Some(update) = params.and_then(|p| p.get("update")) else {
             return;
         };
@@ -102,14 +134,24 @@ impl Hub {
             return;
         }
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
+        self.note_activity(session, update);
         // A mode or option change goes through the one setter below.
         let mut mode_write = None;
         let mut reported_tools = None;
+        let mut goal_write = false;
+        let mut mark_cleared = false;
+        let mut breakdown_changed = false;
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         match kind {
             "agent_message_chunk" => {
-                if let Some(text) =
-                    update.get("content").and_then(|c| c.get("text")).and_then(Value::as_str)
+                // History a load replays is logged (`.replay`) but is not the chat's newest
+                // reply: a session resumed from stopped had every earlier reply, then the new
+                // one, as its `lastMessage` (remote-ergo walk 4, 2026-10-26).
+                if let Some(text) = update
+                    .get("content")
+                    .and_then(|c| c.get("text"))
+                    .and_then(Value::as_str)
+                    .filter(|_| !replayed)
                 {
                     let mut preview = m.preview.clone().unwrap_or_default();
                     preview.push_str(text);
@@ -124,14 +166,31 @@ impl Hub {
                     m.preview = Some(preview);
                 }
             }
+            "tool_call" | "tool_call_update" => {
+                super::pull_requests::absorb(session, update, &mut m);
+                super::lineage::note_tool_call(session, update);
+            }
             "usage_update" => m.usage = Some(update.clone()),
+            "available_commands_update" => m.available_commands = Some(update.clone()),
             "current_mode_update" => {
+                // A mode the harness moves to by itself is not cmux's: the mark goes, so moving
+                // back to it later is not cmux's either (`trust_wait.rs` `full_access_by_cmux`).
+                let reported = update.get("currentModeId").and_then(Value::as_str);
+                if m.mode_set_by_cmux.is_some() && reported != m.mode_set_by_cmux.as_deref() {
+                    m.mode_set_by_cmux = None;
+                    // Saved now, so a restart does not load the mark back.
+                    mark_cleared = true;
+                }
                 mode_write = update.get("currentModeId").cloned().map(ModeWrite::CurrentMode);
             }
             "config_option_update" => {
                 mode_write = update.get("configOptions").cloned().map(ModeWrite::ConfigOptions);
             }
             "session_info_update" => {
+                if let Some(goal) = update.pointer("/_meta/goal") {
+                    m.goal = goal.as_object().map(|_| goal.clone());
+                    goal_write = true;
+                }
                 // A harness title made from the first input stops before a client context
                 // (prompt_context.rs), so a Cmd-I chat titles from the person's words.
                 if let Some(title) = update.get("title").and_then(Value::as_str) {
@@ -140,6 +199,19 @@ impl Hub {
                         m.title = Some(title.to_owned());
                         m.title_source = Some(super::titles::HARNESS.to_owned());
                     }
+                }
+                // Claude Code's /context breakdown, sent after each turn (`claude_stdio`). It comes
+                // after the turn's own save, so it is saved here (below), or a restart loses it.
+                if let Some(breakdown) = update.pointer("/_meta/acpmux/contextBreakdown") {
+                    m.context_breakdown = Some(breakdown.clone());
+                    breakdown_changed = true;
+                }
+                // The account's plan usage limits, merged by window (`claude_stdio`).
+                if let Some(limits) = update.pointer("/_meta/acpmux/usageLimits") {
+                    let merged =
+                        crate::claude_stdio::merge_usage_limits(m.usage_limits.as_ref(), limits);
+                    breakdown_changed |= m.usage_limits.as_ref() != Some(&merged);
+                    m.usage_limits = Some(merged);
                 }
                 // Claude Code's system/init: its MCP servers, plugins and skills.
                 reported_tools = update
@@ -150,12 +222,19 @@ impl Hub {
             _ => {}
         }
         drop(m);
+        // Goal state must survive a daemon restart even when the turn has not settled yet.
+        if goal_write || breakdown_changed {
+            self.save_meta(session);
+        }
         if let Some(claude) = reported_tools {
             self.absorb_reported_tools(session, &claude);
         }
         // Default deny on drift: also a mode the harness changes by itself.
         if let Some(w) = mode_write {
             self.write_mode_state(session, [w]);
+        }
+        if mark_cleared {
+            self.save_meta(session);
         }
     }
 
@@ -370,8 +449,26 @@ impl Hub {
         Ok(json!({"content": content}))
     }
 
+    /// The policy that answers `session`'s permission requests: its own, else the daemon's
+    /// (`config_policy`). While MDM or the team policy forces `sessions.allowFullAccess` off,
+    /// approve-all (the policy form of full access, from config.json `permissionPolicy`, a
+    /// preset, a profile default or a session set before the push) answers nothing itself: it
+    /// runs as `ask` (`approve_all_allowed`).
     pub(super) fn policy_for(
         &self,
+        session: &Session,
+        config_policy: PermissionPolicy,
+    ) -> PermissionPolicy {
+        let policy = Self::stored_policy_for(session, config_policy);
+        if super::full_access_bound::policy_is_full_access(policy) && !self.approve_all_allowed() {
+            return PermissionPolicy::Ask;
+        }
+        policy
+    }
+
+    /// `policy_for` as stored, before MDM's off caps it: for the person rule, which must not
+    /// treat an approve-all session as asking while MDM forces full access off.
+    pub(super) fn stored_policy_for(
         session: &Session,
         config_policy: PermissionPolicy,
     ) -> PermissionPolicy {
@@ -408,8 +505,51 @@ impl Hub {
     ) -> Value {
         // One harness-neutral copy of any questions, before rules and the
         // record see the request (questions.rs).
-        super::questions::normalize(&mut request);
+        super::questions::normalize(&mut request, Self::preview_format(session));
+        // A person-readable line for a tool whose name and JSON mean nothing
+        // to a person (permissions/display.rs), before anything shows the request.
+        self.stamp_permission_display(session, &mut request);
         let needs_person = super::questions::needs_person(&request);
+        // A shell command that only reads (`shell_readonly.rs`), judged before the lock and off
+        // the async workers: its git reads look at the repositories on disk.
+        // Only under approve-reads: approve-edits writes files unasked, so a command's own
+        // program could be one the agent wrote.
+        let reads_policy = {
+            let cfg = self.config.read().await;
+            self.policy_for(session, cfg.permission_policy) == PermissionPolicy::ApproveReads
+        };
+        // Judged in the environment the harness runs it with: the daemon's, the allow-listed
+        // login values, then the env its agent was started with (`ensure_child`). An agent this
+        // daemon did not start (re-adopted after a restart) asks.
+        let launched = session.launch_env.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let shell_reads = reads_policy
+            && request.pointer("/toolCall/kind").and_then(Value::as_str) == Some("execute")
+            && match launched {
+                None => false,
+                Some(own) => {
+                    let meta = session.meta();
+                    let family = self.config.read().await.family(&meta.harness);
+                    let mut env = crate::login_env::effective_for(family.as_deref(), &own);
+                    // The agent's PATH, unless its own env names one (`apply_tokio_for`).
+                    if let Some(path) = crate::login_env::agent_path()
+                        && !own.contains_key("PATH")
+                    {
+                        env.insert("PATH".to_owned(), path.to_string_lossy().into_owned());
+                    }
+                    let (request, cwd) = (request.clone(), meta.cwd);
+                    // A probe that takes too long asks; its thread finishes on its own.
+                    let probe = tokio::task::spawn_blocking(move || {
+                        super::shell_readonly::request_is_read_only(&request, &cwd, &env)
+                    });
+                    matches!(
+                        tokio::time::timeout(super::shell_readonly::PROBE_TIMEOUT, probe).await,
+                        Ok(Ok(true))
+                    )
+                }
+            };
+        // Read before the locks (it reads the settings file); the mode is read again under them.
+        let full_access_on =
+            full_access_mode(&session.meta()).is_some() && self.full_access_allowed();
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock().unwrap();
@@ -460,16 +600,21 @@ impl Hub {
                 None => match policy {
                     PermissionPolicy::ApproveAll => pick(&["allow_once", "allow_always"]),
                     PermissionPolicy::DenyAll => pick(&["reject_once", "reject_always"]),
-                    PermissionPolicy::ApproveReads => {
-                        if matches!(tool_kind, "read" | "search" | "fetch" | "think") {
+                    PermissionPolicy::ApproveReads | PermissionPolicy::ApproveEdits => {
+                        let edits = policy == PermissionPolicy::ApproveEdits;
+                        if matches!(tool_kind, "read" | "search" | "fetch" | "think")
+                            || (edits && tool_kind == "edit")
+                        {
                             pick(&["allow_once", "allow_always"])
-                        } else {
-                            None
-                        }
-                    }
-                    PermissionPolicy::ApproveEdits => {
-                        if matches!(tool_kind, "read" | "search" | "fetch" | "think" | "edit") {
-                            pick(&["allow_once", "allow_always"])
+                        } else if tool_kind == "execute"
+                            && shell_reads
+                            && policy == PermissionPolicy::ApproveReads
+                        {
+                            // Judged under approve-reads before the lock; the policy read here
+                            // must still be it.
+                            // A shell command that only reads (`shell_readonly.rs`), once:
+                            // allow_always would widen later asks and set the harness grant.
+                            pick(&["allow_once"])
                         } else {
                             None
                         }
@@ -479,9 +624,10 @@ impl Hub {
             };
             let denied = policy == PermissionPolicy::DenyAll
                 || rule == Some(super::rules::RuleDecision::Deny);
-            // The chat allowance never answers in a Web turn.
+            // The chat allowance never answers in a Web turn, nor what an `ask` rule sends to the person.
             let chat_option = if state.chat_allowed
                 && !denied
+                && rule != Some(super::rules::RuleDecision::Ask)
                 && session.turn().is_some_and(|t| t.control != Control::Web)
                 && super::permission_groups::eligible(&request)
             {
@@ -490,11 +636,19 @@ impl Hub {
                 None
             };
             let floored = web_turn && !denied && auto.is_some();
+            // Full access answers what the harness still asks, unless a rule decided it. MDM's
+            // off is read again here (memory only): a push since the read above answers nothing.
+            let full_access =
+                (full_access_on && !self.full_access_managed_off() && rule.is_none() && !denied)
+                    .then(|| full_access_allow(session, &request))
+                    .flatten();
             let auto = if denied {
                 pick(&["reject_once", "reject_always"])
             } else if needs_person || web_turn {
                 // Policy never answers a question: only a person does.
                 None
+            } else if let Some((_, option_id)) = &full_access {
+                Some(option_id.clone())
             } else {
                 chat_option.clone().or(auto)
             };
@@ -503,12 +657,13 @@ impl Hub {
                 if option_kind(&options, &option_id) == Some("allow_always") {
                     session.floor.harness_grant.store(true, Ordering::SeqCst);
                 }
-                self.append(
-                session,
-                "mux",
-                "permission_auto",
-                json!({"permissionId": permission_id, "policy": policy.to_string(), "rule": rule.map(|r| format!("{r:?}").to_lowercase()), "optionId": option_id, "chatAllowance":chat_option.is_some(), "request": request}),
-            );
+                let mut record = json!({"permissionId": permission_id, "policy": policy.to_string(), "rule": rule.map(|r| format!("{r:?}").to_lowercase()), "optionId": option_id, "chatAllowance": chat_option.is_some() && full_access.is_none(), "request": request});
+                // The mode that answered it, for the transcript's "Approved: … (Full access)".
+                if let Some((mode, _)) = &full_access {
+                    record["fullAccess"] = json!(mode);
+                    tracing::info!(session = %session.id, %mode, "full access approved a request the harness raised");
+                }
+                self.append(session, "mux", "permission_auto", record);
                 return json!({"outcome": {"outcome": "selected", "optionId": option_id}});
             }
             // No safe rejection option means cancel, never fall through to an allow ask.
@@ -535,16 +690,22 @@ impl Hub {
                 None
             };
             let decision_nonce = super::person::new_nonce();
+            let prev = session.status();
             state.pending.insert(
                 permission_id.clone(),
                 PendingPermission {
+                    // Who asked: acpmux itself (Grok's, Cursor's asks) or the agent.
+                    ancestor_may_answer: super::questions::ancestor_answerable(
+                        &request,
+                        agent_request_id.is_some(),
+                    ),
                     request: request.clone(),
                     reply: tx,
                     decision_nonce: decision_nonce.clone(),
+                    prev_status: prev,
                 },
             );
             self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"decisionNonce":decision_nonce,"personInstance":self.person.instance(),"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id,"remoteFloor":floored}));
-            let prev = session.status();
             self.set_status(session, SessionStatus::Waiting);
             (rx, prev, grouping, permission_id)
         };
@@ -557,20 +718,7 @@ impl Hub {
         // Who answered for the person (`hub/person.rs` answered_by): audit
         // only, never sent to the agent.
         let answered_by = outcome.as_object_mut().and_then(|o| o.remove(ANSWERED_BY_SLOT));
-        let mut decision = json!({"permissionId":permission_id,"outcome":outcome});
-        if let Some(by) = answered_by {
-            decision["answeredBy"] = by;
-        }
-        self.append(session, "mux", "permission_decision", decision);
-        {
-            let state = session.permissions.lock().unwrap();
-            if state.pending.is_empty()
-                && session.status() == SessionStatus::Waiting
-                && !self.secrets.waiting_in(&session.id)
-            {
-                self.set_status(session, status_after_ask(session, prev));
-            }
-        }
+        self.settle_permission(session, &permission_id, outcome.clone(), answered_by, prev);
         let mut out = json!({"outcome": outcome});
         if let Some(m) = out["outcome"].get("_meta").cloned() {
             out["_meta"] = m;
@@ -579,6 +727,33 @@ impl Hub {
             }
         }
         out
+    }
+
+    /// Logs the answer `outcome` to the prompt `permission_id` (the record the chat drops its
+    /// card on) and, once the session asks nothing else, takes back its Waiting status
+    /// (`status_after_ask` from `prev`, the status before the prompt). Every prompt this process
+    /// raised ends here, also a trust card withdrawn without its task (`trust_wait.rs`).
+    pub(super) fn settle_permission(
+        &self,
+        session: &Session,
+        permission_id: &str,
+        outcome: Value,
+        answered_by: Option<Value>,
+        prev: SessionStatus,
+    ) {
+        let mut decision = json!({"permissionId": permission_id, "outcome": outcome});
+        if let Some(by) = answered_by {
+            decision["answeredBy"] = by;
+        }
+        self.append(session, "mux", "permission_decision", decision.clone());
+        let mut state = session.permissions.lock().unwrap();
+        state.settled.remember(permission_id, decision.get("answeredBy"), &decision["outcome"]);
+        if state.pending.is_empty()
+            && session.status() == SessionStatus::Waiting
+            && !self.secrets.waiting_in(&session.id)
+        {
+            self.set_status(session, status_after_ask(session, prev));
+        }
     }
 
     /// Answer a pending permission. `option_id = None` cancels. `answers`
@@ -594,15 +769,59 @@ impl Hub {
         answerer: super::person::Answerer<'_>,
         control: Control,
     ) -> Result<(), RpcError> {
+        self.respond_permission_annotated(
+            session,
+            permission_id,
+            option_id,
+            answers,
+            None,
+            answered_by,
+            answerer,
+            control,
+        )
+        .await
+    }
+
+    /// `respond_permission` with a question's `annotations` (the chosen
+    /// preview and notes, `questions::check_annotations`): only the person's
+    /// own answer carries them, or a relayed one under the person's decision
+    /// proof over them (`person/decision_answers.rs`); never a phone's signed
+    /// one (its signature covers the answers alone) or a session's.
+    pub async fn respond_permission_annotated(
+        &self,
+        session: &Session,
+        permission_id: &str,
+        option_id: Option<String>,
+        answers: Option<Value>,
+        annotations: Option<Value>,
+        answered_by: Option<Value>,
+        answerer: super::person::Answerer<'_>,
+        control: Control,
+    ) -> Result<(), RpcError> {
         // Checked again here, at the answer, not only in the remote guard.
         self.web_control_check(session, control)?;
         let cfg = self.config.read().await;
-        let pending = {
-            let mut state = session.permissions.lock().unwrap();
+        let (pending, answered_by, annotations) = {
+            let mut guard = session.permissions.lock().unwrap();
+            let state = &mut *guard;
             let map = &mut state.pending;
+            // Answered already: the first answer won, and this one is told who gave it and how.
             let p = map.get(permission_id).ok_or_else(|| {
-                RpcError::not_found(format!("no pending permission {permission_id}"))
+                let lost = RpcError::not_found(format!("no pending permission {permission_id}"));
+                match state.settled.lost(permission_id) {
+                    Some(data) => lost.with_data(data),
+                    None => lost,
+                }
             })?;
+            // A question's annotations, after the lookup so a losing answer still learns who
+            // won: only the person's own answer, or one with the person's decision proof (which
+            // must cover them, below), and only beside its answers.
+            if annotations.is_some() && !answerer.person && answerer.decision.is_none() {
+                return Err(super::person::person_required("annotations"));
+            }
+            if annotations.is_some() && answers.is_none() {
+                return Err(RpcError::invalid_params("annotations go only with answers"));
+            }
             // Legacy clients may answer items in a group, but cannot bypass
             // a policy edit or choose an absent/ambiguous option.
             if let Some(o) = &option_id {
@@ -623,6 +842,17 @@ impl Hub {
                     return Err(super::web_control::lasting_grant_refused(kind.unwrap_or("?")));
                 }
                 let is_reject = matches!(kind, Some("reject_once" | "reject_always"));
+                // A remote browser cannot trust a folder on this machine
+                // (`acp.trust.set` is refused for it too, `remote_guard.rs`).
+                if control == Control::Web
+                    && !is_reject
+                    && super::questions::trust_cwd(&p.request).is_some()
+                {
+                    return Err(RpcError::invalid_params(
+                        "trust.web_cannot_answer: trust the folder in the app or the CLI",
+                    )
+                    .with_data(json!({"reason": "trust.web_cannot_answer"})));
+                }
                 let denied = self.policy_for(session, cfg.permission_policy)
                     == PermissionPolicy::DenyAll
                     || session
@@ -640,6 +870,10 @@ impl Hub {
                 }
             }
             super::questions::check_reply(&p.request, option_id.as_deref(), answers.as_ref())?;
+            let checked_annotations = match &annotations {
+                Some(a) => super::questions::check_annotations(&p.request, a)?,
+                None => None,
+            };
             // The authoritative person rule (`person.rs`), here under the
             // prompt's lock, whatever the request check saw: a client that
             // is not the person may cancel or reject; an allow, or who
@@ -653,25 +887,48 @@ impl Hub {
                     })
                 });
                 let allows = option_id.is_some() && !rejects;
-                if allows || answered_by.is_some() {
+                // An ancestor session's answer to a question
+                // (`subsession_answer.rs`): answers to a prompt recorded as a
+                // question when it was asked (`questions::ancestor_answerable`,
+                // never from its input's shape), with its one-time allow and
+                // the hub's own `answeredBy`; never a permission prompt, a
+                // lasting grant or a plan.
+                let ancestor_answers = answerer.ancestor.is_some()
+                    && answered_by.is_some()
+                    && answers.is_some()
+                    && p.ancestor_may_answer
+                    && super::questions::trust_cwd(&p.request).is_none()
+                    && option_id.as_deref().is_some_and(|o| {
+                        option_kind(p.request["options"].as_array().map_or(&[], Vec::as_slice), o)
+                            == Some("allow_once")
+                    });
+                let needs_proof = (allows || answered_by.is_some()) && !ancestor_answers;
+                // Annotations from a connection that is not the person count only under the
+                // person's proof over them, so never on a reject or an ancestor's answer.
+                if annotations.is_some() && !needs_proof {
+                    return Err(super::person::person_required("annotations"));
+                }
+                if needs_proof {
                     let proved = match (&option_id, answerer.decision) {
                         (Some(o), Some((nonce, proof))) => {
-                            answers.is_none()
-                                && cmux_local_auth::tokens_match(nonce, &p.decision_nonce)
+                            cmux_local_auth::tokens_match(nonce, &p.decision_nonce)
                                 && self.person.decision_proves(
                                     &session.id,
                                     permission_id,
                                     o,
                                     nonce,
+                                    answers.as_ref(),
+                                    annotations.as_ref(),
                                     proof,
                                 )
                         }
                         _ => false,
                     };
                     // A phone's signed allow or answer (`approvers.rs`): it
-                    // covers the answers, never `answeredBy`.
+                    // covers the answers, never `answeredBy` or annotations.
                     let signed = !proved
                         && answered_by.is_none()
+                        && annotations.is_none()
                         && match (&option_id, answerer.approver) {
                             (Some(o), Some((nonce, decision))) => {
                                 cmux_local_auth::tokens_match(nonce, &p.decision_nonce)
@@ -698,11 +955,20 @@ impl Hub {
                 }
             }
             let p = map.remove(permission_id).unwrap();
+            // A person's answer names them beside any device (`author.rs`), after the person
+            // rule above, which it never satisfies.
+            let answered_by = crate::author::answered_by(answered_by, answerer.author);
+            let decided = match &option_id {
+                Some(o) => json!({"outcome": "selected", "optionId": o}),
+                None => json!({"outcome": "cancelled"}),
+            };
+            // Told to a later answer at once, before the asking task logs the decision.
+            state.settled.remember(permission_id, answered_by.as_ref(), &decided);
             if let Some(group) = state.finish_item(&session.id, permission_id, option_id.is_none())
             {
                 self.append(session, "mux", "permission_group", json!({"group":group}));
             }
-            p
+            (p, answered_by, checked_annotations)
         };
         let mut outcome = match option_id {
             Some(o) => json!({"outcome": "selected", "optionId": o}),
@@ -712,6 +978,9 @@ impl Hub {
             let mut input =
                 pending.request.pointer("/toolCall/rawInput").cloned().unwrap_or(json!({}));
             input["answers"] = a;
+            if let Some(notes) = annotations {
+                input["annotations"] = notes;
+            }
             outcome["_meta"] = json!({"updatedInput": input});
         }
         if let Some(by) = answered_by {
@@ -727,6 +996,8 @@ impl Hub {
             session.permission_epoch.fetch_add(1, Ordering::SeqCst);
             let drained: Vec<_> = state.pending.drain().collect();
             for (id, _) in &drained {
+                // Told to a later answer at once (`permission_settled.rs`): no one answered.
+                state.settled.remember(id, None, &json!({"outcome": "cancelled"}));
                 if let Some(group) = state.finish_item(&session.id, id, true) {
                     self.append(session, "mux", "permission_group", json!({"group":group}));
                 }
@@ -739,6 +1010,34 @@ impl Hub {
         // A secret card waits on the same turn (`secrets.rs`).
         self.cancel_pending_secrets(session);
     }
+}
+
+/// The Full access mode chat `m` runs in now: its current mode, when the shared rule
+/// (`spec/full-access-modes.json`, `start_mode::is_full_access`) names it full access and cmux set
+/// it itself (`SessionMeta::mode_set_by_cmux`: the person's pick or start mode, never a mode the
+/// harness reported on its own, `trust_wait.rs` `full_access_by_cmux`).
+fn full_access_mode(m: &SessionMeta) -> Option<String> {
+    let mode = crate::web_modes::mode_of(m)?;
+    (m.mode_set_by_cmux.as_deref() == Some(mode.as_str())
+        && super::start_mode::is_full_access(&mode))
+    .then_some(mode)
+}
+
+/// The Full access mode and the one-time allow with which a chat in Full access answers `request`
+/// unasked (Leo, 2026-10-25, on what Claude Code still asks in bypassPermissions, such as
+/// "Dangerous rm operation on statically-unresolvable target": "i think it should... idk like if
+/// it is on bypass permissions, that's not auto"): bypass means no prompts, for the harness's own
+/// guards and plain tool approvals alike. Only a plain tool ask (`plain_tool_ask`: never a
+/// question, a plan approval or a folder-trust card, which stay the person's), only while the
+/// current mode is Full access (a chat switched out of it asks again from its next request), and
+/// only with a one-time allow: never an "always" option, which writes a rule. The caller keeps
+/// deny-all, rules and Web turns ahead of it.
+fn full_access_allow(session: &Session, request: &Value) -> Option<(String, String)> {
+    if !super::permission_groups::plain_tool_ask(request) {
+        return None;
+    }
+    let mode = full_access_mode(&session.meta())?;
+    Some((mode, super::permission_groups::option(request, "allow_once")?))
 }
 
 /// The kind of the offered option `id`.

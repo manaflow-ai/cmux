@@ -100,6 +100,7 @@ nonisolated enum AppearanceSettingsSchema {
                 keywords: ["shuffle", "rotate", "rotating", "wallpaper", "interval", "change picture", "background"]
             ),
             PaneBackgroundsSetting.descriptor(group: window),
+            ReducedBackgroundsSetting.descriptor(group: window),
             SettingDescriptor(
                 ExperimentalAppearanceSetting().configPath, section: .appearance, group: window,
                 title: SettingsText.keyed("settings.appearance.experimentalControls", "Experimental Appearance Controls"),
@@ -133,6 +134,23 @@ nonisolated enum AppearanceSettingsSchema {
                 ]),
                 default: nil, defaultLabel: ghostty,
                 keywords: ["blur", "vibrancy", "liquid glass", "background-blur", "transparency"]
+            ),
+            SettingDescriptor(
+                WindowBackgroundSetting.inactiveDimPath, section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.inactiveWindowDim", "Dim Inactive Windows"),
+                help: SettingsText.keyed("settings.appearance.inactiveWindowDim.help",
+                                        "How much more theme color covers a window while another one is in front. 0 keeps the same look."),
+                kind: .number(SettingNumber(WindowBackgroundSetting.inactiveDimRange, step: 0.05, unit: .fraction, placeholder: 0)),
+                default: .number(0),
+                keywords: ["inactive", "unfocused", "focus", "dim", "opacity", "transparency", "background"]
+            ),
+            SettingDescriptor(
+                WallpaperTintSetting().configPath, section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.wallpaperTint", "Tint with Desktop Wallpaper"),
+                help: SettingsText.keyed("settings.appearance.wallpaperTint.help",
+                                        "The glass takes the colors of your desktop picture and follows it when the picture or Space changes."),
+                kind: .toggle, default: .bool(WallpaperTintSetting.fallback),
+                keywords: ["wallpaper", "desktop", "tint", "tinting", "glass", "color", "colour", "space", "background"]
             ),
             SettingDescriptor(
                 AppearanceTuningSetting.glassTransparencyPath, section: .appearance, group: tuning,
@@ -208,6 +226,10 @@ nonisolated enum AppearanceSettingsSchema {
                    keywords: ["sidebar", "width", "size", "sidebarWidth"]),
             metric(.columnGap, SettingsText.keyed("settings.appearance.columnGap", "Column Gap"), look, densityDefault,
                    keywords: ["column", "gap", "spacing", "columnGap"]),
+            metric(.dividerThickness, SettingsText.keyed("settings.appearance.dividerThickness", "Divider Thickness"), look, densityDefault,
+                   consumers: [.cmuxNext], keywords: ["divider", "split", "pane", "line", "thickness", "dividerThickness"]),
+            metric(.dividerHitWidth, SettingsText.keyed("settings.appearance.dividerHitWidth", "Divider Drag Width"), look, densityDefault,
+                   consumers: [.cmuxNext], keywords: ["divider", "split", "pane", "drag", "hit", "width", "dividerHitWidth"]),
             metric(.titlebarHeight, SettingsText.keyed("settings.appearance.titlebarHeight", "Titlebar Height"), look, densityDefault,
                    keywords: ["titlebar", "title bar", "header", "height", "titlebarHeight"]),
             SettingDescriptor(
@@ -238,7 +260,7 @@ nonisolated enum AppearanceSettingsSchema {
                 PaneFocusSettings.inactiveTabStylePath, section: .appearance, group: look,
                 title: SettingsText.keyed("settings.focus.inactiveTabStyle", "Unfocused Pane Tabs"),
                 help: SettingsText.keyed("settings.focus.inactiveTabStyle.help",
-                                        "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill."),
+                                        "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill."),
                 summary: SettingsText.keyed("settings.focus.inactiveTabStyle.summary", "How tabs in other panes tone down"),
                 kind: .choice([
                     SettingChoice(InactiveTabStyle.fade.rawValue, SettingsText.keyed("settings.choice.fade", "Fade")),
@@ -390,11 +412,11 @@ nonisolated enum AppearanceSettingsSchema {
     /// An `appearance.metrics.*` size row: its default is the density's (the compact one is the
     /// placeholder). cmux-next and cmux-browser read it.
     private static func metric(_ metric: LayoutMetricSetting, _ title: SettingText, _ group: SettingText, _ densityDefault: SettingText,
-                               keywords: [String]) -> SettingDescriptor {
+                               consumers: Set<SettingConsumer> = [.cmuxNext, .cmuxBrowser], keywords: [String]) -> SettingDescriptor {
         SettingDescriptor(
             metric.configPath, section: .appearance, group: group, title: title,
             kind: .number(SettingNumber(metric.range, step: 1, unit: .points, placeholder: metric.compact)),
             default: nil, defaultLabel: densityDefault, keywords: keywords
-        ).consumed(by: [.cmuxNext, .cmuxBrowser])
+        ).consumed(by: consumers)
     }
 }

@@ -343,3 +343,76 @@ fn a_manual_restart_of_a_kept_layout_tab_starts_in_its_directory_and_ends_the_ke
         std::thread::sleep(Duration::from_millis(25));
     }
 }
+
+/// f. `run --on-exit shell`: the command's end drops the tab into a shell.
+/// The same tab and terminal id get a new shell (a new incarnation) below
+/// the command's final screen, from the CLI as from the resource request,
+/// and that shell's own exit closes the tab as any shell's does.
+#[test]
+fn on_exit_shell_drops_the_tab_into_a_shell_after_the_command() {
+    let _exclusive = exclusive_process_test();
+    let harness = RecoveryHarness::start("on-exit-shell");
+    let workspace = &create_empty_workspace(&harness.socket, "on-exit-shell", "On exit shell");
+    let run = Command::new(bin())
+        .args(["--json", "--session", &harness.session, "workspace", workspace, "run"])
+        .args(["--on-exit", "shell", "--socket"])
+        .arg(&harness.socket)
+        // The command lives a moment, so the test sees its own incarnation
+        // before the respawn into the shell replaces it (a create now answers
+        // after its terminal's output is released, new-terminal-100x).
+        .args(["--", "/bin/sh", "-c", "printf 'shell-exit-marker\\n'; sleep 0.5; exit 9"])
+        .output()
+        .expect("run the CLI");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert!(
+        run.status.success(),
+        "run --on-exit shell failed: {stdout} {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let first = tab_named(&harness, "On exit shell");
+    let terminal_id =
+        first["terminal_id"].as_str().expect("the run tab names its terminal").to_string();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    let incarnation = loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"cmd":"resolve-terminal","terminal_id":terminal_id}),
+        );
+        let incarnation = resolved["terminal_incarnation"].as_str().unwrap_or_default();
+        if !incarnation.is_empty() {
+            break incarnation.to_string();
+        }
+        assert!(Instant::now() < deadline, "the command never started: {resolved}");
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    wait_for_respawn(&harness, &terminal_id, &incarnation);
+
+    let tab = tab_named(&harness, "On exit shell");
+    assert_eq!(tab["dead"], false, "the tab did not drop into a shell: {tab}");
+    assert_eq!(tab["terminal_id"], terminal_id.as_str(), "the shell is another terminal");
+    assert_eq!(tab["tab_resource_id"], first["tab_resource_id"], "the shell is another tab");
+    let surface = tab["surface"].as_u64().expect("the shell's tab has a surface");
+    let text = wait_for_screen(&harness.socket, surface, "shell-exit-marker");
+    assert!(text.contains("shell-exit-marker"), "the command's screen is gone: {text}");
+    echo_value(&harness, surface, "dropped", "$$");
+
+    // The dropped-in shell is an ordinary shell: its exit closes the tab.
+    send_line(&harness.socket, surface, "exit");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let tree = request(&harness.socket, serde_json::json!({"cmd":"list-workspaces"}));
+        let present = tree["workspaces"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|workspace| workspace["screens"].as_array().into_iter().flatten())
+            .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
+            .flat_map(|pane| pane["tabs"].as_array().into_iter().flatten())
+            .any(|tab| tab["tab_resource_id"] == first["tab_resource_id"]);
+        if !present {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the shell's exit left the tab: {tree}");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}

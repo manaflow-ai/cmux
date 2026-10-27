@@ -11,14 +11,27 @@ connects to it.
 
 ## Build
 
+Install the Rust toolchain and Zig version listed in the
+[cmux-tui build prerequisites](../../README.md#build). From the repository root,
+initialize the submodules before building:
+
 ```sh
+git submodule update --init ghostty ghostty-next
 cd cmux-tui
 cargo build --release -p acpmux
-rm -f ~/.local/bin/acpmux && cp target/release/acpmux ~/.local/bin/
+mkdir -p "$HOME/.local/bin"
+rm -f "$HOME/.local/bin/acpmux"
+cp target/release/acpmux "$HOME/.local/bin/acpmux"
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Remove the old binary first. On macOS, copying over an existing binary in place keeps the
 inode, the kernel keeps the stale code-signature cache, and the new binary dies with signal 9.
+The shell export lasts for this shell only; a service supervisor needs its own
+PATH containing acpmux and the installed harness. `host doctor` checks
+`~/.local/bin/acpmux` by default, so leaving the executable only in
+`target/release` is not enough for that check. For SSH peering, harness login
+and remote project access, follow [Remote agents and cmux Cloud](../../../docs/remote-agents-and-cloud.md).
 
 ## Quick start
 
@@ -36,6 +49,7 @@ the web dashboard URL.
 ```sh
 acpmux web                           # print the dashboard URL and open it in the browser
 acpmux new -m codex -n backend-review   # scripted: create a session and open the TUI on it
+acpmux new -m codex --tag task=review --tag owner=leo -n backend-review -d
 acpmux send backend-review "inspect the failing tests"
 acpmux ls
 acpmux attach backend-review         # TUI on one session; Ctrl-q leaves, the agent keeps running
@@ -47,7 +61,8 @@ The daemon starts on demand, like the tmux server. `acpmux daemon` runs it in th
 
 The daemon serves a dashboard on the same port as its WebSocket, by default
 `http://127.0.0.1:47811/?token=…`. The token is generated on first run and saved in
-`config.json`; `acpmux web` prints the full link and opens it. Only the local socket ever
+`config.json`; `acpmux web` opens the full link and prints it without the token
+(`--show-token` prints it whole, `--json` has it in `url`). Only the local socket ever
 reads it back: a remote-origin (WebSocket) connection gets no `webUrl` and no peer URL query.
 Release note: earlier builds did send `webUrl` to WebSocket clients, so the first start of
 this build replaces a saved token once (`websocket.tokenRotated` records it). Open the new
@@ -109,20 +124,50 @@ raw.
 
 ## CLI
 
+### Remote ergonomics
+
+Use a non-interactive SSH probe before saving a peer. If the first attempt is
+offline, `acpmux host add` saves the peer, exits 0, and prints a warning to
+stderr. With `--json`, the response instead includes a `warning` object with
+`reason: "peer_unreachable"`, the exact `ssh -o BatchMode=yes HOST true` probe
+in `try`, and `detail: "the peer was saved and will keep reconnecting"`.
+For WebSocket URLs, `try` is `acpmux host ls`. Saving failures remain errors.
+Peer requests that cannot be sent include `acpmux host ls` and state that the
+request was not sent. A method rejected by an older peer is reported as
+`peer_version_skew` with `acpmux host update NAME`.
+
+`ACPMUX_SOCKET` takes precedence over `ACPMUX_HOME`. To inspect an isolated
+home from a shell that may be inside another agent, use
+`env -u ACPMUX_SOCKET ACPMUX_HOME=/tmp/example acpmux daemon status`; inspect
+the selected socket before stopping a daemon. `host enroll` preserves a saved
+peer's explicit listener port instead of assuming 47811.
+
+`host doctor --harness ID` distinguishes a local profile that can be copied
+from a harness discovered by the remote daemon. For the latter, run
+`acpmux daemon harnesses`, then verify with a real `acpmux new --host` session
+and prompt. `harness doctor` classifies a Codex app-server's
+`unknown variant session/new` as a protocol mismatch and points to the acpmux
+bridge; it does not suggest a login command for that error. Remote permission
+requests must be approved in the cmux Mac app's pending-permission card; the
+CLI allow command is refused on this route.
+
 Five everyday commands, three groups for the rest:
 
 | Command | What it does |
 | --- | --- |
 | `acpmux` | Open the TUI. Starts the daemon if needed. |
 | `new [-m harness[/model]] [-n name] [--cwd dir] [--policy p] [prompt]` | Create a session. Opens the TUI unless `-d`. |
-| `send NAME "text" [--steer\|--no-steer] [--no-wait] [-q]` | Prompt and stream the reply. With `--no-wait` it steers into a running turn by default (read at the agent's next tool boundary, never stopping it); it queues when the agent does not steer. |
+| `send NAME "text" [--steer\|--no-steer] [--no-wait] [-q]` | Prompt and stream the reply. With `--no-wait` it hands the message to this daemon and returns at once with a delivery id, for a session here or on a peer ([the outbox](#messages-to-other-sessions-the-outbox)); it steers into a running turn by default (read at the agent's next tool boundary, never stopping it) and queues when the agent does not steer. An agent's send steers by default even when it waits for the reply, and then prints the reply of the turn it went into; the person's waiting send queues unless given `--steer`, and `--no-steer` queues any send. `--supersede KEY` replaces the sender's own prompt still queued under KEY (never one whose turn started); with `--no-wait` it prints `replaced N queued` once delivered (`?` from a daemon that predates it) and `--json` adds `replaced` and `replacedPromptIds`. The sender is the agent (`--from`, or the session `send` runs in) or, for anything else, the person. `--attach FILE` (repeatable) sends files with it, to a peer's session too: an image (its type read from its bytes) reaches the agent and the transcript as an image, any other file as a link to its copy, saved owner-only under the session's `uploads` on the host that runs it; at most 8 MiB a file and 10 MiB and 16 files a message (the message is one frame on every hop). |
+| `send --status ID` | A `--no-wait` delivery's state: `queued`, `delivering` (attempt n), `delivered` (the target's turn, steered or queued), `held` (a paused agent pair holds it until the person resumes the pair) or `failed` (the last error). |
 | `ls` | Sessions on every host, as `host/name` for remote ones. |
 | `attach [NAME] [--plain]` | TUI on one session, or a plain text stream. |
-| `web [--no-open] [--rotate-token]` | Print the dashboard URL and open it; `--rotate-token` replaces the token first. |
-| `host setup HOST` / `host update [--all]` / `host add NAME URL` / `host ls` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…`. |
+| `web [--no-open] [--show-token] [--rotate-token]` | Print the dashboard URL and open it; the printed URL leaves out its token unless `--show-token` (the browser it opens and `--json` get it whole); `--rotate-token` replaces the token first. |
+| `host setup HOST [--no-auto-update]` / `host update [--all] [--if-idle] [--keep-newer] [--binary-dir DIR]` / `host self-update` / `host hold [NAME] [--reason TEXT] [--until TIME] [--release]` / `host add NAME [URL]` / `host ls` / `host status [NAME]` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…` (default `ssh://NAME`: the machine's one daemon as your ssh config reaches it). `ls` names an `ssh://` entry with a user or another port as not the canonical endpoint. `status` (also the hidden `peer status` alias) asks each host's health live: reachable, round trip, disk, load, live sessions, build. |
+| `host enroll HOST [--harness ID]… [--reverse]` / `host doctor NAME\|HOST [--fix] [--reverse]` | Add a machine step by step (reach, install, daemon, harness, peer, peer-back, identity), one JSON line per step with `--json`; `peer-back` (this machine as the host's peer) runs only with `--reverse`; `doctor` changes nothing without `--fix`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
-| `daemon run\|status\|shutdown\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
-| `daemon shutdown [--end-agents]` | Stop the daemon; the user sessions' hosted agents keep running for the next daemon (a restart or an update), as with SIGTERM. `--end-agents` also ends every agent host it owns, exits 0 only when none is left, and names any host that survives SIGKILL. `--keep-agents` is accepted and changes nothing (a plain stop of builds before 2026-10-15 ended the agents). |
+| `daemon run\|status\|shutdown\|stop\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
+| `capabilities [--json]` | The protocol capability ids this build serves (`acpmux-v1`, `queue-edit-v1`, ...), with no daemon running. |
+| `daemon shutdown [--end-agents]` (also `daemon stop`) | Stop the daemon; the user sessions' hosted agents keep running for the next daemon (a restart or an update), as with SIGTERM. `--end-agents` also ends every agent host it owns, exits 0 only when none is left, and names any host that survives SIGKILL. `--keep-agents` is accepted and changes nothing (a plain stop of builds before 2026-10-15 ended the agents). |
 
 The older flat spellings (`acpmux kill NAME`, `acpmux peer add …`, `acpmux status`) still
 work but are hidden from help.
@@ -143,21 +188,32 @@ because the daemon runs a prompt id once and answers a repeat with the first run
 after a restart. `--no-wait` and `--detach` return once the daemon has accepted the prompt. The TUI
 reconnects on its own when the daemon restarts and re-attaches the selected session.
 
+A failure acpmux knows the remedy for says what to do on the next line, and under `--json` adds
+`errorKind` and `recovery` to the error object (the [typed errors](#typed-errors) below):
+
+```
+acpmux: runtime: No space left on device (os error 28)
+  The disk is full. Free space on the disk that holds /home/me/proj: 0.4 GB free of 252 GB.
+```
+
 ```
 acpmux run -m codex --cwd ~/proj "fix the failing test"      # new session, send, print only the reply
 acpmux exec -m claude "one-shot"                              # same, and the session is deleted afterwards
 acpmux --json run -m claude --policy approve-all "..."       # {"sessionId","name","reply","stopReason","permissions",…}
 acpmux ensure NAME -m codex --cwd DIR                         # the session if it exists, else create it
-acpmux send NAME --no-wait "..."                              # queue and return; prints "queued behind 1 running turn"
+acpmux ensure NAME -m codex --tag task=review                  # repeatable creation-time labels
+acpmux send NAME --no-wait "..."                              # hand it over and return at once; prints the delivery id
+acpmux send --status ID                                       # queued, delivering, delivered, held or failed
 acpmux send NAME --timeout 120 --on-permission deny|fail "…"  # cancel after 120 s (exit 3); answer prompts without a human
 acpmux wait                                                   # until any session on any host resolves (turn ended or needs a permission)
 acpmux wait NAME… --until ready|permission|closed|done|running [--all] [--timeout 300] [--print] [--notify]
 acpmux wait NAME --match "tests pass" | --regex "pass(ed)?"   # until the agent's output contains it
 acpmux last NAME [-n 3]                                       # last reply text
 acpmux history NAME                                           # one line per turn: status, wall time, tools, tokens, prompt
-acpmux pending                                                # every pending permission, with the option ids to answer it
-acpmux session allow NAME [OPTION] | acpmux session deny NAME
+acpmux pending                                                # every pending permission, and how to answer it
+acpmux session deny NAME                                      # an allow is the cmux app's alone (the chat's permission card)
 acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"], "default": "approve"}'
+acpmux session limits NAME [--max N | --clear]                 # sub-sessions running at once (more wait), running and queued now
 acpmux session tag NAME task=review --ttl 3600; acpmux ls --tag task=review
 acpmux ls --status running | --pending                        # filters; --json for the full records
 acpmux session tail NAME --since <sessionId>:<seq> --follow   # raw events as JSON lines; a cursor past the log is exit 2
@@ -171,31 +227,88 @@ and the subscribe. `done` means a turn ended while no client was attached. `send
 `prompt_stalled` (exit 1) when the agent produces nothing for 30 s (`--stall 0` disables); the
 turn keeps running. `run --retries N` retries only agent-internal errors that produced nothing.
 
+The daemon supports durable wake subscriptions through the local socket methods
+`_acpmux/watch_add`, `_acpmux/watch_ls`, and `_acpmux/watch_rm` (`durable-watches-v1`).
+Add takes `to`, explicit nonempty `sessions` (including `HOST/name`), `until`, optional
+`match`, and `once` (only true is supported). It delivers batched ordinary messages with reply excerpts
+and inspection commands. Watches and undelivered messages survive restart; an offline peer
+produces one notice without resolving. Failed deliveries remain visible in the list and retry
+on a relevant session/peer change or restart. A one-shot watch is removed after delivery.
+Unreadable watch state is preserved as `watches.json.bad-<timestamp>`; the daemon starts
+with no watches. Older cursor fields default safely. Peer replay uses eight workers.
+The CLI and MCP watch tools are not exposed yet; `acpmux wait` remains the script interface.
+
 Agents spawned by acpmux get `ACPMUX_ENV=1`, `ACPMUX_SESSION_ID`, `ACPMUX_SESSION_NAME` and
 `ACPMUX_SOCKET`, and `@` names that session (`acpmux last @`), so an agent can drive its own
-session and siblings. The event log carries `turn_started` and `turn_result`
+session and siblings. A session an agent starts (`acpmux new` in its shell, or its
+`start_session` tool) records that session as its lineage `parent`, with the tree's `root` and
+its `depth`; `ACPMUX_TOOL_CALL_ID`, when the harness sets it, names the tool call that started it. The event log carries `turn_started` and `turn_result`
 (`completed|cancelled|failed`); a daemon that restarts mid-turn writes
 `turn_result failed outcome_unknown` so nobody replays a prompt that may have run. A turn a
-connection error cut off ("stream disconnected", a refused or reset connection, a 502/503/504)
-goes on by itself: after `autoResumeDelaysMs` (default 10 s, 1 min, 5 min, 20 min; `[]` turns it
+connection error cut off ("stream disconnected", a refused or reset connection, a 502/504), or
+that the provider or the gateway had no capacity for (HTTP 503 or 529, `overloaded_error`, "no
+non-exhausted ... accounts", "at capacity"), goes on by itself in the same session: after `autoResumeDelaysMs` (default 10 s, 1 min, 5 min, 20 min; `[]` turns it
 off) the chat gets one prompt telling the agent to check what finished and continue, with prompt
 id `<promptId>~resume-<n>` and `_meta.provenance.kind` `auto_resume`. Stop, closing the chat, or
 anything else run in it meanwhile cancels it, and a continuation that completes resumes the
-prompts the cut turn held (`hub/auto_resume.rs`). A
+prompts the cut turn held (`hub/auto_resume.rs`). While it waits the session row's `retry` is
+`{attempt, of, reason, nextAt, promptId, turnId}` (`reason` `capacity`, `transport` or
+`agent_exited`), null otherwise. Usage limits and sign-in failures never retry this way.
+`acpmux retry NAME` (`_acpmux/retry {sessionId}`, the Retry button; the sub-session tool
+`retry_session`) retries a failed last turn now, under the caller's rules, taking over a waiting
+retry: the failed prompt goes again as its next `~resume-<n>` (a continuation when the turn had
+output, joined agent messages or hidden context); `retry.busy` while a turn or a retry runs,
+`retry.stopped` when Stop comes before it starts, `retry.nothing_failed` when nothing failed.
+With `subagentId` (`acpmux retry NAME --subagent ID`, `retry_session {subagent}`; capability
+`subagent-retry-v1`) it resumes that failed subagent instead, by its id or agent id: a waiting
+automatic retry fires now, else one more goes, as the prompt the automatic one sends
+(provenance `subagent_retry` with `manual: true`, prompt id `subagent-retry-...`); it answers
+once that turn started and never queues. It refuses `retry.busy` while a turn runs or is about to
+start (Claude Code's own too), a prompt waits, a continuation may fire, the chat moves, a
+sub-session's run slots are full, or that subagent's retry is under way;
+`retry.nothing_failed` (`data.why`: `closed`, `running`, `resumed`, `replaced`, `ended`,
+`forgotten`, `not_retryable`, `skipped`) and `retry.unknown_subagent`, never the chat's own
+turn. A
 `notifyCommand` in the config runs on a permission request and on a turn that ends
 unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 `agentStartTimeoutMs` (default 90000) bounds a cold agent start (spawn, `initialize`,
 session load or new, config replay): past it the request fails with code -32000 and
 `data.reason` `deadline_exceeded` (`data.wait` `agent_start`), the agent is ended, the
 session stays open, and the log gets `agent_start_timed_out`.
+`silentTurnMs` (default 90000; 0 turns it off): a turn whose model shows no sign of work
+(no message, thought, tool call, plan, compaction or request, and no harness line only a
+responding model produces, such as Claude's stream and thinking or Codex's moderation
+notice; the agent's own usage and turn notices do not count) for that long after its
+prompt (a stalled model) logs `turn_silent` {turnId, silentMs} once, so a client can say
+the model has not answered. The model's first sign after it logs `turn_heard` {turnId}.
+`stalledTurnMs` (default 600000; 0 turns it off): a running turn with no tool call in
+flight whose model has shown no sign for that long has stalled: `lane.stalledSince` (and
+`turn.stalledSince`) say since when, and the lane's state stays `working`. A long build in
+one tool call is in flight, so it never stalls. It is checked when a summary is read, with
+no timer.
+`stalledTurnEndMs` (default 21600000, 6 h; 0 turns it off): a running turn whose model has
+shown no sign of work, counted the same way, for that long (four times that while one of its tool
+calls has not ended; also across a daemon restart: an adopted
+turn's count and start come from its log) ends as failed, `turn_result` `detail` `stalled`
+with `stalledMs` and `errorSource` `acpmux`. The agent gets the cancel and the turn ends even
+if it never answers. Only a turn nobody holds: no client that shows the chat, no permission or
+secret waiting, and its recorded owner (a sub-session's parent, the session a `spawnedBy` tag
+names) not running or waiting. The chat stays open and its idle agent exits as any unused one
+does; the next prompt resumes it.
+Files dropped into a chat (`_acpmux/file_put`, under `<home>/uploads/<session>/`) are
+deleted with the chat (`_acpmux/kill` with purge) and once older than `uploadsMaxAgeDays`
+(default 30; 0 keeps them), checked at the daemon's start and daily.
 
 A chat whose harness never titles it (Claude Code's `-p` stream-json has no title
-event) gets a 3-6 word title once, after its first completed turn, logged as `titled`.
-`titles.command` (an argv reading the request on stdin and printing the title; env
-`ACPMUX_TITLE_COMMAND` wins) makes it; unset, the chat's own Claude Code profile runs
-`-p --model haiku` (`titles.model`) with no tools, MCP or session file. A harness title
-always wins, a chat titled before this (or adopted) keeps its title, and
-`titles.generate: false` turns it off.
+event) gets an instant first-message placeholder, then a 3-6 word model title, logged
+as `titled`. A thin first message may get one refresh after its first completed turn;
+later turns never retitle it. `titles.command` (an argv reading the request on stdin
+and printing the title; env `ACPMUX_TITLE_COMMAND` wins) makes it; unset, `_acpmux/complete`
+uses the harness's cheap model (Haiku for Claude, a small Codex model where available)
+with no tools, MCP or session file. A harness or manual title always wins, a chat titled
+before this (or adopted) keeps its title, and `titles.generate: false` turns it off.
+The daemon logs the title model, elapsed time, and estimated input/output token cost for
+each generated title.
 
 ## TUI
 
@@ -428,7 +541,7 @@ padding are never highlighted or copied. The composer grows to 12 rows before it
 ## Bring your own harness
 
 Any harness can be added with one profile file (`~/.config/cmux/harnesses/<id>.toml`), checked
-with `acpmux harness doctor <id>` (also `cmux harness …`). Schema, secrets, terminal harnesses,
+with `acpmux harness doctor <id>` (also available under the `cmux harness` scope). Schema, secrets, terminal harnesses,
 folder profiles and the ACP adapter guide: [docs/add-your-harness.md](../../../docs/add-your-harness.md).
 
 Your own model endpoint is a harness too (a Chief can use it as its backend):
@@ -549,8 +662,9 @@ allows four, so a client has room for one.
 ### Bring your own ACP harness
 
 Every harness is a `harnesses` entry in `~/.acpmux/config.json`. Discovery fills in the ones on
-PATH (Claude Code, Codex, OpenCode, pi, oh-my-pi, prime-agent, Gemini, `sr claude proxy`); a
-configured entry always wins over a discovered one. A complete entry:
+PATH (Claude Code, Codex, OpenCode, pi, oh-my-pi, prime-agent, Gemini, `sr claude proxy`, and
+Muse Code through the [cmux-muse-acp](https://github.com/manaflow-ai/cmux-muse-acp) adapter
+`muse-acp`, else Muse Code in a terminal tab); a configured entry always wins over a discovered one. A complete entry:
 
 ```jsonc
 {
@@ -761,16 +875,60 @@ The simplest peer is an SSH host, and `host setup` does the whole install from t
 ```sh
 acpmux host setup HOST                 # scp the binary, write config + launchd plist, start it, add the peer
 acpmux host ls                         # connected/offline, remote build, and "outdated" when it lags yours
+acpmux host status [HOST]              # each host asked live: reachable, round trip, disk, load, live sessions, build
 acpmux host update --all               # push the current binary to every ssh peer and restart it
+acpmux host update HOST --if-idle --binary-dir DIR  # push DIR/acpmux-<target>, unless a session there is mid-turn (not counting the one running this)
+acpmux host update HOST --keep-newer --binary-dir DIR  # never a move back: a later day's build or one with local changes stays (current)
 acpmux ls                              # HOST/session-name next to local sessions
 acpmux new -m claude --host HOST "…"   # start a session there; `ensure NAME --host HOST` too
 acpmux attach HOST/session-name        # or plain `acpmux attach` for the full sidebar
 acpmux session export HOST/name        # the bundle is fetched to ~/.acpmux/bundles/HOST-<id>
 ```
 
+On a Mac running cmux NEXT, `--group` puts a remote chat in a local sidebar
+workspace group:
+
+```sh
+acpmux new --host HOST -m codex --group "Remote demo" -d "say hi"
+```
+
+The local `cmux agent open` receives the session ID mirrored by the local
+daemon; the agent stays on HOST. The group is joined or created, and opening
+the workspace may move focus. Add
+`--name demo --reuse` when rerunning should reuse the same
+session and row; an unnamed launch creates a new session each time. The
+invoking Mac needs `cmux` on PATH and the app must use the daemon that mirrors
+HOST. A failed sidebar open warns without stopping the agent; retry the
+printed `cmux agent open` command. Wrappers executing acpmux on HOST should
+omit `--group` remotely and open the returned ID on the controller Mac after
+creation. See [remote agents](../../../docs/remote-agents-and-cloud.md) for
+native tab commands and connection diagnostics.
+
 `acpmux --version` prints the build id (`git hash+dirty date`), and peers compare it in the
 initialize handshake, so a "Method not found" from a peer names the build gap instead of a
-missing feature. `host setup` needs ssh + scp access and a Mac or Linux box with `launchctl`
+missing feature. `host update` skips a peer that already runs the same commit, installs a
+binary only once it runs on the peer, keeps the binary it replaces as `~/.local/bin/acpmux.prev`, and puts it back when the restarted daemon does
+not answer with the new build. A daemon that runs under a hand-written `acpmux*.service` unit is
+moved to the standard `acpmux.service` (its home, socket and drop-ins carried over, agents kept).
+A cmux Cloud VM is never updated this way (`cloudMachine`): `cmux link machine update --to-bundled` owns it.
+A machine that is not yours to update now (reserved for someone else, or someone else's) is held:
+`acpmux host hold NAME --reason TEXT [--until 2026-10-28T23:59:59Z]` (in `~/.acpmux/update-holds.json`,
+by peer name or ssh host). `host update`, `--all` and the app's update queue then answer `held` for it
+without reaching it, so its daemon is never restarted; `--release` (or the `--until` time) ends the hold.
+A Linux host that runs `acpmux.service` also gets `acpmux-update.timer` from `host setup` and
+`host update`: every 15 minutes it runs `acpmux host self-update`, which downloads the newest
+daemon-tested feat-cmux-next build (`cmux-tui/channels/feat-cmux-next.json` on files.cmux.com)
+when the installed binary differs, checks its sha256 and updates the daemon the same way, rollback
+included. A build pushed by hand is replaced by the channel's at the next run;
+`host setup --no-auto-update` (the file `~/.acpmux/no-auto-update`) keeps a host off the timer.
+One update of a host runs at a time: the timer, `host update`, `host setup` and `host enroll --fix`
+take the host's update lock (a lease in `~/.acpmux`, kept by the update's connection or the timer's
+process; it needs `flock` or `perl` on the host), and one that finds it held changes nothing
+(`host update`: `updateRunning`). Every step checks the lease on the host first, so an update whose
+connection dropped stops (`lockLost`). The updates reach the daemon through the
+`ACPMUX_HOME` and `ACPMUX_SOCKET` that `acpmux.service` and its drop-ins set.
+`--json` reports each peer's `outcome`: `updated`, `current`, `busy`, `held`, `needsBinary`,
+`rolledBack` or `failed`. `host setup` needs ssh + scp access and a Mac or Linux box with `launchctl`
 (Linux hosts run `acpmux daemon` under whatever supervisor you use). Hosts added by hand still
 work: `acpmux host add HOST ssh://HOST` (`ssh://user@host:port` is fine) reads the remote token
 over the same ssh access.
@@ -787,6 +945,21 @@ session on that peer, and the `Ctrl-l` picker lists remote harnesses as `HOST/ha
 picking one starts the session there. Peers reconnect with backoff, the tunnel included; while
 one is down its sessions show `unreachable`, and a purge on either side removes the session
 everywhere. Peers are saved in `config.json` under `peers`.
+
+`acpmux host status` (also the hidden `peer status` alias, with `--json`) is the check to run before remote work
+and after a peer request fails. It asks every connected peer `_acpmux/host_health` at once,
+with 5 s each, and lists this machine first. Each row has:
+- whether the peer is reachable, and the round trip (`latencyMs`);
+- free and total space on the disk that holds acpmux's home;
+- load (1/5/15 minutes) and CPU count;
+- live sessions;
+- version, build and `outdated`.
+
+An offline peer's row gives its link state and the next command (`acpmux host doctor HOST`).
+A peer on an older build that lacks the method shows as reachable, and names
+`acpmux host update HOST`. A remote session's `--cwd` and worktrees are on the peer's disk
+(`~/.cmux/worktrees/<project>/<name>` there). There is no move from one peer to another:
+`session export HOST/name` and `session import DIR` bring a session here.
 
 A daemon needs a working harness. launchd, the app, the Chief and a non-login ssh shell start the
 daemon with a bare environment, so every daemon reads the login shell's environment
@@ -815,6 +988,39 @@ fallback instead of failing over into a launcher that dies at once. When a subro
 known, the launcher instead becomes a copy of `claude` routed through that server, but only when
 `claude` is acpmux's own adapter: `claude-sr` never becomes an ACP adapter, and the pool never
 falls back onto one.
+
+### Messages to other sessions: the outbox
+
+`acpmux send --no-wait NAME` is how one session (or a person, or a script) messages another,
+here or on any peer, and it acks within a second whatever the target is doing:
+
+1. **Enqueue.** The CLI sends `_acpmux/send_queue {request}` to its own daemon: the
+   `session/prompt` params it would have sent, with a prompt id. The daemon checks that the
+   target is a session here, one a peer lists, or one on a peer that is down now, records the
+   delivery in `outbox.json` beside the sessions, and answers `{deliveryId, target, status}`.
+   Only the unix socket may queue.
+2. **Ack.** That answer is the ack: the message is the daemon's to deliver from then on, across
+   a restart too. The CLI waits half a second more for a target that takes it at once, so a local
+   send still prints `steered` or `queued`.
+3. **Deliver.** In the background the daemon sends the prompt over its own connection, as the
+   sender's session when the sender proved one, so every rule of a direct send applies; a peer's
+   session is forwarded as usual. An attempt ends on the target's `_acpmux/prompt_accepted`,
+   which a peer now passes back as soon as it takes the prompt, not when its turn ends.
+4. **Retry and dedupe.** A connection error, a peer that is down and a target that does not
+   answer within 120 s are tried again after 2 s, 5 s, 10 s, 30 s, 1, 2, 5, 10 and 15 minutes (about
+   34 minutes in all), always with the same prompt id and `resend`, so a target that took an
+   earlier attempt answers with that one and never runs it twice. Sending the same prompt id
+   again returns the first delivery. A refusal (no such session, the folder's trust, a bad
+   prompt, a full agent pair) fails the delivery at once. A paused agent pair leaves it `held`:
+   the target's daemon runs it when the person resumes the pair, so it is never sent again from
+   here. `--no-wait` prints a refusal or a hold that comes within half a second as its error, as
+   a direct send did.
+5. **Status.** `acpmux send --status ID` (`_acpmux/send_status {deliveryId, waitMs?}`) reads it.
+   Delivered, held and failed deliveries are kept for a day.
+
+Before this, a `--no-wait` send to a peer waited for the peer's whole turn: the forwarded
+`session/prompt` answers only when the target's turn (or a steer's step) ends, and the peer's
+`_acpmux/prompt_accepted` was dropped on the way back.
 
 ## Claude Code: native stdio backend
 
@@ -849,6 +1055,25 @@ plugin `cmux` with the skills `cmux:cmux-browser` and `cmux:cmux-cua`. Set
 profile's or preset's `env` to turn them off for that profile only. A Claude profile whose
 `argv` has `--strict-mcp-config` also gets none of them, so it keeps exactly the servers its
 own `--mcp-config` names.
+
+Every local session also gets the `acpmux` MCP server (`acpmux acpmux-mcp`, `acpmux_mcp.rs`),
+so an agent messages another lane or session with a tool call instead of piping text into
+`acpmux send --no-wait` in a shell. Behind the `cmux` server its tools are:
+
+- `acpmux_send {to, text, steer?}`: message a session by name, id or `host/name`. Like
+  `acpmux send --no-wait`, it hands the message to this daemon's outbox (`_acpmux/send_queue`),
+  which delivers it as this session and retries a slow target or a peer that is down. It returns
+  the `promptId` and delivery id once the delivery settles (steered in, queued, or a new turn),
+  or after 5 s with the message on its way; it never waits for the reply. `steer` defaults to true.
+- `acpmux_ls {status?}`: one line per session on this machine and its peers.
+- `acpmux_last {name, count?}`: a session's last replies.
+- `acpmux_info {name}`: a session's state, as `acpmux session info`.
+
+Each tool is the request the agent's own `acpmux` CLI makes, on this daemon's socket, with the
+session's caller token. The tools can do nothing that CLI can't, and the receiver's chat
+records a sent message as this agent's (`session_message`), never as the person's. A
+remote-origin session gets none of cmux's tools, this server included. The agent pane draws
+an `acpmux_send` call as the collapsed "Sent to NAME" message row.
 
 Stopping a session kills the agent's whole process group, so background shells the agent
 started stop with it. Resume afterwards is exact, but the agent no longer remembers those
@@ -905,9 +1130,21 @@ When no config exists, harnesses are imported from `~/.acpx/config.json` (its `a
 
 - `permissionPolicy`: `ask` routes `session/request_permission` to attached clients and waits.
   `approve-all`, `approve-reads`, `approve-edits` (reads and edits auto, shell asks), and `deny-all` answer locally. Per-session override with
-  `acpmux set NAME policy=...`.
+  `acpmux set NAME policy=...`. A session an agent starts from inside its own session (`acpmux new|run`, a local `dispatch`,
+  `--parent`, the `start_session` tool), with no policy or mode of its own, inherits that session's policy (or a narrower
+  family default) and mode (on another family, the same level: full access, asking, or the harness's own), never wider;
+  a start with no proven session (no caller token) is unchanged (`hub/start_mode.rs`, "Inherit").
 - `store.mode`: `local` (default) or `memory`. Local writes `sessions/<id>/session.json` and
   append-only `events/NNNNNN.ndjson` segments.
+- `store.closedLogDays`: days a closed chat's event log is kept whole (default 14; 0 keeps every
+  log whole). After them its log is compacted: the harness's raw lines (`claude.*`, `codex.*`) and
+  tool call strings over 2 KB (outputs, file text, diffs; their first 512 bytes stay) are removed,
+  and everything else stays with its sequence number: the prompts, the agent's messages, the turn
+  and status records, and `session.json`, so the chat still lists, opens and resumes. A chat with
+  a running agent, an attached client, a turn, queue or watch is never touched. `acpmux daemon
+  retention` runs a pass; `--dry-run` only reports what it would free; `--archive DIR` keeps the
+  old segments under `DIR/<chat id>/<pass>/events/`; `--older-than-days N` and `--only CHAT` narrow it.
+  Read when the daemon starts.
 - `websocket`: optional. The same protocol over WebSocket text frames, for remote clients such
   as a dashboard or a Durable Object. Put it behind a tunnel; the token is a bearer token.
 
@@ -930,16 +1167,20 @@ Extensions:
 
 | Method | Purpose |
 | --- | --- |
-| `_acpmux/status`, `_acpmux/harnesses`, `_acpmux/sessions` | Daemon and fleet state; status also reports `ready`, `loginEnv` and `listen`. |
-| `_acpmux/attach {sessionId, afterSeq?, beforeSeq?, limit?, kinds?, eventStream?}` | Subscribe and get the session detail, a page of events, and `hasMore`. |
+| `_acpmux/status`, `_acpmux/harnesses`, `_acpmux/sessions` | Daemon and fleet state; status also reports `ready`, `loginEnv`, `listen` and `capabilities`. |
+| `_acpmux/attach {sessionId, afterSeq?, beforeSeq?, limit?, maxBytes?, kinds?, eventStream?}` | Subscribe and get the session detail, a page of events, and `hasMore`. |
 | `_acpmux/detach`, `_acpmux/watch {enabled}` | Unsubscribe; or receive `_acpmux/session_changed` for every session. |
+| `_acpmux/typing {sessionId, on}` | A person in an attached chat starts or stops typing ([presence](#chat-presence)). At most 2 calls a second per connection (`typing.rate_limited`); an `on` lapses after 8 s. |
 | `_acpmux/harness/inventory/watch {enabled}` | Local socket only: [sanitized cached inventory snapshots](docs/inventory-watch.md), with monotonic per-run revisions and no health checks or CLI execution. Requires `harnessInventoryWatch`. |
-| `_acpmux/events {sessionId, afterSeq?, beforeSeq?, limit?, kinds?}` | Page through the log, forwards or backwards, with `hasMore`. |
+| `_acpmux/events {sessionId, afterSeq?, beforeSeq?, limit?, maxBytes?, kinds?}` | Page through the log, forwards or backwards, with `hasMore`. A page ends at `maxBytes` of JSON (default 1 MiB, at most 4 MiB). |
 | `_acpmux/attachment {sessionId, id}` | An image a prompt of the session sent, as `{mimeType, data}` (base64). `user_message` names a prompt's images as `images: [{id, mimeType, name?}]`; the bytes are kept once by SHA-256 under `<ACPMUX_HOME>/attachments`. Only an id the session's own log names is read. |
 | `_acpmux/info`, `_acpmux/rename`, `_acpmux/kill {purge}`, `_acpmux/set_policy` | Session control. |
 | `_acpmux/queue_remove {promptId}` | Withdraw a queued prompt before its turn starts: `removed` is false once it started. Its `session/prompt` answers `cancelled` with `_meta.acpmux.withdrawn`, and the log records `queue_removed`. |
 | `_acpmux/permission_respond {sessionId, permissionId, optionId}` | Answer a request announced by `_acpmux/permission_pending`. Any client may deny or cancel; only the cmux app's connection (it presents the app's per-launch person key) may allow. Others get `permission.person_required` ("approve this on the Mac app") and the request stays pending. The same rule guards every grant that widens what runs without asking (policy, rules, modes, defaults). |
 | `_acpmux/export {sessionId, dest}`, `_acpmux/import {path, name}` | Bundles. |
+| `_acpmux/file_put {sessionId, fileName, data}` | Save a file the person dropped into the chat (base64, at most 10 MiB) on the machine that runs it, owner-only under `<ACPMUX_HOME>/uploads/<sessionId>/<random>/<fileName>`, and answer `{path}`. A peer's chat is forwarded there (only to a peer whose `initialize` features list `filePut`; else `Method not found`, `data.reason: "filePut.unsupported"`). Not from a Web connection (`filePut.remote`). Nothing deletes uploads yet. |
+| `_acpmux/media_open {sessionId, path}` | Open an image or video the chat names, on the machine that runs it, and answer `{handle, size, mimeType, identity}`. Relative paths start in the chat folder; absolute paths may be inside that folder, `/tmp`, the user's home, or the chat uploads. Every component is opened with `O_NOFOLLOW`, the opened file must be a regular file with one link, inside those roots and not a dot name, key file or `~/Library` path, and its bytes must be png, jpeg, gif or webp (at most 10 MiB) or mp4, mov, m4v or webm (at most 200 MiB). At most 8 handles per connection, each closed after 2 minutes idle and all at disconnect. A peer chat goes to the peer only when its `initialize` features list `mediaRead` (else `mediaRead.unsupported`); never from a Web connection (`mediaRead.remote`). |
+| `_acpmux/media_range {sessionId, handle, offset, length}` | Read 1 to 6 MiB of an open handle and answer `{offset, size, identity, data}` (base64), `size` and `identity` repeating the open. A file changed since the open (device, inode, size or mtime) is refused (`media.changed`) and its handle closed; the range that reaches the end closes it too. |
 | `_acpmux/peers`, `_acpmux/peer_add {name, url, token}`, `_acpmux/peer_remove {name}` | Mirror remote daemons. |
 | `_acpmux/shutdown` | Stop the daemon. |
 
@@ -949,6 +1190,22 @@ records such as `user_message`, `status`, `turn_result`, `permission_request`),
 recordKind, seq, session}` (kind `queue` for queue changes, `permission_resolved` for automatic
 approvals) and `_acpmux/permission_pending` with `via: "watch"` for sessions they are not
 attached to.
+
+<a id="chat-presence"></a>Chat presence (chat multiplayer, `hub/presence.rs`): attached
+connections hear `_acpmux/presence {sessionId, participants: [{id, name, devices, viewing,
+typing}]}` on every change, and `_acpmux/attach` answers the same object as `presence`. An entry
+is kept per connection and author: `_acpmux/view` and `_acpmux/typing` name their person in
+`_meta.acpmux.author {id, name, login?, node?}`, which only the unix socket and a peer daemon
+forwarding for its own unix socket or app may send (`author.origin_refused` otherwise); a caller
+with no author is `owner`, and a visible attach is the owner viewing. A view with an author
+changes only presence, never `unread`, so a link that carries other people attaches with
+`visible: false` and names each of them in `_acpmux/view`. An entry goes when it neither views
+nor types, when its connection detaches or closes. At most 32 people besides the owner per chat
+(`presence.full`).
+Presence is never written to the log, `_acpmux/events` or an export. Only a daemon's own chats
+have it: a peer daemon's link carries all of that daemon's clients, so it makes no entry, its
+`_acpmux/typing` and authored `_acpmux/view` answer `presence.peer_unsupported`, and a chat that
+lives on a peer attaches with no participants.
 
 Paging for chat clients: `beforeSeq` returns the newest `limit` records before it, oldest first,
 and `hasMore` says older ones exist. `kinds` filters records before `limit` counts them:
@@ -963,7 +1220,10 @@ carry `turnId` (and `promptId`); `turn_result.turnSeq` is the seq of `turn_start
 turn's `turn_result` has `errorText` and `errorCode`, and `errorChunkSeqs` when the harness had
 streamed that same text as an ordinary message. A terminal error that Codex reports in-band
 (`_meta.codex.error` without `willRetry`) fails the turn even when Codex then ends it normally.
-Session summaries carry `lastTurn`; `acpmux wait` exits 1 when a resolved session's last turn failed. When Codex abandons a partial answer after a
+Session summaries carry `lastTurn`; `acpmux wait` exits 1 when a resolved session's last turn failed, and
+`--print` then prints that turn's error (`error` under `--json`), never the reply of the turn
+before it, with the automatic retry that waits, if one does (`retry`: what it waits out and when
+it runs). When Codex abandons a partial answer after a
 dropped stream and redelivers it, acpmux records `message_superseded {oldMessageId,
 newMessageId}` before the redelivery. Other harnesses send no such signal.
 
@@ -974,8 +1234,36 @@ to descriptor N when bound. SIGTERM (even when the launcher left it blocked) sen
 group, SIGKILL after 2 s, saves sessions and exits within 5 s.
 `acpmux daemon schema` prints the full RPC schema.
 
+`initialize` (`_meta.acpmux.capabilities`) and `_acpmux/status` (`capabilities`) list the
+protocol surfaces this build serves by stable id, as cmux-tui's `identify` does: `acpmux-v1` for
+the base a chat client needs, then one id per surface such as `queue-edit-v1` or
+`permission-groups-v1` (`src/capabilities.rs` names the methods each covers). An id never
+changes meaning; a changed contract gets a new one. `acpmux capabilities --json` prints the same
+list with no daemon running, which the cmux app bundle records for its web pages.
+
 Any other method that names a `sessionId` is forwarded to the agent unchanged, so vendor
 extensions keep working.
+
+### Typed errors
+
+An error a client sees can say what kind of failure it is and what to do, in three keys added
+beside what was there: on a request's JSON-RPC error `data`, on the `turn_error` and `turn_result`
+records of a failed turn, and so on the session's `lastTurn`. The error's own message (`error`,
+`errorText`) stays a whole sentence, so a client that reads only that still reads well.
+
+- `errorKind`: `disk.full` (a write hit a full disk or quota), `disk.low` (`daemon status`:
+  under `diskLowBytes`, 1 GiB by default, free on acpmux's disk), `peer.unreachable` (the peer
+  did not answer; the request was not sent), `daemon.restarting` (the daemon is
+  shutting down), `spawn.failed` (the harness's program or folder is missing) or `agent.exited`
+  (the agent's process ended mid-turn). A client treats a kind it does not know as a plain error.
+- `recovery`: one sentence with the action, e.g. "The disk is full. Free space on the disk that
+  holds /home/me/.acpmux: 0.9 GB free of 252 GB. acpmux's chats in /home/me/.acpmux/sessions
+  use 3.0 GB; `acpmux session stop <session> --purge` removes a chat you no longer need."
+  acpmux never deletes anything itself.
+- `details`: only the keys that apply: `path`, `freeBytes`, `totalBytes`, `peer` (its name in
+  `acpmux host ls`), `lastSeenAt` (RFC 3339), `binary`, `cwd`, `exitCode`,
+  `signal`, `queued` (the message waits in the outbox and goes when the peer or daemon is back),
+  `retryAfterMs`. The schema is `ErrorDetails` in `spec/acpmux-protocol.json`.
 
 ## Persistence and portability
 

@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// Lawrence 2026-10-20: "hovering on workspace group or tab group for a while should still show the
 /// card, like summary stuff, and should be fully customizable too." Resting on a sidebar group's
@@ -11,15 +12,20 @@ import Testing
     private static let groupID = GroupID("grp-agents")
 
     private static func sidebar(clock: ManualClock) -> (SidebarListView, NSWindow, HoverCardCoordinator, SidebarRow) {
-        _ = NSApplication.shared
         var working = SidebarWorkspace(id: WorkspaceID("ws-1"), title: "api", branch: "main", activity: .working)
         working.ports = ":3000"
         let members = [working,
                        SidebarWorkspace(id: WorkspaceID("ws-2"), title: "web", branch: "feat-ui", unread: .count(2)),
                        SidebarWorkspace(id: WorkspaceID("ws-3"), title: "docs")]
         let group = SidebarGroup(id: groupID, name: "Agents & routing", workspaces: members)
+        return sidebar(clock: clock, nodes: [.group(group)], header: groupID)
+    }
+
+    private static func sidebar(clock: ManualClock, nodes: [SidebarNode],
+                                header id: GroupID) -> (SidebarListView, NSWindow, HoverCardCoordinator, SidebarRow) {
+        _ = NSApplication.shared
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
-        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [.group(group)])], activeWorkspaceID: nil)
+        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: nodes)], activeWorkspaceID: nil)
         let list = SidebarListView(model: model)
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -34,7 +40,7 @@ import Testing
         list.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
         window.orderFrontRegardless()
         list.reload(animated: false)
-        let header = list.displayed.rows.first { $0.key == .group(groupID) }!
+        let header = list.displayed.rows.first { $0.key == .group(id) }!
         return (list, window, coordinator, header)
     }
 
@@ -125,5 +131,50 @@ import Testing
         clock.advance(by: .milliseconds(5_000))
         for _ in 0..<20 { await Task.yield() }
         #expect(coordinator.machine.shownTarget == nil)
+    }
+    private static func nested(_ id: GroupID, name: String, parent: GroupID? = nil, depth: Int = 0,
+                               _ members: [SidebarWorkspace] = []) -> SidebarNode {
+        var made = SidebarGroup(id: id, name: name, workspaces: members)
+        made.parent = parent
+        made.depth = depth
+        return .group(made)
+    }
+
+    /// Leo 2026-10-20: "cmux-next app · All idle · Workspaces: 0" over a group that holds workspaces. A
+    /// group's subgroups follow it in the section, so the card counted only the group's own rows: a
+    /// parent whose workspaces sit in subgroups read empty and idle.
+    @Test func aParentGroupsCardCountsTheWorkspacesInItsSubgroups() async throws {
+        let app = GroupID("grp-app"), branch = GroupID("grp-branch"), leaf = GroupID("grp-leaf")
+        let nodes = [
+            Self.nested(app, name: "cmux-next app"),
+            Self.nested(branch, name: "sidebar", parent: app, depth: 1,
+                        [SidebarWorkspace(id: WorkspaceID("ws-a"), title: "a", activity: .working)]),
+            Self.nested(leaf, name: "rows", parent: branch, depth: 2,
+                        [SidebarWorkspace(id: WorkspaceID("ws-b"), title: "b", unread: .count(1)),
+                         SidebarWorkspace(id: WorkspaceID("ws-c"), title: "c")]),
+        ]
+        let clock = ManualClock()
+        let (list, window, coordinator, header) = Self.sidebar(clock: clock, nodes: nodes, header: app)
+        defer { Self.tearDown(list, window, coordinator) }
+        Self.rest(list, on: header)
+        try await clock.waitForSleeper()
+        clock.advance(by: DesignSettings.shared.groupHoverCard.delay + .milliseconds(50))
+        try await Self.settle { coordinator.machine.shownTarget != nil }
+        let shown = try #require(coordinator.machine.shownTarget, "resting on the parent group showed no card")
+        let body = try #require(list.hoverCard.hoverCardBody(for: shown.id)?.view as? GroupHoverCardView)
+        #expect(body.lines.contains("Workspaces: 3"), "\(body.lines)")
+        #expect(body.lines.contains("Working: 1 \u{00B7} Unread: 1"), "\(body.lines)")
+    }
+
+    /// A group with nothing in it, nor in any subgroup, has nothing to summarize: no card opens.
+    @Test func anEmptyGroupShowsNoCard() async throws {
+        let empty = GroupID("grp-empty")
+        let nodes = [Self.nested(empty, name: "Later"),
+                     Self.nested(GroupID("grp-sub"), name: "inner", parent: empty, depth: 1)]
+        let clock = ManualClock()
+        let (list, window, coordinator, header) = Self.sidebar(clock: clock, nodes: nodes, header: empty)
+        defer { Self.tearDown(list, window, coordinator) }
+        let point = NSPoint(x: list.bounds.midX, y: (header.y + header.maxY) / 2)
+        #expect(list.hoverCardGroup(at: point) == nil, "an empty group offers a card")
     }
 }

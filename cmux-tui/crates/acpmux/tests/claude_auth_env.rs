@@ -519,8 +519,12 @@ async fn the_login_shell_is_cached_without_secrets_and_rerun_on_change() {
 async fn a_linked_login_environment_cache_is_never_trusted() {
     let dir = scratch("cache-link", "echo run >> \"$HOME/shell-runs\"\nexport NO_PROXY=plain\n");
     let config = json!({"harnesses": {}, "permissionPolicy": "deny-all"});
+    // The readiness line comes before the login environment resolves (the
+    // shell runs in `finish_startup`), and no agent spawn waits for it here:
+    // wait for startup to finish before the daemon stops.
     {
-        let _d = start_config(&dir, config.clone(), &[]).await;
+        let d = start_config(&dir, config.clone(), &[]).await;
+        startup_finished(&d).await;
     }
     let runs =
         || std::fs::read_to_string(dir.join("home/shell-runs")).unwrap_or_default().lines().count();
@@ -528,13 +532,36 @@ async fn a_linked_login_environment_cache_is_never_trusted() {
     let cache = dir.join("login-env.json");
     let planted = dir.join("planted-login-env.json");
     std::fs::copy(&cache, &planted).unwrap();
+    let mut planted_cache: Value =
+        serde_json::from_slice(&std::fs::read(&planted).unwrap()).unwrap();
+    planted_cache["vars"]["NO_PROXY"] = "from-linked-cache".into();
+    let planted_text = serde_json::to_string(&planted_cache).unwrap();
+    std::fs::write(&planted, &planted_text).unwrap();
     std::fs::remove_file(&cache).unwrap();
     std::os::unix::fs::symlink(&planted, &cache).unwrap();
     {
-        let _d = start_config(&dir, config, &[]).await;
+        let d = start_config(&dir, config, &[]).await;
+        startup_finished(&d).await;
     }
     assert_eq!(runs(), 2, "the daemon trusted a linked login cache");
+    assert_eq!(std::fs::read_to_string(&planted).unwrap(), planted_text);
+    assert!(!std::fs::symlink_metadata(&cache).unwrap().file_type().is_symlink());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Wait until the daemon reports its startup complete (`_acpmux/status`
+/// `ready`): a login shell it had to wait for has run by then.
+async fn startup_finished(d: &Daemon) {
+    let mut rpc = Rpc::connect(&d.socket).await;
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let status = rpc.call("_acpmux/status", json!({})).await;
+        if status["ready"] == true {
+            return;
+        }
+        assert!(Instant::now() < deadline, "the daemon never finished its startup: {status}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 }
 
 /// Wait up to `limit` for the daemon's login cache to hold `NO_PROXY=want`.
@@ -649,6 +676,34 @@ async fn an_rc_file_the_shell_rewrites_stops_being_read_again() {
         settled,
         "the daemon kept running the login shell ({settled} runs, then more)"
     );
+}
+
+/// The first health answer counts a Claude sign-in the login shell exports
+/// (hq#2569 #2), even when it is asked before the shell has answered: the
+/// health call waits for the daemon's startup, as its own check does,
+/// instead of reading an environment without the login shell. (A slow
+/// shell, 1.5 s here, is the case of a loaded machine or a heavy ~/.zshrc.)
+#[tokio::test]
+async fn the_first_health_answer_counts_a_sign_in_from_a_slow_login_shell() {
+    let dir = scratch("hl", "sleep 1.5\nexport ANTHROPIC_API_KEY=from-login-shell\n");
+    // A Claude CLI by path (no PATH harness finds it).
+    std::fs::create_dir_all(dir.join("bin")).unwrap();
+    write_executable(
+        &dir.join("bin/claude"),
+        "#!/bin/sh\n[ \"$1\" = --version ] && echo '2.1.0 (Claude Code)'\nexit 0\n",
+    );
+    let config = json!({"harnesses": {"cl": {"argv": [dir.join("bin/claude")]}},
+        "defaultHarness": "cl", "permissionPolicy": "approve-all"});
+    let d = start_config(&dir, config, &[]).await;
+    let mut rpc = Rpc::connect(&d.socket).await;
+    let health = rpc.call("_acpmux/harness/health", json!({})).await;
+    let row = health["harnesses"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| row["id"] == "cl"))
+        .unwrap_or_else(|| panic!("no cl row: {health}"))
+        .clone();
+    assert_eq!(row["auth"], "signedIn", "{health}");
+    assert_eq!(row["authDetail"], "an API key (ANTHROPIC_API_KEY)", "{health}");
 }
 
 /// A login shell that hangs: the daemon stops waiting after 3 s, and

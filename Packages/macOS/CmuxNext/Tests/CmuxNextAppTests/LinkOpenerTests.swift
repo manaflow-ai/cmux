@@ -6,11 +6,9 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// ``LinkOpener``, the one path every link and path open takes, against a real pane. A link or
-/// pick from a page (an agent chat, Home, the New Tab page, a Markdown or code page) opens as a
-/// tab of its pane, never a split nobody asked for (Leo 2026-10-20). A terminal's or a browser
-/// page's Cmd-click goes where `layout.linkPlacement` says: by default the item is made off-screen
-/// in the source pane and handed to the move into a split on its right (Lawrence 2026-10-20).
+/// ``LinkOpener``, the one path every link and path open takes, against a real pane: by default
+/// the item is made off-screen in the source pane and handed to the move into a split on its right
+/// (the source keeps showing what it showed); Same Pane opens it as a tab of the source.
 @MainActor struct LinkOpenerTests {
     private static func tree() -> DaemonTree {
         let pane = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 1), title: "~")])
@@ -30,12 +28,11 @@ import Testing
         return (services, pane)
     }
 
-    @Test func aCmdClickIsMadeForTheMoveToTheRightNotShownInTheSource() throws {
+    @Test func byDefaultTheItemIsMadeForTheMoveToTheRightNotShownInTheSource() throws {
         let (services, pane) = try Self.pane()
         defer { pane.teardown() }
-        services.linkOpener.placement = { .splitRight }
         var made: (PaneController, Bool)?
-        let opened = services.linkOpener.open(from: pane, cmdClick: true) { target, placed in
+        let opened = services.linkOpener.open(from: pane) { target, placed in
             made = (target, placed != nil)
             return true
         }
@@ -44,19 +41,17 @@ import Testing
         #expect(made?.1 == true, "the link opened as a tab over the source instead of moving right")
     }
 
-    /// Leo 2026-10-20: a pull request's link in a chat opened in a split; nothing asked for one.
-    @Test(arguments: [LinkPlacement.splitRight, .newColumn, .samePane])
-    func aLinkFromAPageOpensAsATabInItsPane(_ placement: LinkPlacement) throws {
+    @Test func samePaneOpensATabInTheSource() throws {
         let (services, pane) = try Self.pane()
         defer { pane.teardown() }
-        services.linkOpener.placement = { placement }
+        services.linkOpener.placement = { .samePane }
         var made: (PaneController, Bool)?
         services.linkOpener.open(from: pane) { target, placed in
             made = (target, placed != nil)
             return true
         }
         #expect(made?.0 === pane)
-        #expect(made?.1 == false, "a link from a page went to a split or column")
+        #expect(made?.1 == false)
     }
 
     /// A refusal (a file that is gone, a pane that holds no browser) reports false, so the caller

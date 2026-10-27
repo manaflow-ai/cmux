@@ -15,6 +15,8 @@ extension HomeChiefSettingsView {
         let home = muxHome
         // task-owner: one read off the main actor; ends when it is shown
         return Task { [weak self] in
+            // This Mac's acpmux harnesses, for a brain that runs here (a paired server's are its own).
+            if let self, source.isLocal { listedHarnesses = await listHarnesses() }
             let result = await Task.detached { () async -> Result<HomeChiefSnapshot, HomeChiefEngineError> in
                 do { return .success(try await source.read()) } catch let error as HomeChiefEngineError { return .failure(error) } catch { return .failure(.other(String(describing: error))) }
             }.value
@@ -50,6 +52,9 @@ extension HomeChiefSettingsView {
             guard let self, muxHome == home, self.source.isLocal == source.isLocal, self.source.place == source.place else { return }
             switch result {
             case .success(let snapshot):
+                if case let picked?? = fields["model"], let harness = snapshot.harness ?? snapshot.effective?.harness {
+                    recents.remember(picked, harness: harness)
+                }
                 show(snapshot)
                 onEngineChanged()
             case .failure(let error):
@@ -62,7 +67,7 @@ extension HomeChiefSettingsView {
     /// Says `error`; the pickers stay usable only when the brain answered before. A pick's error
     /// (`readable`: the brain answered, then refused) stays until the next change.
     func say(_ error: HomeChiefEngineError, readable: Bool) {
-        if !readable { for button in [harness, model, effort] { button.isEnabled = false } }
+        if !readable { for button in pickers { button.isEnabled = false } }
         note(error.text, kept: readable)
     }
 
@@ -74,6 +79,8 @@ extension HomeChiefSettingsView {
         let changed = failure.isHidden || failure.stringValue != text
         failure.stringValue = text
         failure.isHidden = false
+        // The avatar's tooltip opens below it, over this note: it steps aside while the note shows.
+        avatarButton.themedToolTip = nil
         changeFailed = kept
         if changed {
             var element: Any = NSApp as Any
@@ -88,20 +95,31 @@ extension HomeChiefSettingsView {
     /// picture's note, set after its open panel closed the card, waits for the next open.
     func cardClosed() {
         guard changeFailed else { return }
+        hideNote(resize: false)
+    }
+
+    /// Hides the note; the avatar's tooltip comes back.
+    func hideNote(resize: Bool = true) {
         changeFailed = false
         failure.isHidden = true
+        avatarButton.themedToolTip = HomeEngineStrings.changePicture
+        if resize { onResize() }
     }
 
     func show(_ snapshot: HomeChiefSnapshot) {
         shownEngine = snapshot
-        if !changeFailed { failure.isHidden = true }
+        if !changeFailed, !failure.isHidden { hideNote(resize: false) }
         // A harness check under way keeps the pickers off until it answers.
-        for button in [harness, model, effort] { button.isEnabled = checkingHarness == nil }
-        let shown = HomeChiefEngineTitles(snapshot)
+        for button in pickers { button.isEnabled = checkingHarness == nil }
+        let shown = titles(snapshot)
         fill(harness, shown.harnesses, current: snapshot.harness, defaultTitle: shown.defaultHarness, title: ChiefBackend.title(for:))
         showHarnessHint()
-        fill(model, shown.models, current: snapshot.model, defaultTitle: shown.defaultModel)
+        fill(model, shown.menu, current: snapshot.model, defaultTitle: shown.defaultModel)
         fill(effort, shown.efforts, current: snapshot.effort, defaultTitle: shown.defaultEffort)
+        fill(speed, [("fast", HomeEngineStrings.speedFast)], current: snapshot.speed == "default" ? nil : snapshot.speed,
+             defaultTitle: HomeEngineStrings.defaultValue)
+        if let row = speed.superview, row.isHidden == shown.offersFast { row.isHidden = !shown.offersFast }
+        reactionRows.show(snapshot)
         stats.stringValue = snapshot.turns.first.map(HomeEngineStrings.lastTurn) ?? HomeEngineStrings.noTurn
         // Which engine answered each recent reply (the trace's turn.end).
         replies.stringValue = snapshot.turns.isEmpty ? ""
@@ -135,13 +153,63 @@ extension HomeChiefSettingsView {
         }
     }
 
+    /// The Model popup: Default, then ``HomeChiefModelMenu``'s sections (a header is a section
+    /// header item, not a pick). The chosen model is selected in its own section, not in Recent.
+    func fill(_ button: NSPopUpButton, _ menu: HomeChiefModelMenu, current: String?, defaultTitle: String) {
+        button.removeAllItems()
+        button.addItem(withTitle: defaultTitle)
+        button.lastItem?.representedObject = nil
+        var selected = 0
+        var recent = false
+        for entry in menu.entries {
+            switch entry {
+            case .header(let title):
+                recent = title == HomeEngineStrings.recentSection
+                button.menu?.addItem(.sectionHeader(title: title))
+            case .model(let entry):
+                let item = NSMenuItem(title: entry.title, action: nil, keyEquivalent: "")
+                item.representedObject = entry.value
+                item.toolTip = entry.detail
+                button.menu?.addItem(item)
+                if !recent, selected == 0, entry.value == current { selected = button.numberOfItems - 1 }
+            }
+        }
+        button.selectItem(at: selected)
+    }
+
+    /// The pickers, in the card's order.
+    var pickers: [NSPopUpButton] { [harness, model, effort, speed] }
+
+    /// The rows' items for `snapshot`, with this harness's recent models.
+    func titles(_ snapshot: HomeChiefSnapshot) -> HomeChiefEngineTitles {
+        let harness = snapshot.harness ?? snapshot.effective?.harness
+        return HomeChiefEngineTitles(snapshot, recents: harness.map(recents.models(harness:)) ?? [], listed: listedHarnesses)
+    }
+
     @objc func picked(_ sender: NSPopUpButton) {
         let value = sender.selectedItem?.representedObject as? String
-        guard sender === harness else {
-            pick(sender === model ? "model" : "effort", value)
-            return
+        switch sender {
+        case harness: pickHarness(value)
+        case model: pickModel(value)
+        case speed: pick("speed", value)
+        default: pick("effort", value)
         }
-        pickHarness(value)
+    }
+
+    /// Sets the model `value` (nil: Default). A chosen effort the new model does not take, or
+    /// Fast on a model that has none, is cleared in the same write, so the next turn never
+    /// starts on a level the model refuses.
+    @discardableResult
+    func pickModel(_ value: String?) -> Task<Void, Never> {
+        var fields: [String: String?] = ["model": value]
+        guard var next = shownEngine else { return pick(fields) }
+        next.model = value
+        let after = HomeChiefEngineTitles(next)
+        if let effort = next.effort, !after.efforts.contains(where: { $0.value == effort }) { fields["effort"] = .some(nil) }
+        if next.speed == "fast", !after.offersFast || HomeChiefModelMenu.release(of: value ?? "", in: next.models)?.fast == false {
+            fields["speed"] = .some(nil)
+        }
+        return pick(fields)
     }
 
     /// Sets the harness `value` (nil: Default). A new harness starts on its own default model and
@@ -156,12 +224,12 @@ extension HomeChiefSettingsView {
     func pickHarness(_ value: String?) -> Task<Void, Never> {
         showHarnessHint()
         if Self.keepsHarness(value, shown: shownEngine) { return pick("harness", value) }
-        let fields: [String: String?] = ["harness": value, "model": nil, "effort": nil]
+        let fields: [String: String?] = ["harness": value, "model": nil, "effort": nil, "speed": nil]
         guard let value, source.isLocal, ChiefBackend(id: value) != nil else { checkingHarness = nil; return pick(fields) }
         let home = muxHome
         let title = ChiefBackend.title(for: value)
         checkingHarness = value
-        for button in [harness, model, effort] { button.isEnabled = false }
+        for button in pickers { button.isEnabled = false }
         note(String(format: HomeEngineStrings.harnessCheckingFormat, title), kept: true)
         // task-owner: the check, then one write; ends when its result is shown
         return Task { [weak self] in

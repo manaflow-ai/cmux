@@ -15,7 +15,8 @@ page (React acpmux client)
   -> AcpmuxPaneSocket over a RemoteAcpmuxWire (instead of the local WebSocket)
   -> AgentSessionAttachClient: its own connection to the tab's session daemon
      (server reach: SSH carrier -> remote-sidecar -> daemon Unix socket, ClientTransport::Unix)
-  -> daemon agent-session-* verbs (cmux-tui-core server/agent_session_attach.rs)
+  -> daemon agent-session-* verbs (cmux-tui-core server/agent_session_attach.rs; read-only
+     observation uses agent-session-observe-v1)
   -> one acpmux unix-socket link per attached tab (server/agent_session_link.rs)
 ```
 
@@ -25,9 +26,13 @@ page (React acpmux client)
 `session/cancel`, `_acpmux/permission_respond`. Every other method, and every frame that names
 another session, gets `remote.unsupported`. Daemon pushes become `_acpmux/event` and
 `_acpmux/permission_pending` notifications, so the page's own connect, replay and reconnect code
-runs unchanged.
+runs unchanged. A read-only viewer explicitly requires `agent-session-observe-v1` and sends
+`agent-session-observe`; it never falls back to writable `agent-session-attach`. On that wire,
+`session/prompt`, `session/cancel`, and `_acpmux/permission_respond` are refused locally, while
+records, permission notifications, and `session_changed` remain visible.
 
-Daemon verbs (cmux-tui/spec/commands.md "Agent session attach"): `agent-session-attach`,
+Daemon verbs (cmux-tui/spec/commands.md "Agent session attach"): `agent-session-attach` or the
+read-only `agent-session-observe`,
 `agent-session-events`, `agent-session-prompt`, `agent-session-cancel`,
 `agent-session-permission`, `agent-session-detach`; events `agent-session-record`,
 `agent-session-permission`, `agent-session-changed` (status and queue of that session only),

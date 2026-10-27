@@ -18,8 +18,9 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-caret-focus.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -45,7 +46,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   const browsers = new Map<string, Browser>();
   const stageURL = (entry: string, variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}&frame=component&width=760&theme=Catppuccin+Mocha`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant, frame: "component", width: 760, theme: "Catppuccin Mocha" })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -54,23 +55,11 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
-    for (const [name, engine] of engines) {
-      const browser = await engine.launch({ headless: true });
-      browsers.set(name, browser);
-      // The first load can run Vite's dependency optimizer and reload mid-compile.
-      const warm = await browser.newPage({ viewport: { width: 760, height: 600 } });
-      await warm.goto(stageURL("agent-pane.new-tab", "reasoning-chip"));
-      for (;;) {
-        try {
-          await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-          break;
-        } catch (error) {
-          if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-        }
-      }
-      await warm.close();
-    }
+    for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
+    // The first load can run Vite's dependency optimizer and reload mid-compile.
+    const browser = browsers.get("chromium") ?? browsers.get("webkit");
+    await warmGalleryFrame(vite, "agent-pane.new-tab", { browser, params: { variant: "reasoning-chip" } });
+    await warmGalleryFrame(vite, "agent-pane.composer", { browser });
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
@@ -119,7 +108,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
       foot: ".nt-box .nt-pickers",
     },
   ];
-  const CONTROLS = ":is(.acpmux-picker-button, .acpmux-mic, .acpmux-plan, .acpmux-fast)";
+  const CONTROLS = ":is(.acpmux-picker-button, .acpmux-mic, .acpmux-plan)";
   const TRANSPARENT = "rgba(0, 0, 0, 0)";
 
   const open = async (engine: string, stage: Stage, { rest = true } = {}) => {
@@ -129,13 +118,27 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
       timeout: 120_000,
     });
     await page.evaluate(() => document.fonts.ready);
+    await installPaintedFrames(page);
     if (rest) {
       await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
       await page.mouse.move(1, 1);
-      await page.waitForTimeout(250);
+      await settled(page);
     }
     return page;
   };
+
+  /** Resolves once a frame has painted since the last input and every transition or animation that
+   *  input started (a pill's fade, a ring's) has run out, so a read sees the look it comes to rest
+   *  in. Endless animations (a spinner) never settle, so they are left out. */
+  const settled = (page: Page) =>
+    page.evaluate(async () => {
+      await window.cmuxPaintFrame();
+      const finite = document
+        .getAnimations()
+        .filter((animation) => Number.isFinite(animation.effect?.getComputedTiming().endTime ?? Infinity));
+      await Promise.all(finite.map((animation) => animation.finished.catch(() => undefined)));
+      await window.cmuxPaintFrame();
+    });
 
   /** The page as the key window, or not: the field keeps DOM focus either way. */
   const setKey = (page: Page, key: boolean) =>
@@ -216,11 +219,14 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
             const bar = document.querySelector<HTMLElement>(foot)!;
             const mark = bar.querySelector<HTMLElement>(".acpmux-model .acpmux-picker-button .agent-mark");
             const model = bar.querySelector<HTMLElement>(".acpmux-model .acpmux-picker-button")!;
-            const effort = bar.querySelector<HTMLElement>(".acpmux-effort .acpmux-picker-button");
+            // The model button names its effort after the model (Leo 2026-10-20): the name is as
+            // muted as that effort label.
+            const name = model.querySelector<HTMLElement>(".acpmux-model-name") ?? model;
+            const effort = model.querySelector<HTMLElement>(".acpmux-model-detail");
             return {
               look: bar.dataset.footerLook ?? "",
               mark: mark ? getComputedStyle(mark).display : "none",
-              muted: !effort || getComputedStyle(model).color === getComputedStyle(effort).color,
+              muted: !effort || getComputedStyle(name).color === getComputedStyle(effort).color,
             };
           },
           { foot: stage.foot },
@@ -250,7 +256,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
           if (rest.background !== TRANSPARENT || rest.edge !== "none") wrong.push(`${button.label}: a pill at rest`);
           const box = (await page.locator(`${stage.row} ${CONTROLS} >> visible=true`).nth(button.index).boundingBox())!;
           await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-          await page.waitForTimeout(300);
+          await settled(page);
           const hovered = await look(page, stage, button.index);
           if (hovered.background !== tone) wrong.push(`${button.label}: hover ${hovered.background}, not ${tone}`);
           if (hovered.edge !== "none") wrong.push(`${button.label}: hover draws an edge`);
@@ -259,7 +265,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
               wrong.push(`${button.label}: hover also pills ${other.label}`);
           if ((await state(page, stage)).ring !== restBox) wrong.push(`${button.label}: hover changes the box`);
           await page.mouse.move(1, 1);
-          await page.waitForTimeout(300);
+          await settled(page);
         }
         await page.close();
         expect(wrong).toEqual([]);
@@ -275,7 +281,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
           // A key first, so a script focus counts as keyboard focus (:focus-visible) in both engines.
           await page.keyboard.press("Shift");
           await page.locator(`${stage.row} ${CONTROLS} >> visible=true`).nth(button.index).focus();
-          await page.waitForTimeout(250);
+          await settled(page);
           const focused = await look(page, stage, button.index);
           if (focused.background !== tone) wrong.push(`${button.label}: focus ${focused.background}, not ${tone}`);
           if (focused.edge !== "none") wrong.push(`${button.label}: focus draws an edge`);
@@ -296,21 +302,21 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
         expect(rest.focused, "at rest the field has no focus").toBe(false);
 
         await page.locator(stage.field).first().click();
-        await page.waitForTimeout(200);
+        await settled(page);
         const engaged = await state(page, stage);
         expect(engaged.focused, "a click focuses the field").toBe(true);
         expect(engaged.caret, "the focused field shows its caret").toBe(true);
         expect(engaged.ring, "the focused field draws the resting ring").toBe(rest.ring);
 
         await setKey(page, false);
-        await page.waitForTimeout(200);
+        await settled(page);
         const background = await state(page, stage);
         expect(background.focused, "the field keeps DOM focus in the background").toBe(true);
         expect(background.caret, "in the background the caret hides").toBe(false);
         expect(background.ring, "in the background the box draws the resting ring").toBe(rest.ring);
 
         await setKey(page, true);
-        await page.waitForTimeout(200);
+        await settled(page);
         const back = await state(page, stage);
         expect(back.caret, "key again, the caret is back").toBe(true);
         expect(back.ring, "key again, still the resting ring").toBe(rest.ring);
@@ -326,18 +332,18 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
         const rest = (await state(page, stage)).ring;
         await setKey(page, false);
         await page.locator(stage.field).first().focus();
-        await page.waitForTimeout(200);
+        await settled(page);
         const background = await state(page, stage);
         expect(background).toEqual({ focused: true, caret: false, ring: rest });
         // A key typed on the page means it is the key one, whatever hasFocus() said.
         await page.keyboard.press("Shift");
-        await page.waitForTimeout(200);
+        await settled(page);
         const typed = await state(page, stage);
         expect(typed.caret, "a key brings the caret back").toBe(true);
         expect(typed.ring, "a key brings no ring").toBe(rest);
         await setKey(page, false);
         await setKey(page, true);
-        await page.waitForTimeout(200);
+        await settled(page);
         const key = await state(page, stage);
         expect(key.caret, "key: the caret").toBe(true);
         expect(key.ring, "key: still the resting ring").toBe(rest);
@@ -351,7 +357,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
         const page = await open(engine, stage, { rest: false });
         const opened = await state(page, stage);
         await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-        await page.waitForTimeout(200);
+        await settled(page);
         const rest = (await state(page, stage)).ring;
         await page.close();
         expect({ caret: opened.focused && opened.caret, ring: opened.ring }).toEqual({
@@ -366,14 +372,14 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
       test(`${engine}: ${stage.name}: over art focus leaves the glass rim at rest`, async () => {
         const page = await open(engine, stage);
         await page.evaluate(() => document.documentElement.setAttribute("data-cmux-see-through", ""));
-        await page.waitForTimeout(100);
+        await settled(page);
         const rim = () => page.evaluate((box) => getComputedStyle(document.querySelector(box)!).boxShadow, stage.box);
         const rest = await rim();
         await page.locator(stage.field).first().click();
-        await page.waitForTimeout(200);
+        await settled(page);
         const focused = await rim();
         await setKey(page, false);
-        await page.waitForTimeout(200);
+        await settled(page);
         const background = await rim();
         await page.close();
         expect(focused, "focus leaves the glass card's rim and ring at rest").toBe(rest);

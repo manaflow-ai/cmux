@@ -153,6 +153,7 @@ public struct BrowserSourceDetector: Sendable {
             .history: session(places),
             .openTabs: session(FirefoxSessionReader().sessionFile(in: profile) != nil ? .available : .absent),
             .extensions: present("extensions.json") ? .unsupported(.notChromeExtensions) : .absent,
+            .searchEngines: present("search.json.mozlz4") ? .available : .absent,
             // Firefox keeps passwords in logins.json, sealed with the NSS key store key4.db.
             .passwords: session(firefoxPasswords(profile, present: present("logins.json"))),
             .cookies: session(present("cookies.sqlite") ? .available : .absent),
@@ -185,6 +186,8 @@ public struct BrowserSourceDetector: Sendable {
             .history: state(directory.appending(path: "History.db")),
             .cookies: cookies.map(state) ?? .absent,
             .passwords: .unsupported(.exportFromSource),
+            // A Mac setting (NSPreferredWebServices), not a file in Safari's folder.
+            .searchEngines: SafariSearchEngineReader().read() != nil ? .available : .absent,
         ]
         #endif
     }

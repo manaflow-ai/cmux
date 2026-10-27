@@ -167,3 +167,22 @@ fn every_agent_prompt_keeps_git_off_the_shared_checkout() {
         );
     }
 }
+
+/// 2026-10-20 on cosmic-gray: agents killed git processes they had found by
+/// name, among them the clone's repair refetch, which another agent had
+/// started. An agent signals only what it started and tracks.
+#[test]
+fn every_agent_prompt_kills_only_its_own_processes() {
+    for (name, text) in prompts() {
+        let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            flat.contains("signal only a process you started and still track"),
+            "{name}: no own-process rule"
+        );
+        assert!(
+            flat.contains("never one found by name or command line"),
+            "{name}: no rule against matching by name"
+        );
+        assert!(flat.contains("`pkill`"), "{name}: pkill not named");
+    }
+}

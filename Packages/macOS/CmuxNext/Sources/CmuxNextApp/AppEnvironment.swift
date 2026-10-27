@@ -3,6 +3,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 import CmuxNextTerminal
+import CmuxNextUpdater
 import Foundation
 
 /// How this process was launched. Identity (bundle, tag, control socket)
@@ -22,6 +23,10 @@ struct AppEnvironment: Sendable {
     /// Mark this run for crash recovery (`AppRunMarker`): only the real app
     /// process, never tests that build `AppServices`.
     var marksRun = false
+    /// This launch is the relaunch into an update nobody clicked, in an app the user was not in
+    /// (`UpdateRelaunchFocus`): it starts behind the user's app (`InputVerificationService.startNoActivateGuard`). Only the
+    /// real app process reads it.
+    var relaunchBehind: UpdateRelaunchFocus?
     /// What every local terminal of this app gets on top of its filtered
     /// login environment: the launch identity (`LaunchIdentity`) and the
     /// terminal identity Ghostty gives its shells (`TerminalEnvironment.instance.ghostty`),
@@ -52,6 +57,11 @@ struct AppEnvironment: Sendable {
     /// This Mac's layout templates (`LayoutTemplateRepository`): only the real app process sets
     /// it; without it templates live in memory only (tests that build `AppServices`).
     var layoutTemplatesFile: URL?
+    /// The folder of the Home caches (drafts, scroll anchors, sends, attachment blobs, the Home
+    /// list's launch state): only the real app process sets it (the user's Caches folder); without
+    /// it each `HomeService` uses a temporary folder of its own (tests that build `AppServices`), so
+    /// no test reads a draft another test typed in the same conversation.
+    var homeCachesDirectory: URL?
 
     var tag: String? { launch.tag }
     /// The build whose state roots this app uses (per-build isolation, cx-is1kf).
@@ -78,7 +88,7 @@ struct AppEnvironment: Sendable {
         #endif
     }
 
-    static func current(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> AppEnvironment {
+    static func current(_ environment: [String: String] = ProcessInfo.processInfo.environment, openFiles: OpenFileLimit.Change? = nil) -> AppEnvironment {
         let noActivate = environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
 #if DEBUG
         let showcase = environment["CMUX_NEXT_SHOWCASE"] == "1" || ProcessInfo.processInfo.arguments.contains("--showcase")
@@ -91,7 +101,7 @@ struct AppEnvironment: Sendable {
             noActivate: noActivate,
             showcase: showcase,
             testWindow: TestWindowPlacement.parse(environment, noActivate: noActivate),
-            terminalEnvironment: terminalEnvironment(launch: launch, environment: environment),
+            terminalEnvironment: terminalEnvironment(launch: launch, environment: environment).merging(openFiles?.childEnvironment ?? [:]) { $1 },
             ghosttyResources: GhosttyRuntime.resourcesDirectory(environment: environment),
             ghosttyBinary: GhosttyRuntime.cliHelperPath()
         )

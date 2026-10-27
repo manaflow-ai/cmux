@@ -1,7 +1,9 @@
 public import CMUXMobileCore
 public import Foundation
 import SQLite3
+#if canImport(os)
 import os
+#endif
 
 // MobilePairedMacStore's upserts: writing one paired Mac and its routes within an owner scope.
 extension MobilePairedMacStore {

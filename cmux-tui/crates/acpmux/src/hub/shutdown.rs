@@ -151,9 +151,12 @@ impl Hub {
     }
 }
 
+/// The refusal of a spawn once the shutdown has begun (`recovery.rs` types it).
+pub const SHUTTING_DOWN: &str = "acpmux is shutting down; no agent starts now";
+
 /// The refusal of a spawn once the shutdown has begun.
 pub(crate) fn shutting_down_error() -> RpcError {
-    RpcError::internal("acpmux is shutting down; no agent starts now")
+    RpcError::internal(SHUTTING_DOWN)
 }
 
 /// How long agents get between SIGTERM and SIGKILL when the daemon stops.

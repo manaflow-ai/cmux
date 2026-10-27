@@ -211,8 +211,12 @@ run_install() {
   if [ "$include_minisign" = "1" ]; then
     path_prefix="$MINISIGN_BIN_DIR:$path_prefix"
   fi
+  # The installer publishes CMUX_ZIG and its bin dir through GITHUB_ENV and GITHUB_PATH. Keep them in
+  # this test's files: the CI job's own would hand a deleted fake zig to the next guard step (#23534).
   PATH="$path_prefix:/usr/bin:/bin" \
     RUNNER_TEMP="$runner_temp" \
+    GITHUB_ENV="$TMP_DIR/installer-github-env" \
+    GITHUB_PATH="$TMP_DIR/installer-github-path" \
     FAKE_CURL_MODE="$mode" \
     ZIG_DOWNLOAD_BUDGET_SECONDS="$budget_seconds" \
     ZIG_DOWNLOAD_RETRY_DELAY=0 \

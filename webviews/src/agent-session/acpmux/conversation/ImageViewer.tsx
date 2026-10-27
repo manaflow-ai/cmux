@@ -11,9 +11,10 @@ import {
 import { Dialog } from "../../../ui/Dialog";
 import { keyedIconProps } from "../../../ui/DialogButton";
 import { useT } from "../i18n";
+import { postNative } from "../native";
 import type { ChatImage } from "./chatImages";
 import { copyImage } from "./clipboard";
-import { Check, ChevronLeft, ChevronRight, Close, Copy } from "./icons";
+import { Check, ChevronLeft, ChevronRight, Close, Copy, Folder, Globe } from "./icons";
 
 export const MIN_SCALE = 1;
 export const MAX_SCALE = 8;
@@ -44,6 +45,30 @@ export function zoomAbout(view: View, scale: number, point: { x: number; y: numb
   return { scale: next, x: point.x - (point.x - view.x) * ratio, y: point.y - (point.y - view.y) * ratio };
 }
 
+/// The image as a `data:` URL, the form the host's image actions take (a composer attachment can be
+/// a `blob:` URL).
+export async function dataUrl(src: string): Promise<string> {
+  if (src.startsWith("data:")) return src;
+  const blob = await (await fetch(src)).blob();
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+/// Show in Finder (the image's file when a reply named one inside the folders, else a copy) or
+/// Open in browser tab (a copy), by the host (AgentPaneImageCopies.swift): one request, so one
+/// click covers the host's fallback to the copy.
+async function imageAction(method: "image.reveal" | "image.openInPane", image: ChatImage): Promise<void> {
+  const src = await dataUrl(image.src);
+  await postNative(
+    method,
+    method === "image.reveal" && image.path ? { src, name: image.alt, path: image.path } : { src, name: image.alt },
+  );
+}
+
 export function ImageViewer({
   images,
   index,
@@ -64,6 +89,8 @@ export function ImageViewer({
     viewRef.current = view;
   }, [view]);
   const [copied, setCopied] = useState<"copied" | "failed" | undefined>();
+  // The image action (Show in Finder, Open in browser tab) that could not open this image.
+  const [failed, setFailed] = useState<"image.reveal" | "image.openInPane" | undefined>();
   const stage = useRef<HTMLDivElement | null>(null);
   // The stage as state too: the dialog's portal mounts it after the first commit, and the pinch
   // and wheel listeners attach once it is there.
@@ -94,6 +121,7 @@ export function ImageViewer({
     shownSrc.current = image?.src;
     setView(FIT);
     setCopied(undefined);
+    setFailed(undefined);
   }, [image?.src]);
 
   const step = useCallback(
@@ -182,6 +210,18 @@ export function ImageViewer({
   if (!image) return null;
   const copyLabel =
     copied === "copied" ? t("image.copied") : copied === "failed" ? t("image.copyFailed") : t("image.copy");
+  const actionLabel = (method: "image.reveal" | "image.openInPane") =>
+    failed === method ? t("image.actionFailed") : t(method === "image.reveal" ? "image.reveal" : "image.openInTab");
+  const act = (method: "image.reveal" | "image.openInPane") => {
+    // The result belongs to the image it acted on; the viewer may have moved on by then.
+    const acted = image;
+    void imageAction(method, acted).then(
+      () => shownSrc.current === acted.src && setFailed(undefined),
+      () => shownSrc.current === acted.src && setFailed(method),
+    );
+  };
+  // A browser tab never opens an SVG copy (the host refuses: it could run script).
+  const opensInTab = !/^data:image\/svg\+xml/i.test(image.src);
   // The shared dialog (ui/Dialog) traps focus, makes the pane behind inert, closes on Escape and
   // gives focus back to the image that opened it.
   return (
@@ -221,6 +261,26 @@ export function ImageViewer({
           >
             {copied === "copied" ? <Check /> : <Copy />}
           </button>
+          <button
+            type="button"
+            className="acpmux-image-viewer-action"
+            aria-label={actionLabel("image.reveal")}
+            title={actionLabel("image.reveal")}
+            onClick={() => act("image.reveal")}
+          >
+            <Folder />
+          </button>
+          {opensInTab && (
+            <button
+              type="button"
+              className="acpmux-image-viewer-action"
+              aria-label={actionLabel("image.openInPane")}
+              title={actionLabel("image.openInPane")}
+              onClick={() => act("image.openInPane")}
+            >
+              <Globe />
+            </button>
+          )}
           <button
             type="button"
             className="acpmux-image-viewer-action"

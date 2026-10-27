@@ -9,6 +9,19 @@ nonisolated enum HomeSettingsSchema {
     static var descriptors: [SettingDescriptor] {
         let attachments = SettingsText.keyed("settings.group.attachments", "Attachments")
         return [
+            // Which server Home's direct messages and group chats use (dm-group-chat-DESIGN.md 4.5).
+            SettingDescriptor(
+                HomeServerSetting.configPath, section: .home,
+                group: SettingsText.keyed("settings.group.messagesServer", "Messages Server"),
+                title: SettingsText.keyed("settings.home.server", "Server"),
+                help: SettingsText.keyed("settings.home.server.help",
+                                         "Direct messages and group chats use cmux Cloud by default. A self-hosted server is reached over Tailscale by its MagicDNS name, for example http://mini.tail1234.ts.net:7320. No password is sent: the server knows you by your Tailscale login."),
+                kind: .choiceOrURL([
+                    SettingChoice(HomeServerSetting.hosted, SettingsText.keyed("settings.choice.homeServer.hosted", "cmux Cloud")),
+                ], urlKey: HomeServerSetting.selfHostedKey),
+                default: .string(HomeServerSetting.hosted),
+                keywords: ["server", "self-hosted", "tailscale", "messages", "chat", "cloud", "home"]
+            ),
             // The Chief chat's look: iMessage's by default (the founders like its blue), the theme's on request (Leo 2026-10-19).
             SettingDescriptor(
                 HomeChiefBubbleStyleSetting.configPath, section: .home, group: SettingsText.keyed("settings.group.chiefChat", "Chief Chat"),
@@ -58,8 +71,22 @@ nonisolated enum HomeSettingsSchema {
                     SettingChoice("moon", SettingsText.keyed("settings.choice.chiefPetMascot.moon", "Moon")),
                     SettingChoice("moon-blue", SettingsText.keyed("settings.choice.chiefPetMascot.moon-blue", "Blue Moon")),
                     SettingChoice("fox", SettingsText.keyed("settings.choice.chiefPetMascot.fox", "Fox")),
+                    SettingChoice("mochi", SettingsText.keyed("settings.choice.chiefPetMascot.mochi", "Mochi")),
                 ]),
                 default: .string(HomeChiefPetSetting.defaultMascot), keywords: ["chief", "pet", "mascot", "character", "avatar", "pixel"]
+            ),
+            // Settings > Chief's Chiefs card draws it as its Engine row (ChiefsCard.tsx).
+            SettingDescriptor(
+                HomeChiefEngineSetting.configPath, section: .home, group: SettingsText.keyed("settings.group.chiefEngine", "Engine"),
+                title: SettingsText.keyed("settings.home.chiefEngine", "Engine"),
+                help: SettingsText.keyed("settings.home.chiefEngine.help",
+                                         "Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud."),
+                kind: .choice([
+                    SettingChoice("auto", SettingsText.keyed("settings.choice.chiefEngine.auto", "Auto")),
+                    SettingChoice("local", SettingsText.keyed("settings.choice.chiefEngine.local", "This Mac")),
+                    SettingChoice("hosted", SettingsText.keyed("settings.choice.chiefEngine.hosted", "Hosted")),
+                ]),
+                default: .string(HomeChiefEngineSetting.defaultEngine), keywords: ["chief", "engine", "backend", "hosted", "cloud", "local", "optchat"]
             ),
         ]
     }

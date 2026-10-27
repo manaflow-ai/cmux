@@ -41,6 +41,17 @@ import Testing
                           duration: 480, positionDate: Date(), canPrevious: true, canNext: true, labels: labels)
     }
 
+    /// A tab's video, as the tab source reports it.
+    static func video(floating: Bool = false) -> SidebarNowPlaying {
+        var video = track()
+        video.site = "youtube.com"
+        video.canPictureInPicture = true
+        video.isPictureInPicture = floating
+        video.labels = SidebarNowPlaying.Labels(play: "Play", pause: "Pause", previous: "Previous Track", next: "Next Track",
+                                                pictureInPicture: "Picture in Picture", exitPictureInPicture: "Exit Picture in Picture")
+        return video
+    }
+
     struct Harness {
         let source: FakeSource
         let flag: Flag
@@ -120,6 +131,36 @@ import Testing
         }
     }
 
+    /// A tab's video, as macOS's card shows it: the site above the title, and Picture in Picture past
+    /// the transport, which reaches the source and reads as Exit while the video floats. A track that
+    /// is not a video has no such button.
+    @Test func aVideoShowsItsSiteAndPictureInPictureReachesTheSource() async throws {
+        let h = await make()
+        defer { h.close() }
+        try #require(!h.card.isHidden, "no Now Playing card while a track plays")
+        #expect(h.card.pictureInPictureButton.isHidden, "a track that is not a video offers Picture in Picture")
+        #expect(h.card.siteLabel.isHidden, "a track with no site shows a site line")
+        h.source.nowPlaying = Self.video()
+        try await PasswordManagerRouteTests.until({ h.card.nowPlaying?.canPictureInPicture == true }, within: .seconds(6)) {
+            "the card never showed the video"
+        }
+        h.sidebar.needsLayout = true
+        h.sidebar.layoutSubtreeIfNeeded()
+        #expect(h.card.siteLabel.stringValue == "youtube.com" && !h.card.siteLabel.isHidden, "no site line")
+        #expect(h.card.siteLabel.frame.maxY <= h.card.titleLabel.frame.minY, "the site \(h.card.siteLabel.frame) is not above the title")
+        let pip = h.card.pictureInPictureButton
+        #expect(!pip.isHidden && !pip.frame.isEmpty && h.card.bounds.contains(pip.frame), "Picture in Picture at \(pip.frame) is not on the card")
+        #expect(pip.frame.minX > h.card.nextButton.frame.maxX, "Picture in Picture is not past Next")
+        #expect(pip.accessibilityLabel() == "Picture in Picture")
+        _ = pip.sendAction(pip.action, to: pip.target)
+        #expect(h.source.commands.last == .pictureInPicture, "the source got \(h.source.commands)")
+        h.source.nowPlaying = Self.video(floating: true)
+        try await PasswordManagerRouteTests.until({ h.card.nowPlaying?.isPictureInPicture == true }, within: .seconds(6)) {
+            "the card never saw the video float"
+        }
+        #expect(pip.accessibilityLabel() == "Exit Picture in Picture")
+    }
+
     @Test func theControlsAndTheScrubberReachTheSource() async throws {
         let h = await make()
         defer { h.close() }
@@ -181,8 +222,9 @@ import Testing
 
     @Test func aTabsArtworkThatDidNotLoadComesInLater() async throws {
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/listen")))
-        // Nothing listens there, so the first fetch fails.
-        let art = try #require(URL(string: "http://127.0.0.1:9/cover-\(UUID().uuidString).png"))
+        // The name never resolves, so the first fetch fails. It is https on a public name: the favicon
+        // guard refuses local and plain-http URLs outright, cached or not (70976f18493).
+        let art = try #require(URL(string: "https://cover-\(UUID().uuidString).invalid/cover.png"))
         let media = BrowserMediaState(title: "Weightless", artworkURL: art, isPlaying: true, position: 60, duration: 480)
         let source = BrowserTabsNowPlaying()
         source.artworkRetry = .milliseconds(200)

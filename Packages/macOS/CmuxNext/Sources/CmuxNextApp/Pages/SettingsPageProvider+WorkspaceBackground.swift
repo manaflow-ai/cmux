@@ -15,7 +15,7 @@ struct SettingsWorkspaceBackgrounds {
     var opacity: SettingsWorkspaceOpacity?
 }
 
-/// A workspace's own glass tint over art, 0...0.95; nil follows the work's own tint.
+/// A workspace's own glass tint over art, 0...1; nil follows the work's own tint.
 struct SettingsWorkspaceOpacity {
     let value: @MainActor (_ workspace: String) -> Double?
     let set: @MainActor (_ value: Double?, _ workspace: String) -> Void

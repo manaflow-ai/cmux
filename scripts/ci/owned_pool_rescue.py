@@ -74,9 +74,15 @@ failure) goes back to the minis on any attempt. Neither has a marker of its
 own; the sweeper finds them among the unfinished CI runs (owned_reruns()) and
 watches them like attempt 1, and a job stuck or refused there gets the bot's
 next re-run, which every runs-on sends to retry_runner (Blacksmith) from
-attempt 3 on, so a refusal costs two re-runs at most. cmux-next's bot attempt
-3 also drops the stale placement label and takes Blacksmith, so the sweeper
-stops after attempt 2 and cannot issue a redundant attempt 4.
+attempt 3 on, so a refusal costs two re-runs at most. cmux-next is the
+exception: the bot's first re-run (attempt 2) already drops the stale placement
+label and overflows to the free Blacksmith slot macos-placement found, else the
+owned side label (claude-sr2, 2026-10-21: under saturation a second mini queue
+cost a pull request another rescue window and its running jobs). The sweeper
+still watches that attempt 2, since it stays on the minis when no slot was
+free; one on Blacksmith has no job waiting on an owned label, so it is never
+moved again. The sweeper stops after attempt 2 and cannot issue a redundant
+attempt 4.
 
 Dispatch runs (DISPATCH_WORKFLOW_PATHS) are watched the same way; see below
 for the iOS and Iroh release gate workflows. A stuck dispatch run that
@@ -118,8 +124,9 @@ TRUSTED_SIDE_EVENTS), their small macOS jobs take vars.CI_LIGHT_LANE_RUNNER
 (the light minis' side label) or vars.CI_SIDE_LANE_RUNNER (the std minis'),
 both glaeda-side-* labels that only the minis' non-root runners carry. Most
 side lanes take the job's Blacksmith default on attempt 2 and later. cmux-next
-keeps trusted attempts 1 and 2 on the owned side label and only overflows a
-later bot attempt after its ten-minute queue budget. So the first job on an owned label marks the run as on a persistent
+keeps attempt 1 and a person's re-run on the owned side label and overflows
+the bot's re-run (attempt 2 on), which follows its ten-minute queue budget or a
+refusal, to a free Blacksmith slot. So the first job on an owned label marks the run as on a persistent
 pool (a job behind a Linux gate appears once the gate ends). The watch stays
 through run completion: a job behind a gate can be created after the first
 owned job is accepted, and glaeda's runner hook can refuse it at that point.
@@ -235,9 +242,13 @@ CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 IOS_TEST_WORKFLOW_PATH = ".github/workflows/test-ios.yml"
 IOS_SCREENSHOTS_WORKFLOW_PATH = ".github/workflows/ios-screenshots.yml"
 IROH_RELEASE_GATE_WORKFLOW_PATH = ".github/workflows/iroh-release-gate.yml"
+# The DEV publisher's runner job offers its secret-free verify job to an owned
+# Mac while one is free, then leaves the workflow's Blacksmith fallback.
+CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH = ".github/workflows/cmux-next-dev-daily.yml"
 # workflow_dispatch runs watched as dispatch runs: each has a `runner` job that
 # picks the pool and uploads the marker.
-DISPATCH_WORKFLOW_PATHS = (IOS_TEST_WORKFLOW_PATH, IOS_SCREENSHOTS_WORKFLOW_PATH, IROH_RELEASE_GATE_WORKFLOW_PATH)
+DISPATCH_WORKFLOW_PATHS = (IOS_TEST_WORKFLOW_PATH, IOS_SCREENSHOTS_WORKFLOW_PATH, IROH_RELEASE_GATE_WORKFLOW_PATH,
+                           CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH)
 # Workflows whose picker may queue a run's jobs on an owned pool within
 # CI_PR_POOL_QUEUE_ROUNDS (ios_runner_pool.py reads it since run 36136190497).
 QUEUEING_WORKFLOW_PATHS = (CI_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH)
@@ -288,9 +299,11 @@ E2E_PICKER_JOB = "runner"
 # ci.yml's job that runs the pool picker; its jobs-API name (no `name:` override).
 PICKER_JOB = "changes"
 DEFAULT_BUDGET_SECONDS = 90
-# Side lanes deliberately queue on the owned label while minis drain. Their
-# overflow is a measured queue decision, not the 90-second CI rescue budget.
-SIDE_DEFAULT_BUDGET_SECONDS = 600
+# Side lanes have a five-minute queue alarm. A queued job beyond this point is
+# re-admitted so the placement job can try the next capable route instead of
+# holding a workflow concurrency slot indefinitely.
+QUEUE_ALARM_SECONDS = 5 * 60
+SIDE_DEFAULT_BUDGET_SECONDS = QUEUE_ALARM_SECONDS
 MIN_BUDGET_SECONDS = 30
 MAX_BUDGET_SECONDS = 600
 # A job's budget ends this long before the watch does (job_budget()): two
@@ -361,9 +374,10 @@ def owned_rerun(run: Mapping[str, Any]) -> bool:
     actor = str((run.get("triggering_actor") or {}).get("login") or "")
     if run.get("path") == CMUX_NEXT_WORKFLOW_PATH:
         # Manual side-lane reruns stay minis-first at any attempt. The bot's
-        # second attempt is still watched so a second long queue can overflow
-        # on attempt three; that attempt takes a free Blacksmith slot, else the
-        # owned side label (next_macos_cascade.retry_label), and is not watched again.
+        # second attempt takes a free Blacksmith slot, else the owned side label
+        # (next_macos_cascade.retry_label); it is still watched, so a second long
+        # queue on the minis moves once more as attempt three, which is not
+        # watched again. On Blacksmith no job of it waits on an owned label.
         return actor != RESCUE_ACTOR or attempt <= LAST_OWNED_ATTEMPT
     return run.get("path") == CI_WORKFLOW_PATH and (attempt <= LAST_OWNED_ATTEMPT or (
         run.get("event") == "pull_request" and actor != RESCUE_ACTOR))
@@ -396,10 +410,11 @@ def budget(value: str | None) -> int | None:
 
 
 def side_budget(value: str | None) -> int | None:
-    """The side-lane queue budget, defaulting to ten minutes."""
+    """The side-lane queue budget, never shorter than the five-minute alarm."""
     if not (value or "").strip():
         return SIDE_DEFAULT_BUDGET_SECONDS
-    return budget(value)
+    parsed = budget(value)
+    return None if parsed is None else max(QUEUE_ALARM_SECONDS, parsed)
 
 
 def queue_seconds(rounds: str | None) -> int:
@@ -427,6 +442,26 @@ def job_pool(job: Mapping[str, Any]) -> str | None:
     for label in job.get("labels") or []:
         if persistent(str(label)) or TRUSTED_LABEL.fullmatch(str(label)):
             return str(label)
+    return None
+
+
+def queued_pool(job: Mapping[str, Any], *, include_blacksmith_macos: bool = False) -> str | None:
+    """The route a queued job is waiting on.
+
+    Owned labels are the normal rescue scope. cmux-next's generated-files and
+    other Mac jobs can land on a Blacksmith macOS label when no owned GUI or
+    session runner is free; those are also re-admitted after the queue alarm.
+    Linux and hosted jobs remain outside this rescue because their route has a
+    different trust and capacity policy.
+    """
+    owned = job_pool(job)
+    if owned:
+        return owned
+    if include_blacksmith_macos:
+        for label in job.get("labels") or ():
+            label = str(label)
+            if label.startswith("blacksmith-") and "macos" in label:
+                return label
     return None
 
 
@@ -559,10 +594,12 @@ def setup_budget(job: Mapping[str, Any], now: dt.datetime, budget_seconds: int,
 
 def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_seconds: int,
            first_seen: Mapping[Any, dt.datetime] | None = None, deadline: dt.datetime | None = None,
-           floor_seconds: int | None = None, allow_running_rescue: bool = False) -> Look:
+           floor_seconds: int | None = None, allow_running_rescue: bool = False,
+           include_blacksmith_macos: bool = False) -> Look:
     """One look at the jobs of a run on a persistent pool (each job's budget: job_budget())."""
     seen = first_seen or {}
-    waiting = [job for job in jobs if job_pool(job) and waiting_for_runner(job)]
+    waiting = [job for job in jobs if queued_pool(job, include_blacksmith_macos=include_blacksmith_macos)
+               and waiting_for_runner(job)]
     budgets = {id(job): job_budget(job, budget_seconds, deadline=deadline, floor_seconds=floor_seconds,
                                    first_seen=seen.get(job.get("id"))) for job in waiting}
     stuck = [job for job in waiting if queued_seconds(job, now, seen.get(job.get("id"))) >= budgets[id(job)]]
@@ -571,13 +608,13 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
     # persistent runner would die with the stuck one and move to Blacksmith
     # too (#16463). cmux-next's explicit rescue window is the overflow
     # boundary: move the run as the bot once a side job waits past budget even
-    # when another side job is still running. Manual reruns stay minis-first
-    # through attempt 2; the bot's next rerun is the overflow.
+    # when another side job is still running. Manual reruns stay minis-first;
+    # the bot's rerun (attempt 2 on) is the overflow.
     on_mini = [job for job in jobs if job_pool(job) and job.get("status") == "in_progress" and not in_setup(job)]
     if stuck and (allow_running_rescue or not on_mini):
         suffix = (" while another owned job is running; overflowing the queued side jobs"
                   if on_mini else " with no runner")
-        return Look("rescue", f"{names} queued on {job_pool(stuck[0])} for at least "
+        return Look("rescue", f"{names} queued on {queued_pool(stuck[0], include_blacksmith_macos=include_blacksmith_macos)} for at least "
                               f"{min(budgets[id(job)] for job in stuck)}s{suffix}")
     settling = [job for job in jobs if job_pool(job) and in_setup(job)]
     held = [job for job in settling if setup_seconds(job, now) >= setup_budget(job, now, budget_seconds, deadline)]
@@ -595,7 +632,7 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
         return Look("refused", f"{names} refused by {job_pool(turned_away[0])} at job start or Xcode selection")
     if stuck:
-        return Look("watch", f"{names} queued on {job_pool(stuck[0])} with no runner, but "
+        return Look("watch", f"{names} queued on {queued_pool(stuck[0], include_blacksmith_macos=include_blacksmith_macos)} with no runner, but "
                              f"{len(on_mini)} job(s) of the run are running on a persistent runner", waiting=True)
     if waiting or settling:
         return Look("watch", f"{len(waiting)} job(s) waiting for a persistent runner, {len(settling)} in its setup",
@@ -918,7 +955,8 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
         if not on_persistent and target.side:
             # No picker: a job that asks for an owned label is the choice. A
             # gated job appears once its Linux gate ends.
-            if any(job_pool(job) for job in jobs):
+            if any(queued_pool(job, include_blacksmith_macos=target.path == CMUX_NEXT_WORKFLOW_PATH)
+                   for job in jobs):
                 on_persistent = True
                 log("a side-lane job asked for a persistent pool")
             elif run_finished(jobs):
@@ -931,7 +969,8 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
             # look that lists jobs does.
             late = next((job for job in jobs if job.get("name") == LATE_JOB
                          and not carried(job, target.attempt_started_at)), None)
-            if any(job_pool(job) for job in jobs):
+            if any(queued_pool(job, include_blacksmith_macos=target.path == CMUX_NEXT_WORKFLOW_PATH)
+                   for job in jobs):
                 on_persistent = True
                 log("a re-run job asked for a persistent pool")
             elif late is not None and late.get("status") == "completed":
@@ -975,7 +1014,8 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                     first_seen.setdefault(job.get("id"), seen_at)
             look = assess(jobs, now=seen_at, budget_seconds=budget_seconds, first_seen=first_seen,
                           deadline=deadline, floor_seconds=floor_seconds,
-                          allow_running_rescue=target.path == CMUX_NEXT_WORKFLOW_PATH)
+                          allow_running_rescue=target.path == CMUX_NEXT_WORKFLOW_PATH,
+                          include_blacksmith_macos=target.path == CMUX_NEXT_WORKFLOW_PATH)
             if look.action == "refused" and not finished and seen_at < deadline and not target.main:
                 # GitHub re-runs no job of a run still in progress (403 "already
                 # running", for one job or the failed ones), and cancelling
@@ -1014,9 +1054,8 @@ def next_attempt(target: Target) -> str:
     """Where a re-run of failed jobs goes next."""
     following = target.attempt + 1
     if target.path == CMUX_NEXT_WORKFLOW_PATH:
-        if following <= LAST_OWNED_ATTEMPT:
-            return f"attempt {following} stays on the side lane's owned label"
-        return f"attempt {following} takes the side lane's Blacksmith overflow after the long mini queue"
+        # The bot's re-run: a free Blacksmith slot, else the owned label (next_macos_cascade.retry_label).
+        return f"attempt {following} re-admits through fast checks, a free owned Mac, then Blacksmith macOS"
     if target.side:
         return f"attempt {following} takes the side lane's Blacksmith default"
     if following <= LAST_OWNED_ATTEMPT and not target.e2e:
@@ -1090,6 +1129,22 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         # test completed from 00:20Z to 01:05Z). Not re-run either: a re-run
         # would join the branch group and replace the newer run's waiting job.
         return f"not rescued: {moved}; a cmux-next push run is never cancelled for a newer push"
+    if moved and target.side and target.pr_number:
+        # A superseded pull-request run may still hold its concurrency slot.
+        # Cancel it only when nothing in this attempt has started; killing a
+        # sibling that is already producing useful output would waste work.
+        run = read(lambda: api.run(target.run_id), sleep, log)
+        if not run:
+            return f"not rescued: the run could not be read ({moved})"
+        if int(run.get("run_attempt") or 0) != target.attempt:
+            return "not rescued: someone else already re-ran the run"
+        if run.get("status") == "completed":
+            return f"not rescued: {moved}"
+        jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+        if any(job.get("status") == "in_progress" for job in jobs):
+            return f"not rescued: {moved}; a sibling already started"
+        api.cancel(target.run_id)
+        return f"cancelled run {target.run_id}, not re-run: {moved}"
     if moved and (target.main or target.nightly or target.push_branch):
         # Main's stuck run holds its concurrency group, so nothing newer can
         # start until it finishes: cancel it, and its completion dispatches
@@ -1151,9 +1206,11 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         api.rerun_failed(target.run_id, target.attempt + 1)
         return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
     api.rerun(target.run_id, target.attempt + 1)
-    if target.attempt + 1 <= LAST_OWNED_ATTEMPT and not target.e2e:
+    if target.attempt + 1 <= LAST_OWNED_ATTEMPT and not target.e2e and target.path != CMUX_NEXT_WORKFLOW_PATH:
         return (f"re-ran run {target.run_id}; attempt {target.attempt + 1} picks again, the owned machines "
                 "free now first, and the sweeper watches it")
+    if target.path == CMUX_NEXT_WORKFLOW_PATH:
+        return f"re-ran run {target.run_id}; {next_attempt(target)}"
     return f"re-ran run {target.run_id}; attempt {target.attempt + 1} takes an ephemeral pool"
 
 
@@ -1270,11 +1327,24 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
                             log=log, deadline=deadline, floor_seconds=effective_seconds)
     if outcome not in ("rescue", "refused"):
         return f"stopped: {reason}"
+    if outcome == "refused" and target.path == CMUX_NEXT_WORKFLOW_PATH and target.attempt > 1:
+        # A cmux-next re-run's next attempt takes the Blacksmith overflow, and a
+        # re-run of failed jobs would re-run a real failure with the refusal.
+        jobs = read(lambda: client.jobs(target.run_id, target.attempt), sleep, log)
+        other = [str(job.get("name")) for job in jobs if job.get("conclusion") in ("failure", "timed_out")
+                 and not carried(job, target.attempt_started_at) and not refused(job)]
+        if other:
+            return (f"not rescued: attempt {target.attempt} also failed for a reason that is not a refusal "
+                    f"({', '.join(sorted(other))})")
     log(f"{'rescue' if outcome == 'rescue' else 'refused'}: {reason}")
     while True:
         # From attempt 2 on, keep what passed: only the owned jobs are moved.
-        # An E2E run always keeps what passed (see the module docstring).
-        failed_only = outcome == "refused" or target.attempt > 1 or target.e2e or target.side
+        # An E2E run always keeps what passed (see the module docstring). A
+        # cmux-next queue alarm on attempt 1 is the exception: its placement
+        # job must run again to observe a newly free GUI/session Mac, and
+        # rerun-failed-jobs would keep the successful placement output.
+        failed_only = (outcome == "refused" or target.attempt > 1 or target.e2e
+                       or target.side and target.path != CMUX_NEXT_WORKFLOW_PATH)
         result = rescue(client, target, now=clock, sleep=rescue_sleep, log=log, failed_only=failed_only,
                         deadline=rescue_deadline,
                         refused=(outcome == "refused") if target.e2e or target.side else None,

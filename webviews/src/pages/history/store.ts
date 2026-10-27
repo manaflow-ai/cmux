@@ -125,7 +125,8 @@ export class HistoryStore {
     if (!connected) {
       this.set({ connection: "disconnected", loading: false });
     } else if (this.snapshot.connection === "disconnected") {
-      this.set({ connection: "connecting" });
+      // The lost link's error would show again as a banner while the re-read is on its way.
+      this.set({ connection: "connecting", error: undefined });
       void this.reload();
     }
   }

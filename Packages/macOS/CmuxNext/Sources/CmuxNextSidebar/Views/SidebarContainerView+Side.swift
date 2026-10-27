@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
 
 // `sidebar.side` (R109): the panel pins to the edge facing the content, so
@@ -10,6 +10,14 @@ extension SidebarContainerView {
             .left: [panel.trailingAnchor.constraint(equalTo: clip.trailingAnchor)],
             .right: [panel.leadingAnchor.constraint(equalTo: clip.leadingAnchor)],
         ]
+    }
+
+    /// How far past the container's content-side edge the sidebar shows: the outer half of the
+    /// border line when it shows at rest (the resize handle centers it on the edge), else 0.
+    /// Hover cards beside a row stand one device pixel past this (`sidebarColumnOnScreen`).
+    var visibleEdgeOutset: CGFloat {
+        guard !handle.isHiddenOrHasHiddenAncestor, handle.restingLineWidth > 0 else { return 0 }
+        return handle.lineWidth / 2
     }
 
     /// Swaps the pins to `side` without animating.
@@ -24,6 +32,28 @@ extension SidebarContainerView {
     /// ``SidebarResizeBand/minimumWidth``.
     var resizeBand: SidebarResizeBand {
         SidebarResizeBand(width: max(Metrics.dividerHitWidth, SidebarResizeBand.minimumWidth), gutter: Metrics.mainPaneGutter)
+    }
+
+    /// The resize band in window coordinates; nil while the handle is hidden or out of a window.
+    /// A Chromium page is a child window above this one and would take the mouse there, so the
+    /// window covers the band with a catcher panel above pages, as for a pane divider
+    /// (`DividerMouseCatchers`).
+    public var resizeBandInWindow: CGRect? {
+        guard handle.window != nil, !handle.isHiddenOrHasHiddenAncestor, handle.bounds.width > 0 else { return nil }
+        return handle.convert(handle.bounds, to: nil)
+    }
+
+    /// The catcher panels changed: the handle's hover passes through `windows` and is recomputed,
+    /// so it never stays lit after the last page closes under a still pointer.
+    public func refreshResizeHover(passThrough windows: @escaping () -> Set<Int>) {
+        handle.hoverPassThroughWindows = windows
+        handle.refreshHover()
+    }
+
+    /// The pointer entered or left the band's catcher panel, so the handle under it got no event:
+    /// its hover is recomputed from the pointer (`PointerHover` stays its one owner).
+    public func refreshResizeHover() {
+        handle.refreshHover()
     }
 
     /// Puts the resize handle in the superview, just above this view, and pins it across the

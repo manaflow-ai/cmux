@@ -68,8 +68,8 @@ enum PanePlacementRouting {
 
     /// The invocation aimed at `pane`, keeping its arguments and origin. A
     /// new terminal opens where the person works (NEW-TERMINAL-INHERITS-CWD):
-    /// without a `cwd` argument, the folder of `focused`'s selected terminal.
-    /// Any other focused tab leaves the split's own fallback (the target
+    /// without a `cwd` argument, the folder of `focused`'s selected terminal
+    /// or agent chat (NewTerminalStart.folder). Any other focused tab leaves the split's own fallback (the target
     /// pane's folder).
     static func aimed(_ invocation: ActionInvocation, at pane: PaneModel, from focused: PaneController?) -> ActionInvocation {
         var aimed = invocation
@@ -78,7 +78,7 @@ enum PanePlacementRouting {
         // starts it at home).
         if aimed["cwd"]?.stringValue == nil,
            NewTerminalStart.inherits(.split),
-           let tab = focused?.selectedTab, tab.kind == .pty, let cwd = tab.cwd {
+           let focused, let cwd = NewTerminalStart.inherited(besides: focused.selectedTab, in: focused.pane, services: focused.services) {
             aimed.arguments["cwd"] = .string(cwd)
         }
         return aimed

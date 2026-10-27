@@ -1,7 +1,9 @@
 //! The background-process registry (docs/background-processes.md):
 //! `_acpmux/process/list` shows the background shells Claude Code runs and
 //! how each ended, `_acpmux/process/kill` stops one with Claude Code's
-//! `stop_task`, and `_acpmux/process_update` tells attached clients.
+//! `stop_task`, `_acpmux/process/background` (Ctrl-B) moves running work
+//! there with Claude Code's `background_tasks`, and `_acpmux/process_update`
+//! tells attached clients.
 
 use super::*;
 use acpmux::server::{Origin, serve_connection_with};
@@ -10,6 +12,7 @@ const LIST: &str = "_acpmux/process/list";
 const KILL: &str = "_acpmux/process/kill";
 const TAIL: &str = "_acpmux/process/tail";
 const UPDATE: &str = "_acpmux/process_update";
+const BACKGROUND: &str = "_acpmux/process/background";
 
 /// A Claude hub (fake_claude.py) under a fresh folder, with `env`.
 async fn claude_hub(env: &[(&str, &str)]) -> (Arc<Hub>, TestClient, std::path::PathBuf) {
@@ -54,11 +57,16 @@ fn chat_cwd(hub: &Arc<Hub>, id: &str) -> Value {
 
 /// The `stop_task` control requests acpmux wrote to Claude Code's stdin.
 fn stop_tasks(hub: &Arc<Hub>, id: &str) -> Vec<Value> {
+    control_requests(hub, id, "stop_task")
+}
+
+/// The control requests of `subtype` acpmux wrote to Claude Code's stdin.
+fn control_requests(hub: &Arc<Hub>, id: &str, subtype: &str) -> Vec<Value> {
     hub.events(id, 0, 10_000)
         .unwrap()
         .into_iter()
         .filter(|e| e.kind == "claude.stdin")
-        .filter(|e| e.msg.pointer("/request/subtype") == Some(&json!("stop_task")))
+        .filter(|e| e.msg.pointer("/request/subtype") == Some(&json!(subtype)))
         .map(|e| e.msg)
         .collect()
 }
@@ -92,7 +100,7 @@ async fn initialize_advertises_the_process_methods() {
         .unwrap();
     let acpmux = &init["_meta"]["acpmux"];
     let extensions = acpmux["extensions"].as_array().cloned().unwrap_or_default();
-    for m in [LIST, KILL, TAIL] {
+    for m in [LIST, KILL, TAIL, BACKGROUND] {
         assert!(extensions.iter().any(|e| e == m), "{m} not in {extensions:?}");
     }
     let features = acpmux["features"].as_array().cloned().unwrap_or_default();
@@ -200,6 +208,25 @@ async fn kill_sends_stop_task_and_the_process_ends_killed_by_the_person() {
     assert_eq!(note["process"]["reason"], "person");
     let ended = until_state(&mut c, &id, "killed").await;
     assert_eq!(ended["reason"], "person");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A kill that names its chat (the agent pane names it, and its host allows
+/// only a chat in the pane's scope) stops only a process of that chat: one of
+/// another chat is refused, and its Claude Code is asked nothing.
+#[tokio::test]
+async fn a_kill_that_names_another_chat_is_refused() {
+    let (hub, mut c, root) = claude_hub(&[]).await;
+    let id = chat(&mut c, "bg-running").await;
+    let other_chat = chat(&mut c, "bg-probe").await;
+    let pid = format!("{id}/r1");
+    let refused = c.request(KILL, json!({"processId": pid, "sessionId": other_chat})).await;
+    assert!(refused.as_ref().is_err_and(|e| e.contains("not a process of")), "{refused:?}");
+    assert_eq!(stop_tasks(&hub, &id), Vec::<Value>::new());
+    let named = json!({"processId": pid, "sessionId": id});
+    assert_eq!(c.request(KILL, named).await.unwrap(), json!({}));
+    assert_eq!(stop_tasks(&hub, &id).len(), 1);
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -326,12 +353,14 @@ async fn a_web_or_peer_connection_cannot_list_or_kill_processes() {
             (LIST, json!({})),
             (KILL, json!({"processId": pid, "sessionId": id})),
             (TAIL, json!({"processId": pid})),
+            (BACKGROUND, json!({"sessionId": id})),
         ] {
             let refused = remote.request(m, params.clone()).await;
             assert!(refused.is_err(), "{origin:?} {m} {params}: {refused:?}");
         }
     }
     assert_eq!(stop_tasks(&hub, &id), Vec::<Value>::new());
+    assert_eq!(control_requests(&hub, &id, "background_tasks"), Vec::<Value>::new());
     let mut app = connection(&hub, Origin::LocalApp);
     let init = json!({"protocolVersion": 1, "clientInfo": {"name": "app"}});
     app.request(method::INITIALIZE, init).await.unwrap();
@@ -351,6 +380,291 @@ async fn kill_on_a_chat_that_is_not_claude_is_refused() {
     assert!(refused.contains("Claude Code"), "{refused}");
     assert_eq!(c.request(LIST, json!({"sessionId": id})).await.unwrap(), json!({"processes": []}));
     hub.shutdown_all().await;
+}
+
+/// A new chat running fake_claude.py's "fg-shell" turn, a Bash call in the
+/// foreground until Ctrl-B moves it; returns the chat and the prompt's
+/// request id once the call is on screen.
+async fn fg_shell(c: &mut TestClient) -> (String, i64) {
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "fg-shell"}]});
+    let turn = c.send(method::SESSION_PROMPT, prompt).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["toolCallId"] == "toolu_fg").await;
+    (id, turn)
+}
+
+/// Ctrl-B with no tool call sends Claude Code's `background_tasks` for
+/// every foreground task; the shell it moved runs on past the turn, listed
+/// as sent to the background by the person.
+#[tokio::test]
+async fn background_moves_the_running_work_and_lists_it_as_the_persons() {
+    let (hub, mut c, root) = claude_hub(&[]).await;
+    let (id, turn) = fg_shell(&mut c).await;
+    let mut other = connect(&hub).await;
+    let r = other.request(BACKGROUND, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(r, json!({"backgrounded": true}));
+    let sent = control_requests(&hub, &id, "background_tasks");
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0]["request"], json!({"subtype": "background_tasks"}));
+    assert!(sent[0]["request_id"].as_str().is_some_and(|r| r.starts_with("bg-")), "{sent:?}");
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    let list = listed(&mut c, &id).await;
+    assert_eq!(list.len(), 1, "{list:?}");
+    assert_eq!(
+        (&list[0]["toolCallId"], &list[0]["taskId"], &list[0]["state"], &list[0]["origin"]),
+        (&json!("toolu_fg"), &json!("f1"), &json!("running"), &json!("user_backgrounded")),
+        "{list:?}"
+    );
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// With a tool call, only its task is asked for (`tool_use_id`); a call
+/// that runs nothing in the foreground answers `backgrounded: false`.
+#[tokio::test]
+async fn background_of_one_tool_call_names_it() {
+    let (hub, mut c, root) = claude_hub(&[]).await;
+    let (id, turn) = fg_shell(&mut c).await;
+    let mut other = connect(&hub).await;
+    let r = other.request(BACKGROUND, json!({"sessionId": id, "toolCallId": "toolu_other"})).await;
+    assert_eq!(r.unwrap(), json!({"backgrounded": false}));
+    let r = other.request(BACKGROUND, json!({"sessionId": id, "toolCallId": "toolu_fg"})).await;
+    assert_eq!(r.unwrap(), json!({"backgrounded": true}));
+    let sent: Vec<Value> = control_requests(&hub, &id, "background_tasks")
+        .iter()
+        .map(|r| r["request"].clone())
+        .collect();
+    assert_eq!(
+        sent,
+        vec![
+            json!({"subtype": "background_tasks", "tool_use_id": "toolu_other"}),
+            json!({"subtype": "background_tasks", "tool_use_id": "toolu_fg"}),
+        ]
+    );
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    assert_eq!(listed(&mut c, &id).await[0]["origin"], "user_backgrounded");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// With no turn running nothing runs in the foreground: the answer is
+/// `backgrounded: false` and Claude Code is not asked.
+#[tokio::test]
+async fn background_with_no_turn_running_moves_nothing() {
+    let (hub, mut c, root) = claude_hub(&[]).await;
+    let id = chat(&mut c, "hi").await;
+    let r = c.request(BACKGROUND, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(r, json!({"backgrounded": false}));
+    assert_eq!(control_requests(&hub, &id, "background_tasks"), Vec::<Value>::new());
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Claude Code's refusal is the request's error, and the shell stays in the
+/// foreground.
+#[tokio::test]
+async fn background_refused_by_claude_code_is_an_error() {
+    let (hub, mut c, root) = claude_hub(&[("FAKE_CLAUDE_BACKGROUND_ERROR", "no task")]).await;
+    let (id, turn) = fg_shell(&mut c).await;
+    let mut other = connect(&hub).await;
+    let refused = other.request(BACKGROUND, json!({"sessionId": id})).await.unwrap_err();
+    assert!(refused.contains("no task"), "{refused}");
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "cancelled");
+    assert_eq!(listed(&mut c, &id).await, Vec::<Value>::new());
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The `origin` of every `running` update the chat logged for shell `tool`,
+/// in order.
+fn running_origins(hub: &Arc<Hub>, id: &str, tool: &str) -> Vec<Value> {
+    hub.events(id, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == "background_task_update")
+        .filter_map(|e| e.msg.pointer("/params/update").cloned())
+        .filter(|u| u["toolCallId"] == tool && u["state"] == "running")
+        .map(|u| u["origin"].clone())
+        .collect()
+}
+
+/// Ctrl-B that Claude Code never answers times out and leaves no mark: the
+/// shell Claude Code then moves to the background by itself is its own
+/// (`auto_backgrounded`), not the person's.
+#[tokio::test]
+async fn background_claude_code_never_answered_leaves_no_mark() {
+    let (hub, mut c, root) = claude_hub(&[("FAKE_CLAUDE_BACKGROUND_SILENT_MS", "1500")]).await;
+    hub.set_background_timeout(Duration::from_millis(300));
+    let (id, turn) = fg_shell(&mut c).await;
+    let mut other = connect(&hub).await;
+    let refused = other.request(BACKGROUND, json!({"sessionId": id})).await.unwrap_err();
+    assert!(refused.contains("in time"), "{refused}");
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    assert_eq!(running_origins(&hub, &id, "toolu_fg"), vec![json!("auto_backgrounded")]);
+    assert_eq!(listed(&mut c, &id).await[0]["origin"], "auto_backgrounded");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A turn that ends with Ctrl-B still unanswered takes the mark with it: the
+/// shell Claude Code moves to the background after the turn is its own.
+#[tokio::test]
+async fn background_unanswered_when_the_turn_ends_leaves_no_mark() {
+    let env =
+        [("FAKE_CLAUDE_BACKGROUND_SILENT_MS", "300"), ("FAKE_CLAUDE_BACKGROUND_SILENT_END", "1")];
+    let (hub, mut c, root) = claude_hub(&env).await;
+    // The request still waits when the shell moves: only the turn's end clears its mark.
+    hub.set_background_timeout(Duration::from_secs(60));
+    let (id, turn) = fg_shell(&mut c).await;
+    let mut other = connect(&hub).await;
+    other.send(BACKGROUND, json!({"sessionId": id})).await;
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    let moved = until_state(&mut c, &id, "running").await;
+    assert_eq!(moved["origin"], "auto_backgrounded", "{moved}");
+    assert_eq!(running_origins(&hub, &id, "toolu_fg"), vec![json!("auto_backgrounded")]);
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Two Ctrl-Bs close together: Claude Code moves the shell for one and
+/// answers the other `backgrounded: false`, as nothing is left in the
+/// foreground. That answer leaves the moved shell the person's, whether it
+/// comes after the shell moved ("moved") or before ("answered"), and so does
+/// the update that names the shell's output file.
+#[tokio::test]
+async fn background_twice_keeps_the_moved_shell_the_persons() {
+    for order in ["moved", "answered"] {
+        let (hub, mut c, root) = claude_hub(&[("FAKE_CLAUDE_BACKGROUND_TWICE", order)]).await;
+        let (id, turn) = fg_shell(&mut c).await;
+        let (mut a, mut b) = (connect(&hub).await, connect(&hub).await);
+        let first = a.send(BACKGROUND, json!({"sessionId": id})).await;
+        let second = b.send(BACKGROUND, json!({"sessionId": id})).await;
+        let mut answers =
+            vec![a.response(first).await.0.unwrap(), b.response(second).await.0.unwrap()];
+        answers.sort_by_key(Value::to_string);
+        let want = vec![json!({"backgrounded": false}), json!({"backgrounded": true})];
+        assert_eq!(answers, want, "{order}");
+        let (answer, _) = c.response(turn).await;
+        assert_eq!(answer.unwrap()["stopReason"], "end_turn", "{order}");
+        let user = json!("user_backgrounded");
+        assert_eq!(running_origins(&hub, &id, "toolu_fg"), vec![user.clone(), user], "{order}");
+        assert_eq!(listed(&mut c, &id).await[0]["origin"], "user_backgrounded", "{order}");
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+/// Only Claude Code has a Ctrl-B: another agent's chat is refused, and so
+/// are bad params.
+#[tokio::test]
+async fn background_on_a_chat_that_is_not_claude_is_refused() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "acp").await;
+    let refused = c.request(BACKGROUND, json!({"sessionId": id})).await.unwrap_err();
+    assert!(refused.contains("Claude Code"), "{refused}");
+    for params in [json!({}), json!({"sessionId": 7}), json!({"sessionId": id, "toolCallId": 7})] {
+        let refused = c.request(BACKGROUND, params.clone()).await;
+        assert!(refused.is_err(), "{params} was not refused: {refused:?}");
+    }
+    hub.shutdown_all().await;
+}
+
+/// A hub whose default harness is `cmux`, the model router's profile: Claude
+/// Code (claude-stdio, fake_claude.py) under a name that is not `claude*`,
+/// beside `claude-acp`, an ACP agent.
+async fn router_hub() -> (Arc<Hub>, TestClient, std::path::PathBuf) {
+    let root = std::env::temp_dir().join(format!("acpmux-proc-{}", uuid::Uuid::now_v7()));
+    let claude_home = root.join("claude");
+    std::fs::create_dir_all(&claude_home).unwrap();
+    let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let fake_agent = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {
+            "cmux": {"argv": ["python3", fake_claude], "kind": "claude-stdio",
+                "env": {"CLAUDE_CONFIG_DIR": claude_home}},
+            "claude-acp": {"argv": ["python3", fake_agent]},
+        },
+        "defaultHarness": "cmux",
+        "permissionPolicy": "approve-all",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let c = connect(&hub).await;
+    (hub, c, root)
+}
+
+/// Whether Ctrl-B can move a chat's work goes by its harness's kind, not its
+/// name, and every chat's summary says so (`backgroundsWork`), so a client
+/// offers Ctrl-B only where acpmux takes it. `cmux`, the model router's
+/// profile, is Claude Code (claude-stdio) under a name that is not
+/// `claude*`: it says yes and Ctrl-B moves its work. An ACP agent a user's
+/// config named `claude-acp` says no and is refused.
+#[tokio::test]
+async fn a_chats_summary_says_whether_ctrl_b_moves_its_work() {
+    let (hub, mut c, root) = router_hub().await;
+    let new_on = |harness: &str| json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}});
+
+    let acp = c.request(method::SESSION_NEW, new_on("claude-acp")).await.unwrap();
+    assert_eq!(acp["_meta"]["acpmux"]["backgroundsWork"], json!(false), "{acp}");
+    let acp = acp["sessionId"].as_str().unwrap().to_owned();
+    let refused = c.request(BACKGROUND, json!({"sessionId": acp})).await.unwrap_err();
+    assert!(refused.contains("Claude Code"), "{refused}");
+
+    let router = c.request(method::SESSION_NEW, new_on("cmux")).await.unwrap();
+    assert_eq!(router["_meta"]["acpmux"]["backgroundsWork"], json!(true), "{router}");
+    let router = router["sessionId"].as_str().unwrap().to_owned();
+    for (id, moves) in [(&router, true), (&acp, false)] {
+        let summary = hub.session_summary(&hub.resolve(id).unwrap());
+        assert_eq!(summary["backgroundsWork"], json!(moves), "{summary}");
+    }
+
+    // The router's chat (the default harness) runs a foreground shell, and
+    // Ctrl-B moves it.
+    let (id, turn) = fg_shell(&mut c).await;
+    assert_eq!(hub.resolve(&id).unwrap().meta().harness, "cmux");
+    let mut other = connect(&hub).await;
+    let r = other.request(BACKGROUND, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(r, json!({"backgrounded": true}));
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    assert_eq!(listed(&mut c, &id).await[0]["origin"], "user_backgrounded");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A chat's Ctrl-B is decided by the kind its harness started as. A config
+/// being written (a mode or model pick saves it) does not turn its summary's
+/// `backgroundsWork` off mid-turn, and a reload that changes its profile's
+/// kind flips neither the summary nor what Ctrl-B takes.
+#[tokio::test]
+async fn a_chats_ctrl_b_goes_by_the_kind_it_started_as() {
+    let (hub, mut c, root) = router_hub().await;
+    let (id, turn) = fg_shell(&mut c).await;
+    let says =
+        |hub: &Arc<Hub>| hub.session_summary(&hub.resolve(&id).unwrap())["backgroundsWork"].clone();
+    {
+        let _saving = hub.config.write().await;
+        assert_eq!(says(&hub), json!(true), "a config write hid Ctrl-B");
+    }
+    hub.config.write().await.harnesses.get_mut("cmux").unwrap().kind =
+        acpmux::config::HarnessKind::Acp;
+    assert_eq!(says(&hub), json!(true), "a reload flipped a running chat's Ctrl-B");
+    let mut other = connect(&hub).await;
+    let r = other.request(BACKGROUND, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(r, json!({"backgrounded": true}));
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 /// What fake_claude.py's "bg-output" shell writes to its output file.

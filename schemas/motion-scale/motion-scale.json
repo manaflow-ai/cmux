@@ -1,0 +1,10 @@
+{
+  "$comment": "The one motion duration scale of cmux NEXT (Leo 2026-10-20: \"animations all around are a bit slow\"). Every timed fade and every structural move ends within one of these steps; anything entering eases out. scripts/cmux-next/gen-motion-scale.py writes the Swift (MotionScale.generated.swift), CSS (--cmux-motion-<step> in webviews/src/pages/shared/desktop.css) and TypeScript (webviews/src/motion/scale.generated.ts) copies. Loops (spinners, breathing) and hover-intent delays are not transitions and stay off the scale.",
+  "steps": [
+    { "name": "quick", "ms": 80, "for": "hover and pressed fills, focus rings, anything leaving (a popup, a notice, a row)" },
+    { "name": "micro", "ms": 120, "for": "small things arriving: a fade in, a popup opening, a chip, a tooltip" },
+    { "name": "standard", "ms": 180, "for": "structural changes: a row or card moving, a fold opening, a scrim" },
+    { "name": "large", "ms": 240, "for": "the largest moves, and the ceiling: a split, a zoom, a window closing, the launch mark" }
+  ],
+  "easeOut": [0, 0, 0.58, 1]
+}

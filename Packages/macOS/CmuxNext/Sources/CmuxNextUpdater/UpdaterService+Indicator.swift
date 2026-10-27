@@ -14,7 +14,7 @@ extension UpdaterService {
         return phase
     }
 
-    private var sourcePhase: UpdateIndicatorPhase {
+    var sourcePhase: UpdateIndicatorPhase {
         if let debugIndicatorPhase { return debugIndicatorPhase }
         if let controller, disabledReason == nil {
             let version = controller.stagedUpdate?.displayVersionString ?? controller.model.detectedUpdateVersion
@@ -37,6 +37,11 @@ extension UpdaterService {
         }
         guard let version, !version.isEmpty else { return false }
         return version != identity.shortVersion
+    }
+
+    /// The update sheet closed (set by the App): the tip app's feed read resumes (``TipUpdateCheck``).
+    public func updateSheetClosed() {
+        tipCheck.refresh(self)
     }
 
     /// The note beside the circle timed out (up to date clears itself).

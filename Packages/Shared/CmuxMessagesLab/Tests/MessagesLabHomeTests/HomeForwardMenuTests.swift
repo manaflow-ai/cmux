@@ -4,7 +4,7 @@ import Testing
 @testable import MessagesLabHome
 
 /// u5402 (Oct 20): a right-click on a Home bubble gives Forward…, which hands the bubble's text to
-/// the host (cmux-next's Send to…, which asks for the chat or agent). Without a host route the row
+/// the host (cmux-next's Send To…, which asks for the chat or agent). Without a host route the row
 /// is not offered. The menu is built and chosen through the right-click's path (`menu(at:)`).
 /// Reply… and Try Again are the menu's own rows, covered by their tests.
 @MainActor @Suite(.serialized) struct HomeForwardMenuTests {

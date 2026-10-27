@@ -87,7 +87,7 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// (`terminal-snapshot-v1`) followed by their scrollback as `history`
     /// snapshots. A READY alone would drop the scrollback at every attach
     /// and grid change, so a host without it gets a byte replay attach.
-    public static let snapshotCapability = DaemonCapabilities.shared.terminalSnapshotHistory
+    public static let snapshotCapability = DaemonCapability.terminalSnapshotHistory.rawValue
 
     /// Opens a connection, attaches in byte mode at `size`, and optionally
     /// claims canonical geometry (the focused view in the key window does).
@@ -107,7 +107,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         device: TerminalSizingDevice? = nil
     ) async throws -> TerminalAttachment {
         DaemonLaunchTimings.shared.mark("terminal.attach_start")
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachStart, surface: target.surface.rawValue) }
         #endif
         let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
@@ -141,6 +141,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         let control = control
         let resolvedSurface = resolvedSurface
         let sequencer = SequencerBox()
+        let probeObject = ObjectIdentifier(self)
         transport.start(
             onEvent: { name, line, _ in
                 var surface = resolvedSurface.value.withLock { $0 }
@@ -159,7 +160,7 @@ public actor TerminalAttachment: TerminalByteChannel {
                 if case .closed = event {
                     queue.finish(event)
                 } else {
-                    if case .output = event { TypingLatencyProbe.shared.mark(.outputDecoded) }
+                    if case .output = event { TypingLatencyProbe.shared.mark(.outputDecoded, source: Self.probeSource(surface, object: probeObject)) }
                     queue.push(event)
                 }
             },
@@ -178,7 +179,7 @@ public actor TerminalAttachment: TerminalByteChannel {
                 name: clientName, kind: "frontend",
                 // A view that names its device joins shared sizing: `size-state` events, and its
                 // device in the size state ("Sized for <device>" on every other view).
-                capabilities: DaemonCapabilities.shared.advertised + (device == nil ? [] : [DaemonCapabilities.shared.sharedSizing]),
+                capabilities: DaemonCapability.advertised + (device == nil ? [] : [DaemonCapability.sharedSizing.rawValue]),
                 deviceKind: device?.kind, deviceName: device?.name)),
         ], timeout: DaemonConnection.defaultRequestTimeout)
         let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get().line)
@@ -195,18 +196,18 @@ public actor TerminalAttachment: TerminalByteChannel {
             expectedTerminalID: useIdentity ? target.terminalResourceID : nil,
             size: size,
             snapshotVersion: identity.supports(Self.snapshotCapability) ? snapshotVersion : nil,
-            snapshotLocalHistory: localHistory && identity.supports(DaemonCapabilities.shared.terminalSnapshotLocalHistory),
-            snapshotImages: images && identity.supports(DaemonCapabilities.shared.terminalSnapshotImages)
+            snapshotLocalHistory: localHistory && identity.supports(DaemonCapability.terminalSnapshotLocalHistory.rawValue),
+            snapshotImages: images && identity.supports(DaemonCapability.terminalSnapshotImages.rawValue)
         )
         // The reply carries the replay (up to 32 MiB): a longer, still bounded deadline.
         let response = try await DaemonConnection.perform(request, on: transport, timeout: .seconds(10))
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachReplied, surface: target.surface.rawValue) }
         #endif
         control.value.withLock { control in
             control.lease = response.lease
             control.lastReported = size
-            control.hidesInPlace = identity.supports(DaemonCapabilities.shared.sharedSizing)
+            control.hidesInPlace = identity.supports(DaemonCapability.sharedSizing.rawValue)
             if let participant = response.participant { control.participant = participant }
             // The reply's state, or a newer one held before the participant was known, now with it.
             // Pushed inside the lock: a newer stream state admitted meanwhile cannot go first.
@@ -224,7 +225,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         }
         queue.arm()
         DaemonLaunchTimings.shared.mark("terminal.attach_end")
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachEnd, surface: target.surface.rawValue) }
         #endif
     }
@@ -247,6 +248,12 @@ public actor TerminalAttachment: TerminalByteChannel {
         }
     }
 
+    /// The typing probe's name for this terminal: its surface id once resolved (the session's IO names it
+    /// so too), else this attachment alone.
+    private nonisolated static func probeSource(_ surface: SurfaceID, object: ObjectIdentifier) -> TypingLatencyProbe.Source {
+        surface == unresolvedSurface ? .object(object) : .terminal(surface.rawValue)
+    }
+
     // MARK: TerminalByteChannel
 
     public nonisolated func write(_ data: Data) async {
@@ -259,13 +266,14 @@ public actor TerminalAttachment: TerminalByteChannel {
         guard !data.isEmpty else { return }
         let surface = surface
         let logger = logger
+        let flow = TypingLatencyProbe.shared.openFlow(for: Self.probeSource(surface, object: ObjectIdentifier(self)))
         do {
             try transport.sendNoReply(cmd: SendInputRequest.command, onError: { error in
                 logger.error("send failed: \(error.description, privacy: .public)")
             }) { id in
-                try WireCoding.encodeRequest(SendInputRequest(surface: surface, bytes: data), id: id)
+                try WireCoding.encodeRequest(SendInputRequest(surface: surface, bytes: data, flow: flow), id: id)
             }
-            TypingLatencyProbe.shared.mark(.socketSubmit)
+            TypingLatencyProbe.shared.mark(.socketSubmit, source: Self.probeSource(surface, object: ObjectIdentifier(self)))
         } catch {
             logger.debug("input dropped after close: \(String(describing: error), privacy: .public)")
         }

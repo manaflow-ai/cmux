@@ -21,7 +21,7 @@ public enum ActionTargetReasons {
 
     /// `canPerform(_:)` for one invocation's target.
     public static func canPerform(_ id: ActionID, invocation: ActionInvocation, in registry: ActionRegistry) -> Bool {
-        registry.canPerform(id) && registry.action(for: id)?.targetUnavailableReason?(invocation) == nil
+        registry.canPerform(id, in: invocation.keyContext) && registry.action(for: id)?.targetUnavailableReason?(invocation) == nil
     }
 
     /// Refuses `invocation` with the action's target reason, if it has one.

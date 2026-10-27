@@ -24,6 +24,10 @@ const newWorktree: Play = async (ctx) => {
   await ctx.click({ role: "option", name: "New Worktree" });
 };
 
+// The home folder's row in the folder menu. Rows show the repository or folder name since #22724,
+// with the full path only as the row's tooltip.
+const HOME_ROW = '.acpmux-location-menu [title="/Users/you"]';
+
 const fresh = noChat(
   [
     session({ sessionId: "home", title: "An older chat in the home folder", cwd: "/Users/you" }),
@@ -63,7 +67,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: '[aria-label="Folder"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu"));
-        await ctx.click({ role: "option", name: /\/Users\/you$/ });
+        await ctx.click({ selector: HOME_ROW });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-start-folder-ask"));
       },
     },
@@ -75,7 +79,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: '[aria-label="Folder"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu"));
-        await ctx.click({ role: "option", name: /\/Users\/you$/ });
+        await ctx.click({ selector: HOME_ROW });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-start-folder-ask"));
       },
     },

@@ -15,6 +15,15 @@
 //! still keeps any workspace or screen the stash emptied (without the
 //! pages). The batch close clears the mark after its patch
 //! ([`clear_capture_mark`]), so it never outlives its transaction.
+//!
+//! Whole workspaces (`stash-workspaces-v1`): the close's transaction first
+//! names its stash ([`pend_workspace_stash`]); `capture_closed` takes it
+//! ([`take_workspace_stash`]) and stores the workspace members it captured
+//! (closed-history workspace shape: screens, layouts, presentation, key) and
+//! the tab groups they held in that stash ([`store_workspace_stash`])
+//! instead of a closed group. Their terminals end with the close and keep no
+//! archived screen (an archive is kept only for a closed-history group): a
+//! restored terminal starts again in its directory.
 
 use std::collections::HashSet;
 
@@ -27,10 +36,18 @@ use crate::workspace_registry::{new_uuid_v4, unix_epoch_ms};
 
 /// `stash.create|list|restore|delete|import`.
 pub const CAPABILITY: &str = "stash-v1";
+/// `stash.create {workspaces}`: whole workspaces, terminals included, as
+/// `kind: "workspace"` members.
+pub const WORKSPACES_CAPABILITY: &str = "stash-workspaces-v1";
 /// The resource kind of a stash on `session.events`.
 pub(crate) const RESOURCE: &str = "stash";
 /// The longest URL a stash keeps (an import refuses longer ones).
 const MAX_URL_BYTES: usize = 8192;
+/// The most tabs `stash.list` shows of one stashed workspace (`tabs`);
+/// `tab_count` counts them all.
+const MAX_LISTED_WORKSPACE_TABS: usize = 50;
+/// The longest stash name `stash.create` takes, in UTF-8 bytes.
+pub(crate) const MAX_NAME_BYTES: usize = 1024;
 
 pub(crate) fn create_stash_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
@@ -42,6 +59,10 @@ pub(crate) fn create_stash_schema(transaction: &Transaction<'_>) -> anyhow::Resu
          );
          CREATE TABLE IF NOT EXISTS stash_capture_tabs (
            tab_id TEXT PRIMARY KEY NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS stash_capture_workspaces (
+           stash_id TEXT PRIMARY KEY NOT NULL,
+           name TEXT
          );",
     )?;
     Ok(())
@@ -98,7 +119,72 @@ pub(crate) fn take_capture_mark(transaction: &Transaction<'_>) -> anyhow::Result
 
 pub(crate) fn clear_capture_mark(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute("DELETE FROM stash_capture_tabs", [])?;
+    transaction.execute("DELETE FROM stash_capture_workspaces", [])?;
     Ok(())
+}
+
+/// The close in this transaction stashes the workspaces it closes, whole,
+/// as stash `stash_id` named `name`: `capture_closed` stores them there
+/// ([`take_workspace_stash`]) and records nothing in the closed history.
+pub(crate) fn pend_workspace_stash(
+    transaction: &Transaction<'_>,
+    stash_id: &str,
+    name: Option<&str>,
+) -> anyhow::Result<()> {
+    clear_capture_mark(transaction)?;
+    transaction.execute(
+        "INSERT INTO stash_capture_workspaces(stash_id, name) VALUES(?1, ?2)",
+        params![stash_id, name],
+    )?;
+    Ok(())
+}
+
+/// The whole-workspace stash this transaction's close stores (none for any
+/// other close): its id and name, cleared as it is read.
+pub(crate) fn take_workspace_stash(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<Option<(String, Option<String>)>> {
+    let pending = transaction
+        .query_row("SELECT stash_id, name FROM stash_capture_workspaces LIMIT 1", [], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        })
+        .optional()?;
+    transaction.execute("DELETE FROM stash_capture_workspaces", [])?;
+    Ok(pending)
+}
+
+/// Store the workspace members a whole-workspace close captured (and the
+/// tab groups they held) as stash `stash_id`, and queue its public upsert.
+/// A member of another kind means a workspace stayed open (a session that
+/// keeps emptied workspaces): the close fails, so nothing is half stashed.
+pub(crate) fn store_workspace_stash(
+    transaction: &Transaction<'_>,
+    stash_id: &str,
+    name: Option<&str>,
+    mut members: Vec<Value>,
+    tab_groups: Vec<Value>,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(!members.is_empty(), "bad request: no workspace to stash");
+    anyhow::ensure!(
+        members.iter().all(|member| member["kind"] == "workspace"),
+        "bad request: a workspace of this session stays open when its tabs close, so it cannot be stashed"
+    );
+    // The page titles, read while the rows are live (the closed-history
+    // record keeps only a tab's own name).
+    for member in &mut members {
+        for screen in member["screens"].as_array_mut().into_iter().flatten() {
+            for tab in screen["tabs"].as_array_mut().into_iter().flatten() {
+                if tab["kind"] == "browser"
+                    && let Some(tab_id) = tab["tab_id"].as_str().map(str::to_string)
+                {
+                    tab["title"] = json!(page_title(transaction, &tab_id)?);
+                }
+            }
+        }
+    }
+    let extra = (!tab_groups.is_empty()).then(|| json!({"tab_groups": tab_groups}));
+    let change = insert_stash_with(transaction, stash_id, name, None, members, extra)?;
+    super::closed_history_store::queue_change(transaction, &change)
 }
 
 /// Why a tab cannot be stashed.
@@ -128,7 +214,13 @@ pub(crate) fn stash_member(
     if !page || is_app_tab(connection, tab_id)? {
         return Ok(Err(Refusal::NotPage));
     }
-    let title = connection
+    member["screens"][0]["tabs"][0]["title"] = json!(page_title(connection, tab_id)?);
+    Ok(Ok(member))
+}
+
+/// The page title of browser tab `tab_id`, when it has one.
+fn page_title(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<String>> {
+    Ok(connection
         .query_row(
             "SELECT f.title FROM resource_tabs AS t
              JOIN frontend_browser_tabs AS f ON f.browser_id = t.content_id
@@ -137,9 +229,7 @@ pub(crate) fn stash_member(
             |row| row.get::<_, Option<String>>(0),
         )
         .optional()?
-        .flatten();
-    member["screens"][0]["tabs"][0]["title"] = json!(title);
-    Ok(Ok(member))
+        .flatten())
 }
 
 /// Whether open tab `tab_id` shows an app (`app-screens-v1`): never stashed.
@@ -228,7 +318,19 @@ pub(crate) fn insert_stash(
     stash_id: &str,
     name: Option<&str>,
     created_at_ms: Option<u64>,
+    members: Vec<Value>,
+) -> anyhow::Result<Value> {
+    insert_stash_with(transaction, stash_id, name, created_at_ms, members, None)
+}
+
+/// [`insert_stash`] with the fields of `extra` (`tab_groups`) in its record.
+fn insert_stash_with(
+    transaction: &Transaction<'_>,
+    stash_id: &str,
+    name: Option<&str>,
+    created_at_ms: Option<u64>,
     mut members: Vec<Value>,
+    extra: Option<Value>,
 ) -> anyhow::Result<Value> {
     for member in &mut members {
         member["id"] = json!(new_member_id());
@@ -237,12 +339,17 @@ pub(crate) fn insert_stash(
         Some(created) => created,
         None => unix_epoch_ms()?,
     };
-    let record = json!({
+    let mut record = json!({
         "id": stash_id,
         "name": name,
         "created_at_ms": created_at_ms.to_string(),
         "members": members,
     });
+    if let Some(Value::Object(extra)) = extra {
+        for (key, value) in extra {
+            record[key] = value;
+        }
+    }
     transaction.execute(
         "INSERT INTO stashed_groups(stash_id, created_at_ms, record_json) VALUES(?1, ?2, ?3)",
         params![stash_id, i64::try_from(created_at_ms)?, serde_json::to_string(&record)?],
@@ -285,17 +392,21 @@ pub(crate) fn keep_stash_members(
     Ok((super::store::state_upsert(RESOURCE, stash_id, public_stash(&record)), remaining))
 }
 
-/// `StashSnapshot`: the group and its pages, never their back/forward
-/// history.
+/// `StashSnapshot`: the group and its pages (or workspaces), never their
+/// back/forward history.
 pub(crate) fn public_stash(record: &Value) -> Value {
     let members = record["members"]
         .as_array()
         .into_iter()
         .flatten()
         .map(|member| {
+            if member["kind"] == "workspace" {
+                return public_workspace_member(member);
+            }
             let tab = &member["screens"][0]["tabs"][0];
             json!({
                 "id": member["id"],
+                "kind": "tab",
                 "url": tab["url"],
                 "title": tab.get("title").cloned().unwrap_or(Value::Null),
                 "browser_profile_id": tab["browser_profile_id"],
@@ -309,6 +420,46 @@ pub(crate) fn public_stash(record: &Value) -> Value {
         "created_at_ms": record["created_at_ms"],
         "member_count": members.len(),
         "members": members,
+    })
+}
+
+/// A stashed workspace in `stash.list`: its name, how many tabs it holds,
+/// and the first [`MAX_LISTED_WORKSPACE_TABS`] of them (kind, title, and the
+/// URL of a web page; no directory, command or history).
+fn public_workspace_member(member: &Value) -> Value {
+    let tabs = member["screens"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|screen| screen["tabs"].as_array().into_iter().flatten())
+        .collect::<Vec<_>>();
+    let listed = tabs
+        .iter()
+        .take(MAX_LISTED_WORKSPACE_TABS)
+        .map(|tab| {
+            let present = |field: &str| tab.get(field).is_some_and(|value| !value.is_null());
+            let kind = if present("conversation") {
+                "conversation"
+            } else if present("remote") {
+                "remote_terminal"
+            } else {
+                tab["kind"].as_str().unwrap_or("terminal")
+            };
+            let url = tab["url"].as_str().filter(|url| kind == "browser" && is_web_url(url));
+            let title = tab.get("title").and_then(Value::as_str).or_else(|| tab["name"].as_str());
+            json!({"kind": kind, "title": title, "url": url})
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "id": member["id"],
+        "kind": "workspace",
+        "name": member["name"],
+        "url": null,
+        "title": null,
+        "browser_profile_id": null,
+        "workspace_id": null,
+        "tab_count": tabs.len(),
+        "tabs": listed,
     })
 }
 

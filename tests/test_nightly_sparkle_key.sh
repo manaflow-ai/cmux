@@ -52,7 +52,8 @@ if [ "$(grep -c 'SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"' "
   exit 1
 fi
 
-if ! grep -Fq 'drop-previous-nightlies-with-other-sparkle-key.sh' "$WORKFLOW" || ! grep -Fq 'nightly-delta/previous "$SPARKLE_PUBLIC_KEY"' "$WORKFLOW"; then
+DELTAS="$ROOT_DIR/scripts/ci/generate-nightly-deltas.sh"
+if ! grep -Fq 'scripts/ci/generate-nightly-deltas.sh' "$WORKFLOW" || ! grep -Fq 'drop-previous-nightlies-with-other-sparkle-key.sh" "$previous" "$SPARKLE_PUBLIC_KEY"' "$DELTAS"; then
   echo "FAIL: the post-publication delta step must drop previous nightlies signed for another key before building deltas"
   exit 1
 fi
