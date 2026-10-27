@@ -77,7 +77,11 @@ extension AppServices {
         browserTabs.localhostRoute = { [weak localhost] daemon, pane, engine in
             localhost?.route(daemon: daemon, workspace: daemon.store.workspace(containing: pane.handle)?.id, engine: engine)
         }
-        machines.onDaemonRemoved = { [weak localhost] daemon in localhost?.closeClient(of: daemon) }
+        // A forgotten Cloud machine's Dedicated agent machine state goes too (read again if it comes back).
+        machines.onDaemonRemoved = { [weak localhost, weak self] daemon in
+            localhost?.closeClient(of: daemon)
+            self?.cloudVmHost.forget(daemon.machineID)
+        }
         // A Cloud proxy tab restored after a relaunch fetches its machine's route again.
         cache.pageRequests.proxiedTabs.restore = { [weak self] machine in
             guard let self else { return nil }
