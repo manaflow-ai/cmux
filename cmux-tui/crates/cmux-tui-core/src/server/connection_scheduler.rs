@@ -296,10 +296,15 @@ impl ConnectionSurfaceScheduler {
         // also when the sequence is full and refuses it: those are the
         // saturation samples (`server-stats` `ipc` `sequence_depth`).
         let arrival_depth = state.requests.len() + 1;
+        // Person input bound for its lane meets the lane's caps, not control's:
+        // an automation flood that fills control never refuses a person's key.
+        let person_surface = request
+            .as_ref()
+            .and_then(|pending| Self::person_lane_surface(&state, &mux, &pending.cmd));
         let over_count = state.requests.len() >= CONNECTION_SURFACE_QUEUE_CAPACITY;
         let over_bytes = retained_bytes
             > CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY.saturating_sub(state.queued_bytes);
-        if over_count || over_bytes {
+        if person_surface.is_none() && (over_count || over_bytes) {
             drop(state);
             mux.ipc_stats().sequence_depth(arrival_depth);
             *request = None;
@@ -335,7 +340,7 @@ impl ConnectionSurfaceScheduler {
         let Some(queued) = request.take() else {
             return Some(true);
         };
-        if let Some(surface) = Self::person_lane_surface(&state, &mux, &queued.cmd) {
+        if let Some(surface) = person_surface {
             let pending = PendingSurfaceRequest {
                 request: queued,
                 arrival,
@@ -420,7 +425,9 @@ impl ConnectionSurfaceScheduler {
 
     /// The surface whose person-input lane `cmd` takes: the verified app's
     /// input to a view, with the feature on, when neither the control
-    /// sequence nor a stream holds a request of that surface it would pass.
+    /// sequence, a clear-history worker it handed off, nor a stream holds a
+    /// request of that surface it would pass. A terminal create needs no
+    /// check: control does not order later requests behind its hand-off.
     fn person_lane_surface(
         state: &ConnectionSurfaceState,
         mux: &Mux,
@@ -431,6 +438,7 @@ impl ConnectionSurfaceScheduler {
         }
         let surface = person_input_surface(cmd)?;
         let control_holds = state.running_surface == Some(surface)
+            || state.active_clear_surfaces.contains(&surface)
             || state
                 .requests
                 .iter()

@@ -10,8 +10,8 @@ use serde_json::{Value, json};
 
 use super::super::sequenced_pool::{PoolConfig, SequencePriority, SequencedPool};
 use super::super::{
-    BoundedOutbound, ClientTransport, ConnectionSurfaceScheduler, MessageWriter, QueuedSink,
-    Request,
+    BoundedOutbound, CONNECTION_SURFACE_QUEUE_CAPACITY, ClientTransport,
+    ConnectionSurfaceScheduler, MessageWriter, QueuedSink, Request,
 };
 use crate::Mux;
 use crate::event_cause::{EventCause, EventCauseScope};
@@ -104,17 +104,26 @@ fn p99(mut samples: Vec<Duration>) -> Duration {
     samples[samples.len() * 99 / 100]
 }
 
-/// A control sequence held by a slow request with an automation flood of
-/// 200 requests behind it does not delay the person's keys to another
-/// surface: each answers within 5 ms at p99.
+/// A control sequence held by a slow request with an automation flood past
+/// the control queue's capacity behind it does not delay or refuse the
+/// person's keys to another surface: each answers ok within 5 ms at p99.
 #[test]
 fn an_automation_flood_on_control_does_not_delay_a_person_key() {
     let connection = Connection::new("person-lane-flood", true);
     let (held, typed) = (connection.surface(), connection.surface());
     connection.hold_control(1, held, Duration::from_secs(60));
-    for id in 2..202 {
+    let flood = CONNECTION_SURFACE_QUEUE_CAPACITY + 44;
+    for id in 2..2 + flood {
         connection.send_as(EventCause::Automation, json!({"id": id, "cmd": "ping"}));
     }
+    // The flood past control's capacity was refused as it arrived.
+    let mut refused = 0;
+    while let Some(line) = connection.outbound.try_pop() {
+        let reply: Value = serde_json::from_str(&line).expect("a JSON message");
+        assert_eq!(reply["ok"], false, "only flood refusals answer before the keys: {reply}");
+        refused += 1;
+    }
+    assert!(refused > 0, "the flood did not fill the control queue");
     let mut waits = Vec::with_capacity(SAMPLES);
     for key in 0..SAMPLES {
         let id = 1_000 + key;
@@ -169,6 +178,25 @@ fn a_person_key_keeps_order_with_control_of_its_surface() {
     let first = connection.reply_within(WAIT).expect("the held request answers");
     assert_eq!(first["id"], 1, "the key passed its surface's control request: {first}");
     assert_eq!(connection.reply_within(WAIT).expect("the key answers")["id"], 2);
+}
+
+/// A key to a surface whose clear-history runs on its own worker (the pump
+/// handed it off and moved on) stays behind the clear, as on control.
+#[test]
+fn a_person_key_waits_for_an_active_clear_of_its_surface() {
+    let connection = Connection::new("person-lane-clear", true);
+    let surface = connection.surface();
+    connection.scheduler.state.lock().unwrap().active_clear_surfaces.insert(surface);
+    connection.send(json!({"id": 7, "cmd": "send-key", "surface": surface, "keys": ["a"]}));
+    assert_eq!(
+        connection.reply_within(Duration::from_millis(200)),
+        None,
+        "the key passed the active clear of its surface"
+    );
+    connection.scheduler.finish_clear(surface);
+    let reply = connection.reply_within(WAIT).expect("the key answers after the clear");
+    assert_eq!(reply["id"], 7, "{reply}");
+    assert_eq!(reply["ok"], true, "{reply}");
 }
 
 /// A control command of a surface the lane holds input for waits for that
@@ -236,7 +264,8 @@ fn a_control_flood_across_connections_does_not_delay_input() {
         let (gate, busy) = (gate.clone(), busy_tx.clone());
         flood
             .post(move || {
-                busy.send(()).unwrap();
+                // The flood outlives the test's receiver; a late send is fine.
+                let _ = busy.send(());
                 drop(gate.read());
             })
             .unwrap();

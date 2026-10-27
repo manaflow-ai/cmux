@@ -1,7 +1,6 @@
 import CmuxNextWakeups
 public import Foundation
 import CmuxNextCompat
-import CmuxNextIPC
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import os
@@ -193,10 +192,10 @@ public actor DaemonConnection {
         try await sendAdmitted(request, timeout: timeout) { request, _ in request }
     }
 
-    /// Passes the quiet-handoff gate, then sends `request` at `priority` as `forDaemon` makes it for the identity of
+    /// Passes the quiet-handoff gate, then sends `request` as `forDaemon` makes it for the identity of
     /// the ready connection that carries it.
-    nonisolated func sendAdmitted<R: DaemonRequest>(_ request: R, timeout: Duration?, priority: MethodPriority = .control,
-                                                    forDaemon: (R, DaemonIdentity) -> R) async throws -> R.Response {
+    private nonisolated func sendAdmitted<R: DaemonRequest>(_ request: R, timeout: Duration?,
+                                                            forDaemon: (R, DaemonIdentity) -> R) async throws -> R.Response {
         await handoffGate.enter(passes: Self.passesHandoffHold)
         defer { handoffGate.leave() }
         guard let ready = admittedConnection else { throw DaemonError.notConnected }
@@ -204,7 +203,7 @@ public actor DaemonConnection {
         let request = forDaemon(request, ready.identity)
         // Before the line goes out: the echo can arrive before the reply.
         DaemonCommandScope.recordEchoTransaction(of: request, in: mutationCauses)
-        let response = try await DaemonRequestExecutor(transport: ready.transport).perform(request, timeout: timeout, priority: priority)
+        let response = try await Self.perform(request, on: ready.transport, timeout: timeout)
         DaemonCommandScope.noteCreated(by: request, response: response)
         return response
     }

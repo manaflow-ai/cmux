@@ -188,17 +188,15 @@ final class LineTransport: Sendable {
     /// without the trailing newline. With a `timeout`, a reply that has not
     /// arrived in time fails the request with `DaemonError.timedOut`; the
     /// late reply is dropped when it comes (architecture.md 5a). Its
-    /// `daemon.request` slice ends when the slot resolves (LineTransport+RequestTrace.swift). `priority` picks the
-    /// writer FIFO the line waits in (``submit(_:deadline:priority:_:)``).
-    func request(cmd: DaemonCommandName, timeout: Duration?, priority: MethodPriority = .control,
-                 _ body: (UInt64) throws -> Data) async throws -> Response {
+    /// `daemon.request` slice ends when the slot resolves (LineTransport+RequestTrace.swift).
+    func request(cmd: DaemonCommandName, timeout: Duration?, _ body: (UInt64) throws -> Data) async throws -> Response {
         let slot = ReplySlot()
         #if DEBUG || CMUX_BENCH_HOOKS
         // A traced new terminal: the request naming its id, and that request's reply.
         let armed = NewTerminalTrace.shared.isArmed
         var traced: String?
         #endif
-        submit(.reply(cmd: cmd.wire, slot), deadline: timeout.map { self.deadline(after: $0) }, priority: priority) { id in
+        submit(.reply(cmd: cmd.wire, slot), deadline: timeout.map { self.deadline(after: $0) }) { id in
             let line = try body(id)
             #if DEBUG || CMUX_BENCH_HOOKS
             if armed { traced = NewTerminalTrace.shared.requestSent(line) }
@@ -241,14 +239,12 @@ final class LineTransport: Sendable {
     }
 
     /// Allocates the id, registers the waiter and its `deadline`, and writes, all under the
-    /// socket lock so the pending requests' send order equals wire order within one `priority`;
-    /// an `.input` line (a person's key, p01-process-235) leaves before the control lines still
-    /// queued in the writer. On failure before registration the waiter is resumed here; after it,
-    /// `failAll` owns it. A `deadline` applies only to a waiter that awaits its reply.
+    /// socket lock so the pending requests' send order equals wire order. On failure before
+    /// registration the waiter is resumed here; after it, `failAll` owns it. A `deadline` applies
+    /// only to a waiter that awaits its reply.
     /// Returns the request id once the waiter is registered.
     @discardableResult
-    func submit(_ waiter: Waiter, deadline: DeadlineHeap.Deadline? = nil, priority: MethodPriority = .control,
-                _ body: (UInt64) throws -> Data) -> Result<UInt64, any Error> {
+    func submit(_ waiter: Waiter, deadline: DeadlineHeap.Deadline? = nil, _ body: (UInt64) throws -> Data) -> Result<UInt64, any Error> {
         var writeFailure: String?
         var submittedID: UInt64 = 0
         let early: (any Error)? = socket.withLock { socket -> (any Error)? in
@@ -276,7 +272,7 @@ final class LineTransport: Sendable {
             submittedID = id
             var line = payload
             line.append(0x0A)
-            writeFailure = socket.fd >= 0 ? writer.write(line, priority: priority)?.description : "socket closed"
+            writeFailure = socket.fd >= 0 ? writer.write(line)?.description : "socket closed"
             if writeFailure == nil { recorder?.lineWritten(bytes: line.count) }
             return nil
         }
