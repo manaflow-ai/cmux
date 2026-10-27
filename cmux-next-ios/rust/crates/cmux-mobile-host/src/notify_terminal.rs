@@ -212,7 +212,7 @@ impl TerminalClassifier {
             .as_ref()
             .and_then(|p| valid_id(&p.workspace_id, 128))
             .or_else(|| text("workspace_id").and_then(|w| valid_id(w, 128)));
-        if ask {
+        if let Some(title) = questions.first().map(|q| q.question.clone()) {
             // Named by what it asks (its prompts and option labels, which both of Claude
             // Code's hooks for one AskUserQuestion carry, in either order): one push per
             // question, and the phone answers a notification only while that very question
@@ -239,7 +239,7 @@ impl TerminalClassifier {
                 workspace_id,
                 tab_id: place.map(|p| p.tab_id),
                 notification_id: Some(id.to_string()),
-                title: Some(questions[0].question.clone()),
+                title: Some(title),
                 questions,
                 state: Some("waiting".into()),
                 ..NotifyEvent::default()
@@ -395,10 +395,13 @@ async fn watch_once(
 
 /// One request on a fresh connection to the daemon (at most 3 s): its reply.
 async fn query(socket: &Path, command: &str, surface: Option<u64>) -> Result<Value, String> {
-    let mut request = serde_json::json!({"cmd": command, "id": "cmux-mobile-push-q"});
+    let mut request = serde_json::Map::new();
+    request.insert("cmd".into(), command.into());
+    request.insert("id".into(), "cmux-mobile-push-q".into());
     if let Some(surface) = surface {
-        request["surface"] = surface.into();
+        request.insert("surface".into(), surface.into());
     }
+    let request = Value::Object(request);
     let read = async {
         let stream = UnixStream::connect(socket).await.map_err(|e| e.to_string())?;
         let (read, mut write) = stream.into_split();

@@ -49,6 +49,8 @@ pub enum SealError {
     BadKey,
     Unopened,
     Random,
+    /// HKDF refused the output length (it takes up to 255 blocks; the key is one).
+    KeyDerivation,
 }
 
 impl std::fmt::Display for SealError {
@@ -58,6 +60,7 @@ impl std::fmt::Display for SealError {
             Self::BadKey => "not a P-256 key",
             Self::Unopened => "the box does not open with this key and context",
             Self::Random => "no randomness",
+            Self::KeyDerivation => "the box key could not be derived",
         })
     }
 }
@@ -136,7 +139,7 @@ pub fn point_hex(key: &PublicKey) -> String {
 /// Parses an X9.63 point given as hex.
 pub fn public_key_hex(text: &str) -> Result<PublicKey, SealError> {
     let bytes = unhex(text).ok_or(SealError::BadKey)?;
-    if bytes.len() != POINT_LEN || bytes[0] != 4 {
+    if bytes.len() != POINT_LEN || bytes.first() != Some(&4) {
         return Err(SealError::BadKey);
     }
     PublicKey::from_sec1_bytes(&bytes).map_err(|_| SealError::BadKey)
@@ -160,7 +163,7 @@ pub fn seal_with(
     nonce: &[u8; NONCE_LEN],
 ) -> Result<String, SealError> {
     let ephemeral_point = point(&ephemeral.public_key());
-    let key = derive(ephemeral, recipient, &ephemeral_point, &point(recipient), context);
+    let key = derive(ephemeral, recipient, &ephemeral_point, &point(recipient), context)?;
     let ciphertext = Aes256Gcm::new(&key.into())
         .encrypt(Nonce::from_slice(nonce), Payload { msg: plaintext, aad: context })
         .map_err(|_| SealError::Malformed)?;
@@ -175,17 +178,18 @@ pub fn seal_with(
 /// Opens a box sealed to `recipient` under `context`.
 pub fn open(recipient: &SecretKey, context: &[u8], sealed: &str) -> Result<Vec<u8>, SealError> {
     let bytes = URL_SAFE_NO_PAD.decode(sealed.trim_end_matches('=')).map_err(|_| SealError::Malformed)?;
-    if bytes.len() < 1 + POINT_LEN + NONCE_LEN + TAG_LEN || bytes[0] != VERSION {
+    let Some((&version, rest)) = bytes.split_first() else { return Err(SealError::Malformed) };
+    let Some((ephemeral_point, rest)) = rest.split_first_chunk::<POINT_LEN>() else {
         return Err(SealError::Malformed);
-    }
-    let ephemeral_point = &bytes[1..1 + POINT_LEN];
-    let nonce = &bytes[1 + POINT_LEN..1 + POINT_LEN + NONCE_LEN];
-    let ciphertext = &bytes[1 + POINT_LEN + NONCE_LEN..];
-    if ephemeral_point[0] != 4 {
+    };
+    let Some((nonce, ciphertext)) = rest.split_first_chunk::<NONCE_LEN>() else {
+        return Err(SealError::Malformed);
+    };
+    if version != VERSION || ciphertext.len() < TAG_LEN || ephemeral_point.first() != Some(&4) {
         return Err(SealError::Malformed);
     }
     let ephemeral = PublicKey::from_sec1_bytes(ephemeral_point).map_err(|_| SealError::Malformed)?;
-    let key = derive(recipient, &ephemeral, ephemeral_point, &point(&recipient.public_key()), context);
+    let key = derive(recipient, &ephemeral, ephemeral_point, &point(&recipient.public_key()), context)?;
     Aes256Gcm::new(&key.into())
         .decrypt(Nonce::from_slice(nonce), Payload { msg: ciphertext, aad: context })
         .map_err(|_| SealError::Unopened)
@@ -198,7 +202,7 @@ fn derive(
     ephemeral_point: &[u8],
     recipient_point: &[u8],
     context: &[u8],
-) -> [u8; 32] {
+) -> Result<[u8; 32], SealError> {
     let shared = p256::ecdh::diffie_hellman(secret.to_nonzero_scalar(), peer.as_affine());
     let mut salt = Vec::with_capacity(2 * POINT_LEN);
     salt.extend_from_slice(ephemeral_point);
@@ -206,8 +210,8 @@ fn derive(
     let mut key = [0u8; 32];
     Hkdf::<Sha256>::new(Some(&salt), shared.raw_secret_bytes().as_slice())
         .expand(context, &mut key)
-        .expect("32 bytes is a valid HKDF-SHA256 length");
-    key
+        .map_err(|_| SealError::KeyDerivation)?;
+    Ok(key)
 }
 
 /// A fresh random P-256 key.
@@ -332,6 +336,24 @@ mod tests {
         assert!(open(&key, &context, &URL_SAFE_NO_PAD.encode(&bytes)).is_err());
         assert_eq!(open(&key, &context, "not base64!"), Err(SealError::Malformed));
         assert_eq!(open(&key, &context, "AQ"), Err(SealError::Malformed));
+    }
+
+    /// A phone's box of any length up to a whole one is refused, never a panic.
+    #[test]
+    fn every_truncated_box_is_malformed() {
+        let key = random_secret().unwrap();
+        let context = reply_context("m", "p", "r");
+        let bytes = URL_SAFE_NO_PAD.decode(seal(&key.public_key(), &context, b"").unwrap()).unwrap();
+        assert_eq!(bytes.len(), 1 + POINT_LEN + NONCE_LEN + TAG_LEN);
+        for cut in 0..bytes.len() {
+            let sealed = URL_SAFE_NO_PAD.encode(&bytes[..cut]);
+            assert_eq!(open(&key, &context, &sealed), Err(SealError::Malformed), "cut at {cut}");
+        }
+        // The ephemeral point must be uncompressed (0x04).
+        let mut compressed = bytes.clone();
+        compressed[1] = 2;
+        assert_eq!(open(&key, &context, &URL_SAFE_NO_PAD.encode(&compressed)), Err(SealError::Malformed));
+        assert_eq!(open(&key, &context, &URL_SAFE_NO_PAD.encode(&bytes)).unwrap(), b"");
     }
 
     #[test]

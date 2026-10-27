@@ -153,9 +153,10 @@ pub fn permission_options(request: &Value) -> Vec<NotifyOption> {
 
 /// The last non-empty lines of `text`, each cleaned and cut.
 pub fn tail(text: &str) -> Vec<String> {
-    let lines: Vec<String> =
+    let mut lines: Vec<String> =
         text.lines().map(|l| text_label(l, LINE_MAX)).filter(|l| !l.is_empty()).collect();
-    lines[lines.len().saturating_sub(MAX_TAIL)..].to_vec()
+    lines.drain(..lines.len().saturating_sub(MAX_TAIL));
+    lines
 }
 
 /// Where a tab is: its workspace and the phone's tab id.

@@ -14,6 +14,36 @@ use crate::auth::{Tokens, claims};
 use crate::config::{HostConfig, ServiceConfig};
 use crate::control::{self, Event};
 use crate::services::{self, Peer};
+use crate::tasks::{Ended, TaskScope, WorkerFailed, Workers};
+
+/// What a phone's task serves. A task that panics ends that phone only: its
+/// link closes as the task unwinds, and the other phones keep working.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PhoneTask {
+    /// A link from `answer_session`.
+    Link { session_id: String },
+    /// A WebRTC media session beside a link (`media_session.rs`).
+    Media { session_id: String },
+    /// One `mailbox` frame being applied and acknowledged.
+    Mailbox,
+}
+
+/// The phones' tasks. They outlive one signaling socket (a WireGuard link
+/// keeps running across a reconnect), so `run` owns them for the process.
+pub type Phones = TaskScope<PhoneTask>;
+
+/// Logs how a phone's task ended; a panic is that phone's failure.
+fn phone_task_ended(ended: Ended<PhoneTask>) {
+    match ended {
+        Ended::Finished(_) => {}
+        Ended::Panicked(PhoneTask::Link { session_id }, message) => {
+            tracing::error!(session_id, message, "a phone's link task failed; that link is closed");
+            control::emit(&Event::PhoneDown { session_id, reason: "hostd_error".into() });
+        }
+        Ended::Panicked(task, message) => tracing::error!(?task, message, "a phone's task failed"),
+        Ended::Cancelled => tracing::debug!("a phone's task was cancelled by the runtime"),
+    }
+}
 
 /// How the host answers dials on one signaling connection.
 #[derive(Clone)]
@@ -116,8 +146,11 @@ fn registration_lookup(base_url: String, tokens: Arc<Tokens>) -> crate::pairing:
 }
 
 /// Run until the process is stopped, reconnecting with backoff. Returns `Ok` only when
-/// the owner removed this Mac (`removed`): registering again would undo that.
-pub async fn run(config: HostConfig) -> Result<()> {
+/// the owner removed this Mac (`removed`): registering again would undo that. `workers`
+/// holds the process workers main started (control input, SIGTERM); `run` adds its own,
+/// and the first one that fails ends `run` with that failure (hostd then exits with
+/// `tasks::EXIT_WORKER_FAILED` and its supervisor starts it again).
+pub async fn run(config: HostConfig, mut workers: Workers) -> Result<(), WorkerFailed> {
     let tokens = Arc::new(Tokens::new(config.tokens.clone()));
     let mut services = config.services.clone();
     if let Some(pairing) = services.pairing.as_mut() {
@@ -137,29 +170,40 @@ pub async fn run(config: HostConfig) -> Result<()> {
                 acpmux: services.acpmux.clone(),
             })
         });
-        tokio::spawn(crate::notify::run(
-            config.base_url.clone(),
-            config.device_id.clone(),
-            Arc::clone(&tokens),
-            config.services.acpmux.clone(),
-            Some(config.services.daemon_socket()),
-            sealer,
-        ));
+        workers.spawn(
+            "push notifications",
+            crate::notify::run(
+                config.base_url.clone(),
+                config.device_id.clone(),
+                Arc::clone(&tokens),
+                config.services.acpmux.clone(),
+                Some(config.services.daemon_socket()),
+                sealer,
+            ),
+        );
     }
-    let mailbox = mailbox_for(&services);
+    let mailbox = mailbox_for(&services).map(|(mailbox, turns)| {
+        workers.spawn("mailbox turns", turns);
+        mailbox
+    });
     // Phones keep their WireGuard sessions when the Mac changes networks.
-    tokio::spawn(crate::netwatch::run());
+    workers.spawn("network watcher", crate::netwatch::run());
     // Test-only signal hooks, never in a normal install: only when the state
     // folder holds a `test-signals` file a rig created (PR #22555 review).
     if crate::config::default_state_dir().join("test-signals").exists() {
         tracing::warn!("test signals on (SIGUSR1 media black hole, SIGUSR2 media kill)");
-        crate::media_session::spawn_test_signals();
+        workers.spawn("test signals", crate::media_session::test_signals());
     }
+    let mut phones = Phones::default();
     let mut backoff = Duration::from_secs(1);
     loop {
         control::emit(&Event::Connecting);
         let started = std::time::Instant::now();
-        let reason = match connect_once(&config, &tokens, &services, &ice, &mailbox).await {
+        let attempt = tokio::select! {
+            failed = workers.failed() => return Err(failed),
+            attempt = connect_once(&config, &tokens, &services, &ice, &mailbox, &mut phones) => attempt,
+        };
+        let reason = match attempt {
             Ok(reason) if removed(&reason) => {
                 // Registering again would undo the owner's removal: stop for good.
                 tracing::warn!(reason, "this Mac was removed from the account's devices; stopping");
@@ -187,7 +231,15 @@ pub async fn run(config: HostConfig) -> Result<()> {
             }
         };
         control::emit(&Event::Waiting { reason, retry_in_seconds: backoff.as_secs() });
-        tokio::time::sleep(backoff).await;
+        let retry = tokio::time::sleep(backoff);
+        tokio::pin!(retry);
+        loop {
+            tokio::select! {
+                failed = workers.failed() => return Err(failed),
+                ended = phones.ended() => phone_task_ended(ended),
+                () = &mut retry => break,
+            }
+        }
     }
 }
 
@@ -197,6 +249,7 @@ async fn connect_once(
     services: &Arc<ServiceConfig>,
     ice: &IceSource,
     mailbox: &Option<Arc<crate::mailbox::Mailbox>>,
+    phones: &mut Phones,
 ) -> Result<String> {
     let token = tokens.access_token().await.context("access token")?;
     let owner = config
@@ -239,7 +292,7 @@ async fn connect_once(
         mailbox: mailbox.clone(),
     };
     let refresher = if std::env::var_os("CMUX_MOBILE_BASELINE").is_some() { None } else { ice.keep_fresh() };
-    let reason = serve_signaling(signaling, context).await;
+    let reason = serve_signaling_with(signaling, context, phones).await;
     if let Some(task) = refresher {
         task.abort();
     }
@@ -274,14 +327,18 @@ pub fn unauthorized(error: &anyhow::Error) -> bool {
 }
 
 /// The mailbox of a supervised hostd: its pairing's keys and trust, the
-/// services a link reaches, and the replies already spent (on disk).
-fn mailbox_for(services: &ServiceConfig) -> Option<Arc<crate::mailbox::Mailbox>> {
+/// services a link reaches, and the replies already spent (on disk); with the
+/// worker that holds the acpmux connections of prompts whose turn still runs.
+fn mailbox_for(
+    services: &ServiceConfig,
+) -> Option<(Arc<crate::mailbox::Mailbox>, impl std::future::Future<Output = ()> + Send + 'static)> {
     let pairing = services.pairing.as_ref()?;
     let daemon_socket = services
         .default_socket
         .clone()
         .unwrap_or_else(|| services.tui_socket_dir.join(format!("{}.sock", services.default_session)));
-    Some(Arc::new(crate::mailbox::Mailbox {
+    let (turns, held_turns) = crate::mailbox_apply::TurnHolder::new();
+    let mailbox = Arc::new(crate::mailbox::Mailbox {
         mac: pairing.mac_device_id.clone(),
         trust: pairing.trust.clone(),
         identity: pairing.identity.clone(),
@@ -291,8 +348,10 @@ fn mailbox_for(services: &ServiceConfig) -> Option<Arc<crate::mailbox::Mailbox>>
             acpmux: services.acpmux.clone(),
             daemon_socket,
             chief_socket: services.chief_socket.clone(),
+            turns,
         }),
-    }))
+    });
+    Some((mailbox, held_turns))
 }
 
 /// How long hostd waits before it tries an item it could not settle again.
@@ -302,14 +361,15 @@ const MAILBOX_RETRY: std::time::Duration = std::time::Duration::from_secs(30);
 /// settled item (signed). An item it could not settle yet (the app has not
 /// sent its keys, a service is out of reach) is not acknowledged: it stays
 /// queued at the backend and is tried again here while the socket lives.
-/// Without pairing (unsupervised) nothing is applied.
+/// Without pairing (unsupervised) nothing is applied. The work is a task of `phones`.
 pub fn answer_mailbox(
     signaling: &SignalingClient,
     mailbox: Option<Arc<crate::mailbox::Mailbox>>,
     items: Vec<cmux_mobile_link::signaling::MailboxItem>,
+    phones: &mut Phones,
 ) {
     let signaling = signaling.clone();
-    tokio::spawn(async move {
+    phones.spawn(PhoneTask::Mailbox, async move {
         let Some(mailbox) = mailbox else {
             let results = items
                 .into_iter()
@@ -344,8 +404,19 @@ pub fn answer_mailbox(
 }
 
 /// Answer every admitted dial on `signaling` until it closes; returns the
-/// close reason.
+/// close reason. The phones' links end with it (`run` keeps them across
+/// reconnects through [`serve_signaling_with`]).
 pub async fn serve_signaling(signaling: SignalingClient, context: AnswerContext) -> String {
+    let mut phones = Phones::default();
+    serve_signaling_with(signaling, context, &mut phones).await
+}
+
+/// [`serve_signaling`] with the phones' tasks in `phones`, which outlives the socket.
+pub async fn serve_signaling_with(
+    signaling: SignalingClient,
+    context: AnswerContext,
+    phones: &mut Phones,
+) -> String {
     let mut events = signaling.events();
     loop {
         let session = tokio::select! {
@@ -355,7 +426,11 @@ pub async fn serve_signaling(signaling: SignalingClient, context: AnswerContext)
             },
             // A queue, not an event: frames sent right after `hello` wait for this loop.
             Some(items) = signaling.next_mailbox() => {
-                answer_mailbox(&signaling, context.mailbox.clone(), items);
+                answer_mailbox(&signaling, context.mailbox.clone(), items, phones);
+                continue;
+            }
+            ended = phones.ended() => {
+                phone_task_ended(ended);
                 continue;
             }
             event = events.recv() => match event {
@@ -391,22 +466,24 @@ pub async fn serve_signaling(signaling: SignalingClient, context: AnswerContext)
         };
         match (kind, media_for) {
             (Some(kind), _) => {
-                tokio::spawn(answer_session(
-                    signaling.clone(),
-                    envelope,
-                    session_events,
-                    kind,
-                    context.clone(),
-                ));
+                let session_id = envelope.session_id.clone();
+                phones.spawn(
+                    PhoneTask::Link { session_id },
+                    answer_session(signaling.clone(), envelope, session_events, kind, context.clone()),
+                );
             }
             (None, Some(link)) => {
-                tokio::spawn(crate::media_session::answer(
-                    signaling.clone(),
-                    envelope,
-                    session_events,
-                    link,
-                    context.clone(),
-                ));
+                let session_id = envelope.session_id.clone();
+                phones.spawn(
+                    PhoneTask::Media { session_id },
+                    crate::media_session::answer(
+                        signaling.clone(),
+                        envelope,
+                        session_events,
+                        link,
+                        context.clone(),
+                    ),
+                );
             }
             (None, None) => {}
         }
@@ -494,9 +571,14 @@ async fn answer_session(
         transport: control::transport_name(kind).into(),
         path: control::path_name(path).into(),
     });
+    // However this task ends (a panic too), the phone's link closes with it.
+    let _close = CloseOnDrop(connected.link.clone());
+    // The watchers end with this task; the channels are drained after link down.
+    let mut watchers = TaskScope::<&'static str>::default();
+    let mut channels = TaskScope::<String>::default();
     let mut paths = connected.path.clone();
     let path_session = session_id.clone();
-    let path_watch = tokio::spawn(async move {
+    watchers.spawn("path", async move {
         while paths.changed().await.is_ok() {
             let path = *paths.borrow_and_update();
             // A WireGuard link can move between direct, TURN and TURN over
@@ -525,7 +607,7 @@ async fn answer_session(
     let mut drops = control::drops();
     let removable = connected.link.clone();
     let phone = peer.device_id.to_lowercase();
-    let drop_watch = tokio::spawn(async move {
+    watchers.spawn("removal", async move {
         loop {
             match drops.recv().await {
                 Ok(id) if id == phone => {
@@ -538,7 +620,28 @@ async fn answer_session(
         }
     });
     let mut first = true;
-    while let Some(incoming) = connected.link.accept().await {
+    loop {
+        let incoming = tokio::select! {
+            incoming = connected.link.accept() => match incoming {
+                Some(incoming) => incoming,
+                None => break,
+            },
+            ended = channels.ended() => {
+                if let Ended::Panicked(service, message) = ended {
+                    // A channel task that broke ends this phone's link, not hostd.
+                    tracing::error!(session_id, service, message, "a channel task failed; closing the link");
+                    connected.link.close("hostd_error");
+                }
+                continue;
+            }
+            ended = watchers.ended() => {
+                if let Ended::Panicked(watcher, message) = ended {
+                    tracing::error!(session_id, watcher, message, "a link watcher failed; closing the link");
+                    connected.link.close("hostd_error");
+                }
+                continue;
+            }
+        };
         if first {
             first = false;
             timeline.mark("first_channel");
@@ -547,29 +650,89 @@ async fn answer_session(
         // In open order: a channel opened after `auth` waits for it. One
         // `auth` runs at a time per link.
         if incoming.service == "auth" && context.services.pairing.is_some() && !auth.try_begin() {
-            tokio::spawn(services::refuse(incoming, "busy", "this iPhone's pairing is already running"));
+            let service = incoming.service.clone();
+            channels.spawn(
+                service,
+                services::refuse(incoming, "busy", "this iPhone's pairing is already running"),
+            );
             continue;
         }
         if incoming.service == "auth" && context.services.pairing.is_none() {
             auth.begin();
         }
-        tokio::spawn(services::serve(
-            Arc::clone(&context.services),
-            peer.clone(),
-            Arc::clone(&auth),
-            incoming,
-        ));
+        let service = incoming.service.clone();
+        channels.spawn(
+            service,
+            services::serve(Arc::clone(&context.services), peer.clone(), Arc::clone(&auth), incoming),
+        );
     }
     let reason = connected.link.closed().await;
-    path_watch.abort();
-    drop_watch.abort();
+    drop(watchers);
     tracing::info!(session_id, reason, "link down");
-    control::emit(&Event::PhoneDown { session_id, reason });
+    control::emit(&Event::PhoneDown { session_id: session_id.clone(), reason });
+    // Channel tasks finish their own close (a pairing being saved, an upload's
+    // cleanup) after link down, as they did when they ran detached.
+    channels
+        .drain(|ended| {
+            if let Ended::Panicked(service, message) = ended {
+                tracing::error!(session_id, service, message, "a channel task failed after link down");
+            }
+        })
+        .await;
+}
+
+/// Closes a link when dropped: a link task that ends early or panics leaves
+/// no link alive behind it (closing a closed link does nothing).
+struct CloseOnDrop(cmux_mobile_link::Link);
+
+impl Drop for CloseOnDrop {
+    fn drop(&mut self) {
+        self.0.close("hostd_error");
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn link_pair() -> (cmux_mobile_link::Link, cmux_mobile_link::Link) {
+        use cmux_mobile_link::{Link, LinkConfig, Role};
+        let (a, b) = tokio::io::duplex(64 * 1024);
+        (
+            Link::new(a, Role::Phone, LinkConfig::default(), None),
+            Link::new(b, Role::Mac, LinkConfig::default(), None),
+        )
+    }
+
+    /// A phone's task that panics (a frame its code did not expect) closes
+    /// that phone's link; another phone's link and hostd keep going.
+    #[tokio::test]
+    async fn a_failed_phone_task_closes_only_its_link() {
+        let (_phone_a, mac_a) = link_pair();
+        let (_phone_b, mac_b) = link_pair();
+        let mut phones = Phones::default();
+        let link = mac_a.clone();
+        phones.spawn(PhoneTask::Link { session_id: "a".into() }, async move {
+            let _close = CloseOnDrop(link);
+            panic!("unexpected frame");
+        });
+        let link = mac_b.clone();
+        let (release, wait) = tokio::sync::oneshot::channel::<()>();
+        phones.spawn(PhoneTask::Link { session_id: "b".into() }, async move {
+            let _close = CloseOnDrop(link);
+            let _ = wait.await;
+        });
+        assert_eq!(
+            phones.ended().await,
+            Ended::Panicked(PhoneTask::Link { session_id: "a".into() }, "unexpected frame".into())
+        );
+        let closed = tokio::time::timeout(Duration::from_secs(5), mac_a.closed()).await;
+        assert_eq!(closed.as_deref(), Ok("hostd_error"));
+        assert!(mac_b.closed_state().borrow().is_none(), "the other phone's link stays up");
+        assert!(mac_b.ping().await.is_ok());
+        let _ = release.send(());
+        assert_eq!(phones.ended().await, Ended::Finished(PhoneTask::Link { session_id: "b".into() }));
+    }
 
     #[test]
     fn a_4002_close_is_a_removal() {

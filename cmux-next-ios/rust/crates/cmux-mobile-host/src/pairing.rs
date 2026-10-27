@@ -91,7 +91,7 @@ pub fn epoch_millis(text: &str) -> Option<i64> {
         if !fraction.bytes().all(|b| b.is_ascii_digit()) {
             return None;
         }
-        format!("{fraction:0<3}")[..3].parse::<i64>().ok()?
+        format!("{fraction:0<3}").get(..3)?.parse::<i64>().ok()?
     };
     // Days from 1970-01-01 (Howard Hinnant's days_from_civil).
     let y = if month <= 2 { year - 1 } else { year };
@@ -203,6 +203,13 @@ impl Pairing {
         }
     }
 
+    /// The prompt limits. A poisoned lock is taken as it is: the limiter
+    /// holds only timestamps of prompts, and a half-recorded prompt makes the
+    /// limits stricter, never looser.
+    fn limiter(&self) -> std::sync::MutexGuard<'_, PromptLimiter> {
+        self.limiter.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     /// With the store of applied notification replies.
     pub fn with_spent_replies(mut self, spent: Arc<crate::mailbox::SpentReplies>) -> Self {
         self.spent_replies = spent;
@@ -265,15 +272,18 @@ impl PromptLimiter {
             // The same key again (say after nobody answered): no new key.
             return Ok(());
         }
-        if asks.recent.len() >= KEYS_PER_DEVICE {
-            return Err(PROMPT_WINDOW.saturating_sub(now.duration_since(asks.recent[0].1)));
+        if asks.recent.len() >= KEYS_PER_DEVICE
+            && let Some((_, oldest)) = asks.recent.first()
+        {
+            return Err(PROMPT_WINDOW.saturating_sub(now.duration_since(*oldest)));
         }
         while self.recent.front().is_some_and(|at| now.duration_since(*at) >= PROMPT_WINDOW) {
             self.recent.pop_front();
         }
-        if self.recent.len() >= PROMPTS_PER_ACCOUNT {
-            let oldest = *self.recent.front().expect("non-empty");
-            return Err(PROMPT_WINDOW.saturating_sub(now.duration_since(oldest)));
+        if self.recent.len() >= PROMPTS_PER_ACCOUNT
+            && let Some(oldest) = self.recent.front()
+        {
+            return Err(PROMPT_WINDOW.saturating_sub(now.duration_since(*oldest)));
         }
         self.recent.push_back(now);
         asks.recent.push((identity_key.to_owned(), now));
@@ -620,7 +630,9 @@ async fn authenticate(
             None
         });
     let nonce = new_nonce()?;
-    let mut challenge = json!({"challenge": nonce, "mac": pairing.mac_device_id});
+    let mut challenge = serde_json::Map::new();
+    challenge.insert("challenge".into(), json!(nonce));
+    challenge.insert("mac".into(), json!(pairing.mac_device_id));
     // A phone that pins Macs sends its own nonce: the Mac signs it with its
     // identity key, so a host registered with a stolen token cannot pass as it.
     let phone_nonce = text("macNonce");
@@ -632,16 +644,16 @@ async fn authenticate(
         let identity = pairing.identity.borrow().clone();
         if let Some(identity) = identity {
             let proof = mac_proof_message(&pairing.mac_device_id, phone, phone_nonce, &nonce);
-            challenge["macKey"] = json!(identity.public_key());
-            challenge["macSignature"] = json!(identity.sign(&proof));
+            challenge.insert("macKey".into(), json!(identity.public_key()));
+            challenge.insert("macSignature".into(), json!(identity.sign(&proof)));
             // The box key replies are sealed to, vouched for by the identity key
             // the phone pins (PROTOCOL.md "Keys at pairing").
             let statement = crate::seal::box_key_message(&pairing.mac_device_id, identity.box_public_key());
-            challenge["macBoxKey"] = json!(identity.box_public_key());
-            challenge["macBoxSignature"] = json!(identity.sign(&statement));
+            challenge.insert("macBoxKey".into(), json!(identity.box_public_key()));
+            challenge.insert("macBoxSignature".into(), json!(identity.sign(&statement)));
         }
     }
-    send(sender, challenge).await;
+    send(sender, Value::Object(challenge)).await;
     let signature = match tokio::time::timeout(SIGNATURE_WAIT, receiver.recv()).await {
         Ok(Some(ChannelEvent::Data(bytes))) => serde_json::from_slice::<Value>(&bytes)
             .ok()
@@ -682,19 +694,14 @@ async fn authenticate(
                 Standing::Trusted => return Ok(()),
                 Standing::Denied => {
                     if asked {
-                        pairing.limiter.lock().expect("limiter").denied(phone, identity_key, Instant::now());
+                        pairing.limiter().denied(phone, identity_key, Instant::now());
                     }
                     return Err(("denied", "the Mac did not allow this iPhone".into()));
                 }
                 Standing::Unknown => {}
             }
             if !asked {
-                let admitted = pairing.limiter.lock().expect("limiter").admit(
-                    phone,
-                    identity_key,
-                    &current,
-                    Instant::now(),
-                );
+                let admitted = pairing.limiter().admit(phone, identity_key, &current, Instant::now());
                 if let Err(wait) = admitted {
                     return Err((
                         "rate_limited",

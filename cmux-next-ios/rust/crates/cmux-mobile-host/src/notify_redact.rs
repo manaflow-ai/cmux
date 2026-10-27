@@ -48,22 +48,21 @@ const SCHEMES: &[&str] = &["bearer", "basic"];
 /// `text` with every credential-looking word replaced by `[redacted]`.
 /// Whitespace between words is kept as it was.
 pub fn redact(text: &str) -> String {
-    if let Some(start) = text.find("-----BEGIN") {
-        return format!("{}{MARK}", redact(&text[..start]));
+    if let Some((before, _)) = text.split_once("-----BEGIN") {
+        return format!("{}{MARK}", redact(before));
     }
     let mut out = String::with_capacity(text.len());
     let mut redact_next = false;
     let mut rest = text;
     while !rest.is_empty() {
-        let space = rest.find(|c: char| !c.is_whitespace()).unwrap_or(rest.len());
-        out.push_str(&rest[..space]);
-        rest = &rest[space..];
+        let (gap, after) = split_before(rest, |c| !c.is_whitespace());
+        out.push_str(gap);
+        rest = after;
         if rest.is_empty() {
             break;
         }
-        let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
-        let word = &rest[..end];
-        rest = &rest[end..];
+        let (word, after) = split_before(rest, char::is_whitespace);
+        rest = after;
         let core = word.trim_matches(|c: char| {
             matches!(c, '"' | '\'' | '`' | ',' | ';' | '(' | ')' | '[' | ']' | '{' | '}')
         });
@@ -78,19 +77,26 @@ pub fn redact(text: &str) -> String {
     out
 }
 
+/// `text` split before its first char that matches `at`; all of `text` and
+/// "" when none does.
+fn split_before(text: &str, at: impl Fn(char) -> bool) -> (&str, &str) {
+    text.find(at).and_then(|i| text.split_at_checked(i)).unwrap_or((text, ""))
+}
+
 fn redact_word(word: &str, core: &str) -> String {
     if core.is_empty() {
         return word.to_owned();
     }
     // `KEY=value`, `--password=value`, `token:value`.
-    if let Some(split) = core.find(['=', ':']) {
-        let (key, value) = (&core[..split], &core[split + 1..]);
+    if let (Some((key, value)), Some(separator)) =
+        (core.split_once(['=', ':']), core.matches(['=', ':']).next())
+    {
         let key_lower = key.trim_start_matches('-').to_ascii_lowercase();
         let named = SECRET_KEYS
             .iter()
             .any(|k| key_lower == *k || key_lower.ends_with(&format!("_{k}")) || key_lower.ends_with(k));
         if named && !value.is_empty() && !value.starts_with("//") {
-            return word.replace(core, &format!("{}{MARK}", &core[..=split]));
+            return word.replace(core, &format!("{key}{separator}{MARK}"));
         }
         if !value.is_empty() && is_secret(value) {
             return word.replace(value, MARK);
@@ -133,7 +139,10 @@ fn high_entropy(word: &str) -> bool {
     }
     let mut counts = [0u32; 128];
     for b in word.bytes() {
-        counts[usize::from(b & 0x7f)] += 1;
+        // The mask keeps every index inside the 128 counts.
+        if let Some(count) = counts.get_mut(usize::from(b & 0x7f)) {
+            *count += 1;
+        }
     }
     let n = word.len() as f64;
     let entropy: f64 =

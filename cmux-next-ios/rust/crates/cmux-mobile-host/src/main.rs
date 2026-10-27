@@ -1,4 +1,5 @@
 use anyhow::Result;
+use cmux_mobile_host::tasks::Workers;
 use tracing_subscriber::EnvFilter;
 
 const HELP: &str = "cmux-mobile-host: serve this Mac to cmux-next-ios phones.
@@ -40,13 +41,29 @@ async fn main() -> Result<()> {
         Some(other) => anyhow::bail!("unknown argument {other}\n\n{HELP}"),
         None => {}
     }
+    let mut workers = Workers::default();
     #[cfg(unix)]
-    cmux_mobile_host::size_release::exit_on_sigterm();
-    let supplied = cmux_mobile_host::control::enabled().then(cmux_mobile_host::control::spawn_stdin_reader);
+    if let Some(sigterm) = cmux_mobile_host::size_release::exit_on_sigterm() {
+        workers.spawn("SIGTERM", sigterm);
+    }
+    let supplied = if cmux_mobile_host::control::enabled() {
+        let (supplied, reader) = cmux_mobile_host::control::stdin_reader();
+        workers.spawn("control input", reader);
+        Some(supplied)
+    } else {
+        None
+    };
     let config = cmux_mobile_host::config::HostConfig::from_env(supplied)?;
     tracing::info!(device_id = config.device_id, team = config.team_id, "starting");
-    // `run` returns only when the owner removed this Mac: exit with its own status so
-    // a supervisor never restarts it.
-    cmux_mobile_host::host::run(config).await?;
-    std::process::exit(cmux_mobile_host::host::EXIT_REMOVED)
+    match cmux_mobile_host::host::run(config, workers).await {
+        // The owner removed this Mac: exit with its own status so a supervisor never restarts it.
+        Ok(()) => std::process::exit(cmux_mobile_host::host::EXIT_REMOVED),
+        // A process worker failed: release the phones' sizes as on SIGTERM, then exit
+        // with the status the app's supervisor restarts.
+        Err(failed) => {
+            tracing::error!(%failed, "stopping hostd");
+            cmux_mobile_host::size_release::stop_and_release(cmux_mobile_host::size_release::EXIT_WAIT).await;
+            std::process::exit(cmux_mobile_host::tasks::EXIT_WORKER_FAILED)
+        }
+    }
 }

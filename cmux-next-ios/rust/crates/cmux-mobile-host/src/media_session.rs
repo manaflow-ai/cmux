@@ -94,18 +94,18 @@ pub fn register(
 
 /// Why a media offer is refused, if it is: the link must be live, belong to
 /// the same phone device, and (with pairing on) have passed `auth`.
-fn refusal(link: Option<&Hybrid>, from: &str) -> Option<&'static str> {
-    let Some(link) = link else { return Some("unknown_link") };
+fn admitted<'a>(link: Option<&'a Hybrid>, from: &str) -> Result<&'a Hybrid, &'static str> {
+    let Some(link) = link else { return Err("unknown_link") };
     if link.phone != from {
-        return Some("unknown_link");
+        return Err("unknown_link");
     }
     if link.link_closed.borrow().is_some() {
-        return Some("unknown_link");
+        return Err("unknown_link");
     }
     if link.pairing && !link.auth.is_authenticated() {
-        return Some("unpaired");
+        return Err("unpaired");
     }
-    None
+    Ok(link)
 }
 
 /// The media path's wire name for the app (`direct`, `turn`).
@@ -124,11 +124,9 @@ pub async fn answer(
     let session_id = first.session_id.clone();
     let checked = {
         let links = links().lock().unwrap_or_else(PoisonError::into_inner);
-        let link = links.get(&link_session);
-        match refusal(link, &first.from) {
-            Some(code) => Err(code),
-            None => {
-                let link = link.expect("checked");
+        match admitted(links.get(&link_session), &first.from) {
+            Err(code) => Err(code),
+            Ok(link) => {
                 let offer = link.offers.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
                 Ok((
                     link.video.clone(),
@@ -250,9 +248,12 @@ fn kills() -> tokio::sync::broadcast::Receiver<()> {
 ///   tunnel on missing feedback and tries the session again after a backoff.
 /// - `SIGUSR2` closes every media session's peer connection, as when it
 ///   failed: video falls back and the phone dials a new session.
-pub fn spawn_test_signals() {
+///
+/// A hostd process worker (`tasks::Workers`): it runs until the signal
+/// streams end.
+pub async fn test_signals() {
     #[cfg(unix)]
-    tokio::spawn(async {
+    {
         use tokio::signal::unix::{SignalKind, signal};
         let (Ok(mut usr1), Ok(mut usr2)) =
             (signal(SignalKind::user_defined1()), signal(SignalKind::user_defined2()))
@@ -272,7 +273,7 @@ pub fn spawn_test_signals() {
                 else => return,
             }
         }
-    });
+    }
 }
 
 #[cfg(test)]
@@ -334,16 +335,16 @@ mod tests {
     /// when pairing is on, takes a media session.
     #[tokio::test]
     async fn a_media_session_needs_a_live_paired_link_of_the_same_phone() {
-        assert_eq!(refusal(None, "phone"), Some("unknown_link"));
+        assert_eq!(admitted(None, "phone").err(), Some("unknown_link"));
         let (link, _closed) = hybrid("phone", false, false);
-        assert_eq!(refusal(Some(&link), "phone"), None);
-        assert_eq!(refusal(Some(&link), "other-phone"), Some("unknown_link"));
+        assert_eq!(admitted(Some(&link), "phone").err(), None);
+        assert_eq!(admitted(Some(&link), "other-phone").err(), Some("unknown_link"));
         let (link, _closed) = hybrid("phone", false, true);
-        assert_eq!(refusal(Some(&link), "phone"), Some("unknown_link"), "a closed link");
+        assert_eq!(admitted(Some(&link), "phone").err(), Some("unknown_link"), "a closed link");
         let (link, _closed) = hybrid("phone", true, false);
-        assert_eq!(refusal(Some(&link), "phone"), Some("unpaired"));
+        assert_eq!(admitted(Some(&link), "phone").err(), Some("unpaired"));
         link.auth.begin();
         link.auth.end(true);
-        assert_eq!(refusal(Some(&link), "phone"), None);
+        assert_eq!(admitted(Some(&link), "phone").err(), None);
     }
 }

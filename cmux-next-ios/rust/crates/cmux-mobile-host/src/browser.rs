@@ -668,7 +668,7 @@ pub(crate) async fn splice(
         .await
         .map_err(|e| Refusal::new("unavailable", format!("browser host: {e}")))?;
     let mut deframer = StreamDeframer::default();
-    let mut buffer = vec![0u8; 64 * 1024];
+    let mut buffer = Vec::with_capacity(64 * 1024);
     let mut dropped = 0u64;
     // Track mode (browser_track.rs): hostd is the main stream's viewer and
     // the page's frames ride the media lane. A newer browser channel on the
@@ -721,11 +721,12 @@ pub(crate) async fn splice(
                 std::future::pending::<()>().await;
             }
         };
+        buffer.clear();
         tokio::select! {
-            read = host_read.read(&mut buffer) => match read {
+            read = host_read.read_buf(&mut buffer) => match read {
                 Ok(0) | Err(_) => return Ok(()),
-                Ok(n) => {
-                    host_deframer.extend(&buffer[..n]);
+                Ok(_) => {
+                    host_deframer.extend(&buffer);
                     let mut to_phone = Vec::new();
                     let mut frames = Vec::new();
                     loop {

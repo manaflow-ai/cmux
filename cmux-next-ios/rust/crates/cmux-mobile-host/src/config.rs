@@ -151,8 +151,11 @@ fn hostname() -> String {
     // SAFETY: the buffer is valid for its length; gethostname NUL-terminates
     // on success when the name fits.
     let ok = unsafe { libc::gethostname(buffer.as_mut_ptr().cast(), buffer.len()) } == 0;
-    let end = buffer.iter().position(|&b| b == 0).unwrap_or(0);
-    if ok && end > 0 { String::from_utf8_lossy(&buffer[..end]).into_owned() } else { "Mac".into() }
+    let name = std::ffi::CStr::from_bytes_until_nul(&buffer).ok().filter(|name| !name.is_empty());
+    match name {
+        Some(name) if ok => name.to_string_lossy().into_owned(),
+        _ => "Mac".into(),
+    }
 }
 
 /// A persistent device id: a UUID stored in `<state>/device-id`.
@@ -207,7 +210,7 @@ pub fn machine_id(owner: &str, host_uuid: &[u8; 16]) -> String {
     message.push(0);
     message.extend_from_slice(host_uuid);
     let tag = ring::hmac::sign(&key, &message);
-    tag.as_ref()[..16].iter().map(|b| format!("{b:02x}")).collect()
+    tag.as_ref().iter().take(16).map(|b| format!("{b:02x}")).collect()
 }
 
 /// This computer's host UUID (the IOPlatformUUID every build reads alike).
@@ -273,7 +276,12 @@ pub fn sibling_device_ids(app_support: &Path, own: &str, machine_id: &str) -> Ve
 /// this build is its own computer; claiming this Mac's folders as its
 /// siblings would make the backend give its id to every same-owner record
 /// that has none yet (old builds, other rigs) and fold them into it for good.
-pub fn registration_siblings(app_support: &Path, own: &str, machine_id: &str, overridden: bool) -> Vec<String> {
+pub fn registration_siblings(
+    app_support: &Path,
+    own: &str,
+    machine_id: &str,
+    overridden: bool,
+) -> Vec<String> {
     if overridden {
         return Vec::new();
     }

@@ -275,7 +275,7 @@ impl SpentReplies {
         if keys.iter().any(|k| spent.contains_key(k)) {
             // The id's record holds its outcome; a nonce another reply already
             // used is a replay with no outcome of its own.
-            return match spent.get(&keys[0]) {
+            return match keys.first().and_then(|id| spent.get(id)) {
                 Some(Spent { outcome: Some(outcome), .. }) => Claim::Settled(outcome.clone()),
                 Some(Spent { outcome: None, pending, .. }) => Claim::Seen { in_progress: *pending },
                 None => Claim::Seen { in_progress: false },

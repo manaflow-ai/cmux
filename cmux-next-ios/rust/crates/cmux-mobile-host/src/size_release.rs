@@ -201,19 +201,19 @@ pub async fn stop_and_release(limit: Duration) {
 
 /// SIGTERM (the app stopping hostd: iPhone connections off, the app
 /// quitting) releases the phones' sizes before hostd exits, as the end of
-/// stdin does.
+/// stdin does. The handler is installed now; the returned worker (a hostd
+/// process worker, `tasks::Workers`) waits for the signal. None when the
+/// handler cannot be installed.
 #[cfg(unix)]
-pub fn exit_on_sigterm() {
-    let Ok(mut term) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) else {
-        return;
-    };
-    tokio::spawn(async move {
+pub fn exit_on_sigterm() -> Option<impl std::future::Future<Output = ()> + Send + 'static> {
+    let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).ok()?;
+    Some(async move {
         if term.recv().await.is_some() {
             tracing::info!("SIGTERM; releasing phone terminal sizes and exiting");
             stop_and_release(EXIT_WAIT).await;
             std::process::exit(0);
         }
-    });
+    })
 }
 
 #[cfg(test)]

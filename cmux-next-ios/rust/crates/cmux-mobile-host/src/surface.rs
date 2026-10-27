@@ -47,6 +47,7 @@ use tokio::net::{TcpListener, TcpStream};
 
 use crate::browser::{BrowserConfig, FrameVerdict, HostGuard, LaunchRequest, Launcher, RunningHost};
 use crate::services::{Peer, Refusal};
+use crate::tasks::{Ended, TaskScope};
 
 /// rb messages a surface viewer may send. A surface has no page: no
 /// navigation, history, menus, dialogs or find.
@@ -255,12 +256,11 @@ impl SourceDeframer {
 
     /// The next whole frame; an error for a frame no peer may send.
     pub fn next_frame(&mut self) -> Result<Option<SourceFrame>, &'static str> {
-        if self.buffer.len() < 5 {
+        let Some((&kind, rest)) = self.buffer.split_first() else { return Ok(None) };
+        let Some(length) = rest.first_chunk::<4>().map(|bytes| u32::from_be_bytes(*bytes)) else {
             return Ok(None);
-        }
-        let kind = self.buffer[0];
-        let length =
-            u32::from_be_bytes([self.buffer[1], self.buffer[2], self.buffer[3], self.buffer[4]]) as usize;
+        };
+        let length = usize::try_from(length).map_err(|_| "an sf/1 frame over the limit")?;
         if length > MAX_SOURCE_FRAME {
             return Err("an sf/1 frame over the limit");
         }
@@ -272,13 +272,15 @@ impl SourceDeframer {
             1 => {
                 serde_json::from_slice(&payload).map(|v| Some(SourceFrame::Json(v))).map_err(|_| "sf/1 JSON")
             }
-            2 if payload.len() >= 9 => {
-                let mut stamp = [0u8; 8];
-                stamp.copy_from_slice(&payload[1..9]);
+            2 => {
+                let Some((&flags, rest)) = payload.split_first() else { return Err("an unknown sf/1 frame") };
+                let Some((stamp, annex_b)) = rest.split_first_chunk::<8>() else {
+                    return Err("an unknown sf/1 frame");
+                };
                 Ok(Some(SourceFrame::AccessUnit {
-                    idr: payload[0] & 1 == 1,
-                    capture_us: u64::from_be_bytes(stamp),
-                    annex_b: payload[9..].to_vec(),
+                    idr: flags & 1 == 1,
+                    capture_us: u64::from_be_bytes(*stamp),
+                    annex_b: annex_b.to_vec(),
                 }))
             }
             _ => Err("an unknown sf/1 frame"),
@@ -347,11 +349,25 @@ fn host_launcher(source: Launcher) -> Launcher {
             let secret = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
             let (source_addr, source_secret, host_secret) = (app.addr, app.secret.clone(), secret.clone());
             let tab = request.tab;
+            // The tab's viewers end with its host (the guard aborts this task).
             let task = tokio::spawn(async move {
-                while let Ok((stream, _)) = listener.accept().await {
+                let mut sessions = TaskScope::<()>::default();
+                loop {
+                    let stream = tokio::select! {
+                        accepted = listener.accept() => match accepted {
+                            Ok((stream, _)) => stream,
+                            Err(_) => break,
+                        },
+                        ended = sessions.ended() => {
+                            if let Ended::Panicked((), message) = ended {
+                                tracing::error!(tab, message, "surface: a viewer's session failed");
+                            }
+                            continue;
+                        }
+                    };
                     let (host_secret, source_secret, tab) =
                         (host_secret.clone(), source_secret.clone(), tab.clone());
-                    tokio::spawn(async move {
+                    sessions.spawn((), async move {
                         if let Err(reason) =
                             host_session(stream, &host_secret, source_addr, &source_secret).await
                         {
@@ -394,6 +410,11 @@ fn rd_control(control: &Control, out: &mut Vec<u8>) {
     rd_frame(STREAM_CONTROL, &serde_json::to_vec(control).unwrap_or_default(), out);
 }
 
+/// The string at `key` of a JSON object, if there is one.
+fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+    value.get(key).and_then(Value::as_str)
+}
+
 fn rb(body: Value, out: &mut Vec<u8>) {
     rd_control(&Control::Service { service: SERVICE_REMOTE_BROWSER.into(), body }, out);
 }
@@ -408,7 +429,7 @@ pub async fn host_session(
 ) -> Result<(), String> {
     let _ = stream.set_nodelay(true);
     let mut deframer = StreamDeframer::default();
-    let mut buffer = vec![0u8; 64 * 1024];
+    let mut buffer = Vec::with_capacity(64 * 1024);
     // One deadline for the whole hello: a client that trickles bytes is closed too.
     let hello_by = tokio::time::Instant::now() + HELLO_TIMEOUT;
     let hello = loop {
@@ -417,8 +438,9 @@ pub async fn host_session(
             Ok(Some(_)) | Err(_) => break None,
             Ok(None) => {}
         }
-        match tokio::time::timeout_at(hello_by, stream.read(&mut buffer)).await {
-            Ok(Ok(n)) if n > 0 => deframer.extend(&buffer[..n]),
+        buffer.clear();
+        match tokio::time::timeout_at(hello_by, stream.read_buf(&mut buffer)).await {
+            Ok(Ok(n)) if n > 0 => deframer.extend(&buffer),
             _ => return Err("no hello".into()),
         }
     };
@@ -441,10 +463,10 @@ pub async fn host_session(
         .await
         .map_err(|e| format!("surface source: {e}"))?;
     let mut source_frames = SourceDeframer::default();
-    let mut app_buffer = vec![0u8; 256 * 1024];
+    let mut app_buffer = Vec::with_capacity(256 * 1024);
     let (mut width, mut height) = loop {
         match source_frames.next_frame() {
-            Ok(Some(SourceFrame::Json(value))) if value["t"] == "size" => {
+            Ok(Some(SourceFrame::Json(value))) if text(&value, "t") == Some("size") => {
                 let size =
                     |key: &str| value.get(key).and_then(Value::as_u64).and_then(|v| u32::try_from(v).ok());
                 match (size("width"), size("height")) {
@@ -452,12 +474,17 @@ pub async fn host_session(
                     _ => return Err("the source sent a bad size".into()),
                 }
             }
-            Ok(Some(SourceFrame::Json(value))) if value["t"] == "error" => {
-                return Err(format!("surface source: {}", value["message"].as_str().unwrap_or("error")));
+            Ok(Some(SourceFrame::Json(value))) if text(&value, "t") == Some("error") => {
+                return Err(format!("surface source: {}", text(&value, "message").unwrap_or("error")));
             }
             Ok(Some(_)) => {}
-            Ok(None) => match tokio::time::timeout(SOURCE_TIMEOUT, app.read(&mut app_buffer)).await {
-                Ok(Ok(n)) if n > 0 => source_frames.extend(&app_buffer[..n]),
+            Ok(None) => match tokio::time::timeout(SOURCE_TIMEOUT, {
+                app_buffer.clear();
+                app.read_buf(&mut app_buffer)
+            })
+            .await
+            {
+                Ok(Ok(n)) if n > 0 => source_frames.extend(&app_buffer),
                 Ok(Ok(_)) => return Err("the source closed before it said its size".into()),
                 Ok(Err(error)) => return Err(format!("the source: {error}")),
                 Err(_) => return Err("the source said no size in time".into()),
@@ -522,11 +549,13 @@ pub async fn host_session(
             wake = wake.min(*deadline);
         }
         let sleep = tokio::time::sleep(Duration::from_micros(wake.saturating_sub(now)));
+        buffer.clear();
+        app_buffer.clear();
         tokio::select! {
-            read = phone_read.read(&mut buffer) => match read {
+            read = phone_read.read_buf(&mut buffer) => match read {
                 Ok(0) | Err(_) => break Ok(()),
-                Ok(n) => {
-                    deframer.extend(&buffer[..n]);
+                Ok(_) => {
+                    deframer.extend(&buffer);
                     let mut stop = false;
                     loop {
                         match deframer.next_frame() {
@@ -543,11 +572,11 @@ pub async fn host_session(
                                                   "pixel_height": height, "scale": 1.0}), &mut to_phone);
                                     }
                                     Some("rb.screen") => {
-                                        rb(json!({"t": "rb.screen_applied", "seq": body["seq"].as_u64().unwrap_or(0),
+                                        rb(json!({"t": "rb.screen_applied", "seq": body.get("seq").and_then(Value::as_u64).unwrap_or(0),
                                                   "pixel_width": width, "pixel_height": height, "scale": 1.0}), &mut to_phone);
                                     }
                                     Some("rb.visibility") => {
-                                        let visible = body["visible"].as_bool().unwrap_or(true);
+                                        let visible = body.get("visible").and_then(Value::as_bool).unwrap_or(true);
                                         to_app.extend(SourceFrame::Json(json!({"t": "visible", "visible": visible})).encode());
                                     }
                                     Some("rb.close") => stop = true,
@@ -568,10 +597,10 @@ pub async fn host_session(
                     }
                 }
             },
-            read = app_read.read(&mut app_buffer) => match read {
+            read = app_read.read_buf(&mut app_buffer) => match read {
                 Ok(0) | Err(_) => break Err("the source closed".to_owned()),
-                Ok(n) => {
-                    source_frames.extend(&app_buffer[..n]);
+                Ok(_) => {
+                    source_frames.extend(&app_buffer);
                     let mut bad = None;
                     loop {
                         match source_frames.next_frame() {
@@ -610,7 +639,7 @@ pub async fn host_session(
                                                   "pixel_height": height, "scale": 1.0}), &mut to_phone);
                                     }
                                 }
-                                Some("error") => tracing::warn!(message = value["message"].as_str(), "surface: the source reported"),
+                                Some("error") => tracing::warn!(message = text(&value, "message"), "surface: the source reported"),
                                 _ => {}
                             },
                             Ok(None) => break,
@@ -707,14 +736,15 @@ impl Flow {
                 && let Ok(event) = serde_json::from_slice::<Value>(&bytes[..])
                 && let Some(line) = input_line(&event, &mut self.touching)
             {
-                if line["t"] == "touch" {
-                    self.last_touch = (line["x"].as_f64().unwrap_or(0.5), line["y"].as_f64().unwrap_or(0.5));
+                let number = |key: &str| line.get(key).and_then(Value::as_f64).unwrap_or(0.5);
+                if text(&line, "t") == Some("touch") {
+                    self.last_touch = (number("x"), number("y"));
                 }
-                if line["t"] == "key"
-                    && let Some(key) = line["key"].as_str()
+                if text(&line, "t") == Some("key")
+                    && let Some(key) = text(&line, "key")
                 {
                     self.held_keys.retain(|held| held != key);
-                    if line["down"] == true {
+                    if line.get("down").and_then(Value::as_bool) == Some(true) {
                         self.held_keys.push(key.to_owned());
                     }
                 }
@@ -883,5 +913,31 @@ mod tests {
         let mut huge = SourceDeframer::default();
         huge.extend(&[2, 0xff, 0xff, 0xff, 0xff]);
         assert!(huge.next_frame().is_err());
+    }
+
+    /// A source's frame too short for its kind is a typed error, never a panic.
+    #[test]
+    fn a_short_access_unit_is_an_error() {
+        for payload in [&[][..], &[1][..], &[1, 0, 0, 0, 0, 0, 0, 0][..]] {
+            let mut deframer = SourceDeframer::default();
+            let mut bytes = vec![2];
+            bytes.extend_from_slice(&u32::try_from(payload.len()).unwrap().to_be_bytes());
+            bytes.extend_from_slice(payload);
+            deframer.extend(&bytes);
+            assert_eq!(deframer.next_frame(), Err("an unknown sf/1 frame"), "payload {payload:?}");
+        }
+        // Nine bytes: a flags byte and the stamp, with an empty access unit.
+        let mut deframer = SourceDeframer::default();
+        deframer.extend(&[2, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 7]);
+        assert_eq!(
+            deframer.next_frame(),
+            Ok(Some(SourceFrame::AccessUnit { idr: false, capture_us: 7, annex_b: Vec::new() }))
+        );
+        // A header cut anywhere waits for the rest.
+        for cut in 0..5 {
+            let mut deframer = SourceDeframer::default();
+            deframer.extend(&[1, 0, 0, 0, 2][..cut]);
+            assert_eq!(deframer.next_frame(), Ok(None));
+        }
     }
 }

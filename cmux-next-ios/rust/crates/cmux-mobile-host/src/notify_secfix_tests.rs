@@ -147,3 +147,31 @@ fn a_terminal_push_carries_no_screen() {
 fn a_kind_no_phone_wanted_is_tried_again_soon() {
     assert!(WANTS_TTL <= Duration::from_secs(15));
 }
+
+/// Text a program printed is split at char boundaries only: multibyte words,
+/// separators and a PEM block at any place never panic.
+#[test]
+fn redaction_never_splits_a_char() {
+    for input in [
+        "é",
+        "  é  ",
+        "pässwörd=geheimnis",
+        "tökén:",
+        "=",
+        ":",
+        "a=",
+        "=b",
+        "日本 語\tテキスト",
+        "Bearer ünïcode",
+        "x -----BEGIN é",
+        "-----BEGIN",
+        "password=//é",
+    ] {
+        let out = redact(input);
+        assert!(out.is_char_boundary(out.len()), "{input:?}");
+    }
+    assert_eq!(redact("password=hunter2"), "password=[redacted]");
+    assert_eq!(redact("token:abc"), "token:[redacted]");
+    assert_eq!(redact("keep  this\n words"), "keep  this\n words");
+    assert_eq!(redact("before -----BEGIN KEY-----"), "before [redacted]");
+}

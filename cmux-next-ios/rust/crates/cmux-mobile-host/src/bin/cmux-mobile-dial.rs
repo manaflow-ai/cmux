@@ -165,6 +165,7 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
     }
     rtts.sort();
     let median = rtts.get(rtts.len() / 2).copied().unwrap_or_default();
+    let (min, max) = (rtts.first().copied().unwrap_or_default(), rtts.last().copied().unwrap_or_default());
     let p95 = rtts.get((rtts.len() * 95).div_ceil(100).saturating_sub(1)).copied().unwrap_or_default();
 
     // Echo: send `bytes` and read them back, writing and reading concurrently.
@@ -231,7 +232,7 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
         "timings": marks,
         "ice_turn_urls": turn_urls,
         "pings": rtts.len(),
-        "rtt_ms": {"min": millis(rtts[0]), "median": millis(median), "p95": millis(p95), "max": millis(*rtts.last().unwrap())},
+        "rtt_ms": {"min": millis(min), "median": millis(median), "p95": millis(p95), "max": millis(max)},
         "first_echo_ms": millis(first_echo),
         "echo_bytes": total,
         "echo_seconds": (echo_time.as_secs_f64() * 1000.0).round() / 1000.0,

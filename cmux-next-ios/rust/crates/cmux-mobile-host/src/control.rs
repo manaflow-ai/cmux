@@ -222,8 +222,10 @@ pub struct Supplied {
     pub surface: std::sync::Arc<crate::browser::BrowserBroker>,
 }
 
-/// Reads stdin until it ends, then exits the process (the app is gone).
-pub fn spawn_stdin_reader() -> Supplied {
+/// What the app supplies, and the worker that reads it: the worker (a hostd
+/// process worker, `tasks::Workers`) reads stdin until it ends, then exits
+/// the process (the app is gone).
+pub fn stdin_reader() -> (Supplied, impl std::future::Future<Output = ()> + Send + 'static) {
     let (token_tx, token) = watch::channel(None);
     let (acpmux_tx, acpmux) = watch::channel(None);
     let (devices_tx, devices) = watch::channel(None);
@@ -232,7 +234,7 @@ pub fn spawn_stdin_reader() -> Supplied {
     let broker = std::sync::Arc::clone(&browser);
     let surface = std::sync::Arc::new(crate::browser::BrowserBroker::for_surfaces(std::sync::Arc::new(emit)));
     let surfaces = std::sync::Arc::clone(&surface);
-    tokio::spawn(async move {
+    let reader = async move {
         let mut lines = BufReader::new(tokio::io::stdin()).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             match Inbound::parse(&line) {
@@ -274,8 +276,8 @@ pub fn spawn_stdin_reader() -> Supplied {
         tracing::info!("control input ended; exiting");
         crate::size_release::stop_and_release(crate::size_release::EXIT_WAIT).await;
         std::process::exit(0);
-    });
-    Supplied { token, acpmux, devices, identity, browser, surface }
+    };
+    (Supplied { token, acpmux, devices, identity, browser, surface }, reader)
 }
 
 /// The wire name of a transport.

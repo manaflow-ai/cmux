@@ -53,6 +53,56 @@ pub struct LiveApplier {
     /// The app's daemon socket (the `daemon` service's default session).
     pub daemon_socket: PathBuf,
     pub chief_socket: Option<PathBuf>,
+    /// Holds the connections of accepted prompts while their turn runs.
+    pub turns: TurnHolder,
+}
+
+/// Prompts held at once; one more waits in [`TurnHolder::hold`] until a
+/// turn ends.
+const HELD_TURNS: usize = 64;
+
+/// Hands an accepted prompt's acpmux connection to the worker that keeps it
+/// open until the turn ends (acpmux ties a turn to the connection that
+/// prompted it), so a mailbox apply returns at once.
+#[derive(Clone)]
+pub struct TurnHolder {
+    queue: tokio::sync::mpsc::Sender<HeldTurn>,
+}
+
+/// An accepted prompt: its connection and request id.
+struct HeldTurn {
+    acpmux: Acpmux,
+    id: String,
+}
+
+impl TurnHolder {
+    /// The holder and its worker (a hostd process worker, `tasks::Workers`),
+    /// which runs until every holder is gone and its turns ended.
+    pub fn new() -> (Self, impl std::future::Future<Output = ()> + Send + 'static) {
+        let (queue, mut held) = tokio::sync::mpsc::channel::<HeldTurn>(1);
+        let worker = async move {
+            let mut turns = futures_util::stream::FuturesUnordered::new();
+            loop {
+                tokio::select! {
+                    turn = held.recv(), if turns.len() < HELD_TURNS => match turn {
+                        Some(HeldTurn { mut acpmux, id }) => turns.push(async move {
+                            let _ = tokio::time::timeout(PROMPT_TURN, acpmux.answer(&id)).await;
+                        }),
+                        None => break,
+                    },
+                    Some(()) = turns.next() => {}
+                }
+            }
+            while turns.next().await.is_some() {}
+        };
+        (Self { queue }, worker)
+    }
+
+    async fn hold(&self, turn: HeldTurn) {
+        if self.queue.send(turn).await.is_err() {
+            tracing::debug!("the turn holder stopped; the prompt's connection closes now");
+        }
+    }
 }
 
 impl Applier for LiveApplier {
@@ -102,13 +152,12 @@ pub fn permission_params(reply: &Reply, pending: &Value) -> Result<Value, Reject
         .map(kind_of)
         .ok_or_else(|| refused("the option is not offered"))?;
     let reject = kind.starts_with("reject");
-    let mut params = json!({
-        "sessionId": reply.target.session_id,
-        "permissionId": reply.target.permission_id,
-        "optionId": option_id,
-    });
+    let mut params = serde_json::Map::new();
+    params.insert("sessionId".into(), json!(reply.target.session_id));
+    params.insert("permissionId".into(), json!(reply.target.permission_id));
+    params.insert("optionId".into(), json!(option_id));
     if let Some(answers) = &reply.answers {
-        params["answers"] = answers.clone();
+        params.insert("answers".into(), answers.clone());
     }
     match (reply.action == ActionKind::Deny, reject) {
         // A deny is never signed.
@@ -123,10 +172,10 @@ pub fn permission_params(reply: &Reply, pending: &Value) -> Result<Value, Reject
             if approver != Some(reply.phone.as_str()) {
                 return Err(refused("the approval is not this phone's"));
             }
-            params["_meta"] = approval.clone();
+            params.insert("_meta".into(), approval.clone());
         }
     }
-    Ok(params)
+    Ok(Value::Object(params))
 }
 
 /// `session/prompt` params for a text reply to a session.
@@ -232,7 +281,9 @@ pub async fn reply_to_notification(
     let agents = lines.call_daemon(&policy, &agents_line(found)).await?;
     match agent_session(&agents, found) {
         AgentOnTerminal::None => {}
-        AgentOnTerminal::Unknown => return Err(refused("an agent runs in that terminal; answer it in the app")),
+        AgentOnTerminal::Unknown => {
+            return Err(refused("an agent runs in that terminal; answer it in the app"));
+        }
         AgentOnTerminal::Session(session) => {
             let identify =
                 lines.call_daemon(&policy, &json!({"id": "mailbox-identify", "cmd": "identify"})).await?;
@@ -426,7 +477,7 @@ impl LiveApplier {
             .call("_acpmux/info", json!({"sessionId": reply.target.session_id}))
             .await
             .map_err(|_| Rejection::NotPending)?;
-        acpmux.prompt(prompt_params(reply)).await
+        acpmux.prompt(prompt_params(reply), &self.turns).await
     }
 
     async fn chief(&self, reply: &Reply) -> Result<(), Rejection> {
@@ -514,15 +565,13 @@ impl Acpmux {
     }
 
     /// Sends a prompt: refused if acpmux says so at once; otherwise accepted,
-    /// and the connection stays open in the background until its turn ends.
-    async fn prompt(mut self, params: Value) -> Result<(), Rejection> {
+    /// and `turns` keeps the connection open until its turn ends.
+    async fn prompt(mut self, params: Value, turns: &TurnHolder) -> Result<(), Rejection> {
         let id = self.send("session/prompt", params).await?;
         match tokio::time::timeout(PROMPT_ACCEPT, self.answer(&id)).await {
             Ok(result) => result.map(|_| ()),
             Err(_) => {
-                tokio::spawn(async move {
-                    let _ = tokio::time::timeout(PROMPT_TURN, self.answer(&id)).await;
-                });
+                turns.hold(HeldTurn { acpmux: self, id }).await;
                 Ok(())
             }
         }
@@ -766,7 +815,10 @@ mod tests {
         assert_eq!(agent_session(&filtered, 7), AgentOnTerminal::Session("s-1".into()));
         assert_eq!(agents_line(7)["surface"], 7);
         let daemon = DaemonPolicy::new("phone-1");
-        assert!(!matches!(daemon.evaluate(&serde_json::to_vec(&agents_line(7)).unwrap()), Verdict::Refuse(_)));
+        assert!(!matches!(
+            daemon.evaluate(&serde_json::to_vec(&agents_line(7)).unwrap()),
+            Verdict::Refuse(_)
+        ));
     }
 
     #[test]
@@ -817,5 +869,16 @@ mod tests {
         assert_eq!(paste["paste"], true);
         assert_eq!(paste["expect_foreground"], "/usr/bin/vim");
         assert_eq!(enter["text"], "\r");
+    }
+
+    /// The worker that holds accepted prompts ends with hostd's mailbox, so it
+    /// never outlives the process workers that own it.
+    #[tokio::test]
+    async fn the_turn_holder_ends_when_its_holders_are_gone() {
+        let (holder, worker) = TurnHolder::new();
+        let copy = holder.clone();
+        drop(holder);
+        drop(copy);
+        tokio::time::timeout(Duration::from_secs(5), worker).await.expect("the worker ended");
     }
 }

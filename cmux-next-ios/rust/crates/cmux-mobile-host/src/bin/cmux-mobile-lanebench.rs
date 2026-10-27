@@ -102,6 +102,20 @@ struct Daemon {
     sender: Arc<ChannelSender>,
     next: std::sync::atomic::AtomicU64,
     pending: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
+    /// Reads the channel's replies and output; ends with this daemon.
+    reader: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for Daemon {
+    fn drop(&mut self) {
+        self.reader.abort();
+    }
+}
+
+/// A lock of this bench's state. Only this bench's own code takes these
+/// locks, and a panic in it ends the run, so a poisoned lock is read as is.
+fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Output bytes and when they arrived.
@@ -130,7 +144,7 @@ impl Screens {
             tokio::pin!(changed);
             changed.as_mut().enable();
             {
-                let output = self.output.lock().unwrap();
+                let output = locked(&self.output);
                 if let Some(chunks) = output.get(&surface) {
                     let mut joined = Vec::new();
                     let mut first_at = None;
@@ -150,12 +164,12 @@ impl Screens {
     }
 
     fn total(&self, surface: u64) -> usize {
-        self.bytes.lock().unwrap().get(&surface).copied().unwrap_or(0)
+        locked(&self.bytes).get(&surface).copied().unwrap_or(0)
     }
 
     /// Drops recorded chunks (keeps byte counts) so searches stay cheap.
     fn forget(&self, surface: u64) {
-        self.output.lock().unwrap().remove(&surface);
+        locked(&self.output).remove(&surface);
     }
 }
 
@@ -163,16 +177,17 @@ impl Daemon {
     fn new(channel: cmux_mobile_link::Channel, screens: Arc<Screens>, keep: bool) -> Self {
         let (sender, receiver) = channel.split();
         let pending: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>> = Arc::default();
-        tokio::spawn(read_lines(receiver, Arc::clone(&pending), screens, keep));
-        Self { sender: Arc::new(sender), next: 1.into(), pending }
+        let reader = tokio::spawn(read_lines(receiver, Arc::clone(&pending), screens, keep));
+        Self { sender: Arc::new(sender), next: 1.into(), pending, reader }
     }
 
     async fn request(&self, cmd: &str, mut params: Value) -> Result<Value> {
         let id = format!("b{}", self.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
-        params["id"] = json!(id);
-        params["cmd"] = json!(cmd);
+        let fields = params.as_object_mut().context("request params are a JSON object")?;
+        fields.insert("id".into(), json!(id));
+        fields.insert("cmd".into(), json!(cmd));
         let (tx, rx) = oneshot::channel();
-        self.pending.lock().unwrap().insert(id, tx);
+        locked(&self.pending).insert(id, tx);
         let mut line = serde_json::to_vec(&params)?;
         line.push(b'\n');
         self.sender.send(Bytes::from(line)).await?;
@@ -198,7 +213,7 @@ async fn read_lines(
             let line: Vec<u8> = buffer.drain(..=newline).collect();
             let Ok(value) = serde_json::from_slice::<Value>(&line) else { continue };
             if let Some(id) = value.get("id").and_then(Value::as_str) {
-                if let Some(tx) = pending.lock().unwrap().remove(id) {
+                if let Some(tx) = locked(&pending).remove(id) {
                     let _ = tx.send(value);
                 }
                 continue;
@@ -210,9 +225,9 @@ async fn read_lines(
             let Some(surface) = value.get("surface").and_then(Value::as_u64) else { continue };
             let Some(data) = value.get("data").and_then(Value::as_str) else { continue };
             let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(data) else { continue };
-            *screens.bytes.lock().unwrap().entry(surface).or_default() += decoded.len();
+            *locked(&screens.bytes).entry(surface).or_default() += decoded.len();
             if keep {
-                screens.output.lock().unwrap().entry(surface).or_default().push((at, decoded));
+                locked(&screens.output).entry(surface).or_default().push((at, decoded));
             }
             screens.changed.notify_waiters();
         }
@@ -234,7 +249,9 @@ fn summary(mut values: Vec<f64>) -> Value {
         return json!(null);
     }
     values.sort_by(f64::total_cmp);
-    let at = |q: f64| values[((values.len() - 1) as f64 * q).round() as usize];
+    let last = values.len().saturating_sub(1);
+    // The nearest rank at quantile q (0...1): never past the last value.
+    let at = |q: f64| values.get(((last as f64 * q).round() as usize).min(last)).copied();
     json!({"n": values.len(), "min": at(0.0), "median": at(0.5), "p90": at(0.9), "max": at(1.0)})
 }
 
@@ -293,9 +310,10 @@ async fn main() -> Result<()> {
     let screens = Arc::new(Screens::default());
 
     let control = Daemon::new(link.open("daemon", json!({})).await?, Arc::clone(&screens), false);
-    let tag = &device[..8];
+    let tag = device.get(..8).unwrap_or(&device);
     let (name_a, name_b) = (format!("lane-a-{tag}"), format!("lane-b-{tag}"));
-    let surface = |reply: &Value| reply["data"]["surface"].as_u64().context("no surface in reply");
+    let surface =
+        |reply: &Value| reply.pointer("/data/surface").and_then(Value::as_u64).context("no surface in reply");
     let a =
         surface(&control.request("new-workspace", json!({"name": name_a, "cols": 100, "rows": 30})).await?)?;
     let b =

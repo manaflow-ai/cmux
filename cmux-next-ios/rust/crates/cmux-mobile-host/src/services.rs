@@ -799,13 +799,22 @@ fn confine_open(roots: &[PathBuf], file: &tokio::fs::File) -> Result<(), Refusal
     if !ok {
         return Err(Refusal::new("forbidden", "cannot check the opened file"));
     }
-    let end = buffer.iter().position(|&b| b == 0).unwrap_or(buffer.len());
-    let opened = PathBuf::from(String::from_utf8_lossy(&buffer[..end]).into_owned());
+    let opened = nul_terminated_path(&buffer)
+        .ok_or_else(|| Refusal::new("forbidden", "cannot check the opened file"))?;
     let inside = roots
         .iter()
         .filter_map(|root| std::fs::canonicalize(root).ok())
         .any(|root| opened.starts_with(&root));
     if inside { Ok(()) } else { Err(Refusal::new("forbidden", "path is outside the workspace roots")) }
+}
+
+/// The path `F_GETPATH` wrote into `buffer`: the bytes before its NUL; None
+/// when the kernel wrote no NUL.
+#[cfg(target_vendor = "apple")]
+fn nul_terminated_path(buffer: &[u8]) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::ffi::CStr::from_bytes_until_nul(buffer).ok()?;
+    Some(PathBuf::from(std::ffi::OsStr::from_bytes(path.to_bytes())))
 }
 
 /// Elsewhere hostd does not run (it serves Macs); the path check before the open stands alone.
@@ -850,9 +859,10 @@ pub fn stored_spelling(path: &Path) -> Option<PathBuf> {
         let mut buffer = vec![0u8; libc::PATH_MAX as usize];
         // SAFETY: F_GETPATH writes at most PATH_MAX bytes into `buffer`, which holds
         // PATH_MAX bytes, for a descriptor this function owns.
-        if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, buffer.as_mut_ptr()) } != -1 {
-            let end = buffer.iter().position(|&b| b == 0).unwrap_or(buffer.len());
-            return Some(PathBuf::from(String::from_utf8_lossy(&buffer[..end]).into_owned()));
+        if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, buffer.as_mut_ptr()) } != -1
+            && let Some(path) = nul_terminated_path(&buffer)
+        {
+            return Some(path);
         }
     }
     Some(canonical)
@@ -911,13 +921,14 @@ async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> R
     if metadata.len() > MAXIMUM_FILE_BYTES {
         return Err(Refusal::new("too_large", "file is larger than 64 MiB"));
     }
-    let mut buffer = vec![0u8; 64 * 1024];
+    let mut buffer = Vec::with_capacity(64 * 1024);
     loop {
-        let read = file.read(&mut buffer).await.map_err(|e| Refusal::new("io", e.to_string()))?;
+        buffer.clear();
+        let read = file.read_buf(&mut buffer).await.map_err(|e| Refusal::new("io", e.to_string()))?;
         if read == 0 {
             return Ok(());
         }
-        if sender.send(Bytes::copy_from_slice(&buffer[..read])).await.is_err() {
+        if sender.send(Bytes::copy_from_slice(&buffer)).await.is_err() {
             return Ok(());
         }
     }
@@ -1212,8 +1223,8 @@ fn create_private_dir(path: &Path) -> Result<(), Refusal> {
 /// `<folder>/<name>`, or `<stem> 2.<ext>`, ... when that name is taken:
 /// links `part` there without replacing anything.
 fn publish_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Refusal> {
-    let (stem, extension) = match name.rfind('.') {
-        Some(dot) if dot > 0 => (&name[..dot], &name[dot..]),
+    let (stem, extension) = match name.rfind('.').and_then(|dot| name.split_at_checked(dot)) {
+        Some((stem, extension)) if !stem.is_empty() => (stem, extension),
         _ => (name, ""),
     };
     for attempt in 1..=999 {

@@ -293,10 +293,10 @@ impl Classifier {
                     }
                     if let Some(preview) = session.get("preview").and_then(Value::as_str) {
                         // Only the end is ever shown: keep at most a few KB.
-                        let start = preview.len().saturating_sub(4096);
-                        let start =
-                            (start..preview.len()).find(|&i| preview.is_char_boundary(i)).unwrap_or(0);
-                        self.previews.insert(id.clone(), preview[start..].to_owned());
+                        let cut = preview.len().saturating_sub(4096);
+                        // The first char boundary at or after the cut (the end always is one).
+                        let end = (cut..=preview.len()).find_map(|i| preview.get(i..)).unwrap_or_default();
+                        self.previews.insert(id.clone(), end.to_owned());
                     }
                     self.sessions.insert(id, label);
                 }
@@ -444,61 +444,121 @@ pub fn enabled() -> bool {
     std::env::var("CMUX_MOBILE_PUSH").map(|v| v.trim() != "0").unwrap_or(true)
 }
 
-/// Sends events to the backend, skipping kinds no phone wants (`Wants`).
-#[derive(Clone)]
-pub struct Reporter {
+/// Pushes waiting for the outbox. A full outbox (the backend unreachable
+/// for a while) drops the newest push with a warning.
+const OUTBOX_PUSHES: usize = 64;
+/// Pushes the outbox reports at once.
+const PUSHES_IN_FLIGHT: usize = 8;
+
+/// What a push needs to reach the backend.
+struct Delivery {
     base_url: String,
     device_id: String,
     tokens: Arc<Tokens>,
-    wants: Arc<Mutex<Wants>>,
+    wants: Mutex<Wants>,
     /// Paired phones that gave a push key get the content sealed (`sealed_notify.rs`).
     sealer: Option<Arc<crate::sealed_notify::Sealer>>,
 }
 
-impl Reporter {
-    pub fn new(base_url: String, device_id: String, tokens: Arc<Tokens>) -> Self {
-        Self { base_url, device_id, tokens, wants: Arc::default(), sealer: None }
+impl Delivery {
+    fn wants(&self, kind: &str) -> bool {
+        self.wants.lock().unwrap_or_else(std::sync::PoisonError::into_inner).allows(kind, Instant::now())
     }
 
-    /// With the sealer of a supervised hostd.
-    pub fn with_sealer(mut self, sealer: Option<Arc<crate::sealed_notify::Sealer>>) -> Self {
-        self.sealer = sealer;
-        self
+    async fn report(&self, event: NotifyEvent) {
+        let token = match self.tokens.access_token().await {
+            Ok(token) => token,
+            Err(error) => return tracing::warn!("no access token for a push ({error:#})"),
+        };
+        let body = match serde_json::to_value(&event) {
+            Ok(body) => body,
+            Err(error) => return tracing::warn!(kind = event.kind, %error, "push not encoded"),
+        };
+        // Sealed to each paired phone's push key when it gave one (sealed_notify.rs).
+        let body = match &self.sealer {
+            Some(sealer) => sealer.body(body).await,
+            None => body,
+        };
+        match ApiClient::new(&self.base_url, &token).notify_body(&self.device_id, &body).await {
+            Ok(result) => {
+                self.wants
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .learn(&result, Instant::now());
+                tracing::info!(kind = event.kind, %result, "push reported");
+            }
+            Err(error) => tracing::warn!(kind = event.kind, %error, "push report failed"),
+        }
+    }
+}
+
+/// Sends events to the backend, skipping kinds no phone wants (`Wants`).
+/// Events go through the [`Outbox`] its owner runs.
+#[derive(Clone)]
+pub struct Reporter {
+    delivery: Arc<Delivery>,
+    outbox: tokio::sync::mpsc::Sender<NotifyEvent>,
+}
+
+/// The pushes a [`Reporter`] queued, reported in the background by [`Outbox::run`].
+pub struct Outbox {
+    delivery: Arc<Delivery>,
+    queue: tokio::sync::mpsc::Receiver<NotifyEvent>,
+}
+
+impl Reporter {
+    /// A reporter and its outbox; `sealer` is the supervised hostd's.
+    pub fn new(
+        base_url: String,
+        device_id: String,
+        tokens: Arc<Tokens>,
+        sealer: Option<Arc<crate::sealed_notify::Sealer>>,
+    ) -> (Self, Outbox) {
+        let delivery = Arc::new(Delivery { base_url, device_id, tokens, wants: Mutex::default(), sealer });
+        let (outbox, queue) = tokio::sync::mpsc::channel(OUTBOX_PUSHES);
+        (Self { delivery: Arc::clone(&delivery), outbox }, Outbox { delivery, queue })
     }
 
     /// Whether a `kind` event would be sent now (the terminal watcher asks before reading the screen).
     pub fn wants(&self, kind: &str) -> bool {
-        self.wants.lock().unwrap_or_else(std::sync::PoisonError::into_inner).allows(kind, Instant::now())
+        self.delivery.wants(kind)
     }
 
-    /// Sends one event in the background.
+    /// Queues one event for the outbox.
     pub fn send(&self, event: NotifyEvent) {
         if !self.wants(&event.kind) {
             return tracing::debug!(kind = event.kind, "push skipped: no phone wants it");
         }
-        let this = self.clone();
-        tokio::spawn(async move {
-            let token = match this.tokens.access_token().await {
-                Ok(token) => token,
-                Err(error) => return tracing::warn!("no access token for a push ({error:#})"),
-            };
-            // Sealed to each paired phone's push key when it gave one (sealed_notify.rs).
-            let body = serde_json::to_value(&event).unwrap_or_default();
-            let body = match &this.sealer {
-                Some(sealer) => sealer.body(body).await,
-                None => body,
-            };
-            match ApiClient::new(&this.base_url, &token).notify_body(&this.device_id, &body).await {
-                Ok(result) => {
-                    this.wants
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .learn(&result, Instant::now());
-                    tracing::info!(kind = event.kind, %result, "push reported");
-                }
-                Err(error) => tracing::warn!(kind = event.kind, %error, "push report failed"),
+        match self.outbox.try_send(event) {
+            Ok(()) => {}
+            Err(tokio::sync::mpsc::error::TrySendError::Full(event)) => {
+                tracing::warn!(kind = event.kind, queued = OUTBOX_PUSHES, "push dropped: the outbox is full");
             }
-        });
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(event)) => {
+                tracing::debug!(kind = event.kind, "push dropped: the outbox stopped");
+            }
+        }
+    }
+}
+
+impl Outbox {
+    /// Reports queued pushes, up to `PUSHES_IN_FLIGHT` at once, until every
+    /// reporter is gone and the queue is empty.
+    pub async fn run(mut self) {
+        let mut in_flight = futures_util::stream::FuturesUnordered::new();
+        loop {
+            tokio::select! {
+                event = self.queue.recv(), if in_flight.len() < PUSHES_IN_FLIGHT => match event {
+                    Some(event) => {
+                        let delivery = Arc::clone(&self.delivery);
+                        in_flight.push(async move { delivery.report(event).await });
+                    }
+                    None => break,
+                },
+                Some(()) = in_flight.next() => {}
+            }
+        }
+        while in_flight.next().await.is_some() {}
     }
 }
 
@@ -511,12 +571,22 @@ pub async fn run(
     daemon_socket: Option<std::path::PathBuf>,
     sealer: Option<Arc<crate::sealed_notify::Sealer>>,
 ) {
-    let reporter = Reporter::new(base_url, device_id, tokens).with_sealer(sealer);
+    let (reporter, outbox) = Reporter::new(base_url, device_id, tokens, sealer);
     let places = Arc::new(Places::default());
-    if let Some(socket) = daemon_socket {
-        tokio::spawn(crate::notify_terminal::run(socket, Arc::clone(&places), reporter.clone()));
-    }
-    let mut classifier = Classifier::with_places(places);
+    // The terminal watcher and the outbox run in this task, beside the acpmux watch.
+    let terminal = {
+        let (places, reporter) = (Arc::clone(&places), reporter.clone());
+        async move {
+            if let Some(socket) = daemon_socket {
+                crate::notify_terminal::run(socket, places, reporter).await;
+            }
+        }
+    };
+    tokio::join!(outbox.run(), terminal, watch_acpmux(reporter, acpmux, Classifier::with_places(places)));
+}
+
+/// Watches acpmux for events to push, reconnecting with backoff, forever.
+async fn watch_acpmux(reporter: Reporter, acpmux: AcpmuxTarget, mut classifier: Classifier) {
     let mut backoff = Duration::from_secs(2);
     loop {
         match watch_once(&reporter, &acpmux, &mut classifier).await {

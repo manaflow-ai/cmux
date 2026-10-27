@@ -119,7 +119,7 @@ pub enum Allowed {
 /// its canonical path, with the `?query` and `#fragment` the address had.
 pub fn resolved_file_url(url: &str, resolved: &Path) -> String {
     let rest = url.trim().get("file:".len()..).unwrap_or_default();
-    let suffix = rest.find(['?', '#']).map_or("", |i| &rest[i..]);
+    let suffix = rest.find(['?', '#']).and_then(|i| rest.get(i..)).unwrap_or_default();
     format!("{}{suffix}", file_url(resolved))
 }
 
@@ -170,7 +170,7 @@ pub fn classify(url: &str) -> Target {
         }
         "about" => Target::BrowserPage,
         "data" | "blob" => Target::Web,
-        "view-source" if is_web(&lower["view-source:".len()..]) => Target::Web,
+        "view-source" if lower.strip_prefix("view-source:").is_some_and(is_web) => Target::Web,
         "view-source" => Target::BrowserPage,
         "file" => file_path(url).map_or(Target::Refused(Blocked::Malformed), Target::File),
         "javascript" => Target::Refused(Blocked::Script),
@@ -187,7 +187,7 @@ pub fn file_path(url: &str) -> Option<PathBuf> {
     let rest = url.get("file:".len()..)?;
     let rest = rest.split(['?', '#']).next().unwrap_or_default();
     let path = if let Some(after) = rest.strip_prefix("//") {
-        let (host, path) = after.find('/').map_or((after, ""), |i| (&after[..i], &after[i..]));
+        let (host, path) = after.find('/').and_then(|i| after.split_at_checked(i)).unwrap_or((after, ""));
         if !(host.is_empty() || host.eq_ignore_ascii_case("localhost")) {
             return None;
         }
@@ -207,17 +207,15 @@ pub fn file_path(url: &str) -> Option<PathBuf> {
 }
 
 fn percent_decode(text: &str) -> Option<Vec<u8>> {
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' {
-            let hex = text.get(i + 1..i + 3)?;
-            out.push(u8::from_str_radix(hex, 16).ok()?);
-            i += 3;
+    let mut out = Vec::with_capacity(text.len());
+    let mut bytes = text.bytes();
+    while let Some(byte) = bytes.next() {
+        if byte == b'%' {
+            let (high, low) = (bytes.next()?, bytes.next()?);
+            let hex = [high, low];
+            out.push(u8::from_str_radix(std::str::from_utf8(&hex).ok()?, 16).ok()?);
         } else {
-            out.push(bytes[i]);
-            i += 1;
+            out.push(byte);
         }
     }
     Some(out)
@@ -453,5 +451,20 @@ mod tests {
         ] {
             assert!(b.message().ends_with('.') && !b.message().contains("http"), "{b:?}");
         }
+    }
+
+    /// A URL from a phone that ends inside an escape, or names no path, is refused.
+    #[test]
+    fn broken_file_urls_are_malformed() {
+        assert_eq!(file_path("file:///a%2"), None);
+        assert_eq!(file_path("file:///a%"), None);
+        assert_eq!(file_path("file:///a%zz"), None);
+        assert_eq!(file_path("file:///a%e9%"), None);
+        assert_eq!(file_path("file:///%C3%A9"), Some(PathBuf::from("/\u{e9}")));
+        assert_eq!(file_path("file://localhost"), None);
+        assert_eq!(file_path("file:"), None);
+        assert!(matches!(classify("view-source:"), Target::BrowserPage));
+        assert!(matches!(classify("view-source:https://example.com"), Target::Web));
+        assert_eq!(resolved_file_url("file:///a?q#f", Path::new("/a")), "file:///a?q#f");
     }
 }

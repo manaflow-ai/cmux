@@ -48,7 +48,8 @@ async fn watch() -> std::io::Result<()> {
         // Wait for a message about addresses or interfaces.
         loop {
             let len = read(&socket, &mut buffer).await?;
-            if relevant(&buffer[..len]) {
+            let message = buffer.get(..len).ok_or_else(|| std::io::Error::other("read past the buffer"))?;
+            if relevant(message) {
                 break;
             }
         }
@@ -87,7 +88,7 @@ async fn read(
         let result = guard.try_io(|fd| {
             // SAFETY: reading into our own buffer from our own descriptor.
             let n = unsafe { libc::read(fd.as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len()) };
-            if n < 0 { Err(std::io::Error::last_os_error()) } else { Ok(n as usize) }
+            usize::try_from(n).map_err(|_| std::io::Error::last_os_error())
         });
         match result {
             Ok(read) => return read,
@@ -104,7 +105,7 @@ fn relevant(message: &[u8]) -> bool {
     const TYPES: [u8; 3] = [libc::RTM_NEWADDR as u8, libc::RTM_DELADDR as u8, libc::RTM_IFINFO as u8];
     #[cfg(not(target_os = "macos"))]
     const TYPES: [u8; 3] = [0xc, 0xd, 0xe];
-    message.len() >= 4 && TYPES.contains(&message[3])
+    message.get(3).is_some_and(|kind| TYPES.contains(kind))
 }
 
 #[cfg(test)]
