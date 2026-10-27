@@ -30,6 +30,16 @@ label only after the picker has chosen, then for late-placement's. A job stuck
 or refused there has its failed and cancelled jobs re-run on attempt 3, which
 always takes Blacksmith.
 
+A run whose pull request is still open at the run's head is never
+cancelled, whatever the watch saw (rescue(), OPEN_HEAD_RULE): run
+40398277457 (cmux-next, PR #25446) attempt 1 was cancelled and re-run here,
+and its attempt 2 was then cancelled by the janitor and left cancelled. So
+the cancel-and-re-run in this docstring applies only to runs with no pull
+request (main, nightly, E2E and side-lane pushes and dispatches); a stuck
+pull request job waits, and the controller's fall-through moves its compile.
+A refused job's failed jobs are still re-run once its run has finished (no
+cancel), and a superseded or closed pull request's run is handled as before.
+
 An owned runner can also refuse a job it was handed: glaeda's job-started
 hook exits 1 when the host is busy (its lock is held), and the job fails
 within seconds, before any step of the workflow succeeds. GitHub does not
@@ -480,6 +490,9 @@ LAST_OWNED_ATTEMPT = 2
 # still holds for attempts 1 to 3, and no attempt past 3 is watched.
 REFUSAL_RESCUE_ATTEMPT = LAST_OWNED_ATTEMPT + 1
 RESCUE_ACTOR = "github-actions[bot]"
+# Why a pull request's run at its open head is left alone (queue_janitor.py shares it).
+OPEN_HEAD_RULE = ("never cancelled: an open pull request's run at its head is never cancelled by anything "
+                  "automatic; the controller's fall-through moves its compile instead")
 
 
 def owned_rerun(run: Mapping[str, Any]) -> bool:
@@ -1639,6 +1652,10 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     run = read(lambda: api.run(target.run_id), sleep, log)
     if int(run.get("run_attempt") or 0) != target.attempt:
         return "not rescued: someone else already re-ran the run"
+    if run.get("status") != "completed" and target.pr_number:
+        # pull_moved() just read the pull request open at this head. Run 40398277457 (PR #25446)
+        # attempt 1 was cancelled here and re-run in-process; nothing automatic cancels such a run now.
+        return f"not rescued: PR #{target.pr_number} is open at the run's head; {OPEN_HEAD_RULE}"
     if run.get("status") != "completed" and deadline is not None and \
             (deadline - now()).total_seconds() < CANCEL_WAIT_SECONDS + RERUN_MARGIN_SECONDS + max(
                 0.0, RATE_LIMIT_WAIT_SECONDS - getattr(api, "rate_limit_waited", RATE_LIMIT_WAIT_SECONDS)):
