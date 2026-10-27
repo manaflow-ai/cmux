@@ -65,6 +65,18 @@ def make_app(root: Path, *, tool: bytes, resources: dict | None = None, link: st
     return root / "Demo.app"
 
 
+def fat(*thin_files: bytes, subtype: int = 0, align: int = 14, pad_byte: bytes = b"\0") -> bytes:
+    """A universal file around thin arm64 slices, each at a 2**align boundary."""
+    header = struct.pack(">II", 0xCAFEBABE, len(thin_files))
+    body, off, entries = b"", 1 << align, b""
+    for thin in thin_files:
+        entries += struct.pack(">iiIII", 0x0100000C, subtype, off, len(thin), align)
+        body += thin + pad_byte * ((-len(thin)) % (1 << align))
+        off += len(thin) + ((-len(thin)) % (1 << align))
+    head = header + entries
+    return head + pad_byte * ((1 << align) - len(head)) + body
+
+
 class SignerParityCompareTests(unittest.TestCase):
     def run_compare(self, a: Path, b: Path):
         out = Path(self.tmp.name) / "out.json"
@@ -136,22 +148,17 @@ class SignerParityCompareTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 1)
         self.assertIn("Contents/extra.txt: only in rcodesign", result["payload_failures"])
 
-def fat(*thin_files: bytes, subtype: int = 0, align: int = 14, pad_byte: bytes = b"\0") -> bytes:
-    """A universal file around thin arm64 slices, each at a 2**align boundary."""
-    header = struct.pack(">II", 0xCAFEBABE, len(thin_files))
-    body, off, entries = b"", 1 << align, b""
-    for thin in thin_files:
-        entries += struct.pack(">iiIII", 0x0100000C, subtype, off, len(thin), align)
-        body += thin + pad_byte * ((-len(thin)) % (1 << align))
-        off += len(thin) + ((-len(thin)) % (1 << align))
-    head = header + entries
-    return head + pad_byte * ((1 << align) - len(head)) + body
-
     def test_slices_differing_only_inside_the_cms_are_counted(self):
         a = make_app(self.root / "a", tool=macho(b"TEXT" * 8, b"cms-a" * 4, pad=32))
         b = make_app(self.root / "b", tool=macho(b"TEXT" * 8, b"cms-b" * 4, pad=32))
         _, result = self.run_compare(a, b)
         self.assertEqual(result["counts"]["only_cms_differs"], result["counts"]["slices"])
+        self.assertEqual(result["counts"]["identical_slices"], 0)
+        # Identical slices are not counted as CMS-only differences.
+        _, result = self.run_compare(a, a)
+        self.assertEqual(result["counts"]["only_cms_differs"], 0)
+        self.assertEqual(result["counts"]["identical_slices"], result["counts"]["slices"])
+        self.assertGreater(result["counts"]["slices"], 0)
         # A different reservation is reported as more than a CMS difference.
         c = make_app(self.root / "c", tool=macho(b"TEXT" * 8, b"cms-b" * 4, pad=48))
         _, result = self.run_compare(a, c)

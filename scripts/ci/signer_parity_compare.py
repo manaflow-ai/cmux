@@ -139,7 +139,9 @@ def signature_range(macho: bytes, residue_source: bytes | None = None):
             if rest.strip(b"\0"):
                 # codesign writes its signature over the input's own (the
                 # linker's ad hoc one) and leaves the old bytes past its new
-                # superblob. Those are the input's bytes at the same offset.
+                # superblob. Each byte there must be zero padding or the
+                # input's byte at the same offset; nothing past the superblob
+                # is hashed or signed, so a zero is padding either way.
                 old = residue_source[dataoff + length:dataoff + datasize] if residue_source else b""
                 if any(r != 0 and (k >= len(old) or r != old[k]) for k, r in enumerate(rest)):
                     raise ValueError("the bytes after the signature superblob are not zero padding"
@@ -420,7 +422,7 @@ def main() -> int:
     la, lb = args.labels.split(",", 1)
     ta, tb = walk(args.a), walk(args.b)
     failures, records, signatures, resources = [], [], {}, {}
-    counts = {"paths": 0, "macho": 0, "equal": 0, "slices": 0, "only_cms_differs": 0}
+    counts = {"paths": 0, "macho": 0, "equal": 0, "slices": 0, "identical_slices": 0, "only_cms_differs": 0}
     for rel in sorted(set(ta) | set(tb)):
         counts["paths"] += 1
         if rel not in ta or rel not in tb:
@@ -447,8 +449,9 @@ def main() -> int:
             counts["macho"] += 1
             sig = {arch: signature_diff(x, y) for (arch, x), (_, y) in zip(pa, pb)}
             counts["slices"] += len(sig)
+            counts["identical_slices"] += sum(1 for d in sig.values() if not d)
             counts["only_cms_differs"] += sum(1 for d in sig.values()
-                                              if all(isinstance(x, str) and x.startswith("CMS signature:") for x in d))
+                                              if d and all(isinstance(x, str) and x.startswith("CMS signature:") for x in d))
             sig = {arch: d for arch, d in sig.items() if d}
             if sig:
                 signatures[rel] = sig
@@ -474,7 +477,7 @@ def main() -> int:
              f"with identical payload."]
     lines += [f"  PAYLOAD DIFFERS: {f}" for f in failures]
     lines.append(f"Mach-O slices whose bytes differ only inside the CMS blob (signing time, signature): "
-                 f"{counts['only_cms_differs']} of {counts['slices']}")
+                 f"{counts['only_cms_differs']} of {counts['slices']}; identical: {counts['identical_slices']}")
     for record in records:
         for side in (la, lb):
             if record[side].get("input_signature_residue_bytes"):
