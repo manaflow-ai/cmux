@@ -1060,7 +1060,8 @@ selection; the domains call awaits the cached value. Acceptance: no font or dire
 (injected source asserts); same values. Test: SettingsPage filter; open bench Settings cold; debug.hangs 0.
 
 **077 Fork surface copy and native click.** Change: `cmux_shim_tab_copy_surface(browser, max_w, max_h, callback)`
-(CopyFromSurface, encode on the thread pool) and the API 29 native click for debug input. If PL-cef-layer's
+(CopyFromSurface, encode on the thread pool), `cmux_shim_tab_send_mouse_move(browser, x, y, modifiers)`
+(SendMouseMoveEvent with no button, for 078's debug hover) and the API 29 native click for debug input. If PL-cef-layer's
 `cmux_browser_capture` exists in the train, reuse it and add nothing. Acceptance: after a copy, the renderer has no
 DevTools agent and is still shareable. Test: fork browser test.
 
@@ -1069,6 +1070,23 @@ DevTools agent and is still shareable. Test: fork browser test.
 to tabEvaluate, copySurface or the native click; DevTools kept only for fork < 29. Acceptance: MQ3 only in the
 fallback branch; 0 devTools() calls for snapshot, menu copy, evaluate and debug click (fake). Test:
 PageWebViewChromiumTests, EngineNeutralTests; pages10 DevTools sessions 0 (train).
+As built: `PageChromiumPage` gains `copiesSurface`, `sendClick(at:)` and `copySelection()`; the three
+`Page.captureScreenshot` sites share `PageWebView.chromiumPictureData`, whose DevTools branch runs only when the page
+cannot copy its surface. The copy is `cmux_shim_tab_copy_surface` (optional export, fork API 38, answered by
+`CMUX_SHIM_REPLY`; webui-DESIGN.md "Binding"), so its fallback covers forks below 38, not only below 29. MQ3 went
+from 17 to 11 hits. Of 078's sites three stay, each in the fallback branch of a fork without the path: the picture
+fallback, the debug press fallback (below 29), and the debug hover's `mouseMoved` (below 38: the native move is
+`cmux_shim_tab_send_mouse_move`, a `post` optional export with `fork_api` 38 that 077's fork line adds). The other
+eight are 013's bridge and setup sites (5), 014's `devToolsEvaluate` fallback and the `.devTools` event case
+(declared and matched). The press and the hover report the path that ran in `delivered` (`native` or `devtools`).
+A surface copy keeps alpha, so `snapshotKeepsClearAreas` is true for a page that copies. Its answer stays base64 on
+the main actor and is decoded on the `.cpu` lane (the hide picture through `PageSnapshotEncoder.unpack`). Test:
+PageChromiumDevToolsFreeTests, PageChromiumWindowImageTests.aLargeSurfaceCopyIsDecodedOnTheCPULane,
+PageDiscardTests.theAppEncoderUnpacksASurfaceCopyOnTheCPULane, CEFRendererPathsTests
+(aTabOnForkAPI38CopiesItsSurfaceWithNoDevToolsCall, aForkBeforeTheSurfaceCopyAnswersNoPictureAtOnce,
+aTabMovesTheMouseNativelyFromForkAPI38, aPerformedScriptLeavesWithNoWaiter). The copy and the menu's Copy start no
+task: the copy's answer comes in a synchronous turn (`CEFSurfaceCopies`), and Copy is sent with no waiter
+(`CEFTab.perform`).
 
 **079 Push channel.** Files: fork include/cef_cmux.h, libcef/renderer/, ChromiumPageHostBridge.swift, pageClient.ts.
 Change: a fork export posts a string to the page's registered receiver; router batches and replies use it.

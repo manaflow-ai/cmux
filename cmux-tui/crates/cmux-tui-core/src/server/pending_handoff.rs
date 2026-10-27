@@ -1,5 +1,6 @@
 //! Refusal of messages that arrive while a daemon handoff is reserved but
-//! not yet acknowledged (moved out of server.rs, behavior unchanged).
+//! not yet acknowledged (moved out of server.rs, behavior unchanged). A
+//! framed request gets its line's refusal as its ERROR frame.
 
 use serde_json::json;
 
@@ -14,7 +15,11 @@ const PENDING_HANDOFF_ERROR: &str = "daemon shutdown is in progress; request was
 /// Refuses one message received while a daemon handoff is reserved but not
 /// yet acknowledged. Nothing is parsed into a command or dispatched.
 pub(super) fn reject_message_during_pending_handoff(message: &str, writer: &MessageWriter) -> bool {
-    if let Some(envelope) = crate::resource_router::parse_resource_line(message) {
+    // A frame's header named a `Command` method (frame_dispatch.rs), so its
+    // body is not a resource envelope; it gets its line's refusal below.
+    if writer.frame_call().is_none()
+        && let Some(envelope) = crate::resource_router::parse_resource_line(message)
+    {
         return match envelope.and_then(|envelope| {
             // Refused below, never dispatched: the actor is not recorded.
             crate::resource_router::validate_resource_envelope(envelope, crate::Actor::local_user())

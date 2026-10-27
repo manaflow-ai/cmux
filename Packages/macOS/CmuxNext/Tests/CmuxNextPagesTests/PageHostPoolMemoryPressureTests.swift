@@ -57,7 +57,7 @@ import Testing
         pool.onSpan = { name, _ in
             guard name == "pool.makeSpare.park", !toggled.value else { return }
             toggled.value = true
-            // Queued before the build's own next turn (`PageHostPool.nextTurn`), so it runs after
+            // Queued before the build's next background task (`PageHostPool.step`), so it runs after
             // `spare = host` and before the build looks at its spare again.
             RunLoop.main.perform(inModes: [.common]) {
                 // main-proof: performed on the main run loop.

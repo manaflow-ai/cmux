@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 import CmuxNextTrace
 import CmuxNextWakeups
 public import Foundation
@@ -22,6 +23,9 @@ extension HangReportService {
     ///   - rings: Where the daemon, the holders and the hosts keep their black boxes.
     ///   - features: The features the app runs with (hash and overrides), read at each report and sent where the
     ///     wire schema carries them.
+    ///   - blockingSites: Reads the blocking detector's main-thread sites and reset count
+    ///     (`BlockingDetector.mainThreadRead`; empty where the detector is compiled out), counted into a
+    ///     ``BlockingSiteLedger`` where the wire schema carries them.
     public static func forThisApp(folder: URL, endpoint: String, channel: String,
                                   personalTerms: @autoclosure @escaping @Sendable () -> [String],
                                   counts: @escaping @Sendable () async -> CoarseCounts, stillAllowed: @escaping @Sendable () -> Bool,
@@ -29,7 +33,8 @@ extension HangReportService {
                                   wireSchema: HangReport.WireSchema = .deployed,
                                   metricsDirectory: URL = HangReportFieldSources.appMetricsDirectory(bundleID: Bundle.main.bundleIdentifier),
                                   rings: HangReportFieldSources.RingFolders = .app(bundleID: Bundle.main.bundleIdentifier, flowsDirectory: nil),
-                                  features: @escaping @Sendable () -> HangReport.FeatureState? = { nil })
+                                  features: @escaping @Sendable () -> HangReport.FeatureState? = { nil },
+                                  blockingSites: @escaping @Sendable () -> BlockingDetector.MainThreadRead = { .init() })
         -> HangReportService {
         let builder = HangReportBuilder(classifier: ImageClassifier(appBundlePath: Bundle.main.bundlePath, forbiddenTerms: personalTerms()),
                                         resolver: DyldImageResolver(), wireSchema: wireSchema)
@@ -53,6 +58,7 @@ extension HangReportService {
         let collector = HangReportCollector(resolve: resolve, resolveBlocking: resolveBlocking, captureBlackBox: captureBlackBox,
                                             keepsThreadHangs: builder.wireSchema.carriesThreadHangs)
         let mainThread = builder.wireSchema.carriesMainThread ? MainThreadReportLedger(histograms: mainThreadHistograms) : nil
+        let blocking = builder.wireSchema.carriesBlockingSites ? BlockingSiteLedger(sites: blockingSites) : nil
         let info = Bundle.main.infoDictionary ?? [:]
         let os = ProcessInfo.processInfo.operatingSystemVersion
         return HangReportService(
@@ -64,6 +70,6 @@ extension HangReportService {
                                     build: info["CFBundleVersion"] as? String ?? "0", channel: channel),
                 os: HangReport.OS(version: "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)"),
                 hardware: .current(), counts: counts, stillAllowed: stillAllowed, mainThread: mainThread, fieldData: fieldData,
-                features: features))
+                features: features, blockingSites: blocking))
     }
 }
