@@ -549,11 +549,13 @@ fn run_json_command(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
 }
 
 mod client_sizing;
+mod connection_scheduler_input_lane;
 mod deferred_commands;
 mod detach_and_browser;
 mod event_shape_tests;
 mod host_size_policy;
 mod identify_and_protocol;
+mod kitty_share;
 mod layout_receipts_shutdown;
 mod outbound_and_scheduler;
 mod reply_event_order;

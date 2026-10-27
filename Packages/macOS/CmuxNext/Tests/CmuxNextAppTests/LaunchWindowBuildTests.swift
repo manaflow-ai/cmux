@@ -160,7 +160,7 @@ import Testing
 
         launch.slices.runNext()
         #expect(launch.window.mountedIn == [0], "the tab strips are their own slice")
-        #expect(launch.panes.allSatisfy(\.shownIn.isEmpty), "the strips' slice shows no pane's content")
+        #expect(launch.panes.allSatisfy { $0.shownIn.isEmpty }, "the strips' slice shows no pane's content")
         #expect(launch.slices.queuedNames == ["\(LaunchWindowBuild.focusedPane)", "\(LaunchWindowBuild.visiblePane)",
                                               "\(LaunchWindowBuild.visiblePane)", "\(LaunchWindowBuild.live)"])
 

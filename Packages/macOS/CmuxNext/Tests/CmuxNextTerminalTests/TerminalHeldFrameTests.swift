@@ -1,3 +1,4 @@
+import CmuxNextCompat
 @testable import CmuxNextTerminal
 import IOSurface
 import Testing
@@ -113,7 +114,8 @@ struct TerminalHeldFrameTests {
         var held = TerminalHeldFrame()
         held.hold(volatile: true, in: renderer)
 
-        let read = try #require(held.beginRead(from: renderer))
+        let begun = held.beginRead(from: renderer)  // mutating: #require's call form would make `held` a let
+        let read = try #require(begun)
         #expect(read === frame)
         #expect(purgeableState(frame) == IOSurface.purgeableNonVolatile)
         held.endRead(read)

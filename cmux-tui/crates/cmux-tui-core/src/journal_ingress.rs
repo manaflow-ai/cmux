@@ -1093,7 +1093,15 @@ pub(crate) fn start(
     Ok(())
 }
 
+/// How long one batch commit may run before the release hang watch reports
+/// it. The retry waits between attempts are outside the scope.
+const JOURNAL_BATCH_HANG_DEADLINE: Duration = Duration::from_secs(5);
+
 fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
+    let _hang_watch = cmux_hang_watch::register_thread(
+        cmux_hang_watch::ThreadKind::Lane,
+        "mux-session-journal-writer",
+    );
     loop {
         let Some(batch) = receive_batch(&receivers) else { return };
         let mut pending = VecDeque::from([batch]);
@@ -1142,12 +1150,14 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                 // A commit busy past its hang tier is written to the hang
                 // log with this thread's stack (request_watchdog.rs).
                 let hang = mux.request_watchdog.watch(crate::server::WatchKind::JournalWriter, 0);
+                let watched = cmux_hang_watch::watch(JOURNAL_BATCH_HANG_DEADLINE);
                 let committed = mux.commit_session_journal_events(
                     &events,
                     retry_deadline,
                     JOURNAL_SQLITE_RETRY_SLICE,
                     || admit_batch_commit(&receivers.state, &batch, retry_deadline),
                 );
+                drop(watched);
                 drop(hang);
                 match committed {
                     Ok(commits) => {
@@ -2327,8 +2337,10 @@ mod tests {
             release_gate_path.as_os_str(),
         ))
         .unwrap();
+        // SAFETY: `release_gate_path_c` is a NUL-terminated CString that outlives the call.
+        let made_release_gate = unsafe { libc::mkfifo(release_gate_path_c.as_ptr(), 0o600) };
         assert_eq!(
-            unsafe { libc::mkfifo(release_gate_path_c.as_ptr(), 0o600) },
+            made_release_gate,
             0,
             "failed to create descendant release gate: {}",
             io::Error::last_os_error()
@@ -2344,8 +2356,11 @@ mod tests {
             std::os::unix::ffi::OsStrExt::as_bytes(release_ready_signal_path.as_os_str()),
         )
         .unwrap();
+        // SAFETY: `release_ready_signal_path_c` is a NUL-terminated CString that outlives the call.
+        let made_ready_signal =
+            unsafe { libc::mkfifo(release_ready_signal_path_c.as_ptr(), 0o600) };
         assert_eq!(
-            unsafe { libc::mkfifo(release_ready_signal_path_c.as_ptr(), 0o600) },
+            made_ready_signal,
             0,
             "failed to create descendant readiness signal: {}",
             io::Error::last_os_error()

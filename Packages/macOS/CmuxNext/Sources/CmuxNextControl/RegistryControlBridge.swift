@@ -136,6 +136,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         structureArming += 1
         structureBuilds += 1
         let (epoch, arming) = (epoch, structureArming)
+        // view-observation-allow: one-shot invalidation of the catalog cache: a change only marks it stale, the next request rebuilds it; ServiceObservation would rebuild on every change
         return withObservationTracking {
             BuiltCatalog(registry: registry)
         } onChange: { @Sendable [weak self] in
@@ -161,6 +162,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         reasonsArming += 1
         reasonReads += 1
         let (epoch, arming) = (epoch, reasonsArming)
+        // view-observation-allow: one-shot invalidation of the reasons cache, as the catalog's above
         return withObservationTracking {
             _ = registry.descriptors
             _ = registry.actions
