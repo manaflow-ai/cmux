@@ -127,11 +127,15 @@ import Testing
     }
 
     /// The opt-in (`updates.downloadAutomatically` on) skips the first ask only: found updates
-    /// download by themselves, and the staged update still waits for Restart to Update.
+    /// download by themselves, a click on one whose download was deferred (a metered link) only
+    /// downloads it, and the staged update still waits for Restart to Update.
     @Test(arguments: UpdateAsksBeforeInstallTests.channels)
     func theOptInDownloadsButStillAsksBeforeTheRelaunch(identity: UpdateBuildIdentity) async throws {
         let (updater, effects) = Self.make(identity, optIn: true)
         #expect(updater.downloadsFoundUpdates && updater.automaticUpdates, "\(identity.track): the opt-in does not download by itself")
+        updater.debugIndicatorPhase = .available(version: "2.0.0")
+        updater.installClicked()
+        #expect(!updater.flow.installRequested, "\(identity.track): a click on a deferred download skipped the relaunch's ask")
         updater.debugIndicatorPhase = .downloading(.starting)
         updater.debugIndicatorPhase = .ready(version: "2.0.0")
         try await Task.sleep(for: .milliseconds(50))

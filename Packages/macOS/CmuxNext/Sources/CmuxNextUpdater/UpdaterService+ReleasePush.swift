@@ -16,7 +16,7 @@ extension UpdaterService {
     /// build's check ends on the update-found step, and with it the build downloads by itself and
     /// waits on the Update Ready card. Automatic checks off keep it quiet.
     var releasePushMayRun: Bool {
-        isStarted && disabledReason == nil && tipCheck.automatic && !isOffManagedChannel
+        isStarted && settingsApplied && disabledReason == nil && tipCheck.automatic && !isOffManagedChannel
     }
 
     /// Connects to the feed this app reads while the push may run, else stops it. Run when the
@@ -64,11 +64,12 @@ extension UpdaterService {
         guard !flow.installRequested, !isSheetPresented() else { return }
         let read: Bool
         switch flow.phase {
-        case .hidden, .note:
+        case .hidden, .note, .available:
+            // A found update waiting on its ask gives way to a newer one (``TipUpdateCheck``).
             read = tipCheck.readNow(self)
         case .ready:
             read = stagedRefresh.run(reason: "release push", asked: false, updater: self) != nil
-        case .checking, .downloading, .available, .installing:
+        case .checking, .downloading, .installing:
             return
         }
         guard read else { return endReleasePushTarget() }

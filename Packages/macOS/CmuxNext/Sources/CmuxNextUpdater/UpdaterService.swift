@@ -173,6 +173,13 @@ public final class UpdaterService {
     /// `updates.downloadAutomatically` and `meteredNetwork` as last configured; nothing downloads
     /// by itself until the settings load (``configure``).
     @ObservationIgnored var downloadSetting: (enabled: Bool, metered: UpdateMeteredMode) = (false, .deferLowData)
+    /// ``configure`` applied the `updates.*` settings once: before that the fast check and the
+    /// release push read nothing (`updates.checkAutomatically` may be off).
+    @ObservationIgnored var settingsApplied = false
+    /// The found update waiting on the update-found step: its build, and the dismiss that ends its
+    /// Sparkle prompt without skipping it (a newer build replaces it, ``TipUpdateCheck``). Replaced by tests.
+    @ObservationIgnored var availableBuild: () -> String? = { nil }
+    @ObservationIgnored var dismissAvailable: () -> Void = {}
     /// Whether found updates download by themselves now (``applyDownloadPolicy()``).
     @ObservationIgnored var downloadsFoundUpdates = false
     /// The App's observation of the `updates.*` settings.
@@ -293,6 +300,14 @@ public final class UpdaterService {
             cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() ?? false }
             acceptAvailable = { [weak controller] in controller?.acceptAvailableUpdate() }
             stagedBuild = { [weak controller] in controller?.stagedUpdate?.versionString }
+            availableBuild = { [weak controller] in
+                guard case .updateAvailable(let available)? = controller?.model.state else { return nil }
+                return available.appcastItem.versionString
+            }
+            dismissAvailable = { [weak controller] in
+                guard case .updateAvailable(let available)? = controller?.model.state, !available.reply.isConsumed else { return }
+                available.reply(.dismiss)
+            }
         }
         restorePinnedTestFeed()
         restoreRollbackSkip()

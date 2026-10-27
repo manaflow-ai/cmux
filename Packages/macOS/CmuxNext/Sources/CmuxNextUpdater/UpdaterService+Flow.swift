@@ -42,12 +42,12 @@ extension UpdaterService {
     /// (the notice card's Update, the titlebar's Update Available) it answers Sparkle's
     /// update-found prompt: without the automatic-install opt-in the update downloads and then
     /// waits on the Update Ready card, which asks before relaunching (Leo 2026-10-27: "ask before
-    /// the download + install step, and likewise for the reboot"); with the opt-in (downloads
-    /// deferred on a metered link) the person already chose automatic updates, so the click
-    /// downloads and installs as one click, as before.
+    /// the download + install step, and likewise for the reboot"). The same holds with the opt-in
+    /// when its download was deferred (a metered link): the opt-in skips the first ask, never the
+    /// relaunch's.
     public func installClicked() {
         syncFlowPhase()
-        if case .available = flow.phase, !downloadSetting.enabled {
+        if case .available = flow.phase {
             #if DEBUG || CMUX_BENCH_HOOKS
             UpdateHarness.mark("download_clicked")
             #endif
@@ -233,6 +233,7 @@ extension UpdaterService {
             controller?.idleInstallWaitCap = .seconds(idleInstall.maxWait)
         }
         downloadSetting = (downloadAutomatically, metered)
+        settingsApplied = true
         // `updates.downloadAutomatically` downloads found updates and stages them; it never installs
         // them. The app restarts only on the person's click (Restart to Update), so the idle install
         // stays off whatever the download setting says (nightly restart policy, 2026-10-27).

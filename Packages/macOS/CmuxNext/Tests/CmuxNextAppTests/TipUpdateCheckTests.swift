@@ -148,8 +148,7 @@ import CmuxNextWakeupsTestSupport
         #expect(h.updater.tipCheck.asked == "500")
     }
 
-    @Test(arguments: [UpdateIndicatorPhase.checking, .downloading(.starting), .available(version: "5.0.0"),
-                      .ready(version: "5.0.0"), .installing])
+    @Test(arguments: [UpdateIndicatorPhase.checking, .downloading(.starting), .ready(version: "5.0.0"), .installing])
     func noCheckWhileAnUpdateIsFoundStagedOrInstalling(phase: UpdateIndicatorPhase) async throws {
         let h = Self.make()
         h.sparkle.staged = "500"
@@ -187,11 +186,44 @@ import CmuxNextWakeupsTestSupport
         #expect(h.updater.tipCheck.timer.isScheduled, "the fast check waited for the opt-in")
         try await tick(h, fetches: 1, interval: TipUpdateCheck.interval(for: identity) ?? 0)
         #expect(h.checks.count == 1, "build 500 is out but no check started")
-        // The check found it: the update-found step asks, and the fast check waits for its answer.
+        // The check found it: the update-found step asks; the fast check keeps reading for a newer one.
         h.updater.debugIndicatorPhase = .available(version: "5.0.0")
         #expect(h.updater.availableButton == UpdateAvailableButton(version: "5.0.0"), "the found update did not ask")
         #expect(h.updater.readyCard == nil, "the found update staged without an answer")
-        #expect(!h.updater.tipCheck.timer.isScheduled, "the fast check stayed armed while the update-found step asks")
+        #expect(h.updater.tipCheck.timer.isScheduled, "a found update waiting on its ask stopped the fast check")
+    }
+
+    /// A found update waiting on its ask (shown, or hidden by its Hide) never stops the app from
+    /// finding a newer one: a newer build ends the waiting prompt and is checked for; the same
+    /// build is left alone.
+    @Test func aNewerBuildReplacesAFoundUpdateWaitingOnItsAsk() async throws {
+        let h = Self.make(Self.nightly, downloadAutomatically: false, xml: Self.nightlyFeed(minutesAgo: 2, deltas: false))
+        var waiting: String? = "500"
+        var dismissed = 0
+        h.updater.availableBuild = { waiting }
+        h.updater.dismissAvailable = { dismissed += 1 }
+        h.updater.debugIndicatorPhase = .available(version: "5.0.0")
+        h.updater.closeUpdateCard(.hideVersion)
+        try await tick(h, fetches: 1, interval: TipUpdateCheck.nightlyInterval)
+        #expect(dismissed == 0 && h.checks.count == 0, "the build already offered was checked for again")
+        waiting = "300"
+        try await tick(h, fetches: 2, interval: TipUpdateCheck.nightlyInterval)
+        #expect(dismissed == 1, "the stale found update's prompt stayed open")
+        #expect(h.checks.count == 1, "newer build 500 was never checked for behind a hidden found update")
+    }
+
+    /// Nothing reads the feed before the settings load: `updates.checkAutomatically` may be off.
+    @Test func noFastCheckBeforeTheSettingsLoad() {
+        let updater = UpdaterService(identity: Self.nightly, policy: ManagedUpdatePolicy { false },
+                                     defaults: UserDefaults(suiteName: "TipUpdateCheckTests.\(UUID().uuidString)")!,
+                                     enableSparkle: false, recordsUpdates: false, clock: ManualClock())
+        updater.announcementsFetch = false
+        updater.start()
+        #expect(!updater.tipCheck.timer.isScheduled, "the fast check armed before the settings loaded")
+        #expect(!updater.releasePushMayRun, "the release push may run before the settings loaded")
+        updater.configure(checkAutomatically: false, checkInterval: 3600, downloadAutomatically: false)
+        #expect(!updater.tipCheck.timer.isScheduled && !updater.releasePushMayRun, "automatic checks off armed a read")
+        updater.stopReleasePush()
     }
 
     /// Off the organization's channel (`UpdateChannel`), nothing of this app's own feed is checked for fast.
