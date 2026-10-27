@@ -213,14 +213,26 @@ fn send_attach_resumes_the_upload_a_killed_sender_began() {
     let big: Vec<u8> = (0..20usize << 20).map(|i| (i as u8) ^ (i >> 13) as u8).collect();
     fs::write(dir.join("p/big.bin"), &big).unwrap();
 
+    // The sender stops for good at 8 MiB (a debug build's hook), and is killed there.
     let mut cmd = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[]);
     cmd.args(["send", "-q", "lane", "first", "--attach", "big.bin"])
         .env("ACPMUX_HOME", &dir)
         .env("ACPMUX_LOGIN_ENV", "0")
-        .env("ACPMUX_TEST_UPLOAD_EXIT_AFTER", (8u64 << 20).to_string())
-        .current_dir(dir.join("p"));
-    let killed = cmd.output().unwrap();
-    assert_eq!(killed.status.code(), Some(75), "the sender ended part way: {}", text(&killed));
+        .env("ACPMUX_TEST_UPLOAD_STALL_AFTER", (8u64 << 20).to_string())
+        .current_dir(dir.join("p"))
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    let mut sender = cmd.spawn().unwrap();
+    let held = |dir: &Path| {
+        parts(dir).iter().map(|f| fs::metadata(f.join(".part")).map_or(0, |m| m.len())).sum::<u64>()
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while held(&dir) < 8 << 20 && std::time::Instant::now() < deadline {
+        assert!(sender.try_wait().unwrap().is_none(), "the sender ended before it was killed");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    sender.kill().unwrap();
+    let _ = sender.wait();
     let left = parts(&dir);
     assert_eq!(left.len(), 1, "one partial upload: {left:?}");
     assert_eq!(fs::metadata(left[0].join(".part")).unwrap().len(), 8 << 20);

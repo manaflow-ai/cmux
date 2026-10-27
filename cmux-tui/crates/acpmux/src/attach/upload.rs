@@ -380,7 +380,7 @@ pub(super) async fn upload(
                     progress.took(want as u64, true, &one.name);
                     (gained, wait) = (Instant::now(), Duration::from_secs(1));
                     #[cfg(debug_assertions)]
-                    exit_for_test(offset);
+                    stall_for_test(offset).await;
                     continue;
                 }
                 Err(e) if !resume || !transient(daemon, &e) || gained.elapsed() >= STALL => {
@@ -435,13 +435,13 @@ impl std::fmt::Display for LinkStopped {
 
 impl std::error::Error for LinkStopped {}
 
-/// Debug builds only: `ACPMUX_TEST_UPLOAD_EXIT_AFTER=N` ends the sender once the daemon holds N
-/// bytes of a file, as a sender that is killed part way through an upload.
+/// Debug builds only: `ACPMUX_TEST_UPLOAD_STALL_AFTER=N` stops the sender for good once the
+/// daemon holds N bytes of a file, for a test to kill it part way through an upload.
 #[cfg(debug_assertions)]
-fn exit_for_test(offset: u64) {
-    let at = std::env::var("ACPMUX_TEST_UPLOAD_EXIT_AFTER").ok().and_then(|v| v.parse().ok());
+async fn stall_for_test(offset: u64) {
+    let at = std::env::var("ACPMUX_TEST_UPLOAD_STALL_AFTER").ok().and_then(|v| v.parse().ok());
     if at.is_some_and(|at: u64| offset >= at) {
-        std::process::exit(75);
+        std::future::pending::<()>().await;
     }
 }
 
