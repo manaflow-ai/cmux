@@ -161,6 +161,7 @@ import {
 } from "./repository";
 import { measureVmEffect, type VmTimingSink } from "./timings";
 import { guestPromptInstallCommand, vmPromptIdentity } from "./guestPrompt";
+import { scheduleGuestVmKindRecord } from "./guestVmKind";
 import { vmAgentUpdatesFromRow, type VmAgentUpdatesSetting } from "./agentUpdates";
 import { guestAgentUpdatesCommand } from "./guestAgentUpdates";
 import type { VmIdlePauseMinutes } from "./idlePause";
@@ -1507,6 +1508,8 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       yield* recordCreateSuccessEvents(repo, input, running);
     }
     yield* schedulePromptIdentityPush(providers, running, input.deferAfterResponse);
+    // The guest records its kind in /etc/cmux/vm-kind (guestVmKind.ts), after the response.
+    yield* scheduleGuestVmKindRecord(providers, running, input.deferAfterResponse);
     // The create response carries the first connection, so openVmCmuxRemote
     // never runs for it; start the opted-in updater here, after the response.
     if (vmAgentUpdatesFromRow(running) === "latest") {
@@ -2005,6 +2008,7 @@ function finishBaseCreate(
 
     yield* recordCreateSuccessEvents(repo, { ...input, idempotencyKey, origin: "base" }, running);
     yield* schedulePromptIdentityPush(providers, running, undefined);
+    yield* scheduleGuestVmKindRecord(providers, running, undefined);
     yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: input.billingTeamId,
