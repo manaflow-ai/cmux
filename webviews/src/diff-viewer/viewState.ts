@@ -4,12 +4,15 @@
 // third_party/blink/renderer/core/layout/scroll_anchor.cc), the files the reader unfolded that open
 // folded (large, generated, viewed or all folded), and the options that last for the tab. The host
 // asks `cmux.diff.viewState` right before the discard and gives the answer back as the next page's
-// `payload.viewState`. Input a new page would lose (a comment draft, the commit form) is reported
-// when it changes (`cmux.diff.input {unsaved}`): the host keeps such a page.
+// `payload.viewState`. The page also saves the same state each time it hides (pageState.ts,
+// p13-webui-082), for a discard whose host cannot ask a frozen page; the host's answer wins when it
+// has one. Input a new page would lose (a comment draft, the commit form) is reported when it
+// changes (`cmux.diff.input {unsaved}`): the host keeps such a page.
 import { useEffect, useRef } from "react";
 import type { DiffItem } from "../diff-stream";
 import type { DiffViewerOptions } from "../pierre-options";
 import type { PageClient } from "../pages/shared/pageClient";
+import type { PageStateSession } from "../pages/shared/pageState";
 import type { ItemScrollAnchor } from "./item-navigation";
 import { useSyncedRef } from "./useSyncedRef";
 
@@ -61,6 +64,17 @@ export function diffViewStateOf(value: unknown): DiffViewState | null {
   return state;
 }
 
+/** The page name its hide-time saved state carries (pageState.ts). */
+export const DIFF_PAGE = "diff";
+
+/** The view to put back: the host's `payload.viewState`, else what this page saved when it hid. */
+export function savedDiffView(
+  payloadViewState: unknown,
+  pageState: PageStateSession | undefined,
+): DiffViewState | null {
+  return diffViewStateOf(payloadViewState) ?? diffViewStateOf(pageState?.saved?.inputs);
+}
+
 /** The saved files to unfold now: those still in the diff and folded. */
 export function itemsToUnfold(items: readonly DiffItem[], saved: DiffViewState): string[] {
   const wanted = new Set(saved.expanded);
@@ -74,6 +88,8 @@ export function itemsToUnfold(items: readonly DiffItem[], saved: DiffViewState):
  */
 export function useDiffViewState(args: {
   client: PageClient | null;
+  /** The page host's state (`openPageState(page, DIFF_PAGE)`): saves `capture()` on each hide. */
+  pageState?: PageStateSession;
   unsaved: boolean;
   saved: DiffViewState | null;
   ready: boolean;
@@ -87,6 +103,8 @@ export function useDiffViewState(args: {
   const unfold = useSyncedRef(args.unfold);
   const scrollTo = useSyncedRef(args.scrollTo);
   useEffect(() => client?.handle(DIFF_VIEW_STATE_OP, () => capture.current()), [client, capture]);
+  const pageState = args.pageState;
+  useEffect(() => pageState?.keep(() => capture.current()), [pageState, capture]);
   const unsaved = args.unsaved;
   const reported = useRef(false);
   useEffect(() => {

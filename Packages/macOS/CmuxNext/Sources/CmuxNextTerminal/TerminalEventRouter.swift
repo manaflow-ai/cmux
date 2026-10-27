@@ -141,14 +141,14 @@ nonisolated struct TerminalEventRouter: Sendable {
             restoreQueued = true
             lane.restoreLocalHistory(data, expectedRows: local.historyRows, digest: local.digest, grid: grid) { result in
                 switch result {
-                case Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_RESTORED.rawValue):
+                case GHOSTTY_SURFACE_LOCAL_HISTORY_RESTORED.code:
                     content.set()
                     mailbox.post {
                         $0.localSnapshots += 1
                         $0.readyRestores += 1
                         $0.contentQueued = true
                     }
-                case Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_MISMATCH.rawValue):
+                case GHOSTTY_SURFACE_LOCAL_HISTORY_MISMATCH.code:
                     content.set()
                     input.resync()
                     mailbox.post {
