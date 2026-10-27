@@ -30,7 +30,7 @@ public nonisolated struct CDPRawIDMap: Sendable {
         let raw = allocate()
         guard let rewritten = CEFDevToolsRawMessage.replacingTopLevelID(in: message, with: raw) else { return nil }
         pending[raw] = hostID
-        sessions[raw] = Self.sessionID(of: message)
+        sessions[raw] = CEFDevToolsRawMessage.sessionID(in: message)
         return (rewritten, raw, hostID)
     }
 
@@ -48,14 +48,6 @@ public nonisolated struct CDPRawIDMap: Sendable {
         pending = [:]
         sessions = [:]
         return waiting
-    }
-
-    /// The top-level "sessionId" of a host command; parsed only when the
-    /// command names one (most go to the page session's own flat session).
-    static func sessionID(of message: String) -> String? {
-        guard message.contains("\"sessionId\""),
-              let object = (try? JSONSerialization.jsonObject(with: Data(message.utf8))) as? [String: Any] else { return nil }
-        return object["sessionId"] as? String
     }
 
     /// A message from the browser for the host: an event as it is, a reply
@@ -98,14 +90,11 @@ public nonisolated struct CDPRawIDMap: Sendable {
     /// "sessionId"), for a command the app could not relay.
     public static func errorReply(to message: String, text: String) -> String? {
         guard let id = CEFDevToolsRawMessage.topLevelID(in: message) else { return nil }
-        return errorReply(hostID: id, sessionID: sessionID(of: message), text: text)
+        return CEFDevToolsRawMessage.errorReply(id: id, sessionID: CEFDevToolsRawMessage.sessionID(in: message), text: text)
     }
 
     /// A CDP error reply with host id `hostID` in session `sessionID`.
     public static func errorReply(hostID: Int, sessionID: String?, text: String) -> String? {
-        var reply: [String: Any] = ["id": hostID, "error": ["code": -32000, "message": text]]
-        if let sessionID { reply["sessionId"] = sessionID }
-        guard let data = try? JSONSerialization.data(withJSONObject: reply, options: [.sortedKeys]) else { return nil }
-        return String(decoding: data, as: UTF8.self)
+        CEFDevToolsRawMessage.errorReply(id: hostID, sessionID: sessionID, text: text)
     }
 }

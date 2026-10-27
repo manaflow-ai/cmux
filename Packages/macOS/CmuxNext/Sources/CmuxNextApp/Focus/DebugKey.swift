@@ -5,6 +5,7 @@ import CmuxNextAgentPane
 import CmuxNextSettings
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextControl
 import CmuxNextTerminal
 import CmuxNextWakeups
 
@@ -21,7 +22,8 @@ import CmuxNextWakeups
 /// agent pane records the user's gesture. Never touches another app.
 /// A request with `sequence` plays raw key transitions through the app's event queue instead,
 /// optionally into a chosen key window (`DebugKey+Sequence`, dispatched by `AppControl`); with
-/// `last`, the router's last interception.
+/// `last`, the router's last interception. A key's `timestamp` and its main-thread injection time
+/// are ``InjectedKeyTime``; the shell and page replies carry `injected_at` and `client_to_injection_ms`.
 enum DebugKey {
     private static let named: [String: (characters: String, keyCode: UInt16)] = [
         "return": ("\r", 36), "escape": ("\u{1b}", 53), "tab": ("\t", 48), "space": (" ", 49), "d": ("d", 2), "c": ("c", 8), "v": ("v", 9),
@@ -62,7 +64,7 @@ enum DebugKey {
         let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID })
         // The palette opens with no main window (after Close All Windows), so its keys need none:
         // a palette row then runs as the user's, which no socket call can do otherwise (bd cx-beg1).
-        let palettePanel = params["target"]?.stringValue == "palette" && windowID == nil ? services.palette.visiblePanel : nil
+        let palettePanel = params["target"]?.stringValue == "palette" && windowID == nil ? services.palettes.built?.visiblePanel : nil
         guard let shell = controller?.window ?? palettePanel else { return .object(["error": .string("no window")]) }
         var window: NSWindow = shell
         if params["target"]?.stringValue == "page" {
@@ -72,7 +74,7 @@ enum DebugKey {
             }
             window = page
         } else if params["target"]?.stringValue == "palette" {
-            guard let panel = services.palette.visiblePanel else { return .object(["error": .string("the palette is not open")]) }
+            guard let panel = services.palettes.built?.visiblePanel else { return .object(["error": .string("the palette is not open")]) }
             window = panel
         } else if params["target"]?.stringValue == "debugSettings" {
             guard let debugWindow = services.debugSettings.window, debugWindow.isVisible else {
@@ -88,13 +90,10 @@ enum DebugKey {
         }
         let press = keyPress(params["key"]?.stringValue ?? "", modifiers: (params["modifiers"]?.arrayValue ?? []).compactMap(\.stringValue))
         let flags = press.flags
-        // `timestamp` (seconds since boot, CLOCK_UPTIME_RAW): when the client sent the key, so the typing probe
-        // counts the wait for the main thread too, as a real key waits in the event queue (sidebar-churn-typing.py).
-        let timestamp = params["timestamp"]?.doubleValue ?? ProcessInfo.processInfo.systemUptime
-        guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: timestamp,
-                                           windowNumber: window.windowNumber, context: nil, characters: press.characters,
-                                           charactersIgnoringModifiers: press.characters, isARepeat: false, keyCode: press.keyCode)
-        else { return .object(["error": .string("bad key")]) }
+        // The client's send time when it sent `timestamp` (the probe counts the socket lane and the main-thread
+        // wait, as a real key's wait in the event queue), else now; the reply returns the injection time too.
+        let time = InjectedKeyTime(params: params)
+        guard let event = keyDown(press, at: time, windowNumber: window.windowNumber) else { return .object(["error": .string("bad key")]) }
         // `dry_run`: what the key router would do with this key in the shell window's focus, run
         // nothing (shortcut sweeps: every app shortcut routes while a page has the keyboard).
         // Only the router's decision: no chord sequences, intercepts or focus-kind checks.
@@ -115,13 +114,15 @@ enum DebugKey {
         defer { services.keyWindowSource = previousKey }
         let isChord = !flags.isDisjoint(with: [.command, .control])
         var trace: [String] = []
+        // This key's key-equivalent work (`key_equivalents`): where the window offered it, what the menu did.
+        let offersBefore = services.keyRouter.decided.offers, menuBefore = services.registry.menuKeyEquivalentCounters
         // The dispatcher's verdict, menu gate answers and host actions this key caused.
         services.keyRouter.trace = { trace.append($0) }
         TerminalKeyEquivalent.trace = { trace.append($0) }
         defer { services.keyRouter.trace = nil; TerminalKeyEquivalent.trace = nil }
         // As in AppKit's dispatch, the menu gate sees this key as the current event.
         let (handledBy, action) = services.keyRouter.dispatchingSynthetic(event) { () -> (String, JSONValue) in
-            if services.keyRouter.interceptKeyDown(event, in: window) {
+            if services.routeKeyDown(event, window) {
                 return ("app", services.keyRouter.lastInterception.map { verdict($0)["action"] ?? .null } ?? .null)
             } else if isChord, window.performKeyEquivalent(with: event) {
                 return (window === shell ? "window" : params["target"]?.stringValue == "devtools" ? "devtools" : "page", .null)
@@ -134,10 +135,10 @@ enum DebugKey {
                 DebugNativeInput.sendThroughApp([event])
             } else {
                 // Off the app's sendEvent (a window that is not key), the typing probe opens its sample here.
-                if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
+                let probed = TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp)
                 DebugNativeInput.runPaneMonitors(event, in: window, services: services)
                 window.sendEvent(event)
-                if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.mark(.dispatchEnd) }
+                if probed { TypingLatencyProbe.shared.mark(.dispatchEnd) }
             }
             // `probe: "commit"`: the key went to a text view (Home's composer, the omnibar), so the
             // typing probe writes its row at the frame that commits the edit, not at a terminal echo.
@@ -182,6 +183,9 @@ enum DebugKey {
         let kind = window === shell ? "shell" : params["target"]?.stringValue == "devtools" ? "chromium_devtools" : "chromium_page"
         var report: [String: JSONValue] = ["handled_by": .string(handledBy), "action": action, "window_kind": .string(kind),
                                            "trace": .array(trace.map(JSONValue.string))]
+        report.merge(time.report) { _, new in new }
+        report["key_equivalents"] = keyEquivalentWork(services.keyRouter.decided.offers, since: offersBefore,
+                                                      menu: services.registry.menuKeyEquivalentCounters, since: menuBefore)
         if handledBy == "app", let interception = services.keyRouter.lastInterception {
             report.merge(verdict(interception)) { _, new in new }
         }
@@ -217,6 +221,29 @@ enum DebugKey {
         return (characters, key.keyCode, flags)
     }
 
+    /// The key-down `debug.key` dispatches for `press`, stamped with `time`'s event timestamp (the
+    /// client's send time when the request had one, else the main thread's injection time).
+    static func keyDown(_ press: (characters: String, keyCode: UInt16, flags: NSEvent.ModifierFlags), at time: InjectedKeyTime,
+                        windowNumber: Int) -> NSEvent? {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: press.flags, timestamp: time.eventTimestamp,
+                         windowNumber: windowNumber, context: nil, characters: press.characters,
+                         charactersIgnoringModifiers: press.characters, isARepeat: false, keyCode: press.keyCode)
+    }
+
+    /// One key's key-equivalent work (`key_equivalents`): where the window offered it (the focused surface
+    /// alone, a field's pane, the whole view tree) and the main menu's searches, refusals and validations.
+    static func keyEquivalentWork(_ offers: DecidedKeyEvents.Offers, since before: DecidedKeyEvents.Offers,
+                                  menu: MenuKeyEquivalentCounters, since menuBefore: MenuKeyEquivalentCounters) -> JSONValue {
+        .object([
+            "focused_surface": JSONValue(offers.focusedSurface - before.focusedSurface),
+            "field_pane": JSONValue(offers.fieldPane - before.fieldPane),
+            "window_walks": JSONValue(offers.windowWalks - before.windowWalks),
+            "menu_searches": JSONValue(menu.searches - menuBefore.searches),
+            "menu_searches_skipped": JSONValue(menu.skipped - menuBefore.skipped),
+            "menu_validations": JSONValue(menu.validations - menuBefore.validations),
+        ])
+    }
+
     /// What debug.key reports for an intercepted chord: the action when it ran.
     /// A refused run reports no action and names it as `refused_action`.
     static func verdict(_ interception: (action: ActionID, window: String, ran: Bool)) -> [String: JSONValue] {
@@ -244,8 +271,9 @@ enum DebugKey {
         return WindowOverlayLayer.contentChildWindows(of: window).first { devTools.devToolsContains(window: $0) }
     }
 
-    /// The Chromium page window over `pane`'s selected Chromium tab, or over its agent chat when
-    /// the chat shows in Chromium (the `agent.chromium` spike).
+    /// The Chromium page window over `pane`'s selected Chromium tab, over its agent chat when
+    /// the chat shows in Chromium (the `agent.chromium` spike), or over its cmux page tab when the
+    /// page shows in Chromium (``TabContent/childWindowTab``).
     static func pageWindow(of pane: String, in controller: WindowController) -> NSWindow? {
         guard let window = controller.window, let paneController = controller.content?.paneController(key: pane) else { return nil }
         let content: NSView
@@ -256,6 +284,8 @@ enum DebugKey {
         } else if let key = paneController.currentTabKey, let chat = controller.services.agentTabs.existingView(key),
                   chat.engineName == "cef" {
             content = chat
+        } else if let tab = paneController.currentContent?.childWindowTab {
+            content = tab.contentView
         } else {
             return nil
         }

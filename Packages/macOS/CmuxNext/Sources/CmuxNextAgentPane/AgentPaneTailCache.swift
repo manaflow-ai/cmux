@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import CmuxNextSettings
 public import Foundation
 
@@ -11,7 +12,7 @@ public import Foundation
 /// setting to turn off: quitting the app forgets every tail, and signing out drops them with the
 /// rest of the session's state (``clear()``). What is held is bounded three ways here, so the
 /// bound holds whatever a page sends: the most recent ``chats`` chats, ``events`` records of each,
-/// and ``bytes`` of each (``holds(_:)``) — at most about 20 MiB in the worst case, and a small
+/// and ``bytes`` of each (``heldBytes(_:)``) — at most about 20 MiB in the worst case, and a small
 /// fraction of that for ordinary chats, which are far under the per-chat bound.
 ///
 /// The page bounds a tail to 256 KiB of its own before handing it over (acpmux/tailCache.ts
@@ -23,6 +24,10 @@ public import Foundation
 /// the chat would quietly open cold in the next tab.
 ///
 /// The tail itself is the page's own shape, kept opaque: only the page reads it back.
+///
+/// A memory consumer (`agent-chat-tails`): the coordinator's limit scales how many chats are kept
+/// (``chats`` at 100 %) and a release forgets the least recently remembered; such a chat opens from
+/// acpmux, as one never read does.
 @MainActor
 public final class AgentPaneTailCache {
     public static let shared = AgentPaneTailCache()
@@ -41,10 +46,15 @@ public final class AgentPaneTailCache {
     private struct Entry {
         var sessionId: String
         var tail: JSONValue
+        /// The tail's compact JSON in UTF-8, as ``bytes`` counts it.
+        var bytes: Int
     }
 
     /// Least recently remembered first.
     private var entries: [Entry] = []
+    /// Chats kept at the coordinator's current limit.
+    private var keptChats = AgentPaneTailCache.chats
+    private var memoryRegistration: MemoryConsumerRegistration?
 
     /// ``shared`` is the one store both hosts answer from. A second one would split the cache: a
     /// tail handed to one would be invisible to the other, and a chat would open cold for no
@@ -57,29 +67,66 @@ public final class AgentPaneTailCache {
     }
 
     /// Keeps `tail` for chat `sessionId`; nil forgets it (the page no longer stands behind that
-    /// transcript). A tail this does not hold (``holds(_:)``) is refused, which leaves the chat to
+    /// transcript). A tail this does not hold (``heldBytes(_:)``) is refused, which leaves the chat to
     /// open from acpmux as it did before — and it also drops any tail already kept for that chat,
     /// because the page has read on since and this one is what it now stands behind.
     public func remember(_ tail: JSONValue?, for sessionId: String) {
         var kept = entries.filter { $0.sessionId != sessionId }
-        if let tail, Self.holds(tail) { kept.append(Entry(sessionId: sessionId, tail: tail)) }
-        entries = Array(kept.suffix(Self.chats))
+        if let tail, let bytes = Self.heldBytes(tail) { kept.append(Entry(sessionId: sessionId, tail: tail, bytes: bytes)) }
+        entries = Array(kept.suffix(keptChats))
     }
+
+    /// How many chats' tails are kept now.
+    var count: Int { entries.count }
 
     /// Forgets every tail: the session's chats are no longer this person's.
     public func clear() {
         entries.removeAll()
     }
 
-    /// Whether `tail` is a page tail this keeps: records, not too many of them, and not too large.
-    /// The byte bound is measured over the whole tail and not only its records, because the rest of
-    /// it is not bounded by a record count — a chat's `queue` carries the full text of every
-    /// prompt waiting to be sent, so a queued paste is what would grow this.
-    private static func holds(_ tail: JSONValue) -> Bool {
-        guard case .object(let fields) = tail, case .array(let events)? = fields["events"] else { return false }
-        guard !events.isEmpty, events.count <= Self.events else { return false }
+    /// The size of `tail` when it is a page tail this keeps (records, not too many of them, and not
+    /// too large), else nil. The byte bound is measured over the whole tail and not only its
+    /// records, because the rest of it is not bounded by a record count — a chat's `queue` carries
+    /// the full text of every prompt waiting to be sent, so a queued paste is what would grow this.
+    private static func heldBytes(_ tail: JSONValue) -> Int? {
+        guard case .object(let fields) = tail, case .array(let events)? = fields["events"] else { return nil }
+        guard !events.isEmpty, events.count <= Self.events else { return nil }
         var text = ""
         tail.appendCompactText(to: &text)
-        return text.utf8.count <= Self.bytes
+        let bytes = text.utf8.count
+        return bytes <= Self.bytes ? bytes : nil
+    }
+}
+
+extension AgentPaneTailCache: MemoryConsumer {
+    /// Up to about 20 MiB, only memory; a forgotten tail costs the chat acpmux's attach round trip.
+    static let memoryTraits = MemoryConsumerTraits(
+        estimatedUsage: .medium, dataAccess: .none, retention: .lossless, recreateCost: .expensive,
+        releaseCPUCost: .low, isStateful: true, supportsMemoryLimit: true)
+
+    public func updateMemoryLimit(_ limit: MemoryLimit) {
+        keptChats = limit.scale(Self.chats)
+    }
+
+    public func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
+        let kept = slice.limit.scale(Self.chats)
+        while entries.count > kept {
+            if slice.isExpired { return .more }
+            entries.removeFirst()
+        }
+        return .done
+    }
+
+    public var memoryUsage: MemoryUsage? {
+        MemoryUsage(footprintBytes: entries.reduce(0) { $0 + $1.bytes }, entries: entries.count)
+    }
+
+    /// Registers the tails with the app's memory coordinator (`agent-chat-tails`); this keeps the
+    /// registration.
+    ///
+    /// - Parameter registry: The memory coordinator.
+    public func registerMemoryConsumer(with registry: any MemoryConsumerRegistry) {
+        memoryRegistration = MemoryConsumerRegistration(
+            name: "agent-chat-tails", traits: Self.memoryTraits, consumer: self, registry: registry)
     }
 }

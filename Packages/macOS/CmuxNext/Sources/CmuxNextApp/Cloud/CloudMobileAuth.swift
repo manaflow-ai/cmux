@@ -1,5 +1,6 @@
 import CmuxNextCloud
 import CmuxNextMobile
+import CmuxNextWakeups
 import Foundation
 
 /// The signed-in Stack account as phone access sees it: one account and
@@ -11,14 +12,17 @@ struct CloudMobileAuth: MobileHostAuth {
     let userID: String
     let teamID: String
     private let auth: CloudAuth
+    /// Where `isCurrent` reads the account: one task in the automation class (the phone host asks, not a person).
+    private let mainWork: MainWorkScheduler
 
     /// Nil unless signed in with a user and a team.
-    @MainActor init?(auth: CloudAuth) {
+    @MainActor init?(auth: CloudAuth, mainWork: MainWorkScheduler) {
         guard auth.isSignedIn, let user = auth.user, let team = auth.teamID else { return nil }
         projectID = auth.configuration.stackProjectID
         userID = user.id
         teamID = team
         self.auth = auth
+        self.mainWork = mainWork
     }
 
     func accessToken(forceRefresh: Bool) async throws -> String {
@@ -27,6 +31,9 @@ struct CloudMobileAuth: MobileHostAuth {
     }
 
     func isCurrent() async -> Bool {
-        await MainActor.run { auth.isSignedIn && auth.user?.id == userID && auth.teamID == teamID }
+        let auth = auth, userID = userID, teamID = teamID
+        return await mainWork.apply(.automation, owner: "CloudMobileAuth.isCurrent") {
+            auth.isSignedIn && auth.user?.id == userID && auth.teamID == teamID
+        }
     }
 }

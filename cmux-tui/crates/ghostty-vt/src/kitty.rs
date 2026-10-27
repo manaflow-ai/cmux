@@ -10,7 +10,9 @@ use ghostty_vt_sys as sys;
 use crate::terminal::Terminal;
 use crate::{Error, Result, check};
 
-pub const MAX_KITTY_IMAGE_BYTES: usize = 10_000_000;
+/// Largest decoded image, and the default kitty image storage of one
+/// terminal: the daemon memory budget's per-terminal kitty cap.
+pub const MAX_KITTY_IMAGE_BYTES: usize = cmux_memory::budget::KITTY_IMAGE_BYTES_PER_TERMINAL;
 pub const MAX_KITTY_IMAGES: u64 = 4_096;
 pub const MAX_KITTY_PLACEMENTS: u64 = 16_384;
 const KITTY_INFLIGHT_REPLAY_FRAMING_MAX_BYTES: u64 = 256 * 1024;
@@ -542,6 +544,8 @@ struct ImageIterator(sys::GhosttyKittyGraphicsImageIterator);
 
 impl Drop for ImageIterator {
     fn drop(&mut self) {
+        // SAFETY: the iterator came from image_iterator_new and is owned only by
+        // this guard, so it is freed once.
         unsafe { sys::ghostty_kitty_graphics_image_iterator_free(self.0) };
     }
 }
@@ -550,6 +554,8 @@ struct PlacementIterator(sys::GhosttyKittyGraphicsPlacementIterator);
 
 impl Drop for PlacementIterator {
     fn drop(&mut self) {
+        // SAFETY: the iterator came from placement_iterator_new and is owned only
+        // by this guard, so it is freed once.
         unsafe { sys::ghostty_kitty_graphics_placement_iterator_free(self.0) };
     }
 }
@@ -597,6 +603,13 @@ impl From<&KittyPlacement> for PlacementSortKey {
     }
 }
 
+/// Decoded bytes a pixel map holds. Both maps (the renderer's and the replay
+/// encoder's) keep only the current image generations (`snapshot_impl`), so
+/// this is at most the terminal's native image bytes times the RGB expansion.
+pub(crate) fn pixel_cache_bytes(pixel_cache: &HashMap<u64, Arc<[u8]>>) -> usize {
+    pixel_cache.values().map(|pixels| pixels.len()).sum()
+}
+
 pub(crate) fn snapshot(
     terminal: &Terminal,
     pixel_cache: &mut HashMap<u64, Arc<[u8]>>,
@@ -622,6 +635,8 @@ pub(crate) fn snapshot_for_render(
     };
     if !force {
         let mut dirty = false;
+        // SAFETY: `graphics` is the terminal's storage, valid while `&Terminal`
+        // borrows it; GRAPHICS_DATA_DIRTY writes a bool.
         check(unsafe {
             sys::ghostty_kitty_graphics_get(
                 graphics,
@@ -636,6 +651,8 @@ pub(crate) fn snapshot_for_render(
 
     let snapshot = snapshot(terminal, pixel_cache, false)?;
     let clean = false;
+    // SAFETY: `graphics` is still the terminal's live storage;
+    // GRAPHICS_OPTION_DIRTY reads a bool from the live `clean`.
     check(unsafe {
         sys::ghostty_kitty_graphics_set(
             graphics,
@@ -685,11 +702,15 @@ fn snapshot_impl(
     let mut images = BTreeMap::<u32, KittyImage>::new();
     if include_unplaced {
         let mut raw_images: sys::GhosttyKittyGraphicsImageIterator = ptr::null_mut();
+        // SAFETY: `graphics` is the terminal's storage, valid while `&Terminal`
+        // borrows it; `raw_images` is a writable local and a null allocator selects
+        // the default.
         check(unsafe {
             sys::ghostty_kitty_graphics_image_iterator_new(ptr::null(), graphics, &mut raw_images)
         })?;
         let images_iterator = ImageIterator(raw_images);
         loop {
+            // SAFETY: the iterator is live (its guard frees it at scope end).
             let raw_image = unsafe { sys::ghostty_kitty_graphics_image_next(images_iterator.0) };
             if raw_image.is_null() {
                 break;
@@ -700,10 +721,14 @@ fn snapshot_impl(
     }
 
     let mut raw_iterator: sys::GhosttyKittyGraphicsPlacementIterator = ptr::null_mut();
+    // SAFETY: `raw_iterator` is a writable local; a null allocator selects the
+    // default.
     check(unsafe {
         sys::ghostty_kitty_graphics_placement_iterator_new(ptr::null(), &mut raw_iterator)
     })?;
     let mut iterator = PlacementIterator(raw_iterator);
+    // SAFETY: `graphics` is the terminal's storage, valid while `&Terminal`
+    // borrows it; PLACEMENT_ITERATOR fills the live iterator `iterator.0`.
     check(unsafe {
         sys::ghostty_kitty_graphics_get(
             graphics,
@@ -713,6 +738,7 @@ fn snapshot_impl(
     })?;
 
     let mut placements = Vec::new();
+    // SAFETY: the iterator is live (its guard frees it) and was filled above.
     while unsafe { sys::ghostty_kitty_graphics_placement_next(iterator.0) } {
         let image_id = placement_value::<u32>(
             iterator.0,
@@ -730,6 +756,8 @@ fn snapshot_impl(
             continue;
         }
 
+        // SAFETY: `graphics` is the terminal's storage, unchanged while `&Terminal`
+        // borrows it; the result is null or an image borrowed from it.
         let raw_image = unsafe { sys::ghostty_kitty_graphics_image(graphics, image_id) };
         if raw_image.is_null() {
             continue;
@@ -742,6 +770,8 @@ fn snapshot_impl(
             size: size_of::<sys::GhosttyKittyGraphicsPlacementRenderInfo>(),
             ..Default::default()
         };
+        // SAFETY: the iterator sits on a placement, `raw_image` is non-null from the
+        // same storage, `terminal.raw()` is live, and `info` is sized.
         check(unsafe {
             sys::ghostty_kitty_graphics_placement_render_info(
                 iterator.0,
@@ -755,6 +785,7 @@ fn snapshot_impl(
             size: size_of::<sys::GhosttySelection>(),
             ..Default::default()
         };
+        // SAFETY: as above, and `rect` is a writable GhosttySelection with `size` set.
         check(unsafe {
             sys::ghostty_kitty_graphics_placement_rect(
                 iterator.0,
@@ -764,6 +795,8 @@ fn snapshot_impl(
             )
         })?;
         let mut anchor = sys::GhosttyPointCoordinate::default();
+        // SAFETY: `terminal.raw()` is live and `rect.start` came from it with no
+        // mutation since; `anchor` is a writable local.
         check(unsafe {
             sys::ghostty_terminal_point_from_grid_ref(
                 terminal.raw(),
@@ -835,6 +868,111 @@ fn snapshot_impl(
     })
 }
 
+/// Whether the active screen holds Kitty state that libghostty's replay
+/// encoder drops, found without encoding or copying pixels: an image with
+/// pixels that no placement uses (the stream sends it without pixels), or a
+/// placement whose rectangle is wholly outside the active area (the stream
+/// sends only placements that show). The second also matches a relative
+/// placement drawn wholly in scrollback by its offsets, which the stream
+/// keeps; refusing that one too is the safe side.
+pub(crate) fn active_scene_drops_from_replay(terminal: &Terminal) -> Result<bool> {
+    let Some(graphics) = terminal_graphics(terminal)? else {
+        return Ok(false);
+    };
+
+    let mut used = HashSet::new();
+    let mut raw_iterator: sys::GhosttyKittyGraphicsPlacementIterator = ptr::null_mut();
+    // SAFETY: `raw_iterator` is a writable local; a null allocator selects the
+    // default.
+    check(unsafe {
+        sys::ghostty_kitty_graphics_placement_iterator_new(ptr::null(), &mut raw_iterator)
+    })?;
+    let mut iterator = PlacementIterator(raw_iterator);
+    // SAFETY: `graphics` is the terminal's storage, valid while `&Terminal`
+    // borrows it; PLACEMENT_ITERATOR fills the live iterator `iterator.0`.
+    check(unsafe {
+        sys::ghostty_kitty_graphics_get(
+            graphics,
+            sys::GHOSTTY_KITTY_GRAPHICS_DATA_PLACEMENT_ITERATOR,
+            (&mut iterator.0 as *mut sys::GhosttyKittyGraphicsPlacementIterator).cast(),
+        )
+    })?;
+    // SAFETY: the iterator is live (its guard frees it) and was filled above.
+    while unsafe { sys::ghostty_kitty_graphics_placement_next(iterator.0) } {
+        let image_id = placement_value::<u32>(
+            iterator.0,
+            sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IMAGE_ID,
+        )?;
+        used.insert(image_id);
+        if placement_value::<bool>(
+            iterator.0,
+            sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IS_VIRTUAL,
+        )? {
+            continue;
+        }
+        // SAFETY: `graphics` is the terminal's storage, unchanged while `&Terminal`
+        // borrows it; the result is null or an image borrowed from it.
+        let raw_image = unsafe { sys::ghostty_kitty_graphics_image(graphics, image_id) };
+        if raw_image.is_null() {
+            continue;
+        }
+        let mut rect = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            ..Default::default()
+        };
+        // SAFETY: the iterator sits on a placement, `raw_image` is non-null from the
+        // same storage, `terminal.raw()` is live, and `rect` is sized.
+        check(unsafe {
+            sys::ghostty_kitty_graphics_placement_rect(
+                iterator.0,
+                raw_image,
+                terminal.raw(),
+                &mut rect,
+            )
+        })?;
+        if !in_active_area(terminal, &rect.start)? && !in_active_area(terminal, &rect.end)? {
+            return Ok(true);
+        }
+    }
+
+    let mut raw_images: sys::GhosttyKittyGraphicsImageIterator = ptr::null_mut();
+    // SAFETY: `graphics` is the terminal's storage, valid while `&Terminal`
+    // borrows it; `raw_images` is a writable local.
+    check(unsafe {
+        sys::ghostty_kitty_graphics_image_iterator_new(ptr::null(), graphics, &mut raw_images)
+    })?;
+    let images = ImageIterator(raw_images);
+    loop {
+        // SAFETY: the iterator is live (its guard frees it at scope end).
+        let raw_image = unsafe { sys::ghostty_kitty_graphics_image_next(images.0) };
+        if raw_image.is_null() {
+            return Ok(false);
+        }
+        let id: u32 = image_value(raw_image, sys::GHOSTTY_KITTY_IMAGE_DATA_ID)?;
+        let data_len: usize = image_value(raw_image, sys::GHOSTTY_KITTY_IMAGE_DATA_DATA_LEN)?;
+        if data_len > 0 && !used.contains(&id) {
+            return Ok(true);
+        }
+    }
+}
+
+fn in_active_area(terminal: &Terminal, grid_ref: &sys::GhosttyGridRef) -> Result<bool> {
+    // SAFETY: `grid_ref` came from this terminal with no mutation since;
+    // a NULL out-pointer is allowed.
+    match check(unsafe {
+        sys::ghostty_terminal_point_from_grid_ref(
+            terminal.raw(),
+            grid_ref,
+            sys::GHOSTTY_POINT_TAG_ACTIVE,
+            ptr::null_mut(),
+        )
+    }) {
+        Ok(()) => Ok(true),
+        Err(Error::NoValue) => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
 fn graphics_generation(graphics: sys::GhosttyKittyGraphics) -> Result<u64> {
     graphics_value(graphics, sys::GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION)
 }
@@ -844,6 +982,8 @@ fn graphics_value<T: Default>(
     data: sys::GhosttyKittyGraphicsData,
 ) -> Result<T> {
     let mut value = T::default();
+    // SAFETY: callers pass the live storage of a borrowed terminal and name `T`
+    // as the type the header gives for `data` (GENERATION: uint64_t).
     check(unsafe {
         sys::ghostty_kitty_graphics_get(graphics, data, (&mut value as *mut T).cast())
     })?;
@@ -852,6 +992,8 @@ fn graphics_value<T: Default>(
 
 fn terminal_graphics(terminal: &Terminal) -> Result<Option<sys::GhosttyKittyGraphics>> {
     let mut graphics: sys::GhosttyKittyGraphics = ptr::null_mut();
+    // SAFETY: `terminal.raw()` is live while `&Terminal` borrows it;
+    // KITTY_GRAPHICS writes a GhosttyKittyGraphics handle into the local.
     match check(unsafe {
         sys::ghostty_terminal_get(
             terminal.raw(),
@@ -870,6 +1012,8 @@ fn placement_value<T: Default>(
     data: sys::GhosttyKittyGraphicsPlacementData,
 ) -> Result<T> {
     let mut value = T::default();
+    // SAFETY: callers pass an iterator sitting on a placement and name `T` as
+    // the type the header gives for `data`.
     check(unsafe {
         sys::ghostty_kitty_graphics_placement_get(iterator, data, (&mut value as *mut T).cast())
     })?;
@@ -881,6 +1025,8 @@ fn image_value<T: Default>(
     data: sys::GhosttyKittyGraphicsImageData,
 ) -> Result<T> {
     let mut value = T::default();
+    // SAFETY: callers pass a non-null image borrowed from unchanged storage and
+    // name `T` as the type the header gives for `data`.
     check(unsafe {
         sys::ghostty_kitty_graphics_image_get(image, data, (&mut value as *mut T).cast())
     })?;
@@ -930,6 +1076,8 @@ fn copy_image(
     let bytes = if data_len == 0 {
         &[][..]
     } else {
+        // SAFETY: DATA_PTR/DATA_LEN describe the image's pixel bytes, checked
+        // non-null above and owned by storage that `&Terminal` keeps unchanged.
         unsafe { std::slice::from_raw_parts(data_ptr, data_len) }
     };
     let data: Arc<[u8]> = Arc::from(bytes);
@@ -947,6 +1095,8 @@ fn copy_image(
 
 pub(crate) fn install_png_decoder() -> Result<()> {
     static RESULT: OnceLock<sys::GhosttyResult> = OnceLock::new();
+    // SAFETY: `decode_png` matches the GhosttySysDecodePngFn signature and lives
+    // for the process; OnceLock installs it once.
     check(*RESULT.get_or_init(|| unsafe {
         sys::ghostty_sys_set(
             sys::GHOSTTY_SYS_OPT_DECODE_PNG,
@@ -966,6 +1116,8 @@ unsafe extern "C" fn decode_png(
         if data.is_null() || out.is_null() || data_len > MAX_KITTY_IMAGE_BYTES {
             return false;
         }
+        // SAFETY: libghostty passes `data_len` readable bytes at `data`, checked
+        // non-null above.
         let encoded = unsafe { std::slice::from_raw_parts(data, data_len) };
         if !png_header_within_limits(encoded) {
             return false;
@@ -1035,10 +1187,14 @@ unsafe extern "C" fn decode_png(
         if rgba.len() != rgba_len {
             return false;
         }
+        // SAFETY: `allocator` is the one libghostty passed for this image (null
+        // selects the default).
         let output = unsafe { sys::ghostty_alloc(allocator, rgba.len()) };
         if output.is_null() {
             return false;
         }
+        // SAFETY: `output` holds `rgba.len()` bytes and does not overlap `rgba`;
+        // `out` was checked non-null and libghostty passes it writable.
         unsafe {
             ptr::copy_nonoverlapping(rgba.as_ptr(), output, rgba.len());
             *out = sys::GhosttySysImage {

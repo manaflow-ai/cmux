@@ -24,7 +24,7 @@
 //! shows a state. `cmux terminal <t> wait --until idle|prompt` lives here too
 //! (status/terminal_wait.rs): it waits on the same status facts.
 
-use std::process::Command;
+use cmux_process::Command;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::Instant;
 
@@ -304,18 +304,24 @@ const FORWARDED: [libc::c_int; 4] = [libc::SIGINT, libc::SIGQUIT, libc::SIGTERM,
 
 /// Install `forward_signal` for the forwarded signals; returns the old
 /// actions. Caught (not ignored) signals reset to their defaults in the
-/// child at exec, so the command still sees Ctrl-C normally.
+/// child at exec, so the command still sees Ctrl-C normally. A signal the
+/// caller ignores (`nohup` ignores SIGHUP) stays ignored, so the command
+/// inherits that too.
 fn install_forwarding() -> Vec<libc::sigaction> {
     FORWARDED
         .iter()
         .map(|signal| {
             // SAFETY: plain sigaction calls with zeroed, then filled, structs.
             unsafe {
+                let mut previous: libc::sigaction = std::mem::zeroed();
+                libc::sigaction(*signal, std::ptr::null(), &mut previous);
+                if previous.sa_sigaction == libc::SIG_IGN {
+                    return previous;
+                }
                 let mut action: libc::sigaction = std::mem::zeroed();
                 action.sa_sigaction = forward_signal as *const () as libc::sighandler_t;
                 action.sa_flags = libc::SA_SIGINFO | libc::SA_RESTART;
                 libc::sigemptyset(&mut action.sa_mask);
-                let mut previous: libc::sigaction = std::mem::zeroed();
                 libc::sigaction(*signal, &action, &mut previous);
                 previous
             }
@@ -354,7 +360,8 @@ fn run_command(global: &GlobalArgs, run: RunPlan) -> i32 {
     }
     let previous = install_forwarding();
     let started = Instant::now();
-    let mut child = match Command::new(&run.argv[0]).args(&run.argv[1..]).spawn() {
+    let mut child = match Command::new(&run.argv[0]).args(&run.argv[1..]).inherit_like_std().spawn()
+    {
         Ok(child) => child,
         Err(error) => {
             restore_forwarding(&previous);

@@ -47,8 +47,10 @@ public struct FolderWatcher: FolderWatching {
     /// event would then fail the parent check. A folder that does not resolve keeps its path.
     static func realFolder(_ folder: URL) -> URL {
         let standard = folder.standardizedFileURL
-        guard let resolved = realpath(standard.path, nil) else { return standard }
-        defer { free(resolved) }
-        return URL(fileURLWithPath: String(cString: resolved), isDirectory: true)
+        // SAFETY: realpath reads the NUL-terminated copy of the path made for the call and, given no buffer, returns
+        // a NUL-terminated path it allocated, read once here and freed once on return.
+        guard let resolved = unsafe realpath(standard.path, nil) else { return standard }
+        defer { unsafe free(resolved) }
+        return URL(fileURLWithPath: unsafe String(cString: resolved), isDirectory: true)
     }
 }

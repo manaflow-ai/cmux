@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
 import Foundation
 
 nonisolated enum FileTreeStrings {
@@ -19,7 +20,7 @@ nonisolated enum FileTreeStrings {
 
     /// The page's message for a failed listing: not a repository, else ``unavailable``.
     static func message(for failure: AgentPaneGitFailure) -> String {
-        let details = failure.details.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        let details = failure.details.flatMap { try? JSONSerialization.blockingJSONObject(with: $0) as? [String: Any] }
         let code = (details?["extra"] as? [String: Any])?["code"] as? String ?? details?["code"] as? String
         return code == "not_a_repository" ? notRepository : unavailable
     }

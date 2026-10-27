@@ -1,4 +1,3 @@
-import Combine
 import CmuxNextDesign
 import SwiftUI
 
@@ -88,16 +87,12 @@ struct UpdateSheetView: View {
 /// The indeterminate-progress symbol effect: rotate on macOS 15 and newer,
 /// pulse on macOS 14 (no rotate effect there). Still while loops are off
 /// (Reduce Motion or `ui.animationSpeed` off; cx-sya4n: nothing loops). The
-/// environment's Reduce Motion and `Motion.reduceMotionDidChange` re-run the
-/// body when either changes while the sheet shows.
+/// body reads `Motion` through Observation (``AppearanceSignals``), so a Reduce
+/// Motion pin, the system setting or a motion switch re-runs it while the sheet shows.
 private struct IndeterminateSymbolEffect: ViewModifier {
     let isActive: Bool
-    @Environment(\.accessibilityReduceMotion) private var systemReducesMotion
-    @State private var overrideChanges = 0
 
     func body(content: Content) -> some View {
-        // Read so a change of either re-runs this body; `Motion` reads the live values.
-        _ = (systemReducesMotion, overrideChanges)
         let runs = isActive && Motion.indicators.animatesLoops
         return Group {
             if #available(macOS 15, *) {
@@ -108,6 +103,5 @@ private struct IndeterminateSymbolEffect: ViewModifier {
                 content.symbolEffect(.pulse, isActive: runs)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: Motion.reduceMotionDidChange)) { _ in overrideChanges += 1 }
     }
 }

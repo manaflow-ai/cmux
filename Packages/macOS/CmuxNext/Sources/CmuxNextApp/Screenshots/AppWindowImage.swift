@@ -3,6 +3,7 @@ import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextScreenshots
+import CmuxNextWakeups
 
 /// One of this app's main windows as on screen, for `cmux window|pane|tab
 /// screenshot`: the window server's image of the window and its Chromium
@@ -26,7 +27,7 @@ struct AppWindowImage {
     func capture(_ window: NSWindow, masked: Bool = false) async throws -> CGImage {
         // The masks are measured before the capture, which can yield to a layout pass.
         let masks = masked ? ScreenshotPrivacyMask.rects(in: window, services: services).map(WindowImageLayer.mask) : []
-        let base = try await window.screenshotImage(includeChild: WindowOverlayHost.isPageWindow)
+        let base = try await window.screenshotImage(on: services.work, includeChild: WindowOverlayHost.isPageWindow)
         var layers: [WindowImageLayer] = []
         if masked {
             layers = masks
@@ -54,11 +55,11 @@ struct AppWindowImage {
             guard let image = await page.chromiumImage() else { continue }
             layers.append(.page(image, rect))
         }
-        // The panel and floating-window captures run off the main actor too; main reads only their window numbers.
-        if let panels = await window.childWindowsImage(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
+        // The panel and floating-window captures run on the system lane too; main reads only their window numbers.
+        if let panels = await window.childWindowsImage(on: services.work, includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
             layers.append(.window(panels))
         }
-        if let floating = await window.floatingWindowsImage() { layers.append(.window(floating.image)) }
+        if let floating = await window.floatingWindowsImage(on: services.work) { layers.append(.window(floating)) }
         // The full-resolution redraw runs off the main actor.
         return await WindowImageLayer.compositedOffMain(base: base, windowSize: window.frame.size, layers: layers) ?? base
     }

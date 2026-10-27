@@ -10,7 +10,7 @@ import Testing
 @MainActor
 struct PageChromiumSeeThroughTests {
     private let root: URL
-    private let descriptor = PageDescriptor(id: "test.see-through", resource: "see-through", namespaces: [])
+    private let descriptor = PageDescriptor(id: "test.see-through", resource: "see-through", processGroup: .solo, namespaces: [])
 
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("page-see-through-\(UUID().uuidString)", isDirectory: true)
@@ -22,7 +22,7 @@ struct PageChromiumSeeThroughTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
         #expect(view.showsChromium)

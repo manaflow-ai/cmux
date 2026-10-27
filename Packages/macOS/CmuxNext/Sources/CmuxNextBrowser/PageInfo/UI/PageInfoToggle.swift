@@ -65,6 +65,7 @@ final class PageInfoToggle: NSView {
         }
     }
 
+    // visibility-walk-allow: two layer colors and two sublayer frames (refresh), no text measure or view layout; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         refresh(animated: false)

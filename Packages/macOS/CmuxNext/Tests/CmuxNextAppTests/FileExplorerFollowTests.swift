@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 import Observation
 import Testing
@@ -29,7 +30,7 @@ struct FileExplorerFollowTests {
         let focused = FocusedFolder()
         focused.folder = first
         let model = FileExplorerModel()
-        let view = FileExplorerSectionView(model: model, rootFolder: { focused.folder }, perform: { _ in }, rowMenu: { _ in nil })
+        let view = FileExplorerSectionView(model: model, mainWork: MainWorkScheduler(budget: MainFrameBudget()), rootFolder: { focused.folder }, perform: { _ in }, rowMenu: { _ in nil })
         await Self.root(of: model, becomes: first)
         // A `cd` in the focused terminal (its folder changes) moves the tree.
         focused.folder = second

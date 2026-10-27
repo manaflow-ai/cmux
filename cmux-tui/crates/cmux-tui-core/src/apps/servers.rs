@@ -37,14 +37,17 @@
 //! Anything else, link details included, goes over ops. The server's stderr
 //! goes to the app's log.
 
+use cmux_threads::checked::fs as files;
+use cmux_threads::checked::sync as waits;
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{ChildStdin, Command, Stdio};
+use std::process::ChildStdin;
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use cmux_process::{Command, Stdio};
 use serde_json::{Value, json};
 
 use super::catalog::Package;
@@ -186,6 +189,7 @@ impl ServerProcess {
         on_log: impl Fn(String) + Send + 'static,
         on_exit: impl FnOnce(Exit) + Send + 'static,
     ) -> std::io::Result<Self> {
+        crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
         let mut child = Command::new(binary)
             .args(args)
             .env_clear()
@@ -280,7 +284,7 @@ impl ServerProcess {
 }
 
 fn write_loop(mut stdin: ChildStdin, outgoing: Receiver<Outgoing>) {
-    while let Ok(item) = outgoing.recv() {
+    while let Ok(item) = waits::recv(&outgoing) {
         match item {
             Outgoing::Line(line) => {
                 if stdin.write_all(&line).and_then(|()| stdin.flush()).is_err() {
@@ -862,17 +866,18 @@ impl Supervisor {
             ApiError::new("apps.server_failed", format!("server directories: {e}"))
         };
         let fresh = |dir: &Path| -> std::io::Result<()> {
-            match std::fs::remove_dir_all(dir) {
+            match files::remove_dir_all(dir) {
                 Ok(()) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 Err(e) => return Err(e),
             }
-            std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)
+            files::create_dir_with(files::DirBuilder::new().recursive(true).mode(0o700), dir)
         };
         let (data, tmp) = self
             .server_dirs(app)
             .map_err(|e| ApiError::new("apps.server_failed", format!("server directories: {e}")))?;
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&data).map_err(failed)?;
+        files::create_dir_with(files::DirBuilder::new().recursive(true).mode(0o700), &data)
+            .map_err(failed)?;
         let entries = inner
             .catalog
             .packages
@@ -886,10 +891,7 @@ impl Supervisor {
             if entry["class"] == "ephemeral" {
                 fresh(&dir).map_err(failed)?;
             } else {
-                std::fs::DirBuilder::new()
-                    .recursive(true)
-                    .mode(0o700)
-                    .create(&dir)
+                files::create_dir_with(files::DirBuilder::new().recursive(true).mode(0o700), &dir)
                     .map_err(failed)?;
             }
         }
@@ -911,7 +913,7 @@ impl Supervisor {
     /// app's storage.
     pub(super) fn remove_server_dirs(&self, app: &str) {
         if let Ok((data, tmp)) = self.server_dirs(app) {
-            let _ = std::fs::remove_dir_all(data);
+            let _ = files::remove_dir_all(data);
             super::server_tmp::remove_server_tmp(&tmp);
         }
     }

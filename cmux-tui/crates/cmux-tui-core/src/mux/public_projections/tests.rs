@@ -27,6 +27,7 @@ fn empty_state() -> State {
         terminal_catalog_by_host: HashMap::new(),
         split_screens: HashMap::new(),
         resource_indexes: PublicSlotIndexes::default(),
+        catalog_insert_wake: Arc::default(),
     }
 }
 

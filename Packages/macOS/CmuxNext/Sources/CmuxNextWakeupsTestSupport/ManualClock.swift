@@ -1,5 +1,9 @@
 public import CmuxNextCompat
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// A clock that moves only when the test advances it: the one test clock of the CmuxNext test
 /// targets (debounces, dwell and hover delays, ``DemandTimer`` deadlines, publish pacing).
@@ -37,19 +41,29 @@ public final class ManualClock: Clock, Sendable {
         public var description: String { "no timer went to sleep on the manual clock within \(limit)" }
     }
 
+    /// One call to ``sleep(until:tolerance:)``: the deadline and the tolerance it asked for. The clock
+    /// fires at the deadline whatever the tolerance; tests read it to check what the code asked the OS.
+    public struct SleepRequest: Sendable, Equatable {
+        /// The instant the sleep was for.
+        public let deadline: Instant
+        /// The tolerance the caller passed; nil when it passed none.
+        public let tolerance: Duration?
+    }
+
     private struct Sleeper {
         let id: Int
         let deadline: Instant
-        let continuation: CheckedContinuation<Void, any Error>
+        let continuation: OnceContinuation<Void, any Error>
     }
 
     private struct State {
         var now = Instant(offset: .zero)
         var sleepers: [Sleeper] = []
+        var requests: [SleepRequest] = []
         /// Sleeps cancelled before they were registered.
         var cancelled: Set<Int> = []
         /// `waitForSleeper` calls suspended until a sleeper is registered.
-        var watchers: [Int: CheckedContinuation<Bool, Never>] = [:]
+        var watchers: [Int: OnceContinuation<Bool, OnceContinuationError>] = [:]
         var nextID = 0
     }
 
@@ -63,14 +77,18 @@ public final class ManualClock: Clock, Sendable {
     public var now: Instant { state.withLock { $0.now } }
     public var minimumResolution: Duration { .zero }
 
-    /// Suspends until ``advance(by:)`` reaches `deadline`; throws `CancellationError` when the
-    /// calling task is cancelled first.
+    /// Suspends until ``advance(by:)`` reaches `deadline`, exactly, whatever `tolerance` is (recorded
+    /// in ``sleepRequests``); throws `CancellationError` when the calling task is cancelled first.
     // concurrency-allow: the Clock protocol's own requirement; it suspends until the test advances the clock (no thread waits, no timer).
     @concurrent public func sleep(until deadline: Instant, tolerance: Duration?) async throws {
-        let id = state.withLock { state in state.nextID += 1; return state.nextID }
+        let id = state.withLock { state in
+            state.nextID += 1
+            state.requests.append(SleepRequest(deadline: deadline, tolerance: tolerance))
+            return state.nextID
+        }
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                let (outcome, watchers): (Result<Void, any Error>?, [CheckedContinuation<Bool, Never>]) = state.withLock { state in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
+                let (outcome, watchers): (Result<Void, any Error>?, [OnceContinuation<Bool, OnceContinuationError>]) = state.withLock { state in
                     if state.cancelled.remove(id) != nil { return (.failure(CancellationError()), []) }
                     if deadline <= state.now { return (.success(()), []) }
                     state.sleepers.append(Sleeper(id: id, deadline: deadline, continuation: continuation))
@@ -95,6 +113,9 @@ public final class ManualClock: Clock, Sendable {
     /// The number of tasks asleep on the clock now.
     public var sleeperCount: Int { state.withLock { $0.sleepers.count } }
 
+    /// Every sleep asked of the clock so far, in call order, including ones already woken or cancelled.
+    public var sleepRequests: [SleepRequest] { state.withLock { $0.requests } }
+
     /// Returns once a task is asleep on the clock (at once when one already is).
     ///
     /// Code under test usually reads `now` for its deadline when its own task starts; advancing
@@ -109,16 +130,20 @@ public final class ManualClock: Clock, Sendable {
         // A private ledger: the test's failure deadline is not an app wakeup.
         let deadline = DemandTimer(owner: "ManualClock.waitForSleeper", ledger: WakeupLedger())
         let arrived = await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            // A dropped watcher reads as no sleeper, as the deadline answers.
+            (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
                 let ready: Bool? = state.withLock { state in
                     if !state.sleepers.isEmpty { return true }
                     if state.cancelled.remove(id) != nil { return false }
                     state.watchers[id] = continuation
                     return nil
                 }
-                if let ready { return continuation.resume(returning: ready) }
+                if let ready {
+                    continuation.resume(returning: ready)
+                    return
+                }
                 deadline.schedule(after: limit) { [self] in self.resolveWatcher(id, arrived: false) }
-            }
+            }) ?? false
         } onCancel: {
             resolveWatcher(id, arrived: false, cancelling: true)
         }
@@ -130,7 +155,7 @@ public final class ManualClock: Clock, Sendable {
     /// Resumes the `waitForSleeper` call `id` with `arrived` when it still waits; a cancellation
     /// that comes before it registered is kept so the registration returns at once.
     private func resolveWatcher(_ id: Int, arrived: Bool, cancelling: Bool = false) {
-        let watcher: CheckedContinuation<Bool, Never>? = state.withLock { state in
+        let watcher: OnceContinuation<Bool, OnceContinuationError>? = state.withLock { state in
             if let watcher = state.watchers.removeValue(forKey: id) { return watcher }
             if cancelling { state.cancelled.insert(id) }
             return nil
@@ -148,6 +173,6 @@ public final class ManualClock: Clock, Sendable {
             state.sleepers.removeAll { $0.deadline <= now }
             return due
         }
-        for sleeper in due { sleeper.continuation.resume() }
+        for sleeper in due { sleeper.continuation.resume(returning: ()) }
     }
 }

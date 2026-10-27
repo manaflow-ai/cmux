@@ -1,6 +1,10 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
+// std's Mutex, RwLock and Condvar wait untimed; cmux_threads::sync times
+// them (cmux-tui/clippy.toml, p02-threads.md task 227).
+#![cfg_attr(not(test), deny(clippy::disallowed_types))]
+
 mod agent_hook_errors;
 mod terminal_size_clamp;
 pub(crate) use terminal_size_clamp::clamp_terminal_size;
@@ -46,14 +50,13 @@ use tree_edit::{
     workspace_mutation_result,
 };
 mod kitty_budget_state;
+mod kitty_share;
 use kitty_budget_state::KITTY_IMAGE_BUDGET_OWNER_LIMIT;
 use kitty_budget_state::KITTY_IMAGE_BUDGET_RETRY_INITIAL;
 use kitty_budget_state::KITTY_IMAGE_BUDGET_RETRY_MAX;
 use kitty_budget_state::KITTY_IMAGE_BUDGET_RETRY_MAX_ATTEMPTS;
 #[cfg(test)]
 use kitty_budget_state::KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE;
-#[cfg(test)]
-use kitty_budget_state::KITTY_IMAGE_PROCESS_BUDGET_BYTES;
 #[cfg(test)]
 use kitty_budget_state::KITTY_IMAGE_PROCESS_BUDGET_COUNT;
 #[cfg(test)]
@@ -65,9 +68,15 @@ use kitty_budget_state::PendingKittyImageBudgetOperation;
 pub(crate) use kitty_budget_state::RENDER_ATTACHMENT_LIMIT;
 pub(crate) use kitty_budget_state::RenderAttachmentPermit;
 use kitty_budget_state::kitty_image_budget_capacity;
+#[cfg(test)]
 use kitty_budget_state::kitty_image_limits_for_capacity;
+use kitty_budget_state::kitty_image_limits_for_capacity_in;
 #[cfg(test)]
 use kitty_budget_state::kitty_surface_byte_reservation;
+pub(crate) use kitty_share::FEATURE as KITTY_SHARE_FEATURE;
+pub(crate) use kitty_share::KittyShare;
+#[cfg(test)]
+use kitty_share::{KittyShareOwner, kitty_recency_shares};
 mod cell_pixel_state;
 use cell_pixel_state::CELL_PIXEL_RETRY_MAX_ATTEMPTS;
 #[cfg(test)]
@@ -98,6 +107,7 @@ pub(crate) use client_sizing_state::ClientSizingIdentity;
 use client_sizing_state::ClientSizingRollbackToken;
 use client_sizing_state::ClientSizingState;
 pub(crate) use client_sizing_state::ControlClientResize;
+pub(crate) use client_sizing_state::ParticipantScheme;
 use client_sizing_state::PreparedControlClientResize;
 use client_sizing_state::SizingMember;
 use client_sizing_state::SurfaceResizeCompletion;
@@ -105,7 +115,6 @@ use client_sizing_state::SurfaceResizeRestore;
 use client_sizing_state::TerminalSizingEntry;
 use client_sizing_state::entry_owns;
 pub(crate) use client_sizing_state::sub_view_participant_id;
-pub(crate) use client_sizing_state::view_participant_id;
 mod terminal_exit_waiters;
 use terminal_exit_waiters::TerminalExitDetachTracker;
 #[cfg(test)]
@@ -172,6 +181,8 @@ pub(crate) use spawn_options::{
     CLIENT_PANE_ID_FIELD, CLIENT_SPLIT_ID_FIELD, CLIENT_TAB_ID_FIELD, terminal_identity,
 };
 pub use spawn_options::{PaneSurfaceCreation, TerminalSpawnOptions};
+#[cfg(unix)]
+mod acpmux_energy;
 mod agent_chat_columns;
 #[cfg(unix)]
 mod agent_chat_notices;
@@ -189,8 +200,12 @@ use deadline_fanout::{
     CELL_PIXEL_FANOUT_MAX_WORKERS, DeadlineFanoutPool, DeadlineMapResult, DeadlinePending,
     bounded_deadline_map,
 };
+mod cold_scrollback;
+pub(crate) use cold_scrollback::ColdScrollbackWake;
 mod column_move;
 mod dock_columns;
+#[cfg(test)]
+mod event_cause_tests;
 mod event_emit;
 mod exit_settle;
 pub(crate) mod feed_local;
@@ -209,7 +224,10 @@ mod kitty_budget;
 mod kitty_reservation;
 mod launch_identity;
 mod ledger_maintenance;
+#[cfg(any(debug_assertions, feature = "oracle"))]
+mod oracle;
 mod pinned_columns;
+mod power_source;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
@@ -234,6 +252,7 @@ pub use layout_types::{
     LayoutUndoResult, ViewportWidthError, ZoomMode, ZoomState,
 };
 mod layout_undo_commit;
+pub(crate) mod mux_work;
 pub use events::{GraphicsStatus, LayoutDelta, MachineUsage, MuxEvent, TreeDelta, TreeDeltaKind};
 mod notification_types;
 mod notifications;
@@ -283,10 +302,9 @@ pub(crate) mod tab_groups;
 pub(crate) mod tab_strip;
 mod tab_workspace_name;
 mod time;
-pub(crate) use time::now_ms;
-
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
+pub(crate) use time::now_ms;
 pub(crate) mod creating_input;
 mod loss_causes;
 mod orphan_hosts;
@@ -313,7 +331,7 @@ mod terminal_relaunch;
 pub(crate) mod terminal_respawn;
 mod terminal_sizing;
 pub(crate) use terminal_sizing::host_policy;
-mod terminal_work;
+pub(crate) mod terminal_work;
 mod topology_result;
 mod tree_close;
 mod workspace_close_guard;
@@ -321,12 +339,11 @@ mod workspace_create;
 mod workspace_identity;
 mod workspace_move;
 mod workspace_rename;
-use workspace_rename::workspace_resource_upsert;
-
 use agent_hook_errors::{
     AGENT_HOOK_RETRY_ERROR, AgentHookTerminalGone, AgentHookTerminalUnavailable,
     agent_hook_retry_class, agent_hook_terminal_gone,
 };
+use workspace_rename::workspace_resource_upsert;
 
 pub use agent_chat_columns::AGENT_CHAT_COLUMN_CODE;
 pub(crate) use agent_chat_columns::{
@@ -372,6 +389,7 @@ pub use terminal_reap::{
 };
 pub(crate) use workspace_close_guard::workspace_not_empty_code;
 
+use cmux_threads::sync::{Condvar, Mutex};
 use public_projections::{RestoredPublicProjections, restore_public_projections};
 use registry_viewport::restore_registry_viewport;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -379,7 +397,7 @@ use std::fmt;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
+use std::sync::{Arc, MutexGuard, OnceLock, PoisonError, Weak};
 use std::time::{Duration, Instant};
 use topology_result::persist_public_topology_result;
 
@@ -496,8 +514,20 @@ pub struct Mux {
     launch_identity: crate::launch_credential::LaunchIdentity,
     /// Control-socket admission counters, shared with the accept loop.
     connection_stats: Arc<crate::diagnostics::ConnectionStats>,
+    /// Control-request latency by class and the dispatch queue.
+    request_stats: Arc<crate::diagnostics::RequestStats>,
+    /// Streams, messages, parses and writes of every connection
+    /// (`server-stats` `ipc`).
+    ipc_stats: Arc<crate::diagnostics::IpcStats>,
+    /// Longest stream frame a connection writes whole; longer ones leave in
+    /// chunks (server/outbound_lanes.rs, `CMUX_IPC_BULK_FRAME_MAX`).
+    bulk_frame_max: usize,
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
+    /// Blocking notes of request handlers (`server-stats` `request_path_io`).
+    request_path_stats: Arc<crate::request_path::RequestPathStats>,
+    /// Whether requests run at their cause's QoS class (crate::request_qos).
+    request_qos: crate::request_qos::RequestQosGate,
     started_at: Instant,
     pub(crate) state: signaled_mutex::StateMutex,
     subscribers: MuxEventBroadcaster,
@@ -536,6 +566,13 @@ pub struct Mux {
     /// The history search index (`history-search-v1`), installed by the
     /// binary with its feeds; absent otherwise.
     history_search: OnceLock<crate::history_search::HistorySearch>,
+    /// The refactor switch arms `oracle-state` reports, frozen at first read.
+    #[cfg(any(debug_assertions, feature = "oracle"))]
+    oracle_switches: OnceLock<crate::oracle_state::SwitchArms>,
+    /// Holders of this session that ended since this owner started
+    /// (`oracle-state` `childExits.holder`, invariant I17).
+    #[cfg(any(debug_assertions, feature = "oracle"))]
+    oracle_holder_exits: AtomicU64,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -588,6 +625,8 @@ pub struct Mux {
     deadline_fanout_pool: DeadlineFanoutPool,
     kitty_image_budget: Mutex<KittyImageBudgetState>,
     kitty_image_budget_changed: Condvar,
+    /// Both Kitty pixel maps in [`Self::memory`], with `memoryKittyShare` on.
+    kitty_pixel_consumer: OnceLock<cmux_memory::Registration>,
     /// App byte-backend terminals (`app_terminals.rs`), by catalog surface.
     app_terminals: Mutex<HashSet<SurfaceId>>,
     #[cfg(debug_assertions)]
@@ -601,6 +640,9 @@ pub struct Mux {
     cell_pixels: Mutex<(u16, u16)>,
     pending_cell_pixels: Mutex<Option<PendingCellPixelUpdate>>,
     cell_pixel_retries: Mutex<CellPixelRetryQueue>,
+    /// `client.cell_pixels.set` and `set-cell-pixels` applies, in request
+    /// order, on the work lanes (cell_pixels.rs).
+    cell_pixel_sets: Arc<mux_work::Sequence>,
     #[cfg(test)]
     cell_pixel_before_publish: Mutex<Option<CellPixelBeforePublishHook>>,
     #[cfg(test)]
@@ -650,8 +692,8 @@ pub struct Mux {
     /// Shared presentation metadata (workspace groups and workspace
     /// presentation fields), replaced after each registry commit.
     presentation: Mutex<Arc<crate::workspace_registry::PresentationSnapshot>>,
-    /// Git HEAD lookups keyed by directory, with the time they were read.
-    git_heads: Mutex<HashMap<String, (Instant, Option<presentation::GitHead>)>>,
+    /// Git HEAD of each tab directory, read off request threads.
+    git_heads: Arc<presentation::GitHeads>,
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
     journal_ingress: crate::journal_ingress::JournalIngressSender,
@@ -701,15 +743,14 @@ pub struct Mux {
     terminal_adoptions: Mutex<HashSet<String>>,
     /// Notified when an id leaves `terminal_adoptions` (its adoption ended).
     terminal_adoption_ended: Condvar,
-    /// Terminals a request waits on (`wait_for_terminal_adoption`): their
-    /// adoption starts without waiting for the owner to say ready.
-    terminal_adoptions_now: Mutex<HashSet<String>>,
+    /// A start's adoptions held until the owner says ready, and the
+    /// terminals a request waits on, whose adoption starts at once.
+    startup_adoptions: Mutex<terminal_adoption::StartupAdoptions>,
+    /// Adoption tries running at once (`terminal_adoption::ADOPTION_REPLAYS`).
+    terminal_replays: Arc<mux_work::Permits>,
     /// Restored tab names, by tab slot, for terminals that adopt after the
     /// start: the surface takes its tab's name when it arrives. A leaf lock.
     restored_tab_names: Mutex<HashMap<SurfaceId, String>>,
-    /// Lets a start's adoption threads go before the owner says ready: a
-    /// creation the crash interrupted waits on its host's adoption.
-    startup_adoptions_released: AtomicBool,
     /// Terminals with a possibly live host and no runtime surface (R41),
     /// keyed by public terminal id (`term_…`, what the tab JSON reads), with
     /// the host terminal id. A leaf lock: nothing else is locked under it.
@@ -730,11 +771,16 @@ pub struct Mux {
     /// Detaches of live signal exits that wait out the session shutdown
     /// lead (`session-shutdown`, logout race).
     exit_settles: Arc<exit_settle::ExitSettleTimer>,
+    /// The mux's weak reference for items on `work` (mux_work.rs).
+    mux_work: mux_work::MuxWork,
     terminal_respawns: terminal_respawn::TerminalRespawns,
     /// Called after `request_daemon_shutdown`, so the owner loop that waits
     /// for it blocks instead of polling the flag.
     daemon_shutdown_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     pub(crate) control_clients: crate::server::ClientRegistry,
+    /// One `trace-start`, `trace-stop` or `trace-status` at a time
+    /// (server/trace_control.rs).
+    pub(crate) trace_control: crate::server::trace_control::TraceControlGate,
     /// Guarded chat moves (`agent-transfer-v1`, server/agent_transfer.rs).
     #[cfg(unix)]
     pub(crate) agent_transfers: crate::server::agent_transfer::AgentTransfers,
@@ -744,9 +790,17 @@ pub struct Mux {
     pub(crate) access_requests: crate::server::agent_transfer::access_requests::AccessRequests,
     /// VM activity facts for `subscribe-activity` (server/activity.rs).
     pub(crate) activity: crate::server::activity::ActivityStream,
+    /// This process's Energy Saver: the app's `energy.set` override over the
+    /// daemon's own reading (server/energy_op.rs).
+    pub(crate) energy: crate::server::energy_op::DaemonEnergy,
+    /// This process's maintenance clock, once the power source follow
+    /// starts it (mux/power_source.rs).
+    #[cfg(target_os = "macos")]
+    maintenance: OnceLock<crate::wake::MaintenanceClock>,
     idle_close: Mutex<idle_close::IdleCloseTracker>,
     /// Wakes the idle-close reaper when a policy changes.
     idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
+    cold_scrollback_wake: OnceLock<ColdScrollbackWake>,
     /// Hosts of closed terminals that were asked to exit.
     terminal_host_closes: Arc<host_close::TerminalHostCloses>,
     /// Reap grace period for unplaced terminals, in milliseconds.
@@ -763,6 +817,9 @@ pub struct Mux {
     keybindings: keybindings::KeybindingsSlot,
     /// Parallel terminal host launches and reaps (`terminal_work`).
     terminal_work: terminal_work::TerminalWorkPool,
+    /// This owner's memory registry: consumers register (the standby host and
+    /// the output store's scrollback budget), sources vote.
+    pub(crate) memory: Arc<crate::memory::DaemonMemory>,
     /// Hosts launched ahead of their creation, by reserved terminal id.
     #[cfg(any(unix, windows))]
     prelaunched_terminals: Mutex<HashMap<String, terminal_work::PrelaunchedTerminal>>,
@@ -771,6 +828,24 @@ pub struct Mux {
     /// The history module's session state: journal folds and revision.
     pub(crate) history: crate::history_ops::HistoryHost,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
+    /// The daemon-wide sequenced pool: every connection's control sequence
+    /// and stream sequences run on its fixed workers (p05-ipc-073).
+    pub(crate) sequenced_pool: crate::server::SequencedPool,
+    /// Records requests that run past 250 ms (server-stats `slow_requests`).
+    pub(crate) request_watchdog: crate::server::RequestWatchdog,
+    /// Blocking work that request threads hand off (`cmux_threads::work`
+    /// lanes: files, system, cpu), so a request answers from memory and a
+    /// work item does the disk, process or IPC wait (p02-threads 220).
+    pub(crate) work: Arc<cmux_threads::work::Work>,
+    /// Waits for the exits of the daemon's long-lived children (terminal
+    /// shells, terminal hosts, Chief brains, the journal plugin) on one
+    /// `mux-reaper` thread and completes each on `work`
+    /// (`cmux_threads::reaper`, p02-threads-237).
+    #[cfg(unix)]
+    pub(crate) reaper: Arc<cmux_threads::reaper::Reaper>,
+    /// Each client's git requests, run on `work` one at a time in arrival
+    /// order (git_ops/sequence.rs).
+    pub(crate) git_sequences: crate::git_ops::Sequences,
     pairing: PairingBroker,
     #[cfg(test)]
     test_surface_runtime: bool,
@@ -941,6 +1016,7 @@ impl Mux {
     /// Reconcile a surface whose child exited before its tree insert
     /// completed. Hosted terminals commit their exit and detach every view;
     /// local terminals are reaped after the creator closes the insert race.
+    #[track_caller]
     fn reap_if_dead(self: &Arc<Self>, surface: &Arc<Surface>) {
         if surface.is_dead() {
             if self.resource_creation_active.load(Ordering::Acquire) {
@@ -1006,6 +1082,7 @@ fn sidebar_retry_delay(failures: u32) -> Duration {
 }
 
 impl Drop for Mux {
+    #[track_caller]
     fn drop(&mut self) {
         if let Some(maintenance) =
             self.journal_maintenance.get_mut().unwrap_or_else(PoisonError::into_inner).take()
@@ -1015,6 +1092,8 @@ impl Drop for Mux {
         self.journal_plugin.shutdown();
         self.finalize_terminal_journal("mux drop", false);
         self.journal_kernel.shutdown();
+        // A provider bootstrap cancels once its weak mux no longer upgrades.
+        self.browser_providers.wake_waiters();
         if let Ok(runtime) = self.browser_runtime.get_mut()
             && let Some(runtime) = runtime.take()
         {

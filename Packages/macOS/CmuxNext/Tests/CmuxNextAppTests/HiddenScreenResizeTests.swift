@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextLayout
+import CmuxNextWakeups
 import Testing
 
 /// A workspace's hidden screens lay out when they show, not on every
@@ -20,7 +21,7 @@ import Testing
                 root: .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3")))])),
         ]
         let model = LayoutModel(screens: screens, activeScreenID: "s1", focusedPane: "p1")
-        let root = LayoutRootView(model: model, contentProvider: provider)
+        let root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

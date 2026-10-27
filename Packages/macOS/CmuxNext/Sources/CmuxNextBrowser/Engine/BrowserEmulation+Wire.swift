@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The daemon's browser-devices-v1 JSON, read in the engine module so the
@@ -6,7 +7,7 @@ extension BrowserEmulation {
     /// `extra.emulation` of a tab record; nil when absent or unreadable. `tabID` is the daemon tab
     /// it belongs to (the fit bar's commands name it).
     public init?(record json: Data?, tabID: String? = nil) {
-        guard let json, let fields = (try? JSONSerialization.jsonObject(with: json)) as? [String: Any] else { return nil }
+        guard let json, let fields = (try? JSONSerialization.blockingJSONObject(with: json)) as? [String: Any] else { return nil }
         let calls = (fields["chromium_calls"]).flatMap { try? JSONSerialization.data(withJSONObject: $0) }
         let callsJSON = calls.flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
         if fields["mode"] as? String == "fit" {
@@ -31,7 +32,7 @@ extension BrowserEmulation {
 extension BrowserDeviceMenu {
     /// The rows of `browser.devices.list` (JSON).
     public static func devices(list json: Data) -> [Device] {
-        guard let top = (try? JSONSerialization.jsonObject(with: json)) as? [String: Any],
+        guard let top = (try? JSONSerialization.blockingJSONObject(with: json)) as? [String: Any],
               let items = top["devices"] as? [[String: Any]] else { return [] }
         return items.compactMap { device in
             guard let title = device["title"] as? String else { return nil }
@@ -51,7 +52,7 @@ extension BrowserDeviceMenu {
 
     /// A tab record's `extra.emulation` (JSON), as the menu shows it.
     public static func current(record json: Data?) -> Current? {
-        guard let json, let fields = (try? JSONSerialization.jsonObject(with: json)) as? [String: Any],
+        guard let json, let fields = (try? JSONSerialization.blockingJSONObject(with: json)) as? [String: Any],
               let title = fields["device"] as? String else { return nil }
         return Current(title: title, orientation: fields["orientation"] as? String ?? "",
                        orientations: fields["orientations"] as? [String] ?? [])

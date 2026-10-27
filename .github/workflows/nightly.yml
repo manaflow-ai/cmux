@@ -1145,6 +1145,7 @@ jobs:
           # engine is a prebuilt artifact the shipped build embeds itself.
           CMUX_NEXT_SKIP_CEF=1 CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
+            -skipPackagePluginValidation \
             -clonedSourcePackagesDirPath .spm-cache \
             -packageCachePath "$PWD/.spm-cache/.package-cache" \
             -showBuildTimingSummary \
@@ -2029,7 +2030,11 @@ jobs:
           CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
           CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty-next rev-parse HEAD)"
           export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT
-          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-host --release --locked --target aarch64-apple-darwin
+          # The daemon's pinned PGO profile, as the published build uses (scripts/cmux-next/pgo/rust-pgo.sh, task 056).
+          pgo="$(../scripts/cmux-next/pgo/rust-pgo.sh rustflags cmux-tui --target aarch64-apple-darwin --strict)"
+          pgo_env=(); [[ -z "$pgo" ]] || pgo_env=("RUSTFLAGS=${RUSTFLAGS:+$RUSTFLAGS }$pgo")
+          env ${pgo_env[@]+"${pgo_env[@]}"} \
+            cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-host --release --locked --target aarch64-apple-darwin
           # The terminal holder, installed beside cmux-tui (its own invocation: std and libc only).
           cargo build -p cmux-holder --bin cmux-holder --release --locked --target aarch64-apple-darwin
           cargo build -p acpmux --bin acpmux --release --locked --target aarch64-apple-darwin
@@ -2194,6 +2199,7 @@ jobs:
           ./scripts/ci/run-xcodebuild-with-diagnostics.sh -- \
             env CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
+            -skipPackagePluginValidation \
             -clonedSourcePackagesDirPath .spm-cache \
             -packageCachePath "$PWD/.spm-cache/.package-cache" \
             -showBuildTimingSummary \
@@ -2442,7 +2448,9 @@ jobs:
           SENTRY_PROJECT: cmuxterm-macos
         # Retried, and only a warning when Sentry stays down: a nightly is never lost to symbolication.
         # The fast build also uploads the Rust client's dSYMs (cmux-tui, cmux-tui-host, cmux-holder; acpmux is
-        # linked into cmux-tui), when the build step above made them.
+        # linked into cmux-tui), when the build step above made them. Also the OptChat Chief's and Chromium's
+        # (embed-cef.sh unpacks it beside Release/); Release/ holds those of the CEF helper, the shims,
+        # the server helper and the diff sidecar.
         # It runs in the background while the unsigned app and the kept dSYMs upload (it held
         # this serialized warm slot 38-39 s after them in runs 39509829525, 39519824930); "Finish
         # the dSYM upload to Sentry" waits for it. The FIFO write blocks until that step reads
@@ -2452,7 +2460,9 @@ jobs:
           paths=(build-universal/Build/Products/Release/)
           for dsym in cmux-tui/target/aarch64-apple-darwin/release/cmux-tui.dSYM \
                       cmux-tui/target/aarch64-apple-darwin/release/cmux-tui-host.dSYM \
-                      cmux-tui/target/aarch64-apple-darwin/release/cmux-holder.dSYM; do
+                      cmux-tui/target/aarch64-apple-darwin/release/cmux-holder.dSYM \
+                      "$RUNNER_TEMP/cmux-next-optchat-chief/optchat-chief.dSYM" \
+                      build-universal/Build/Products/CEF-dSYMs; do
             [ -d "$dsym" ] && paths+=("$dsym")
           done
           state="$RUNNER_TEMP/sentry-dsyms"
@@ -7285,9 +7295,10 @@ jobs:
             signed+=(notes/announcements.json)
           fi
           # Invite-wave flags for cmux-tui testers (tui-tester-rollout #10): the reviewed
-          # release-notes/next/flags.json, signed with the same content-signing key.
+          # release-notes/next/flags.json, signed with the same content-signing key. The app refuses a
+          # document with no default FeaturesSerial (FeatureRemoteDocument), so one is always there.
           if [ -f release-notes/next/flags.json ]; then
-            python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("version")==1 and isinstance(d.get("default",{}),dict) and isinstance(d.get("cohorts",{}),dict)' release-notes/next/flags.json
+            python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("version")==1 and isinstance(d.get("default",{}),dict) and isinstance(d.get("cohorts",{}),dict) and type(d["default"].get("FeaturesSerial")) is int' release-notes/next/flags.json
             cp release-notes/next/flags.json notes/flags.json
             signed+=(notes/flags.json)
           fi

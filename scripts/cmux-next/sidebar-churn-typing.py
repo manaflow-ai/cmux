@@ -20,7 +20,8 @@ runs frontmost for that (no CMUX_NEXT_NO_ACTIVATE), so the job must own the GUI 
 HID time to the frame that shows the echo.
 --input debug (default, for hosts without an input grant): each key is `debug.key` with the client's send
 time as the event's timestamp (CLOCK_UPTIME_RAW). It goes through the control socket's injected-input lane,
-not the event queue, so it does not measure what a person's key waits for: never quote it as key latency. Per phase it reports key-to-frame p50/p95/max, the main-thread
+not the event queue, so it does not measure what a person's key waits for: never quote it as key latency. Per phase it reports key-to-frame p50/p95/p99/max
+(scripts/perf-lab/perf_stats.py through typing_report.distribution), the main-thread
 hangs over 8 ms (`debug.hangs`: count, max, frames over 8.3 ms), the frame intervals (`debug.frames`), the
 sidebar's own counters (`debug.sidebar_perf`) and, with --trace, a Time Profiler of the churn phase (main
 thread top frames).
@@ -40,12 +41,20 @@ stack; it wakes the watchdog per task and suspends the main thread per over-budg
 numbers: the report marks the run `perturbed`, and no latency number is quoted from such a run. --gate-stall-ms: exit 1 when a churn phase has a main-thread
 stall (debug.hangs, threshold 8 ms) longer than that (plans/cmux-next/main-thread-budget.md: < 8 ms). Each phase also
 records the main-thread scheduler's budget counters (debug.main_budget) and, with --task-diagnostics, the tasks that
-ran past their class budget with their stacks (debug.hangs over_budget). Fleet (an owned mini with a console; the step builds the app):
+ran past their class budget with their stacks (debug.hangs over_budget).
+
+Result-v1: each phase kind's key-to-frame samples, every round together, are one cmux-perf-result/v1 file in --out
+(BenchApp.record): story --story (default `sidebar-churn-typing`, `sidebar-churn-typing-stress` for STRESS), metrics
+`idle.key_to_frame` and `churn.key_to_frame` (`hid_key_to_frame` with --input real: another path, another series).
+A --task-diagnostics or --trace run writes none (typing_report.unrecorded: a stack capture or a Time Profiler
+attached during the measured keys perturbs them; the report says `perturbed`). Fleet (an owned mini with a console; the step builds the app):
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref SHA \
     --artifact artifacts/split-spring/report.json --arg=--suite=sidebar-churn [--arg=--trace] [--arg=--gate-p95-ms=8]
 """
 import argparse, csv, glob, json, os, random, shutil, socket, statistics, subprocess, sys, tempfile, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import bench_tagged  # noqa: E402
+import typing_report  # noqa: E402
 from bench_launch import BenchApp, LaunchError  # noqa: E402
 
 parser = argparse.ArgumentParser()
@@ -72,6 +81,7 @@ parser.add_argument("--session", choices=["light", "stress"], default="light",
                          "59 other workspaces")
 parser.add_argument("--task-diagnostics", action="store_true",
                     help="record over-budget scheduled tasks with stacks (perturbs the numbers; the report says so)")
+parser.add_argument("--story", help="result-v1 story (default sidebar-churn-typing, or sidebar-churn-typing-stress for STRESS)")
 opts = parser.parse_args()
 OUT = os.path.abspath(opts.out)
 os.makedirs(os.path.join(OUT, "traces"), exist_ok=True)
@@ -85,7 +95,11 @@ APP_CLI = os.path.join(opts.app, "Contents/Resources/bin/cmux")
 WINDOW = (40, 40, 1200, 900)
 STATUSES = ["todo", "working", "needs-attention", "review", "done"]
 results = {"tag": opts.tag, "host": os.uname().nodename, "opts": vars(opts), "log": [], "phases": [],
-           "input": opts.input, "session": opts.session, "perturbed": bool(opts.task_diagnostics)}
+           "input": opts.input, "session": opts.session}
+# A profiler or stack capture during the measured keys changes them: such a run writes no result-v1.
+UNRECORDED = typing_report.unrecorded(task_diagnostics=opts.task_diagnostics, trace=opts.trace)
+results["perturbed"] = UNRECORDED is not None
+SAMPLES = {}  # result-v1 metric -> key-to-frame samples, every round together
 
 
 def note(text):
@@ -145,13 +159,7 @@ def workspaces():
     return topo.get("workspaces") or []
 
 
-def pct(values):
-    if not values:
-        return None
-    s = sorted(values)
-    pick = lambda p: s[min(len(s) - 1, int(round((len(s) - 1) * p)))]
-    return {"n": len(s), "p50": round(pick(0.5), 2), "p95": round(pick(0.95), 2), "p99": round(pick(0.99), 2),
-            "max": round(s[-1], 2), "mean": round(statistics.fmean(s), 2)}
+dist = typing_report.distribution
 
 
 def probe_rows():
@@ -400,12 +408,14 @@ def phase(name, pid, ids, groups, churn_hz, trace=False):
     budget = rpc("debug.main_budget", timeout=20)
     rows = probe_rows()[rows_before:]
     complete = [r for r in rows if r.get("complete") == "1" and r.get("contents_ms")]
+    metric = typing_report.churn_metric("churn" if churn_hz > 0 else "idle", opts.input == "real")
+    SAMPLES.setdefault(metric, []).extend(float(r["contents_ms"]) for r in complete)
     entry = {
         "phase": name, "churn_hz": churn_hz, "wall_s": round(wall, 1),
-        "keys": len(trips), "stalled_keys": stalls, "key_rpc_ms": pct(trips), "probe_rows": len(rows), "complete": len(complete),
-        "key_to_frame_ms": pct([float(r["contents_ms"]) for r in complete]),
-        "key_to_dispatch_ms": pct([float(r["dispatch_start_ms"]) for r in complete if r.get("dispatch_start_ms")]),
-        "parsed_to_frame_ms": pct([float(r["contents_ms"]) - float(r["output_parsed_ms"]) for r in complete if r.get("output_parsed_ms")]),
+        "keys": len(trips), "stalled_keys": stalls, "key_rpc_ms": dist(trips), "probe_rows": len(rows), "complete": len(complete),
+        "key_to_frame_ms": dist([float(r["contents_ms"]) for r in complete]),
+        "key_to_dispatch_ms": dist([float(r["dispatch_start_ms"]) for r in complete if r.get("dispatch_start_ms")]),
+        "parsed_to_frame_ms": dist([float(r["contents_ms"]) - float(r["output_parsed_ms"]) for r in complete if r.get("output_parsed_ms")]),
         "hangs": {k: hangs.get(k) for k in ("count", "busy_count", "max_ms", "total_ms", "long_frames", "frames_over_8_3ms", "max_gap_ms")}
         if isinstance(hangs, dict) else hangs,
         "hang_records": (hangs or {}).get("records") if isinstance(hangs, dict) else None,
@@ -417,7 +427,7 @@ def phase(name, pid, ids, groups, churn_hz, trace=False):
     if churn:
         entry["churn_ops"] = churn.ops
         entry["churn_ops_per_s"] = round(sum(churn.ops.values()) / max(wall, 0.001), 1)
-        entry["churn_cli_ms"] = pct(churn.cli_ms)
+        entry["churn_cli_ms"] = dist(churn.cli_ms)
     if tracer:
         proc, path = tracer
         try:
@@ -444,13 +454,13 @@ def main():
     if opts.task_diagnostics:
         env["CMUX_NEXT_MAIN_TASK_DIAGNOSTICS"] = "1"
     bench = BenchApp(opts.app, out=OUT, config={"appearance": {"theme": "Catppuccin Mocha"}}, window=WINDOW, log_name="app.log",
-                     env=env)
+                     env=env, perf_session=opts.session)
     results["load_at_start"] = os.getloadavg()
     made = []
     groups = []
     try:
         try:
-            bench.launch(timeout=180, settle=3.0)
+            bench.launch(timeout=180)
         except LaunchError as error:
             results["launch_failure"] = {"reason": error.reason, "detail": error.report.get("detail")}
             raise
@@ -513,6 +523,8 @@ def main():
         if idle and churn:
             summary = {"idle_p95_ms": max(p["key_to_frame_ms"]["p95"] for p in idle),
                        "churn_p95_ms": max(p["key_to_frame_ms"]["p95"] for p in churn),
+                       "idle_p99_ms": max(p["key_to_frame_ms"]["p99"] for p in idle),
+                       "churn_p99_ms": max(p["key_to_frame_ms"]["p99"] for p in churn),
                        "idle_p50_ms": statistics.median(p["key_to_frame_ms"]["p50"] for p in idle),
                        "churn_p50_ms": statistics.median(p["key_to_frame_ms"]["p50"] for p in churn),
                        "churn_max_ms": max(p["key_to_frame_ms"]["max"] for p in churn),
@@ -520,6 +532,11 @@ def main():
                        "churn_hang_max_ms": max(((p["hangs"] or {}).get("max_ms") or 0) for p in churn if isinstance(p["hangs"], dict))}
         results["summary"] = summary
         note(f"summary: {json.dumps(summary)}")
+        if UNRECORDED:
+            results["recorded"] = UNRECORDED
+        else:
+            story = opts.story or typing_report.session_story(typing_report.SIDEBAR_CHURN_STORY, opts.session)
+            results["recorded"] = bench_tagged.record_series(bench, story, SAMPLES, log=note)
         report = opts.json or os.path.join(OUT, "report.json")
         with open(report, "w") as f:
             json.dump(results, f, indent=1, default=str)

@@ -3,6 +3,9 @@ import Foundation
 import CmuxNextWakeups
 import os
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// After an update: hand a running acpmux daemon of another build off to the
 /// bundled build (plans/cmux-next/durable-sessions.md section 3), and one whose
@@ -54,7 +57,8 @@ nonisolated enum AcpmuxVersionHandoff {
     /// The executable path of process `pid` (`proc_pidpath`), nil when unknown.
     static func executablePath(pid: Int32) -> String? {
         var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+        // SAFETY: proc_pidpath writes at most buffer.count bytes into the array's own storage, lent for the call.
+        guard unsafe proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
         return String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 
@@ -111,45 +115,43 @@ nonisolated enum AcpmuxVersionHandoff {
 /// Waits for a process to exit through the kernel's exit event (no polling).
 public nonisolated struct AgentPaneProcessExit: Sendable {
     public let pid: Int32
+    /// The clock of the wait's deadline; tests pass a `ManualClock`.
+    private let clock: any Clock<Duration>
 
-    public init(pid: Int32) { self.pid = pid }
-
-    private final class Once: Sendable {
-        let done = Mutex(false)
-        let deadline = Mutex<Task<Void, Never>?>(nil)
-        func first() -> Bool {
-            done.withLock { flag in
-                defer { flag = true }
-                return !flag
-            }
-        }
+    public init(pid: Int32, clock: any Clock<Duration> = ContinuousClock()) {
+        self.pid = pid
+        self.clock = clock
     }
 
     /// True at the exit; false when `timeout` passes first. A nil `timeout` waits for the exit only.
     public func event(within timeout: Duration?) async -> Bool {
         let pid = self.pid
-        return await withCheckedContinuation { continuation in
-            let once = Once()
-            let queue = DispatchQueue(label: "cmux.next.agent-pane.acpmux-exit.\(pid)")
+        let clock = clock
+        // Abandoned (the source and the deadline dropped without an answer) is not an exit.
+        return (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
+            // The wait's bounded deadline (rare: one per handoff); cancelled at the exit event.
+            // timer-class-allow: off main: the deadline only answers the exit wait on the source's queue and posts
+            // no main-thread job; DemandTimer is the off-main deadline (p06 section E)
+            let deadline = DemandTimer(owner: "agent-pane.process-exit", clock: clock)
+            let queue = DispatchQueue(label: "cmux.next.agent-pane.acpmux-exit.\(pid)", qos: .userInitiated)
+            // crash-allow: an immutable let; a dispatch source is a thread-safe libdispatch object (handlers, resume, cancel from any thread).
             nonisolated(unsafe) let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
+            // Every answer runs on `queue`, the source's own: the first cancels the source, and a later one
+            // (a deadline or the gone-check queued before that) finds it cancelled.
             let finish: @Sendable (Bool) -> Void = { exited in
-                guard once.first() else { return }
+                guard !source.isCancelled else { return }
                 source.cancel()
-                once.deadline.withLock { $0?.cancel() }
+                deadline.cancel()
                 continuation.resume(returning: exited)
             }
             if let timeout {
-                // task-owner: the bounded deadline of this one wait; cancelled when the exit arrives
-                let timer = Task {
-                    // wakeup-allow: one bounded deadline per handoff (rare); cancelled at the exit event
-                    try? await Task.sleep(for: timeout)
-                    if !Task.isCancelled { finish(false) }
-                }
-                once.deadline.withLock { $0 = timer }
+                deadline.schedule(after: timeout) { queue.async { finish(false) } }
             }
             source.setEventHandler { finish(true) }
             source.resume()
-            if kill(pid, 0) != 0 && errno == ESRCH { finish(true) }
-        }
+            // After the source is armed, so an exit between the two is still seen; a process that is already
+            // gone gives no event.
+            queue.async { if kill(pid, 0) != 0 && errno == ESRCH { finish(true) } }
+        }) ?? false
     }
 }

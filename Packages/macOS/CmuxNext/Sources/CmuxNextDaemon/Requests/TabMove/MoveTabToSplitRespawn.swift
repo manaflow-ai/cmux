@@ -41,7 +41,7 @@ public enum SplitRespawn: Sendable, Hashable, Encodable {
 /// It can launch a terminal host, so it uses the spawn deadline.
 public struct MoveTabToSplitRespawnRequest: TerminalSpawningRequest {
     public typealias Response = TabMoveResult
-    public static let command = "move-tab-to-split"
+    public static let commandName: DaemonCommandName = "move-tab-to-split"
     public static let requiredCapability: String? = DaemonCapability.tabSplitRespawn.rawValue
     public var surface: SurfaceID
     public var pane: PaneID

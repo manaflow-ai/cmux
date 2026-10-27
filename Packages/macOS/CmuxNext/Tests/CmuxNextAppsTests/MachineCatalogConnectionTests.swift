@@ -7,7 +7,7 @@ import Testing
 struct MachineCatalogConnectionTests {
     private struct CaptureRequest: DaemonRequest {
         typealias Response = JSONValue
-        static let command = "test-catalog-attempts"
+        static let commandName: DaemonCommandName = "test-catalog-attempts"
     }
 
     @Test(arguments: ["legacy", "modern", "wrong-owner"])

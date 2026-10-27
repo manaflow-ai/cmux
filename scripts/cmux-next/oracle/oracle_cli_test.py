@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -104,7 +105,7 @@ def options(tmp: Path, **overrides) -> oracle.RunOptions:
         product="daemon", suites=("all",), filters=(), shard=(0, 1), jobs=4, batch_limit=1, repeat=1,
         retry_limit=3, seed=None, platform="linux", build="debug", switch=None, arm=None, switches={},
         ref=None, tag=None, binary=None, corpus=tmp / "corpus", out=tmp / "out", state_base=Path("/tmp/o"),
-        run_id="test-run", expectations_root=tmp / "expectations",
+        run_id="test-run", expectations_root=tmp / "expectations", isolation="none",
     )
     base.update(overrides)
     return oracle.RunOptions(**base)
@@ -246,6 +247,21 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(retry(["--suite", "daemon-ops"]), 0)
         self.assertEqual(retry(["--filter", "daemon-ops/*"]), 0)
         self.assertEqual(retry(["--suite", "daemon-ops", "--retry-limit", "2"]), 2)
+
+    def test_the_mcp_product_on_a_tagged_app_launches_as_the_app(self):
+        parser = oracle.build_parser()
+
+        def options(product, binary):
+            args = parser.parse_args(["run", "--product", product])
+            return oracle.options_from_args(args, retry_default=None, out=Path("/tmp/x"), run_id="r", switch=None,
+                                            arm=None, switches={}, ref=None, binary=binary)
+
+        fleet = options("mcp", "/Applications/x/cmux DEV tag.app")
+        self.assertEqual((fleet.jobs, fleet.batch_limit, fleet.build), (1, 10, "bench"))
+        vm = options("mcp", "/tmp/o/cmux-tui")
+        self.assertEqual((vm.jobs, vm.batch_limit, vm.build), (oracle.VM_JOBS, 1, "debug"))
+        self.assertEqual(options("daemon", "/x/cmux DEV tag.app").jobs, oracle.VM_JOBS)
+        self.assertLessEqual({"resource_api", "actions", "mcp", "restart"}, oracle.PRODUCTS["mcp"])
 
 
 class ClassifyTests(unittest.TestCase):
@@ -400,6 +416,88 @@ class RunTests(unittest.TestCase):
                              {"case": "alpha/case-000", "suite": "alpha", "step": "s1", "index": 0,
                               "checkpoint": "settled", "attempt": 0, "result": "Pass"})
             self.assertEqual(row["sha256"], oracle.snapshot_sha256(row["snapshot"]))
+
+
+class EnvironmentDriver(FakeDriver):
+    """Reports `environment` the way driver_daemon.py does, and keeps every session context."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.contexts = []
+
+    def open_session(self, ctx):
+        self.contexts.append(ctx)
+        return super().open_session(ctx)
+
+    def run(self, case, ctx, session):
+        result = super().run(case, ctx, session)
+        result["environment"] = {"env": {"HOME": "$CASE_ROOT/home", "CMUX_TUI_ORACLE_SEED": ctx["case_id"]},
+                                 "isolation": self.contexts[0]["isolation"]}
+        return result
+
+
+class IsolationTests(unittest.TestCase):
+    NETNS = {"mode": "netns", "kind": "netns", "prefix": ["/usr/bin/unshare", "-rn"], "reason": "t", "uid": 1001,
+             "gid": 1002}
+
+    def test_isolation_is_resolved_once_and_every_session_and_receipt_gets_it(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", per_suite=3)
+            cases, _ = oracle.load_corpus(tmp / "corpus")
+            driver = EnvironmentDriver()
+            probes = []
+
+            def isolate(mode):
+                probes.append(mode)
+                return dict(self.NETNS)
+
+            receipt, code = oracle.perform_run(options(tmp, isolation="netns"), cases, driver.open_session, None, {},
+                                               isolate=isolate)
+            self.assertEqual(code, 0)
+            self.assertEqual(probes, ["netns"])
+            self.assertEqual(len(driver.contexts), 9)
+            self.assertTrue(all(ctx["isolation"] == self.NETNS for ctx in driver.contexts))
+            self.assertEqual(receipt["isolation"]["kind"], "netns")
+            environment = receipt["cases"]["alpha/case-001"]["environment"]
+            self.assertEqual(environment["env"]["CMUX_TUI_ORACLE_SEED"], "alpha/case-001")
+            self.assertEqual(environment["isolation"]["kind"], "netns")
+            written = json.loads((tmp / "out" / "receipt.json").read_text())
+            self.assertEqual(written["cases"]["beta/case-002"]["environment"]["isolation"]["uid"], 1001)
+
+    def test_a_refused_isolation_fails_the_run_before_any_session(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", per_suite=2)
+            cases, _ = oracle.load_corpus(tmp / "corpus")
+            driver = EnvironmentDriver()
+
+            def refuse(mode):
+                raise oracle.UsageError(f"--isolation {mode}: unshare -rn refused")
+
+            with self.assertRaises(oracle.UsageError):
+                oracle.perform_run(options(tmp, isolation="netns"), cases, driver.open_session, None, {}, isolate=refuse)
+            self.assertEqual(driver.sessions, 0)
+
+    def test_none_needs_no_probe(self):
+        resolved = oracle.resolve_isolation("none")
+        self.assertEqual((resolved["mode"], resolved["kind"]), ("none", "none"))
+
+    def test_merge_refuses_shards_with_different_isolation(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", per_suite=4)
+            cases, _ = oracle.load_corpus(tmp / "corpus")
+            outs = []
+            for i, kind in enumerate(("netns", "none")):
+                out = tmp / f"s{i}"
+                resolved = {**self.NETNS, "kind": kind}
+                oracle.perform_run(options(tmp, shard=(i, 2), out=out, run_id=f"s{i}"), cases,
+                                   EnvironmentDriver().open_session, None, {}, isolate=lambda _mode, r=resolved: r)
+                outs.append(out)
+            view, errors = oracle.merge_runs(outs, require_complete=True)
+            self.assertTrue(any("different case isolation" in e for e in errors), errors)
+            self.assertFalse(view.receipt["ok"])
 
 
 class CompareTests(unittest.TestCase):
@@ -631,6 +729,31 @@ class ExpectationTests(unittest.TestCase):
         self.assertEqual(linux.expected(cases["journeys/case-004"]).results, frozenset({"Pass"}))
         self.assertEqual([r["pointer"] for r in linux.pointer_rules()], ["/value"])
 
+    def test_a_run_without_an_arm_takes_the_registry_defaults_arm(self):
+        """A one-arm case (p15-oracle-224's terminal holder crash journeys) is skipped by a NeverFix line of the
+        other arm: a default run is [ old ] while every switch defaults to old, so the holder-arm case does not
+        run on the per-terminal host arm the daemon runs by default."""
+        old, new = {"terminal-holder": {"default": "old"}}, {"terminal-holder": {"default": "new"}}
+        self.assertEqual([oracle.expectation_arm(arm, old) for arm in (None, "default", "old", "new", "launch-config")],
+                         ["old", "old", "old", "new", None])
+        self.assertEqual(oracle.expectation_arm(None, {}), "old", "no switch: every path is the old one")
+        self.assertEqual(oracle.expectation_arm(None, new), "new")
+        self.assertIsNone(oracle.expectation_arm(None, {**old, "layer-hosting": {"default": "new"}}))
+        (self.tmp / "expectations" / "NeverFix.d" / "journeys.txt").write_text(
+            "p15-oracle-224 [ old ] journeys/case-001 [ Skip ]\np15-oracle-224 [ new ] journeys/case-002 [ Skip ]\n")
+        cases = {c.id: c for c in oracle.load_corpus(self.tmp / "corpus")[0]}
+
+        def skips(arm, registry):
+            store = oracle.load_expectations(self.tmp / "expectations", platform="linux", arm=arm, product="daemon",
+                                             build="debug", registry=registry)
+            return [store.expected(cases[f"journeys/case-00{i}"]).skip for i in (1, 2)]
+
+        self.assertEqual(skips(None, old), [True, False])
+        self.assertEqual(skips("default", old), [True, False])
+        self.assertEqual(skips("new", old), [False, True])
+        self.assertEqual(skips(None, new), [False, True])
+        self.assertEqual(skips("launch-config", old), [False, False], "planned arms mix: no arm tag matches")
+
     def test_pointer_scoped_line_excuses_only_its_value(self):
         tmp = self.tmp
         expectation = self.store().expected
@@ -675,6 +798,25 @@ class CheckTests(unittest.TestCase):
         self.assertNotIn("127.0.0.1", text)
         self.assertIn("telepathy", text)
 
+    def test_case_v1_checkpoint_arrays_and_allow_crash_objects(self):
+        """case-v1 writes checkpoint as an array and allow_crashes entries as objects (case-example-daemon.json)."""
+        case = oracle.Case("daemon-ops/x", "daemon-ops", Path("x"), {
+            "requires": ["resource_api", "restart"],
+            "allow_crashes": [{"kind": "daemon", "reason": "on purpose", "steps": ["kill"]}, {"kind": "comet"}],
+            "steps": [
+                {"id": "make", "op": "resource.call", "target": {"session": "current"}, "checkpoint": ["before", "settled"],
+                 "args": {"method": "workspace.create", "params": {}, "idempotencyKey": "x.make"}},
+                {"id": "bare", "op": "resource.call", "args": {"method": "workspace.create"}},
+                {"id": "odd", "op": "snapshot", "checkpoint": ["settled", "turnip"]},
+            ],
+        })
+        errors = oracle.check_case(case, frozenset({"workspace.create"}))
+        self.assertEqual(errors, [
+            "daemon-ops/x: unknown crash kind 'comet' in allow_crashes",
+            "daemon-ops/x: step 'bare' mutates (resource.call workspace.create) without a target",
+            "daemon-ops/x: step 'odd' has unknown checkpoint 'turnip'",
+        ])
+
     def test_mutation_classes_come_from_the_resource_spec(self):
         mutations = oracle.mutation_operations()
         if oracle.RESOURCE_OPERATIONS.is_file():
@@ -689,6 +831,325 @@ class CheckTests(unittest.TestCase):
                 code = oracle.main(["check", "--corpus", str(corpus), "--expectations-root", str(Path(raw) / "none")])
             self.assertEqual(code, 1)
             self.assertIn("suite nosuchsuite: unknown suite", out.getvalue())
+
+
+class Unreachable(Exception):
+    """app_reset.ProductUnreachable's shape: the product is gone."""
+
+    unreachable = True
+
+
+class Relaunch(Exception):
+    """app_reset.NeedsRelaunch's shape: the reset has no action for what the case changed."""
+
+    def __init__(self, reason):
+        super().__init__(reason)
+        self.relaunch = reason
+
+
+class ResetSession(FakeSession):
+    """A launch-sharing session (task 189): its state is what reset_state returns. A case in `leaks` leaves a key the
+    reset cannot remove; `after` maps a case to the case that must run before it in the same launch for it to leak
+    (an order-dependent leak); `reset_raises` maps a case to what the reset after it raises (refused, unreachable or
+    relaunch); a launch number in `fixture_fails` cannot read its fixture; `reset_s` is how long a reset takes."""
+
+    def __init__(self, driver, number):
+        super().__init__(driver, number)
+        self.state = {"windows": ["win_1"], "settings": {"ui": {"animations": {"enabled": False}}}}
+        self.ran = []
+        self.raise_next = None
+
+    def run_case(self, case, ctx):
+        cid = ctx["case_id"]
+        self.ran.append(cid)
+        before = self.driver.after.get(cid)
+        if cid in self.driver.leaks or (before is not None and before in self.ran[:-1]):
+            self.state = {**self.state, "windows": self.state["windows"] + ["win_" + cid]}
+        self.raise_next = self.driver.reset_raises.get(cid)
+        return super().run_case(case, ctx)
+
+    def reset_state(self):
+        with self.driver.mutex:
+            self.driver.resets += 1
+        if not self.ran and self.number in self.driver.fixture_fails:
+            raise RuntimeError("snapshot.get: unavailable, retry")
+        if self.driver.reset_s and self.ran:
+            time.sleep(self.driver.reset_s)  # a slow reset, to tell its time from the case's
+        kind, self.raise_next = self.raise_next, None
+        if kind == "refused":
+            raise RuntimeError("action.run: closeTab refused")
+        if kind == "unreachable":
+            raise Unreachable("snapshot.get: [Errno 61] Connection refused")
+        if kind == "relaunch":
+            raise Relaunch("no action puts back the pane pane_1 tab order")
+        return json.loads(json.dumps(self.state))
+
+
+class ResetDriver(FakeDriver):
+    def __init__(self, leaks=(), after=None, reset_raises=None, fixture_fails=(), reset_s=0.0, **kwargs):
+        super().__init__(**kwargs)
+        self.leaks = set(leaks)
+        self.after = dict(after or {})
+        self.reset_raises = dict(reset_raises or {})
+        self.fixture_fails = set(fixture_fails)
+        self.reset_s = reset_s
+        self.resets = 0
+
+    def open_session(self, ctx):
+        with self.mutex:
+            self.sessions += 1
+            return ResetSession(self, self.sessions)
+
+
+def verdicts(receipt):
+    return {cid: (r["result"], r["outcome"]) for cid, r in receipt["cases"].items()}
+
+
+class ResetCheckTests(unittest.TestCase):
+    """Task 189: the reset check between cases, --batch-limit K and --shuffle --seed N."""
+
+    def test_state_differences_name_pointers(self):
+        diff = oracle.state_differences
+        self.assertEqual(diff({"a": [1, 2]}, {"a": [1, 2]}), [])
+        self.assertEqual(diff({"a": [1, 2]}, {"a": [1, 3]}), ["/a/1"])
+        self.assertEqual(diff({"a": [1]}, {"a": [1, 2]}), ["/a"])
+        self.assertEqual(diff({"a/b": 1, "c": {}}, {"c": {"d": 0}}), ["/a~1b", "/c/d"])
+        # RFC 6901: "" is the whole document, "/" the member named "".
+        self.assertEqual(diff(1, 1.0), [""])
+        self.assertEqual(diff(None, {}), [""])
+        self.assertEqual(diff([1], [1, 2]), [""])
+        self.assertEqual(diff({"": 1}, {"": 2}), ["/"])
+
+    def test_leaked_state_names_the_leaking_case_and_relaunches(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", suites=("alpha",), per_suite=6)
+            driver = ResetDriver(leaks={"alpha/case-002"})
+            receipt, code = run_cases(tmp, driver, batch_limit=10, jobs=1, retry_limit=0)
+            self.assertEqual(code, 1)
+            self.assertFalse(receipt["ok"])
+            self.assertEqual(receipt["leaked_state"], ["alpha/case-002"])
+            leak = receipt["cases"]["alpha/case-002"]["leaked_state"][0]
+            self.assertEqual(leak["case"], "alpha/case-002")
+            self.assertEqual(leak["pointers"], ["/windows"])
+            self.assertEqual(leak["launch_order"], ["alpha/case-000", "alpha/case-001", "alpha/case-002"])
+            self.assertEqual((leak["iteration"], leak["attempt"], leak["phase"]), (0, 0, "run"))
+            # The case's own verdict stays its result; the leak fails the run, not the case's snapshot.
+            self.assertEqual(receipt["cases"]["alpha/case-002"]["result"], "Pass")
+            # The leaking launch closed after its case; the rest ran on a fresh launch.
+            self.assertEqual(driver.sessions, 2)
+            self.assertEqual(driver.closed, 2)
+            self.assertEqual([log["cases"] for log in receipt["sessions"]],
+                             [["alpha/case-000", "alpha/case-001", "alpha/case-002"],
+                              ["alpha/case-003", "alpha/case-004", "alpha/case-005"]])
+            self.assertEqual([log["end"] for log in receipt["sessions"]], ["leaked", "batch-end"])
+            # One fixture read per launch and one reset per case.
+            self.assertEqual(driver.resets, 2 + 6)
+            events = [json.loads(line) for line in (tmp / "out" / "events.jsonl").read_text().splitlines()]
+            mine = next(e for e in events if e["case"] == "alpha/case-002")
+            self.assertEqual((mine["session"], mine["position"], mine["leaked_state"]["case"]), (0, 2, "alpha/case-002"))
+            index = (tmp / "out" / "index.md").read_text()
+            self.assertIn("LeakedState: alpha/case-002 left the product unlike its fixture", index)
+
+    def test_the_last_case_of_a_launch_is_checked_too(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", suites=("alpha",), per_suite=3)
+            driver = ResetDriver(leaks={"alpha/case-002"})
+            receipt, _ = run_cases(tmp, driver, batch_limit=1, jobs=1, retry_limit=0)
+            self.assertEqual(receipt["leaked_state"], ["alpha/case-002"])
+            self.assertEqual(driver.sessions, 3)
+
+    def test_a_refused_reset_is_a_leak_with_its_error(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", suites=("alpha",), per_suite=3)
+            driver = ResetDriver(reset_raises={"alpha/case-001": "refused"})
+            receipt, _ = run_cases(tmp, driver, batch_limit=10, jobs=1, retry_limit=0)
+            leak = receipt["cases"]["alpha/case-001"]["leaked_state"][0]
+            self.assertIn("closeTab refused", leak["error"])
+            self.assertEqual(driver.sessions, 2)
+
+    def test_a_product_lost_in_the_reset_is_a_crash_of_the_case_not_a_leak(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", suites=("alpha",), per_suite=3)
+            driver = ResetDriver(reset_raises={"alpha/case-001": "unreachable"})
+            receipt, code = run_cases(tmp, driver, batch_limit=10, jobs=1, retry_limit=0)
+            self.assertEqual(code, 1)
+            case = receipt["cases"]["alpha/case-001"]
+            self.assertEqual((case["result"], case["outcome"]), ("Crash", "unexpected"))
+            self.assertNotIn("leaked_state", case)
+            self.assertEqual(receipt["leaked_state"], [])
+            self.assertEqual([log["end"] for log in receipt["sessions"]], ["dirty", "batch-end"])
+            events = [json.loads(line) for line in (tmp / "out" / "events.jsonl").read_text().splitlines()]
+            mine = next(e for e in events if e["case"] == "alpha/case-001")
+            self.assertEqual(mine["step"], "reset")
+            self.assertIn("Connection refused", mine["message"])
+
+    def test_a_crash_in_the_reset_is_retried_like_any_crash(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", suites=("alpha",), per_suite=2)
+            driver = ResetDriver(reset_raises={"alpha/case-000": "unreachable"})
+            receipt, _ = run_cases(tmp, driver, batch_limit=10, jobs=1, retry_limit=1)
+            self.assertGreater(receipt["cases"]["alpha/case-000"]["attempts"], 1)
+
+    def test_a_reset_that_asks_for_a_relaunch_is_no_leak(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", suites=("alpha",), per_suite=4)
+            driver = ResetDriver(reset_raises={"alpha/case-001": "relaunch"})
+            receipt, code = run_cases(tmp, driver, batch_limit=10, jobs=1, retry_limit=0)
+            self.assertEqual((code, receipt["ok"], receipt["leaked_state"]), (0, True, []))
+            self.assertEqual(receipt["cases"]["alpha/case-001"]["result"], "Pass")
+            logs = receipt["sessions"]
+            self.assertEqual([log["end"] for log in logs], ["relaunch", "batch-end"])
+            self.assertIn("tab order", logs[0]["reason"])
+            self.assertEqual([log["cases"] for log in logs],
+                             [["alpha/case-000", "alpha/case-001"], ["alpha/case-002", "alpha/case-003"]])
+
+    def test_an_unreadable_fixture_is_an_infra_error_of_the_launch_not_a_result_of_the_case(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", suites=("alpha",), per_suite=3)
+            driver = ResetDriver(fixture_fails={1})
+            receipt, code = run_cases(tmp, driver, batch_limit=10, jobs=1, retry_limit=0)
+            self.assertEqual(code, 1)
+            self.assertEqual(len(receipt["infra_errors"]), 1)
+            self.assertIn("session 0: fixture unreadable before alpha/case-000", receipt["infra_errors"][0])
+            first = receipt["cases"]["alpha/case-000"]
+            self.assertEqual((first["outcome"], first["result"], first["attempts"]), ("not-run", None, 0))
+            self.assertEqual([log["end"] for log in receipt["sessions"]], ["fixture-unreadable", "batch-end"])
+            self.assertEqual(receipt["sessions"][0]["cases"], [])
+            self.assertEqual(receipt["sessions"][1]["cases"], ["alpha/case-001", "alpha/case-002"])
+            self.assertNotIn("alpha/case-000", [c for c, *_ in driver.calls])
+
+    def test_a_case_whose_launch_had_no_fixture_runs_on_the_retry(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", suites=("alpha",), per_suite=3)
+            driver = ResetDriver(fixture_fails={1})
+            receipt, _ = run_cases(tmp, driver, batch_limit=10, jobs=1, retry_limit=1)
+            first = receipt["cases"]["alpha/case-000"]
+            self.assertEqual((first["result"], first["attempts"]), ("Pass", 1))
+            rows = [json.loads(line) for line in (tmp / "out" / "checkpoints.jsonl").read_text().splitlines()]
+            self.assertEqual({r["attempt"] for r in rows if r["case"] == "alpha/case-000"}, {1})
+
+    def test_ms_is_the_case_alone_and_the_reset_has_its_own_time(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", suites=("alpha",), per_suite=2)
+            receipt, _ = run_cases(tmp, ResetDriver(reset_s=0.3), batch_limit=10, jobs=1, retry_limit=0)
+            events = [json.loads(line) for line in (tmp / "out" / "events.jsonl").read_text().splitlines()]
+            for event in events:
+                self.assertLess(event["ms"], 250, event)
+                self.assertGreaterEqual(event["reset_ms"], 300, event)
+
+    def test_a_dirty_case_skips_the_reset_check(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", suites=("alpha",), per_suite=3)
+            driver = ResetDriver(dirty={"alpha/case-000"}, leaks={"alpha/case-000"})
+            receipt, _ = run_cases(tmp, driver, batch_limit=10, jobs=1, retry_limit=0)
+            self.assertEqual(receipt["leaked_state"], [])
+            self.assertEqual([log["end"] for log in receipt["sessions"]], ["dirty", "batch-end"])
+
+    def test_sessions_without_reset_state_are_not_checked(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", suites=("alpha",), per_suite=4)
+            receipt, code = run_cases(tmp, FakeDriver(), batch_limit=10, jobs=1)
+            self.assertEqual((code, receipt["leaked_state"]), (0, []))
+            self.assertEqual(receipt["sessions"][0]["cases"], [f"alpha/case-{i:03d}" for i in range(4)])
+
+    def test_order_is_recorded_and_replays_from_the_seed(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", suites=("alpha", "beta"), per_suite=6)
+            first, _ = run_cases(tmp, ResetDriver(), batch_limit=4, jobs=1, seed=7, out=tmp / "a")
+            again, _ = run_cases(tmp, ResetDriver(), batch_limit=4, jobs=1, seed=7, out=tmp / "b")
+            self.assertEqual(first["order"], again["order"])
+            self.assertNotEqual(first["order"], sorted(first["order"]))
+            self.assertEqual(first["seeds"], {"0": 7})
+            ran = [cid for log in first["sessions"] for cid in log["cases"]]
+            self.assertEqual(ran, first["order"])
+            self.assertTrue(all(len(log["cases"]) <= 4 for log in first["sessions"]))
+
+    def parity_runs(self, tmp, make_driver):
+        """K=10 in id order, two shuffle seeds, and K=1: the fleet acceptance run of task 189."""
+        configs = {"batched": dict(batch_limit=10), "seed1": dict(batch_limit=10, seed=1),
+                   "seed2": dict(batch_limit=10, seed=2), "k1": dict(batch_limit=1)}
+        receipts = {}
+        for name, extra in configs.items():
+            receipts[name], _ = run_cases(tmp, make_driver(), jobs=1, retry_limit=0, out=tmp / name, run_id=name, **extra)
+        return receipts
+
+    def order_diff(self, tmp, a, b, *extra):
+        out = tmp / f"cmp-{a}-{b}"
+        argv = ["diff", "--order-parity", "--out", str(out), "--expectations-root", str(tmp / "expectations"),
+                "--base-run", str(tmp / a), "--head-run", str(tmp / b), *extra]
+        code = quiet(oracle.main, argv)
+        return code, json.loads((out / "comparison.json").read_text())
+
+    def test_two_shuffle_seeds_and_batch_limit_one_give_the_batched_verdicts(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", suites=("alpha", "beta"), per_suite=12)
+            receipts = self.parity_runs(tmp, lambda: ResetDriver(script={"beta/case-004": ["Failure"]}))
+            batched = verdicts(receipts["batched"])
+            for name in ("seed1", "seed2", "k1"):
+                self.assertEqual(verdicts(receipts[name]), batched, name)
+                code, cmp = self.order_diff(tmp, "batched", name)
+                self.assertEqual(code, 0, cmp)
+                self.assertTrue(cmp["ok"])
+                self.assertEqual(cmp["summary"]["equal"], 24)
+            self.assertEqual(len(receipts["k1"]["sessions"]), 24)
+            self.assertEqual(len(receipts["batched"]["sessions"]), 3)
+
+    def test_an_order_dependent_leak_fails_order_parity(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", suites=("alpha",), per_suite=6)
+            # case-003 leaks only when case-001 ran before it in its launch: batched, never with K=1.
+            receipts = self.parity_runs(tmp, lambda: ResetDriver(after={"alpha/case-003": "alpha/case-001"}))
+            self.assertEqual(receipts["batched"]["leaked_state"], ["alpha/case-003"])
+            self.assertEqual(receipts["k1"]["leaked_state"], [])
+            code, cmp = self.order_diff(tmp, "batched", "k1")
+            self.assertEqual(code, 1)
+            self.assertEqual(cmp["leaks_differ"], ["alpha/case-003"])
+            self.assertFalse(cmp["ok"])
+
+    def test_order_parity_refuses_another_config(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", suites=("alpha",), per_suite=3)
+            run_cases(tmp, ResetDriver(), out=tmp / "a", run_id="a")
+            run_cases(tmp, ResetDriver(), out=tmp / "b", run_id="b", build="bench")
+            code, cmp = self.order_diff(tmp, "a", "b")
+            self.assertEqual(code, oracle.EXIT_REFUSED)
+            self.assertIn("build", cmp["refused"])
+            run_cases(tmp, ResetDriver(), out=tmp / "c", run_id="c", seed=3)
+            code, cmp = self.order_diff(tmp, "a", "c")
+            self.assertEqual(code, 0)
+            with self.assertRaises(oracle.UsageError):
+                oracle.cmd_diff(oracle.build_parser().parse_args(["diff", "--order-parity", "--base-run", str(tmp / "a")]))
+
+    def test_batch_limit_and_shuffle_arguments(self):
+        parser = oracle.build_parser()
+
+        def opts(argv):
+            return oracle.options_from_args(parser.parse_args(["run", *argv]), retry_default=None, out=Path("/tmp/x"),
+                                            run_id="r", switch=None, arm=None, switches={}, ref=None, binary=None)
+
+        self.assertEqual(opts(["--product", "app"]).batch_limit, 10)
+        self.assertEqual(opts(["--product", "app", "--batch-limit", "1"]).batch_limit, 1)
+        self.assertEqual(opts(["--product", "daemon"]).batch_limit, 1)
+        self.assertEqual(opts(["--seed", "5"]).seed, 5)
+        self.assertIsNotNone(opts(["--shuffle"]).seed)
+        self.assertIsNone(opts([]).seed)
+        with self.assertRaises(oracle.UsageError):
+            opts(["--batch-limit", "0"])
 
 
 if __name__ == "__main__":

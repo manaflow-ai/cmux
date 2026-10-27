@@ -2,13 +2,14 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextPages
 import Foundation
 import Testing
 
 /// The New Tab spare's WebKit load must never hold the main thread at launch (cua-2 hangs,
 /// 2026-10-14): on a host with a wedged sandboxd, `WKWebView.load` blocked in WebKit's
 /// registerUserInstalledFonts / sandbox_extension_issue for more than 10 s, inside
-/// `NewTabSparePool.prewarm()` before the first window. Here a stalled WebKit stands in: making
+/// `NewTabPreload.prewarm()` before the first window. Here a stalled WebKit stands in: making
 /// the spare blocks its thread for 2 s.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct NewTabPrewarmStallTests {
@@ -36,7 +37,8 @@ struct NewTabPrewarmStallTests {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-prewarm-wedged")
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
-            let pool = NewTabSparePool(services: services, memoryPressure: services.memoryPressure)
+            let pool = NewTabPreload(services: services, slot: PagePreloadSlot(parkState: .renderedParked, deadlines: services.mainDeadlines),
+                                     memory: services.memoryCoordinator, input: services.inputTap, deadlines: services.mainDeadlines)
             var made = 0
             pool.makeSpare = { _ in
                 made += 1

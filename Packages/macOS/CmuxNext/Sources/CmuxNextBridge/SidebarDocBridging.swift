@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextDaemon
 public import CmuxNextSidebar
 public import Foundation
@@ -206,6 +207,6 @@ public final class SidebarDocSections {
 /// `apply`'s ops and `adopt`'s refs grow with the workspaces one drop moves.
 nonisolated enum SidebarDocWire {
     @concurrent static func json<T: Decodable & Sendable>(_ type: T.Type, from data: Data) async throws -> T {
-        try JSONDecoder().decode(type, from: data)
+        try JSONDecoder().blockingDecode(type, from: data)
     }
 }

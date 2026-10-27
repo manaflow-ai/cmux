@@ -1,6 +1,7 @@
 # Lane: browser
 
 ## Active streams
+- 2026-10-26 chrome-parity p01-process-021 (`cp/p01-process-021`, merges after p01-process-018, which it contains): besides its listed CEFRuntime files it changes the callers of the APIs it makes asynchronous, outside its lease rows: `CEFPaneHost.swift` and `CEFPaneHost+Popups.swift` (WindowState `awaitingProfileProxy`, the proxy check moved before the window's side effects; p01-process-019 and 023 merge it), new `CEFPaneHost+ProfileProxy.swift`, `CEFTab+PageInfo.swift` (batched content-setting reads), 018's `CEFReplyWaiters.swift` (`CEFHostReplies.onReply`, the callback form with a deadline on the main deadline queue) and 018's `gen-chromium-host-wire.py` / `chromium-host-ops.json` (token and mint forms; only `kept` settles a site). Task 091 calls `CEFRuntime.hostGone()` in the host's exit turn: it fails every reply and hands each profile proxy to the next host.
 - Passkeys/WebAuthn in CEF and WebKit panes (plans/cmux-next/passkeys.md proposal, its "Known bugs: do not repeat" table is required reading for every browser parity agent; local test RP and oracle in tests/passkeys): passkeys lead. CEF visibility/occlusion and agent-lease changes that touch WebAuthn coordinate with the browser lead.
 
 ## Landed

@@ -238,6 +238,8 @@ fn role_is_required_and_a_bad_role_changes_nothing_and_closes_the_window() {
         ("missing", json!({})),
         ("unknown", json!({"role": "user"})),
         ("not-string", json!({"role": 7})),
+        // Present but null is malformed too (sdk-schema: not nullable).
+        ("null", json!({"role": null})),
     ] {
         let mux = mux(label);
         let mut client = Client::connect(&mux, label);
@@ -259,6 +261,8 @@ fn install_id_is_validated_in_step_one() {
         ("space", json!("bad id")),
         ("slash", json!("a/b")),
         ("number", json!(5)),
+        // Present but null is malformed too (sdk-schema: not nullable).
+        ("null", Value::Null),
     ] {
         let mux = mux(label);
         let mut client = Client::connect(&mux, label);
@@ -274,6 +278,36 @@ fn install_id_is_validated_in_step_one() {
     let reply = client.hello(json!({"role": "main", "install_id": longest}));
     assert_ok_connection_id(&reply, &mux);
     assert_nonce(&reply, true);
+}
+
+/// Step 2 needs `install_id` and `proof` as strings (spec/sdk-schema.json:
+/// not nullable): a null one is client_hello.refused even when the other
+/// member and the key would prove the install.
+#[test]
+fn step_two_refuses_a_null_install_id_or_proof() {
+    use cmux_local_auth::frontend_proof::{NONCE_LEN, hello_proof, unhex};
+    const KEY_HEX: &str = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+    let key = unhex::<32>(KEY_HEX).unwrap();
+    for (label, null_install_id, null_proof) in
+        [("null-install-id", true, false), ("null-proof", false, true), ("both-set", false, false)]
+    {
+        let mux = mux(label);
+        let frontend_key = FrontendKey::parse(&format!("cmuxik1 inst_s2 {KEY_HEX}")).unwrap();
+        assert!(install_frontend_key(&mux, frontend_key));
+        let mut client = Client::connect(&mux, label);
+        let started = client.hello(json!({"role": "main", "install_id": "inst_s2"}));
+        let nonce = unhex::<NONCE_LEN>(started["data"]["nonce"].as_str().unwrap()).unwrap();
+        let proof = hello_proof(&key, "inst_s2", &nonce);
+        let reply = client.hello(json!({
+            "install_id": if null_install_id { Value::Null } else { json!("inst_s2") },
+            "proof": if null_proof { Value::Null } else { json!(proof) },
+        }));
+        if null_install_id || null_proof {
+            assert_hello_error(&reply, "client_hello.refused");
+        } else {
+            assert_eq!(reply["data"]["verified"], true, "{reply}");
+        }
+    }
 }
 
 #[test]
@@ -366,4 +400,203 @@ fn no_hello_is_the_legacy_client_role_and_set_client_info_never_sets_a_role() {
     }));
     assert_eq!(refused["error"]["code"], "origin.forbidden", "{refused}");
     assert_eq!(refused["error"]["details"]["derived"], "agent", "{refused}");
+}
+
+/// The daemon features of the hello tests (p12-perf-process-150): a
+/// `process=daemon` kill switch, a perfPath and a `process=both` kill switch.
+mod features {
+    use super::*;
+    use cmux_features::{Channel, Defaults, FeatureDef, Kind, Live, Process, Snapshot, Source};
+
+    const TABLE: &[FeatureDef] = &[
+        FeatureDef {
+            name: "flagsFetch",
+            defaults: Defaults { dev: true, nightly: true, release: true },
+            kind: Kind::KillSwitch,
+            process: Process::Daemon,
+        },
+        FeatureDef {
+            name: "terminalHolder",
+            defaults: Defaults { dev: false, nightly: false, release: false },
+            kind: Kind::PerfPath,
+            process: Process::Both,
+        },
+        FeatureDef {
+            name: "holderKill",
+            defaults: Defaults { dev: true, nightly: true, release: true },
+            kind: Kind::KillSwitch,
+            process: Process::Both,
+        },
+    ];
+    const KEY_HEX: &str = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+
+    fn installed(label: &str) -> Arc<Mux> {
+        let mux = mux(label);
+        let snapshot = Snapshot::defaults_of(TABLE, Channel::Release);
+        assert!(install_daemon_features(&mux, Live::new(snapshot)));
+        mux
+    }
+
+    /// `installed` with the app's install key, so step 2 can prove it.
+    fn keyed(label: &str) -> Arc<Mux> {
+        let mux = installed(label);
+        let frontend_key = FrontendKey::parse(&format!("cmuxik1 inst_f {KEY_HEX}")).unwrap();
+        assert!(install_frontend_key(&mux, frontend_key));
+        mux
+    }
+
+    fn live(mux: &Mux) -> &Live {
+        daemon_features(mux).expect("installed")
+    }
+
+    fn enabled(mux: &Mux, name: &str) -> bool {
+        let live = live(mux);
+        live.is_enabled(live.snapshot().feature(name).unwrap())
+    }
+
+    /// Step 2 of an install-key hello whose step 1 reply is `started`.
+    fn prove(client: &mut Client, started: &Value) -> Value {
+        use cmux_local_auth::frontend_proof::{NONCE_LEN, hello_proof, unhex};
+        let key = unhex::<32>(KEY_HEX).unwrap();
+        let nonce = unhex::<NONCE_LEN>(started["data"]["nonce"].as_str().unwrap()).unwrap();
+        client.hello(json!({"install_id": "inst_f", "proof": hello_proof(&key, "inst_f", &nonce)}))
+    }
+
+    #[test]
+    fn a_proved_hello_turns_a_daemon_kill_switch_off_at_once() {
+        let mux = keyed("features-kill");
+        let mut client = Client::connect(&mux, "features-kill");
+        let values = json!({"flagsFetch": false, "terminalHolder": false, "holderKill": true});
+        let started = client.hello(json!({
+            "role": "main",
+            "install_id": "inst_f",
+            "features": {"hash": "0000000000000000", "values": values},
+        }));
+        // Not proved yet: the kill switch is reported pending, not applied.
+        assert_eq!(started["data"]["features"]["applied"], json!([]), "{started}");
+        assert_eq!(
+            started["data"]["features"]["pending"],
+            json!([{"name": "flagsFetch", "app": false, "daemon": true}]),
+            "{started}"
+        );
+        assert!(enabled(&mux, "flagsFetch"));
+
+        let proved = prove(&mut client, &started);
+        assert_eq!(proved["data"]["verified"], true, "{proved}");
+        assert_eq!(proved["data"]["features"]["applied"], json!(["flagsFetch"]), "{proved}");
+        assert_eq!(proved["data"]["features"]["pending"], json!([]), "{proved}");
+        assert!(!enabled(&mux, "flagsFetch"));
+        let live = live(&mux);
+        assert_eq!(live.source(live.snapshot().feature("flagsFetch").unwrap()), Source::Hello);
+        assert_eq!(proved["data"]["features"]["hash"], json!(live.hash()), "{proved}");
+    }
+
+    #[test]
+    fn a_perf_path_or_both_mismatch_is_pending_and_keeps_the_daemon_value() {
+        let mux = keyed("features-pending");
+        let mut client = Client::connect(&mux, "features-pending");
+        let started = client.hello(json!({
+            "role": "main",
+            "install_id": "inst_f",
+            "features": {"values": {"flagsFetch": true, "terminalHolder": true, "holderKill": false}},
+        }));
+        let proved = prove(&mut client, &started);
+        assert_eq!(proved["data"]["verified"], true, "{proved}");
+        assert_eq!(proved["data"]["features"]["applied"], json!([]), "{proved}");
+        let mut pending = proved["data"]["features"]["pending"].as_array().unwrap().clone();
+        pending.sort_by_key(|item| item["name"].as_str().unwrap().to_owned());
+        assert_eq!(
+            pending,
+            [
+                json!({"name": "holderKill", "app": false, "daemon": true}),
+                json!({"name": "terminalHolder", "app": true, "daemon": false}),
+            ],
+            "{proved}"
+        );
+        // A `both` feature is read from the daemon's start value only.
+        assert!(!enabled(&mux, "terminalHolder"));
+        assert!(enabled(&mux, "holderKill"));
+    }
+
+    #[test]
+    fn an_unverified_hello_kills_nothing() {
+        let mux = installed("features-unverified");
+        let mut client = Client::connect(&mux, "features-unverified");
+        let reply =
+            client.hello(json!({"role": "main", "features": {"values": {"flagsFetch": false}}}));
+        assert_eq!(reply["ok"], true, "{reply}");
+        assert_eq!(reply["data"]["features"]["applied"], json!([]), "{reply}");
+        assert_eq!(
+            reply["data"]["features"]["pending"],
+            json!([{"name": "flagsFetch", "app": false, "daemon": true}]),
+            "{reply}"
+        );
+        assert!(enabled(&mux, "flagsFetch"));
+    }
+
+    /// The hello's feature step gets only the hello's values and the
+    /// daemon's in-memory `Live`: no mux, no path, no flags reader and no
+    /// fetcher. The fn type below fails to compile if that step ever takes
+    /// one, and cmux-features checks that `Live` itself does no I/O
+    /// (`hello::tests::the_reconcile_module_does_no_io`).
+    #[test]
+    fn the_daemon_never_fetches_on_a_hello() {
+        use super::super::HelloFeatures;
+        let report: fn(&HelloFeatures, &Live, bool) -> Value = HelloFeatures::report;
+        let hello = HelloFeatures {
+            hash: Some("0000000000000000".into()),
+            values: vec![("flagsFetch".into(), false), ("terminalHolder".into(), true)],
+        };
+        let live = Live::new(Snapshot::defaults_of(TABLE, Channel::Release));
+        let unverified = report(&hello, &live, false);
+        assert_eq!(unverified["applied"], json!([]), "{unverified}");
+        let mut pending = unverified["pending"].as_array().unwrap().clone();
+        pending.sort_by_key(|item| item["name"].as_str().unwrap().to_owned());
+        assert_eq!(
+            pending,
+            [
+                json!({"name": "flagsFetch", "app": false, "daemon": true}),
+                json!({"name": "terminalHolder", "app": true, "daemon": false}),
+            ],
+            "{unverified}"
+        );
+        let proved = report(&hello, &live, true);
+        assert_eq!(proved["applied"], json!(["flagsFetch"]), "{proved}");
+        assert_eq!(
+            proved["pending"],
+            json!([{"name": "terminalHolder", "app": true, "daemon": false}]),
+            "{proved}"
+        );
+        assert_eq!(proved["hash"], json!(live.hash()), "{proved}");
+    }
+
+    #[test]
+    fn a_daemon_without_features_answers_with_no_report() {
+        let mux = mux("features-none");
+        let mut client = Client::connect(&mux, "features-none");
+        let reply =
+            client.hello(json!({"role": "main", "features": {"values": {"flagsFetch": false}}}));
+        assert_eq!(reply["ok"], true, "{reply}");
+        assert!(reply["data"].get("features").is_none(), "{reply}");
+        assert!(daemon_features(&mux).is_none());
+    }
+
+    #[test]
+    fn malformed_features_or_a_page_relay_with_features_is_a_bad_request() {
+        for (label, params) in [
+            ("not-object", json!({"role": "main", "features": "x"})),
+            ("no-values", json!({"role": "main", "features": {"hash": "h"}})),
+            ("not-bool", json!({"role": "main", "features": {"values": {"flagsFetch": 0}}})),
+            ("extra-key", json!({"role": "main", "features": {"values": {}, "kill": true}})),
+            ("page-relay", json!({"role": "page_relay", "features": {"values": {}}})),
+        ] {
+            let mux = installed(label);
+            let mut client = Client::connect(&mux, label);
+            let reply = client.hello(params);
+            assert_hello_error(&reply, "client_hello.bad_request");
+            assert_eq!(reply["error_details"], json!({"field": "features"}), "{reply}");
+            assert_eq!(role_for_test(&mux, only_client(&mux)), "legacy");
+            assert!(enabled(&mux, "flagsFetch"));
+        }
+    }
 }

@@ -188,21 +188,36 @@ impl Ring {
         let at = self.layout.name_entry(usize::from(id));
         let state = self.a32(at + off::N_STATE);
         state.store(ENTRY_WRITING, Ordering::Relaxed);
-        self.a32(at + off::N_META).store(
-            u32::from(id) | u32::from(kind as u8) << 16 | u32::from(category) << 24,
-            Ordering::Relaxed,
-        );
-        let text = utf8_prefix(text, NAME_TEXT_BYTES);
-        let mut packed = [0u8; 1 + NAME_TEXT_BYTES];
-        packed[0] = text.len() as u8;
-        packed[1..=text.len()].copy_from_slice(text);
-        self.put_bytes(at + off::N_TEXT, &packed);
+        self.a32(at + off::N_META).store(name_meta(id, kind, category), Ordering::Relaxed);
+        self.put_bytes(at + off::N_TEXT, &packed_name(text));
         state.store(ENTRY_PUBLISHED, Ordering::Release);
     }
 
-    /// Claims a name entry for `text` and publishes it; its id, or 0 (counted in `name_overflow`)
-    /// when the table is full.
+    /// The id of a published interned entry of `text` in `category`, if the table holds one.
+    fn find_interned(&self, text: &str, category: u8) -> Option<u16> {
+        let packed = packed_name(text);
+        let words = packed.as_chunks::<8>().0;
+        let end = self.a32(off::NAME_CURSOR).load(Ordering::Relaxed);
+        (1..end.min(self.layout.sizes.name_capacity)).map(|id| id as u16).find(|&id| {
+            let at = self.layout.name_entry(usize::from(id));
+            self.a32(at + off::N_STATE).load(Ordering::Acquire) == ENTRY_PUBLISHED
+                && self.a32(at + off::N_META).load(Ordering::Relaxed)
+                    == name_meta(id, NameKind::Interned, category)
+                && words.iter().enumerate().all(|(index, word)| {
+                    self.a64(at + off::N_TEXT + 8 * index).load(Ordering::Relaxed)
+                        == u64::from_le_bytes(*word)
+                })
+        })
+    }
+
+    /// The id of `text` in `category`: the published entry another trace point of the same text
+    /// interned, else a new entry claimed and published; 0 (counted in `name_overflow`) when the
+    /// table is full. Two trace points that intern the same text at once may both claim an entry,
+    /// as two threads of one trace point may (trace.md, "Name table").
     pub(crate) fn intern(&self, text: &str, category: u8) -> u16 {
+        if let Some(id) = self.find_interned(text, category) {
+            return id;
+        }
         let capacity = self.layout.sizes.name_capacity;
         let cursor = self.a32(off::NAME_CURSOR);
         let id = if cursor.load(Ordering::Relaxed) < capacity {
@@ -359,6 +374,20 @@ impl Ring {
     }
 }
 
+/// A name entry's `id`, `kind` and `category` word.
+fn name_meta(id: u16, kind: NameKind, category: u8) -> u32 {
+    u32::from(id) | u32::from(kind as u8) << 16 | u32::from(category) << 24
+}
+
+/// A name entry's `name_len` and text, NUL padded: the seven words at `N_TEXT`.
+fn packed_name(text: &str) -> [u8; 1 + NAME_TEXT_BYTES] {
+    let text = utf8_prefix(text, NAME_TEXT_BYTES);
+    let mut packed = [0u8; 1 + NAME_TEXT_BYTES];
+    packed[0] = text.len() as u8;
+    packed[1..=text.len()].copy_from_slice(text);
+    packed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -446,5 +475,20 @@ mod tests {
         ring.exit_thread(17);
         assert_eq!(ring.register_thread(&identity), (17, 2));
         assert_eq!(ring.counter(off::THREAD_OVERFLOW), 1);
+    }
+
+    /// Two trace points of one text share its entry: an async begin and its end, at two call
+    /// sites, pair by name id.
+    #[test]
+    fn interning_a_text_again_returns_its_entry() {
+        let ring = ring(4);
+        let first = ring.intern("daemon.url_open", 6);
+        assert_ne!(first, 0);
+        assert_eq!(ring.intern("daemon.url_open", 6), first, "one text, one id");
+        let other = ring.intern("daemon.url_open.slow", 6);
+        assert_ne!(other, first);
+        assert_ne!(ring.intern("daemon.url_open", 7), first, "the category is part of the name");
+        assert_eq!(ring.intern("daemon.url_open.slow", 6), other);
+        assert_eq!(ring.a32(off::NAME_CURSOR).load(Ordering::Relaxed), u32::from(other) + 2);
     }
 }

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextApps
+import CmuxNextDesign
 import CmuxNextIcons
 
 /// An app's own page (its `cmux.pane/1` implementation rendered from a scene
@@ -7,6 +8,7 @@ import CmuxNextIcons
 /// page id `app:<app id>`, one tab per window, the app's scene mounted per
 /// tab through the app supervisor (`apps-mount`). First-party apps open this
 /// way from their sidebar label item (CodeRouter: below the App Store).
+// discard: default an app's scene keeps its state in its mount; the apps protocol saves and restores no scene yet
 @MainActor
 final class AppPanePage: InternalPageProvider {
     let appID: String
@@ -40,7 +42,7 @@ final class AppPanePage: InternalPageProvider {
         guard let app, let pane = app.manifest.scenePane else { return NSView() }
         let mount = apps.client.mount(app.id, implementation: pane, surface: "pane")
         mounts[key] = mount
-        return mount.makeView()
+        return VisibilityGatedHostingView(owner: "AppPanePage", hosting: mount.makeView())
     }
 
     func tabClosed(_ key: String) {

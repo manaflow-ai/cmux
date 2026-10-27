@@ -71,7 +71,7 @@ import Testing
         ReduceTransparency.shared.override = false
         defer { ReduceTransparency.shared.override = nil }
         let card = SidebarNoticeCardView(frame: NSRect(x: 0, y: 0, width: 216, height: 80),
-                                         reduceTransparency: ReduceTransparency(system: { false }, changes: NotificationCenter()))
+                                         reduceTransparency: ReduceTransparency(system: { false }))
         card.configure(SidebarNoticeCard(id: "tip", eyebrow: "Tip", title: "Drag a tab to split the pane"))
         try Self.expectCardSurface(card, "notice")
     }

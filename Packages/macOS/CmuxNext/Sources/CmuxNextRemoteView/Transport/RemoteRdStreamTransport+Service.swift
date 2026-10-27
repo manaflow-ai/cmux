@@ -7,42 +7,69 @@ extension RemoteRdStreamTransport {
     /// The bodies of the session service's control messages (`service`
     /// messages whose service is the hello's), in order and never dropped.
     /// Subscribe before `connect()`: bodies that arrive with no subscriber
-    /// are not kept. A new call finishes the previous stream.
-    public func serviceMessages() -> AsyncStream<RemoteRdJSON> {
+    /// are not kept. A new call finishes the previous stream. While the
+    /// consumer holds ``RemoteRdServiceOutlet/byteBound`` of them untaken,
+    /// the transport stops taking messages from the core, which holds them
+    /// under its own bound, until the consumer took half.
+    public func serviceMessages() -> RemoteRdServiceMessages {
         // concurrency-allow: rb/1 control bodies (page state, menus, dialogs), not frames; the session drains them at once into its reducer, and a dropped body would desync it
-        let (stream, continuation) = AsyncStream.makeStream(of: RemoteRdJSON.self, bufferingPolicy: .unbounded)
+        // memory: bounded-by RemoteRdServiceOutlet.byteBound (4 MiB, the core's message bound): past it the transport stops popping the core's messages
+        let (stream, continuation) = AsyncStream.makeStream(of: RemoteRdServiceMessages.Item.self, bufferingPolicy: .unbounded)
+        let outlet = RemoteRdServiceOutlet(continuation) { [weak self] in self?.serviceConsumerCaughtUp() }
         let previous = state.withLock { state in
-            defer { state.services = continuation }
+            defer { state.services = outlet }
             return state.services
         }
         previous?.finish()
-        return stream
+        return RemoteRdServiceMessages(base: stream, outlet: outlet)
+    }
+
+    /// The service consumer took half of what it held, or stopped taking: the queue takes the core's
+    /// messages again.
+    private func serviceConsumerCaughtUp() {
+        queue.async { [self] in
+            guard let outlet = state.withLock(\.services), !engine.handshake.isEnded else { return }
+            _ = outlet.resumeIfCaughtUp()
+            guard !outlet.isBackedUp else { return }
+            pump()
+        }
     }
 
     /// Sends one control message of the session's service (`body` is an
     /// rb/1 message such as `rb.navigate`). Dropped after the session ended.
+    /// It joins the caller's outbox, so it reaches the host in call order
+    /// with the input events (``send(_:)``, ``sendServiceInput(_:mustDeliver:)``):
+    /// a key sent after `rb.history` applies to the page it opens.
     public func sendService(_ body: RemoteRdJSON) {
-        queue.async { [self] in
-            guard !engine.handshake.isEnded else { return }
-            sendControl(.service(service: hello.service, body: body))
+        guard let json = try? RemoteRdControl.service(service: hello.service, body: body).json(),
+              let frame = try? RemoteRdCore.streamFrame(json, control: true) else { return }
+        let posted = inputChannel.withLock { channel -> Bool in
+            guard !channel.ended else { return false }
+            channel.outbox.append(frame)
+            return true
         }
+        if posted { sendOutbox() }
     }
 
     /// Queues one service input event (opaque bytes, tag 0x80) and returns
     /// its rd input sequence number, which the service's answers name (rb's
     /// `rb.key_unhandled {input_seq}`). Nil before the welcome, after the
     /// end, when the host's welcome does not list `input.service`, or for
-    /// bytes the core refuses. Waits for the transport queue, so call it
-    /// from outside that queue (the main actor).
+    /// bytes the core refuses. Never waits for the transport queue: the
+    /// number comes from the input channel's lock, and the event's packets
+    /// join the caller's outbox, in call order with ``sendService(_:)`` and
+    /// ``send(_:)``.
     public func sendServiceInput(_ bytes: Data, mustDeliver: Bool) -> UInt32? {
-        dispatchPrecondition(condition: .notOnQueue(queue))
-        return queue.sync { [self] in
-            guard !engine.handshake.isEnded,
-                  engine.handshake.welcome?.caps?.contains(Self.inputServiceCap) == true,
-                  let seq = try? engine.input.sendService(bytes, mustDeliver: mustDeliver) else { return nil }
-            pump()
+        let now = nowMicros()
+        let seq = inputChannel.withLock { channel -> UInt32? in
+            guard channel.acceptsService,
+                  let seq = try? channel.input.sendService(bytes, mustDeliver: mustDeliver) else { return nil }
+            channel.outbox += (try? channel.input.packets(nowMicros: now)) ?? []
             return seq
         }
+        guard let seq else { return nil }
+        sendOutbox()
+        return seq
     }
 
     /// The access units of popup surface stream `stream` (rb/1

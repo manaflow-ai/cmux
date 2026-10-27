@@ -15,7 +15,8 @@
 //! `CMUXSNAP1\n` + one JSON line (`generation`, `cols`, `rows`,
 //! `written_at_ms`) + gzip of the replay bytes.
 
-use std::fs;
+use cmux_threads::checked::fs as files;
+use cmux_threads::checked::sync as waits;
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -58,9 +59,11 @@ pub(super) struct Writer {
 impl Writer {
     pub(super) fn start(&self, mux: Weak<Mux>) -> anyhow::Result<()> {
         let state = self.state.clone();
-        let thread = std::thread::Builder::new()
-            .name("mux-output-store-writer".into())
-            .spawn(move || run(&mux, &state))?;
+        let thread = cmux_threads::spawn(
+            "mux-output-store-writer",
+            crate::request_qos::UPKEEP_THREAD_QOS,
+            move || run(&mux, &state),
+        )?;
         *self.thread.lock().unwrap_or_else(PoisonError::into_inner) = Some(thread);
         Ok(())
     }
@@ -68,13 +71,19 @@ impl Writer {
     /// A terminal printed after the writer last looked at it: a pass is due
     /// `interval` from now, unless one is due sooner.
     pub(super) fn mark_dirty(&self, interval: Duration) {
-        let (lock, changed) = &*self.state;
-        let mut state = lock.lock().unwrap_or_else(PoisonError::into_inner);
-        let due = Instant::now() + interval;
-        if state.due.is_none_or(|current| due < current) {
-            state.due = Some(due);
-            changed.notify_all();
-        }
+        schedule(&self.state, interval);
+    }
+
+    /// A handle that asks this writer for a pass now (the memory budget's
+    /// pressure consumer).
+    pub(super) fn waker(&self) -> WriterWaker {
+        WriterWaker { state: self.state.clone() }
+    }
+
+    /// When the next pass is due (tests).
+    #[cfg(test)]
+    pub(super) fn due(&self) -> Option<Instant> {
+        self.state.0.lock().unwrap_or_else(PoisonError::into_inner).due
     }
 
     pub(super) fn stop(&self) {
@@ -87,9 +96,32 @@ impl Writer {
             // The writer can hold the last Mux handle, so the Mux may drop
             // (and stop the writer) on the writer thread itself.
             if thread.thread().id() != std::thread::current().id() {
-                let _ = thread.join();
+                let _ = waits::join(thread);
             }
         }
+    }
+}
+
+/// Asks the writer for a pass now; the pass runs on the writer thread. It
+/// only takes the writer's state lock, never waits on a pass.
+pub(super) struct WriterWaker {
+    state: Arc<(Mutex<WriterState>, Condvar)>,
+}
+
+impl WriterWaker {
+    pub(super) fn wake_now(&self) {
+        schedule(&self.state, Duration::ZERO);
+    }
+}
+
+/// A pass is due `interval` from now, unless one is due sooner.
+fn schedule(state: &(Mutex<WriterState>, Condvar), interval: Duration) {
+    let (lock, changed) = state;
+    let mut state = lock.lock().unwrap_or_else(PoisonError::into_inner);
+    let due = Instant::now() + interval;
+    if state.due.is_none_or(|current| due < current) {
+        state.due = Some(due);
+        changed.notify_all();
     }
 }
 
@@ -119,6 +151,7 @@ fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
             }
         }
         let Some(mux) = mux.upgrade() else { return };
+        let _pass = mux.request_qos().enter_upkeep_pass();
         write_pass(&mux, &mux.output_store);
     }
 }
@@ -130,12 +163,18 @@ pub(super) fn write_pass(mux: &Arc<Mux>, store: &OutputStore) {
     let policy = PersistencePolicy::current(mux);
     let previous = store.cached_policy();
     store.cache_policy(policy);
-    if previous.is_some_and(|previous| previous.mode != policy.mode) {
+    let mode_changed = previous.is_some_and(|previous| previous.mode != policy.mode);
+    if mode_changed {
         // The mode changed at runtime: drop what the new mode does not keep.
         eprintln!("cmux-tui: terminal output store: mode {}", policy.mode.as_str());
         store.prune_pending.store(true, std::sync::atomic::Ordering::Release);
     }
     write_pass_at(mux, store, policy, false);
+    if mode_changed {
+        // Full mode compresses nothing (mux/cold_scrollback.rs): the worker
+        // reads the new mode.
+        mux.wake_cold_scrollback();
+    }
 }
 
 /// [`write_pass`] at quit: full mode writes a due snapshot at once.
@@ -150,8 +189,10 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
     store.full.set_enabled(full);
     let dirty = store.take_dirty();
     let prune_pending = store.prune_pending.swap(false, std::sync::atomic::Ordering::AcqRel);
-    if !dirty.is_empty() {
-        // Memory grows only when terminals print.
+    // Memory grows only when terminals print; a pressure level change moves
+    // the total itself.
+    let pressure_pass = store.memory_budget.take_pressure_pass();
+    if !dirty.is_empty() || pressure_pass {
         super::memory_budget::enforce(mux, store, policy.memory_total_bytes);
     }
     if policy.mode == PersistenceMode::Memory {
@@ -177,7 +218,9 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
                 || state.snapshot_at.is_none_or(|at| at.elapsed() >= store.snapshot_interval);
             (state.snapshot_digest, due)
         };
-        let captured = surface.try_with_terminal(|terminal| {
+        // A cold terminal has not printed since it was compressed, so its
+        // snapshot is current: reading it would restore it for nothing.
+        let captured = surface.try_with_hot_terminal(|terminal| {
             let digest = content_digest(terminal)?;
             if previous == Some(digest) || !snapshot_due {
                 return Some((digest, None));
@@ -187,7 +230,7 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
             let replay = terminal.vt_replay_bounded(budget).ok()?.into_self_contained_bytes();
             Some((digest, Some((cols, rows, replay))))
         });
-        let Ok(Some((digest, replay))) = captured else {
+        let Ok(Some(Some((digest, replay)))) = captured else {
             digests.push((log, None));
             continue;
         };
@@ -269,34 +312,60 @@ fn write(
     rows: u16,
     replay: &[u8],
 ) -> anyhow::Result<()> {
-    fs::create_dir_all(directory)?;
+    files::create_dir_all(directory)?;
+    let header = SnapshotHeader {
+        generation,
+        stream_end,
+        cols,
+        rows,
+        written_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+    };
+    let target = path(directory, terminal_id);
+    let staged = target.with_extension(format!("{SUFFIX}.tmp"));
+    {
+        let mut file = files::create(&staged)?;
+        encode(&mut file, &header, replay)?;
+        files::sync_all(&file)?;
+    }
+    files::rename(&staged, &target)?;
+    Ok(())
+}
+
+/// The header line of a snapshot file.
+pub(crate) struct SnapshotHeader<'a> {
+    pub(crate) generation: &'a str,
+    pub(crate) stream_end: u64,
+    pub(crate) cols: u16,
+    pub(crate) rows: u16,
+    pub(crate) written_at_ms: u64,
+}
+
+/// A snapshot file's bytes: magic, header line, gzip of `replay`.
+pub(crate) fn encode(
+    output: &mut impl Write,
+    header: &SnapshotHeader<'_>,
+    replay: &[u8],
+) -> anyhow::Result<()> {
     let header = serde_json::json!({
-        "generation": generation,
-        "stream_end": stream_end,
-        "cols": cols,
-        "rows": rows,
-        "written_at_ms": crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+        "generation": header.generation,
+        "stream_end": header.stream_end,
+        "cols": header.cols,
+        "rows": header.rows,
+        "written_at_ms": header.written_at_ms,
     });
     let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
     encoder.write_all(replay)?;
     let compressed = encoder.finish()?;
-    let target = path(directory, terminal_id);
-    let staged = target.with_extension(format!("{SUFFIX}.tmp"));
-    {
-        let mut file = fs::File::create(&staged)?;
-        file.write_all(MAGIC)?;
-        serde_json::to_writer(&mut file, &header)?;
-        file.write_all(b"\n")?;
-        file.write_all(&compressed)?;
-        file.sync_all()?;
-    }
-    fs::rename(&staged, &target)?;
+    output.write_all(MAGIC)?;
+    serde_json::to_writer(&mut *output, &header)?;
+    output.write_all(b"\n")?;
+    output.write_all(&compressed)?;
     Ok(())
 }
 
 /// The header line of a snapshot file (it is short; the replay follows).
 fn read_header(file: &Path) -> Option<serde_json::Value> {
-    let mut reader = std::io::BufReader::new(fs::File::open(file).ok()?);
+    let mut reader = std::io::BufReader::new(files::open(file).ok()?);
     let mut magic = [0_u8; MAGIC.len()];
     reader.read_exact(&mut magic).ok()?;
     (magic == MAGIC).then_some(())?;
@@ -309,7 +378,7 @@ fn read_header(file: &Path) -> Option<serde_json::Value> {
 pub(super) fn stream_ends(
     directory: &Path,
 ) -> std::collections::HashMap<TerminalPublicId, (String, u64)> {
-    let Ok(entries) = fs::read_dir(directory) else { return Default::default() };
+    let Ok(entries) = files::read_dir(directory) else { return Default::default() };
     entries
         .flatten()
         .filter_map(|entry| {
@@ -331,10 +400,14 @@ pub(super) fn read(
     terminal_id: &TerminalPublicId,
 ) -> Option<(TerminalReplay, String)> {
     let file = path(directory, terminal_id);
-    if fs::metadata(&file).ok()?.len() > MAX_SNAPSHOT_FILE_BYTES {
+    if files::metadata(&file).ok()?.len() > MAX_SNAPSHOT_FILE_BYTES {
         return None;
     }
-    let contents = fs::read(&file).ok()?;
+    decode(&files::read(&file).ok()?)
+}
+
+/// A snapshot file's replay and generation, `None` when it is malformed.
+pub(crate) fn decode(contents: &[u8]) -> Option<(TerminalReplay, String)> {
     let rest = contents.strip_prefix(MAGIC)?;
     let newline = rest.iter().position(|byte| *byte == b'\n')?;
     let (header, body) = rest.split_at_checked(newline)?;
@@ -362,13 +435,16 @@ pub(super) fn read(
 /// the files of terminals that are no longer in the session otherwise.
 pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
     let Some(directory) = store.directory() else { return };
-    let Ok(entries) = fs::read_dir(directory) else { return };
+    let Ok(entries) = files::read_dir(directory) else { return };
     if policy.mode == PersistenceMode::Memory {
         let mut removed = 0_usize;
         for entry in entries.flatten() {
             let path = entry.path();
-            let result =
-                if path.is_dir() { fs::remove_dir_all(&path) } else { fs::remove_file(&path) };
+            let result = if path.is_dir() {
+                files::remove_dir_all(&path)
+            } else {
+                files::remove_file(&path)
+            };
             removed += usize::from(result.is_ok());
         }
         if removed > 0 {
@@ -394,7 +470,8 @@ pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
             continue;
         }
         let path = entry.path();
-        let _ = if path.is_dir() { fs::remove_dir_all(&path) } else { fs::remove_file(&path) };
+        let _ =
+            if path.is_dir() { files::remove_dir_all(&path) } else { files::remove_file(&path) };
     }
     if policy.mode != PersistenceMode::Full {
         super::segments::remove_all(directory);
@@ -403,7 +480,7 @@ pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
 
 /// Delete the oldest files with `suffix` until their total is at most `cap`.
 pub(super) fn enforce_total(directory: &Path, suffix: &str, cap: u64) {
-    let Ok(entries) = fs::read_dir(directory) else { return };
+    let Ok(entries) = files::read_dir(directory) else { return };
     let mut files = entries
         .flatten()
         .filter(|entry| entry.path().extension().is_some_and(|extension| extension == suffix))
@@ -421,7 +498,7 @@ pub(super) fn enforce_total(directory: &Path, suffix: &str, cap: u64) {
         if total <= cap {
             break;
         }
-        if fs::remove_file(&path).is_ok() {
+        if files::remove_file(&path).is_ok() {
             total -= len;
         }
     }

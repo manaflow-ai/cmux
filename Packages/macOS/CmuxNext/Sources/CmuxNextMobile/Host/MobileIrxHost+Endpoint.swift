@@ -29,7 +29,7 @@ extension MobileIrxHost {
         let wake = endpointWake
         let clock = clock
         endpointTask = Task { [weak self] in
-            // wakeup-allow: each failed activation waits in RetryWake (capped backoff, then relay-state events only)
+            // wakeup-allow: backoff: each failed activation waits in RetryWake (capped backoff, then relay-state events only)
             while !Task.isCancelled {
                 guard let self, let cache = await self.cachedState else { return }
                 do {
@@ -95,7 +95,7 @@ extension MobileIrxHost {
         let judgment = admission.judgment()
         acceptTask = Task { [weak self] in
             var accepted = false
-            // wakeup-allow: awaits the next inbound connection; nil ends the loop (restart is paced by acceptRetry)
+            // wakeup-allow: bounded: awaits the next inbound connection; nil ends the loop (restart is paced by acceptRetry)
             while !Task.isCancelled {
                 guard let inbound = await supervisor.acceptNextInbound() else {
                     await self?.acceptLoopEnded(acceptedAny: accepted)

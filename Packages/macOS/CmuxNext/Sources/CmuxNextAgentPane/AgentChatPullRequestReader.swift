@@ -1,5 +1,9 @@
+import CmuxNextCompat
 public import Foundation
-import CmuxNextWakeups
+public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Reads the pull request of a folder's branch with the user's GitHub CLI (cx-tcwj):
 /// `gh pr view --json` ``AgentPanePullRequest/fields`` in the folder, or one pull request by its
@@ -11,11 +15,17 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     var timeout: Duration = .seconds(30)
     /// The App's environment, from which gh gets the user's GitHub settings (``githubVariables``).
     var environment: [String: String] = ProcessInfo.processInfo.environment
+    /// Runs gh to its end: in the App its one gh runner, a ``BoundedProcessRunner`` that every reader
+    /// shares (two gh at once, the rest in arrival order: each may wait up to `timeout`, and
+    /// restoring many chats offline must not start one gh per chat, cx-mb1e0); tests pass a fake.
+    var processes: any ProcessRunning
 
-    public init(gh: String? = nil, timeout: Duration = .seconds(30), environment: [String: String] = ProcessInfo.processInfo.environment) {
+    public init(gh: String? = nil, timeout: Duration = .seconds(30), environment: [String: String] = ProcessInfo.processInfo.environment,
+                processes: any ProcessRunning) {
         self.gh = gh
         self.timeout = timeout
         self.environment = environment
+        self.processes = processes
     }
 
     /// Folders an app launched from Finder lacks on its PATH, where gh usually is.
@@ -24,15 +34,6 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     /// no chip without them (cx-mb1e0).
     static let githubVariables = ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_HOST",
                                   "GH_CONFIG_DIR", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy"]
-    /// gh runs here, two at a time, never on the cooperative pool: each may wait up to `timeout`,
-    /// and restoring many chats offline must not fill the pool (cx-mb1e0).
-    private static let queue: OperationQueue = {
-        let queue = OperationQueue()
-        queue.name = "com.cmuxterm.app.next.agent-pane.pull-request"
-        queue.maxConcurrentOperationCount = 2
-        queue.qualityOfService = .utility
-        return queue
-    }()
 
     public func read(in folder: String) async -> AgentPanePullRequest? {
         await read(arguments: ["pr", "view", "--json", AgentPanePullRequest.fields], in: folder)
@@ -58,7 +59,7 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     /// another host's (GitHub Enterprise) takes one `gh pr view <url>` each. A URL GitHub answered
     /// for has its pull request, or nil when it has none (gone, or not visible); a URL whose read
     /// failed (offline, timed out, rate limited) is left out, so its last answer stands.
-    public func read(urls: [String]) async -> [String: AgentPanePullRequest?] {
+    @concurrent public func read(urls: [String]) async -> [String: AgentPanePullRequest?] {
         var targets: [Target] = []
         var others: [String] = []
         for url in urls {
@@ -144,7 +145,7 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     /// mention (no `data`), or whose null comes with an error other than NOT_FOUND (SSO, a resource
     /// limit), is left out, so it keeps its last answer.
     static func pullRequests(fromGraphQL data: Data, _ targets: [Target]) -> [String: AgentPanePullRequest?] {
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        guard let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
               let answers = object["data"] as? [String: Any] else { return [:] }
         let unanswered = Set(((object["errors"] as? [[String: Any]]) ?? []).compactMap { error -> String? in
             guard (error["type"] as? String) != "NOT_FOUND" else { return nil }
@@ -179,21 +180,22 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
         return result
     }
 
-    private func read(arguments: [String], in folder: String?) async -> AgentPanePullRequest? {
+    /// `@concurrent`: gh's JSON is parsed off the caller's actor (often main).
+    @concurrent private func read(arguments: [String], in folder: String?) async -> AgentPanePullRequest? {
         await run(arguments, in: folder, anyExit: false).flatMap(AgentPanePullRequest.init(ghView:))
     }
 
-    /// gh's output for `arguments`, on the queue; nil when gh is missing, fails (unless `anyExit`)
-    /// or does not answer in time.
+    /// gh's output for `arguments`; nil when gh is missing, fails (unless `anyExit`) or does not
+    /// answer in time (it gets SIGTERM, then SIGKILL). No thread waits for it. Nobody waits for a
+    /// chip's pull request now, so gh runs at bestEffort.
     private func run(_ arguments: [String], in folder: String?, anyExit: Bool) async -> Data? {
         guard let gh = gh ?? Self.findGitHubCLI(environment) else { return nil }
-        let timeout = timeout, environment = Self.environment(environment)
-        return await withCheckedContinuation { continuation in
-            Self.queue.addOperation {
-                continuation.resume(returning: Self.run(gh, arguments: arguments, in: folder, environment: environment,
-                                                        timeout: timeout, anyExit: anyExit))
-            }
-        }
+        let request = ProcessRequest(URL(fileURLWithPath: gh), arguments, environment: Self.environment(environment),
+                                     directory: folder.map { URL(fileURLWithPath: $0) }, timeout: timeout, priority: .bestEffort)
+        let outcome = try? await processes.outcome(of: request)
+        // A deadline kill is never an answer.
+        guard let outcome, outcome.succeeded || (anyExit && outcome.exited) else { return nil }
+        return outcome.output
     }
 
     /// gh's environment: no prompts, the App's PATH and gh's install folders, HOME, and the user's
@@ -210,39 +212,6 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
         let folders = (environment["PATH"] ?? "").split(separator: ":").map(String.init) + installFolders
         return folders.filter { $0.hasPrefix("/") }.map { $0 + "/gh" }.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
-
-    /// The process, for the deadline.
-    private final class Held: @unchecked Sendable { // crash-allow: one immutable let; the deadline only reads isRunning and calls terminate, which Process allows from any thread
-        let process = Process()
-    }
-
-    private static func run(_ gh: String, arguments: [String], in folder: String?, environment: [String: String],
-                            timeout: Duration, anyExit: Bool) -> Data? {
-        let held = Held(), process = held.process
-        process.executableURL = URL(fileURLWithPath: gh)
-        process.arguments = arguments
-        if let folder { process.currentDirectoryURL = URL(fileURLWithPath: folder) }
-        process.environment = environment
-        // A file, not a pipe: a child gh left holding its output cannot keep this read (and one of
-        // the queue's two runs) waiting past the deadline.
-        let file = FileManager.default.temporaryDirectory.appending(path: "cmux-gh-pr-\(UUID().uuidString).json")
-        guard FileManager.default.createFile(atPath: file.path, contents: nil),
-              let output = try? FileHandle(forWritingTo: file) else { return nil }
-        defer { try? FileManager.default.removeItem(at: file) }
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        process.standardInput = FileHandle.nullDevice
-        guard (try? process.run()) != nil else { return nil }
-        try? output.close()
-        let deadline = DemandTimer(owner: "header-pull-request")
-        deadline.schedule(after: timeout) { if held.process.isRunning { held.process.terminate() } }
-        defer { deadline.cancel() }
-        // concurrency-allow: run is called only on read's own operation queue, bounded by the deadline above.
-        process.waitUntilExit()
-        // A deadline kill is never an answer.
-        guard process.terminationStatus == 0 || (anyExit && process.terminationReason == .exit) else { return nil }
-        return try? Data(contentsOf: file)
-    }
 }
 
 /// The pull requests reply links and the pull request bars point at, for their cards: each read
@@ -255,6 +224,11 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
 /// into one — not once per reply and never once per hover. A read that fails — no gh, no
 /// network, a rate limit — leaves the last good answer and its age in place, and is not tried
 /// again for `retry`, so a rate-limited GitHub never replaces the pull request with an error.
+///
+/// Each read runs off the main actor, and its answers land in the cache as one task on the app's
+/// scheduler (Chromium's `PostTaskAndReplyWithResult` onto a typed UI task runner,
+/// base/task/task_runner_util.h): `background` for a reply's prefetch, which no card shows yet,
+/// `visible` for a link a card asked for.
 @MainActor
 public final class AgentReplyPullRequests {
     private struct Entry {
@@ -268,8 +242,6 @@ public final class AgentReplyPullRequests {
         var touched: ContinuousClock.Instant
     }
 
-    /// The App's one cache: every chat's cards read through it.
-    public static let shared = AgentReplyPullRequests()
     /// The most links kept; the stalest goes first.
     static let maximumKept = 200
     /// The most links one ``register(_:)`` prefetches, so a transcript full of pull requests cannot
@@ -287,12 +259,19 @@ public final class AgentReplyPullRequests {
     private let reader: AgentChatPullRequestReader
     private let freshness: Duration
     private let retry: Duration
+    private let mainWork: MainWorkScheduler
+    /// The owner of the reads' answers, interned once.
+    private let owner: MainTaskOwner
     private var entries: [URL: Entry] = [:]
     private var inflight: [URL: Task<Void, Never>] = [:]
 
-    public init(reader: AgentChatPullRequestReader = AgentChatPullRequestReader(),
-                freshness: Duration = .seconds(60), retry: Duration = .seconds(300)) {
+    /// The App makes one (`AppServices.replyPullRequests`): every chat's cards and the changelog's
+    /// read through it, with the App's one gh reader; `mainWork` is the app's scheduler the answers land on.
+    public init(reader: AgentChatPullRequestReader, mainWork: MainWorkScheduler, freshness: Duration = .seconds(60),
+                retry: Duration = .seconds(300)) {
         self.reader = reader
+        self.mainWork = mainWork
+        owner = mainWork.board.owner("AgentReplyPullRequests.read")
         self.freshness = freshness
         self.retry = retry
     }
@@ -317,13 +296,7 @@ public final class AgentReplyPullRequests {
             wanted.append(url)
         }
         guard !wanted.isEmpty else { return }
-        let reader = reader
-        let addresses = wanted.map(\.absoluteString)
-        // task-owner: one read for every link of a reply; a card opened meanwhile shares it.
-        let task = Task { [weak self] in
-            let answers = await reader.read(urls: addresses)
-            self?.absorb(answers, for: wanted)
-        }
+        let task = fetch(wanted, as: .background)
         for url in wanted { inflight[url] = task }
     }
 
@@ -347,20 +320,35 @@ public final class AgentReplyPullRequests {
     private func startRead(_ url: URL) -> Task<Void, Never>? {
         if let task = inflight[url] { return task }
         guard stale(url) else { return nil }
-        // task-owner: one gh read per stale link; everyone waiting on it shares this task.
-        let task = Task { await self.perform(url) }
+        let task = fetch([url], as: .visible)
         inflight[url] = task
         return task
     }
 
-    /// Reads one link the same way ``register(_:)`` reads a reply's: the batched GraphQL read with
+    /// Reads `urls` off the main actor and lands their answers in the cache as one `workClass` task; the
+    /// returned task ends once they landed (or the scheduler dropped them), so a waiter reads the cache then.
+    ///
+    /// One link is read the same way ``register(_:)`` reads a reply's: the batched GraphQL read with
     /// a batch of one, not `gh pr view <url>`. It is the same single call to GitHub, and it is the
     /// only one of the two that reads the base branch's checks — a card refreshed through
     /// `gh pr view` would quietly lose "also red on base" sixty seconds after it gained it. A link
     /// on another host (GitHub Enterprise) still falls back to `gh pr view` inside that read.
-    private func perform(_ url: URL) async {
-        let answers = await reader.read(urls: [url.absoluteString])
-        absorb(answers, for: [url])
+    private func fetch(_ urls: [URL], as workClass: BudgetedWorkClass) -> Task<Void, Never> {
+        let reader = reader, mainWork = mainWork, owner = owner, addresses = urls.map(\.absoluteString)
+        let absorb: @MainActor @Sendable ([String: AgentPanePullRequest?]) -> Void = { [weak self] answers in
+            self?.absorb(answers, for: urls)
+        }
+        // task-owner: one read for every link asked at once, off main; everyone waiting on it shares this task.
+        return Task { @concurrent in
+            let answers = await reader.read(urls: addresses)
+            // Abandoned only when the scheduler itself is gone (released with the task unrun): nothing is left to show.
+            _ = try? await withOnceContinuation { (landed: OnceContinuation<Void, OnceContinuationError>) in
+                mainWork.postFromAnyThread(workClass, owner: owner) {
+                    absorb(answers)
+                    landed.resume(returning: ())
+                }
+            }
+        }
     }
 
     /// What a batched read answered. A URL GitHub did not answer for (offline, timed out, rate

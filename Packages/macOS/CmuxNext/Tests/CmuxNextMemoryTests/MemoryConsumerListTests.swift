@@ -2,9 +2,23 @@ import CmuxNextCompat
 import CmuxNextMemory
 import Testing
 
-/// ``MemoryConsumerList`` keeps the live consumers in registration order and drops a released one
-/// on its next add or walk, so registrations that come and go never grow the list.
+/// ``MemoryConsumerList`` keeps the live consumers in registration order (or its owner's order, ties
+/// in registration order) and drops a released one on its next add or walk, so registrations that
+/// come and go never grow the list.
 @MainActor @Suite struct MemoryConsumerListTests {
+    @Test func anOrderedListInsertsInItsOrderAndKeepsTiesInRegistrationOrder() {
+        // Shorter names go first; equal lengths keep registration order.
+        let registry = ListRegistry(list: MemoryConsumerList(orderedBy: { $0.name.count < $1.name.count }))
+        let names = ["ccc", "a1", "bbbb", "a2", "d", "a3"]
+        let consumers = names.map { _ in Consumer() }
+        let registrations = zip(consumers, names).map { consumer, name in registry.register(consumer, name: name) }
+        #expect(registry.list.liveEntries().map(\.name) == ["d", "a1", "a2", "a3", "ccc", "bbbb"])
+        registrations[1].cancel()
+        _ = registry.register(Consumer(), name: "e")
+        #expect(registry.list.liveEntries().map(\.name) == ["d", "a2", "a3", "ccc", "bbbb"])
+        withExtendedLifetime((consumers, registrations)) {}
+    }
+
     @Test func liveEntriesKeepRegistrationOrder() {
         let registry = ListRegistry()
         let consumers = (0..<3).map { _ in Consumer() }
@@ -58,7 +72,11 @@ private final class Consumer: MemoryConsumer {
 
 /// A registry over one ``MemoryConsumerList`` that hands each new consumer the default limit.
 private final class ListRegistry: MemoryConsumerRegistry {
-    var list = MemoryConsumerList()
+    let list: MemoryConsumerList<MemoryConsumerEntry>
+
+    init(list: MemoryConsumerList<MemoryConsumerEntry> = MemoryConsumerList()) {
+        self.list = list
+    }
 
     func addMemoryConsumer(_ entry: MemoryConsumerEntry) {
         list.add(entry)

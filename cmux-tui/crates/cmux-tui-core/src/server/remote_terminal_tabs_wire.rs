@@ -5,41 +5,14 @@
 //! daemon stores the reference and never attaches, spawns or bootstraps the
 //! terminal; the app attaches on the terminal's own session.
 
+use super::tabs_wire::{
+    NewRemoteTerminalTabParams as NewParams, RemoteTerminalSnapshotParams as SnapshotParams,
+    UpdateRemoteTerminalTabParams as UpdateParams,
+};
 use super::*;
 use crate::state::remote_terminal_tabs_store::{
     REMOTE_TERMINAL_KIND, RemoteTerminalRecord, RemoteTerminalUpdate,
 };
-
-#[derive(Deserialize)]
-pub(super) struct NewParams {
-    session_id: String,
-    terminal_id: String,
-    session_name: String,
-    #[serde(default)]
-    pane: Option<PaneId>,
-    #[serde(default)]
-    title: Option<String>,
-    #[serde(default)]
-    cols: Option<u16>,
-    #[serde(default)]
-    rows: Option<u16>,
-}
-
-#[derive(Deserialize)]
-pub(super) struct UpdateParams {
-    surface: SurfaceId,
-    #[serde(default, deserialize_with = "super::present_nullable")]
-    title: Option<Option<String>>,
-    #[serde(default)]
-    session_name: Option<String>,
-    #[serde(default, deserialize_with = "super::present_nullable")]
-    snapshot: Option<Option<String>>,
-}
-
-#[derive(Deserialize)]
-pub(super) struct SnapshotParams {
-    surface: SurfaceId,
-}
 
 pub(super) fn create(
     mux: &Arc<Mux>,

@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+public import CmuxNextInput
 import CmuxNextWakeups
 import Observation
 import QuartzCore
@@ -23,6 +24,9 @@ public final class TabStripView: NSView {
     public static var preferredHeight: CGFloat { Metrics.tabStripHeight }
 
     public let model: TabStripModel
+    let inputTap: InputEventTap  // the app's one; the strip's modes subscribe only while they last
+    /// The strip's own hover moves (`pointerFrameHover`, `TabStripView+Pointer`): two strips never merge theirs.
+    private(set) lazy var hoverMoves = PointerFrameHover(owner: "TabStripView.hover", view: self) { [weak self] point in self?.hoverMoved(toWindowPoint: point) }
 
     public weak var previewProvider: (any TabPreviewProvider)? {
         didSet { hoverCard.previewProvider = previewProvider }
@@ -63,10 +67,11 @@ public final class TabStripView: NSView {
     var glassView: GlassPanelView?
     let contentView = FlippedView()
     let tabsClip = FlippedView()
-    /// Holds the unpinned tabs, group chips and bands in `tabsClip`'s coordinates (its bounds origin is its
-    /// frame origin) and clips them to after the fixed pinned band, so a tab scrolled under the pinned tabs
-    /// never draws over them (`TabScrollMapping`, cx-kp9b4). Pinned tabs sit in `tabsClip` itself.
+    /// Holds the scrolling tabs, group chips and bands in `tabsClip`'s coordinates plus `scroller`'s translation
+    /// (its bounds origin less its frame origin) and clips them to after the fixed pinned band, so a tab scrolled
+    /// under the pinned tabs never draws over them (`TabScrollMapping`, cx-kp9b4). Fixed pinned tabs sit in `tabsClip`.
     let scrollingLayer = CALayer()
+    private(set) lazy var scroller = TabStripScroller(strip: self) // wheels and trackpads scroll by translation
     private(set) lazy var edgeFade = TabEdgeFade(strip: self)
     let newTabButton = NewTabButtonView()
     let hoverCard = TabHoverCardController()
@@ -112,7 +117,7 @@ public final class TabStripView: NSView {
     /// When a closing tab's or chip's last move ends: it goes then (`moveEnded`).
     var goesAt: [TabID: CFTimeInterval] = [:]
     /// Takes the scroll part of every move (a reveal's spring, a relayout that keeps the selected tab
-    /// in view) and nothing else: what they add now is its presentation x minus its model x (`settleScroll`).
+    /// in view) and nothing else: what they add now is its presentation x minus its model x (`TabStripScroller.settle`).
     let scrollProbe: CALayer = {
         let probe = CALayer()
         probe.actions = ["position": NSNull(), "bounds": NSNull()]
@@ -177,21 +182,19 @@ public final class TabStripView: NSView {
     var dragCompanions: Set<TabID> = []
     /// A multi-tab drop's order: it stays shown while the App lands it one move at a time.
     var multiReorderTarget: [TabID]?
-    private(set) lazy var selectionEscape = TabSelectionEscapeMonitor(strip: self)
-    /// Display index of the phantom gap shown for an external drag.
-    var dropPlaceholderIndex: Int?
-    /// Pointer of the external drag, in view coordinates, for edge autoscroll.
-    var phantomPoint: CGPoint?
-    private(set) lazy var escapeMonitor = TabDragEscapeMonitor(strip: self)
-    /// A dropped tab keeps the placeholder's geometry when it arrives.
-    var pendingDrop: (id: TabID, x: CGFloat, width: CGFloat)?
+    private(set) lazy var selectionEscape = TabStripEscape.multiSelectionClear(strip: self)
+    var dropPlaceholderIndex: Int?  // display index of the phantom gap shown for an external drag
+    var phantomPoint: CGPoint?  // pointer of the external drag, in view coordinates, for edge autoscroll
+    private(set) lazy var escapeMonitor = TabStripEscape.dragCancel(strip: self)
+    var pendingDrop: (id: TabID, x: CGFloat, width: CGFloat)?  // a dropped tab keeps the placeholder's geometry
     /// Group the phantom gap belongs to (a dropped tab would join it).
     var dropPlaceholderGroup: TabGroupID?
     static let placeholderID = TabID("__cmux.tabs.drop-placeholder__")
     // MARK: - Init
 
-    public init(model: TabStripModel, background: Background = .none) {
+    public init(model: TabStripModel, background: Background = .none, input: InputEventTap) {
         self.model = model
+        inputTap = input
         super.init(frame: CGRect(x: 0, y: 0, width: 600, height: Self.preferredHeight))
         wantsLayer = true
         layerContentsRedrawPolicy = .never
@@ -245,10 +248,8 @@ public final class TabStripView: NSView {
     /// click in the strip still takes the keyboard, which ends (commits) the rename.
     public override var acceptsFirstResponder: Bool {
         if inlineRename.field != nil { return true }
-        return switch NSApp.currentEvent?.type {
-        case .leftMouseDown, .rightMouseDown, .otherMouseDown: false
-        default: true
-        }
+        // The event asking is the one in dispatch: the tap's last dispatched event.
+        return inputTap.lastDispatched?.type.isButtonDown != true
     }
 
     /// F2 starts the same inline editor as a screen-tab double-click. The
@@ -279,6 +280,7 @@ public final class TabStripView: NSView {
     }
 
     public override func accessibilityChildren() -> [Any]? {
+        scroller.land() // the elements' frames are written where the tabs show
         var children: [Any] = []
         for slot in result.slots where !slot.isCollapsed {
             if let group = slot.id.chipGroupID, let chip = groups.chips[group] {
@@ -421,11 +423,13 @@ public final class TabStripView: NSView {
             chip.font = Typography.caption
         }
         groupEditor.hide()
-        newTabButton.needsLayout = true
+        // Runs for new tokens (`startObservingTokens`' change check), new custom metrics or a new window.
+        newTabButton.needsLayout = true // invalidate: the + button's glyph follows the metrics
         glassView?.cornerRadius = metrics.cornerRadius + metrics.stripVerticalPadding
         invalidateIntrinsicContentSize()
         lastViewportWidth = -1
-        needsLayout = true
+        needsLayout = true // invalidate: every cell takes the new metrics
+        // sync-layout: relayout below reads the viewport the new metrics give (tabsClip, placed in layout()).
         layoutSubtreeIfNeeded()
         relayout(animated: animated && !reduceMotion)
     }
@@ -450,12 +454,7 @@ public final class TabStripView: NSView {
     public override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(
-            rect: .zero,
-            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
         addTrackingArea(area)
         trackingArea = area
         closingWatch.updateTracking()

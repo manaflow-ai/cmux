@@ -13,7 +13,7 @@ struct TabHoverCardNewTabTests {
         let model = TabStripModel(tabs: [newTab, page], selectedID: TabID("page"))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 40), styleMask: [.borderless],
                               backing: .buffered, defer: false)
-        let strip = TabStripView(model: model)
+        let strip = TabStripView.testing(model: model)
         strip.frame = NSRect(x: 0, y: 0, width: 600, height: TabStripView.preferredHeight)
         window.contentView = strip
         strip.layoutSubtreeIfNeeded()

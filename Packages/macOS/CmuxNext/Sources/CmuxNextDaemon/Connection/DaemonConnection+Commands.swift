@@ -9,9 +9,14 @@ extension DaemonConnection {
 
     /// A fresh mutation identity, or one derived from the running action's
     /// idempotency key (`DaemonCommandScope`), so a retried action replays.
+    /// A scope with a cause (a person's run, the control socket's) records the id, so its echo
+    /// applies in that cause (``MutationCauseLedger``).
     public func mutation() -> MutationIdentity {
-        guard let derived = DaemonCommandScope.current?.nextMutationID() else { return MutationIdentity(origin: Self.origin) }
-        return MutationIdentity(origin: Self.origin, mutationID: derived)
+        let scope = DaemonCommandScope.current
+        let identity = scope?.nextMutationID().map { MutationIdentity(origin: Self.origin, mutationID: $0) }
+            ?? MutationIdentity(origin: Self.origin)
+        scope?.recordMutation(identity.mutationID, in: mutationCauses)
+        return identity
     }
 
     public func listWorkspaces() async throws -> DaemonTree {
@@ -358,7 +363,8 @@ extension DaemonConnection {
             throw DaemonError.missingCapabilities([DaemonCapability.terminalReap.rawValue])
         }
         guard let endpoint else { throw DaemonError.notConnected }
-        let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
+        let transport = try await LineTransport.open(path: endpoint.socketPath, bridge: endpoint.bridge, role: .shutdown,
+                                                     stats: endpoint.wireStats, hangs: configuration.hangWatch)
         transport.start(onEvent: { _, _, _ in }, onClose: { _ in })
         defer { transport.close() }
         let request = ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true,

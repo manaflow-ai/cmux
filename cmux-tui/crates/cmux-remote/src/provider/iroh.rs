@@ -38,7 +38,7 @@ pub fn load_or_create_iroh_secret(path: &Path) -> Result<SecretKey, ProviderErro
         ensure_secure_directory(parent, DirectoryAccess::ManagedOwnerOnly)
             .map_err(io_provider_error)?;
     }
-    if path.exists() {
+    if cmux_blocking::fs::exists(path).unwrap_or(false) {
         let bytes = crate::secret_file::read_owner_only(path, 32).map_err(io_provider_error)?;
         let bytes: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
             ProviderError::Configuration(format!(
@@ -59,9 +59,10 @@ pub fn load_or_create_iroh_secret(path: &Path) -> Result<SecretKey, ProviderErro
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     }
-    let mut file = options.open(path).map_err(io_provider_error)?;
+    let mut file =
+        cmux_threads::checked::fs::open_with(&options, path).map_err(io_provider_error)?;
     file.write_all(&bytes).map_err(io_provider_error)?;
-    file.sync_all().map_err(io_provider_error)?;
+    cmux_threads::checked::fs::sync_all(&file).map_err(io_provider_error)?;
     Ok(SecretKey::from_bytes(&bytes))
 }
 

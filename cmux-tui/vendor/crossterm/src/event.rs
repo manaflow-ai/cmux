@@ -259,16 +259,45 @@ pub fn read() -> std::io::Result<Event> {
 ///
 /// `input_available` has the same meaning as [`poll`]: when true, an isolated
 /// Escape byte remains pending so a following byte can complete its sequence.
+/// A complete terminal reply the reader consumes itself reads as `None`, like
+/// an incomplete sequence; [`parse_input_from_bytes`] tells the two apart.
 #[doc(hidden)]
 #[cfg(unix)]
 pub fn parse_event_from_bytes(
     bytes: &[u8],
     input_available: bool,
 ) -> std::io::Result<Option<Event>> {
-    match sys::unix::parse::parse_event(bytes, input_available)? {
-        Some(InternalEvent::Event(event)) => Ok(Some(event)),
-        Some(_) | None => Ok(None),
+    match parse_input_from_bytes(bytes, input_available)? {
+        Some(ParsedInput::Event(event)) => Ok(Some(event)),
+        Some(ParsedInput::Reply) | None => Ok(None),
     }
+}
+
+/// A complete sequence found by [`parse_input_from_bytes`].
+#[doc(hidden)]
+#[cfg(unix)]
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum ParsedInput {
+    /// An event [`read`] returns.
+    Event(Event),
+    /// A terminal reply the reader consumes itself: a cursor position,
+    /// keyboard enhancement flags or primary device attributes.
+    Reply,
+}
+
+/// Parse one buffered sequence as the event reader does. `Ok(None)` means
+/// the sequence is incomplete and the next byte belongs to it; any
+/// `Ok(Some(_))` or `Err(_)` ends it, and the reader starts a new buffer.
+#[doc(hidden)]
+#[cfg(unix)]
+pub fn parse_input_from_bytes(
+    bytes: &[u8],
+    input_available: bool,
+) -> std::io::Result<Option<ParsedInput>> {
+    Ok(sys::unix::parse::parse_event(bytes, input_available)?.map(|event| match event {
+        InternalEvent::Event(event) => ParsedInput::Event(event),
+        _ => ParsedInput::Reply,
+    }))
 }
 
 /// Polls to check if there are any `InternalEvent`s that can be read within the given duration.
@@ -1767,5 +1796,21 @@ mod tests {
             assert_eq!(event.as_paste_event(), Some(""));
             assert_eq!(event.as_key_event(), None);
         }
+    }
+
+    /// A complete terminal reply ends its sequence, as the reader treats it;
+    /// only an incomplete one keeps the buffer.
+    #[cfg(unix)]
+    #[test]
+    fn a_complete_reply_is_told_apart_from_an_incomplete_sequence() {
+        for reply in [&b"\x1B[5;5R"[..], b"\x1B[?1u", b"\x1B[?64;1;2c"] {
+            assert_eq!(parse_input_from_bytes(reply, true).unwrap(), Some(ParsedInput::Reply));
+            assert_eq!(parse_event_from_bytes(reply, true).unwrap(), None);
+        }
+        assert_eq!(parse_input_from_bytes(b"\x1B[5;5", true).unwrap(), None);
+        assert_eq!(
+            parse_input_from_bytes(b"a", false).unwrap(),
+            Some(ParsedInput::Event(Event::Key(KeyEvent::new(Char('a'), KeyModifiers::NONE))))
+        );
     }
 }

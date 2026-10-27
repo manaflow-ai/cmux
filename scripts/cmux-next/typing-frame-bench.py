@@ -10,7 +10,8 @@ real key waits in the event queue) into:
   home       the native Home composer (the Home fixture: the same MessagesLab view and field over the mock
              owner): send to the end of the run-loop turn that committed the edit (`commit_ms`)
   dock       the docked Home the app opens at launch (the real Home owner), when it shows a conversation
-  omnibar    the omnibar of a Chromium tab: send to the commit of the edit (`commit_ms`)
+  omnibar    the omnibar of a browser tab of --engine (Chromium unless webkit): send to the commit of the edit
+             (`commit_ms`)
 
 each in two phases:
 
@@ -22,19 +23,39 @@ each in two phases:
 Per surface and phase: key-to-frame p50/p95/p99/max, the probe's hop split (send to dispatch, dispatch, dispatch to
 frame), main-thread hangs over 8 ms (`debug.hangs`), and with --sample a `/usr/bin/sample` of the app during the
 load phase's keys (the main thread's heaviest frames). The display's refresh rate is in the report (judge drops in
-frames). Exit 1 with --gate-p95-ms when any measured surface's p95 is over it.
+frames). Exit 1 with --gate-p95-ms when any measured surface's p95 is over it. Percentiles come from
+scripts/perf-lab/perf_stats.py (typing_report.distribution). Each session's key-to-frame samples, all rounds of a
+surface and phase together, are also one cmux-perf-result/v1 file per series in --out (BenchApp.record): story
+--story (default `typing`, `typing-stress` for STRESS), metric `terminal.key_to_frame` for the terminal at idle
+(the key-frame target's metric; the stories that claim a key-frame row, typing-terminal and typing-stress, name
+it as the result's target_ref) and `<surface>.<phase>.key_to_frame` for the others. A --sample run writes none
+(typing_report.unrecorded: the profiler suspends the app during the measured keys; the report says `perturbed`).
+With --hops-out FILE, each session reads `debug.input` action `hops` since launch before its app quits and FILE
+holds {"sessions": {SESSION: reply}} (scripts/cmux-next/input-turn-hops.py turns it into the MQ-input-turn-hops queue).
+
+Keys, the socket client and the probe's CSV come from scripts/cmux-next/hid_input.py, the module
+input-latency-bench.py uses, so the two benches' rows come from one poster and one parser. --input debug (the
+default, the series the perf cron compares) types with `debug.key`: the app labels those keys automation, and the
+report says `input: debug`. --input real posts each key at the HID event tap (a person's path; the app runs
+frontmost and the session needs the input grant); it measures the terminal only (the Home and omnibar probes need
+`debug.key`'s commit probe: use input-latency-bench.py for them) and records `<surface>.hid_key_to_frame` series.
 
   typing-frame-bench.py --app APP --tag TAG --out DIR [--json FILE] [--surfaces terminal,home,dock,omnibar]
-      [--phases idle,load] [--samples 80] [--busy 20] [--chats 2] [--sample] [--gate-p95-ms 8]
+      [--engine chromium|webkit] [--input debug|real]
+      [--phases idle,load] [--samples 80] [--busy 20] [--chats 2] [--sample] [--gate-p95-ms 8] [--story ID]
+      [--hops-out FILE]
 
 Fleet (an owned mini with a console; the step builds the app):
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref SHA \\
     --artifact artifacts/split-spring/report.json --arg=--suite=typing-frame [--arg=--stress] [--arg=--sample] \\
     [--arg=--gate-p95-ms=8]
 """
-import argparse, csv, glob, json, os, re, socket, statistics, subprocess, sys, tempfile, threading, time
+import argparse, json, os, re, subprocess, sys, tempfile, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_launch import BenchApp, LaunchError  # noqa: E402
+import bench_tagged  # noqa: E402
+import hid_input  # noqa: E402
+import typing_report  # noqa: E402
+from bench_launch import ISOLATED_LAUNCH_KEY, BenchApp, LaunchError  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -42,6 +63,8 @@ parser.add_argument("--tag", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--json")
 parser.add_argument("--surfaces", default="dock,terminal,home,omnibar")
+parser.add_argument("--engine", choices=("chromium", "webkit"), default="chromium",
+                    help="the engine of the tab whose omnibar the omnibar surface types into")
 parser.add_argument("--phases", default="idle,load")
 parser.add_argument("--samples", type=int, default=80)
 parser.add_argument("--interval", type=float, default=0.1, help="seconds between keys (one key in flight)")
@@ -55,7 +78,15 @@ parser.add_argument("--sessions", help="comma list of light,stress: one app laun
 parser.add_argument("--rounds", type=int, default=3, help="every phase this many times per launch (the noise shows)")
 parser.add_argument("--sample", action="store_true", help="/usr/bin/sample the app over each load phase")
 parser.add_argument("--gate-p95-ms", type=float)
+parser.add_argument("--story", help="result-v1 story of a one-session run (default typing, or typing-stress for STRESS)")
+parser.add_argument("--hops-out", help="write each session's `debug.input hops` reply (since launch) here before its app quits")
+parser.add_argument("--input", choices=("debug", "real"), default="debug",
+                    help="debug: debug.key over the socket (labelled automation); real: HID-tap keys (terminal only, "
+                         "needs the input grant)")
 opts = parser.parse_args()
+if opts.input == "real" and set(opts.surfaces.split(",")) - {"terminal"}:
+    parser.error("--input real measures the terminal only (--surfaces terminal): the Home and omnibar probes need "
+                 "debug.key's commit probe; input-latency-bench.py measures them with real keys")
 OUT = os.path.abspath(opts.out)
 os.makedirs(OUT, exist_ok=True)
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
@@ -66,10 +97,16 @@ PROBE = os.path.join(OUT, "typing.csv")
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 WINDOW = (40, 40, 1400, 900)
 BUSY = "while :; do printf '%s busy line %s %s\\n' $RANDOM $RANDOM $RANDOM; done"
-results = {"tag": TAG, "host": os.uname().nodename, "opts": vars(opts), "log": [], "runs": []}
+results = {"tag": TAG, "host": os.uname().nodename, "opts": vars(opts), "log": [], "runs": [], "input": opts.input,
+           "input_label": "debug.key: the control socket's injected-input lane, labelled automation" if opts.input == "debug"
+           else "real HID keys at the event tap"}
+# /usr/bin/sample suspends the app for each sample while the load phase's keys run: such a run writes no result-v1.
+UNRECORDED = typing_report.unrecorded(sample=opts.sample)
+results["perturbed"] = UNRECORDED is not None
 app = None
 SESSION = "light"
 ROUND = 0
+SAMPLES = {}  # this session's key-to-frame samples per result-v1 metric, every round together
 
 
 def note(text):
@@ -77,77 +114,39 @@ def note(text):
     results["log"].append(text)
 
 
+# The tagged app's socket and CLI (hid_input.Control); run_session points it at each launch's socket and config.
+CONTROL = hid_input.Control(SOCKET, CLI, CONFIG)
+# The key poster: debug.key (labelled automation) unless --input real asks for the HID tap (hid_input.poster_for).
+POSTER = hid_input.poster_for(opts.input, control=CONTROL)
+
+
 def rpc(method, params=None, timeout=30):
-    try:
-        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        conn.settimeout(timeout)
-        conn.connect(SOCKET)
-        conn.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
-        buf = b""
-        while not buf.endswith(b"\n"):
-            chunk = conn.recv(1 << 22)
-            if not chunk:
-                break
-            buf += chunk
-        conn.close()
-        reply = json.loads(buf)
-    except (OSError, ValueError) as error:
-        return {"error": str(error)}
-    return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
+    return CONTROL.rpc(method, params, timeout=timeout)
 
 
 def action(name, args=None, settle=0.0, focus=True, timeout=60):
-    reply = rpc("action.run", {"action": name, "args": args or {}, "focus": focus, "origin": "script"}, timeout=timeout)
+    reply = CONTROL.action(name, args, focus=focus, timeout=timeout)
     if settle:
         time.sleep(settle)  # test harness: the layout settles before the next step
     return reply
 
 
 def cli(*args, timeout=60):
-    env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}
-    env["CMUX_NEXT_CONFIG_FILE"] = CONFIG
-    try:
-        return subprocess.run([CLI, "--app-socket", SOCKET, *args], env=env, capture_output=True, text=True, timeout=timeout,
-                              stdin=subprocess.DEVNULL)
-    except subprocess.TimeoutExpired:
-        return subprocess.CompletedProcess(args, 124, "", "timeout")
+    return CONTROL.cli(*args, timeout=timeout)
 
 
-def wait(predicate, seconds, step=0.25):
-    end = time.time() + seconds
-    while time.time() < end:  # bounded wait for the live app
-        try:
-            value = predicate()
-        except Exception:  # the app may not answer yet
-            value = None
-        if value:
-            return value
-        time.sleep(step)
-    return None
-
-
-def pct(values):
-    if not values:
-        return None
-    s = sorted(values)
-    pick = lambda p: s[min(len(s) - 1, int(round((len(s) - 1) * p)))]
-    return {"n": len(s), "p50": round(pick(0.5), 2), "p95": round(pick(0.95), 2), "p99": round(pick(0.99), 2),
-            "max": round(s[-1], 2), "mean": round(statistics.fmean(s), 2)}
+wait = hid_input.wait
+dist = typing_report.distribution
 
 
 def probe_rows():
-    try:
-        with open(PROBE) as handle:
-            return list(csv.DictReader(handle))
-    except OSError:
-        return []
+    return hid_input.probe_rows(PROBE)
 
 
-def refresh_hz():
-    out = subprocess.run(["system_profiler", "SPDisplaysDataType"], capture_output=True, text=True, timeout=60).stdout
-    rates = re.findall(r"@ ?([\d.]+) ?Hz", out) or re.findall(r"Refresh Rate: ?([\d.]+)", out)
-    lines = [l.strip() for l in out.splitlines() if "Hz" in l or "Resolution" in l]
-    return {"hz": [float(r) for r in rates] or None, "lines": lines[:6]}
+def metric(surface, phase):
+    """The result-v1 metric of a surface and phase: real HID keys take another path, so they are another series."""
+    name = typing_report.frame_metric(surface, phase)
+    return name.replace("key_to_frame", "hid_key_to_frame") if POSTER.input == "real" else name
 
 
 # ---------------------------------------------------------------- load
@@ -274,13 +273,14 @@ def workspaces():
 
 # ---------------------------------------------------------------- typing
 def type_keys(count, params, column):
-    keys = "abcdefghijklmnopqrstuvwxyz"
+    """Types `count` keys, one in flight; `params` are debug.key's (the commit probe). Real keys are the HID tap's."""
+    keys = hid_input.LETTERS
+    poster = POSTER if POSTER.input == "real" else hid_input.poster_for("debug", control=CONTROL, debug_params=params)
     rows_before = len(probe_rows())
     trips = []
     for index in range(count):
         t0 = time.perf_counter()
-        reply = rpc("debug.key", dict(params, key=keys[index % len(keys)], timestamp=time.clock_gettime(time.CLOCK_UPTIME_RAW)),
-                    timeout=10)
+        reply = poster.key(keys[index % len(keys)])
         trips.append((time.perf_counter() - t0) * 1000)
         if isinstance(reply, dict) and reply.get("error"):
             note(f"key {index}: {reply.get('error')}")
@@ -371,19 +371,20 @@ def measure(surface, phase, params, column, pid, streams=()):
              "output_received_ms", "output_parsed_ms", "contents_ms", "commit_ms"]
     hangs = rpc("debug.hangs", {"limit": 12}, timeout=20)
     f = lambda key: [float(r[key]) for r in rows if r.get(key)]
+    SAMPLES.setdefault(metric(surface, phase), []).extend(f(column))
     entry = {
         "session": SESSION, "surface": surface, "phase": phase, "keys": len(trips), "measured": len(rows),
-        "key_to_frame_ms": pct(f(column)), "column": column,
-        "send_to_dispatch_ms": pct(f("dispatch_start_ms")),
-        "dispatch_ms": pct([float(r["dispatch_end_ms"]) - float(r["dispatch_start_ms"]) for r in rows
+        "key_to_frame_ms": dist(f(column)), "column": column,
+        "send_to_dispatch_ms": dist(f("dispatch_start_ms")),
+        "dispatch_ms": dist([float(r["dispatch_end_ms"]) - float(r["dispatch_start_ms"]) for r in rows
                             if r.get("dispatch_end_ms") and r.get("dispatch_start_ms")]),
-        "dispatch_to_frame_ms": pct([float(r[column]) - float(r["dispatch_end_ms"]) for r in rows if r.get("dispatch_end_ms")]),
-        "key_rpc_ms": pct(trips),
+        "dispatch_to_frame_ms": dist([float(r[column]) - float(r["dispatch_end_ms"]) for r in rows if r.get("dispatch_end_ms")]),
+        "key_rpc_ms": dist(trips),
         "hangs": {k: hangs.get(k) for k in ("count", "max_ms", "total_ms", "frames_over_8_3ms", "max_gap_ms")}
         if isinstance(hangs, dict) else hangs,
         "hang_records": (hangs or {}).get("records") if isinstance(hangs, dict) else None,
         "frames": frames, "streams": [s.calls for s in streams], "round": ROUND, "focus": LOAD.get("focus"),
-        "view_churn": churn, "control_publishes": {"count": len(publishes), "ms": pct(publishes),
+        "view_churn": churn, "control_publishes": {"count": len(publishes), "ms": dist(publishes),
                                                    "total_ms": round(sum(publishes), 1)},
         "probe_rows": {"all": len(every), "complete": sum(r.get("complete") == "1" for r in every),
                        "marks": {m: sum(bool(r.get(m)) for r in every) for m in marks}},
@@ -497,8 +498,8 @@ def surface_omnibar(phase, pid):
     if phase == "load":
         make_load(None)
     if not LOAD.get("omnibar_open"):
-        reply = action("openBrowser.chromium", {"url": "about:blank"}, settle=4.0, timeout=120)
-        note(f"omnibar: chromium tab {json.dumps(reply)[:120]}")
+        reply = action(f"openBrowser.{opts.engine}", {"url": "about:blank"}, settle=4.0, timeout=120)
+        note(f"omnibar: {opts.engine} tab {json.dumps(reply)[:120]}")
         LOAD["omnibar_open"] = True
     action("focusBrowserAddressBar", settle=0.5)
     bar = rpc("debug.omnibar") or {}
@@ -522,23 +523,32 @@ def run_session(session):
     surface and phase in it, --rounds times."""
     global app, SESSION, SOCKET, CONFIG
     SESSION = session
+    SAMPLES.clear()
     LOAD.clear()
     LOAD.update({"made": False, "workspaces": [], "chat_panes": []})
+    env = {"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"}
+    if POSTER.input == "real":
+        # A real key goes to the frontmost app's key window; the launch stays isolated (LaunchIsolation: the
+        # fixed test window frame, no shim pointer, hot keys, login item or browser import offer).
+        env["CMUX_NEXT_NO_ACTIVATE"] = None
+        env[ISOLATED_LAUNCH_KEY] = "1"
     bench = BenchApp(APP, out=OUT, config={"browser": {"defaultEngine": "chromium"}}, window=WINDOW,
-                     log_name=f"app-{session}.log",
-                     env={"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"})
+                     log_name=f"app-{session}.log", perf_session=session, env=env)
     try:
         try:
-            bench.launch(timeout=180, settle=5.0)
+            bench.launch(timeout=180)
         except LaunchError as error:
             note(f"{session}: the app did not come up: {error.reason}")
             results.setdefault("launch_failures", []).append({"session": session, "reason": error.reason,
                                                               "detail": error.report.get("detail")})
             return
         app, SOCKET, CONFIG = bench.process, bench.socket, os.path.join(bench.scratch, "cmux.json")
+        CONTROL.socket_path, CONTROL.config = SOCKET, CONFIG
         if session == "stress":
             LOAD["terminal_ws"] = build_stress()
             time.sleep(5)  # the grid settles
+        if POSTER.input == "real":
+            hid_input.bring_front(app.pid)
         surfaces = opts.surfaces.split(",")
         global ROUND
         for ROUND in range(opts.rounds):
@@ -550,14 +560,36 @@ def run_session(session):
                         SURFACES[surface](phase, app.pid)
                     except Exception as error:  # one surface failing must not hide the others
                         note(f"{session} {surface}.{phase}: failed: {error!r}")
+        if opts.hops_out:
+            save_hops(session, rpc("debug.input", {"action": "hops", "since_launch": True}, timeout=60))
     finally:
         bench.stop()
+        story = opts.story or typing_report.session_story(typing_report.TYPING_STORY, session)
+        engine = typing_report.frame_engine(opts.surfaces.split(","), opts.engine)
+        results.setdefault("recorded", {})[session] = UNRECORDED or bench_tagged.record_series(
+            bench, story, dict(SAMPLES), engine=engine, log=note,
+            targets=typing_report.frame_targets(story, session))
+
+
+def save_hops(session, reply):
+    """Adds one session's `debug.input hops` reply to --hops-out."""
+    try:
+        with open(opts.hops_out) as handle:
+            document = json.load(handle)
+    except (OSError, ValueError):
+        document = {"sessions": {}}
+    document["sessions"][session] = reply
+    with open(opts.hops_out, "w") as handle:
+        json.dump(document, handle, indent=1)
+    note(f"{session}: debug.input hops: {len((reply or {}).get('rows') or [])} sites, error {(reply or {}).get('error')}")
 
 
 def main():
-    results["refresh_hz"] = refresh_hz()
-    results["macos"] = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
+    results["refresh_hz"] = hid_input.display_refresh()
+    results["macos"] = hid_input.macos_version()
     sessions = opts.sessions.split(",") if opts.sessions else (["stress"] if opts.stress else ["light"])
+    if opts.story and len(sessions) > 1:
+        parser.error("--story names the story of one session: run one session per --story")
     try:
         for session in sessions:
             run_session(session)

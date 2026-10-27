@@ -1,4 +1,6 @@
 //! Per-user autostart integration for the relay.
+#[cfg(any(target_os = "macos", test))]
+use cmux_server_core::units::LaunchdJob;
 use std::{
     fs,
     io::Write,
@@ -6,7 +8,9 @@ use std::{
     process::Command as ProcessCommand,
     time::{SystemTime, UNIX_EPOCH},
 };
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+
+use crate::blocking_fs::{open_with, sync_all};
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 const LABEL: &str = "com.chatmux.relay";
 
 /// `npx` installs a package into a cache directory named `_npx`. That cache is
@@ -37,7 +41,7 @@ fn validate_autostart_executable(path: &Path) -> Result<(), String> {
 fn home() -> Result<PathBuf, String> {
     std::env::var_os("HOME").map(PathBuf::from).ok_or_else(|| "HOME is not set".into())
 }
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 fn xml_escape(v: &str) -> String {
     v.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -54,24 +58,27 @@ fn systemd_quote(v: &str) -> String {
 }
 fn atomic_write(p: &Path, b: &str) -> Result<(), String> {
     let d = p.parent().ok_or("autostart path has no parent")?;
-    fs::create_dir_all(d).map_err(|e| e.to_string())?;
+    cmux_blocking::fs::create_dir_all(d).map_err(|e| e.to_string())?;
     let n = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_nanos();
     for i in 0..16 {
         let t = d.join(format!(".autostart-{}-{}", std::process::id(), n + i));
-        match fs::OpenOptions::new().write(true).create_new(true).open(&t) {
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        match open_with(&options, &t) {
             Ok(mut f) => {
                 #[cfg(unix)]
                 {
+                    use crate::blocking_fs::set_permissions;
                     use std::os::unix::fs::PermissionsExt;
-                    fs::set_permissions(&t, fs::Permissions::from_mode(0o600))
+                    set_permissions(&t, fs::Permissions::from_mode(0o600))
                         .map_err(|e| e.to_string())?;
                 }
                 f.write_all(b.as_bytes()).map_err(|e| e.to_string())?;
-                f.sync_all().map_err(|e| e.to_string())?;
+                sync_all(&f).map_err(|e| e.to_string())?;
                 drop(f);
-                let r = fs::rename(&t, p).map_err(|e| e.to_string());
+                let r = cmux_blocking::fs::rename(&t, p).map_err(|e| e.to_string());
                 if r.is_err() {
-                    let _ = fs::remove_file(&t);
+                    let _ = cmux_blocking::fs::remove_file(&t);
                 }
                 return r;
             }
@@ -82,23 +89,29 @@ fn atomic_write(p: &Path, b: &str) -> Result<(), String> {
     Err("could not create a unique temporary autostart file".into())
 }
 fn run(p: &str, a: &[&str]) -> Result<(), String> {
-    let s = ProcessCommand::new(p)
-        .args(a)
-        .status()
+    let s = cmux_blocking::process::status(ProcessCommand::new(p).args(a))
         .map_err(|_| "autostart command could not run".to_owned())?;
     s.success().then_some(()).ok_or_else(|| "autostart command failed".to_owned())
+}
+/// The agent plist that runs the relay `exe` with `config`, at the
+/// process-roles table's `ProcessType` (threading-model.md "Process roles"):
+/// a paired chat client's terminal keys pass through the relay, so launchd
+/// must not throttle it as a `Background` or default (`Standard`) job.
+#[cfg(any(target_os = "macos", test))]
+fn launchd_plist(exe: &str, config: &str) -> String {
+    format!(
+        "<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>Label</key><string>{LABEL}</string><key>ProgramArguments</key><array><string>{}</string><string>--no-onboard</string><string>--config</string><string>{}</string></array><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ProcessType</key><string>{}</string></dict></plist>\n",
+        xml_escape(exe),
+        xml_escape(config),
+        LaunchdJob::ChatmuxRelay.process_type()
+    )
 }
 #[cfg(target_os = "macos")]
 fn install_impl(e: &Path, config: &Path) -> Result<String, String> {
     let p = home()?.join("Library/LaunchAgents").join(format!("{LABEL}.plist"));
     let x = e.to_str().ok_or("executable path is not valid UTF-8")?;
     let c = config.to_str().ok_or("config path is not valid UTF-8")?;
-    let b = format!(
-        "<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>Label</key><string>{LABEL}</string><key>ProgramArguments</key><array><string>{}</string><string>--no-onboard</string><string>--config</string><string>{}</string></array><key>RunAtLoad</key><true/><key>KeepAlive</key><true/></dict></plist>\n",
-        xml_escape(x),
-        xml_escape(c)
-    );
-    atomic_write(&p, &b)?;
+    atomic_write(&p, &launchd_plist(x, c))?;
     let d = format!("gui/{}", unsafe { libc::getuid() });
     let s = p.to_str().ok_or("autostart path is not valid UTF-8")?;
     let _ = run("launchctl", &["bootout", &d, s]);
@@ -157,7 +170,7 @@ fn uninstall_impl() -> Result<String, String> {
     if let Some(s) = p.to_str() {
         let _ = run("launchctl", &["bootout", &d, s]);
     }
-    if let Err(e) = fs::remove_file(&p)
+    if let Err(e) = cmux_blocking::fs::remove_file(&p)
         && !matches!(e.kind(), std::io::ErrorKind::NotFound)
     {
         return Err(e.to_string());
@@ -169,7 +182,7 @@ fn uninstall_impl() -> Result<String, String> {
 fn uninstall_impl() -> Result<String, String> {
     let p = home()?.join(".config/systemd/user/chatmux-relay.service");
     let _ = run("systemctl", &["--user", "disable", "--now", "chatmux-relay.service"]);
-    if let Err(e) = fs::remove_file(&p)
+    if let Err(e) = cmux_blocking::fs::remove_file(&p)
         && e.kind() != std::io::ErrorKind::NotFound
     {
         return Err(e.to_string());
@@ -191,4 +204,26 @@ fn uninstall_impl() -> Result<String, String> {
 
 pub fn uninstall() -> Result<String, String> {
     uninstall_impl()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_launchd_agent_runs_at_the_process_roles_table_value() {
+        let plist =
+            launchd_plist("/usr/local/bin/cmux-relay", "/Users/ana/.config/cmux-relay/a&b.json");
+        let entry = format!(
+            "<key>ProcessType</key><string>{}</string>",
+            LaunchdJob::ChatmuxRelay.process_type()
+        );
+        assert!(plist.contains(&entry), "{plist}");
+        assert!(plist.contains("<key>ProcessType</key><string>Interactive</string>"), "{plist}");
+        assert!(plist.contains("<key>Label</key><string>com.chatmux.relay</string>"), "{plist}");
+        assert!(
+            plist.contains("<string>/Users/ana/.config/cmux-relay/a&amp;b.json</string>"),
+            "{plist}"
+        );
+    }
 }

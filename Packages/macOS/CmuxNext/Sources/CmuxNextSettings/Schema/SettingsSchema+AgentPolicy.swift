@@ -117,6 +117,8 @@ extension SettingsSchema {
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",
+        // How a dragged divider is drawn (looks only: snaps and the drop read the real pointer).
+        "input.resampleDrags", "input.resampleFrameAheadMs",
         "ui.animations.newTab",
         "ui.animations.newWorkspace",
         "ui.animations.bounce",
@@ -170,6 +172,8 @@ extension SettingsSchema {
         "status.inferCommandBusyAfter",
         "terminal.fontFamily",
         "terminal.fontSize",
+        // Draws typed characters early over the grid; it never writes to a terminal (p04-input-046).
+        "terminal.predictiveEcho",
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
@@ -192,6 +196,7 @@ extension SettingsSchema {
         "browser.hibernatePinnedTabs",
         "browser.freezeHiddenTabs",
         "browser.keepNeighborTabsAwake",
+        "memory.saver", // how soon hidden content frees its memory (performance, like browser.hibernation)
         "notifications.dismissal",
         "notifications.timeoutSeconds",
         "notifications.sources.agent.dismissal",
@@ -236,7 +241,7 @@ extension SettingsSchema {
     ]
 
     /// Keys an agent may not set or reset, with the reason.
-    public static let agentRefusedKeys: [String: AgentRefusal] = Dictionary(uniqueKeysWithValues: OmnibarSettingsSchema.privacyKeys.map { ($0, AgentRefusal.privacy) })
+    public static let agentRefusedKeys: [String: AgentRefusal] = Dictionary(OmnibarSettingsSchema.privacyKeys.map { ($0, AgentRefusal.privacy) }, uniquingKeysWith: { first, _ in first })
         .merging(refusedTable) { first, _ in first }
         .merging(BrowserPasswordsSettingsSchema.refusedKeys) { first, _ in first }
         .merging(BrowserVerificationAutofillSettingsSchema.refusedKeys) { first, _ in first }
@@ -323,6 +328,8 @@ extension SettingsSchema {
         "announcements.fetch": .network,
         // Whether this Mac sends hang reports (stacks and timings) to cmux: the person's choice only.
         "diagnostics.hangReports": .privacy,
+        // Whether a quit writes each window's picture (terminal text, pages) to disk: the person's choice only.
+        "launch.savedPicture": .privacy,
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         // What a new chat may do without asking: an agent must not widen its own approvals.
         "agents.defaultPermissionMode": .userOnly,
@@ -334,6 +341,8 @@ extension SettingsSchema {
         "notifications.showPreviews": .userOnly,
         // Battery and sleep are the person's call: an agent must not keep the Mac up for itself.
         "sessions.keepAwake": .userOnly,
+        // When Energy Saver turns on is the person's call, and a write ends their "Turn Off for Now".
+        "energy.saver": .userOnly,
         // Whether agents start again by themselves after a restart is the person's call.
         "sessions.resumeAgents": .userOnly,
         // An agent must not let itself, or another agent, skip the person's approvals.

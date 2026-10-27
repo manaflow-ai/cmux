@@ -231,6 +231,26 @@ fn an_admitted_frame_reaches_dispatch() {
     assert_eq!(reply["ok"], json!(true), "{reply}");
 }
 
+/// p02-threads task 210: a remote connection's reader is the local reader's
+/// class (registered, blocking disallowed), not a lower one under a raised
+/// writer.
+#[test]
+fn a_remote_connection_reader_is_the_local_connection_class() {
+    let entry = entry(true, Arc::new(AdmitAll));
+    let (mut stream, mut reader) = connect_as_link(&entry);
+    stream.write_all(format!("{STAMP}\n{{\"id\":7,\"cmd\":\"identify\"}}\n").as_bytes()).unwrap();
+    let reply = response(&mut reader);
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let rows: Vec<_> = cmux_threads::snapshot()
+        .into_iter()
+        .filter(|row| row.name == "mux-remote-conn")
+        .map(|row| row.declared)
+        .collect();
+    assert!(!rows.is_empty(), "mux-remote-conn is registered while it serves");
+    let class = line_connection::CONNECTION_READER_QOS;
+    assert!(rows.iter().all(|declared| *declared == class), "{rows:?}");
+}
+
 /// A stamp sent to the local socket is not a stamp there: it is an unknown
 /// command, and the connection stays the local user's.
 #[test]
@@ -256,7 +276,7 @@ fn the_entry_socket_is_private_and_removed_on_drop() {
     use std::os::unix::fs::PermissionsExt;
     let entry = entry(true, Arc::new(DenyAllGate));
     let path = entry.server.path().to_path_buf();
-    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o600);
     drop(entry);
     assert!(!path.exists());

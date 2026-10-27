@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextDesign
 import Foundation
 import Observation
 import CmuxNextHistory
@@ -22,6 +23,8 @@ final class VaultPageTab: BrowserTab {
     @ObservationIgnored let vault: SessionVault
     @ObservationIgnored let contentView: NSView
     @ObservationIgnored var onNavigate: ((URL) -> Void)?
+    /// The scroll position a hibernation saved, for the rebuilt page's first show.
+    @ObservationIgnored let scrollRestore = BrowserAppPageScroll()
 
     init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, host: VaultHostView) {
         self.id = id
@@ -40,8 +43,7 @@ final class VaultPageTab: BrowserTab {
     }
 
     func reload() {
-        let vault = vault
-        Task { await vault.reload() }
+        vault.startReload()
     }
 
     func goBack() {}
@@ -56,12 +58,12 @@ final class VaultPageTab: BrowserTab {
     func setContentVisible(_ visible: Bool) {
         contentView.isHidden = !visible
         if visible { reload() }
+        if visible { showSavedScroll() } else { scrollRestore.pageDidHide() }
     }
 
     func snapshot() async throws -> CGImage {
-        guard let rep = contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds) else { throw BrowserTabError.snapshotUnavailable }
-        contentView.cacheDisplay(in: contentView.bounds, to: rep)
-        guard let image = rep.cgImage else { throw BrowserTabError.snapshotUnavailable }
+        // A hidden page's SwiftUI is out of the window (feature visibilityGatedHosting): this draws it too.
+        guard let image = contentView.cachedDisplayImage() else { throw BrowserTabError.snapshotUnavailable }
         return image
     }
 
@@ -74,5 +76,29 @@ final class VaultPageTab: BrowserTab {
     func setZoom(_ zoom: Double) {}
     func exitContentFullscreen() {}
     func showDevTools() {}
-    func close() {}
+    func close() { scrollRestore.cancel() }
+}
+
+/// Hibernates as a web page does (`memoryDiscardPageTabs`): the list's scroll goes with the tab.
+/// Its search and picked row live on the app's one vault, which the right sidebar and every vault
+/// tab show and which outlives the page: a wake leaves them as they are now.
+extension VaultPageTab: BrowserAppPage {
+    var pageAddress: URL { state.url ?? VaultPageAddress.url }
+    var drawsInFirstFrame: Bool { true }
+
+    func saveViewState() async -> BrowserAppPageState {
+        BrowserAppPageState(url: pageAddress, scroll: scrollRestore.position(of: listScrollView))
+    }
+
+    func restoreViewState(_ saved: BrowserAppPageState) {
+        scrollRestore.restore(saved.scroll)
+    }
+
+    /// The session list, the page's one scroll view.
+    private var listScrollView: NSScrollView? { BrowserAppPageScroll.soleScrollView(in: contentView) }
+
+    /// A saved scroll goes back once the list holds it; the sessions load after the show.
+    private func showSavedScroll() {
+        scrollRestore.pageDidShow(list: { [weak self] in self?.listScrollView }, hasRows: { [vault] in !vault.shownRows.isEmpty })
+    }
 }

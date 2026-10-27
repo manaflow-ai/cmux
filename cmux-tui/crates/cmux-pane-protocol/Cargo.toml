@@ -18,7 +18,14 @@ path = "src/bin/emit_ir.rs"
 name = "pane-protocol-example-provider"
 path = "src/bin/example_provider.rs"
 
+[features]
+# The lab's tokio slow-poll detector (cmux-blocking; RUSTFLAGS="--cfg tokio_unstable").
+cmux-stability = ["cmux-blocking/cmux-stability"]
+
 [dependencies]
+cmux-blocking.workspace = true
+cmux-panic-log.workspace = true
+cmux-threads.workspace = true
 anyhow.workspace = true
 base64.workspace = true
 bytes.workspace = true

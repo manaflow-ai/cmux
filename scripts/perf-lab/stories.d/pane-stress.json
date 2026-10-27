@@ -1,0 +1,24 @@
+{
+  "id": "pane-stress",
+  "tier": "T1",
+  "description": "Split, close, New Column and zoom motion in the STRESS session: frame intervals and missed frames per action (the perf cron's stress part).",
+  "command": ["scripts/cmux-next/pane-perf-terminal.py", "--layouts", "stress", "--rounds", "1", "--actions", "split,close,column,zoom",
+              "--story", "pane-stress"],
+  "session": "stress",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "panes\\.[^.]+\\.stress\\.frame", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/panes\\..*\\.frame/p95"},
+     "floor_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/panes\\..*\\.frame/floor"}},
+    {"name": "panes\\.[^.]+\\.[^.]+\\.missed", "unit": "count", "better": "lower",
+     "target_ref": {"target": "motion-dropped"}}
+  ],
+  "repeats": 1,
+  "seconds": 1500,
+  "needs": ["file:scripts/cmux-next/perf-stress-session.py"],
+  "hot_paths": ["motion-frame"],
+  "owner": "PL-motion-core",
+  "component": "Layout>Motion",
+  "perf_cron_part": "stress"
+}

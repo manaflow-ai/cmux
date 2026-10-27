@@ -236,17 +236,28 @@
 }
 
 .workflow-gallery__progress {
+  display: block;
+  width: 100%;
   height: var(--workflow-space-8);
   margin-top: var(--workflow-space-14);
   overflow: hidden;
+  border: 0;
   border-radius: 999px;
+  appearance: none;
   background: var(--workflow-line);
 }
 
-.workflow-gallery__progress span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
+.workflow-gallery__progress::-webkit-progress-bar {
+  background: transparent;
+}
+
+.workflow-gallery__progress::-webkit-progress-value {
+  border-radius: 999px;
+  background: var(--workflow-accent);
+}
+
+.workflow-gallery__progress::-moz-progress-bar {
+  border-radius: 999px;
   background: var(--workflow-accent);
 }
 

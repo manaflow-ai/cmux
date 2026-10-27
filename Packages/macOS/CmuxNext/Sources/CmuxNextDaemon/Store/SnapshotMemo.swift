@@ -25,6 +25,12 @@ struct SnapshotMemo {
     /// recomputed).
     var revision: UInt64 = 0
 
+    /// The last live snapshot of the workspace `id` (``WorkspaceModel/identity(_:)``), or nil when
+    /// that snapshot had none.
+    func workspace(_ id: String) -> WorkspaceSnapshot? {
+        applied[id]
+    }
+
     /// Forgets everything: the next snapshot applies in full.
     mutating func reset() {
         self = SnapshotMemo(revision: revision &+ 1)

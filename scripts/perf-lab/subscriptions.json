@@ -39,8 +39,8 @@
      "match": {"story": "build-incremental-leaf", "metric": "build_s"},
      "targets": ["incremental-leaf-build"]},
     {"name": "target-hidden-workspace-memory", "kind": "target", "owner": "PL-memory",
-     "match": {"story": "hidden-workspace-memory*", "metric": "mb_per_workspace"},
-     "targets": ["hidden-workspace-memory-slope"]},
+     "match": {"story": "memory-hidden*", "metric": "memory.hidden_slope"},
+     "targets": ["memory-slope"]},
 
     {"name": "hot-cef-host-input", "kind": "perf-hot", "owner": "PL-cef-helper",
      "match": {"story": "chromium-host-input*"}},

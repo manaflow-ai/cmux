@@ -15,6 +15,7 @@
 //! never overwritten, and a key that does not name a folder (`[A-Za-z0-9_-]`,
 //! 1 to 128) is ignored. Failures are logged; the folder stays where it was.
 
+use cmux_threads::checked::fs as files;
 use std::path::{Path, PathBuf};
 
 use super::agent_start::agent_home_base;
@@ -31,12 +32,12 @@ fn safe_key(key: &str) -> bool {
 /// symlinked base or parent moves nothing.
 fn base() -> Option<PathBuf> {
     let base = agent_home_base(crate::platform::home_dir().as_deref())?;
-    (std::fs::canonicalize(&base).ok()? == base).then_some(base)
+    (files::canonicalize(&base).ok()? == base).then_some(base)
 }
 
 /// A real folder (not a symlink) at `path`.
 fn is_folder(path: &Path) -> bool {
-    std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_dir())
+    files::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_dir())
 }
 
 /// Reopened workspaces: each `(closed key, reopened key)` folder follows.
@@ -51,13 +52,13 @@ pub(crate) fn follow_reopen(placements: &[(String, String)]) {
         if !is_folder(&from) {
             continue;
         }
-        if std::fs::symlink_metadata(&to).is_ok() {
+        if files::symlink_metadata(&to).is_ok() {
             // The reopened workspace already made its own folder: the old one
             // would be named by no record any more, so it waits for the Trash.
             retire_folder(&base, closed);
             continue;
         }
-        if let Err(error) = std::fs::rename(&from, &to) {
+        if let Err(error) = files::rename(&from, &to) {
             eprintln!("cmux-tui: agent-home folder of a reopened workspace did not move ({error})");
         }
     }
@@ -82,18 +83,18 @@ fn retire_folder(base: &Path, key: &str) {
         return;
     }
     let pending = base.join(TRASH_PENDING);
-    if let Err(error) = std::fs::create_dir_all(&pending) {
+    if let Err(error) = files::create_dir_all(&pending) {
         eprintln!("cmux-tui: agent-home trash folder not made ({error})");
         return;
     }
     // A key retired twice (a reopen, then a close and delete) keeps both.
     let mut to = pending.join(key);
     let mut n = 1;
-    while std::fs::symlink_metadata(&to).is_ok() {
+    while files::symlink_metadata(&to).is_ok() {
         n += 1;
         to = pending.join(format!("{key}-{n}"));
     }
-    if let Err(error) = std::fs::rename(&from, &to) {
+    if let Err(error) = files::rename(&from, &to) {
         eprintln!("cmux-tui: agent-home folder of a deleted workspace did not move ({error})");
     }
 }

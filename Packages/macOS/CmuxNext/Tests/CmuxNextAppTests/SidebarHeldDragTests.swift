@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextInput
 @testable import CmuxNextSidebar
 import Testing
 
@@ -104,9 +105,11 @@ import Testing
         #expect(list.suppressed.isEmpty, "rows still hidden: \(list.suppressed)")
     }
 
-    @Test func aReleaseSentToAnotherWindowEndsTheDragOnceItsDispatchIsOver() async throws {
+    @Test func aReleaseSentToAnotherWindowEndsTheDragOnceItsDispatchIsOver() throws {
         let (list, window) = G.list()
         defer { window.close() }
+        let tap = InputEventTap()
+        list.inputTap = tap
         list.leftButtonIsDown = { true }
         let order = G.ids(list)
         let start = try G.point(list, .workspace(WorkspaceID("x")))
@@ -117,11 +120,18 @@ import Testing
         other.isReleasedWhenClosed = false
         defer { other.close() }
         list.leftButtonIsDown = { false }
+        let release = try #require(NSEvent.mouseEvent(with: .leftMouseUp, location: NSPoint(x: 5, y: 5), modifierFlags: [],
+                                                      timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: other.windowNumber,
+                                                      context: nil, eventNumber: 0, clickCount: 1, pressure: 0))
         // A panel over the window may still forward the release here: nothing ends during its dispatch.
-        #expect(!list.pointerEventSeen(.leftMouseUp, in: other))
-        #expect(list.drag != nil)
-        // Its dispatch is over and the list never got it: the drag ends, its rows back.
-        await withCheckedContinuation { done in DispatchQueue.main.async { done.resume() } }
+        var aliveDuringDispatch = false
+        tap.dispatching {
+            tap.deliverObserve(release)
+            if tap.deliverIntercepts(release) == .pass { aliveDuringDispatch = list.drag != nil }
+            tap.deliverAfterDispatch(release)
+        }
+        #expect(aliveDuringDispatch, "the drag ended before the release's dispatch was over")
+        // Its dispatch is over and the list never got it: the drag ended in the same turn, its rows back.
         #expect(list.drag == nil && list.press == nil, "a drag whose release went to another window stayed alive")
         Self.land(list)
         #expect(G.ids(list) == order, "a cancelled drag moved rows: \(G.ids(list))")

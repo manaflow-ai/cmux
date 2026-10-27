@@ -74,4 +74,10 @@ nonisolated enum PageBackground {
         func byte(_ value: CGFloat) -> UInt32 { UInt32((min(max(value, 0), 1) * 255).rounded()) }
         return 0xFF00_0000 | byte(color.redComponent) << 16 | byte(color.greenComponent) << 8 | byte(color.blueComponent)
     }
+
+    /// The opaque sRGB color of a 0xAARRGGBB value (its alpha byte ignored).
+    static func cgColor(argb: UInt32) -> CGColor {
+        func channel(_ shift: UInt32) -> CGFloat { CGFloat((argb >> shift) & 0xFF) / 255 }
+        return CGColor(srgbRed: channel(16), green: channel(8), blue: channel(0), alpha: 1)
+    }
 }

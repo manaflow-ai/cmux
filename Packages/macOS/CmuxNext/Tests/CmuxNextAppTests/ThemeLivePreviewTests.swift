@@ -11,6 +11,9 @@ import Testing
 /// theme on the terminals and of `appearance.appTheme` on the chrome; ending the preview restores
 /// the saved ones, and the file never changes.
 @MainActor @Suite(.serialized) struct ThemeLivePreviewTests {
+    /// Where the terminal setting hears app notices: held for the whole test (its AppEvents hold it weakly).
+    private let center = NotificationCenter()
+
     func make() async throws -> (SettingsController, URL) {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-theme-preview-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -34,7 +37,7 @@ import Testing
     @Test func previewingATerminalThemeShowsItAndEndingRevertsIt() async throws {
         let (settings, url) = try await make()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let terminal = TerminalThemeSetting(backdropScope: ThemeScope(level: .room))
+        let terminal = TerminalThemeSetting.testing(backdropScope: ThemeScope(level: .room), center: center)
         var reloads = 0
         terminal.reload = { reloads += 1 }
         terminal.follow(settings)
@@ -57,7 +60,7 @@ import Testing
     @Test func aSliderPreviewDoesNotReloadTheTerminals() async throws {
         let (settings, url) = try await make()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let terminal = TerminalThemeSetting(backdropScope: ThemeScope(level: .room))
+        let terminal = TerminalThemeSetting.testing(backdropScope: ThemeScope(level: .room), center: center)
         var reloads = 0
         terminal.reload = { reloads += 1 }
         terminal.follow(settings)
@@ -78,7 +81,7 @@ import Testing
         try Data(#"{"appearance":{"theme":"Nord","experimentalControls":true}}"#.utf8).write(to: url)
         await settings.reload()
         let scope = ThemeScope(level: .room)
-        let terminal = TerminalThemeSetting(backdropScope: scope)
+        let terminal = TerminalThemeSetting.testing(backdropScope: scope, center: center)
         terminal.reload = {}
         terminal.follow(settings)
         #expect(scope.appearanceTuning.hue == AppearanceTuning.identity.hue)

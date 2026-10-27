@@ -2,7 +2,11 @@ import CmuxNextAgentPane
 public import CmuxNextDaemon
 public import Foundation
 public import Observation
+public import CmuxNextWakeups
 import os
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The owner of Home's conversations: the cmux-tui daemon session of the
 /// Chief home (`ChiefHome.session`, state in `ChiefHome.daemonStateDirectory`),
@@ -44,6 +48,15 @@ public final class ChiefConversationOwner {
     @ObservationIgnored private var runTask: Task<Void, Never>?
     @ObservationIgnored private let wake = RetryWake(owner: "ChiefConversationOwner")
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
+    /// Waits for a connection that serves a capability (``connection(supporting:)``), answered by the attach.
+    @ObservationIgnored private var connectionWaiters: [ConnectionWaiter] = []
+    @ObservationIgnored private var lastConnectionWaiterID: UInt64 = 0
+
+    private struct ConnectionWaiter {
+        let id: UInt64
+        let capability: String
+        let answer: OnceContinuation<DaemonConnection, OnceContinuationError>
+    }
 
     public init(home: ChiefHome) {
         self.home = home
@@ -69,17 +82,37 @@ public final class ChiefConversationOwner {
         connection != nil && identity?.supports(capability) == true
     }
 
+    /// The live connection once the owner is attached and serves `capability`: now when it does,
+    /// else at the attach that brings it (the attach answers the wait, no observation re-reads it);
+    /// nil when the waiting task is cancelled first. A wait that ends without an answer leaves no waiter behind.
+    public func connection(supporting capability: String) async -> DaemonConnection? {
+        if supports(capability), let connection { return connection }
+        guard !Task.isCancelled else { return nil }
+        lastConnectionWaiterID &+= 1
+        let id = lastConnectionWaiterID
+        let answered = try? await withOnceContinuation(cancellation: .cancellable, failingWith: { $0 }) {
+            (answer: OnceContinuation<DaemonConnection, OnceContinuationError>) in
+            connectionWaiters.append(ConnectionWaiter(id: id, capability: capability, answer: answer))
+        }
+        if answered == nil { connectionWaiters.removeAll { $0.id == id } }
+        return answered
+    }
+
+    /// Waits filed by ``connection(supporting:)`` that no attach answered yet (tests).
+    var connectionWaitCount: Int { connectionWaiters.count }
+
     /// The owner's socket, once connected (the brain host's `--daemon-socket`).
     public func socketPath() async -> String? {
         await connection?.endpoint?.socketPath
     }
 
-    /// Ensures the owner and keeps a connection to it. Idempotent.
-    public func start(bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment) {
+    /// Ensures the owner and keeps a connection to it, its launcher's disk steps on `work` (the app's one
+    /// ``BackgroundWork``). Idempotent.
+    public func start(work: BackgroundWork, bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment) {
         guard runTask == nil else { return }
         let launcher: DaemonLauncher
         do {
-            launcher = try DaemonLauncher.forChief(session: home.session, stateDirectory: home.daemonStateDirectory,
+            launcher = try DaemonLauncher.forChief(work: work, session: home.session, stateDirectory: home.daemonStateDirectory,
                                                    bundle: bundle, processEnvironment: Self.ownerEnvironment(home: home, process: environment, bundle: bundle))
         } catch {
             lastError = String(describing: error)
@@ -100,6 +133,7 @@ public final class ChiefConversationOwner {
         let home = home
         let build = bundle.bundleIdentifier ?? ChiefHome.nightlyBundleID
         // task-owner: lives as long as the app; one connection, reconnecting by itself
+        // main-hop-allow: the owner's connection loop: its connect, adoption and restart probe run off main (DaemonStartup, @concurrent adoption), and each envelope's handle is the main-actor model change of that event, in the order the owner sent them
         runTask = Task { [weak self] in
             weak let weakSelf = self
             // NIGHTLY's backup before this app starts the owner (cx-is1kf.7); a running owner's
@@ -132,7 +166,8 @@ public final class ChiefConversationOwner {
             let restartFeed = restart.map { restart in
                 let (events, feed) = AsyncStream<DaemonEvent>.makeStream(bufferingPolicy: .bufferingNewest(1))
                 // task-owner: this run task; ends when the feed finishes below or the restart is decided
-                Task {
+                // Off main: the probe is the restart actor's own, and nothing here touches the owner.
+                Task { @concurrent in
                     for await event in events {
                         if await restart.note(event) != .waiting { break }
                     }
@@ -172,12 +207,16 @@ public final class ChiefConversationOwner {
         refusal = nil
     }
 
-    private func attach(_ connection: DaemonConnection, identity: DaemonIdentity) {
+    /// The owner answered on `connection` (internal: a test attaches an owner without starting one).
+    func attach(_ connection: DaemonConnection, identity: DaemonIdentity) {
         self.identity = identity
         self.connection = connection
         lastError = nil
         refusal = nil
         logger.info("chief owner \(identity.session, privacy: .public) (cmux-tui \(identity.version, privacy: .public)) for \(self.home.root.path, privacy: .public)")
+        let served = connectionWaiters.filter { identity.supports($0.capability) }
+        connectionWaiters.removeAll { identity.supports($0.capability) }
+        for waiter in served { waiter.answer.resume(returning: connection) }
     }
 
     private func handle(_ event: DaemonEvent, connection: DaemonConnection) {

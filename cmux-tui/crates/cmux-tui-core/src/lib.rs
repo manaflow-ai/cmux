@@ -36,15 +36,25 @@ use cmux_tui_util::debug_spans;
 mod browser_profile_ops;
 mod browser_site_engines;
 pub mod diagnostics;
+pub mod echo_thread;
 mod event_bus;
+mod event_cause;
 #[cfg(unix)]
 pub mod fs_ops;
+/// Decoder entry points of the cmux-tui/fuzz targets; only the fuzz
+/// workspace builds them.
+#[cfg(all(feature = "fuzz", any(unix, windows)))]
+#[doc(hidden)]
+pub mod fuzz_entry;
 mod git_ops;
 mod history_ops;
 pub mod history_search;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.
 #[cfg(unix)]
 use cmux_tui_image_paste::image_paste;
+/// The test binary's one process hang watch (server/request_hang_watch.rs).
+#[cfg(test)]
+mod hang_watch_test_support;
 mod journal_checkpoint;
 mod journal_hooks;
 mod journal_ingress;
@@ -56,11 +66,16 @@ use cmux_tui_util::machine_name;
 mod model;
 mod mux;
 pub mod net_keepalive;
+/// `oracle-state` (p15-oracle task 021): debug and `--features oracle` builds only.
+#[cfg(any(debug_assertions, feature = "oracle"))]
+mod oracle_state;
 /// Remote access state; the cmux-tui-remote-access crate, re-exported at the old paths.
 use cmux_tui_remote_access::pairing;
+mod input_flow;
 mod output_store;
 /// `RecoverPoison` and `JsonFields` (panic-free lane).
 mod panic_free;
+mod process_trace;
 mod program_status;
 mod prompt_mode_reset;
 pub mod provider_management;
@@ -69,9 +84,15 @@ mod pty_input_room;
 mod pty_write;
 mod terminal_title;
 use cmux_tui_remote_access::remote_relay_state;
+mod line_parses;
 mod login_shell;
+mod memory;
 pub mod release;
 mod request_origin;
+/// Blocking notes on request threads (`server-stats` `request_path_io`).
+mod request_path;
+/// A request's cause and QoS class together (p06-scheduler-035).
+mod request_qos;
 pub mod resource;
 mod resource_api;
 mod resource_mutation;
@@ -92,6 +113,9 @@ pub mod store_schemas;
 use cmux_tui_util::stream_interrupt;
 #[cfg(unix)]
 mod holder_runtime;
+/// The daemon fixes the holder model from its features before it builds the mux.
+#[cfg(unix)]
+pub use holder_runtime::install as install_terminal_holder;
 mod surface;
 mod terminal_activity;
 #[cfg(unix)]
@@ -103,6 +127,8 @@ mod terminal_loss_cause;
 mod terminal_loss_log;
 mod terminal_metadata;
 pub use cmux_tui_util::terminal_respawn_text;
+pub use cmux_wake as wake;
+mod work_reply;
 mod workspace_registry;
 
 /// The executable terminal hosts run from (the cmux-tui-platform crate).
@@ -119,6 +145,7 @@ pub mod session_state_import;
 pub mod terminal_host;
 pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
+pub mod thread_qos;
 #[cfg(unix)]
 pub use cmux_tui_platform::unix_process_scope;
 pub use cmux_tui_util::user_settings;

@@ -9,7 +9,7 @@ public enum DaemonClientRole: String, Sendable, Codable {
     case pageRelay = "page_relay"
 }
 
-/// `client-hello` step 1 `{role, install_id?, page?}`. An older daemon answers unknown command and the
+/// `client-hello` step 1 `{role, install_id?, page?, features?}`. An older daemon answers unknown command and the
 /// connection stays a legacy client. `install_id` only on the app's `main` connection (P8,
 /// plans/cmux-next/identity.md), never on `page_relay`; with it the daemon returns a nonce and
 /// expects `ClientHelloProofRequest` as the very next line.
@@ -27,6 +27,8 @@ public struct ClientHelloRequest: DaemonRequest {
         /// The subscribe events the page hears (`page-events-v1`), on a page relay's hello that
         /// named a page; nil from an older daemon (no event stream).
         public var pageEvents: [String]?
+        /// What the daemon did with the hello's `features`; nil without them or from an older daemon.
+        public var features: FeatureReport?
 
         enum CodingKeys: String, CodingKey {
             case connectionId = "connection_id"
@@ -34,7 +36,35 @@ public struct ClientHelloRequest: DaemonRequest {
             case userOriginAllowed = "user_origin_allowed"
             case pageOperations = "page_operations"
             case pageEvents = "page_events"
+            case features
         }
+    }
+
+    /// The app's daemon features (process `daemon` or `both`), on the `main` connection only
+    /// (p12-perf-process-150): `values` by name and `hash`, their `FeatureList.daemonValuesHash`.
+    public struct Features: Encodable, Sendable, Equatable {
+        public var hash: String
+        public var values: [String: Bool]
+
+        public init(hash: String, values: [String: Bool]) {
+            self.hash = hash
+            self.values = values
+        }
+    }
+
+    /// The daemon's answer to ``Features``: the kill switches it turned off now (`applied`, only for an
+    /// app it verified) and each other difference, for which it keeps its own value until it restarts.
+    public struct FeatureReport: Decodable, Sendable, Equatable {
+        public struct Pending: Decodable, Sendable, Equatable {
+            public var name: String
+            public var app: Bool
+            public var daemon: Bool
+        }
+
+        /// The daemon's own values hash after the hello.
+        public var hash: String
+        public var applied: [String]
+        public var pending: [Pending]
     }
 
     /// What a page may call (cmux-tui/spec/page-router.json): `gesture` operations need one real
@@ -46,30 +76,34 @@ public struct ClientHelloRequest: DaemonRequest {
         public var confirm: [String]?
     }
 
-    public static let command = "client-hello"
+    public static let commandName: DaemonCommandName = "client-hello"
     public var role: DaemonClientRole
     public var installID: String?
     /// The page a `page_relay` connection serves (`history`, `apps`; `page-router-v1`). The host
     /// names it, never the page; the daemon applies that page's allow list.
     public var page: String?
+    /// The app's daemon features, on the `main` connection only (an older daemon ignores them).
+    public var features: Features?
 
-    public init(role: DaemonClientRole, installID: String? = nil, page: String? = nil) {
+    public init(role: DaemonClientRole, installID: String? = nil, page: String? = nil, features: Features? = nil) {
         self.role = role
         self.installID = role == .main ? installID : nil
         self.page = role == .pageRelay ? page : nil
+        self.features = role == .main ? features : nil
     }
 
     enum CodingKeys: String, CodingKey {
         case role
         case installID = "install_id"
         case page
+        case features
     }
 }
 
 /// `client-hello` step 2 (P8): the install-key proof over the step 1 nonce. It must be the very
 /// next line after step 1.
 public struct ClientHelloProofRequest: DaemonRequest {
-    public static let command = "client-hello"
+    public static let commandName: DaemonCommandName = "client-hello"
     public var installID: String
     public var proof: String
 
@@ -87,10 +121,13 @@ public struct ClientHelloProofRequest: DaemonRequest {
         public var verified: Bool
         /// As in step 1; after step 2 this value counts.
         public var userOriginAllowed: Bool?
+        /// Step 1's ``ClientHelloRequest/FeatureReport`` again, now with the kill switches of the proved app.
+        public var features: ClientHelloRequest.FeatureReport?
 
         enum CodingKeys: String, CodingKey {
             case verified
             case userOriginAllowed = "user_origin_allowed"
+            case features
         }
     }
 }

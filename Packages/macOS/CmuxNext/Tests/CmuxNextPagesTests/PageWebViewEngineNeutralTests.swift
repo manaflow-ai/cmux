@@ -10,7 +10,7 @@ import Testing
 @MainActor
 struct PageWebViewEngineNeutralTests {
     private let root: URL
-    private let descriptor = PageDescriptor(id: "test.engine-neutral", resource: "engine-neutral", namespaces: [])
+    private let descriptor = PageDescriptor(id: "test.engine-neutral", resource: "engine-neutral", processGroup: .solo, namespaces: [])
 
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("page-neutral-\(UUID().uuidString)", isDirectory: true)
@@ -20,7 +20,7 @@ struct PageWebViewEngineNeutralTests {
 
     private func started(_ hosting: FakeChromiumHosting, before: (PageWebView) -> Void = { _ in }) async throws -> (PageWebView, FakeChromiumPage) {
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         before(view)
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
@@ -65,6 +65,23 @@ struct PageWebViewEngineNeutralTests {
         view.close()
     }
 
+    /// The next-frame wait runs through the page's `evaluate`: on the renderer path (`tabEvaluate`)
+    /// it makes no DevTools call, and the body runs once the page answers.
+    @Test func theNextFrameWaitRunsThroughTheChromiumPagesEvaluate() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let (view, page) = try await started(hosting)
+        page.rendererEvaluate = { _ in "null" }
+        let ran: Bool? = await PageTestWait.value("frame") { done in
+            view.afterNextFrame { done(true) }
+        }
+        #expect(ran == true)
+        #expect(page.evaluations.last?.contains("requestAnimationFrame") == true)
+        #expect(!page.calls.contains { $0.method == "Runtime.evaluate" &&
+            (($0.params["expression"] as? String)?.contains("requestAnimationFrame") ?? false) })
+        view.close()
+    }
+
     /// A host whose menu depends on the page's report (the agent chat) builds it only after its wait.
     @Test func aRightClickMenuWaitsForTheHostsWait() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
@@ -85,6 +102,39 @@ struct PageWebViewEngineNeutralTests {
         }
         #expect(waitedBeforeBuilding)
         #expect(shown == ["Row 1"])
+        view.close()
+    }
+
+    /// The WebKit engine is there for the WebKit-only tools only while it shows the page
+    /// (p13-webui-074): nil while Chromium shows it.
+    @Test func theWebKitEngineIsOfferedOnlyWhileWebKitShowsThePage() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (view, _) = try await started(FakeChromiumHosting())
+        #expect(view.webKitEngine == nil)
+        #expect(view.webKitPieces == nil)
+        view.close()
+        let webKit = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: nil))
+        #expect(webKit.webKitEngine === webKit.webView)
+        webKit.close()
+    }
+
+    /// Ending a Chromium page's document loads nothing into its unused WebKit view: an empty load
+    /// there starts a WebContent process for a page that never had one.
+    @Test func endingAChromiumDocumentLoadsNothingIntoWebKit() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (view, page) = try await started(FakeChromiumHosting())
+        view.close()
+        view.endPageDocument()
+        #expect(page.closed)
+        #expect(view.webKitPieces == nil, "ending a Chromium document built a WebKit view")
+    }
+
+    /// One zoom in both engines: points per CSS pixel, which the WebKit view shows too.
+    @Test func thePageZoomIsTheOneBothEnginesShow() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: nil))
+        view.additionalZoom = 1.5
+        #expect(Double(view.webView.pageZoom) == view.pageZoom)
         view.close()
     }
 }

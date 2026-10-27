@@ -18,11 +18,15 @@
 #   idle wakeups (plans/cmux-next/idle-wakeups.md; everywhere except the
 #               CmuxNextWakeups module, which holds the sanctioned primitives
 #               FrameScheduler, DemandTimer, Backoff): timers of any kind,
-#               raw display links, sleeps, and loops that can spin
-#               (`while true`, `while !Task.isCancelled`, `repeat {`). Nothing
-#               may poll. A reviewed exception carries
-#               `// wakeup-allow: <reason>` on the line or the comment block
-#               directly above.
+#               sleeps, and loops that can spin (`while true`,
+#               `while !Task.isCancelled`, `repeat {`). Nothing may poll. A
+#               reviewed exception carries `// wakeup-allow: <reason>` on the
+#               line or the comment block directly above.
+#   display links: created only in CmuxNextWakeups/DisplayClock.swift and
+#               CmuxNextWakeups/VSyncHub.swift, one link per display shared by
+#               every FrameScheduler (Chrome's DisplayLinkMac::GetForDisplay).
+#               Everywhere else, the Wakeups module included, a raw display
+#               link is a violation with no escape comment.
 #   service code (Daemon, Cloud, Mobile, Control, and the App's *Service /
 #               *Store / Cloud files): a fire-and-forget `Task {` statement.
 #               Store the handle and cancel it with its owner, or say who
@@ -146,13 +150,16 @@ WAKEUP_PRIMITIVES_MODULE = "CmuxNextWakeups"
 WAKEUP_RULES = [
     ("timer (use DemandTimer for a one-shot deadline, FrameClient for animation frames)",
      r"\bTimer\.(scheduledTimer|publish)\b|\bTimer\((timeInterval|fire|fireAt)|\bNSTimer\b|\bCFRunLoopTimerCreate|\bmakeTimerSource\(|\brepeating:\s*\.(seconds|milliseconds|microseconds|nanoseconds|never)"),
-    ("raw display link (use a FrameClient of the window's FrameScheduler)",
-     r"\bdisplayLink\(target:|\bCADisplayLink\(|\bCVDisplayLink"),
     ("sleep (wait for an event; DemandTimer for a deadline, Backoff.wait after a failure)", SLEEP_CALL),
     ("loop that can spin (block or await readiness; end on EOF and fatal errors)",
      r"\bwhile\s+true\b|\bwhile\s+!\s*(Task\.)?isCancelled\b|\brepeat\s*\{"),
 ]
 WAKEUP_ALLOW = re.compile(r"//\s*wakeup-allow:\s*\S")
+# One display link per display (plans/cmux-next/chrome-parity/p03-rendering.md R1): only these
+# files make one; every other frame consumer is a FrameClient of a FrameScheduler.
+DISPLAY_LINK_RULE = "raw display link (use a FrameClient of the window's FrameScheduler; links live in DisplayClock)"
+DISPLAY_LINK = re.compile(r"\bdisplayLink\(target:|\bCADisplayLink\(|\bCVDisplayLink")
+DISPLAY_LINK_OWNERS = {"CmuxNextWakeups/DisplayClock.swift", "CmuxNextWakeups/VSyncHub.swift"}
 # Files another agent is rewriting right now, so they cannot take an inline
 # comment without a conflict. Temporary: remove the entry when that work lands.
 WAKEUP_PENDING_FILES: set[str] = set()
@@ -196,8 +203,16 @@ ISOLATED_DEINIT = re.compile(r"^\s*isolated\s+deinit\b")
 PLAIN_DEINIT = re.compile(r"^\s*deinit\b")
 TASK_LOCAL_BINDING = re.compile(r"\.withValue\s*\(")
 TASK_LOCAL_HELPER = "CmuxNextActions/TaskLocal+InTask.swift"
-# NSWorkspace.shared.open(x) with one argument, and the Finder reveal calls.
-WORKSPACE_SYNC = re.compile(r"NSWorkspace\.shared\.(open\((?:[^,()]|\([^()]*\))*\)|activateFileViewerSelecting\(|selectFile\(|openFile\(|launchApplication\()")
+# Every synchronous NSWorkspace open or Finder reveal, with any arguments: on NSWorkspace.shared, and on
+# any receiver (a local alias, an injected workspace) for the calls only NSWorkspace has: the reveals, an
+# open with an app and a configuration, an open with an NSWorkspace.OpenConfiguration, and an open with a
+# configuration on a receiver named like a workspace.
+WORKSPACE_SYNC = re.compile(
+    r"NSWorkspace\.shared\.(open|openFile|activateFileViewerSelecting|selectFile|launchApplication)\("
+    r"|\.(activateFileViewerSelecting|selectFile)\("
+    r"|\.open\([^\n]*\bwithApplicationAt:[^\n]*\bconfiguration:"
+    r"|\.open\([^\n]*NSWorkspace\.OpenConfiguration\("
+    r"|\b\w*[Ww]orkspace[?!]?\.open\([^\n]*\bconfiguration:")
 WORKSPACE_HELPER = "CmuxNextCompat/NSWorkspace+Background.swift"
 ALLOW = re.compile(r"//\s*concurrency-allow:\s*\S")
 COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")
@@ -304,6 +319,8 @@ for dirpath, _, files in os.walk(sources):
             if (module != WAKEUP_PRIMITIVES_MODULE and relative.replace(os.sep, "/") not in WAKEUP_PENDING_FILES
                     and not allowed(lines, index, WAKEUP_ALLOW)):
                 hits += [name for name, rx in rules_wakeup if rx.search(code)]
+            if DISPLAY_LINK.search(code) and relative.replace(os.sep, "/") not in DISPLAY_LINK_OWNERS:
+                hits.append(DISPLAY_LINK_RULE)
             if is_service and UNOWNED_TASK.search(code) and not allowed(lines, index, TASK_OWNER):
                 hits.append("unowned Task in service code (store and cancel the handle, or `// task-owner: <reason>`)")
             for name in hits:

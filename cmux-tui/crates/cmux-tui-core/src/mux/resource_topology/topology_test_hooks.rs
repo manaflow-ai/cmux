@@ -12,6 +12,7 @@ impl Mux {
     }
 
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn set_resource_patch_failure_for_test(&self, enabled: bool) {
         self.workspace_registry.lock().unwrap().set_resource_patch_failure(enabled).unwrap();
     }
@@ -38,6 +39,7 @@ impl Mux {
     }
 
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn resource_terminal_lifecycle_for_test(
         &self,
         terminal_id: &str,

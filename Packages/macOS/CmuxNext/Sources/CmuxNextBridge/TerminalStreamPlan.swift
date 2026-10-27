@@ -31,6 +31,8 @@ public nonisolated enum TerminalStreamPlan {
         /// (preceded by its grid), `history` adds that READY's scrollback.
         case snapshot(TerminalSnapshotFrame)
         case output(Data)
+        /// The `output` before this one carries the echo of key press `flow` (the typing probe).
+        case inputEcho(flow: UInt64)
         /// The terminal's process is gone.
         case exited
         /// The view's link changed (disconnected, reconnecting, back).
@@ -47,6 +49,8 @@ public nonisolated enum TerminalStreamPlan {
                 + tail(replay, cursorDefault: cursorDefault)
         case .output(let data, _):
             [.output(data)]
+        case .inputEcho(let flow):
+            [.inputEcho(flow: flow)]
         case .closed, .colorsChanged, .scrollChanged:
             []
         case .sizeState(let state, let participant):

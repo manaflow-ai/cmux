@@ -111,6 +111,14 @@ pub(super) async fn route(
     if m == crate::rpc::method::MUX_STATS {
         return stats::handle(hub, conn.origin, &params).await;
     }
+    // The cmux daemon's trace control: local only, this process only.
+    if m == crate::rpc::method::MUX_TRACE {
+        return crate::trace_control::handle(conn.origin, &params).await;
+    }
+    // Energy Saver (`energy_control.rs`): the unix socket and the local app only.
+    if m == crate::rpc::method::MUX_ENERGY {
+        return crate::energy_control::handle(&hub.maintenance, conn.origin, &params).await;
+    }
     // A chat's route (`routes.rs`) is a session method, not the chat index.
     if !m.starts_with(PREFIX) || m == crate::rpc::method::MUX_CHAT_ROUTE_SET {
         return super::requests::handle_request(hub, conn, m, params).await;
@@ -338,7 +346,7 @@ fn transcript_turns(
         }
     };
     // adopt's reader answers an unreadable file with no turns.
-    std::fs::File::open(&entry.source_path)
+    cmux_blocking::fs::open(&entry.source_path)
         .map_err(|e| TranscriptError::Unreadable(e.to_string()))?;
     let turns = crate::adopt_replay::read(family, &entry.source_path);
     Ok(turns

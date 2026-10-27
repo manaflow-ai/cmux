@@ -48,7 +48,7 @@ import Testing
                      layerHost: @escaping (UInt32) -> CALayer? = { _ in CALayer() }) -> CEFLayerHosting {
         let turn = turn
         let hosting = CEFLayerHosting(isEnabled: enabled, schedule: { turn.add($0) },
-                                      makePage: { CEFHostedPageView(frame: $0, makeLayerHost: layerHost) })
+                                      makePage: { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow, makeLayerHost: layerHost) })
         hosting.view = view
         return hosting
     }
@@ -152,6 +152,16 @@ import Testing
         #expect(old.forkCalls == 0)
     }
 
+    /// p03-rendering-042: fork API 32 takes the resize deadline without effect and returns 1, so
+    /// from API 32 no deadline is sent and none is recorded as applied.
+    @Test func theResizeDeadlineReachesOnlyForkAPI27To31() {
+        #expect(!CEFLayerHosting.hasResizeSync(apiVersion: 26))
+        #expect(CEFLayerHosting.hasResizeSync(apiVersion: 27))
+        #expect(CEFLayerHosting.hasResizeSync(apiVersion: 31))
+        #expect(!CEFLayerHosting.hasResizeSync(apiVersion: 32))
+        #expect(!CEFLayerHosting.hasResizeSync(apiVersion: 33))
+    }
+
     @Test func aNewPageWindowDropsTheOldWindowsContext() throws {
         let hosting = makeHosting()
         hosting.pageWindowCreated(browser: 3, fork: fake.fork)
@@ -207,12 +217,12 @@ import Testing
 
     /// The SPI the hosted view needs, on the macOS this runs on (14, 15, 26, 27).
     @Test func theSystemsLayerHostTakesAContextID() throws {
-        let layer = try #require(CEFHostedPageView.layerHost(contextID: 5))
+        let layer = try #require(ChromiumHostPageView.layerHost(contextID: 5))
         #expect((layer.value(forKey: "contextId") as? NSNumber)?.uint32Value == 5)
-        let page = CEFHostedPageView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
-        #expect(page.host(contextID: 5))
+        let page = ChromiumHostPageView(frame: NSRect(x: 0, y: 0, width: 10, height: 10), inputTarget: .pageWindow)
+        #expect(page.show(contextID: 5))
         #expect(page.contextID == 5)
-        #expect(page.host(contextID: 0))
+        #expect(page.show(contextID: 0))
         #expect(page.contextID == 0)
     }
 
@@ -250,7 +260,7 @@ import Testing
 
     func makeHosting(enabled: Bool) -> CEFLayerHosting {
         let hosting = CEFLayerHosting(isEnabled: { enabled }, schedule: { $0() },
-                                      makePage: { CEFHostedPageView(frame: $0, makeLayerHost: { _ in CALayer() }) },
+                                      makePage: { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow, makeLayerHost: { _ in CALayer() }) },
                                       resizeDeadlineMs: { 8 }, liveResizeDeadlineMs: { 50 }, refreshIntervals: { [] })
         hosting.view = view
         return hosting

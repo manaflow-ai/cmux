@@ -146,15 +146,13 @@ import Testing
     /// model shows the move, and the card lands into the rows the model put there.
     @Test func theRailShowsAfterADocumentDropSettles() async throws {
         let store = SidebarDocStore(remote: Remote(document: Self.document))
-        let previous = SidebarDocStore.current
-        SidebarDocStore.current = store
-        defer { SidebarDocStore.current = previous }
         store.refresh()
         await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { store.isActive }
         try #require(store.isActive, "the store did not load the document")
         let drops = Drops()
         let (list, window) = Self.list(drops) { items, target in store.move(items, to: target, title: "Move") }
         defer { window.close() }
+        list.docStore = store // as the App injects it (`SidebarView.docStore`)
         try Self.dragInfraPastEmpty(list)
         try #require(list.settling != nil, "the drop did not settle on the document's move: \(Self.describe(list))")
         Self.echo(list)

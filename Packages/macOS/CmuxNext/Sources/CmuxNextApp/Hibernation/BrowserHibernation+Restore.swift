@@ -2,9 +2,12 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
+import CmuxNextDaemonService
+import CmuxNextHibernation
+import CmuxNextInput
+import CmuxNextWakeups
 import CoreGraphics
 import Foundation
-import Observation
 
 /// Restoring a hibernated page: the `restore` effect recreates its engine page from the saved
 /// history, and each wake is timed (`wakeLog`, `debug.surfaces` `wakes`) from the effect to the
@@ -36,7 +39,10 @@ extension BrowserHibernation {
         let profile = cache.tabModel(key) == nil ? placeholder.profileID : cache.browserProfile?(key) ?? placeholder.profileID
         let history = profile == placeholder.profileID ? placeholder.restoreState : nil
         wakeLog.start(key, engine: placeholder.engineKind, snapshot: snapshotImage(key) != nil)
-        var configuration = BrowserTabConfiguration(id: placeholder.id, profile: profile, zoom: placeholder.state.zoom)
+        if case .appPage(let saved) = placeholder.restoreState {
+            return restoreAppPage(key, saved, token: token)
+        }
+        var configuration = BrowserTabConfiguration(id: placeholder.id, profile: profile, zoom: placeholder.state.zoom, origin: .user)
         switch placeholder.engineKind {
         case .webkit:
             let tab = cache.webKit.makeWebKitTab(id: configuration.id, profile: configuration.profile, zoom: configuration.zoom)
@@ -47,6 +53,8 @@ extension BrowserHibernation {
             configuration.restoreState = history
             let make = cache.makeCEFTab
             let tab = cache.tabModel(key)
+            // task-owner: one page restore; the lifecycle's token drops a restore that lands after a close or a newer wake
+            // main-hop-allow: the cache's Chromium configuration and page make are main-actor async; the restore finishes in their resume
             Task { @MainActor [weak self, weak cache] in
                 do {
                     // The remote-localhost store and guard, as for any Chromium page.
@@ -62,7 +70,21 @@ extension BrowserHibernation {
         }
     }
 
+    /// A cmux page (`BrowserAppPage`) is built again at its address, as its tab's record opens it,
+    /// and gets its view state back.
+    private func restoreAppPage(_ key: String, _ saved: BrowserAppPageState, token: ContentLifecycle<String>.Token) {
+        guard let cache, let tab = cache.tabModel(key), let page = cache.makeAppPage(saved.url, for: tab) else {
+            cache?.applyLifecycle(cache?.lifecycle.send(.mountFailed(key, token)) ?? [])
+            return
+        }
+        (page as? any BrowserAppPage)?.restoreViewState(saved)
+        finishRestore(key, token: token, page: page)
+    }
+
     private func finishRestore(_ key: String, token: ContentLifecycle<String>.Token, page: any BrowserTab) {
+        // An intent prewarm's kinds: the page lays out hidden at its target size, and its cover needs no decode.
+        let prewarmed = prewarmKinds.takeForRestore(key)
+        if let size = prewarmed.size, page.contentView.window == nil { page.contentView.setFrameSize(size) }
         guard let cache, let asleep = cache.browsers[key]?.tab as? HibernatedBrowserTab, cache.lifecycle.record(key)?.pending == token else {
             // Closed or superseded while it restored.
             page.close()
@@ -73,20 +95,23 @@ extension BrowserHibernation {
         // Its last frame stays over the new page until the page paints: no blank frame on a wake.
         // The pixels the placeholder shows now are already decoded, so the cover has them in the
         // swap's own frame. A page that cannot show one (a Chromium page in its own child window) is counted.
-        let shown = asleep.shownPicture
-        if let picture = shown ?? snapshotImage(key) {
-            let covered = (page as? any BrowserWakeStandIn)?.showStandIn(picture, decoded: shown != nil, cap: Self.standInCap,
-                                                                         clock: standInClock) ?? false
+        // A native cmux page draws in its first frame and needs none; one in a web engine does. A remote
+        // stream connects first: it keeps the picture for a reconnect's cap (`BrowserWakeStandIn.wakeCoverCap`).
+        let shown = asleep.shownPicture ?? prewarmed.cover
+        if (page as? any BrowserAppPage)?.drawsInFirstFrame != true, let picture = shown ?? snapshotImage(key) {
+            let standIn = page as? any BrowserWakeStandIn
+            let covered = standIn?.showStandIn(picture, decoded: shown != nil, cap: standIn?.wakeCoverCap ?? Self.standInCap,
+                                               clock: standInClock) ?? false
             if !covered { uncoveredWakes += 1 }
         }
         cache.swapPage(key, with: page, asleep: asleep.state)
         cache.dormantTabs.set(key, false)
+        savedBytes[key] = nil
         // The live page now; a later sleep takes a new picture.
         snapshots.remove(key)
-        cache.previews.remove(key)
         restoredCount += 1
         cache.applyLifecycle(cache.lifecycle.send(.mounted(key, token)))
-        wakeLog.mounted(key, visible: cache.lifecycle.phase(key) == .mountedVisible)
+        if let latency = wakeLog.mounted(key, visible: cache.lifecycle.phase(key) == .mountedVisible) { onWakeMounted(latency) }
         timeLoad(key, page: page)
         // A navigation or history step that woke the page runs once its
         // history is back (a reload just wakes it: restoring loads the page).
@@ -99,46 +124,149 @@ extension BrowserHibernation {
     }
 
     /// Records when the woken page's load ends (finished or failed), bounded: a page that is
-    /// still loading after 15 s records none.
-    private func timeLoad(_ key: String, page: any BrowserTab) {
-        Task { @MainActor [weak self, weak page] in
-            let ended = try? await ControlDeadline.shared.run(method: "hibernation.wake", deadline: .now + .seconds(15)) { @MainActor in
-                for await ended in ObservationStream({ page.map { Self.loadEnded($0.state.phase) } ?? true }) where ended { return true }
-                return false
+    /// still loading after 15 s records none. R-wait: an engine page's keyed phase wait (`PageWaiters`), read
+    /// only on a load-phase change; any other page (a streamed or a cmux page) through an ``ObservedCondition``
+    /// on its phase, with a `MainDeadline` for the bound. The end's time is read where the wait returns, so the
+    /// record's background task adds no queue time to `loaded_ms`.
+    func timeLoad(_ key: String, page: any BrowserTab) {
+        let mainWork = mainWork, deadlines = mainDeadlines, limit = Self.loadTimingLimit
+        let waiting = page as? any BrowserPageWaiting
+        let condition = waiting == nil ? ObservedCondition(owner: "BrowserHibernation.wakeLoad", .background, on: mainWork) : nil
+        // task-owner: one load timing, bounded by 15 s; an engine page's close ends its keyed wait at once
+        Task { @concurrent [weak self, weak page] in
+            // nil: the condition ended, at the load's end or at the bound; the record reads which from the phase.
+            var ended: Bool?
+            if let waiting {
+                ended = await waiting.when(phase: { phase in BrowserHibernation.loadEnded(phase) }, timeout: limit) != nil
+            } else {
+                await condition?.until(timeout: limit, deadlines: deadlines) { [weak page] in
+                    page.map { BrowserHibernation.loadEnded($0.state.phase) } ?? true
+                }
             }
-            guard let self, let page, self.cache?.browsers[key]?.tab === page else { return }
-            self.wakeLog.loaded(key, ended: ended == true)
+            let at = ContinuousClock.now, result = ended
+            await mainWork.apply(.background, owner: "BrowserHibernation.wakeLoaded") { [weak self, weak page] in
+                guard let self, let page, cache?.browsers[key]?.tab === page else { return }
+                wakeLog.loaded(key, ended: result ?? Self.loadEnded(page.state.phase), at: at)
+            }
         }
     }
 
-    private static func loadEnded(_ phase: BrowserLoadPhase) -> Bool {
+    /// How long a woken page's load is timed before it records none.
+    nonisolated static let loadTimingLimit: Duration = .seconds(15)
+
+    private nonisolated static func loadEnded(_ phase: BrowserLoadPhase) -> Bool {
         switch phase {
         case .finished, .failed: true
         case .idle, .provisional, .committed: false
         }
     }
 
-    /// The picture a hibernated tab shows: its compressed one, else the decoded one in `previews`
-    /// (`HibernationTunables.compressedSnapshots` off).
+    /// The picture a hibernated tab shows, compressed or decoded (feature `compressedSnapshots` off).
     func snapshotImage(_ key: String) -> CGImage? {
-        snapshots.image(for: key) ?? cache?.previews.image(for: key)
+        snapshots.image(for: key)
     }
 
     /// Keeps a hibernating page's picture until it wakes or closes.
     func keep(_ picture: HibernationSnapshots.Picture, for key: String) {
-        if picture.data != nil { snapshots.insert(picture, for: key) } else { cache?.previews.insert(picture.image, for: key) }
+        snapshots.insert(picture, for: key)
     }
 
-    /// A fresh picture (never one from an earlier sleep). Compressed whole into `snapshots` by
-    /// default; with `HibernationTunables.compressedSnapshots` off, decoded and scaled so that
-    /// several fit the 32 MB `previews` cache, which refuses a picture larger than itself.
+    /// A fresh picture (never one from an earlier sleep), kept in `snapshots`: compressed whole by
+    /// default; with feature `compressedSnapshots` off (`snapshots.keepsCompressed`), decoded and
+    /// scaled so that four fit the store. None, and no capture, when the store would not keep it (the
+    /// critical memory limit, for a tab beside no shown tab).
     func snapshot(_ tab: any BrowserTab, key: String) async -> HibernationSnapshots.Picture? {
-        guard let image = await capture(tab) else { return nil }
-        if HibernationTunables.compressedSnapshots.value { return await HibernationSnapshots.compress(image) }
-        // A quarter of the cache, less a margin for row padding; same aspect and color space, off the main actor.
-        let bytes = Double((cache?.previews.capacityBytes ?? 32 << 20) / 4) * 0.98
+        guard snapshots.keeps(key), let image = await capture(tab) else { return nil }
+        if snapshots.keepsCompressed { return await HibernationSnapshots.compress(image) }
+        // A quarter of the store, less a margin for row padding; same aspect and color space, off the main actor.
+        let bytes = Double(snapshots.fullCapacityBytes / 4) * 0.98
         let scale = min(1, (bytes / Double(max(image.width * image.height * 4, 1))).squareRoot())
         let fitted = await TabPreviewFitting.fit(image, CGSize(width: Double(image.width) * scale, height: Double(image.height) * scale))
         return HibernationSnapshots.Picture(data: nil, image: fitted)
     }
+}
+
+/// The intent prewarm's warmer (p04-input-042/043): a frozen or hibernated hidden page is cold. Its prewarm
+/// fits a frozen page to its target size and thaws it; for a hibernated page it records the target size,
+/// decodes its cover off the main thread, then restores it hidden (`warm`) with both
+/// (``IntentPrewarmKinds``). A prewarm adds no hold, so a cancelled one drops its kinds and plans again:
+/// the page sleeps by the normal rules.
+extension BrowserHibernation: IntentPrewarmWarming {
+    /// Wakes a hidden page early (a neighbor, a hovered tab, an intent prewarm): thaws a frozen one,
+    /// restores a hibernated one in the background (the lifecycle keeps it hidden until selected).
+    func warm(_ key: String) {
+        guard let cache else { return }
+        thaw(key, prewarm: true)
+        if cache.lifecycle.phase(key) == .hibernated {
+            cache.applyLifecycle(cache.lifecycle.send(.wake(key)))
+            prewarmedCount += 1
+            cache.trace(key, "prewarmed (restore)")
+        }
+    }
+
+    func isCold(_ key: String) -> Bool {
+        guard let cache, cache.browsers[key] != nil else { return false }
+        return frozen.contains(key) || cache.lifecycle.phase(key) == .hibernated
+    }
+
+    func startPrewarm(_ key: String, trigger: IntentPrewarmTrigger) {
+        cache?.trace(key, "intent prewarm (\(trigger.rawValue))")
+        let size = prewarmTargetSize(key)
+        guard cache?.lifecycle.phase(key) == .hibernated else {
+            warm(key)
+            if let size, let view = cache?.browsers[key]?.tab.contentView, view.window == nil { view.setFrameSize(size) }
+            return
+        }
+        prewarmKinds.target(key, size: size)
+        // A decode already running restores the page when it lands.
+        guard prewarmKinds.decodes[key] == nil else { return }
+        guard let decodeCover = prewarmKinds.decodeCover, let picture = snapshotImage(key) else { return warm(key) }
+        let ticket = prewarmKinds.beginDecode(key)
+        decodeCover(picture) { [weak self] cover in self?.coverDecoded(key, cover, ticket: ticket) }
+    }
+
+    func cancelPrewarm(_ key: String) {
+        prewarmKinds.cancel(key)
+        replan()
+    }
+
+    /// A prewarm's cover is decoded: the hidden restore starts with it, unless the page woke another way meanwhile.
+    private func coverDecoded(_ key: String, _ cover: CGImage, ticket: UInt64) {
+        guard prewarmKinds.decoded(key, cover, ticket: ticket) else { return } // cancelled meanwhile
+        guard cache?.lifecycle.phase(key) == .hibernated else { return prewarmKinds.cancel(key) }
+        warm(key)
+    }
+
+    /// The size `key`'s page shows at: the content size of the pane whose strip lists it, else its view's size when it slept.
+    private func prewarmTargetSize(_ key: String) -> CGSize? {
+        if let pane = neighbors.pane(listing: key), let size = cache?.presenters[pane]?.value?.presentedContentSize,
+           size.width > 0, size.height > 0 { return size }
+        return prewarmKinds.sleptSizes[key]
+    }
+
+    /// Hidden page `key` froze: a prewarm held for it is spent, so the next press on its row prewarms it again.
+    func noteFrozen(_ key: String) {
+        intentPrewarm?.service.cooled(key)
+        cache?.trace(key, "frozen")
+    }
+
+    /// Hidden page `key` hibernates with its view at `size`: its picture (if any) is kept, a prewarm held for it
+    /// is spent, and `size` is its target size until a pane lists it.
+    func keepAsleep(_ key: String, picture: HibernationSnapshots.Picture?, size: CGSize) {
+        if let picture { keep(picture, for: key) }
+        intentPrewarm?.service.cooled(key)
+        prewarmKinds.slept(key, size: size)
+    }
+
+    /// Tab `key` closed: it leaves the prewarm FIFO and its kinds go.
+    func forgetPrewarm(_ key: String) {
+        intentPrewarm?.service.forget(key)
+        prewarmKinds.forget(key)
+    }
+}
+
+/// One Duration in seconds, fractions included (the hibernation deadlines and their elapsed times,
+/// and TopPageHost's hidden times). The one copy in CmuxNextApp: a second, even private, is a redeclaration.
+extension Duration {
+    var seconds: Double { Double(components.seconds) + Double(components.attoseconds) / 1e18 }
 }

@@ -8,6 +8,11 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from generated_server_families import GeneratedFamiliesError, generated_commands  # noqa: E402
+from handler_commands import HandlerCommandError, handler_commands  # noqa: E402
+
 
 ROOT = Path(__file__).resolve().parents[2]
 TUI = ROOT / "cmux-tui"
@@ -153,10 +158,129 @@ def load_sdk_catalog() -> dict:
     return document
 
 
+# Server modules that decode their own commands before the server's Command
+# enum sees the line (p05-ipc queue Q2). One table for this checker and
+# check-sdk-schema.py; its description names each key.
+MODULE_COMMANDS_PATH = Path(__file__).with_name("server-module-commands.json")
+
+
+def module_commands() -> dict[str, dict]:
+    modules = json.loads(MODULE_COMMANDS_PATH.read_text()).get("modules")
+    if not isinstance(modules, dict):
+        fail(f"{MODULE_COMMANDS_PATH.name} needs a modules object")
+    return modules
+
+
+def module_command_sources() -> dict[str, str]:
+    """Source of each module in server-module-commands.json that exists, by
+    module name. A removed module serves nothing, so its schema commands
+    become stale. An inline `mod tests` is left out: a test that spells a
+    removed command does not serve it."""
+    sources: dict[str, str] = {}
+    for module in module_commands():
+        path = TUI / "crates/cmux-tui-core/src/server" / f"{module}.rs"
+        if path.exists():
+            production = path.read_text().split("\n#[cfg(test)]\nmod tests", 1)[0]
+            sources[module] = strip_rust_comments(production)
+    return sources
+
+
+def module_command_names() -> dict[str, str]:
+    """Wire names served by server-module-commands.json, mapped to their
+    module."""
+    names: dict[str, str] = {}
+    specs = module_commands()
+    for module, source in module_command_sources().items():
+        enum_name = specs[module].get("enum")
+        literals = specs[module].get("literals", {})
+        renames: list[str] = []
+        if enum_name is not None:
+            body = rust_enum_body(source, enum_name)
+            renames = re.findall(r'#\[serde\(rename\s*=\s*"([a-z][a-z0-9-]*)"\)\]', body)
+            if len(renames) != len(rust_enum_variants(source, enum_name)):
+                fail(f"every server/{module}.rs {enum_name} variant needs #[serde(rename = ...)]")
+        for literal in literals:
+            if f'"{literal}"' not in source:
+                fail(f"server/{module}.rs no longer matches {literal!r}")
+        for name in [*renames, *literals]:
+            if name in names:
+                fail(f"module command {name!r} is served twice")
+            names[name] = module
+    return names
+
+
+# The refusal of a connection that is not a local Unix one: by client id, or
+# (the hello gate, server/client_hello.rs) by the connection's own transport.
+NON_UNIX_REFUSAL = (
+    r"if\s+!\s*mux\.control_clients\.is_unix\("
+    r"|_\s+if\s+!\s*matches!\(\s*self\.transport\s*,\s*ClientTransport::Unix\s*\)"
+)
+
+
+def module_command_profiles() -> dict[str, str]:
+    """The listed authority of each module command. local-admin must be the
+    code's: the non-Unix refusal in the module's enum handler and in the
+    handler of every literal command, the functions that dispatch them."""
+    profiles: dict[str, str] = {}
+    specs = module_commands()
+    sources = module_command_sources()
+    names = module_command_names()
+    for module, source in sources.items():
+        spec = specs[module]
+        authority = spec.get("authority")
+        if not isinstance(authority, str):
+            fail(f"server/{module}.rs needs an authority in {MODULE_COMMANDS_PATH.name}")
+        literals = spec.get("literals", {})
+        if authority == "local-admin":
+            handlers = {literal["handler"] for literal in literals.values()}
+            if "enum_handler" in spec:
+                handlers.add(spec["enum_handler"])
+            for handler in sorted(handlers):
+                if not re.search(NON_UNIX_REFUSAL, rust_function_body(source, handler)):
+                    fail(f"server/{module}.rs {handler} does not refuse non-Unix connections")
+        for name, owner in names.items():
+            if owner == module:
+                profiles[name] = authority
+    return profiles
+
+
 def command_names() -> set[str]:
+    """The Command enum's variants: the hand-written ones in server.rs and
+    the ones cmux-ipc build.rs generates (generated_server_families.py), plus
+    the commands server modules decode."""
     source = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
     variants = rust_enum_variants(source, "Command")
-    return {camel_to_kebab(variant) for variant in variants}
+    names = {camel_to_kebab(variant) for variant in variants}
+    try:
+        generated = generated_commands(TUI, load_sdk_catalog())
+    except GeneratedFamiliesError as error:
+        fail(str(error))
+    written = sorted(names & generated)
+    if written:
+        fail(f"generated family commands also written by hand: {', '.join(written)}")
+    names |= generated
+    modules = module_command_names()
+    overlap = sorted(names & set(modules))
+    if overlap:
+        fail(f"commands in both the server Command enum and a module: {', '.join(overlap)}")
+    return names | set(modules)
+
+
+def sniffed_command_names(candidates: set[str]) -> set[str]:
+    """The candidates a handler module decodes before the Command enum
+    (handler_commands.py, the rule check-sdk-schema.py also uses)."""
+    try:
+        decoded = handler_commands(TUI)
+    except (HandlerCommandError, OSError, UnicodeError) as error:
+        fail(f"cannot read the handler modules: {error}")
+    return candidates & set(decoded)
+
+
+def served_command_names(sdk_commands: set[str]) -> set[str]:
+    """Every command the daemon serves: the Command enum plus the SDK
+    commands a handler module serves before it."""
+    enum_commands = command_names()
+    return enum_commands | sniffed_command_names(sdk_commands - enum_commands)
 
 
 def rust_function_body(source: str, name: str) -> str:
@@ -255,10 +379,10 @@ def guarded_command_profiles(source: str) -> dict[str, str]:
 def command_profiles() -> dict[str, set[str]]:
     # The Command router lives in server/command_dispatch.rs (cx-6so.3).
     source = (TUI / "crates/cmux-tui-core/src/server/command_dispatch.rs").read_text()
-    runtime_commands = command_names()
     sdk_commands = load_sdk_catalog().get("commands")
     if not isinstance(sdk_commands, dict):
         fail("raw SDK catalog commands must be an object")
+    runtime_commands = served_command_names(set(sdk_commands))
     stale_sdk_commands = sorted(set(sdk_commands) - runtime_commands)
     if stale_sdk_commands:
         fail(
@@ -283,6 +407,7 @@ def command_profiles() -> dict[str, set[str]]:
         profiles.setdefault(profile, set()).add(name)
 
     guarded = guarded_command_profiles(source)
+    guarded.update(module_command_profiles())
     for name, guarded_profile in guarded.items():
         if name not in runtime_commands:
             fail(f"privileged command guard references unknown command {name}")
@@ -577,14 +702,12 @@ CONTROL_EVENT_MODULES = ("server/url_open.rs", "server/clipboard_read.rs", "serv
 
 # server/ modules (and their child directories) whose events are not in the
 # raw SDK catalog yet: they speak their own wire families (agent session
-# attach, loopback forwarding, scripts, terminal snapshot digests). The
-# inventory does not read them until the spec covers those events (cx-chun).
+# attach, terminal snapshot digests). The inventory does not read them
+# until the spec covers those events (cx-chun).
 SERVER_MODULES_OUTSIDE_RAW_SDK = frozenset(
     {
         "agent_session_attach",
         "agent_session_stream",  # Existing attach events moved here; same wire family.
-        "loopback_forward",
-        "scripts",
         "terminal_snapshot",
     }
 )
@@ -1224,7 +1347,7 @@ def validate_commands(inventory: dict) -> set[str]:
     compare_mapping(actual_profiles, runtime_profiles, "command profile")
     commands = [name for group in command_groups.values() for name in group]
     inventory_commands = unique(commands, "command")
-    runtime_commands = command_names()
+    runtime_commands = served_command_names(set(load_sdk_catalog().get("commands", {})))
     profile_commands = set().union(*runtime_profiles.values())
     compare(runtime_commands, profile_commands, "command profile metadata")
     compare(runtime_commands, inventory_commands, "command")

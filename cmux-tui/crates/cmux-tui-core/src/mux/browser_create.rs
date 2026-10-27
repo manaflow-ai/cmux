@@ -3,6 +3,7 @@
 use super::*;
 
 impl Mux {
+    #[track_caller]
     pub(super) fn create_browser_surface_in_workspace(
         self: &Arc<Self>,
         workspace: WorkspaceId,
@@ -126,6 +127,7 @@ impl Mux {
         Ok(surface)
     }
 
+    #[track_caller]
     pub fn adopt_browser_target(
         self: &Arc<Self>,
         opener_surface: SurfaceId,
@@ -190,6 +192,7 @@ impl Mux {
         Ok(true)
     }
 
+    #[track_caller]
     pub(super) fn attach_browser_surface_to_pane_or_kill(
         &self,
         pane_id: PaneId,

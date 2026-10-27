@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextTabs
+import CmuxNextWakeups
 
 /// The one mutation path for screen groups (`screen-groups-v1`), shared by
 /// the screen bar's chips and editor bubble, the palette, context menus,
@@ -77,13 +78,18 @@ enum ScreenGroupCommands {
         guard let connection = daemon.connection else { return }
         let state = services.windows.active?.state
         let origin = services.windows.moveOrigin(of: daemon.store.workspaces.first { $0.screenGroups.contains { $0.id == group } }?.id)
-        Task {
+        let logger = daemon.logger, mainWork = services.mainWork
+        // task-owner: one move, ended by the daemon's reply. R-hop: the command is awaited off main; the new workspace
+        // is placed in one userBlocking task (the rest of the action).
+        services.work.task(.userBlocking) {
             do {
                 let result = try await connection.moveScreenGroup(group, to: nil, newWorkspace: true)
                 guard let key = result.key?.rawValue else { return }
-                services.windows.placeMoved(key, from: origin, preferred: state, newWindow: newWindow)
+                mainWork.postFromAnyThread(.userBlocking, owner: "ScreenGroupCommands.moveToNewWorkspace") {
+                    services.windows.placeMoved(key, from: origin, preferred: state, newWindow: newWindow)
+                }
             } catch {
-                daemon.logger.error("move-screen-group new_workspace failed: \(String(describing: error), privacy: .public)")
+                logger.error("move-screen-group new_workspace failed: \(String(describing: error), privacy: .public)")
             }
         }
     }

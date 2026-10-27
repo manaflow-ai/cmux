@@ -135,6 +135,7 @@ extension BrowserPageService {
                 throw ControlError.invalidParams(ControlStrings.text("control.error.cookieUnsafe",
                                                                      "Cookie names, values and paths cannot contain ';', line breaks or control characters"))
             }
+            // wall-clock: a cookie's `expires` is Unix seconds (RFC 6265, CDP `Network.Cookie`).
             if let expires = entry["expires"]?.doubleValue, expires <= Date().timeIntervalSince1970 {
                 throw ControlError.invalidParams(ControlStrings.text("control.error.cookieExpired",
                                                                      "An expired cookie would delete a cookie; use browser.page.cookies.clear instead"))

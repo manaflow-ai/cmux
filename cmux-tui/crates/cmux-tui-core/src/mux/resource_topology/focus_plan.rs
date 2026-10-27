@@ -108,6 +108,7 @@ pub(in crate::mux) fn focus_change_deltas(
     Ok(deltas)
 }
 
+#[track_caller]
 pub(super) fn focus_pane_plan(
     mux: &Arc<Mux>,
     state: &mut State,

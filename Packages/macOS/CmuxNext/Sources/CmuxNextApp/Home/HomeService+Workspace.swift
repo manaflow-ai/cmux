@@ -2,6 +2,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
+import CmuxNextWakeups
 import Foundation
 
 /// Home as a workspace (plans/cmux-next/home.md 7): the store owns one home
@@ -32,9 +33,7 @@ extension HomeService {
     func ensureHomeWorkspace(_ connection: DaemonConnection) {
         homeWorkspaceTask?.cancel()
         homeWorkspaceStep = "ensure_home"
-        homeEnsureGeneration &+= 1
-        let generation = homeEnsureGeneration
-        homeEnsureInFlight = true
+        let generation = beginHomeEnsure()
         // task-owner: one ensure_home, then at most one conversation create and one tab create
         homeWorkspaceTask = Task { [weak self] in
             do {
@@ -43,7 +42,8 @@ extension HomeService {
                 guard let self, !Task.isCancelled else { return }
                 homeWorkspaceID = home
                 settleHomeEnsure(generation)
-                homeWorkspaceStep = await (HomeDock.classic ? "ensured \(home)" : dock.ensure(connection, store: services.machines.local.store, home: home) {
+                homeWorkspaceStep = await (HomeDock.classic ? "ensured \(home)" : dock.ensure(connection, store: services.machines.local.store, home: home,
+                                                                                                   work: services.mainWork) {
                     TabMoves.toNewDockColumn($0, anchor: $1, edge: .left, role: .agentChat, respawn: $2, pinned: $3, services: services,
                                              completion: $4) })
                 try await ensureChiefTab(connection, home: home)
@@ -56,24 +56,33 @@ extension HomeService {
         }
     }
 
-    private func settleHomeEnsure(_ generation: Int) {
-        if homeEnsureGeneration == generation { homeEnsureInFlight = false }
+    /// A new `ensure_home` owns the in-flight flag from now; returns its generation.
+    func beginHomeEnsure() -> Int {
+        homeEnsureGeneration &+= 1
+        homeEnsureInFlight = true
+        return homeEnsureGeneration
     }
 
-    /// Returns once no `ensure_home` is in flight (at once when none is).
-    /// Each request has the connection's timeout, so this never outlives it.
+    /// `ensure_home` `generation` answered or failed: the flag clears and ``awaitHomeEnsured()`` resumes,
+    /// only when no newer one started since.
+    func settleHomeEnsure(_ generation: Int) {
+        guard homeEnsureGeneration == generation else { return }
+        homeEnsureInFlight = false
+        homeEnsureWaiters.settle(Self.homeEnsureSlot, with: false)
+    }
+
+    /// The longest ``awaitHomeEnsured()`` waits. `ensure_home` has the connection's request deadline,
+    /// so its answer or failure ends the wait well before this.
+    static let homeEnsuredWait: Duration = .seconds(30)
+    /// The one slot of ``homeEnsureWaiters``: the latest `ensure_home` answered.
+    static let homeEnsureSlot = "ensure_home"
+
+    /// Returns once no `ensure_home` is in flight (at once when none is): a keyed wait settled when
+    /// the latest one answers (``settleHomeEnsure(_:)``), never an observation.
     func awaitHomeEnsured() async {
-        for await inFlight in ObservationStream({ self.homeEnsureInFlight }) where !inFlight { return }
-    }
-
-    /// The Chief owner's connection, once it serves conversations (this task
-    /// is cancelled by the next local connection).
-    private func chiefConnection() async -> DaemonConnection? {
-        let chief = chief
-        for await connection in ObservationStream({ chief.supports(DaemonCapability.localConversations.rawValue) ? chief.connection : nil }) {
-            if let connection { return connection }
+        _ = await homeEnsureWaiters.value(of: Self.homeEnsureSlot, now: homeEnsureInFlight, timeout: Self.homeEnsuredWait) { inFlight in
+            inFlight ? nil : true
         }
-        return nil
     }
 
     /// The chief conversation: the oldest conversation with the mux in the
@@ -94,9 +103,12 @@ extension HomeService {
 
     /// The signed-in user's cloud Chiefs (the Hosted Chief, made when this
     /// service runs Cloud Chief brains, and the placed one), or none: signed
-    /// out, or the read failed (logged; the last read stays).
+    /// out, or the read failed (logged; the last read stays). Unread (nil) until Cloud started: a launch-time
+    /// ensure builds no feed and reads no token; ``cloudDidStart()`` reads them then.
     func readCloudChiefs() async -> HomeCloudChiefs? {
-        guard services.cloud.auth.isSignedIn, case let feed = services.feed else { return HomeCloudChiefs() }
+        guard services.cloudAuth.isSignedIn else { return HomeCloudChiefs() }
+        guard services.cloudContext != nil else { return nil }
+        let feed = services.feed
         do {
             // An unknown probe keeps the last read: a Hosted Chief never drops out of the tab on one failed request.
             guard let brains = await hostedChief.brainsAvailable() else { return nil }
@@ -105,6 +117,13 @@ extension HomeService {
             logger.error("cloud chiefs: \(String(describing: error), privacy: .public)")
             return nil
         }
+    }
+
+    /// Cloud started (`AppServices.startCloudNow`): the Chief tab is checked again with the cloud Chiefs read.
+    func cloudDidStart() {
+        guard services.cloudAuth.isSignedIn, let connection = services.machines.local.connection,
+              services.machines.local.supports(DaemonCapability.workspaceKind.rawValue) else { return }
+        ensureHomeWorkspace(connection)
     }
 
     /// Re-checks the Chief tab now (a chief was just placed on a server).
@@ -136,16 +155,13 @@ extension HomeService {
         let cloud = tabChiefs
         let shown = cloudChief
         // Local conversations live in the Chief home's owner, not this build's
-        // daemon. A cloud Chief does not wait for it: its tab shows now, and
-        // the owner's first connection runs this again (HomeService.start),
-        // when a local Chief with history takes the tab back.
-        let owner: DaemonConnection?
-        if shown == nil {
+        // daemon. Nothing waits for it here: the owner's first connection runs
+        // this again (HomeService.start's owner observation), and then a local
+        // Chief with history takes the tab back from a cloud Chief.
+        let owner = self.connection
+        if shown == nil, owner == nil {
             homeWorkspaceStep = "waiting for the chief owner \(self.chief.home.session)"
-            owner = await chiefConnection()
-            guard owner != nil, !Task.isCancelled else { return }
-        } else {
-            owner = chief.supports(DaemonCapability.localConversations.rawValue) ? chief.connection : nil
+            return
         }
         var listedAll: [ConversationSummary] = []
         if let owner { listedAll = try await ConversationClient(owner).list() }
@@ -156,13 +172,10 @@ extension HomeService {
         let localHasHistory = shown == nil || (listed?.lastSeq ?? 0) > 0
         guard let chief = cloud.chiefTab(local: localChief, localHasHistory: localHasHistory, choice: hostedChief.choice), HomeDock.classic else { return }
         homeWorkspaceStep = "waiting for the home workspace in the tree"
-        // The tree reports a just-created home after its event; wait for it
-        // (this task is cancelled by the next connection).
-        var found: WorkspaceModel?
-        for await workspace in ObservationStream({ local.store.workspaces.first { $0.resourceID == home } }) {
-            if let workspace { found = workspace; break }
-        }
-        guard !Task.isCancelled, let workspace = found else { return }
+        // The tree reports a just-created home after its event: a keyed store wait for it (this task is
+        // cancelled by the next connection, which runs this again).
+        let workspace = await local.store.waitForWorkspace(resource: home, timeout: Self.homeEnsuredWait)
+        guard !Task.isCancelled, let workspace else { return }
         // A local conversation tab whose conversation the Chief owner does not
         // have shows nothing: a build's own Chief from before the Chief home.
         // Only the owner's own list can call a tab dangling.

@@ -2,19 +2,31 @@
 """App-level cost of Cmd+D (splitRight) in a running tagged cmux-next build.
 
 Usage:
+  app-split-bench.py --app APP [--story app-split] [--runs N] [--label NAME] [--out DIR] [--jsonl FILE.jsonl]
   app-split-bench.py --control-socket PATH --pid APP_PID --workspace WS_ID
-                     [--runs N] [--label NAME] [--out FILE.jsonl]
+                     [--runs N] [--label NAME] [--jsonl FILE.jsonl]
 
 Works on a Release build (no debug.* methods): it runs `action.run
 splitRight` on the workspace's first terminal pane through the control
 socket, polls `snapshot.get` until the new tab shows, closes it, and reads
-the app's own `stalls` signposts with `log stream --signpost --process PID`.
-Per run it prints the time of each signpost after the request:
+the app's own signposts with `log stream --signpost --process PID`.
+Per run it prints the time of each signpost after the request (the daemon
+marks are `daemon.step` events whose message is the mark):
 `daemon.snapshot_start` (the split's round trip ended and the store resyncs),
-`daemon.snapshot_end`, `createSurface` (the new pane's view and Ghostty
+`daemon.snapshot_end`, `stall.create_surface` (the new pane's view and Ghostty
 surface: visible on the next frame), `terminal.attach_start` and
 `terminal.attach_end` (first terminal frame with content). It also reports
 `action_run_wait_ms` and whether the reply already listed the created tab.
+The summary prints p50, p95, p99 and max (scripts/perf-lab/perf_stats.py).
+
+--app launches the bundle through bench_launch.BenchApp (the bench env, a
+fresh saved session, its teardown) and splits the workspace its window
+shows. With --story (scripts/perf-lab/stories.d, engine none) a run whose
+every split showed writes app_split.action_run_wait and
+app_split.snapshot_has_pane (ms, one sample per run) into --out as
+cmux-perf-result/v1 (BenchApp.record); a run with a failed split writes none
+and exits 1. An attached app (--control-socket) has an unknown launch env:
+its run keeps the printed rows and --jsonl only.
 
 The workspace may be local or on an SSH or Cloud machine (`remote.newWorkspace`).
 Run it where the app runs (a fleet Mac or m1max), never on the laptop.
@@ -26,9 +38,16 @@ import json
 import os
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 from collections import defaultdict
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # its siblings, also under `python3 -I`
+import split_pane_bench_report as sp_report  # noqa: E402
+from bench_story import story_problem  # noqa: E402
+
+ENGINE = "none"  # a terminal split opens no web page
 
 
 def rpc(path, method, params=None, timeout=60):
@@ -70,22 +89,19 @@ def signposts(path):
     return out
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
-    ap.add_argument("--control-socket", required=True)
-    ap.add_argument("--pid", required=True, type=int)
-    ap.add_argument("--workspace", required=True)
-    ap.add_argument("--runs", type=int, default=12)
-    ap.add_argument("--label", default="app-split")
-    ap.add_argument("--out")
-    args = ap.parse_args()
-    sock = args.control_socket
+def shown_workspace(sock):
+    """The workspace id the app's window shows (snapshot.get topology focus), or None."""
+    topology = (rpc(sock, "snapshot.get").get("result") or {}).get("topology") or {}
+    return (topology.get("focus") or {}).get("workspace")
 
+
+def measure(sock, pid, workspace_id, runs, label):
+    """`runs` splits of the workspace's first terminal pane; returns (rows, {signpost name: ms after each request})."""
     def workspace():
         for w in rpc(sock, "snapshot.get")["result"]["topology"]["workspaces"]:
-            if w["id"] == args.workspace:
+            if w["id"] == workspace_id:
                 return w
-        raise SystemExit(f"workspace {args.workspace} not found")
+        raise SystemExit(f"workspace {workspace_id} not found")
 
     def tabs(w):
         return {t["id"]: p["id"] for sc in w["screens"] for p in sc["panes"] for t in p["tabs"]}
@@ -102,13 +118,13 @@ def main():
 
     log_path = tempfile.mktemp(prefix="app-split-bench-", suffix=".ndjson")
     log = subprocess.Popen(["/usr/bin/log", "stream", "--signpost", "--level", "debug", "--style", "ndjson",
-                            "--process", str(args.pid)], stdout=open(log_path, "w"), stderr=subprocess.DEVNULL)
+                            "--process", str(pid)], stdout=open(log_path, "w"), stderr=subprocess.DEVNULL)
     rows = []
     try:
         time.sleep(2)
         prune()
         time.sleep(0.5)
-        for i in range(args.runs):
+        for i in range(runs):
             before = set(tabs(workspace()))
             wall0, t0 = time.time(), time.perf_counter()
             r = rpc(sock, "action.run", {"action": "splitRight", "target": f"pane:{pane}", "wait": True})
@@ -120,7 +136,7 @@ def main():
                     break
                 time.sleep(0.002)
             result = r.get("result") or {}
-            rows.append({"label": args.label, "run": i, "wall0": wall0, "ok": bool(r.get("ok")),
+            rows.append({"label": label, "run": i, "wall0": wall0, "ok": bool(r.get("ok")),
                          "error": r.get("error"), "action_run_wait_ms": (t1 - t0) * 1000,
                          "snapshot_has_pane_ms": ((seen - t0) * 1000) if seen else None,
                          "reply_listed_created": bool(result.get("created"))})
@@ -145,20 +161,93 @@ def main():
                 agg[name].append(d)
         print(json.dumps({k: (round(v, 1) if isinstance(v, float) and k != "wall0" else v)
                           for k, v in row.items() if k != "marks"}), flush=True)
-    if args.out:
-        with open(args.out, "a") as f:
+    return rows, agg
+
+
+def summarize(rows, agg, label):
+    ok = [r for r in rows if r["ok"]]
+    print(f"== {label} n={len(ok)} reply listed the created tab in {sum(r['reply_listed_created'] for r in ok)}/{len(ok)} runs")
+    for key in sp_report.APP_SPLIT_KEYS:
+        v = [r[key] for r in ok if r[key] is not None]
+        if v:
+            print(f"{key:40s} p50 {sp_report.percentile(v, 0.50):7.1f}  p95 {sp_report.percentile(v, 0.95):7.1f}  "
+                  f"p99 {sp_report.percentile(v, 0.99):7.1f}  max {max(v):7.1f}")
+    for name, v in sorted(agg.items(), key=lambda kv: sp_report.percentile(kv[1], 0.50)):
+        print(f"{name[:40]:40s} p50 {sp_report.percentile(v, 0.50):7.1f}  min {min(v):7.1f}  max {max(v):7.1f}  n={len(v)}")
+
+
+def parse_args(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
+    where = ap.add_mutually_exclusive_group(required=True)
+    where.add_argument("--app", help="launch this `cmux DEV <tag>.app` through BenchApp and split its shown workspace")
+    where.add_argument("--control-socket", help="the control socket of an app that already runs")
+    ap.add_argument("--pid", type=int, help="the running app's pid (--control-socket)")
+    ap.add_argument("--workspace", help="the workspace to split (--control-socket)")
+    ap.add_argument("--tag", help="the story runner's; the tag is the --app bundle's")
+    ap.add_argument("--runs", type=int, default=12)
+    ap.add_argument("--label", default="app-split")
+    ap.add_argument("--out", help="--app: BenchApp's folder (app log, cmux-perf-result/v1)")
+    ap.add_argument("--jsonl", help="also append every run as one JSON line here")
+    ap.add_argument("--story", help="write the run as cmux-perf-result/v1 under this story (needs --app)")
+    ap.add_argument("--session", choices=["light"], default="light", help="result-v1 session (the story runner's)")
+    args = ap.parse_args(argv)
+    if args.control_socket and (args.pid is None or not args.workspace):
+        ap.error("--control-socket needs --pid and --workspace")
+    if args.story:
+        if not args.app:
+            ap.error("--story needs --app: an attached app's launch env is unknown")
+        problem = story_problem(args.story, ENGINE)
+        if problem:
+            ap.error(problem)
+    return args
+
+
+def main(argv=None, bench_app=None):
+    """`bench_app(path, out, session)` makes the BenchApp (tests pass their own)."""
+    args = parse_args(argv)
+    app = None
+    try:
+        if args.app:
+            if bench_app is None:
+                from bench_launch import BenchApp
+                app = BenchApp(args.app, out=args.out, perf_session=args.session)
+            else:
+                app = bench_app(args.app, args.out, args.session)
+            app.launch()  # LaunchError (a SystemExit) carries the reason
+            sock, pid = app.socket, app.process.pid
+            workspace_id = shown_workspace(sock)
+            if not workspace_id:
+                raise SystemExit("app-split-bench: the launched app shows no workspace")
+        else:
+            sock, pid, workspace_id = args.control_socket, args.pid, args.workspace
+        rows, agg = measure(sock, pid, workspace_id, args.runs, args.label)
+    finally:
+        if app:
+            app.stop()  # debug.quit, then the tag's daemons (tag_teardown.py)
+    summarize(rows, agg, args.label)
+    if args.jsonl:
+        with open(args.jsonl, "a") as f:
             for row in rows:
                 f.write(json.dumps(row) + "\n")
-    ok = [r for r in rows if r["ok"]]
-    print(f"== {args.label} n={len(ok)} reply listed the created tab in {sum(r['reply_listed_created'] for r in ok)}/{len(ok)} runs")
-    for key in ["action_run_wait_ms", "snapshot_has_pane_ms"]:
-        v = sorted(r[key] for r in ok if r[key] is not None)
-        if v:
-            print(f"{key:40s} p50 {v[len(v) // 2]:7.1f}  p95 {v[min(len(v) - 1, int(0.95 * len(v)))]:7.1f}")
-    for name, v in sorted(agg.items(), key=lambda kv: sorted(kv[1])[len(kv[1]) // 2]):
-        v.sort()
-        print(f"{name[:40]:40s} p50 {v[len(v) // 2]:7.1f}  min {v[0]:7.1f}  max {v[-1]:7.1f}  n={len(v)}")
+    return record(app, args.story, rows)
+
+
+def record(app, story, rows):
+    """With a story: the run's series as result-v1 when every split showed; the exit code."""
+    if not story:
+        return 0
+    failures = sp_report.app_split_failures(rows) or ([] if rows else ["no run"])
+    if failures:
+        print(f"RESULT-V1 none: {'; '.join(failures)}", flush=True)
+        return 1
+    written = sp_report.record_all(app, story, ENGINE, sp_report.app_split_series(rows))
+    for metric, path in written.items():
+        print(f"result-v1 {metric}: {path}", flush=True)
+    if not sp_report.any_written(written):
+        print("RESULT-V1 FAIL: no series was written", flush=True)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

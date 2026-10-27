@@ -231,6 +231,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var terminalFontFamily: String?
     /// `terminal.fontSize` in points; nil (the Ghostty config's size) when unset or invalid.
     public var terminalFontSize: Double?
+    /// `terminal.predictiveEcho`: off (no prediction engine) when unset or invalid.
+    public var terminalPredictiveEcho = TerminalPredictiveEchoSetting.fallback
     /// `history.terminalCommands` (opt-in terminal command history).
     public var recordsTerminalCommands: Bool = TerminalCommandHistorySetting.fallback
     /// `navigation.historyScope`: what Back and Forward walk (`workspace`, `window`, `surface`).
@@ -432,12 +434,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (accent, accentDiagnostic) = AccentSetting().parse(root)
         snapshot.accent = accent
         if let accentDiagnostic { snapshot.diagnostics.append(accentDiagnostic) }
-        let (fontFamily, fontFamilyDiagnostic) = TerminalFontSetting().parseFamily(root)
-        snapshot.terminalFontFamily = fontFamily
-        if let fontFamilyDiagnostic { snapshot.diagnostics.append(fontFamilyDiagnostic) }
-        let (fontSize, fontSizeDiagnostic) = TerminalFontSetting().parseSize(root)
-        snapshot.terminalFontSize = fontSize
-        if let fontSizeDiagnostic { snapshot.diagnostics.append(fontSizeDiagnostic) }
+        snapshot.parseTerminal(root)
         snapshot.uiScale = UIScaleSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.interfaceScale = InterfaceScaleSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.customDensities = CustomDensitiesSetting().parse(root, diagnostics: &snapshot.diagnostics)

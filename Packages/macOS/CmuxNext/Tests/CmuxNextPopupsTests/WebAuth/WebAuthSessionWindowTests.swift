@@ -1,7 +1,9 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextInput
 @testable import CmuxNextPopups
+import CmuxNextWakeups
 import Foundation
 import os
 import Testing
@@ -33,6 +35,7 @@ import Testing
         let windows = WebAuthSessionWindows(
             host: host, logger: Logger(subsystem: "com.cmuxterm.tests", category: "webauth"),
             profiles: profiles, signInCallbacks: CEFSignInCallbacks(), contextMenus: BrowserContextMenuBuilder(),
+            mainWork: MainWorkScheduler(budget: MainFrameBudget()), inputTap: InputEventTap(),
             present: { panels.present($0, $1) }
         )
         let broker = WebAuthSessionBroker(opener: windows)
@@ -64,6 +67,22 @@ import Testing
         #expect(page.isClosed)
         #expect(windows.windows.isEmpty)
         #expect(host.links.isEmpty)
+    }
+
+    /// The page URL check ends the system's request, a side effect, so it runs while its panel is not on screen
+    /// (p06-scheduler-336, rule 3: a service observation has no node).
+    @Test func theURLCheckEndsTheSignInWhileItsPanelIsNotOnScreen() async throws {
+        let request = FakeWebAuthRequest()
+        let (windows, _) = begin(request)
+        let page = try await shownPage(request)
+        let panel = try #require(panels.presented.first?.window)
+        #expect(!panel.isVisible, "the recorded panel was ordered in")
+        page.load(callbackURL)
+        await awaitObserved { request.completions > 0 }
+        #expect(request.completedURL == callbackURL)
+        #expect(request.completions == 1)
+        #expect(page.isClosed)
+        #expect(windows.windows.isEmpty)
     }
 
     @Test func escapeCancelsAnEphemeralSignInAndEndsItsOffTheRecordProfile() async throws {

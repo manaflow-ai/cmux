@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// The Changes view's Create PR (cx-tcwj, Codex desktop's): `git.pullRequest` with `{cwd}`. The
@@ -102,7 +103,7 @@ public nonisolated struct AgentPaneGitPullRequest: Equatable, Sendable {
 
     /// `gh pr view --json url,number,state`'s answer when that pull request is open.
     static func opened(fromView text: String) -> Outcome? {
-        guard let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
+        guard let object = try? JSONSerialization.blockingJSONObject(with: Data(text.utf8)) as? [String: Any],
               (object["state"] as? String)?.uppercased() == "OPEN",
               let url = object["url"] as? String, isPullRequestURL(url) else { return nil }
         return .opened(url: url, number: object["number"] as? Int)

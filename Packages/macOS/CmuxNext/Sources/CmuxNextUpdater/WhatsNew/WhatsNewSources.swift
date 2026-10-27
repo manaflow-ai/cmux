@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Where What's New documents come from. The App combines the bundled
@@ -43,7 +44,7 @@ nonisolated public struct BundledWhatsNewSource: WhatsNewSource {
     private func read(after: WhatsNewVersion?, through: WhatsNewVersion) async -> [WhatsNewDocument] {
         // concurrency-allow: @concurrent, never on the main thread; small bundled files.
         guard let directory, let data = try? Data(contentsOf: directory.appending(path: "index.json")),
-              let index = try? JSONDecoder().decode(Index.self, from: data) else { return [] }
+              let index = try? JSONDecoder().blockingDecode(Index.self, from: data) else { return [] }
         return index.versions.compactMap { text -> WhatsNewDocument? in
             guard let version = WhatsNewVersion(text), version <= through, after.map({ $0 < version }) ?? true,
                   // concurrency-allow: @concurrent, never on the main thread; small bundled files.

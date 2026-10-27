@@ -13,6 +13,7 @@ impl Mux {
     /// Re-attach `terminal` from the holder, or record its end when the
     /// holder does not run it (`mark_terminal_ended`, reason
     /// `missing-host-record`).
+    #[track_caller]
     pub(in crate::mux) fn adopt_from_holder_or_end(
         self: &Arc<Self>,
         terminal: &RegistryTerminal,
@@ -60,6 +61,7 @@ impl Mux {
     pub(in crate::mux) fn release_unclaimed_holder_terminals(&self, _: &SurfaceOptions) {}
 
     #[cfg(unix)]
+    #[track_caller]
     fn adopt_from_holder(
         self: &Arc<Self>,
         terminal: &RegistryTerminal,

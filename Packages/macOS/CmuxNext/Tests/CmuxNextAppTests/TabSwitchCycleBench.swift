@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import QuartzCore
 import Testing
 import WebKit
@@ -11,7 +12,8 @@ import WebKit
 /// commit and one run-loop pass, where a web view that re-enters a window waits for its web process).
 /// Prints `TAB-SWITCH-CYCLE n=<count> p50 <ms> p90 <ms> max <ms> moves <n>`. The check is behavioral: a
 /// warm switch moves no page out of the window, at every tab count (a pane once kept only 8 hidden, so
-/// 10 or 30 tabs moved a view on every switch). Timing is printed, not gated (shared fleet hosts).
+/// 10 or 30 tabs moved a view on every switch). Timing is printed, not gated (shared fleet hosts). With
+/// CMUX_PERF_RESULT_DIR every switch's time is result-v1 (lab story swift-tab-switch-cycle).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)))
 struct TabSwitchCycleBench {
     final class Loaded: NSObject, WKNavigationDelegate {
@@ -63,7 +65,7 @@ struct TabSwitchCycleBench {
         window.isReleasedWhenClosed = false
         defer { window.orderOut(nil); window.close() }
         let items = (0..<count).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") }
-        let pane = PaneContentView(stripModel: TabStripModel(tabs: items), reveal: LaunchReveal(deadline: .zero))
+        let pane = PaneContentView.testing(stripModel: TabStripModel(tabs: items), reveal: LaunchReveal(deadline: .zero))
         pane.frame = window.contentLayoutRect
         window.contentView = pane
         window.orderFrontRegardless()
@@ -91,6 +93,10 @@ struct TabSwitchCycleBench {
             }
         }
         let moves = zip(probes.map(\.moves), entered).reduce(0) { $0 + ($1.0 - $1.1) }
+        if let results = try PerfResultWriter() {
+            try results.record("swift.tab_switch_cycle.\(count).switch", unit: .ms, samples: samples)
+            try results.record("swift.tab_switch_cycle.\(count).moves", unit: .count, samples: [moves])
+        }
         let sorted = samples.sorted()
         let pick = { (q: Double) in sorted[min(sorted.count - 1, Int(Double(sorted.count) * q))] }
         print(String(format: "TAB-SWITCH-CYCLE n=%d p50 %.2f p90 %.2f max %.2f ms moves %d (switches=%d, visible=%@)",

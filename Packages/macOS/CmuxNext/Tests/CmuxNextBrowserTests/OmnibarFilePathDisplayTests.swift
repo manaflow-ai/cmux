@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// A file tab's omnibar (Markdown tabs, a216) shows the file's path the way
 /// a shell does: `~/…` under the home folder, the whole path elsewhere.
@@ -32,7 +33,7 @@ struct OmnibarFilePathDisplayTests {
 
     /// The live bar, with the process's home folder.
     @Test func theBarShowsAHomeFileWithTheTilde() {
-        let bar = AddressBarView(suggestionEngine: OmniboxSuggestionEngine())
+        let bar = AddressBarView(suggestionEngine: OmniboxSuggestionEngine(), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let url = URL(fileURLWithPath: NSHomeDirectory()).appending(path: "fun/README.md")
         bar.update(url: url, security: .local)
         #expect(bar.displayedText == "~/fun/README.md")

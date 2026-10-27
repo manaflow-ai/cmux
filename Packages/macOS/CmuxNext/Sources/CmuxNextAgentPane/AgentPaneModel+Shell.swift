@@ -10,7 +10,7 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "shell.gesture_required", message: Self.shellGestureMessage)
             }
             do {
-                return AgentPaneReply.success(["id": try shell.run(command, cwd: cwd)])
+                return AgentPaneReply.success(["id": try await shell.run(command, cwd: cwd)])
             } catch {
                 return AgentPaneReply.failure(code: "shell.failed", message: Self.shellFailureMessage(error))
             }

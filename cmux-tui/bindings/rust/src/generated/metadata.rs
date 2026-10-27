@@ -1,12 +1,12 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2.
+// cmux-tui mux protocol 12, IR 7eb274630f633e9ac0d047904d92944dbb00b4f9dcb8b2c809d8a6871ce0a777.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{CommandMetadata, EventMetadata, ProfileMetadata, StreamMetadata};
 
 pub const SDK_SCHEMA_VERSION: u32 = 2;
 pub const MUX_PROTOCOL_VERSION: u32 = 12;
-pub const SDK_IR_SHA256: &str = "723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2";
+pub const SDK_IR_SHA256: &str = "7eb274630f633e9ac0d047904d92944dbb00b4f9dcb8b2c809d8a6871ce0a777";
 
 #[rustfmt::skip]
 pub const CONTROL_PROFILE: ProfileMetadata = ProfileMetadata {
@@ -45,6 +45,42 @@ pub const PROVIDER_AUTHORITY_PROFILE: ProfileMetadata = ProfileMetadata {
 };
 
 #[rustfmt::skip]
+pub const ACCESS_REQUEST_METADATA: CommandMetadata = CommandMetadata {
+    name: "access-request",
+    since: 12,
+    capability: Some("access-request-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const ACCESS_REQUEST_ANSWER_METADATA: CommandMetadata = CommandMetadata {
+    name: "access-request-answer",
+    since: 12,
+    capability: Some("access-request-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const ACCESS_REQUEST_LIST_METADATA: CommandMetadata = CommandMetadata {
+    name: "access-request-list",
+    since: 12,
+    capability: Some("access-request-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const ACCESS_REQUEST_STATUS_METADATA: CommandMetadata = CommandMetadata {
+    name: "access-request-status",
+    since: 12,
+    capability: Some("access-request-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
 pub const ACK_TAB_NOTIFICATIONS_METADATA: CommandMetadata = CommandMetadata {
     name: "ack-tab-notifications",
     since: 12,
@@ -72,11 +108,407 @@ pub const ADD_TABS_TO_TAB_GROUP_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
+pub const AGENT_CLI_INTENTS_ATTACH_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-cli-intents-attach",
+    since: 12,
+    capability: Some("agent-cli-intents-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_CLI_INTENTS_LIST_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-cli-intents-list",
+    since: 12,
+    capability: Some("agent-cli-intents-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_CLI_INTENTS_RECORD_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-cli-intents-record",
+    since: 12,
+    capability: Some("agent-cli-intents-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_CLI_INTENTS_SETTLE_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-cli-intents-settle",
+    since: 12,
+    capability: Some("agent-cli-intents-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_CLI_UPDATE_JOB_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-cli-update-job",
+    since: 12,
+    capability: Some("agent-cli-update-job-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_CLI_UPDATE_JOB_RESOLVE_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-cli-update-job-resolve",
+    since: 12,
+    capability: Some("agent-cli-update-job-resolve-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_INVENTORY_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-inventory",
+    since: 12,
+    capability: Some("agent-inventory-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_INVENTORY_REFRESH_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-inventory-refresh",
+    since: 12,
+    capability: Some("agent-inventory-refresh-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_INVENTORY_WATCH_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-inventory-watch",
+    since: 12,
+    capability: Some("agent-inventory-watch-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_SESSION_ATTACH_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-session-attach",
+    since: 12,
+    capability: Some("agent-session-attach-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_SESSION_CANCEL_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-session-cancel",
+    since: 12,
+    capability: Some("agent-session-attach-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_SESSION_CHILDREN_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-session-children",
+    since: 12,
+    capability: Some("agent-session-children-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_SESSION_DETACH_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-session-detach",
+    since: 12,
+    capability: Some("agent-session-attach-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_SESSION_EVENTS_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-session-events",
+    since: 12,
+    capability: Some("agent-session-attach-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_SESSION_MEDIA_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-session-media",
+    since: 12,
+    capability: Some("agent-session-attach-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_SESSION_OBSERVE_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-session-observe",
+    since: 12,
+    capability: Some("agent-session-observe-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_SESSION_PERMISSION_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-session-permission",
+    since: 12,
+    capability: Some("agent-session-attach-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_SESSION_PROMPT_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-session-prompt",
+    since: 12,
+    capability: Some("agent-session-attach-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_SESSION_START_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-session-start",
+    since: 12,
+    capability: Some("agent-session-start-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_SESSION_TRUST_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-session-trust",
+    since: 12,
+    capability: Some("agent-session-trust-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_TRANSFER_ABORT_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-transfer-abort",
+    since: 12,
+    capability: Some("agent-transfer-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_TRANSFER_BEGIN_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-transfer-begin",
+    since: 12,
+    capability: Some("agent-transfer-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_TRANSFER_COMMIT_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-transfer-commit",
+    since: 12,
+    capability: Some("agent-transfer-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_TRANSFER_FINISH_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-transfer-finish",
+    since: 12,
+    capability: Some("agent-transfer-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_TRANSFER_READ_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-transfer-read",
+    since: 12,
+    capability: Some("agent-transfer-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_TRANSFER_RECEIVE_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-transfer-receive",
+    since: 12,
+    capability: Some("agent-transfer-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_TRANSFER_RECEIVE_ABORT_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-transfer-receive-abort",
+    since: 12,
+    capability: Some("agent-transfer-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_TRANSFER_SOURCE_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-transfer-source",
+    since: 12,
+    capability: Some("agent-transfer-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_TRANSFER_WRITE_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-transfer-write",
+    since: 12,
+    capability: Some("agent-transfer-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_UPDATE_APPLY_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-update-apply",
+    since: 12,
+    capability: Some("agent-update-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const AGENT_UPDATE_PLAN_METADATA: CommandMetadata = CommandMetadata {
+    name: "agent-update-plan",
+    since: 12,
+    capability: Some("agent-update-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
 pub const APPLY_LAYOUT_METADATA: CommandMetadata = CommandMetadata {
     name: "apply-layout",
     since: 6,
     capability: None,
     authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const APPS_AGENT_INVENTORY_CHANGED_METADATA: CommandMetadata = CommandMetadata {
+    name: "apps-agent-inventory-changed",
+    since: 12,
+    capability: Some("agent-cli-app-invalidation-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const APPS_DISPATCH_METADATA: CommandMetadata = CommandMetadata {
+    name: "apps-dispatch",
+    since: 12,
+    capability: Some("apps-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const APPS_LINK_CHANGED_METADATA: CommandMetadata = CommandMetadata {
+    name: "apps-link-changed",
+    since: 12,
+    capability: Some("apps-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const APPS_LIST_METADATA: CommandMetadata = CommandMetadata {
+    name: "apps-list",
+    since: 12,
+    capability: Some("apps-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const APPS_LOGS_METADATA: CommandMetadata = CommandMetadata {
+    name: "apps-logs",
+    since: 12,
+    capability: Some("apps-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const APPS_MOUNT_METADATA: CommandMetadata = CommandMetadata {
+    name: "apps-mount",
+    since: 12,
+    capability: Some("apps-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const APPS_PROVIDER_REGISTER_METADATA: CommandMetadata = CommandMetadata {
+    name: "apps-provider-register",
+    since: 12,
+    capability: Some("apps-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const APPS_PROVIDER_RESULT_METADATA: CommandMetadata = CommandMetadata {
+    name: "apps-provider-result",
+    since: 12,
+    capability: Some("apps-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const APPS_RUN_METADATA: CommandMetadata = CommandMetadata {
+    name: "apps-run",
+    since: 12,
+    capability: Some("apps-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const APPS_SET_METADATA: CommandMetadata = CommandMetadata {
+    name: "apps-set",
+    since: 12,
+    capability: Some("apps-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const APPS_STORE_METADATA: CommandMetadata = CommandMetadata {
+    name: "apps-store",
+    since: 12,
+    capability: Some("apps-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const APPS_TERMINAL_LINKS_METADATA: CommandMetadata = CommandMetadata {
+    name: "apps-terminal-links",
+    since: 12,
+    capability: Some("apps-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const APPS_UNMOUNT_METADATA: CommandMetadata = CommandMetadata {
+    name: "apps-unmount",
+    since: 12,
+    capability: Some("apps-v1"),
+    authority: "local-admin",
     stream: None,
 };
 
@@ -207,6 +639,33 @@ pub const BROWSER_RELOAD_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
+pub const BROWSER_RUNTIME_START_METADATA: CommandMetadata = CommandMetadata {
+    name: "browser-runtime-start",
+    since: 12,
+    capability: Some("browser-runtime-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const BROWSER_RUNTIME_STATUS_METADATA: CommandMetadata = CommandMetadata {
+    name: "browser-runtime-status",
+    since: 12,
+    capability: Some("browser-runtime-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const BROWSER_RUNTIME_STOP_METADATA: CommandMetadata = CommandMetadata {
+    name: "browser-runtime-stop",
+    since: 12,
+    capability: Some("browser-runtime-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
 pub const BROWSER_WHEEL_METADATA: CommandMetadata = CommandMetadata {
     name: "browser-wheel",
     since: 6,
@@ -220,6 +679,24 @@ pub const BROWSER_WHEEL_GUARDED_METADATA: CommandMetadata = CommandMetadata {
     name: "browser-wheel-guarded",
     since: 10,
     capability: Some("browser-pointer-frame-guard-v1"),
+    authority: "frontend",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const CANCEL_REQUEST_METADATA: CommandMetadata = CommandMetadata {
+    name: "cancel-request",
+    since: 12,
+    capability: Some("cancel-request-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const CANCEL_STREAM_METADATA: CommandMetadata = CommandMetadata {
+    name: "cancel-stream",
+    since: 12,
+    capability: Some("attach-streams-v1"),
     authority: "frontend",
     stream: None,
 };
@@ -257,6 +734,15 @@ pub const CLIENT_FOCUS_METADATA: CommandMetadata = CommandMetadata {
     since: 12,
     capability: Some("client-focus-v1"),
     authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const CLIENT_HELLO_METADATA: CommandMetadata = CommandMetadata {
+    name: "client-hello",
+    since: 12,
+    capability: Some("origin-claim-v1"),
+    authority: "local-admin",
     stream: None,
 };
 
@@ -900,6 +1386,15 @@ pub const CREATE_WORKSPACE_GROUP_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
+pub const DEBUG_DAEMON_LOCKS_METADATA: CommandMetadata = CommandMetadata {
+    name: "debug-daemon-locks",
+    since: 12,
+    capability: None,
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
 pub const DELETE_BOOKMARK_METADATA: CommandMetadata = CommandMetadata {
     name: "delete-bookmark",
     since: 12,
@@ -1066,6 +1561,69 @@ pub const FORGET_SESSION_METADATA: CommandMetadata = CommandMetadata {
     name: "forget-session",
     since: 12,
     capability: Some("profiles-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const FS_DELETE_METADATA: CommandMetadata = CommandMetadata {
+    name: "fs.delete",
+    since: 12,
+    capability: Some("fs-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const FS_LIST_METADATA: CommandMetadata = CommandMetadata {
+    name: "fs.list",
+    since: 12,
+    capability: Some("fs-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const FS_MKDIR_METADATA: CommandMetadata = CommandMetadata {
+    name: "fs.mkdir",
+    since: 12,
+    capability: Some("fs-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const FS_READ_METADATA: CommandMetadata = CommandMetadata {
+    name: "fs.read",
+    since: 12,
+    capability: Some("fs-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const FS_RENAME_METADATA: CommandMetadata = CommandMetadata {
+    name: "fs.rename",
+    since: 12,
+    capability: Some("fs-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const FS_STAT_METADATA: CommandMetadata = CommandMetadata {
+    name: "fs.stat",
+    since: 12,
+    capability: Some("fs-v1"),
+    authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const FS_WRITE_METADATA: CommandMetadata = CommandMetadata {
+    name: "fs.write",
+    since: 12,
+    capability: Some("fs-v1"),
     authority: "control",
     stream: None,
 };
@@ -1301,6 +1859,69 @@ pub const LIST_WORKSPACES_METADATA: CommandMetadata = CommandMetadata {
     since: 5,
     capability: None,
     authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const LOOPBACK_CLOSE_METADATA: CommandMetadata = CommandMetadata {
+    name: "loopback-close",
+    since: 12,
+    capability: Some("loopback-forward-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const LOOPBACK_CREDIT_METADATA: CommandMetadata = CommandMetadata {
+    name: "loopback-credit",
+    since: 12,
+    capability: Some("loopback-forward-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const LOOPBACK_DATA_METADATA: CommandMetadata = CommandMetadata {
+    name: "loopback-data",
+    since: 12,
+    capability: Some("loopback-forward-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const LOOPBACK_OPEN_METADATA: CommandMetadata = CommandMetadata {
+    name: "loopback-open",
+    since: 12,
+    capability: Some("loopback-forward-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const LOOPBACK_SHUTDOWN_METADATA: CommandMetadata = CommandMetadata {
+    name: "loopback-shutdown",
+    since: 12,
+    capability: Some("loopback-forward-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const LOOPBACK_STATUS_METADATA: CommandMetadata = CommandMetadata {
+    name: "loopback-status",
+    since: 12,
+    capability: Some("loopback-forward-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const MACHINE_CATALOG_PUBLISH_METADATA: CommandMetadata = CommandMetadata {
+    name: "machine-catalog-publish",
+    since: 12,
+    capability: Some("machine-catalog-publish-v1"),
+    authority: "local-admin",
     stream: None,
 };
 
@@ -1971,6 +2592,42 @@ pub const SAVE_TAB_GROUP_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
+pub const SCRIPT_REPL_CLOSE_METADATA: CommandMetadata = CommandMetadata {
+    name: "script-repl-close",
+    since: 12,
+    capability: None,
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const SCRIPT_REPL_EVAL_METADATA: CommandMetadata = CommandMetadata {
+    name: "script-repl-eval",
+    since: 12,
+    capability: None,
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const SCRIPT_REPL_OPEN_METADATA: CommandMetadata = CommandMetadata {
+    name: "script-repl-open",
+    since: 12,
+    capability: None,
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const SCRIPT_RUN_METADATA: CommandMetadata = CommandMetadata {
+    name: "script-run",
+    since: 12,
+    capability: None,
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
 pub const SCROLL_SURFACE_METADATA: CommandMetadata = CommandMetadata {
     name: "scroll-surface",
     since: 5,
@@ -2025,10 +2682,28 @@ pub const SEND_KEY_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
+pub const SERVER_BLOCKING_METADATA: CommandMetadata = CommandMetadata {
+    name: "server-blocking",
+    since: 12,
+    capability: Some("server-threads-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
 pub const SERVER_STATS_METADATA: CommandMetadata = CommandMetadata {
     name: "server-stats",
     since: 12,
     capability: Some("server-stats-v1"),
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const SERVER_THREADS_METADATA: CommandMetadata = CommandMetadata {
+    name: "server-threads",
+    since: 12,
+    capability: Some("server-threads-v1"),
     authority: "local-admin",
     stream: None,
 };
@@ -2390,6 +3065,33 @@ pub const TERMINAL_RESUME_COMMAND_METADATA: CommandMetadata = CommandMetadata {
     since: 12,
     capability: Some("resume-command"),
     authority: "control",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const TRACE_START_METADATA: CommandMetadata = CommandMetadata {
+    name: "trace-start",
+    since: 12,
+    capability: None,
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const TRACE_STATUS_METADATA: CommandMetadata = CommandMetadata {
+    name: "trace-status",
+    since: 12,
+    capability: None,
+    authority: "local-admin",
+    stream: None,
+};
+
+#[rustfmt::skip]
+pub const TRACE_STOP_METADATA: CommandMetadata = CommandMetadata {
+    name: "trace-stop",
+    since: 12,
+    capability: None,
+    authority: "local-admin",
     stream: None,
 };
 
@@ -2988,6 +3690,42 @@ pub const LAYOUT_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
 };
 
 #[rustfmt::skip]
+pub const LOOPBACK_CLOSED_EVENT_METADATA: EventMetadata = EventMetadata {
+    name: "loopback-closed",
+    since: 12,
+    capability: Some("loopback-forward-v1"),
+    streams: &["control"],
+    emission: "emitted",
+};
+
+#[rustfmt::skip]
+pub const LOOPBACK_CREDIT_EVENT_METADATA: EventMetadata = EventMetadata {
+    name: "loopback-credit",
+    since: 12,
+    capability: Some("loopback-forward-v1"),
+    streams: &["control"],
+    emission: "emitted",
+};
+
+#[rustfmt::skip]
+pub const LOOPBACK_DATA_EVENT_METADATA: EventMetadata = EventMetadata {
+    name: "loopback-data",
+    since: 12,
+    capability: Some("loopback-forward-v1"),
+    streams: &["control"],
+    emission: "emitted",
+};
+
+#[rustfmt::skip]
+pub const LOOPBACK_EOF_EVENT_METADATA: EventMetadata = EventMetadata {
+    name: "loopback-eof",
+    since: 12,
+    capability: Some("loopback-forward-v1"),
+    streams: &["control"],
+    emission: "emitted",
+};
+
+#[rustfmt::skip]
 pub const MACHINE_USAGE_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
     name: "machine-usage-changed",
     since: 12,
@@ -3150,6 +3888,15 @@ pub const SCREEN_RENAMED_EVENT_METADATA: EventMetadata = EventMetadata {
 };
 
 #[rustfmt::skip]
+pub const SCRIPT_LOG_EVENT_METADATA: EventMetadata = EventMetadata {
+    name: "script-log",
+    since: 12,
+    capability: None,
+    streams: &["control"],
+    emission: "emitted",
+};
+
+#[rustfmt::skip]
 pub const SCROLL_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
     name: "scroll-changed",
     since: 6,
@@ -3182,6 +3929,15 @@ pub const STATUS_EVENT_METADATA: EventMetadata = EventMetadata {
     since: 5,
     capability: None,
     streams: &["subscribe"],
+    emission: "emitted",
+};
+
+#[rustfmt::skip]
+pub const STREAM_END_EVENT_METADATA: EventMetadata = EventMetadata {
+    name: "stream-end",
+    since: 12,
+    capability: Some("attach-streams-v1"),
+    streams: &["attach-byte", "attach-render", "attach-browser"],
     emission: "emitted",
 };
 
@@ -3395,6 +4151,6 @@ pub const WORKSPACE_RENAMED_EVENT_METADATA: EventMetadata = EventMetadata {
 #[rustfmt::skip]
 pub static PROFILES: &[ProfileMetadata] = &[CONTROL_PROFILE, FRONTEND_PROFILE, LOCAL_ADMIN_PROFILE, PROVIDER_AUTHORITY_PROFILE];
 #[rustfmt::skip]
-pub static COMMANDS: &[CommandMetadata] = &[ACK_TAB_NOTIFICATIONS_METADATA, ADD_SCREENS_TO_SCREEN_GROUP_METADATA, ADD_TABS_TO_TAB_GROUP_METADATA, APPLY_LAYOUT_METADATA, ATTACH_SURFACE_METADATA, BIND_CONVERSATION_TAB_SESSION_METADATA, BROWSER_ACTIVATE_METADATA, BROWSER_BACK_METADATA, BROWSER_FORWARD_METADATA, BROWSER_FRAME_PRESENTED_METADATA, BROWSER_HOST_PROVIDER_METADATA, BROWSER_INSERT_TEXT_METADATA, BROWSER_KEY_METADATA, BROWSER_KEY_PRESS_METADATA, BROWSER_MOUSE_METADATA, BROWSER_MOUSE_GUARDED_METADATA, BROWSER_NAVIGATE_METADATA, BROWSER_RELOAD_METADATA, BROWSER_WHEEL_METADATA, BROWSER_WHEEL_GUARDED_METADATA, CHIEF_INSPECT_METADATA, CLEAR_HISTORY_METADATA, CLEAR_WINDOW_TITLE_METADATA, CLIENT_FOCUS_METADATA, CLOSE_PANE_METADATA, CLOSE_PROVIDER_MANAGED_WORKSPACE_METADATA, CLOSE_SCREEN_METADATA, CLOSE_SCREEN_GROUP_METADATA, CLOSE_SURFACE_METADATA, CLOSE_TAB_GROUP_METADATA, CLOSE_TABS_METADATA, CLOSE_TERMINAL_METADATA, CLOSE_WORKSPACE_METADATA, CLOUD_ATTACHMENT_LINK_METADATA, CLOUD_ATTACHMENT_READ_METADATA, CLOUD_ATTACHMENT_UPLOAD_METADATA, CLOUD_CONVERSATION_HISTORY_METADATA, CLOUD_CONVERSATION_LIVE_METADATA, CLOUD_CONVERSATION_OP_METADATA, CLOUD_CONVERSATION_RUN_METADATA, CLOUD_CONVERSATION_RUNS_METADATA, CLOUD_CONVERSATION_SNAPSHOT_METADATA, CLOUD_CONVERSATION_SUBSCRIBE_METADATA, CLOUD_CONVERSATION_THREAD_METADATA, CLOUD_CONVERSATION_TYPING_METADATA, CLOUD_CONVERSATION_UNSUBSCRIBE_METADATA, CLOUD_HOST_REPLICA_CLEAR_METADATA, CLOUD_HOST_REPLICA_SET_METADATA, CLOUD_HOST_REPLICA_STATUS_METADATA, CLOUD_INBOX_LIST_METADATA, CLOUD_INBOX_OP_METADATA, CLOUD_INBOX_SUBSCRIBE_METADATA, CLOUD_INBOX_UNSUBSCRIBE_METADATA, CLOUD_MUX_ACK_METADATA, CLOUD_MUX_SUBSCRIBE_METADATA, CLOUD_MUX_UNSUBSCRIBE_METADATA, CLOUD_PARTICIPANT_AVATAR_GET_METADATA, CLOUD_REQUESTS_LIST_METADATA, CLOUD_SELFHOST_INFO_METADATA, CLOUD_SESSION_CLEAR_METADATA, CLOUD_SESSION_SET_METADATA, CLOUD_SESSION_STATUS_METADATA, CONVERSATION_AGENT_TOKEN_METADATA, CONVERSATION_ATTACHMENT_LINK_METADATA, CONVERSATION_ATTACHMENT_READ_METADATA, CONVERSATION_ATTACHMENT_UPLOAD_METADATA, CONVERSATION_BIND_METADATA, CONVERSATION_CREATE_METADATA, CONVERSATION_DRAFT_METADATA, CONVERSATION_HISTORY_METADATA, CONVERSATION_IMPORT_METADATA, CONVERSATION_INBOX_OP_METADATA, CONVERSATION_LINK_RESOLVE_METADATA, CONVERSATION_LIST_METADATA, CONVERSATION_LIVE_METADATA, CONVERSATION_LIVE_PUBLISH_METADATA, CONVERSATION_OP_METADATA, CONVERSATION_RUN_METADATA, CONVERSATION_RUN_APPEND_METADATA, CONVERSATION_RUNS_METADATA, CONVERSATION_SEARCH_METADATA, CONVERSATION_SNAPSHOT_METADATA, CONVERSATION_THREAD_METADATA, CONVERSATION_TYPING_METADATA, COPY_METADATA, CREATE_BOOKMARK_METADATA, CREATE_BROWSER_PROFILE_METADATA, CREATE_PERSONAL_GROUP_METADATA, CREATE_PROFILE_METADATA, CREATE_SCREEN_GROUP_METADATA, CREATE_SURFACE_WITH_RECEIPT_METADATA, CREATE_TAB_GROUP_METADATA, CREATE_TERMINAL_METADATA, CREATE_WORKSPACE_METADATA, CREATE_WORKSPACE_GROUP_METADATA, DELETE_BOOKMARK_METADATA, DELETE_BROWSER_PROFILE_METADATA, DELETE_PERSONAL_GROUP_METADATA, DELETE_PROFILE_METADATA, DELETE_SAVED_SCREEN_GROUP_METADATA, DELETE_SAVED_TAB_GROUP_METADATA, DELETE_TERMINAL_COMMANDS_METADATA, DELETE_WORKSPACE_GROUP_METADATA, DETACH_ATTACHED_VIEW_METADATA, DETACH_CLIENT_METADATA, EXPORT_LAYOUT_METADATA, FEED_LOCAL_HANDOFF_ABORT_METADATA, FEED_LOCAL_HANDOFF_BEGIN_METADATA, FEED_LOCAL_HANDOFF_DONE_METADATA, FEED_LOCAL_LIST_METADATA, FEED_LOCAL_READ_METADATA, FOCUS_DIRECTION_METADATA, FOCUS_PANE_METADATA, FORGET_SESSION_METADATA, GET_BLOB_METADATA, GET_BROWSER_PROVIDER_METADATA, GET_CELL_PIXELS_METADATA, GET_FRONTEND_BROWSER_HISTORY_METADATA, GET_FRONTEND_PROJECTION_METADATA, GET_HOST_SIZE_POLICY_METADATA, GET_SIZE_STATE_METADATA, HISTORY_SEARCH_METADATA, HOME_INBOX_METADATA, IDENTIFY_METADATA, IDS_METADATA, IMPORT_BOOKMARKS_METADATA, IMPORT_SESSION_ORGANIZATION_METADATA, JOURNAL_FRONTEND_EVENT_METADATA, LIST_AGENTS_METADATA, LIST_BOOKMARKS_METADATA, LIST_CLIENTS_METADATA, LIST_NOTIFICATIONS_METADATA, LIST_PERSONAL_METADATA, LIST_SAVED_SCREEN_GROUPS_METADATA, LIST_SAVED_TAB_GROUPS_METADATA, LIST_TAB_GROUPS_METADATA, LIST_TERMINAL_COMMANDS_METADATA, LIST_TERMINALS_METADATA, LIST_WORKSPACE_GROUPS_METADATA, LIST_WORKSPACES_METADATA, MACHINE_LISTENING_TCP_METADATA, MACHINE_USAGE_METADATA, MARK_WORKSPACES_PROVIDER_MANAGED_METADATA, MINT_TERMINAL_RENDERER_METADATA, MINT_TERMINAL_RENDERER_BY_TERMINAL_METADATA, MOVE_BOOKMARK_METADATA, MOVE_BROWSER_PROFILE_METADATA, MOVE_COLUMN_METADATA, MOVE_PERSONAL_GROUP_METADATA, MOVE_PROFILE_METADATA, MOVE_SCREEN_METADATA, MOVE_SCREEN_GROUP_METADATA, MOVE_TAB_METADATA, MOVE_TAB_GROUP_METADATA, MOVE_TAB_GROUP_TO_COLUMN_METADATA, MOVE_TAB_GROUP_TO_NEW_WORKSPACE_METADATA, MOVE_TAB_GROUP_TO_SPLIT_METADATA, MOVE_TAB_TO_COLUMN_METADATA, MOVE_TAB_TO_NEW_WORKSPACE_METADATA, MOVE_TAB_TO_SPLIT_METADATA, MOVE_TAB_TO_WORKSPACE_METADATA, MOVE_TERMINAL_METADATA, MOVE_WORKSPACE_METADATA, MOVE_WORKSPACE_GROUP_METADATA, MOVE_WORKSPACE_TO_GROUP_METADATA, NEW_BROWSER_TAB_METADATA, NEW_CONVERSATION_TAB_METADATA, NEW_FRONTEND_BROWSER_TAB_METADATA, NEW_PANE_METADATA, NEW_PANE_RIGHT_METADATA, NEW_REMOTE_TERMINAL_TAB_METADATA, NEW_ROW_METADATA, NEW_SCREEN_METADATA, NEW_TAB_METADATA, NEW_WORKSPACE_METADATA, NOTE_SIZE_ACTIVITY_METADATA, NOTIFY_METADATA, PAGE_CREDENTIAL_METADATA, PAIRING_RESPONSE_METADATA, PANE_NEIGHBOR_METADATA, PARK_TABS_METADATA, PASTE_IMAGE_METADATA, PIN_WORKSPACE_METADATA, PING_METADATA, PROCESS_INFO_METADATA, PUT_BLOB_METADATA, PUT_FRONTEND_PROJECTION_METADATA, PUT_SESSION_METADATA, READ_SCREEN_METADATA, READ_SCROLLBACK_METADATA, REATTACH_VIEW_METADATA, REGISTER_BROWSER_PROVIDER_METADATA, RELEASE_ATTACHED_VIEW_SIZE_METADATA, RELEASE_SURFACE_SIZE_METADATA, RELOAD_CONFIG_METADATA, REMOTE_TERMINAL_SNAPSHOT_METADATA, REMOVE_SCREENS_FROM_SCREEN_GROUP_METADATA, REMOVE_TABS_FROM_TAB_GROUP_METADATA, RENAME_PANE_METADATA, RENAME_PROVIDER_MANAGED_WORKSPACE_METADATA, RENAME_SCREEN_METADATA, RENAME_SURFACE_METADATA, RENAME_WORKSPACE_METADATA, REOPEN_SAVED_SCREEN_GROUP_METADATA, REOPEN_SAVED_TAB_GROUP_METADATA, REPORT_AGENT_METADATA, REPORT_FOCUS_METADATA, RESIZE_ATTACHED_VIEW_METADATA, RESIZE_SURFACE_METADATA, RESOLVE_TERMINAL_METADATA, RESTART_TAB_METADATA, RUN_METADATA, SAVE_SCREEN_GROUP_METADATA, SAVE_TAB_GROUP_METADATA, SCROLL_SURFACE_METADATA, SELECT_SCREEN_METADATA, SELECT_TAB_METADATA, SELECT_WORKSPACE_METADATA, SEND_METADATA, SEND_KEY_METADATA, SERVER_STATS_METADATA, SET_CELL_PIXELS_METADATA, SET_CLIENT_INFO_METADATA, SET_CLIENT_SIZING_METADATA, SET_COLUMN_DOCK_METADATA, SET_DEFAULT_COLORS_METADATA, SET_FRONTEND_BROWSER_HISTORY_METADATA, SET_HOST_SIZE_POLICY_METADATA, SET_PERSONAL_TERMINAL_METADATA, SET_PERSONAL_WORKSPACE_METADATA, SET_PROFILE_FOLLOWS_METADATA, SET_RATIO_METADATA, SET_ROW_HEIGHTS_METADATA, SET_SCREEN_METADATA_METADATA, SET_SCREEN_PINNED_METADATA, SET_SESSION_ICON_METADATA, SET_SIZE_COUNTS_METADATA, SET_SIZE_POLICY_METADATA, SET_SPLIT_RATIO_METADATA, SET_TAB_PINNED_METADATA, SET_TERMINAL_COMMAND_HISTORY_METADATA, SET_TERMINAL_IDLE_POLICY_METADATA, SET_TERMINAL_KEEP_METADATA, SET_VIEWPORT_PANE_WIDTH_METADATA, SET_WINDOW_TITLE_METADATA, SET_WORKSPACE_METADATA_METADATA, SHUTDOWN_DAEMON_METADATA, SIDEBAR_PLUGIN_METADATA, SNAPSHOT_REQUEST_METADATA, SPLIT_METADATA, SUBSCRIBE_METADATA, SUBSCRIBE_ACTIVITY_METADATA, SWAP_PANE_METADATA, TERMINAL_CLIPBOARD_REPLY_METADATA, TERMINAL_CLIPBOARD_SUBSCRIBE_METADATA, TERMINAL_EVENTS_METADATA, TERMINAL_HISTORY_METADATA, TERMINAL_PORTS_METADATA, TERMINAL_READ_RANGE_METADATA, TERMINAL_RESOURCES_METADATA, TERMINAL_RESUME_COMMAND_METADATA, UNDO_LAYOUT_METADATA, UNGROUP_SCREEN_GROUP_METADATA, UNGROUP_TAB_GROUP_METADATA, UNPIN_WORKSPACE_METADATA, UNREGISTER_BROWSER_PROVIDER_METADATA, UNSAVE_SCREEN_GROUP_METADATA, UNSAVE_TAB_GROUP_METADATA, UPDATE_BOOKMARK_METADATA, UPDATE_BROWSER_PROFILE_METADATA, UPDATE_FRONTEND_BROWSER_TAB_METADATA, UPDATE_PERSONAL_GROUP_METADATA, UPDATE_PROFILE_METADATA, UPDATE_REMOTE_TERMINAL_TAB_METADATA, UPDATE_SCREEN_GROUP_METADATA, UPDATE_TAB_GROUP_METADATA, UPDATE_WORKSPACE_GROUP_METADATA, URL_OPEN_METADATA, URL_OPEN_CLAIM_METADATA, URL_OPEN_RESULT_METADATA, URL_OPEN_SUBSCRIBE_METADATA, VT_STATE_METADATA, WAIT_FOR_METADATA, WS_LISTEN_METADATA, ZOOM_PANE_METADATA];
+pub static COMMANDS: &[CommandMetadata] = &[ACCESS_REQUEST_METADATA, ACCESS_REQUEST_ANSWER_METADATA, ACCESS_REQUEST_LIST_METADATA, ACCESS_REQUEST_STATUS_METADATA, ACK_TAB_NOTIFICATIONS_METADATA, ADD_SCREENS_TO_SCREEN_GROUP_METADATA, ADD_TABS_TO_TAB_GROUP_METADATA, AGENT_CLI_INTENTS_ATTACH_METADATA, AGENT_CLI_INTENTS_LIST_METADATA, AGENT_CLI_INTENTS_RECORD_METADATA, AGENT_CLI_INTENTS_SETTLE_METADATA, AGENT_CLI_UPDATE_JOB_METADATA, AGENT_CLI_UPDATE_JOB_RESOLVE_METADATA, AGENT_INVENTORY_METADATA, AGENT_INVENTORY_REFRESH_METADATA, AGENT_INVENTORY_WATCH_METADATA, AGENT_SESSION_ATTACH_METADATA, AGENT_SESSION_CANCEL_METADATA, AGENT_SESSION_CHILDREN_METADATA, AGENT_SESSION_DETACH_METADATA, AGENT_SESSION_EVENTS_METADATA, AGENT_SESSION_MEDIA_METADATA, AGENT_SESSION_OBSERVE_METADATA, AGENT_SESSION_PERMISSION_METADATA, AGENT_SESSION_PROMPT_METADATA, AGENT_SESSION_START_METADATA, AGENT_SESSION_TRUST_METADATA, AGENT_TRANSFER_ABORT_METADATA, AGENT_TRANSFER_BEGIN_METADATA, AGENT_TRANSFER_COMMIT_METADATA, AGENT_TRANSFER_FINISH_METADATA, AGENT_TRANSFER_READ_METADATA, AGENT_TRANSFER_RECEIVE_METADATA, AGENT_TRANSFER_RECEIVE_ABORT_METADATA, AGENT_TRANSFER_SOURCE_METADATA, AGENT_TRANSFER_WRITE_METADATA, AGENT_UPDATE_APPLY_METADATA, AGENT_UPDATE_PLAN_METADATA, APPLY_LAYOUT_METADATA, APPS_AGENT_INVENTORY_CHANGED_METADATA, APPS_DISPATCH_METADATA, APPS_LINK_CHANGED_METADATA, APPS_LIST_METADATA, APPS_LOGS_METADATA, APPS_MOUNT_METADATA, APPS_PROVIDER_REGISTER_METADATA, APPS_PROVIDER_RESULT_METADATA, APPS_RUN_METADATA, APPS_SET_METADATA, APPS_STORE_METADATA, APPS_TERMINAL_LINKS_METADATA, APPS_UNMOUNT_METADATA, ATTACH_SURFACE_METADATA, BIND_CONVERSATION_TAB_SESSION_METADATA, BROWSER_ACTIVATE_METADATA, BROWSER_BACK_METADATA, BROWSER_FORWARD_METADATA, BROWSER_FRAME_PRESENTED_METADATA, BROWSER_HOST_PROVIDER_METADATA, BROWSER_INSERT_TEXT_METADATA, BROWSER_KEY_METADATA, BROWSER_KEY_PRESS_METADATA, BROWSER_MOUSE_METADATA, BROWSER_MOUSE_GUARDED_METADATA, BROWSER_NAVIGATE_METADATA, BROWSER_RELOAD_METADATA, BROWSER_RUNTIME_START_METADATA, BROWSER_RUNTIME_STATUS_METADATA, BROWSER_RUNTIME_STOP_METADATA, BROWSER_WHEEL_METADATA, BROWSER_WHEEL_GUARDED_METADATA, CANCEL_REQUEST_METADATA, CANCEL_STREAM_METADATA, CHIEF_INSPECT_METADATA, CLEAR_HISTORY_METADATA, CLEAR_WINDOW_TITLE_METADATA, CLIENT_FOCUS_METADATA, CLIENT_HELLO_METADATA, CLOSE_PANE_METADATA, CLOSE_PROVIDER_MANAGED_WORKSPACE_METADATA, CLOSE_SCREEN_METADATA, CLOSE_SCREEN_GROUP_METADATA, CLOSE_SURFACE_METADATA, CLOSE_TAB_GROUP_METADATA, CLOSE_TABS_METADATA, CLOSE_TERMINAL_METADATA, CLOSE_WORKSPACE_METADATA, CLOUD_ATTACHMENT_LINK_METADATA, CLOUD_ATTACHMENT_READ_METADATA, CLOUD_ATTACHMENT_UPLOAD_METADATA, CLOUD_CONVERSATION_HISTORY_METADATA, CLOUD_CONVERSATION_LIVE_METADATA, CLOUD_CONVERSATION_OP_METADATA, CLOUD_CONVERSATION_RUN_METADATA, CLOUD_CONVERSATION_RUNS_METADATA, CLOUD_CONVERSATION_SNAPSHOT_METADATA, CLOUD_CONVERSATION_SUBSCRIBE_METADATA, CLOUD_CONVERSATION_THREAD_METADATA, CLOUD_CONVERSATION_TYPING_METADATA, CLOUD_CONVERSATION_UNSUBSCRIBE_METADATA, CLOUD_HOST_REPLICA_CLEAR_METADATA, CLOUD_HOST_REPLICA_SET_METADATA, CLOUD_HOST_REPLICA_STATUS_METADATA, CLOUD_INBOX_LIST_METADATA, CLOUD_INBOX_OP_METADATA, CLOUD_INBOX_SUBSCRIBE_METADATA, CLOUD_INBOX_UNSUBSCRIBE_METADATA, CLOUD_MUX_ACK_METADATA, CLOUD_MUX_SUBSCRIBE_METADATA, CLOUD_MUX_UNSUBSCRIBE_METADATA, CLOUD_PARTICIPANT_AVATAR_GET_METADATA, CLOUD_REQUESTS_LIST_METADATA, CLOUD_SELFHOST_INFO_METADATA, CLOUD_SESSION_CLEAR_METADATA, CLOUD_SESSION_SET_METADATA, CLOUD_SESSION_STATUS_METADATA, CONVERSATION_AGENT_TOKEN_METADATA, CONVERSATION_ATTACHMENT_LINK_METADATA, CONVERSATION_ATTACHMENT_READ_METADATA, CONVERSATION_ATTACHMENT_UPLOAD_METADATA, CONVERSATION_BIND_METADATA, CONVERSATION_CREATE_METADATA, CONVERSATION_DRAFT_METADATA, CONVERSATION_HISTORY_METADATA, CONVERSATION_IMPORT_METADATA, CONVERSATION_INBOX_OP_METADATA, CONVERSATION_LINK_RESOLVE_METADATA, CONVERSATION_LIST_METADATA, CONVERSATION_LIVE_METADATA, CONVERSATION_LIVE_PUBLISH_METADATA, CONVERSATION_OP_METADATA, CONVERSATION_RUN_METADATA, CONVERSATION_RUN_APPEND_METADATA, CONVERSATION_RUNS_METADATA, CONVERSATION_SEARCH_METADATA, CONVERSATION_SNAPSHOT_METADATA, CONVERSATION_THREAD_METADATA, CONVERSATION_TYPING_METADATA, COPY_METADATA, CREATE_BOOKMARK_METADATA, CREATE_BROWSER_PROFILE_METADATA, CREATE_PERSONAL_GROUP_METADATA, CREATE_PROFILE_METADATA, CREATE_SCREEN_GROUP_METADATA, CREATE_SURFACE_WITH_RECEIPT_METADATA, CREATE_TAB_GROUP_METADATA, CREATE_TERMINAL_METADATA, CREATE_WORKSPACE_METADATA, CREATE_WORKSPACE_GROUP_METADATA, DEBUG_DAEMON_LOCKS_METADATA, DELETE_BOOKMARK_METADATA, DELETE_BROWSER_PROFILE_METADATA, DELETE_PERSONAL_GROUP_METADATA, DELETE_PROFILE_METADATA, DELETE_SAVED_SCREEN_GROUP_METADATA, DELETE_SAVED_TAB_GROUP_METADATA, DELETE_TERMINAL_COMMANDS_METADATA, DELETE_WORKSPACE_GROUP_METADATA, DETACH_ATTACHED_VIEW_METADATA, DETACH_CLIENT_METADATA, EXPORT_LAYOUT_METADATA, FEED_LOCAL_HANDOFF_ABORT_METADATA, FEED_LOCAL_HANDOFF_BEGIN_METADATA, FEED_LOCAL_HANDOFF_DONE_METADATA, FEED_LOCAL_LIST_METADATA, FEED_LOCAL_READ_METADATA, FOCUS_DIRECTION_METADATA, FOCUS_PANE_METADATA, FORGET_SESSION_METADATA, FS_DELETE_METADATA, FS_LIST_METADATA, FS_MKDIR_METADATA, FS_READ_METADATA, FS_RENAME_METADATA, FS_STAT_METADATA, FS_WRITE_METADATA, GET_BLOB_METADATA, GET_BROWSER_PROVIDER_METADATA, GET_CELL_PIXELS_METADATA, GET_FRONTEND_BROWSER_HISTORY_METADATA, GET_FRONTEND_PROJECTION_METADATA, GET_HOST_SIZE_POLICY_METADATA, GET_SIZE_STATE_METADATA, HISTORY_SEARCH_METADATA, HOME_INBOX_METADATA, IDENTIFY_METADATA, IDS_METADATA, IMPORT_BOOKMARKS_METADATA, IMPORT_SESSION_ORGANIZATION_METADATA, JOURNAL_FRONTEND_EVENT_METADATA, LIST_AGENTS_METADATA, LIST_BOOKMARKS_METADATA, LIST_CLIENTS_METADATA, LIST_NOTIFICATIONS_METADATA, LIST_PERSONAL_METADATA, LIST_SAVED_SCREEN_GROUPS_METADATA, LIST_SAVED_TAB_GROUPS_METADATA, LIST_TAB_GROUPS_METADATA, LIST_TERMINAL_COMMANDS_METADATA, LIST_TERMINALS_METADATA, LIST_WORKSPACE_GROUPS_METADATA, LIST_WORKSPACES_METADATA, LOOPBACK_CLOSE_METADATA, LOOPBACK_CREDIT_METADATA, LOOPBACK_DATA_METADATA, LOOPBACK_OPEN_METADATA, LOOPBACK_SHUTDOWN_METADATA, LOOPBACK_STATUS_METADATA, MACHINE_CATALOG_PUBLISH_METADATA, MACHINE_LISTENING_TCP_METADATA, MACHINE_USAGE_METADATA, MARK_WORKSPACES_PROVIDER_MANAGED_METADATA, MINT_TERMINAL_RENDERER_METADATA, MINT_TERMINAL_RENDERER_BY_TERMINAL_METADATA, MOVE_BOOKMARK_METADATA, MOVE_BROWSER_PROFILE_METADATA, MOVE_COLUMN_METADATA, MOVE_PERSONAL_GROUP_METADATA, MOVE_PROFILE_METADATA, MOVE_SCREEN_METADATA, MOVE_SCREEN_GROUP_METADATA, MOVE_TAB_METADATA, MOVE_TAB_GROUP_METADATA, MOVE_TAB_GROUP_TO_COLUMN_METADATA, MOVE_TAB_GROUP_TO_NEW_WORKSPACE_METADATA, MOVE_TAB_GROUP_TO_SPLIT_METADATA, MOVE_TAB_TO_COLUMN_METADATA, MOVE_TAB_TO_NEW_WORKSPACE_METADATA, MOVE_TAB_TO_SPLIT_METADATA, MOVE_TAB_TO_WORKSPACE_METADATA, MOVE_TERMINAL_METADATA, MOVE_WORKSPACE_METADATA, MOVE_WORKSPACE_GROUP_METADATA, MOVE_WORKSPACE_TO_GROUP_METADATA, NEW_BROWSER_TAB_METADATA, NEW_CONVERSATION_TAB_METADATA, NEW_FRONTEND_BROWSER_TAB_METADATA, NEW_PANE_METADATA, NEW_PANE_RIGHT_METADATA, NEW_REMOTE_TERMINAL_TAB_METADATA, NEW_ROW_METADATA, NEW_SCREEN_METADATA, NEW_TAB_METADATA, NEW_WORKSPACE_METADATA, NOTE_SIZE_ACTIVITY_METADATA, NOTIFY_METADATA, PAGE_CREDENTIAL_METADATA, PAIRING_RESPONSE_METADATA, PANE_NEIGHBOR_METADATA, PARK_TABS_METADATA, PASTE_IMAGE_METADATA, PIN_WORKSPACE_METADATA, PING_METADATA, PROCESS_INFO_METADATA, PUT_BLOB_METADATA, PUT_FRONTEND_PROJECTION_METADATA, PUT_SESSION_METADATA, READ_SCREEN_METADATA, READ_SCROLLBACK_METADATA, REATTACH_VIEW_METADATA, REGISTER_BROWSER_PROVIDER_METADATA, RELEASE_ATTACHED_VIEW_SIZE_METADATA, RELEASE_SURFACE_SIZE_METADATA, RELOAD_CONFIG_METADATA, REMOTE_TERMINAL_SNAPSHOT_METADATA, REMOVE_SCREENS_FROM_SCREEN_GROUP_METADATA, REMOVE_TABS_FROM_TAB_GROUP_METADATA, RENAME_PANE_METADATA, RENAME_PROVIDER_MANAGED_WORKSPACE_METADATA, RENAME_SCREEN_METADATA, RENAME_SURFACE_METADATA, RENAME_WORKSPACE_METADATA, REOPEN_SAVED_SCREEN_GROUP_METADATA, REOPEN_SAVED_TAB_GROUP_METADATA, REPORT_AGENT_METADATA, REPORT_FOCUS_METADATA, RESIZE_ATTACHED_VIEW_METADATA, RESIZE_SURFACE_METADATA, RESOLVE_TERMINAL_METADATA, RESTART_TAB_METADATA, RUN_METADATA, SAVE_SCREEN_GROUP_METADATA, SAVE_TAB_GROUP_METADATA, SCRIPT_REPL_CLOSE_METADATA, SCRIPT_REPL_EVAL_METADATA, SCRIPT_REPL_OPEN_METADATA, SCRIPT_RUN_METADATA, SCROLL_SURFACE_METADATA, SELECT_SCREEN_METADATA, SELECT_TAB_METADATA, SELECT_WORKSPACE_METADATA, SEND_METADATA, SEND_KEY_METADATA, SERVER_BLOCKING_METADATA, SERVER_STATS_METADATA, SERVER_THREADS_METADATA, SET_CELL_PIXELS_METADATA, SET_CLIENT_INFO_METADATA, SET_CLIENT_SIZING_METADATA, SET_COLUMN_DOCK_METADATA, SET_DEFAULT_COLORS_METADATA, SET_FRONTEND_BROWSER_HISTORY_METADATA, SET_HOST_SIZE_POLICY_METADATA, SET_PERSONAL_TERMINAL_METADATA, SET_PERSONAL_WORKSPACE_METADATA, SET_PROFILE_FOLLOWS_METADATA, SET_RATIO_METADATA, SET_ROW_HEIGHTS_METADATA, SET_SCREEN_METADATA_METADATA, SET_SCREEN_PINNED_METADATA, SET_SESSION_ICON_METADATA, SET_SIZE_COUNTS_METADATA, SET_SIZE_POLICY_METADATA, SET_SPLIT_RATIO_METADATA, SET_TAB_PINNED_METADATA, SET_TERMINAL_COMMAND_HISTORY_METADATA, SET_TERMINAL_IDLE_POLICY_METADATA, SET_TERMINAL_KEEP_METADATA, SET_VIEWPORT_PANE_WIDTH_METADATA, SET_WINDOW_TITLE_METADATA, SET_WORKSPACE_METADATA_METADATA, SHUTDOWN_DAEMON_METADATA, SIDEBAR_PLUGIN_METADATA, SNAPSHOT_REQUEST_METADATA, SPLIT_METADATA, SUBSCRIBE_METADATA, SUBSCRIBE_ACTIVITY_METADATA, SWAP_PANE_METADATA, TERMINAL_CLIPBOARD_REPLY_METADATA, TERMINAL_CLIPBOARD_SUBSCRIBE_METADATA, TERMINAL_EVENTS_METADATA, TERMINAL_HISTORY_METADATA, TERMINAL_PORTS_METADATA, TERMINAL_READ_RANGE_METADATA, TERMINAL_RESOURCES_METADATA, TERMINAL_RESUME_COMMAND_METADATA, TRACE_START_METADATA, TRACE_STATUS_METADATA, TRACE_STOP_METADATA, UNDO_LAYOUT_METADATA, UNGROUP_SCREEN_GROUP_METADATA, UNGROUP_TAB_GROUP_METADATA, UNPIN_WORKSPACE_METADATA, UNREGISTER_BROWSER_PROVIDER_METADATA, UNSAVE_SCREEN_GROUP_METADATA, UNSAVE_TAB_GROUP_METADATA, UPDATE_BOOKMARK_METADATA, UPDATE_BROWSER_PROFILE_METADATA, UPDATE_FRONTEND_BROWSER_TAB_METADATA, UPDATE_PERSONAL_GROUP_METADATA, UPDATE_PROFILE_METADATA, UPDATE_REMOTE_TERMINAL_TAB_METADATA, UPDATE_SCREEN_GROUP_METADATA, UPDATE_TAB_GROUP_METADATA, UPDATE_WORKSPACE_GROUP_METADATA, URL_OPEN_METADATA, URL_OPEN_CLAIM_METADATA, URL_OPEN_RESULT_METADATA, URL_OPEN_SUBSCRIBE_METADATA, VT_STATE_METADATA, WAIT_FOR_METADATA, WS_LISTEN_METADATA, ZOOM_PANE_METADATA];
 #[rustfmt::skip]
-pub static EVENTS: &[EventMetadata] = &[ACTIVITY_CHANGED_EVENT_METADATA, AGENT_CHANGED_EVENT_METADATA, AGENT_INVENTORY_CHANGED_EVENT_METADATA, AGENT_INVENTORY_WATCH_ENDED_EVENT_METADATA, AGENT_PRESENCE_CHANGED_EVENT_METADATA, BELL_EVENT_METADATA, BOOKMARKS_CHANGED_EVENT_METADATA, BROWSER_STATE_EVENT_METADATA, CHIEF_CHANGED_EVENT_METADATA, CLIENT_ATTACHED_EVENT_METADATA, CLIENT_CHANGED_EVENT_METADATA, CLIENT_DETACHED_EVENT_METADATA, CLIENT_LIST_INVALIDATED_EVENT_METADATA, CLOUD_CONVERSATION_CHANGED_EVENT_METADATA, CLOUD_CONVERSATION_LIVE_EVENT_METADATA, CLOUD_CONVERSATION_RESYNCED_EVENT_METADATA, CLOUD_CONVERSATION_RUN_CHANGED_EVENT_METADATA, CLOUD_CONVERSATION_TYPING_EVENT_METADATA, CLOUD_HOST_REPLICA_NEEDED_EVENT_METADATA, CLOUD_INBOX_CHANGED_EVENT_METADATA, CLOUD_INBOX_RESET_EVENT_METADATA, CLOUD_MUX_RESYNCED_EVENT_METADATA, CLOUD_MUX_WAKE_EVENT_METADATA, CLOUD_SESSION_NEEDED_EVENT_METADATA, CLOUD_SUBSCRIPTION_STATE_EVENT_METADATA, COLORS_CHANGED_EVENT_METADATA, CONFIG_RELOAD_REQUESTED_EVENT_METADATA, CONVERSATION_CHANGED_EVENT_METADATA, CONVERSATION_DRAFT_EVENT_METADATA, CONVERSATION_INBOX_CHANGED_EVENT_METADATA, CONVERSATION_LIVE_EVENT_METADATA, CONVERSATION_RUN_CHANGED_EVENT_METADATA, CONVERSATION_TYPING_EVENT_METADATA, DAEMON_SHUTDOWN_EVENT_METADATA, DETACHED_EVENT_METADATA, EMPTY_EVENT_METADATA, FRAME_EVENT_METADATA, FRONTEND_PROJECTION_CHANGED_EVENT_METADATA, GRAPHICS_STATUS_EVENT_METADATA, HISTORY_CHANGED_EVENT_METADATA, KEYBINDINGS_CHANGED_EVENT_METADATA, LAYOUT_CHANGED_EVENT_METADATA, MACHINE_USAGE_CHANGED_EVENT_METADATA, NOTIFICATION_EVENT_METADATA, OUTPUT_EVENT_METADATA, OVERFLOW_EVENT_METADATA, PAIRING_REQUESTED_EVENT_METADATA, PAIRING_RESOLVED_EVENT_METADATA, PANE_ADDED_EVENT_METADATA, PANE_CLOSED_EVENT_METADATA, PARTICIPANT_AVATAR_CHANGED_EVENT_METADATA, PERSONAL_CHANGED_EVENT_METADATA, PROGRAM_STATUS_CHANGED_EVENT_METADATA, RENDER_DELTA_EVENT_METADATA, RENDER_STATE_EVENT_METADATA, RESIZED_EVENT_METADATA, SCREEN_ADDED_EVENT_METADATA, SCREEN_CHANGED_EVENT_METADATA, SCREEN_CLOSED_EVENT_METADATA, SCREEN_RENAMED_EVENT_METADATA, SCROLL_CHANGED_EVENT_METADATA, SETTINGS_CHANGED_EVENT_METADATA, SIZE_STATE_EVENT_METADATA, STATUS_EVENT_METADATA, SURFACE_EXITED_EVENT_METADATA, SURFACE_OUTPUT_EVENT_METADATA, SURFACE_RESIZE_FAILED_EVENT_METADATA, SURFACE_RESIZED_EVENT_METADATA, TAB_ADDED_EVENT_METADATA, TAB_CHANGED_EVENT_METADATA, TAB_CLOSED_EVENT_METADATA, TAB_RENAMED_EVENT_METADATA, TERMINAL_CLIPBOARD_READ_EVENT_METADATA, TERMINAL_CLIPBOARD_READ_CANCELLED_EVENT_METADATA, TERMINAL_INPUT_UNCLAIMED_EVENT_METADATA, TERMINAL_REAPED_EVENT_METADATA, TERMINAL_REGISTRY_CHANGED_EVENT_METADATA, TITLE_CHANGED_EVENT_METADATA, TREE_CHANGED_EVENT_METADATA, URL_OPEN_EVENT_METADATA, VT_STATE_EVENT_METADATA, WINDOW_TITLE_REQUESTED_EVENT_METADATA, WORKSPACE_ADDED_EVENT_METADATA, WORKSPACE_CHANGED_EVENT_METADATA, WORKSPACE_CLOSED_EVENT_METADATA, WORKSPACE_MOVED_EVENT_METADATA, WORKSPACE_RENAMED_EVENT_METADATA];
+pub static EVENTS: &[EventMetadata] = &[ACTIVITY_CHANGED_EVENT_METADATA, AGENT_CHANGED_EVENT_METADATA, AGENT_INVENTORY_CHANGED_EVENT_METADATA, AGENT_INVENTORY_WATCH_ENDED_EVENT_METADATA, AGENT_PRESENCE_CHANGED_EVENT_METADATA, BELL_EVENT_METADATA, BOOKMARKS_CHANGED_EVENT_METADATA, BROWSER_STATE_EVENT_METADATA, CHIEF_CHANGED_EVENT_METADATA, CLIENT_ATTACHED_EVENT_METADATA, CLIENT_CHANGED_EVENT_METADATA, CLIENT_DETACHED_EVENT_METADATA, CLIENT_LIST_INVALIDATED_EVENT_METADATA, CLOUD_CONVERSATION_CHANGED_EVENT_METADATA, CLOUD_CONVERSATION_LIVE_EVENT_METADATA, CLOUD_CONVERSATION_RESYNCED_EVENT_METADATA, CLOUD_CONVERSATION_RUN_CHANGED_EVENT_METADATA, CLOUD_CONVERSATION_TYPING_EVENT_METADATA, CLOUD_HOST_REPLICA_NEEDED_EVENT_METADATA, CLOUD_INBOX_CHANGED_EVENT_METADATA, CLOUD_INBOX_RESET_EVENT_METADATA, CLOUD_MUX_RESYNCED_EVENT_METADATA, CLOUD_MUX_WAKE_EVENT_METADATA, CLOUD_SESSION_NEEDED_EVENT_METADATA, CLOUD_SUBSCRIPTION_STATE_EVENT_METADATA, COLORS_CHANGED_EVENT_METADATA, CONFIG_RELOAD_REQUESTED_EVENT_METADATA, CONVERSATION_CHANGED_EVENT_METADATA, CONVERSATION_DRAFT_EVENT_METADATA, CONVERSATION_INBOX_CHANGED_EVENT_METADATA, CONVERSATION_LIVE_EVENT_METADATA, CONVERSATION_RUN_CHANGED_EVENT_METADATA, CONVERSATION_TYPING_EVENT_METADATA, DAEMON_SHUTDOWN_EVENT_METADATA, DETACHED_EVENT_METADATA, EMPTY_EVENT_METADATA, FRAME_EVENT_METADATA, FRONTEND_PROJECTION_CHANGED_EVENT_METADATA, GRAPHICS_STATUS_EVENT_METADATA, HISTORY_CHANGED_EVENT_METADATA, KEYBINDINGS_CHANGED_EVENT_METADATA, LAYOUT_CHANGED_EVENT_METADATA, LOOPBACK_CLOSED_EVENT_METADATA, LOOPBACK_CREDIT_EVENT_METADATA, LOOPBACK_DATA_EVENT_METADATA, LOOPBACK_EOF_EVENT_METADATA, MACHINE_USAGE_CHANGED_EVENT_METADATA, NOTIFICATION_EVENT_METADATA, OUTPUT_EVENT_METADATA, OVERFLOW_EVENT_METADATA, PAIRING_REQUESTED_EVENT_METADATA, PAIRING_RESOLVED_EVENT_METADATA, PANE_ADDED_EVENT_METADATA, PANE_CLOSED_EVENT_METADATA, PARTICIPANT_AVATAR_CHANGED_EVENT_METADATA, PERSONAL_CHANGED_EVENT_METADATA, PROGRAM_STATUS_CHANGED_EVENT_METADATA, RENDER_DELTA_EVENT_METADATA, RENDER_STATE_EVENT_METADATA, RESIZED_EVENT_METADATA, SCREEN_ADDED_EVENT_METADATA, SCREEN_CHANGED_EVENT_METADATA, SCREEN_CLOSED_EVENT_METADATA, SCREEN_RENAMED_EVENT_METADATA, SCRIPT_LOG_EVENT_METADATA, SCROLL_CHANGED_EVENT_METADATA, SETTINGS_CHANGED_EVENT_METADATA, SIZE_STATE_EVENT_METADATA, STATUS_EVENT_METADATA, STREAM_END_EVENT_METADATA, SURFACE_EXITED_EVENT_METADATA, SURFACE_OUTPUT_EVENT_METADATA, SURFACE_RESIZE_FAILED_EVENT_METADATA, SURFACE_RESIZED_EVENT_METADATA, TAB_ADDED_EVENT_METADATA, TAB_CHANGED_EVENT_METADATA, TAB_CLOSED_EVENT_METADATA, TAB_RENAMED_EVENT_METADATA, TERMINAL_CLIPBOARD_READ_EVENT_METADATA, TERMINAL_CLIPBOARD_READ_CANCELLED_EVENT_METADATA, TERMINAL_INPUT_UNCLAIMED_EVENT_METADATA, TERMINAL_REAPED_EVENT_METADATA, TERMINAL_REGISTRY_CHANGED_EVENT_METADATA, TITLE_CHANGED_EVENT_METADATA, TREE_CHANGED_EVENT_METADATA, URL_OPEN_EVENT_METADATA, VT_STATE_EVENT_METADATA, WINDOW_TITLE_REQUESTED_EVENT_METADATA, WORKSPACE_ADDED_EVENT_METADATA, WORKSPACE_CHANGED_EVENT_METADATA, WORKSPACE_CLOSED_EVENT_METADATA, WORKSPACE_MOVED_EVENT_METADATA, WORKSPACE_RENAMED_EVENT_METADATA];

@@ -1,0 +1,11 @@
+[package]
+name = "cmux-lock-rank"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Ranked locks shared by acpmux and the cmux-tui daemon: a lock taken out of rank order is caught in debug builds"
+
+[lints]
+workspace = true

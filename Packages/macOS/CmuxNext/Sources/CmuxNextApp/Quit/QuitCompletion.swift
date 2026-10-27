@@ -18,7 +18,13 @@ enum QuitFailureAnswer: Equatable {
 /// silently past one. Keep never touches the daemon. The browser
 /// engines stop last: Chromium's own Mac shutdown watchdog ends the
 /// process with exit code 2 when CefShutdown runs past 10 s (a loaded
-/// machine), so nothing the user asked for may come after it.
+/// machine), so nothing the user asked for may come after it. Right
+/// before them, the last save runs, the quit deadline is armed and the
+/// background lanes start to drain (`BackgroundWork.beginShutdown`), so
+/// their block-shutdown saves run alongside the engine stop, not in front
+/// of it; the quit waits for those saves after the engines have stopped,
+/// still inside the deadline (Chrome's `TaskTracker` drains the same way:
+/// base/task/thread_pool/task_tracker.cc).
 struct QuitSteps {
     var remember: @MainActor (QuitBehavior) async -> Void
     var prepareWindows: @MainActor () async -> Void
@@ -29,7 +35,17 @@ struct QuitSteps {
     /// Ends the local acpmux agents (`_acpmux/shutdown endAgents`), before
     /// the terminals; returns its failure, if any.
     var endLocalAgents: @MainActor () async -> [EndSessionsFailure] = { [] }
+    /// The last save: what changed after `prepareWindows` (drafts typed while "Some sessions did not end"
+    /// waited).
+    var lastSave: @MainActor () async -> Void = {}
+    /// Arms the quit's hard deadline (`QuitDeadline`): from here the quit ends by it, whatever the
+    /// engines and the lanes do.
+    var armDeadline: @MainActor () -> Void = {}
+    /// Starts draining the background lanes (`BackgroundWork.beginShutdown`); returns at once.
+    var beginDrain: @MainActor () -> Void = {}
     var stopBrowserEngines: @MainActor () async -> Void
+    /// Waits until every block-shutdown save has finished (`BackgroundWork.shutdown`).
+    var finishDrain: @MainActor () async -> Void = {}
 }
 
 enum QuitCompletion {
@@ -43,6 +59,10 @@ enum QuitCompletion {
                 failures = await steps.endLocalAgents() + steps.endLocalSessions(choice)
             }
         }
+        await steps.lastSave()
+        steps.armDeadline()
+        steps.beginDrain()
         await steps.stopBrowserEngines()
+        await steps.finishDrain()
     }
 }

@@ -32,6 +32,7 @@ mod scoped_projection_tests;
 mod split_ids;
 
 impl Mux {
+    #[track_caller]
     pub(crate) fn resource_project_terminal_selected(
         self: &std::sync::Arc<Self>,
         selectors: ResourceSelectors,
@@ -41,6 +42,8 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
     ) -> anyhow::Result<ResourcePatchCommit> {
+        // The closures below read the registry at this request's site.
+        let site = std::panic::Location::caller();
         // Reopen Closed of a tab whose terminal still runs: the new view is
         // that same tab again, under its retired id (durable-links-DESIGN.md).
         let reopen_tab = super::tab_strip::reopen_identity::take();
@@ -107,7 +110,7 @@ impl Mux {
                 let tab_id = match retired {
                     Some(tab)
                         if super::tab_strip::reopen_identity::is_retired_tab(
-                            &registry.connection.get(),
+                            &registry.connection.get_at(site),
                             tab.as_str(),
                         )? =>
                     {
@@ -302,6 +305,7 @@ impl Mux {
         }
     }
 
+    #[track_caller]
     pub(crate) fn resource_move_terminal_selected(
         self: &std::sync::Arc<Self>,
         selectors: ResourceSelectors,

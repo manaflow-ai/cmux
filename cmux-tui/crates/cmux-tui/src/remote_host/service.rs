@@ -7,15 +7,18 @@
 use std::fs::{File, OpenOptions, TryLockError};
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 
 #[cfg(not(windows))]
 use anyhow::anyhow;
 use anyhow::{Context as _, bail};
+use cmux_process::{Command, Stdio};
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
+use cmux_server_core::units::LaunchdJob;
+
+#[cfg(any(target_os = "macos", test))]
 const LAUNCHD_LABEL: &str = "com.cmuxterm.host-remote";
 #[cfg(target_os = "linux")]
 const SYSTEMD_UNIT: &str = "cmux-host-remote.service";
@@ -166,33 +169,15 @@ pub(crate) fn spawn_detached(exe: &Path) -> anyhow::Result<u32> {
         std::io::pipe().context("cannot create the readiness pipe")?;
     #[cfg(unix)]
     {
-        use std::os::fd::AsRawFd as _;
-        use std::os::unix::process::CommandExt as _;
-        let writer_fd = ready_writer.as_raw_fd();
+        use std::os::fd::AsFd as _;
         // The `host` verbs live on the `cmux` surface, chosen from argv[0].
         command.arg0("cmux");
         command.env(READY_FD_ENV, READY_FD.to_string());
-        // SAFETY: setsid and dup2 only, between fork and exec. dup2 gives
-        // the child the pipe's write end as fd 3 without close-on-exec.
-        unsafe {
-            command.pre_exec(move || {
-                libc::setsid();
-                // dup2 onto itself would keep close-on-exec; clear it instead.
-                let ok = if writer_fd == READY_FD {
-                    libc::fcntl(READY_FD, libc::F_SETFD, 0) >= 0
-                } else {
-                    libc::dup2(writer_fd, READY_FD) >= 0
-                };
-                if !ok {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            });
-        }
+        // Its own session; the pipe's write end reaches it as READY_FD.
+        command.new_session().inherit_fd(ready_writer.as_fd(), READY_FD)?;
     }
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt as _;
         const DETACHED_PROCESS: u32 = 0x0000_0008;
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -320,6 +305,67 @@ fn run_quiet(program: &str, args: &[&str]) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The launchd agent plist that runs `exe host serve --dir dir`, logging to
+/// `log`. Built outside `imp` so its tests run on every platform.
+#[cfg(any(target_os = "macos", test))]
+fn launchd_plist(exe: &Path, dir: &Path, log: &Path) -> String {
+    let escape = |path: &Path| {
+        path.display().to_string().replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    };
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>{LAUNCHD_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array><string>{}</string><string>host</string><string>serve</string><string>--dir</string><string>{}</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>ProcessType</key><string>{}</string>
+  <key>StandardOutPath</key><string>{}</string>
+  <key>StandardErrorPath</key><string>{}</string>
+</dict>
+</plist>
+"#,
+        escape(exe),
+        escape(dir),
+        LaunchdJob::RemoteHost.process_type(),
+        escape(log),
+        escape(log),
+    )
+}
+
+/// Sets the `ProcessType` of the agent plist at `path` (one an older cmux
+/// wrote) to the process-roles table value before launchd reads it, so a
+/// restart after an update runs `serve` at the new role. Returns whether it
+/// rewrote the file.
+#[cfg(any(target_os = "macos", all(unix, test)))]
+fn upgrade_launchd_role(path: &Path) -> anyhow::Result<bool> {
+    crate::launchd_role::upgrade_process_type(path, LaunchdJob::RemoteHost)
+        .with_context(|| format!("cannot update {}", path.display()))
+}
+
+/// `serve` start: brings the installed agent's role up to the table, so the
+/// next bootstrap (login, `enable`, a restart) runs `serve` at it. Returns a
+/// note when it rewrote the plist.
+pub(crate) fn upgrade_installed_role() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    match imp::upgrade_role() {
+        Ok(true) => {
+            return Some(format!(
+                "updated the {LAUNCHD_LABEL} agent to ProcessType {}; it applies at the next \
+                 restart or login",
+                LaunchdJob::RemoteHost.process_type()
+            ));
+        }
+        Ok(false) => {}
+        Err(error) => return Some(format!("{error:#}")),
+    }
+    None
+}
+
 #[cfg(target_os = "macos")]
 mod imp {
     use super::*;
@@ -330,39 +376,13 @@ mod imp {
         Ok(home.join("Library").join("LaunchAgents").join(format!("{LAUNCHD_LABEL}.plist")))
     }
 
-    fn escape(path: &Path) -> String {
-        path.display().to_string().replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
-    }
-
     fn domain() -> String {
         format!("gui/{}", cmux_tui_core::platform::effective_uid())
     }
 
     pub(super) fn write(exe: &Path, dir: &Path) -> anyhow::Result<String> {
         let path = plist_path()?;
-        let log = log_path()?;
-        let plist = format!(
-            r#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>{LAUNCHD_LABEL}</string>
-  <key>ProgramArguments</key>
-  <array><string>{}</string><string>host</string><string>serve</string><string>--dir</string><string>{}</string></array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
-  <key>ThrottleInterval</key><integer>10</integer>
-  <key>ProcessType</key><string>Background</string>
-  <key>StandardOutPath</key><string>{}</string>
-  <key>StandardErrorPath</key><string>{}</string>
-</dict>
-</plist>
-"#,
-            escape(exe),
-            escape(dir),
-            escape(&log),
-            escape(&log),
-        );
+        let plist = launchd_plist(exe, dir, &log_path()?);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -375,8 +395,16 @@ mod imp {
     }
 
     pub(super) fn start() -> anyhow::Result<bool> {
-        run_quiet("launchctl", &["bootstrap", &domain(), &plist_path()?.display().to_string()])?;
+        let path = plist_path()?;
+        upgrade_launchd_role(&path)?;
+        run_quiet("launchctl", &["bootstrap", &domain(), &path.display().to_string()])?;
         Ok(true)
+    }
+
+    /// Brings the installed agent's role up to the table; the running job
+    /// gets it at its next bootstrap (a restart or the next login).
+    pub(super) fn upgrade_role() -> anyhow::Result<bool> {
+        upgrade_launchd_role(&plist_path()?)
     }
 
     pub(super) fn remove() -> anyhow::Result<()> {
@@ -526,5 +554,60 @@ mod imp {
 
     pub(super) fn installed() -> Option<String> {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_launchd_agent_runs_at_the_process_roles_table_value_never_background() {
+        let plist = launchd_plist(
+            Path::new("/Applications/cmux.app/Contents/Resources/bin/cmux"),
+            Path::new("/Users/ana/.cmux/host"),
+            Path::new("/Users/ana/.cmux/host-serve.log"),
+        );
+        let process_type = format!(
+            "<key>ProcessType</key><string>{}</string>",
+            LaunchdJob::RemoteHost.process_type()
+        );
+        assert!(plist.contains(&process_type), "{plist}");
+        assert!(plist.contains("<key>ProcessType</key><string>Interactive</string>"), "{plist}");
+        assert!(plist.contains("<string>host</string><string>serve</string>"), "{plist}");
+    }
+
+    /// An agent `cmux host enable` installed before p02-threads-234 (written
+    /// `Background`) runs at the table value from the next bootstrap a
+    /// restart makes: `imp::start` upgrades it first. The upgraded plist is
+    /// the one `enable` writes now.
+    #[cfg(unix)]
+    #[test]
+    fn a_background_agent_from_an_older_cmux_is_upgraded_before_its_bootstrap() {
+        let exe = Path::new("/Applications/cmux.app/Contents/Resources/bin/cmux");
+        let state = Path::new("/Users/ana/.cmux/host");
+        let log = Path::new("/Users/ana/.cmux/host/serve.log");
+        let current = launchd_plist(exe, state, log);
+        let old = current.replace(
+            &format!("<string>{}</string>", LaunchdJob::RemoteHost.process_type()),
+            "<string>Background</string>",
+        );
+        assert_ne!(old, current);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(format!("{LAUNCHD_LABEL}.plist"));
+        std::fs::write(&path, old).unwrap();
+
+        assert!(upgrade_launchd_role(&path).unwrap());
+        let upgraded = plist::Value::from_file(&path).unwrap();
+        let wanted = plist::Value::from_reader_xml(current.as_bytes()).unwrap();
+        assert_eq!(upgraded, wanted);
+        assert!(!upgrade_launchd_role(&path).unwrap(), "a second start leaves it as it is");
+    }
+
+    #[test]
+    fn the_launchd_agent_escapes_paths() {
+        let plist = launchd_plist(Path::new("/a&b/cmux"), Path::new("/d<i>r"), Path::new("/l.log"));
+        assert!(plist.contains("<string>/a&amp;b/cmux</string>"), "{plist}");
+        assert!(plist.contains("<string>/d&lt;i&gt;r</string>"), "{plist}");
     }
 }

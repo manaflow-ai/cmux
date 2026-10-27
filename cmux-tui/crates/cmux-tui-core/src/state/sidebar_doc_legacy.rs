@@ -169,6 +169,7 @@ fn read_state(connection: &Connection) -> anyhow::Result<LegacyState> {
 }
 
 /// The migration input: the old stores as they are now.
+#[track_caller]
 pub(crate) fn legacy_input(connection: &Connection) -> anyhow::Result<LegacyInput> {
     let state = read_state(connection)?;
     Ok(LegacyInput {

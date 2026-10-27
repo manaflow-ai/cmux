@@ -18,20 +18,27 @@
 //! {"id":1,"ok":true,"data":{"app":"cmux-tui","session":"main",...}}
 //! ```
 
+// std's Mutex, RwLock and Condvar wait untimed; cmux_threads::sync times
+// them (cmux-tui/clippy.toml, p02-threads.md task 227).
+#![cfg_attr(not(test), deny(clippy::disallowed_types))]
+
 #[cfg(test)]
 use crate::mux::DaemonHandoffRequest;
 #[cfg(test)]
 use crate::workspace_registry::TerminalLifecycle;
 #[cfg(test)]
 use base64::Engine;
+use cmux_threads::sync::Mutex;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::Write;
+#[cfg(test)]
+use std::io::{BufRead, BufReader, Read};
 #[cfg(test)]
 use std::net::TcpListener;
 use std::net::{Shutdown, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -117,6 +124,10 @@ use window_title::sanitize_window_title;
 pub use window_title::window_title_osc;
 #[path = "server/loopback_forward.rs"]
 mod loopback_forward;
+/// `oracle-state` (p15-oracle task 021): debug and `--features oracle` builds only.
+#[cfg(any(debug_assertions, feature = "oracle"))]
+#[path = "server/oracle_state_command.rs"]
+mod oracle_state_command;
 pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
@@ -140,7 +151,9 @@ pub mod agent_transfer;
 mod app_trust;
 pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
 mod client_hello;
+pub use client_hello::{daemon_features, install_daemon_features};
 mod command_args;
+mod frame_dispatch;
 #[cfg(unix)]
 mod fs_wire;
 mod line_connection;
@@ -153,7 +166,9 @@ mod page_router;
 pub use orphan_shutdown::stop_orphaned_owner;
 mod pending_handoff;
 mod renderer_grant;
-use line_connection::{handle_connection_with_permit, serve_line_connection};
+use line_connection::{
+    handle_connection_with_permit, serve_line_connection, spawn_connection_reader,
+};
 mod attachment_http;
 mod bookmarks;
 mod browser_host_command;
@@ -191,6 +206,7 @@ mod remote_relay;
 mod remote_terminal_tabs_wire;
 #[cfg(test)]
 use remote_relay::handle_connection_message;
+mod attach_streams;
 mod cmd_attach;
 mod cmd_browser;
 #[cfg(test)]
@@ -213,11 +229,14 @@ use cmd_terminals::placed_terminal_result;
 mod cmd_workspaces;
 mod column_move;
 mod command_history;
+mod deferred_commands;
 mod page_credential;
-mod page_files;
+pub(crate) mod page_files;
 mod page_listener;
 pub use page_files::page_bundle_dir;
 pub use page_listener::{PageListenerOpener, WS_LISTEN_CAPABILITY, WS_LISTEN_ORIGINS_CAPABILITY};
+/// Lock admission by class for the registry, connection and state locks.
+pub(crate) mod priority_gate;
 mod responses;
 mod rows;
 mod screen_json;
@@ -228,12 +247,14 @@ mod split_respawn;
 mod tab_column;
 mod tab_park;
 mod tab_restart;
+mod tabs_wire;
+pub(crate) mod trace_control;
 mod websocket_listener;
 #[cfg(test)]
 use cmd_subscribe::subscribed_event_json;
 use cmd_subscribe::subscription_overflow_json;
 #[cfg(unix)]
-pub use fs_wire::FsGate;
+pub use fs_wire::{FsGate, answer_fs_request};
 pub use launch_snapshot::{
     LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
     start_launch_snapshot_writer_with,
@@ -254,16 +275,14 @@ use group_outcome_json::{
     pane_tab_group_json, screen_group_outcome_json, tab_drag_outcome_json, tab_group_outcome_json,
     workspace_group_json, workspace_groups_json,
 };
-use split_respawn::{
-    SplitRespawnRequest, frontend_shell, placement_spawn_options, shell_argv, split_tab,
-};
+use split_respawn::{frontend_shell, placement_spawn_options, shell_argv, split_tab};
+mod capabilities;
 mod terminal_create;
 mod terminal_history;
+mod terminal_io_wire;
 mod terminal_ports;
 mod terminal_resources;
 mod terminal_snapshot;
-use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
-mod capabilities;
 pub use capabilities::{build_capabilities, static_capabilities};
 mod daemon_build;
 pub use daemon_build::{
@@ -282,6 +301,13 @@ pub(crate) mod activity;
 mod browser_input;
 mod chief_control;
 mod chief_engine_mirror;
+/// `energy.set` and `energy.status` (p14-energy-033).
+pub(crate) mod energy_op;
+/// The app's Energy Saver rule for the daemon's own reading (p14-energy-137).
+pub(crate) mod energy_rule;
+pub(crate) use chief_engine_mirror::{
+    engine_file as chief_engine_file, write as write_chief_engine_file,
+};
 mod chief_inspect;
 mod chief_manage;
 mod chief_registry_resource;
@@ -289,8 +315,7 @@ mod participant_avatars;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
 mod url_open;
 #[cfg(test)]
-use capabilities::advertised_capabilities;
-use capabilities::identify_capabilities;
+use capabilities::{advertised_capabilities, identify_capabilities};
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
@@ -385,6 +410,8 @@ pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
 pub const BROWSER_PROVIDER_NATIVE_HOSTING_CAPABILITY: &str = "browser-provider-native-hosting-v1";
 /// Advertises the `server-stats` command.
 pub const SERVER_STATS_CAPABILITY: &str = "server-stats-v1";
+/// Advertises the `server-threads` and `server-blocking` commands.
+pub const SERVER_THREADS_CAPABILITY: &str = "server-threads-v1";
 pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
 pub const DAEMON_SHUTDOWN_EVENT: &str = "daemon-shutdown";
 /// `error_code` of a request refused while the daemon's shutdown handoff is
@@ -590,49 +617,13 @@ pub(crate) use protocol_key::{
 };
 
 mod wire_values;
-use wire_values::{default_renderer_capability_ttl_ms, json_line_payload_len, machine_usage_json};
+use wire_values::machine_usage_json;
 
 #[derive(Deserialize)]
 struct Request {
     id: Option<Value>,
     #[serde(flatten)]
     cmd: Command,
-}
-
-#[derive(Deserialize)]
-struct CreateSurfaceWithReceiptRequest {
-    operation: String,
-    origin: String,
-    /// Stable correlation identity for the logical creation across retries.
-    receipt: String,
-    /// One execution attempt. Omission preserves the original adapter
-    /// behavior by using `receipt` for both identities.
-    #[serde(default)]
-    idempotency_key: Option<String>,
-    /// Stable public identities captured by the frontend before the request
-    /// is sent. Numeric targets remain a legacy fallback.
-    #[serde(default)]
-    selectors: Option<crate::ResourceSelectors>,
-    /// Ordered client-local selection continuations used only when the
-    /// primary creation target disappeared before the mutation committed.
-    #[serde(default)]
-    selector_fallbacks: Vec<crate::ResourceSelectors>,
-    #[serde(default)]
-    pane: Option<PaneId>,
-    #[serde(default)]
-    workspace: Option<WorkspaceId>,
-    #[serde(default)]
-    argv: Option<Vec<String>>,
-    #[serde(default)]
-    cwd: Option<String>,
-    #[serde(default)]
-    url: Option<String>,
-    #[serde(default)]
-    width: Option<f32>,
-    #[serde(default)]
-    cols: Option<u16>,
-    #[serde(default)]
-    rows: Option<u16>,
 }
 
 #[derive(Deserialize)]
@@ -726,6 +717,12 @@ impl DetachNotice {
     }
 }
 
+// The generated families' variants (crates/cmux-ipc/server-families.json,
+// from spec/sdk-schema.json): the macro appends them, each a newtype over its
+// `terminal_io_wire` or `tabs_wire` params.
+cmux_ipc::server_command_enum! {
+terminal_io = terminal_io_wire;
+tabs = tabs_wire;
 // Variant names are the wire command names (`terminal-resume-command`).
 #[allow(clippy::enum_variant_names)]
 #[derive(Deserialize)]
@@ -741,42 +738,9 @@ enum Command {
     },
     BrowserHostProvider,
     SubscribeActivity,
-    /// Private, connection-scoped guest-to-frontend OS browser opening.
-    UrlOpenSubscribe {
-        terminal_ids: Vec<String>,
-    },
-    UrlOpen {
-        terminal_id: String,
-        url: String,
-    },
     /// The Chief memory inspector's read-only API, for the owner's trusted
     /// connection, forwarded to the brain host (`chief-inspect-v1`).
     ChiefInspect(chief_inspect::Params),
-    UrlOpenClaim {
-        request_id: String,
-    },
-    UrlOpenResult {
-        request_id: String,
-        opened: bool,
-    },
-    TerminalClipboardSubscribe {
-        terminal_ids: Vec<String>,
-    },
-    TerminalClipboardReply {
-        request_id: String,
-        text: Option<String>,
-    },
-    PasteImage {
-        surface: SurfaceId,
-        terminal_id: String,
-        lease: String,
-        upload_id: String,
-        op: String,
-        mime: Option<String>,
-        size: Option<usize>,
-        offset: Option<usize>,
-        data: Option<String>,
-    },
     /// Report where this daemon spends its time: registry lock contention
     /// with holder sites, journal writer batch metrics, and connection
     /// admission. Owner-only diagnostics, never journaled. `include` names
@@ -784,6 +748,27 @@ enum Command {
     ServerStats {
         include: Option<Vec<String>>,
     },
+    /// Wait and hold time of the registry and state locks per caller class
+    /// and request op (diagnostics/daemon_locks.rs; the plan's
+    /// `debug.daemon_locks`, p06-scheduler-226). Owner-only diagnostics,
+    /// never journaled.
+    DebugDaemonLocks,
+    /// Every registered daemon thread (declared, desired and kernel QoS,
+    /// scheduler priority), the work lanes and the process task role (the
+    /// plan's `server.threads`, p02-threads-203). Owner-only diagnostics,
+    /// never journaled.
+    ServerThreads,
+    /// The blocking calls made on threads that disallow blocking, by call
+    /// site (the plan's `server.blocking`, p02-threads-203). Owner-only
+    /// diagnostics, never journaled.
+    ServerBlocking,
+    /// Start a trace recording in the daemon, the holder, every terminal host
+    /// and acpmux (server/trace_control.rs). Owner only; no path parameter.
+    TraceStart(trace_control::StartParams),
+    /// Stop it everywhere.
+    TraceStop,
+    /// Every process's trace state, ring paths and bytes.
+    TraceStatus,
     /// `terminal-command-history-v1`, trusted local only (server/command_history.rs).
     SetTerminalCommandHistory(command_history::SetParams),
     ListTerminalCommands(command_history::ListParams),
@@ -867,11 +852,6 @@ enum Command {
     UnregisterBrowserProvider,
     /// Canonical non-tombstoned terminal placement/lifecycle snapshot.
     ListTerminals,
-    /// Durable ordered terminal mutations after `terminal_revision`.
-    TerminalEvents {
-        #[serde(default)]
-        after_revision: u64,
-    },
     SetClientSizing {
         surface: SurfaceId,
         #[serde(default)]
@@ -982,34 +962,11 @@ enum Command {
         #[serde(default)]
         rows: Option<u16>,
     },
-    /// `send`: write input to a terminal.
-    Send(cmd_terminal_io::SendParams),
-    ReadScreen {
-        surface: SurfaceId,
-    },
-    ClearHistory {
-        surface: SurfaceId,
-        /// Structured key input encoded using the authoritative terminal
-        /// modes when the surface is in the alternate screen.
-        #[serde(default)]
-        fallback_key: Option<ProtocolKeyInput>,
-    },
-    ReadScrollback {
-        surface: SurfaceId,
-        start: u32,
-        count: u32,
-    },
     SidebarPlugin {
         cols: u16,
         rows: u16,
         #[serde(default)]
         relaunch: bool,
-    },
-    WaitFor {
-        surface: SurfaceId,
-        pattern: String,
-        #[serde(alias = "timeout_ms")]
-        timeout_ms: u64,
     },
     Run {
         #[serde(default)]
@@ -1036,32 +993,9 @@ enum Command {
         #[serde(default)]
         rows: Option<u16>,
     },
-    /// Execute one destination-creating TUI action behind a durable receipt.
-    /// Repeating the same receipt with identical fields returns the exact
-    /// created view, so a lost response can never duplicate or retarget it.
-    CreateSurfaceWithReceipt(Box<CreateSurfaceWithReceiptRequest>),
-    SendKey {
-        surface: SurfaceId,
-        keys: Vec<String>,
-    },
-    Copy {
-        surface: SurfaceId,
-        mode: String,
-    },
     Ids {
         #[serde(default)]
         kind: Option<String>,
-    },
-    Notify {
-        title: String,
-        body: String,
-        #[serde(default)]
-        level: Option<String>,
-        #[serde(default)]
-        surface: Option<SurfaceId>,
-        /// `notification-source-v1`: `cli` (default), `terminal`, `agent` or `daemon`.
-        #[serde(default)]
-        source: Option<String>,
     },
     ListAgents {
         #[serde(default)]
@@ -1075,24 +1009,6 @@ enum Command {
         source: String,
         #[serde(default)]
         session: Option<String>,
-    },
-    /// One-shot VT replay of the surface's current state (base64).
-    VtState {
-        surface: SurfaceId,
-    },
-    /// Mint a one-use direct renderer credential without exposing the
-    /// daemon's durable owner capability.
-    MintTerminalRenderer {
-        surface: SurfaceId,
-        #[serde(default = "default_renderer_capability_ttl_ms")]
-        ttl_ms: u64,
-    },
-    /// Mint a renderer credential from the stable public terminal identity.
-    /// Remote clients must not depend on this daemon generation's local numeric surface handle.
-    MintTerminalRendererByTerminal {
-        terminal: String,
-        #[serde(default = "default_renderer_capability_ttl_ms")]
-        ttl_ms: u64,
     },
     /// Resolve a process-stable hosted terminal UUID to this daemon
     /// generation's local surface handle without creating anything.
@@ -1141,60 +1057,6 @@ enum Command {
         #[serde(default, deserialize_with = "present_nullable")]
         command: Option<Option<String>>,
     },
-    /// New tab in a pane (default: the active pane).
-    NewTab {
-        #[serde(default)]
-        pane: Option<PaneId>,
-        #[serde(default)]
-        cwd: Option<String>,
-        /// Extra environment for the new terminal's child only.
-        #[serde(default)]
-        env: Option<BTreeMap<String, String>>,
-        /// Expected content size in cells (spawn-at-size avoids shell redraw artifacts).
-        #[serde(default)]
-        cols: Option<u16>,
-        #[serde(default)]
-        rows: Option<u16>,
-        /// Mark the new terminal `keep` so it survives with no tab.
-        #[serde(default)]
-        keep: bool,
-        /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
-        #[serde(default)]
-        terminal_id: Option<String>,
-        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
-        /// `SHELL` in `env`, else the daemon's default shell).
-        #[serde(default)]
-        shell_args: Option<Vec<String>>,
-    },
-    NewConversationTab(conversation_tabs_wire::NewConversationTabParams),
-    BindConversationTabSession(conversation_tabs_wire::BindSessionParams),
-    /// New browser tab whose page the frontend renders (WebKit or CEF).
-    NewFrontendBrowserTab(frontend_browser_history::NewTabParams),
-    RestartTab(tab_restart::Params),
-    ParkTabs(tab_park::Params),
-    UpdateFrontendBrowserTab(frontend_browser_history::UpdateTabParams),
-    SetFrontendBrowserHistory(frontend_browser_history::SetParams),
-    GetFrontendBrowserHistory(frontend_browser_history::GetParams),
-    /// Remote-terminal tabs (`remote-terminal-tabs-v1`).
-    NewRemoteTerminalTab(remote_terminal_tabs_wire::NewParams),
-    UpdateRemoteTerminalTab(remote_terminal_tabs_wire::UpdateParams),
-    RemoteTerminalSnapshot(remote_terminal_tabs_wire::SnapshotParams),
-    NewBrowserTab {
-        url: String,
-        #[serde(default)]
-        pane: Option<PaneId>,
-        #[serde(default)]
-        cols: Option<u16>,
-        #[serde(default)]
-        rows: Option<u16>,
-    },
-    SetCellPixels {
-        #[serde(alias = "width_px")]
-        width_px: u16,
-        #[serde(alias = "height_px")]
-        height_px: u16,
-    },
-    GetCellPixels,
     BrowserFramePresented {
         surface: SurfaceId,
         frame_seq: u64,
@@ -1550,13 +1412,6 @@ enum Command {
         #[serde(flatten)]
         mutation: MutationRequest,
     },
-    MoveTab {
-        surface: SurfaceId,
-        pane: PaneId,
-        index: usize,
-        #[serde(default)]
-        transaction: Option<String>,
-    },
     /// Every tab group with its pane and members.
     ListTabGroups,
     /// Group tabs of one pane; they become contiguous at the first one.
@@ -1664,60 +1519,10 @@ enum Command {
         #[serde(default)]
         transaction: Option<String>,
     },
-    /// Acknowledge a tab's notifications without selecting or focusing it.
-    AckTabNotifications {
-        surface: SurfaceId,
-    },
-    /// Retained notifications, newest first.
-    ListNotifications {
-        #[serde(default)]
-        limit: Option<usize>,
-    },
-    /// Pin or unpin a tab placement; pinned tabs sort first in their pane.
-    SetTabPinned {
-        surface: SurfaceId,
-        pinned: bool,
-    },
-    MoveTabToWorkspace {
-        surface: SurfaceId,
-        #[serde(default)]
-        workspace: Option<WorkspaceId>,
-        #[serde(default)]
-        transaction: Option<String>,
-    },
-    /// Drop a tab on a pane edge: a new split beside `pane` holding the tab.
-    MoveTabToSplit {
-        surface: SurfaceId,
-        pane: PaneId,
-        edge: String,
-        #[serde(default)]
-        ratio: Option<f32>,
-        #[serde(default)]
-        respawn: Option<SplitRespawnRequest>,
-        /// `tab-split-keep-focus-v1`: the focused pane stays focused.
-        #[serde(default)]
-        keep_focus: bool,
-        #[serde(default)]
-        transaction: Option<String>,
-    },
-    /// Drop a tab between strip columns: a new column holding the tab.
-    MoveTabToColumn(tab_column::MoveTabToColumnParams),
     NewRow(rows::NewRowParams),
     SetRowHeights(rows::SetRowHeightsParams),
     /// Move a whole viewport column one place (`column-move-v1`).
     MoveColumn(column_move::MoveColumnParams),
-    /// Drop a tab on the sidebar: a new workspace holding the tab.
-    MoveTabToNewWorkspace {
-        surface: SurfaceId,
-        #[serde(default)]
-        group: Option<String>,
-        #[serde(default)]
-        index: Option<usize>,
-        #[serde(default)]
-        name: Option<String>,
-        #[serde(default)]
-        transaction: Option<String>,
-    },
     MoveWorkspace {
         #[serde(default)]
         workspace: Option<WorkspaceId>,
@@ -2054,24 +1859,6 @@ enum Command {
         #[serde(default)]
         complete: bool,
     },
-    /// Close one tab.
-    CloseSurface {
-        surface: SurfaceId,
-    },
-    /// Close several tab placements in one durable commit. With
-    /// `end_terminals`, also end every terminal whose views all close and that is not kept.
-    CloseTabs {
-        surfaces: Vec<TabRef>,
-        #[serde(default)]
-        end_terminals: bool,
-        #[serde(default)]
-        transaction: Option<String>,
-        /// `close-reason-v1`: `session_end` keeps the close out of closed history.
-        #[serde(default)]
-        reason: Option<crate::mux::CloseReason>,
-        #[serde(flatten)]
-        mutation: MutationRequest,
-    },
     /// Close a pane and all its tabs.
     ClosePane {
         pane: PaneId,
@@ -2119,11 +1906,6 @@ enum Command {
         /// Empty clears the name (falls back to the tab title).
         name: String,
     },
-    RenameSurface {
-        surface: SurfaceId,
-        /// Empty clears the name (falls back to the generated tab label).
-        name: String,
-    },
     RenameScreen {
         screen: ScreenId,
         /// Empty clears the name (falls back to the screen number).
@@ -2162,6 +1944,9 @@ enum Command {
         identity: Option<ClientIdentityWire>,
         cols: u16,
         rows: u16,
+        /// attach-streams-v1: the view's client-minted stream, checked.
+        #[serde(default)]
+        stream: Option<u16>,
     },
     /// Stop this client from contributing a size for a surface while
     /// retaining its attach stream for cached rendering.
@@ -2175,6 +1960,9 @@ enum Command {
         lease: Option<String>,
         #[serde(default)]
         view: Option<String>,
+        /// attach-streams-v1: the view's client-minted stream, checked.
+        #[serde(default)]
+        stream: Option<u16>,
     },
     /// Close one negotiated view attachment without affecting the terminal or
     /// any other placement or client view.
@@ -2184,18 +1972,12 @@ enum Command {
         lease: Option<String>,
         #[serde(default)]
         view: Option<String>,
+        /// attach-streams-v1: the view's client-minted stream, checked.
+        #[serde(default)]
+        stream: Option<u16>,
     },
     FocusPane {
         pane: PaneId,
-    },
-    /// Select a tab within a pane (default: the active pane).
-    SelectTab {
-        #[serde(default)]
-        pane: Option<PaneId>,
-        #[serde(default)]
-        index: Option<usize>,
-        #[serde(default)]
-        delta: Option<isize>,
     },
     /// Select a screen within the active workspace.
     SelectScreen {
@@ -2222,59 +2004,28 @@ enum Command {
     ClientFocus {
         client_id: String,
     },
-    /// Stream mux events on this connection.
-    Subscribe {
-        #[serde(default)]
-        tree_events: Option<String>,
-        #[serde(default)]
-        surface: Option<SurfaceId>,
-    },
-    /// Stream a surface: vt-state event followed by live output events.
-    AttachSurface {
-        #[serde(default)]
-        surface: Option<SurfaceId>,
-        #[serde(default)]
-        expected_generation: Option<String>,
-        #[serde(default)]
-        expected_terminal_id: Option<String>,
-        #[serde(default)]
-        mode: Option<String>,
-        /// Optional initial viewer size. Supplying this pair makes the attach
-        /// stream a sizing participant immediately, before its first frame is rendered.
-        #[serde(default)]
-        cols: Option<u16>,
-        #[serde(default)]
-        rows: Option<u16>,
-        #[serde(flatten)]
-        snapshot: terminal_snapshot::SnapshotAttachParams,
-    },
-    /// One READY snapshot on the caller's snapshot attach (`terminal-snapshot-v1`).
-    SnapshotRequest(terminal_snapshot::SnapshotRequestParams),
-    /// GHOSTSNP history pages above a row marker (`terminal.history`).
-    TerminalHistory(terminal_history::TerminalHistoryParams),
-    /// Text or VT of a row-marker range (`terminal.read_range`).
-    TerminalReadRange(terminal_history::TerminalReadRangeParams),
-    /// Scroll a surface's viewport by a row delta (negative is up).
-    ScrollSurface {
-        surface: SurfaceId,
-        delta: isize,
-    },
+}
 }
 
 impl Command {
     fn ordering_surface(&self) -> Option<SurfaceId> {
+        use terminal_io_wire::{
+            AttachSurfaceParams, ClearHistoryParams, CopyParams, MintTerminalRendererParams,
+            PasteImageParams, ReadScreenParams, ReadScrollbackParams, ScrollSurfaceParams,
+            SendKeyParams, SubscribeParams, VtStateParams, WaitForParams,
+        };
         match self {
-            Self::PasteImage { surface, .. } => Some(*surface),
-            Self::SetClientSizing { surface, .. }
-            | Self::ReadScreen { surface }
-            | Self::ClearHistory { surface, .. }
-            | Self::ReadScrollback { surface, .. }
-            | Self::WaitFor { surface, .. }
-            | Self::SendKey { surface, .. }
-            | Self::Copy { surface, .. }
+            Self::PasteImage(PasteImageParams { surface, .. })
+            | Self::SetClientSizing { surface, .. }
+            | Self::ReadScreen(ReadScreenParams { surface })
+            | Self::ClearHistory(ClearHistoryParams { surface, .. })
+            | Self::ReadScrollback(ReadScrollbackParams { surface, .. })
+            | Self::WaitFor(WaitForParams { surface, .. })
+            | Self::SendKey(SendKeyParams { surface, .. })
+            | Self::Copy(CopyParams { surface, .. })
             | Self::ReportAgent { surface, .. }
-            | Self::VtState { surface }
-            | Self::MintTerminalRenderer { surface, .. }
+            | Self::VtState(VtStateParams { surface })
+            | Self::MintTerminalRenderer(MintTerminalRendererParams { surface, .. })
             | Self::BrowserFramePresented { surface, .. }
             | Self::BrowserMouse { surface, .. }
             | Self::BrowserMouseGuarded { surface, .. }
@@ -2290,10 +2041,6 @@ impl Command {
             | Self::BrowserActivate { surface }
             | Self::ProcessInfo { surface }
             | Self::TerminalPorts { surface }
-            | Self::MoveTab { surface, .. }
-            | Self::MoveTabToWorkspace { surface, .. }
-            | Self::CloseSurface { surface }
-            | Self::RenameSurface { surface, .. }
             | Self::ResizeSurface { surface, .. }
             | Self::ResizeAttachedView { surface, .. }
             | Self::ReleaseSurfaceSize { surface }
@@ -2303,12 +2050,16 @@ impl Command {
             | Self::GetSizeState { surface }
             | Self::ReattachView { surface, .. }
             | Self::NoteSizeActivity { surface, .. }
-            | Self::ScrollSurface { surface, .. } => Some(*surface),
+            | Self::ScrollSurface(ScrollSurfaceParams { surface, .. }) => Some(*surface),
+            Self::MoveTab(params) => Some(params.surface),
+            Self::MoveTabToWorkspace(params) => Some(params.surface),
+            Self::CloseSurface(params) => Some(params.surface),
+            Self::RenameSurface(params) => Some(params.surface),
             Self::Send(send) => send.surface,
-            Self::AttachSurface { surface, .. }
-            | Self::Notify { surface, .. }
+            Self::Notify(params) => params.surface,
+            Self::AttachSurface(AttachSurfaceParams { surface, .. })
             | Self::ListAgents { surface, .. }
-            | Self::Subscribe { surface, .. }
+            | Self::Subscribe(SubscribeParams { surface, .. })
             | Self::SetSizePolicy { surface, .. }
             | Self::GetHostSizePolicy { surface } => *surface,
             _ => None,
@@ -2316,15 +2067,15 @@ impl Command {
     }
 
     fn is_clear_history(&self) -> bool {
-        matches!(self, Self::ClearHistory { .. })
+        matches!(self, Self::ClearHistory(_))
     }
 
     fn can_overtake_clear_barrier(&self) -> bool {
         matches!(
             self,
-            Self::ClearHistory { .. }
+            Self::ClearHistory(_)
                 | Self::Send(_)
-                | Self::SendKey { .. }
+                | Self::SendKey(_)
                 | Self::BrowserFramePresented { .. }
                 | Self::BrowserMouse { .. }
                 | Self::BrowserMouseGuarded { .. }
@@ -2338,13 +2089,14 @@ impl Command {
                 | Self::BrowserForward { .. }
                 | Self::BrowserReload { .. }
                 | Self::BrowserActivate { .. }
-                | Self::ScrollSurface { .. }
+                | Self::ScrollSurface(_)
         )
     }
 }
 
 /// A tab named by its numeric surface id or its public `tab_...` id.
 #[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
 #[serde(untagged)]
 enum TabRef {
     Surface(SurfaceId),
@@ -2586,6 +2338,11 @@ const RESOURCE_STREAMS_PER_CLIENT_CAPACITY: usize = 64;
 const RESOURCE_STREAMS_SERVER_CAPACITY: usize = 256;
 const RESOURCE_WAITS_PER_CLIENT_CAPACITY: usize = 8;
 const RESOURCE_WAITS_SERVER_CAPACITY: usize = 64;
+/// Open client-minted attach streams (attach-streams-v1) one connection may
+/// hold, and the daemon across its connections; past either only the open
+/// fails (server/attach_streams.rs).
+const ATTACH_STREAMS_PER_CLIENT_CAPACITY: usize = 4096;
+const ATTACH_STREAMS_SERVER_CAPACITY: usize = ATTACH_STREAMS_PER_CLIENT_CAPACITY * 4;
 
 mod worker_admission;
 pub(crate) use worker_admission::ServerSurfaceOperationAdmission;
@@ -2594,6 +2351,9 @@ use worker_admission::{
     ServerSurfaceAdmissionError, ServerSurfaceBytesPermit,
 };
 
+// The frame variant of the attach writer; no transport serves it yet.
+#[cfg_attr(not(test), expect(dead_code, reason = "no transport serves attach-frames-v1 yet"))]
+mod attach_frames;
 mod render_service;
 use render_service::{
     BudgetedJsonWriter, BudgetedText, RenderService, json_error_to_io, write_base64_json_string,
@@ -2605,7 +2365,21 @@ use render_service::{OutboundByteBudget, RenderGraphicBase64Cache};
 mod message_writer;
 use message_writer::{MessageSink, MessageWriter, OutboundStream};
 
+mod request_watchdog;
+#[cfg(unix)]
+pub(crate) use request_watchdog::process_report_holder_hang;
+#[cfg(debug_assertions)]
+pub(crate) use request_watchdog::spawn_owner_hang_test;
+pub use request_watchdog::{EchoItem, EchoWatch};
+pub(crate) use request_watchdog::{
+    FrameStage, RequestScope, RequestWatchdog, WatchKind, WatchedMethod, process_enter,
+    process_exit,
+};
+
 mod connection_scheduler;
+mod sequenced_pool;
+pub(crate) use sequenced_pool::SequencedPool;
+mod stream_lanes;
 #[cfg(test)]
 use connection_scheduler::ConnectionSurfaceState;
 use connection_scheduler::{
@@ -2613,12 +2387,13 @@ use connection_scheduler::{
 };
 
 mod bounded_outbound;
+pub(crate) use bounded_outbound::bulk_frame_max_from_env;
 use bounded_outbound::{
     BoundedOutbound, ConnectionPermit, OutboundItem, QueuedSink, SinkControl,
-    SynchronizedTcpStream, claim_connection, write_line_outbound_item,
+    SynchronizedTcpStream, claim_connection, write_counted_batch,
 };
 #[cfg(test)]
-use bounded_outbound::{ControlOutbound, websocket_server_frame_header};
+use bounded_outbound::{ControlOutbound, websocket_server_frame_header, write_line_outbound_item};
 
 mod client_registry;
 pub(crate) use client_registry::ClientRegistry;
@@ -2658,9 +2433,10 @@ mod disconnect;
 pub use disconnect::detach_control_client;
 pub use disconnect::detach_size_participant;
 use disconnect::{
-    complete_daemon_shutdown_after_ack, detach_actor, detach_own_view, detached_event_json,
-    disconnect_client, kick_client, own_view_detach_target, size_state_event_json,
-    size_state_for_client,
+    SizeStateReader, complete_daemon_shutdown_after_ack, detach_actor, detach_own_view,
+    detached_event_json, disconnect_client, kick_client, kick_terminal_views,
+    own_view_detach_target, size_state_event_json, size_state_for_client,
+    terminal_views_kick_target,
 };
 
 mod journal_filter;
@@ -2675,13 +2451,15 @@ mod resource_waits;
 use resource_waits::start_resource_wait;
 mod resource_clients;
 pub(crate) use resource_clients::public_client_id;
+#[cfg(any(debug_assertions, feature = "oracle"))]
+pub(crate) use resource_clients::resource_session_snapshot_at_cut;
 use resource_clients::{
     browser_cells_for_pixels, browser_pixels_for_cells, prepare_resource_client_detach,
     resource_browser_surface, resource_browser_viewer_release, resource_browser_viewer_resize,
-    resource_client_cell_pixels_set, resource_client_get, resource_client_list,
-    resource_client_metadata_update, resource_client_sizing_release, resource_client_sizing_set,
-    resource_session_id, resource_session_snapshot, resource_terminal_surface,
-    resource_terminal_viewer_release, resource_terminal_viewer_resize,
+    resource_client_get, resource_client_list, resource_client_metadata_update,
+    resource_client_sizing_release, resource_client_sizing_set, resource_session_id,
+    resource_session_snapshot, resource_terminal_surface, resource_terminal_viewer_release,
+    resource_terminal_viewer_resize, start_resource_client_cell_pixels_set,
 };
 mod resource_attach;
 #[cfg(test)]
@@ -2707,12 +2485,22 @@ use resource_connection::{
 };
 
 mod connection_frame;
+mod request_hang_watch;
+mod request_head;
+mod request_spans;
+mod request_wait;
+mod routes;
 #[cfg(test)]
 use connection_frame::write_vt_state_command_json;
 use connection_frame::{
-    auth_token, constant_time_eq, handle_connection_frame, handle_request,
-    handle_request_with_cancellation, pairing_request, zeroize_string,
+    auth_token, constant_time_eq, handle_connection_frame_at, handle_request_with_cancellation,
+    lock_caller_scope, pairing_request, zeroize_string,
 };
+#[cfg(test)]
+use connection_frame::{handle_connection_frame, handle_request};
+use request_head::RequestHead;
+pub(crate) use request_spans::method_latency_stats;
+use request_spans::{AsyncReply, RequestArrival, RequestMethod, RequestSpan, request_id_hash};
 
 /// One layout node. `split_ids`: the public ids of the splits
 /// (`State::resource_indexes`); a split with one carries it as `split_id`
@@ -2810,15 +2598,17 @@ use terminal_colors::terminal_colors_json;
 mod render_messages;
 use render_messages::{
     AttachWireShape, RenderClientState, VtStateMessage, browser_state_message,
-    render_state_message, send_browser_attach_update, styled_run_json, write_pending_sequence_json,
+    encode_browser_attach_update, render_state_message, send_encoded_browser_attach_update,
+    styled_run_json, write_output_flow_json, write_pending_sequence_json,
 };
 #[cfg(test)]
 use render_messages::{browser_frame_json, render_graphics_message};
 
 mod attach_lifecycle;
 use attach_lifecycle::{
-    AttachWorkerCommit, MarkedClientAttach, attach_response, commit_client_attach_and_start_worker,
-    detach_committed_attach, mark_client_attached, mark_resource_client_attached,
+    AttachWorkerCommit, MarkedClientAttach, attach_overflow_json, attach_response,
+    commit_client_attach_and_start_worker, detach_committed_attach, handle_attach_send_error,
+    mark_client_attached, mark_resource_client_attached, report_attach_overflow,
     rollback_failed_attach, spawn_attach_notification_stream, wait_for_initial_browser_resize,
 };
 #[cfg(test)]
@@ -2836,6 +2626,7 @@ fn handle_command(
 
 mod command_dispatch;
 use command_dispatch::handle_command_with_cancellation;
+mod command_names;
 
 /// The `list-workspaces` reply: the tree plus the registry identity it
 /// belongs to. The launch snapshot stores the same value.
@@ -2851,7 +2642,8 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
 
 /// Remove the socket file (call on clean shutdown).
 pub fn cleanup(path: &Path) {
-    let _ = std::fs::remove_file(path);
+    use cmux_threads::checked::fs as files;
+    let _ = files::remove_file(path);
 }
 
 #[cfg(test)]
@@ -2861,6 +2653,10 @@ mod loopback_forward_tests;
 #[cfg(all(test, unix))]
 #[path = "server/agent_session_attach_tests.rs"]
 mod agent_session_attach_tests;
+
+#[cfg(test)]
+#[path = "server/request_thread_tests.rs"]
+mod request_thread_tests;
 
 #[cfg(all(test, unix))]
 #[path = "server/agent_inventory_tests.rs"]
@@ -2914,6 +2710,10 @@ mod personal_terminal_tests;
 #[cfg(test)]
 #[path = "server/browser_profile_tests.rs"]
 mod browser_profile_tests;
+
+#[cfg(all(test, unix))]
+#[path = "server/request_path_work_tests.rs"]
+mod request_path_work_tests;
 
 #[cfg(test)]
 mod tests;

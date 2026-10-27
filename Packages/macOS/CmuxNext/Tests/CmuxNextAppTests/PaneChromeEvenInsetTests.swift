@@ -47,7 +47,7 @@ import Testing
         defer { reset() }
         load(style, density: density)
         let model = TabStripModel(tabs: (0..<2).map { TabItem(id: TabID("tab\($0)"), title: "Tab \($0)") }, selectedID: TabID("tab0"))
-        let strip = TabStripView(model: model)
+        let strip = TabStripView.testing(model: model)
         strip.dragsWindowFromEmptySpace = false
         let size = CGSize(width: 700, height: 200)
         let window = window(size)

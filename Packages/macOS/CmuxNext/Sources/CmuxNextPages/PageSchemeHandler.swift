@@ -1,3 +1,5 @@
+import CmuxNextSignposts
+import CmuxNextTrace
 import Foundation
 import UniformTypeIdentifiers
 import WebKit
@@ -11,6 +13,13 @@ import WebKit
 /// A path whose first component is one of the descriptor's ``PageDescriptor/dynamicPrefixes``
 /// goes to the page instance's ``PageDynamicResourceSource`` first and only: its answer, or a
 /// 404 with the same headers. The same containment rules apply (no `.` or `..` components).
+///
+/// `cmux-page://cmux.shared/` is answered for every page from ``sharedRoot`` (or the overlay, Debug
+/// override or web update that also serves pages) by ``PageSharedChunks``' rules: its `.js` and
+/// `.css` files only, only to a first-party page origin, never to a navigation. While the bundle is
+/// served, a chunk in the in-memory table (``sharedChunks``) is answered inside ``webView(_:start:)``
+/// itself, with no task hop and no disk read; an overlay, a Debug override, a web update or a file the
+/// table lacks takes the async path.
 ///
 /// Absorbed from the Settings lead's `SettingsPageSchemeHandler` (branch
 /// feat-cmux-next-settings-react), generalized to every page.
@@ -35,27 +44,57 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     private let resolve: (String) -> Served?
+    /// The folder `cmux-page://cmux.shared/` serves (``PageSharedChunks/bundledRoot``; tests pass their
+    /// own), nil when there is none: every shared request fails.
+    let sharedRoot: URL?
+    /// The Debug override of the shared folder (``PageSharedChunks/debugRoot``; tests pass their own),
+    /// read before ``sharedRoot``.
+    let debugSharedRoot: URL?
     /// The Vite server pages load from (``PageDevServer``, Debug only), nil for the bundled pages.
     let devServer: PageDevServer?
     /// Fetches one file from ``devServer`` (tests replace it).
     var fetchDevServer: @Sendable (URL) async -> (Data, HTTPURLResponse)? = { await PageDevServer.fetch($0) }
     /// The live override (``WebDevOverride/current``; tests replace it).
     var liveOverride: @Sendable () -> WebDevOverride = { WebDevOverride.current }
+    /// The shared chunks in memory (``WebBundleOverlay/bundledShared``; tests replace it), asked per
+    /// request: the launch read may end after the view is made, and a web update turns it off.
+    var sharedChunks: @Sendable () -> PageSharedChunkCache? = { WebBundleOverlay.shared.bundledShared }
     /// Tasks started and not yet answered or stopped; a stopped task must not be answered.
     private var active: Set<ObjectIdentifier> = []
+    /// Where the `webui.scheme` slices go (``PageTraceSink``).
+    private let trace: any PageTraceSink
+
+    /// The handler's main-thread steps of one task, each a ``SignpostName/webuiScheme`` slice (begin arg0).
+    nonisolated enum TracePart: UInt64 {
+        /// The start callback: the request checks.
+        case start = 0
+        /// The answer turn: the response and body handed to WebKit.
+        case answer = 1
+        /// A synchronous step of ``reply(to:page:)`` between its awaits: the lookup, the route, the headers.
+        case reply = 2
+    }
 
     init(page: PageDescriptor, root: URL, dynamicSource: (any PageDynamicResourceSource)? = nil,
-         devServer: PageDevServer? = PageDevServer.current) {
+         devServer: PageDevServer? = PageDevServer.current, trace: any PageTraceSink = TraceRuntime.shared,
+         sharedRoot: URL? = PageSharedChunks.bundledRoot, debugSharedRoot: URL? = PageSharedChunks.debugRoot) {
         self.devServer = devServer
+        self.trace = trace
+        self.sharedRoot = sharedRoot
+        self.debugSharedRoot = debugSharedRoot
         let served = Served(page: page, root: root.standardizedFileURL.resolvingSymlinksInPath(), dynamicSource: dynamicSource)
         let host = page.id.lowercased()
         resolve = { $0 == host ? served : nil }
     }
 
     /// Creates a handler whose page origin resolves to one of the supplied bundled pages.
-    init(resolve: @escaping (String) -> Served?, devServer: PageDevServer? = PageDevServer.current) {
+    init(resolve: @escaping (String) -> Served?, devServer: PageDevServer? = PageDevServer.current,
+         trace: any PageTraceSink = TraceRuntime.shared, sharedRoot: URL? = PageSharedChunks.bundledRoot,
+         debugSharedRoot: URL? = PageSharedChunks.debugRoot) {
         self.resolve = resolve
         self.devServer = devServer
+        self.trace = trace
+        self.sharedRoot = sharedRoot
+        self.debugSharedRoot = debugSharedRoot
     }
 
     private func served(_ url: URL) -> Served? {
@@ -70,31 +109,105 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
+        let page = PageWebView.traceID(showing: webView)
+        trace.begin(.webuiScheme, arg0: TracePart.start.rawValue, arg1: page)
+        var failed: UInt64 = 0
+        var answered: UInt64 = 0
+        defer { trace.end(.webuiScheme, arg0: failed, arg1: answered) }
         WebDevOverrideWatcher.shared.served(webView) // a web-dev.json change reloads it
         let request = task.request
+        let origin = request.value(forHTTPHeaderField: "Origin")
         guard request.httpMethod.map({ $0 == "GET" }) ?? true,
-              let url = request.url, let served = served(url),
-              Self.route(for: url, page: served.page, root: served.root) != nil
+              let url = request.url, accepts(url, origin: origin, mainDocument: request.mainDocumentURL)
         else {
+            failed = 1
             task.didFailWithError(URLError(.fileDoesNotExist))
+            return
+        }
+        WebBundleServedViews.shared.add(webView)
+        let mainDocument = request.mainDocumentURL
+        if let reply = sharedReplyInTurn(to: url, origin: origin, mainDocument: mainDocument) {
+            task.didReceive(reply.response)
+            if !reply.body.isEmpty { task.didReceive(reply.body) }
+            task.didFinish()
+            answered = UInt64(reply.body.count)
             return
         }
         let id = ObjectIdentifier(task)
         active.insert(id)
-        WebBundleServedViews.shared.add(webView)
+        let range = request.value(forHTTPHeaderField: "Range")
         // task-owner: one file read or dynamic lookup per scheme task; a stopped task is never answered
+        // main-hop-allow: reply and sharedReply are this handler's main-actor async reads (the file reads run off main, a dynamic lookup is the provider's main-actor call); the task only answers WebKit's scheme task, a main-thread-only object
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let reply = await self.reply(to: url)
+            let reply: Reply? = if PageSharedChunks.isShared(url) {
+                await self.sharedReply(to: url, origin: origin, mainDocument: mainDocument, page: page)
+            } else {
+                await self.reply(to: url, range: range, page: page)
+            }
             guard self.active.remove(id) != nil else { return }
+            self.trace.begin(.webuiScheme, arg0: TracePart.answer.rawValue, arg1: page)
             guard let reply else {
                 task.didFailWithError(URLError(.fileDoesNotExist))
+                self.trace.end(.webuiScheme, arg0: 1, arg1: 0)
                 return
             }
             task.didReceive(reply.response)
             if !reply.body.isEmpty { task.didReceive(reply.body) }
             task.didFinish()
+            self.trace.end(.webuiScheme, arg0: 0, arg1: UInt64(reply.body.count))
         }
+    }
+
+    /// Whether the start callback takes a request for `url`: a shared chunk that ``sharedRoot`` may
+    /// answer for `origin` (``PageSharedChunks/allowedOrigin(for:origin:mainDocument:)``), or a route of
+    /// a served page.
+    private func accepts(_ url: URL, origin: String?, mainDocument: URL?) -> Bool {
+        if PageSharedChunks.isShared(url) {
+            return sharedRoot != nil && PageSharedChunks.allowedOrigin(for: url, origin: origin, mainDocument: mainDocument) != nil
+        }
+        guard let served = served(url) else { return false }
+        return Self.route(for: url, page: served.page, root: served.root) != nil
+    }
+
+    /// The reply for a GET of the shared chunk `url` from the bundled table (``sharedChunks``), in the
+    /// caller's turn, with the headers and origin rules of ``sharedReply(to:origin:mainDocument:page:)``.
+    /// Nil, so the request takes that async path, for another origin, a refused origin or navigation, no
+    /// table or a table of another folder than ``sharedRoot``, a Debug override (``debugSharedRoot``), a
+    /// live overlay, or a file the table lacks.
+    func sharedReplyInTurn(to url: URL, origin: String?, mainDocument: URL?) -> Reply? {
+        guard PageSharedChunks.isShared(url), debugSharedRoot == nil, let root = sharedRoot,
+              let allowed = PageSharedChunks.allowedOrigin(for: url, origin: origin, mainDocument: mainDocument),
+              let table = sharedChunks(), table.serves(root), let chunk = table.chunk(for: url),
+              liveOverride().overlay == nil
+        else { return nil }
+        return PageSharedChunks.reply(url: url, allowedOrigin: allowed, body: chunk.body, file: chunk.file)
+    }
+
+    /// The reply for a GET of the shared chunk `url` with the `Origin` header `origin` and the top
+    /// document `mainDocument`: the `.js` or `.css` file of the first folder that holds it, among the
+    /// live override's overlay, ``debugSharedRoot``, the active web update's copy of ``sharedRoot`` and
+    /// ``sharedRoot`` (``PageSharedChunks/roots(overlay:debug:update:bundled:)``), the same roots a page's
+    /// own files come from; readable by that origin only; nil, so the task fails, for a navigation, an
+    /// origin that may not read it, or any other file (``PageSharedChunks``). No ``devServer`` serves it.
+    func sharedReply(to url: URL, origin: String?, mainDocument: URL? = nil, page: UInt64 = 0) async -> Reply? {
+        let start = step(page) { () -> (allowed: String, root: URL, overlay: URL?)? in
+            guard let root = self.sharedRoot,
+                  let allowed = PageSharedChunks.allowedOrigin(for: url, origin: origin, mainDocument: mainDocument)
+            else { return nil }
+            return (allowed, root, self.liveOverride().overlay)
+        }
+        guard let start else { return nil }
+        let update = await WebBundleOverlay.shared.root(for: start.root)
+        let roots = step(page) {
+            PageSharedChunks.roots(overlay: start.overlay, debug: self.debugSharedRoot, update: update, bundled: start.root)
+        }
+        for root in roots {
+            guard let file = step(page, { PageSharedChunks.file(for: url, root: root) }),
+                  let data = await Self.read(file) else { continue }
+            return step(page) { PageSharedChunks.reply(url: url, allowedOrigin: start.allowed, body: data, file: file) }
+        }
+        return nil
     }
 
     /// The reply for a GET of `url`: a bundled file (nil when missing or outside the root, as
@@ -103,41 +216,96 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// per request: its server's answers, else (a stopped server, a 4xx or 5xx) its overlay
     /// folder's file, else, with an active web update (``WebBundleOverlay``), the update's copy
     /// of the page's folder, else the bundled one.
-    func reply(to url: URL) async -> Reply? {
-        guard let served = served(url) else { return nil }
-        let live = liveOverride()
-        if let devServer = devServer ?? live.server, let remote = devServer.url(for: url, page: served.page) {
-            if let (body, response) = await fetchDevServer(remote), devServer.isOwn(response.url),
-               self.devServer != nil || response.statusCode < 400 {
-                let type = response.value(forHTTPHeaderField: "Content-Type").flatMap(Self.validMIMEType)
-                    ?? Self.mimeType(forExtension: remote.pathExtension)
-                return Self.reply(url: url, csp: devServer.csp(for: served.page), status: response.statusCode, mimeType: type, body: body)
+    ///
+    /// `page` is the asking page's trace id: each synchronous step runs in a ``SignpostName/webuiScheme``
+    /// slice of part ``TracePart/reply``, so with the start and answer turns the slices of a page sum the
+    /// handler's main-thread time (a dynamic source's own work is the source's).
+    ///
+    /// `range` is the request's `Range` header, which a dynamic source answers in byte ranges (media).
+    func reply(to url: URL, range: String? = nil, page: UInt64 = 0) async -> Reply? {
+        let start = step(page) { () -> (served: Served, live: WebDevOverride, server: PageDevServer?, remote: URL?)? in
+            guard let found = self.served(url) else { return nil }
+            let live = self.liveOverride()
+            let server = self.devServer ?? live.server
+            return (found, live, server, server?.url(for: url, page: found.page))
+        }
+        guard let start else { return nil }
+        let served = start.served
+        if let server = start.server, let remote = start.remote {
+            if let (body, response) = await fetchDevServer(remote) {
+                let answer = step(page) { () -> Reply? in
+                    guard server.isOwn(response.url), self.devServer != nil || response.statusCode < 400 else { return nil }
+                    let type = response.value(forHTTPHeaderField: "Content-Type").flatMap(Self.validMIMEType)
+                        ?? Self.mimeType(forExtension: remote.pathExtension)
+                    return Self.reply(url: url, csp: server.csp(for: served.page), status: response.statusCode,
+                                      mimeType: type, body: body)
+                }
+                if let answer { return answer }
             }
             // The launch variable's server (Debug) fails the request, as before.
             if self.devServer != nil { return nil }
         }
         let update = await WebBundleOverlay.shared.root(for: served.root)
-        let root = live.overlayRoot(for: served.page, bundledRoot: served.root) ?? update
-        switch Self.route(for: url, page: served.page, root: root) {
+        let destination = step(page) {
+            Self.route(for: url, page: served.page,
+                       root: start.live.overlayRoot(for: served.page, bundledRoot: served.root) ?? update)
+        }
+        switch destination {
         case nil:
             return nil
         case .file(let file):
             guard let data = await Self.read(file) else { return nil }
-            return Self.reply(url: url, page: served.page, status: 200, mimeType: Self.mimeType(forExtension: file.pathExtension), body: data)
-        case .dynamic(let request):
-            let answer = await Self.dynamicResponse(to: request, source: served.dynamicSource)
-            return Self.reply(url: url, page: served.page, status: answer.status, mimeType: answer.mimeType, body: answer.body)
+            return step(page) {
+                Self.reply(url: url, page: served.page, status: 200,
+                           mimeType: Self.mimeType(forExtension: file.pathExtension), body: data)
+            }
+        case .dynamic(let found):
+            let request = PageResourceRequest(prefix: found.prefix, path: found.path, url: found.url, range: range)
+            let resource = await served.dynamicSource?.resource(for: request)
+            return step(page) { Self.dynamicReply(url: url, page: served.page, request: request, resource: resource) }
         }
     }
 
-    /// The answer to a request under a dynamic prefix, in either engine: the source's resource with
+    /// The WebKit reply for a dynamic request: the source's resource with its status, range headers
+    /// and type, served under the page's CSP, or under its own sandboxed policy
+    /// (``PageResource/sandboxedPolicy``); a 404 without a resource.
+    nonisolated static func dynamicReply(url: URL, page: PageDescriptor, request: PageResourceRequest,
+                                         resource: PageResource?) -> Reply {
+        guard let resource, resource.sandboxedPolicy?.contains(where: \.isNewline) != true else {
+            let missing = PageChromiumResponse.notFound
+            return reply(url: url, page: page, status: missing.status, mimeType: missing.mimeType, body: missing.body)
+        }
+        var extra: [String: String] = [:]
+        if resource.acceptsRanges { extra["Accept-Ranges"] = "bytes" }
+        if let contentRange = resource.contentRange { extra["Content-Range"] = contentRange }
+        let policy = resource.sandboxedPolicy.map { "sandbox allow-scripts; " + $0 } ?? page.csp.header
+        return reply(url: url, policy: policy, status: resource.status, mimeType: mimeType(of: resource, for: request),
+                     body: resource.data, extra: extra)
+    }
+
+    /// The resource's own type when it is well formed, else the type of the request's last path
+    /// component's extension.
+    nonisolated static func mimeType(of resource: PageResource, for request: PageResourceRequest) -> String {
+        resource.mimeType.flatMap(validMIMEType)
+            ?? mimeType(forExtension: request.path.last.map { ($0 as NSString).pathExtension } ?? "")
+    }
+
+    /// Runs one synchronous main-thread step of a reply to `page` inside a ``TracePart/reply`` slice.
+    private func step<T>(_ page: UInt64, _ body: () -> T) -> T {
+        trace.begin(.webuiScheme, arg0: TracePart.reply.rawValue, arg1: page)
+        defer { trace.end(.webuiScheme, arg0: 0, arg1: 0) }
+        return body()
+    }
+
+    /// The answer to a Chromium page's request under a dynamic prefix: the source's resource with
     /// its type (a malformed or missing type falls back to the name's extension), else a 404.
+    /// Chromium's answer has no headers of its own, so a partial answer (a range of a larger media
+    /// file) and a document with its own sandboxed policy are 404s there.
     static func dynamicResponse(to request: PageResourceRequest,
                                 source: (any PageDynamicResourceSource)?) async -> PageChromiumResponse {
-        guard let resource = await source?.resource(for: request) else { return .notFound }
-        let fallback = mimeType(forExtension: request.path.last.map { ($0 as NSString).pathExtension } ?? "")
-        let type = resource.mimeType.flatMap(validMIMEType) ?? fallback
-        return PageChromiumResponse(status: 200, mimeType: type, body: resource.data)
+        guard let resource = await source?.resource(for: request), resource.status == 200,
+              resource.contentRange == nil, resource.sandboxedPolicy == nil else { return .notFound }
+        return PageChromiumResponse(status: 200, mimeType: mimeType(of: resource, for: request), body: resource.data)
     }
 
     /// The dynamic request `url` makes of `page`, nil when it is not under one of the page's dynamic
@@ -156,10 +324,18 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
 
     /// A response with `csp` and the other headers every page response carries.
     nonisolated static func reply(url: URL, csp: PageCSP, status: Int, mimeType: String, body: Data) -> Reply {
-        let headers = [
+        reply(url: url, policy: csp.header, status: status, mimeType: mimeType, body: body)
+    }
+
+    /// A response with the Content Security Policy header `policy`, the other headers every page
+    /// response carries, and `extra` (a media range's `Content-Range` and `Accept-Ranges`).
+    nonisolated static func reply(url: URL, policy: String, status: Int, mimeType: String, body: Data,
+                                  extra: [String: String] = [:]) -> Reply {
+        var headers = [
             "Content-Type": mimeType, "Content-Length": String(body.count), "Cache-Control": "no-store",
-            "Content-Security-Policy": csp.header, "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": policy, "X-Content-Type-Options": "nosniff",
         ]
+        headers.merge(extra) { own, _ in own }
         let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)
             ?? HTTPURLResponse(url: url, mimeType: mimeType, expectedContentLength: body.count, textEncodingName: nil)
         return Reply(response: response, body: body)
@@ -195,7 +371,8 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         return file
     }
 
-    private nonisolated static func fileURL(components: [String], root: URL) -> URL? {
+    /// The file `components` names inside `root` (symlinks resolved), nil when it leaves `root`.
+    nonisolated static func fileURL(components: [String], root: URL) -> URL? {
         let base = root.standardizedFileURL.resolvingSymlinksInPath()
         let file = components.reduce(base) { $0.appendingPathComponent($1) }.standardizedFileURL.resolvingSymlinksInPath()
         guard file.path.hasPrefix(base.path + "/") else { return nil }

@@ -11,7 +11,11 @@
 //! `posix_spawn` with `POSIX_SPAWN_CLOEXEC_DEFAULT`, so the child gets only
 //! descriptors 0-2 and the ones named with [`Command::inherit_fd`], whatever
 //! the rest of the process has open. No code runs between a fork and an exec
-//! (there is no fork).
+//! (there is no fork), except for a child that needs a controlling terminal
+//! ([`Command::open_stdin_path`] with [`Command::new_session`]: a terminal's
+//! shell), which `posix_spawn` cannot give: that child is forked, and before
+//! its exec it marks every descriptor but 0-2 and the `inherit_fd` ones
+//! close-on-exec, resets its signals and takes the terminal (`child_setup`).
 //!
 //! On Linux and Windows [`Command`] runs `std::process::Command`: there the
 //! kernel makes received descriptors (`MSG_CMSG_CLOEXEC`), pipes (`pipe2`) and
@@ -33,13 +37,20 @@
 //! signals ignored); there is no `pre_exec`, `uid` or `gid` ([`Command::new_session`]
 //! and [`Command::process_group`] cover what the daemon's hooks did); a
 //! descriptor other than 0-2 reaches the child only through
-//! [`Command::inherit_fd`].
+//! [`Command::inherit_fd`]. [`Command::inherit_like_std`] (the CLI's
+//! transparent wrappers) and [`Command::exec`] keep std's inheritance instead.
 
 mod child;
+#[cfg(unix)]
+mod child_setup;
 mod command;
+#[cfg(unix)]
+mod fd;
 #[cfg(target_vendor = "apple")]
 mod spawn_apple;
 mod stdio;
+#[cfg(all(test, unix))]
+mod tests;
 
 pub use child::Child;
 pub use command::Command;

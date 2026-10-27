@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextUpdater
@@ -41,9 +42,11 @@ final class ChangelogPageProvider: PageProvider {
     private var spentGesture: TimeInterval?
     /// The page view, so a link opens from the pane that shows it (nil: the active window's pane).
     var anchor: @MainActor () -> NSView? = { nil }
+    /// ``media``'s inlined pictures in the memory coordinator, for the page's life (`memorySmallAppStores`).
+    var mediaMemory: AsyncMemoryConsumerRegistration?
 
     init(source: (any ChangelogSource)?, currentBuild: String, media: ReleaseMediaStore? = nil,
-         links: AgentPaneReplyLinks = ChangelogPageProvider.cardLinks(),
+         links: AgentPaneReplyLinks = AgentPaneReplyLinks(),
          openLink: @escaping @MainActor (URL, NSView?) -> Bool = { _, _ in false }) {
         self.source = source
         self.currentBuild = currentBuild
@@ -52,10 +55,11 @@ final class ChangelogPageProvider: PageProvider {
         self.openLink = openLink
     }
 
-    /// The card's links for the app: pull requests from the app's one cache, the installed browsers.
-    static func cardLinks() -> AgentPaneReplyLinks {
+    /// The card's links for the app: pull requests from the app's one cache (`AppServices.pullRequests`),
+    /// the installed browsers.
+    static func cardLinks(_ replies: AgentReplyPullRequests) -> AgentPaneReplyLinks {
         let links = AgentPaneReplyLinks()
-        links.pullRequest = { AgentReplyPullRequests.shared.answer($0) }
+        links.pullRequest = { replies.answer($0) }
         return links
     }
 

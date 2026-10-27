@@ -27,6 +27,7 @@ import type { AcpmuxRow } from "../model";
 import { TerminalSquare } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { usePageInterval } from "../../../pages/shared/pageLifecycle";
 import { formatDuration } from "./turns";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 
@@ -75,15 +76,15 @@ export const workingTokens = (t: Translate, language: PaneLanguage, tokens: numb
 
 export const WorkingCountsContext = createContext<WorkingCounts | undefined>(undefined);
 
-/// `now()`, again each second while `running`.
+/// `now()`, again each second while `running` and the page shows. A hidden page's clock rests and
+/// reads the time again when the page shows (usePageInterval), so the label is the one it would
+/// have had if it had ticked all along.
 export function useTicking(running: boolean, now: () => number = Date.now): number {
   const [time, setTime] = useState(now);
   useEffect(() => {
-    if (!running) return;
-    setTime(now());
-    const timer = setInterval(() => setTime(now()), 1000);
-    return () => clearInterval(timer);
+    if (running) setTime(now());
   }, [now, running]);
+  usePageInterval(() => setTime(now()), running ? 1000 : null, { catchUpOnShow: true });
   return time;
 }
 

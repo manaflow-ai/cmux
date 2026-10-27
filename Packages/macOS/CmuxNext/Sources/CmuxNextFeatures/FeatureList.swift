@@ -12,8 +12,10 @@ import Atomics
 ///    be disabled")
 /// 3. local Labs and Debug overrides, DEV and NIGHTLY only
 /// 4. the signed remote document, already filtered by safe mode
-/// 5. the Nightly field-trial arm
-/// 6. the channel default
+/// 5. the field-trial arm (``FieldTrials`` keeps only the studies of this
+///    build's channel: Nightly unless a study names another)
+/// 6. the build's default set (a dogfood build's switch list, ``FeatureOverrides/buildDefaults``: on), else
+///    the channel default
 public nonisolated final class FeatureList: Sendable {
     public let registry: FeatureRegistry
     public let channel: Feature.Channel
@@ -55,10 +57,62 @@ public nonisolated final class FeatureList: Sendable {
         return resolutions[feature.index]
     }
 
+    /// `localOverride` when it decides `feature` in step 3, else nil: the Debug tunable the feature replaced,
+    /// whose file loads after the list is built, so each reader (the feature's one seam and `features.list`)
+    /// passes its value at each decision. It applies on DEV and NIGHTLY where neither policy nor the
+    /// environment lists decided the feature, over the remote document, the field trial and the channel
+    /// default, as Chrome keeps about:flags entries under policy and the command line (chrome/browser/about_flags.cc).
+    public func effectiveLocalOverride(_ feature: Feature, localOverride: Bool?) -> Bool? {
+        let source = resolution(of: feature).source
+        guard channel.allowsLocalOverrides, source != .policy, source != .environment else { return nil }
+        return localOverride
+    }
+
+    /// Whether `feature` is on with `localOverride` in step 3 (``effectiveLocalOverride(_:localOverride:)``).
+    public func isEnabled(_ feature: Feature, localOverride: Bool?) -> Bool {
+        effectiveLocalOverride(feature, localOverride: localOverride) ?? resolution(of: feature).isEnabled
+    }
+
     /// Every feature with its resolution, in registry order (Labs page,
     /// `cmux settings feature-flags`, reports).
     public var entries: [(feature: Feature, resolution: Feature.Resolution)] {
         zip(registry.features, resolutions).map { (feature: $0, resolution: $1) }
+    }
+
+    /// The Chromium `base::Feature` names of the enabled features of process `chromium`, in registry
+    /// order: what CEF gets in `--enable-features`.
+    public var enabledChromiumFeatures: [String] {
+        zip(registry.features, resolutions).compactMap { feature, resolution in
+            feature.process == .chromium && resolution.isEnabled ? feature.chromiumFeature : nil
+        }
+    }
+
+    /// The Chromium `base::Feature` names of the off features of process `chromium`, in registry order:
+    /// what CEF gets in `--disable-features`. Every off one is listed, whatever decided it (the channel
+    /// default, the remote document, policy, the environment), so the registry states each Chromium
+    /// feature it maps and a remote off reaches Chromium as an off, not as Chromium's own default.
+    public var disabledChromiumFeatures: [String] {
+        zip(registry.features, resolutions).compactMap { feature, resolution in
+            feature.process == .chromium && !resolution.isEnabled ? feature.chromiumFeature : nil
+        }
+    }
+
+    /// The daemons' features (process `daemon` or `both`) this list did not take from the channel
+    /// default, as `CMUX_ENABLE_FEATURES` and `CMUX_DISABLE_FEATURES` for a daemon's spawn
+    /// environment (an empty list is left out), so a daemon whose launch filters what it inherits
+    /// resolves them as the app did: Chrome's `FeatureList::AddFeaturesToCommandLine`
+    /// (base/feature_list.cc) gives a child process only the overridden features the same way.
+    public var daemonEnvironment: [String: String] {
+        var enabled: [String] = []
+        var disabled: [String] = []
+        for (feature, resolution) in zip(registry.features, resolutions)
+        where (feature.process == .daemon || feature.process == .both) && resolution.source != .channelDefault {
+            if resolution.isEnabled { enabled.append(feature.name) } else { disabled.append(feature.name) }
+        }
+        var environment: [String: String] = [:]
+        if !enabled.isEmpty { environment[FeatureOverrides.enableVariable] = enabled.joined(separator: ",") }
+        if !disabled.isEmpty { environment[FeatureOverrides.disableVariable] = disabled.joined(separator: ",") }
+        return environment
     }
 
     private static func resolve(
@@ -73,9 +127,8 @@ public nonisolated final class FeatureList: Sendable {
         if overrides.environmentEnabled.contains(name) { return Feature.Resolution(isEnabled: true, source: .environment) }
         if let value = local?.localOverride(for: feature) { return Feature.Resolution(isEnabled: value, source: .local) }
         if let value = overrides.remote[name] { return Feature.Resolution(isEnabled: value, source: .remote) }
-        if channel.allowsFieldTrials, let value = overrides.fieldTrial[name] {
-            return Feature.Resolution(isEnabled: value, source: .fieldTrial)
-        }
+        if let value = overrides.fieldTrial[name] { return Feature.Resolution(isEnabled: value, source: .fieldTrial) }
+        if overrides.buildDefaults.contains(name) { return Feature.Resolution(isEnabled: true, source: .buildDefault) }
         return Feature.Resolution(isEnabled: feature.defaults.value(for: channel), source: .channelDefault)
     }
 }

@@ -114,7 +114,7 @@ import Testing
         // The visible batch paid 1 ms of its own, the automation request 2 ms.
         #expect(budget.stats.maxTaskNanos[0] == 1_000_000)
         #expect(budget.stats.maxTaskNanos[1] == 2_000_000)
-        #expect(budget.stats.overBudgetTasks == [0, 1, 0])
+        #expect(budget.stats.overBudgetTasks == [0, 1, 0, 0])
     }
 
     /// Idle-time scheduling (Chrome's idle tasks): with no input pending, a class past its own
@@ -382,8 +382,10 @@ import Testing
     }
 
     /// The commit a frame's requests cause is charged: after a 6 ms render pass (layout, display,
-    /// the Core Animation commit of what the requests changed), the next frame's scheduled work
-    /// stops at the 2 ms left of the 8 ms pass, not at 4 ms, and a cheap pass gives the 4 ms back.
+    /// the Core Animation commit of what the requests changed), the next 60 Hz tick's scheduled
+    /// work stops at the 2 ms left of the 8 ms pass, not at 4 ms. On real ticks the frame deadline
+    /// keeps the 6 ms in its commit estimate (the p95 of the last frames), so one cheap commit
+    /// does not give the 4 ms back at once; a 9 ms pass leaves only the first task.
     @Test func anExpensiveRenderPassLowersTheNextFramesScheduledWork() {
         let clock = BudgetClock()
         let budget = MainFrameBudget(uptimeNanos: clock.read)
@@ -402,11 +404,36 @@ import Testing
         budget.noteRenderPass(nanos: 6_000_000)
         #expect(frame(2) == 4, "a 6 ms commit leaves 2 ms of the 8 ms pass for the requests")
         budget.noteRenderPass(nanos: 1_000_000)
-        #expect(frame(3) == 8, "a cheap commit gives the frame its 4 ms back")
+        #expect(frame(3) == 4, "the commit estimate forgot the 6 ms pass after one cheap frame")
         budget.noteRenderPass(nanos: 9_000_000)
         #expect(frame(4) == 1, "past the whole pass: the first task of a frame still runs")
         #expect(budget.stats.renderPasses == 3)
         #expect(budget.stats.maxRenderPassNanos == 9_000_000)
+    }
+
+    /// A synthesized (stalled) frame has no deadline: the last render pass alone lowers its
+    /// scheduled work, and a cheap pass gives the 4 ms back.
+    @Test func anExpensiveRenderPassLowersTheNextSynthesizedFramesScheduledWork() {
+        let clock = BudgetClock()
+        let budget = MainFrameBudget(uptimeNanos: clock.read)
+        let request = budget.board.owner("workspace.move")
+        func frame() -> Int {
+            clock.advance(ms: 17)
+            budget.beginFrame(timestamp: nil, refreshInterval: nil)
+            var ran = 0
+            while budget.mayRun(.automation) {
+                budget.run(.automation, owner: request) { clock.advance(ms: 0.5) }
+                ran += 1
+            }
+            return ran
+        }
+        #expect(frame() == 8, "no render pass yet: 4 ms of 0.5 ms requests")
+        budget.noteRenderPass(nanos: 6_000_000)
+        #expect(frame() == 4, "a 6 ms commit leaves 2 ms of the 8 ms pass for the requests")
+        budget.noteRenderPass(nanos: 1_000_000)
+        #expect(frame() == 8, "a cheap commit gives the frame its 4 ms back")
+        budget.noteRenderPass(nanos: 9_000_000)
+        #expect(frame() == 1, "past the whole pass: the first task of a frame still runs")
     }
 
     /// The pending-input checks between tasks are main-thread work too: their time counts in the
@@ -521,16 +548,63 @@ import Testing
         for task in storm { try await task.value }
         #expect(ran.withLock { $0 } == 5)
     }
+
+    /// A control request is a posted task: the ledger records its wait from the call on the
+    /// client's thread, under its method and the call's site; a request that expired before its
+    /// turn ran nothing and is not recorded.
+    @Test func aControlRequestRecordsItsWaitAndAnExpiredOneIsLeftOut() async throws {
+        let clock = AnyThreadBudgetClock()
+        let board = MainTaskBoard(ledger: MainOwnerLedger(capacity: 64, folding: .manual))
+        let budget = MainFrameBudget(board: board, clock: { clock.read() })
+        let frames = BudgetedFrameSource(budget: budget, soonOnRunLoop: false)
+        let queue = MainActorWorkQueue(frameSource: frames)
+        let deadline = ContinuousClock.now + .seconds(20)
+        let line: UInt = #line + 2
+        let request = Task.detached {
+            try await queue.run(connection: ControlConnectionID(rawValue: 1), method: "workspace.select", deadline: deadline) { 7 }
+        }
+        while queue.stats.pending < 1 { await Task.yield() }
+        clock.advance(3_000_000)
+        let late = Task.detached {
+            try await queue.run(connection: ControlConnectionID(rawValue: 2), method: "workspace.late", deadline: .now) { 8 }
+        }
+        while queue.stats.expired < 1 { await Task.yield() }
+        frames.fire()
+        #expect(try await request.value == 7)
+        await #expect(throws: ControlError.self) { try await late.value }
+        #expect(queue.stats.pending == 0, "the drain took the expired request too")
+        let owners = board.ownerSnapshot().owners
+        let row = try #require(owners.first { $0.owner == "workspace.select" })
+        #expect(row.workClass == .automation)
+        #expect(row.tasks == 1)
+        #expect(row.wait.count == 1)
+        #expect(row.wait.maxNanos == 3_000_000, "the wait counts from the call")
+        #expect(row.nodes == [.none: 1])
+        #expect(row.sites.first?.location == "CmuxNextControlTests/MainFrameBudgetTests.swift:\(line)", "\(row.sites)")
+        #expect(!owners.contains { $0.owner == "workspace.late" }, "an expired request ran nothing")
+    }
+}
+
+/// A clock any thread reads (the budget's ``MainFrameBudget/postClock``, which control requests
+/// read when they are queued); the test moves it.
+private final class AnyThreadBudgetClock: Sendable {
+    private let now = Atomic<UInt64>(1_000_000_000)
+
+    func read() -> UInt64 { now.load(ordering: .acquiring) }
+
+    func advance(_ nanos: UInt64) { _ = now.add(nanos, ordering: .acquiringAndReleasing) }
 }
 
 /// A clock the test moves (`CLOCK_UPTIME_RAW` nanoseconds).
 @MainActor
-private final class BudgetClock {
+final class BudgetClock {
     private var now: UInt64 = 1_000_000_000
     // Strong: a scheduler's stall timer can fire after its test returned and read the clock through
     // the budget (fleet 2026-10-25, step 37d7e7e1: an unowned read of a freed clock aborted the suite
     // process, signal 6). The clock holds nothing back, so this makes no cycle.
     var read: () -> UInt64 { { [self] in self.now } }
+    /// The same clock in `CACurrentMediaTime` seconds (the frame schedulers' timebase).
+    var media: @MainActor () -> CFTimeInterval { { [self] in Double(self.now) / 1_000_000_000 } }
     func advance(ms: Double) { now += UInt64(ms * 1_000_000) }
 }
 
@@ -556,7 +630,7 @@ private final class CostlyInputPending: InputPendingSource {
 }
 
 @MainActor
-private final class FakeFrameLink: FrameLink {
+final class FakeFrameLink: FrameLink {
     var isPaused = false
     func invalidate() {}
 }
@@ -571,16 +645,18 @@ private final class Box<Value: Sendable>: Sendable {
 /// A frame source with the app's budget: frames fire by hand and run as one automation batch
 /// (as the app's control `FrameBatcher` does); `scheduleSoon` hops through the main run loop,
 /// or (`soonOnRunLoop: false`) waits for the next hand-fired frame too.
-private final class BudgetedFrameSource: ControlFrameSource {
+final class BudgetedFrameSource: ControlFrameSource {
     private let frames = ManualFrameSource()
     nonisolated(unsafe) private let budgetRef: MainFrameBudget // crash-allow: read only on the main actor (mainFrameBudget, fire)
     let mainTaskBoard: MainTaskBoard?
+    let mainTaskClock: (@Sendable () -> UInt64)?
     private let soonOnRunLoop: Bool
     private let tick = Mutex<Double>(0)
 
     @MainActor init(budget: MainFrameBudget, soonOnRunLoop: Bool) {
         budgetRef = budget
         mainTaskBoard = budget.board
+        mainTaskClock = budget.postClock
         self.soonOnRunLoop = soonOnRunLoop
     }
 

@@ -1,4 +1,7 @@
 #if canImport(UIKit)
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import CmuxConversationCore
 import QuickLookThumbnailing
 import UIKit
@@ -53,12 +56,16 @@ final class ConversationFileThumbnailer {
         return image
     }
 
-    /// A thumbnail for a local file (the composer's picked files).
+    /// A thumbnail for a local file (the composer's picked files); nil when there is none or its callback was
+    /// dropped.
     static func generate(url: URL, size: CGSize, scale: CGFloat) async -> UIImage? {
         let request = QLThumbnailGenerator.Request(fileAt: url, size: size, scale: scale, representationTypes: .all)
-        return await withCheckedContinuation { continuation in
+        return try? await withOnceContinuation { (continuation: OnceContinuation<UIImage?, OnceContinuationError>) in
             QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { representation, _ in
-                guard let representation else { return continuation.resume(returning: nil) }
+                guard let representation else {
+                    continuation.resume(returning: nil)
+                    return
+                }
                 // Mark real previews (a page, a photo) so they get an edge; icons do not.
                 representation.uiImage.accessibilityIdentifier = representation.type == .thumbnail ? "thumbnail" : "icon"
                 continuation.resume(returning: representation.uiImage)

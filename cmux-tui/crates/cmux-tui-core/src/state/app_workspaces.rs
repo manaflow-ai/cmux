@@ -133,6 +133,7 @@ pub(crate) struct EnsuredApp {
 impl Mux {
     /// `workspace.ensure_app`: the live workspace of `app`, else a new one
     /// holding one app tab, created with its tab and kind in one commit.
+    #[track_caller]
     pub(crate) fn state_ensure_app(
         self: &Arc<Self>,
         app: &str,
@@ -174,6 +175,7 @@ impl Mux {
             .map_err(crate::resource_router::resource_operation_error)
     }
 
+    #[track_caller]
     fn create_app_workspace(
         self: &Arc<Self>,
         app: &str,

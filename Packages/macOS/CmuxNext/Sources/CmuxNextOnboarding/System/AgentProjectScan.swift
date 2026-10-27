@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Finds the projects behind the user's agent sessions, without asking:
@@ -198,11 +199,11 @@ public nonisolated struct AgentProjectScan: Sendable {
         defer { try? handle.close() }
         guard let data = try? handle.read(upToCount: 64 * 1024) else { return nil }
         if app == .opencode {
-            let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            let object = (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any]
             return nonEmpty(object?["directory"])
         }
         for line in data.split(separator: UInt8(ascii: "\n")) {
-            guard let object = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any] else {
+            guard let object = (try? JSONSerialization.blockingJSONObject(with: Data(line))) as? [String: Any] else {
                 // A first record longer than the read (Codex puts its
                 // instructions in `session_meta`) is cut off; its cwd may
                 // still be in the part that was read.
@@ -229,7 +230,7 @@ public nonisolated struct AgentProjectScan: Sendable {
             if escaped { escaped = false } else if character == "\\" { escaped = true } else if character == "\"" { break }
         }
         guard literal.count > 2, literal.hasSuffix("\""),
-              let value = try? JSONSerialization.jsonObject(with: Data(literal.utf8), options: .fragmentsAllowed) as? String else { return nil }
+              let value = try? JSONSerialization.blockingJSONObject(with: Data(literal.utf8), options: .fragmentsAllowed) as? String else { return nil }
         return nonEmpty(value)
     }
 
@@ -279,7 +280,7 @@ public struct RecentProjectScan: Sendable {
     /// Returns recent projects, merging agent sessions, explicit cwd hints and
     /// bounded git repositories under the common development roots.
     public nonisolated func run(hints: [String] = [], now: Date = Date()) -> [AgentProject] {
-        var byPath = Dictionary(uniqueKeysWithValues: projects.run(now: now).map { ($0.id, $0) })
+        var byPath = Dictionary(projects.run(now: now).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
         for hint in hints {
             guard let folder = normalizedFolder(hint), projects.keeps(folder: folder) else { continue }

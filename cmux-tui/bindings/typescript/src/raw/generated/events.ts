@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2. */
+/* cmux-tui mux protocol 12, IR 7eb274630f633e9ac0d047904d92944dbb00b4f9dcb8b2c809d8a6871ce0a777. */
 
 
 import type * as T from "./types.js";
@@ -15,6 +15,8 @@ export type AgentChangedEvent = { event: "agent-changed" } & {
   "agent"?: (string) | null;
   /** The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this. */
   "agent_session_id"?: (string) | null;
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   /** The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted. */
   "last_prompt"?: (string) | null;
   "session": (string) | null;
@@ -46,6 +48,8 @@ export type AgentPresenceChangedEvent = { event: "agent-presence-changed" } & {
   "activity": (T.AgentPresenceActivity) | null;
   /** Adapter identity (claude, codex, ...). */
   "agent": (string) | null;
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   /** The 1-based line the tool call targets, when the tool input names one. */
   "line": (bigint) | null;
   /** The file the tool call targets, when the tool input names one. */
@@ -61,6 +65,8 @@ export type AgentPresenceChangedEvent = { event: "agent-presence-changed" } & {
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type BellEvent = { event: "bell" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "surface": T.Id;
 };
 
@@ -68,6 +74,8 @@ export type BellEvent = { event: "bell" } & {
 export type BookmarksChangedEvent = { event: "bookmarks-changed" } & {
   "bookmarks_revision": bigint;
   "browser_profile_id": string;
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
 };
 
 /** Protocol v6; emission: emitted; streams: attach-browser. */
@@ -86,12 +94,16 @@ export type BrowserStateEvent = { event: "browser-state" } & {
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type ChiefChangedEvent = { event: "chief-changed" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "change": "created" | "updated" | "deleted";
   "chief": string;
 };
 
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type ClientAttachedEvent = { event: "client-attached" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "client": bigint;
   "kind": (string) | null;
   "name": (string) | null;
@@ -100,6 +112,8 @@ export type ClientAttachedEvent = { event: "client-attached" } & {
 
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type ClientChangedEvent = { event: "client-changed" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "client": bigint;
   "kind": (string) | null;
   "name": (string) | null;
@@ -107,16 +121,22 @@ export type ClientChangedEvent = { event: "client-changed" } & {
 
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type ClientDetachedEvent = { event: "client-detached" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "client": bigint;
 };
 
 /** Protocol v9; emission: serialized-never-emitted; streams: subscribe. */
 export type ClientListInvalidatedEvent = { event: "client-list-invalidated" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type CloudConversationChangedEvent = { event: "cloud-conversation-changed" } & {
   "account"?: string;
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "change": (T.JsonValue) | null;
   "conversation": string;
   "rev": bigint;
@@ -127,6 +147,8 @@ export type CloudConversationChangedEvent = { event: "cloud-conversation-changed
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type CloudConversationLiveEvent = { event: "cloud-conversation-live" } & {
   "account"?: string;
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "conversation": string;
   "frame": (T.JsonValue) | null;
 };
@@ -134,6 +156,8 @@ export type CloudConversationLiveEvent = { event: "cloud-conversation-live" } & 
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type CloudConversationResyncedEvent = { event: "cloud-conversation-resynced" } & {
   "account"?: string;
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "conversation": string;
   "messages": (T.JsonValue) | null;
   "rev": bigint;
@@ -144,6 +168,8 @@ export type CloudConversationResyncedEvent = { event: "cloud-conversation-resync
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type CloudConversationRunChangedEvent = { event: "cloud-conversation-run-changed" } & {
   "account"?: string;
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "conversation": string;
   "run": (T.JsonValue) | null;
   "steps": Array<T.JsonValue>;
@@ -152,6 +178,8 @@ export type CloudConversationRunChangedEvent = { event: "cloud-conversation-run-
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type CloudConversationTypingEvent = { event: "cloud-conversation-typing" } & {
   "account"?: string;
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "conversation": string;
   "on": boolean;
   "participant": string;
@@ -159,6 +187,8 @@ export type CloudConversationTypingEvent = { event: "cloud-conversation-typing" 
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type CloudHostReplicaNeededEvent = { event: "cloud-host-replica-needed" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "expires_at"?: (bigint) | null;
   "reason": string;
 };
@@ -166,6 +196,8 @@ export type CloudHostReplicaNeededEvent = { event: "cloud-host-replica-needed" }
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type CloudInboxChangedEvent = { event: "cloud-inbox-changed" } & {
   "account"?: string;
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "entries": (T.JsonValue) | null;
   "seq": bigint;
   "transaction": string;
@@ -174,12 +206,16 @@ export type CloudInboxChangedEvent = { event: "cloud-inbox-changed" } & {
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type CloudInboxResetEvent = { event: "cloud-inbox-reset" } & {
   "account"?: string;
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "seq": bigint;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type CloudMuxResyncedEvent = { event: "cloud-mux-resynced" } & {
   "account"?: string;
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "pending": (T.JsonValue) | null;
   "seq": bigint;
 };
@@ -187,12 +223,16 @@ export type CloudMuxResyncedEvent = { event: "cloud-mux-resynced" } & {
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type CloudMuxWakeEvent = { event: "cloud-mux-wake" } & {
   "account"?: string;
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "seq": bigint;
   "wakes": (T.JsonValue) | null;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type CloudSessionNeededEvent = { event: "cloud-session-needed" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "expires_at"?: (bigint) | null;
   "reason": string;
 };
@@ -200,6 +240,8 @@ export type CloudSessionNeededEvent = { event: "cloud-session-needed" } & {
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type CloudSubscriptionStateEvent = { event: "cloud-subscription-state" } & {
   "account"?: string;
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "conversation"?: (string) | null;
   "reason"?: (string) | null;
   "scope": string;
@@ -222,10 +264,14 @@ export type ColorsChangedEvent = { event: "colors-changed" } & {
 
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type ConfigReloadRequestedEvent = { event: "config-reload-requested" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type ConversationChangedEvent = { event: "conversation-changed" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "change": (T.JsonValue) | null;
   "conversation": string;
   "rev": bigint;
@@ -234,6 +280,8 @@ export type ConversationChangedEvent = { event: "conversation-changed" } & {
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type ConversationDraftEvent = { event: "conversation-draft" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "conversation": string;
   "item": T.JsonValue;
   "participant": string;
@@ -241,6 +289,8 @@ export type ConversationDraftEvent = { event: "conversation-draft" } & {
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type ConversationInboxChangedEvent = { event: "conversation-inbox-changed" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "conversation": string;
   "marked_unread": boolean;
   "participant": string;
@@ -250,12 +300,16 @@ export type ConversationInboxChangedEvent = { event: "conversation-inbox-changed
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type ConversationLiveEvent = { event: "conversation-live" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "conversation": string;
   "frame": (T.JsonValue) | null;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type ConversationRunChangedEvent = { event: "conversation-run-changed" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "conversation": string;
   "run": (T.JsonValue) | null;
   "steps": Array<T.JsonValue>;
@@ -263,6 +317,8 @@ export type ConversationRunChangedEvent = { event: "conversation-run-changed" } 
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type ConversationTypingEvent = { event: "conversation-typing" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "conversation": string;
   "on": boolean;
   "participant": string;
@@ -283,6 +339,8 @@ export type DetachedEvent = { event: "detached" } & {
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type EmptyEvent = { event: "empty" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
 };
 
 /** Protocol v6; emission: emitted; streams: attach-browser. */
@@ -296,6 +354,8 @@ export type FrameEvent = { event: "frame" } & {
 
 /** Protocol v7; emission: emitted; streams: subscribe. */
 export type FrontendProjectionChangedEvent = { event: "frontend-projection-changed" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "frontend": string;
   "mutation_id": string;
   "origin": string;
@@ -307,6 +367,8 @@ export type FrontendProjectionChangedEvent = { event: "frontend-projection-chang
 /** Protocol v10; emission: emitted; streams: subscribe. */
 export type GraphicsStatusEvent = { event: "graphics-status" } & {
   "attempts"?: number;
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "cell_height"?: number;
   "cell_width"?: number;
   "error"?: string;
@@ -318,12 +380,16 @@ export type GraphicsStatusEvent = { event: "graphics-status" } & {
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type HistoryChangedEvent = { event: "history-changed" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "kinds": Array<string>;
   "revision": bigint;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type KeybindingsChangedEvent = { event: "keybindings-changed" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "origin": "user" | "cli" | "mcp" | "script" | "remote" | "app" | "file";
   "revision": bigint;
 };
@@ -331,6 +397,8 @@ export type KeybindingsChangedEvent = { event: "keybindings-changed" } & {
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type LayoutChangedEvent = { event: "layout-changed" } & {
   "active_pane"?: T.Id;
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "layout"?: T.Layout;
   "screen": T.Id;
   "transaction"?: string;
@@ -338,14 +406,41 @@ export type LayoutChangedEvent = { event: "layout-changed" } & {
   "zoomed_pane"?: (T.Id) | null;
 };
 
+/** Protocol v12; emission: emitted; streams: control. */
+export type LoopbackClosedEvent = { event: "loopback-closed" } & {
+  "error"?: string;
+  "stream": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type LoopbackCreditEvent = { event: "loopback-credit" } & {
+  "bytes": bigint;
+  "stream": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type LoopbackDataEvent = { event: "loopback-data" } & {
+  "data": string;
+  "stream": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type LoopbackEofEvent = { event: "loopback-eof" } & {
+  "stream": bigint;
+};
+
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type MachineUsageChangedEvent = { event: "machine-usage-changed" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "usage": (T.MachineUsage) | null;
 };
 
 /** Protocol v6; emission: emitted; streams: subscribe, attach-byte, attach-browser. */
 export type NotificationEvent = { event: "notification" } & {
   "body": string;
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "desktop"?: boolean;
   "level": T.NotificationLevel;
   "notification": T.Id;
@@ -371,6 +466,8 @@ export type OverflowEvent = { event: "overflow" } & {
 
 /** Protocol v7; emission: emitted; streams: subscribe. */
 export type PairingRequestedEvent = { event: "pairing-requested" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "code": string;
   "expires_in": bigint;
   "peer": string;
@@ -379,6 +476,8 @@ export type PairingRequestedEvent = { event: "pairing-requested" } & {
 
 /** Protocol v7; emission: emitted; streams: subscribe. */
 export type PairingResolvedEvent = { event: "pairing-resolved" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "request": bigint;
 };
 
@@ -403,16 +502,22 @@ export type PaneClosedEvent = { event: "pane-closed" } & {
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type ParticipantAvatarChangedEvent = { event: "participant-avatar-changed" } & {
   "avatar": (T.JsonValue) | null;
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "participant": string;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type PersonalChangedEvent = { event: "personal-changed" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "personal_revision": bigint;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type ProgramStatusChangedEvent = { event: "program-status-changed" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "program_status": (T.ShownProgramStatus) | null;
   "surface": T.Id;
 };
@@ -488,15 +593,31 @@ export type ScreenRenamedEvent = { event: "screen-renamed" } & {
   "workspace": T.Id;
 };
 
+/** Protocol v12; emission: emitted; streams: control. */
+export type ScriptLogEvent = { event: "script-log" } & {
+  /** The console method that wrote the line (log, info, warn, error, debug). */
+  "level": string;
+  /** The line, its arguments joined as the console prints them. */
+  "message": string;
+  /** The id of the script-run that wrote the line; absent for a REPL session's line. */
+  "request"?: T.JsonValue;
+  /** The REPL session (script-repl-open) whose cell wrote the line; absent for a script-run's line. */
+  "session"?: string;
+};
+
 /** Protocol v6; emission: emitted; streams: subscribe, attach-byte, attach-render, attach-browser. */
 export type ScrollChangedEvent = { event: "scroll-changed" } & {
   "at_bottom": boolean;
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "offset": bigint;
   "surface": T.Id;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type SettingsChangedEvent = { event: "settings-changed" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "keys": Array<string>;
   "origin": "user" | "cli" | "mcp" | "script" | "remote" | "app" | "file";
   "revision": bigint;
@@ -504,6 +625,8 @@ export type SettingsChangedEvent = { event: "settings-changed" } & {
 
 /** Protocol v12; emission: emitted; streams: subscribe, attach-byte, attach-render. */
 export type SizeStateEvent = { event: "size-state" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "self_participant"?: string;
   "state": T.SizeState;
   "surface": T.Id;
@@ -511,21 +634,35 @@ export type SizeStateEvent = { event: "size-state" } & {
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type StatusEvent = { event: "status" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "message": string;
+};
+
+/** Protocol v12; emission: emitted; streams: attach-byte, attach-render, attach-browser. */
+export type StreamEndEvent = { event: "stream-end" } & {
+  "reason": "canceled" | "detached" | "overflow" | "attach_failed";
+  "stream": number;
 };
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type SurfaceExitedEvent = { event: "surface-exited" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "surface": T.Id;
 };
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type SurfaceOutputEvent = { event: "surface-output" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "surface": T.Id;
 };
 
 /** Protocol v7; emission: emitted; streams: subscribe. */
 export type SurfaceResizeFailedEvent = { event: "surface-resize-failed" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "cols": number;
   "error": string;
   "reservation_id": (bigint) | null;
@@ -536,6 +673,8 @@ export type SurfaceResizeFailedEvent = { event: "surface-resize-failed" } & {
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type SurfaceResizedEvent = { event: "surface-resized" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "cols": number;
   "reservation_id": (bigint) | null;
   "rows": number;
@@ -604,6 +743,8 @@ export type TerminalInputUnclaimedEvent = { event: "terminal-input-unclaimed" } 
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type TerminalReapedEvent = { event: "terminal-reaped" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "grace_ms": bigint;
   "terminal": (string) | null;
   "terminal_id": string;
@@ -611,6 +752,8 @@ export type TerminalReapedEvent = { event: "terminal-reaped" } & {
 
 /** Protocol v9; emission: emitted; streams: subscribe. */
 export type TerminalRegistryChangedEvent = { event: "terminal-registry-changed" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "generation": string;
   "refetch": "terminal-events-or-list-terminals";
   "registry_id": string;
@@ -619,12 +762,16 @@ export type TerminalRegistryChangedEvent = { event: "terminal-registry-changed" 
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type TitleChangedEvent = { event: "title-changed" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "surface": T.Id;
   "title"?: string;
 };
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type TreeChangedEvent = { event: "tree-changed" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
 };
 
 /** Protocol v12; emission: emitted; streams: control. */
@@ -647,6 +794,8 @@ export type VtStateEvent = { event: "vt-state" } & {
 
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type WindowTitleRequestedEvent = { event: "window-title-requested" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
   "title": string;
 };
 
@@ -758,6 +907,10 @@ export type KnownCmuxEvent =
   | HistoryChangedEvent
   | KeybindingsChangedEvent
   | LayoutChangedEvent
+  | LoopbackClosedEvent
+  | LoopbackCreditEvent
+  | LoopbackDataEvent
+  | LoopbackEofEvent
   | MachineUsageChangedEvent
   | NotificationEvent
   | OutputEvent
@@ -776,10 +929,12 @@ export type KnownCmuxEvent =
   | ScreenChangedEvent
   | ScreenClosedEvent
   | ScreenRenamedEvent
+  | ScriptLogEvent
   | ScrollChangedEvent
   | SettingsChangedEvent
   | SizeStateEvent
   | StatusEvent
+  | StreamEndEvent
   | SurfaceExitedEvent
   | SurfaceOutputEvent
   | SurfaceResizeFailedEvent
@@ -912,6 +1067,7 @@ export type KnownAttachEvent =
   | ResizedEvent
   | ScrollChangedEvent
   | SizeStateEvent
+  | StreamEndEvent
   | VtStateEvent;
 
 /** Known byte attach events. */
@@ -924,6 +1080,7 @@ export type KnownByteAttachEvent =
   | ResizedEvent
   | ScrollChangedEvent
   | SizeStateEvent
+  | StreamEndEvent
   | VtStateEvent;
 
 /** Known render attach events. */
@@ -933,7 +1090,8 @@ export type KnownRenderAttachEvent =
   | RenderDeltaEvent
   | RenderStateEvent
   | ScrollChangedEvent
-  | SizeStateEvent;
+  | SizeStateEvent
+  | StreamEndEvent;
 
 /** Known browser attach events. */
 export type KnownBrowserAttachEvent =
@@ -942,7 +1100,8 @@ export type KnownBrowserAttachEvent =
   | FrameEvent
   | NotificationEvent
   | OverflowEvent
-  | ScrollChangedEvent;
+  | ScrollChangedEvent
+  | StreamEndEvent;
 
 export type CmuxEvent = KnownCmuxEvent | UnknownEvent;
 export type SubscribeEvent = KnownSubscribeEvent | UnknownEvent;

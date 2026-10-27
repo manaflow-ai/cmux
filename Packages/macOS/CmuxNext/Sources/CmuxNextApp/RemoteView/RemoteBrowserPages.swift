@@ -4,8 +4,9 @@ import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import CmuxNextRemoteBrowser
 #endif
 
@@ -37,7 +38,7 @@ enum RemoteBrowserPages {
         })
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// Live sessions by tab key, for the debug socket (weak: tabs own them).
     @MainActor static var sessions: [String: WeakSession] = [:]
 
@@ -66,26 +67,56 @@ enum RemoteBrowserPages {
         }
         let page = (url ?? localStartPage).flatMap { ["http", "https"].contains($0.scheme?.lowercased() ?? "") ? $0 : nil }
         startingLocalHosts += 1
+        let opening = LocalHostOpening(pane: pane, background: background, then: then), mainWork = pane.services.mainWork
         // task-owner: one host start; ends when the host listens or exits. The host then belongs to localHosts until its tab closes.
-        Task { [weak pane] in
-            defer { startingLocalHosts -= 1 }
+        // The start is awaited off the main thread; its answer, the rest of the open, is one userBlocking task.
+        Task { @concurrent in
+            let started: Result<LocalRemoteBrowserHost, any Error>
             do {
-                let host = try await LocalRemoteBrowserHost.start(executable: executable, pageURL: page)
-                let record = RemoteBrowserTabRecord(endpoint: host.endpoint)
-                localHosts[host.endpoint.port] = host
-                guard let pane, pane.newBrowserTab(url: record.url, background: background, then: { surface in
-                    then?(String(describing: surface))
-                }) else {
-                    localHosts[host.endpoint.port] = nil
-                    host.stop()
-                    return
-                }
+                started = .success(try await LocalRemoteBrowserHost.start(executable: executable, pageURL: page))
             } catch {
-                lastLocalFailure = String(describing: error)
-                guard let window = pane?.view.window else { return }
-                CmuxDialogCenter.shared.present(CmuxDialogSpec(title: RemoteBrowserStrings.hostDidNotStart, lines: [RemoteBrowserStrings.hostFailure(error)],
-                                                               buttons: [.ok()]), in: .window(window)) { _ in }
+                started = .failure(error)
             }
+            mainWork.postFromAnyThread(.userBlocking, owner: "RemoteBrowserPages.localHostStarted") {
+                localHostStarted(started, opening)
+            }
+        }
+    }
+
+    /// Where a local host's tab opens once the host listens (`openLocal`).
+    @MainActor private final class LocalHostOpening {
+        weak var pane: PaneController?
+        let background: Bool
+        let then: (@MainActor (String) -> Void)?
+
+        init(pane: PaneController, background: Bool, then: (@MainActor (String) -> Void)?) {
+            self.pane = pane
+            self.background = background
+            self.then = then
+        }
+    }
+
+    /// A local host started (its tab opens; it stops when no pane takes the tab) or failed (an alert says why).
+    @MainActor
+    private static func localHostStarted(_ started: Result<LocalRemoteBrowserHost, any Error>, _ opening: LocalHostOpening) {
+        startingLocalHosts -= 1
+        switch started {
+        case let .success(host):
+            let record = RemoteBrowserTabRecord(endpoint: host.endpoint)
+            localHosts[host.endpoint.port] = host
+            let then = opening.then
+            guard let pane = opening.pane, pane.newBrowserTab(url: record.url, background: opening.background, then: { surface in
+                then?(String(describing: surface))
+            }) else {
+                localHosts[host.endpoint.port] = nil
+                host.stop()
+                return
+            }
+        case let .failure(error):
+            lastLocalFailure = String(describing: error)
+            guard let window = opening.pane?.view.window else { return }
+            CmuxDialogCenter.shared.present(CmuxDialogSpec(title: RemoteBrowserStrings.hostDidNotStart, lines: [RemoteBrowserStrings.hostFailure(error)],
+                                                           buttons: [.ok()]), in: .window(window)) { _ in }
         }
     }
 
@@ -136,6 +167,7 @@ enum RemoteBrowserPages {
         guard let tab = RemoteBrowserSession.makeTab(record: record, id: BrowserTabID(rawValue: key), profile: profile,
                                                      viewer: "cmux-next", token: try? credential.get(), carrier: carrier),
               let session = RemoteBrowserSession.session(of: tab) else { return nil }
+        tab.pane.view.pointerFrames = services.remotePointerFrames
         let localHost = record.machine == nil ? localHosts[record.endpoint.port] : nil
         session.openTab = { [weak services] target, disposition, answer in
             // A page's new tab is a remote tab on the same runtime host (RT1).
@@ -161,6 +193,13 @@ enum RemoteBrowserPages {
             session.onClose = { [weak localHost] in
                 localHost?.stop()
                 if localHosts[port] === localHost { localHosts[port] = nil }
+            }
+        }
+        // A host this app started for the tab ends with it: such a tab cannot be built again.
+        if localHost == nil {
+            tab.wakeRecord = { page in
+                let first = page.flatMap { ["http", "https"].contains($0.scheme?.lowercased() ?? "") ? $0 : nil } ?? record.initialURL
+                return RemoteBrowserTabRecord(endpoint: record.endpoint, initialURL: first, secretFile: record.secretFile, machine: record.machine).url
             }
         }
         sessions = sessions.filter { $0.value.value != nil }
@@ -393,7 +432,7 @@ enum RemoteBrowserPages {
 
 extension AppControl {
     func registerRemoteBrowserDebugMethods(_ services: AppServices) {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         service?.router.register([
             .mainActor("debug.remote_browser") { [weak services] call in
                 guard let services else { return .value(.null) }

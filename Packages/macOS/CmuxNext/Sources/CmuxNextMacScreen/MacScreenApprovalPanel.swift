@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 public import CmuxNextDevices
-import CmuxNextWakeups
+public import CmuxNextWakeups
 public import Observation
 
 /// The host's approval prompt for a device hub request (permission Ask):
@@ -27,12 +27,23 @@ public final class MacScreenApprovalPrompt {
     /// Requests answered or expired here, which the hub may still list for a moment.
     @ObservationIgnored private var settled: Set<String> = []
     @ObservationIgnored private var panel: NSPanel?
-    @ObservationIgnored private let expiry = DemandTimer(owner: "mac-screen.approval-expiry")
-    @ObservationIgnored private var watch: Task<Void, Never>?
+    /// Whether the panel shows: its views repaint a theme change while it is ordered out once it shows again.
+    @ObservationIgnored let panelNode = VisibilityNode(root: "mac-screen.approval", own: .hidden)
+    /// The protocol's request lifetime: the panel gives up on its own. `visible`: it changes what shows.
+    @ObservationIgnored private let expiry: MainDeadline
+    /// Follows the hub's pending requests: a service, not a view (the panel shows over every app,
+    /// whatever cmux window is on screen).
+    @ObservationIgnored private var watch: ServiceObservation<[SessionRequest]>?
     /// Shows and hides the panel; tests replace it.
     @ObservationIgnored var present: @MainActor (Bool) -> Void = { _ in }
+    /// The app's main-thread scheduler: the panel's content follows the prompt on its frames.
+    let mainWork: MainWorkScheduler
 
-    public init() {
+    /// - Parameter deadlines: The app's one deadline placer (the request expiry); its scheduler is the app's
+    ///   main-thread scheduler.
+    public init(deadlines: MainDeadlineScheduler) {
+        mainWork = deadlines.work
+        expiry = MainDeadline(owner: "mac-screen.approval-expiry", workClass: .visible, scheduler: deadlines)
         present = { [weak self] visible in self?.setPanelVisible(visible) }
     }
 
@@ -41,13 +52,13 @@ public final class MacScreenApprovalPrompt {
         watch?.cancel()
         watch = nil
         settled = []
-        update(hub?.pendingRequests ?? [])
-        guard let hub else { return }
-        watch = Task { [weak self] in
-            for await requests in ObservationStream({ hub.pendingRequests }) {
-                guard !Task.isCancelled else { return }
-                self?.update(requests)
-            }
+        guard let hub else { return update([]) }
+        // `visible`: the hub's push (another device's request) changes what shows; a person's answer is
+        // already on screen (`answering`).
+        watch = ServiceObservation(.visible, owner: "mac-screen.approval.requests", on: mainWork) {
+            hub.pendingRequests
+        } apply: { [weak self] requests in
+            self?.update(requests)
         }
     }
 
@@ -61,7 +72,7 @@ public final class MacScreenApprovalPrompt {
         answering = false
         expiry.cancel()
         if let next {
-            expiry.schedule(after: lifetime) { @MainActor [weak self] in
+            expiry.schedule(after: lifetime) { [weak self] in
                 guard let self, current?.id == next.id else { return }
                 settled.insert(next.id)
                 update(self.hub()?.pendingRequests ?? [])
@@ -75,23 +86,35 @@ public final class MacScreenApprovalPrompt {
         guard let request = current, let hub = hub(), !answering else { return }
         answering = true
         let (decision, scope, thenPermission) = choice.answer(requested: request.scope)
-        // task-owner: one decision for the request on screen; the next request shows when it settles
-        Task { [weak self] in
+        let hostID = hub.identity.id, work = mainWork
+        // task-owner: one decision for the request on screen; the next request shows when it settles. The calls
+        // are the hub's own main-actor requests; the answer lands as the rest of the person's press (userBlocking).
+        Task { @concurrent [weak self] in
+            let outcome: Result<Void, DeviceHubError>
             do {
                 try await hub.decide(request, decision: decision, scope: scope)
                 if let thenPermission {
-                    try await hub.setPermission(host: hub.identity.id, viewer: request.viewerId, scope: thenPermission)
+                    try await hub.setPermission(host: hostID, viewer: request.viewerId, scope: thenPermission)
                 }
-                self?.settle(request.id, hub: hub)
-            } catch let failure as DeviceHubError where failure.code == .sessionNotPending || failure.code == .notFound {
-                // It ended meanwhile (cancelled by the viewer, expired): nothing to answer.
-                self?.settle(request.id, hub: hub)
+                outcome = .success(())
             } catch {
-                guard let self else { return }
-                answering = false
-                self.error = L.t("macScreen.approval.failed", "The answer did not reach the device hub. Try again.")
+                outcome = .failure(error as? DeviceHubError ?? .transport("\(error)"))
+            }
+            await work.apply(.userBlocking, owner: "mac-screen.approval.answer") { [weak self] () -> Void in
+                self?.answered(request.id, hub: hub, outcome)
             }
         }
+    }
+
+    /// The hub took the answer, or the request ended meanwhile (cancelled by the viewer, expired:
+    /// nothing to answer); any other failure keeps the request on screen to try again.
+    private func answered(_ id: String, hub: DeviceHub, _ outcome: Result<Void, DeviceHubError>) {
+        if case let .failure(failure) = outcome, failure.code != .sessionNotPending, failure.code != .notFound {
+            answering = false
+            error = L.t("macScreen.approval.failed", "The answer did not reach the device hub. Try again.")
+            return
+        }
+        settle(id, hub: hub)
     }
 
     private func settle(_ id: String, hub: DeviceHub) {
@@ -108,6 +131,7 @@ public final class MacScreenApprovalPrompt {
     private func setPanelVisible(_ visible: Bool) {
         guard visible, current != nil else {
             panel?.orderOut(nil)
+            panelNode.set(.hidden)
             return
         }
         let panel = self.panel ?? makePanel()
@@ -122,6 +146,7 @@ public final class MacScreenApprovalPrompt {
         place(content)
         // Over every app, without activating this one or taking the keyboard.
         panel.orderFrontRegardless()
+        panelNode.set(.visible)
     }
 
     /// Sizes the panel to `content` at the top right of the main screen.
@@ -176,10 +201,12 @@ final class MacScreenApprovalView: MacScreenThemedView {
                                             insets: NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16))
     private var buttons: [MacScreenButton] = []
     private(set) var shown: Shown?
+    /// What the prompt shows (`render(_:)` on a change).
+    private var watch: FrameObservation<Shown>?
 
     init(prompt: MacScreenApprovalPrompt) {
         self.prompt = prompt
-        super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 200))
+        super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 200), node: prompt.panelNode)
         background.translatesAutoresizingMaskIntoConstraints = true
         background.autoresizingMask = [.width, .height]
         background.setAccessibilityElement(true)
@@ -198,7 +225,14 @@ final class MacScreenApprovalView: MacScreenThemedView {
             trailing,
             bottom,
         ])
-        render()
+        // node-free: the panel floats over every app, outside any window or tab, and exists only while a request waits.
+        let watch = FrameObservation(owner: "mac-screen.approval", delivery: .visible(nil), on: prompt.mainWork) { [prompt] in
+            Shown(request: prompt.current, error: prompt.error, answering: prompt.answering)
+        } onChange: { [weak self] next in
+            self?.render(next)
+        }
+        self.watch = watch
+        render(watch.value)
     }
 
     override var isFlipped: Bool { true }
@@ -214,12 +248,7 @@ final class MacScreenApprovalView: MacScreenThemedView {
         return NSSize(width: Self.width, height: ceil(stack.fittingSize.height))
     }
 
-    private func render() {
-        let next = withObservationTracking {
-            Shown(request: prompt.current, error: prompt.error, answering: prompt.answering)
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in self?.render() }
-        }
+    private func render(_ next: Shown) {
         guard next != shown else { return }
         let before = shown
         shown = next

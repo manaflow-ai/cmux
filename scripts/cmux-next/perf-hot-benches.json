@@ -1,80 +1,298 @@
 {
-  "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after; never add it to CI.",
+  "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. `trace` lists the SignpostName catalog names (Packages/macOS/CmuxNext/Sources/CmuxNextSignposts/SignpostName.swift) whose records show the path in a Release trace ring or signpost recording. An id with no `trace` has no catalog name that shows its own cost yet (observability-audit.py MQ5 lists it). Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after; never add it to CI.",
   "paths": {
     "cef-host-input": {
-      "what": "one input event forwarded to the Chromium host app (prototype, browserHost.helperPrototype): encode and one non-blocking write",
+      "what": "one input event forwarded to the Chromium host app (prototype, browserHost.helper): encode and one non-blocking write",
       "bench": "scripts/cmux-next/chromium-host-bench.py (hop_us, ping_us)",
+      "owner": "PL-cef-helper",
+      "trace": ["cef.host_input"]
+    },
+    "cef-host-control": {
+      "what": "one control op to the Chromium host (ChromiumHostControlChannel.send): encode, then one non-blocking sendmsg or an outbox push (the reader flushes waiting frames in batches, one sendmsg each)",
+      "bench": "CMUX_CHROMIUM_HOST_CONTROL_BENCH=1 swift test --filter ChromiumHostControlSendBench (send p50/p95/p99/max, direct write and outbox push; Debug: the channel is Debug-only), on macOS 26 and 27",
+      "owner": "PL-cef-helper",
+      "trace": [
+        "cef.geometry",
+        "cef.create_browser"
+      ]
+    },
+    "cef-host-input-ring": {
+      "what": "one input frame to the Chromium Host's input ring (ChromiumHostInputRing.write, p01-process-041): encode into the shm slot and a sequentially consistent tail store; one zero-timeout Mach send only when the host's reader is parked; a full ring spills to the backlog, never waits",
+      "bench": "swift test --filter ChromiumHostInputRingTests (1,000,000 frames from this writer to the host's C++ reader in a child process on its Mach doorbell; prints doorbells and spills) and scripts/cmux-next/tests/chromium-host-input-ring.test.sh (the host reader's back-pressure handshake and a C++ process pair, 1,000,000 frames each); input-hop p99 under STRESS with the host UI thread busy: scripts/cmux-next/chromium-host-bench.py (hop_us), on macOS 26 and 27",
       "owner": "PL-cef-helper"
     },
     "key-dispatch": {
       "what": "every key-down: shortcut table, chord tracker, focus routing",
-      "bench": "scripts/cmux-next/bench-typing.py",
-      "owner": "PL-typing"
+      "bench": "CMUX_BENCH=1 swift test -c release --filter KeyRouterBench (KEY-ROUTER-BENCH JSON: plain_p99_us, chord_p99_us, plain_allocs, chord_allocs, tis_calls, key_equiv_views; plain key, Cmd-T, Cmd-D, a when-clause binding and Ctrl-C in a terminal, 60 workspaces, 30 panes), then scripts/cmux-next/bench-typing.py",
+      "owner": "PL-typing",
+      "trace": [
+        "key.frame",
+        "action.perform"
+      ]
     },
     "terminal-key": {
       "what": "terminal key to committed frame (input write, echo, parse, draw)",
       "bench": "scripts/cmux-next/bench-typing.py",
-      "owner": "PL-typing"
+      "owner": "PL-typing",
+      "trace": [
+        "key.frame",
+        "key.flow",
+        "frame.present_estimate"
+      ]
     },
     "home-key": {
       "what": "Home composer key to frame",
       "bench": "scripts/cmux-next/home-perf.py (home.typing.* rows)",
-      "owner": "PL-typing"
+      "owner": "PL-typing",
+      "trace": [
+        "key.frame"
+      ]
     },
     "palette-key": {
       "what": "Command Palette open and each query key to its first painted frame",
       "bench": "scripts/cmux-next/palette-open-stages.py",
-      "owner": "Performance Lead"
+      "owner": "Performance Lead",
+      "trace": ["stall.palette_open", "key.palette_search"]
     },
     "omnibar-key": {
       "what": "omnibar suggestions per typed key",
       "bench": "scripts/cmux-next/omnibar-click-bench.py (focus), then bench-typing.py with the omnibar focused",
-      "owner": "Performance Lead"
+      "owner": "Performance Lead",
+      "trace": ["key.omnibar_suggest"]
     },
     "motion-frame": {
       "what": "one split/close/zoom/column motion frame",
-      "bench": "scripts/measure/split-spring.sh --suite=pane-bench (PaneMotionBench, PaneMotionWorkTests), then pane-perf-terminal.py and anim-perf-terminal.py (panes.* rows, with and without Chromium, light and --layouts stress)",
-      "owner": "PL-motion-core"
+      "bench": "scripts/cmux-next/motion-main-work.py --vdisplay 120 (counts: RenderStats frame_sets, layouts, window_calls, tracking_area_adds in frames 2..n, light and STRESS), then scripts/cmux-next/motion-hitches.py (time: main ms per spring frame and hitches, RenderStats disarmed); scripts/measure/split-spring.sh --suite=pane-bench (PaneMotionBench, PaneMotionWorkTests), pane-perf-terminal.py and anim-perf-terminal.py stay for the panes.* rows",
+      "owner": "PL-motion-core",
+      "trace": [
+        "motion.frame",
+        "motion.run"
+      ]
     },
     "frame-tick": {
       "what": "the per-display-frame delivery to every active frame client",
       "bench": "scripts/cmux-next/anim-perf-terminal.py, then bench_idle.py (wakes)",
-      "owner": "Performance Lead"
+      "owner": "Performance Lead",
+      "trace": [
+        "frame.tick",
+        "frame.commit"
+      ]
+    },
+    "pointer-coalesce": {
+      "what": "one move, drag or scroll a view posts to its window's FrameInputCoalescer consumer (PointerFrameConsumer.post): the leading delivery or one merge into the queue, no lock, no allocation, no system call",
+      "bench": "scripts/cmux-next/drag-lag-live.py, then swift test --filter 'PointerFrameCoalescerTests|FrameInputCoalescerTests' (deliveries per frame, pooled drag samples)",
+      "owner": "Performance Lead",
+      "trace": [
+        "input.frame",
+        "key.scroll_frame"
+      ]
     },
     "drag-frame": {
       "what": "one tab, pane or column drag frame (ghost, autoscroll, hit test)",
       "bench": "scripts/cmux-next/drag-lag-live.py",
-      "owner": "Performance Lead"
+      "owner": "Performance Lead",
+      "trace": [
+        "motion.drag_frame",
+        "input.frame"
+      ]
     },
     "tab-switch": {
       "what": "tab select to committed frame",
       "bench": "scripts/cmux-next/tab-switch-matrix.py (debug.tab_switch)",
-      "owner": "PL-switch"
+      "owner": "PL-switch",
+      "trace": [
+        "switch.tab"
+      ]
     },
     "workspace-switch": {
       "what": "workspace next/prev/click to committed frame",
       "bench": "scripts/cmux-next/activation-perf.py (workspace_switch.* rows)",
-      "owner": "PL-switch"
+      "owner": "PL-switch",
+      "trace": [
+        "switch.workspace"
+      ]
     },
     "cef-geometry": {
       "what": "Chromium page geometry, clip and occlusion updates",
       "bench": "scripts/cmux-next/pane-perf-terminal.py with a Chromium page (debug.cef geometry posts per frame)",
-      "owner": "PL-motion-cef"
+      "owner": "PL-motion-cef",
+      "trace": ["cef.geometry"]
     },
     "cmd-tab": {
       "what": "app activation (Cmd-Tab back): become/resign key notices to committed frame, including the hover refresh",
       "bench": "scripts/cmux-next/activation-perf.py (observers_ms per become)",
-      "owner": "PL-switch"
+      "owner": "PL-switch",
+      "trace": [
+        "switch.app_activation"
+      ]
     },
     "new-tab": {
       "what": "new terminal or Chromium tab to its first frame",
       "bench": "scripts/cmux-next/instant-new-surfaces-bench.py",
-      "owner": "PL-cef-tab"
+      "owner": "PL-cef-tab",
+      "trace": [
+        "create.tab"
+      ]
+    },
+    "action-perform": {
+      "what": "every ActionRegistry.perform turn's oracle hook: one nil check of the registry's immutable turnObserver (Release), or the depth count and one ActionRunObserver call at the end of the outermost turn (DEV, bench)",
+      "bench": "scripts/cmux-next/action-perform-ab.py run --base BASE_SHA --head HEAD_SHA (ActionPerformBench at both SHAs alternately on one host: what Release adds over the base per perform, 95% interval over paired runs), and CMUX_ORACLE_TURNS_BENCH=1 swift test -c release -Xswiftc -DCMUX_BENCH_HOOKS --filter OracleActionTurnsBench (the disarmed OracleActionTurns against no observer, interleaved rounds), on macOS 26 and 27",
+      "owner": "p15-oracle",
+      "trace": [
+        "action.perform",
+        "action.commit"
+      ]
     },
     "action-budget": {
       "what": "every action run's always-on budget record: two clock reads and one ring-slot write (ActionBudgetMonitor.record)",
       "bench": "CMUX_ACTION_BUDGET_BENCH=1 swift test -c release --filter ActionBudgetMonitorBench (ns per run and per batch), on macOS 26 and 27",
-      "owner": "Performance Lead (PL-instant)"
+      "owner": "Performance Lead (PL-instant)",
+      "trace": [
+        "action.perform",
+        "action.commit"
+      ]
+    },
+    "main-task-ledger": {
+      "what": "every scheduled main-thread task's MainOwnerLedger slot: five relaxed atomic stores and a releasing store (MainOwnerLedger.ended)",
+      "bench": "swift test -c release --filter MainOwnerLedgerTests/aLedgerWriteCostsUnderItsBudget (ns per slot write and per full-ring call; the whole posted run: MainTaskBoardSpanTests/aPostedTaskWithItsLedgerSlotCostsNanoseconds), on macOS 26 and 27",
+      "owner": "Performance Lead (PL-main)",
+      "trace": [
+        "stall.main_task",
+        "task.run"
+      ]
+    },
+    "trace-ring-write": {
+      "what": "one Release trace ring record under a catalog id (TraceRing.write(name:)): the thread's TLS state, one acquire load of the active ring, the seqlock publish, a chunk claim every 31st record",
+      "bench": "swift test -c release --filter 'TraceRingTests.*eightContendedThreadsKeepTheSingleThreadP99' (31-record batch p99, 1 and 8 threads)",
+      "owner": "p09-observability"
+    },
+    "trace-ring-write-interned": {
+      "what": "one trace ring record under a run-time name (TraceRing.write(_ InternedName)): the catalog-id write plus one relaxed load and a tag compare after the name's first record in the ring",
+      "bench": "swift test -c release --filter 'TraceNamesTests.*internedWriteCost' (31-record batch p50, interned vs catalog id)",
+      "owner": "p09-observability"
+    },
+    "metrics-record": {
+      "what": "one field-histogram sample (Metrics.record into MetricsStore): an acquire load of the runtime's store, one dictionary probe, an acquire load of the active block and three relaxed adds (bucket, count, sum)",
+      "bench": "swift test -c release --filter 'HistogramTests.*recordCost' (1000-record batch p50, ns per record)",
+      "owner": "p09-observability"
+    },
+    "main-turn": {
+      "what": "the always-on main run-loop turn meter: its four observer callouts per turn, the sendEvent input span and each scheduled task's span (MainTurnMeter, CmuxApplication.sendEvent); budget < 100 ns per turn over the clock reads",
+      "bench": "CMUX_MAIN_TURN_BENCH=1 swift test -c release --filter MainTurnMeterBench (ns per turn), on macOS 26 and 27",
+      "owner": "Performance Lead",
+      "trace": [
+        "stall.main_turn",
+        "stall.main_task",
+        "stall.over_budget"
+      ]
+    },
+    "idle-energy-wake": {
+      "what": "the idle wakeup histogram's afterWaiting observer at every main run-loop wake (IdleEnergyMonitor.noteWake, debug.energy idle): one uptime read, one relaxed input-count load and a compare; one proc_pid_rusage read only when a window opens or closes; budget < 100 ns per wake over the uptime read",
+      "bench": "CMUX_IDLE_ENERGY_BENCH=1 swift test -c release --filter IdleEnergyMonitorBench (ns per wake, ns per rusage read), on macOS 26 and 27",
+      "owner": "p14-energy",
+      "trace": [
+        "stall.main_turn"
+      ]
+    },
+    "terminal-feed": {
+      "what": "one terminal output chunk parsed on its TerminalOutputLane (ghostty_surface_process_output, microseconds for an echoed key, about 1 ms for 256 KiB) inside its terminal.feed hang scope (HangWatch.watch: two stores and no system call once p09-observability-066 fills the slots)",
+      "bench": "scripts/cmux-next/bench-typing.py (echo: output parsed stage p95); the scope's own cost: swift test -c release --filter HangWatchTests (p09-observability-066 open and close cost)",
+      "owner": "PL-typing",
+      "trace": [
+        "key.flow",
+        "hang.thread_hung"
+      ]
+    },
+    "daemon-request": {
+      "what": "every daemon request and connection frame, key input included: the request watchdog's slot claim, clock read and release (cmux-tui-core server/request_watchdog.rs begin and RequestScope end)",
+      "bench": "cargo test -p cmux-tui-core --release --lib -- request_watchdog_begin_bench --ignored --nocapture (ns per run), then scripts/cmux-next/bench-typing.py",
+      "owner": "PL-conn",
+      "trace": [
+        "daemon.request"
+      ]
+    },
+    "hang-scope": {
+      "what": "one hang scope opened and closed on a watched thread of the holder, terminal host or acpmux (cmux-threads hang.rs HangWatcher::scope and HangScope drop): a clock read, the slot's stores and the armed count",
+      "bench": "cargo test -p cmux-threads --release --lib -- hang_scope_bench --ignored --nocapture (ns per scope)"
+    },
+    "resize-drag": {
+      "what": "one divider, column-edge, row-edge, sidebar-edge or DevTools-divider drag event and each coalesced delivery it gets (feature pointerFrameDrags: at most a leading and a trailing delivery per frame, FrameInputCoalescer)",
+      "bench": "scripts/cmux-next/divider-drag-reflow-live.py --tag TAG --out DIR with CMUX_ENABLE_FEATURES=pointerFrameDrags and without (frame intervals, drawn-grid lag), light and STRESS; swift test --filter 'DividerDragTests|SidebarResizeHandleTests' for deliveries per frame",
+      "owner": "PL-motion-cef",
+      "trace": [
+        "resize.frame",
+        "input.frame"
+      ]
+    },
+    "terminal-pointer": {
+      "what": "one pointer move, drag or scroll event over a terminal and each coalesced delivery it gets (feature terminalPointerFrames: at most a leading and a trailing ghostty_surface_mouse_pos or mouse-reporting ghostty_surface_mouse_scroll per frame, PointerFrameCoalescer)",
+      "bench": "swift test --filter 'TerminalPointerCoalescingTests' for Ghostty calls per frame; live: scripts/cmux-next/pointer-probe.swift path/drag (1000 Hz moves) over a terminal running a mouse-reporting program (vim with mouse=a), with CMUX_ENABLE_FEATURES=terminalPointerFrames and without, light and STRESS, reading ghostty.lock_wait and main stalls from debug.hangs",
+      "owner": "PL-ghostty",
+      "trace": [
+        "input.frame",
+        "key.scroll_frame"
+      ]
+    },
+    "tab-strip-scroll": {
+      "what": "one coalesced wheel or trackpad delivery to a tab strip (feature tabStripScrollFrames, TabStripScroller.scroll, p04-input-087): the clamp, a binary search of the tabs in view and one scrolling-layer bounds set; applyFrames only when the tabs in view change or the gesture ends",
+      "bench": "swift test --filter 'TabStripScrollTests' (translations and applyFrames per frame); live: scripts/cmux-next/pointer-probe.swift trackpad scroll over a 60-tab strip with CMUX_ENABLE_FEATURES=tabStripScrollFrames and without, light and STRESS, reading input.frame and main stalls from debug.hangs",
+      "owner": "PL-motion-core",
+      "trace": [
+        "input.frame"
+      ]
+    },
+    "intent-prewarm-hover": {
+      "what": "one hover target change in the sidebar or a tab strip with intentPrewarmHover on: a compare, the dwell timer's cancel and re-arm, and the warmer's isCold lookup",
+      "bench": "scripts/cmux-next/bench_hibernation.py (wake after hover vs click), then swift test --filter IntentPrewarmServiceTests",
+      "owner": "PL-switch"
+    },
+    "lane-item": {
+      "what": "one BackgroundWork lane item's stats on its slot thread, in every build (LaneScheduler.runOnSlot, LaneStats.record): three CLOCK_UPTIME_RAW reads (submit, start, end; onRan and the block-shutdown check reuse them) and four relaxed atomic adds around the item's body",
+      "bench": "CMUX_LANE_ITEM_BENCH=1 swift test -c release --filter LaneStatsBench (ns per clock read, per record, per item: three reads plus the record), on macOS 26 and 27; distributions under STRESS: debug.work (RUN-13)",
+      "owner": "Performance Lead"
+    },
+    "callback-registry-lookup": {
+      "what": "one C callback resolving its context token to its Swift object (CallbackRegistry.target(for:), p10-stability-081): an acquiring atomic add on the slot's state word, a generation and live check, a weak load, a releasing atomic subtract; no lock, no syscall (FSEvents queues, event taps, and in wave 2 Ghostty and CEF callbacks)",
+      "bench": "CMUX_CALLBACK_REGISTRY_BENCH=1 swift test -c release --package-path Packages/Shared/CmuxSafeConcurrency --filter CallbackRegistryTests/lookupBench (CALLBACK-REGISTRY-BENCH JSON: ns_per_lookup), on macOS 26 and 27",
+      "owner": "Performance Lead"
+    },
+    "input-tap": {
+      "what": "one event through the app's InputEventTap (CmuxApplication.sendEvent: the dispatch scope, observers, intercepts in order, after-dispatch observers and the dispatch end; InputEventTap.deliverObserve and its siblings): per-class arrays filtered by window number, no copy, lock, allocation or system call per event; budget 5 us per event over the subscribers' handlers",
+      "bench": "CMUX_INPUT_TAP_BENCH=1 swift test -c release --filter InputEventTapBench (ns per event p50/p95/p99/max, eight subscribers, a key, a button, a move and a drag), then swift test --filter 'InputEventTapTests/aDispatchAllocatesNothing', on macOS 26 and 27",
+      "owner": "Performance Lead",
+      "trace": [
+        "input.latency"
+      ]
+    },
+    "input-coalesce": {
+      "what": "one window's FrameInputCoalescer flush at its frame tick or fallback (FrameInputCoalescer.flushAll, p04-input-030): the pending keyed posts and consumers in arrival order, swapped with spare storage, no allocation; budget 10 us per frame over the consumers' bodies",
+      "bench": "swift test --filter 'PointerFrameCoalescerTests|FrameInputCoalescerTests' (deliveries per frame, pooled drag samples), then scripts/cmux-next/drag-lag-live.py, light and STRESS, on macOS 26 and 27",
+      "owner": "Performance Lead",
+      "trace": [
+        "input.frame",
+        "key.scroll_frame"
+      ]
+    },
+    "main-job-gate": {
+      "what": "every main-actor job enqueue through the MainJobGate hook (swift_task_enqueueMainExecutor_hook, p04-input-021): the pass-through is one relaxed load of the pending-input state and the original call, budget 0.2 us per job; while input is pending or dispatching it records the job (MainJobGateDiagnostics.recordEnqueue: a 16-frame backtrace_async and one ring push, no lock, allocation or system call), budget 2 us per recorded job",
+      "bench": "swift test --filter 'MainJobGateHookTests|MainJobGateDiagnosticsTests' (order unchanged, concurrent producers lose no record), then the debug.input action hops and scripts/cmux-next/input-turn-hops.py under STRESS, on macOS 26 and 27",
+      "owner": "Performance Lead"
+    },
+    "input-latency-mark": {
+      "what": "the InputLatencyTracker's per-event stamps (InputLatencyTracker.begin, mark, endDispatch): one slot claim and relaxed stage stores in the preallocated slot table, no lock, allocation or String; budget 0.5 us for a begin, 0.05 us for a mark",
+      "bench": "swift test --filter 'InputLatencyTrackerTests/perEventPathAllocatesNothing' (begin, marks, the dispatch end, the commit and the close allocate nothing per event), then scripts/cmux-next/bench-typing.py (input.latency stages p50/p95/p99), on macOS 26 and 27",
+      "owner": "PL-typing",
+      "trace": [
+        "input.latency"
+      ]
+    },
+    "terminal-input-lane": {
+      "what": "one key's bytes pushed to its session's TerminalInputLane (TerminalInputLane.push, p04-input-058): a single-producer ring push from the main thread and one wake of the IO's queue, never a wait for the drain; budget 2 us per key",
+      "bench": "swift test --filter TerminalInputLaneTests (prints the main push wait p50/p95/max while another thread spills to the overflow; 10k interleaved records in order), then scripts/cmux-next/bench-typing.py (input write stage), on macOS 26 and 27",
+      "owner": "PL-ghostty",
+      "trace": [
+        "key.flow"
+      ]
     }
   }
 }

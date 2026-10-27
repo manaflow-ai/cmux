@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextLayout
+import CmuxNextWakeups
 import Testing
 
 /// Leo 2026-10-21: after a restart the chat pane's content was laid out wider than the pane and
@@ -32,7 +33,7 @@ struct HiddenScreenMotionTests {
                                           LayoutScreen(id: "b", name: "b", layout: .splits(HiddenScreenMotionTests.other))],
                                 activeScreenID: "a", focusedPane: "a-p1")
             model.splitSizingOverride = .even
-            root = LayoutRootView(model: model, contentProvider: provider)
+            root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             root.context.reduceMotionOverride = false
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)

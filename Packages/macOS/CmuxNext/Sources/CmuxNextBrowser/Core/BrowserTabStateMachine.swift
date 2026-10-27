@@ -41,7 +41,8 @@ public nonisolated enum BrowserNavigationEvent: Hashable, Sendable {
 /// - Progress is clamped, never goes backwards within a navigation, and is
 ///   ignored when nothing is loading.
 /// - Cancellation and download interruptions end the load without an error.
-/// - Committing to another host clears the favicon and title.
+/// - Committing clears the title and starts a new `documentGeneration`; committing to another
+///   host also clears the favicon.
 /// - A process exit ends any load and marks the page gone; the next
 ///   navigation (Reload) clears it. A gone page is never unresponsive.
 public nonisolated struct BrowserTabStateMachine: Sendable {
@@ -102,6 +103,7 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
                 state.faviconURL = nil
             }
             state.title = nil
+            state.documentGeneration &+= 1
             errorBeforeStart = nil
             // A new document plays nothing until its script reports.
             state.media = nil

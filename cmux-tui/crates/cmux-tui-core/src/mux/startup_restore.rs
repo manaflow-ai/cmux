@@ -3,6 +3,7 @@
 use super::*;
 
 impl Mux {
+    #[track_caller]
     pub(super) fn retry_pending_agent_hooks(&self) -> anyhow::Result<()> {
         let mut cursor = None;
         // Keep startup work bounded. Remaining rows stay durable for a later
@@ -20,6 +21,7 @@ impl Mux {
         Ok(())
     }
 
+    #[track_caller]
     pub(super) fn retry_pending_agent_hooks_for_terminal(
         &self,
         terminal_id: &TerminalPublicId,
@@ -43,6 +45,7 @@ impl Mux {
         Ok(())
     }
 
+    #[track_caller]
     pub(super) fn retry_pending_agent_hooks_rows(
         &self,
         pending: Vec<(String, String, String, u64, crate::JournalIngress)>,
@@ -107,6 +110,7 @@ impl Mux {
     /// host adoption then restores the live content, and creation settlement
     /// publishes the complete resource subtree atomically before startup
     /// returns.
+    #[track_caller]
     pub(super) fn materialize_interrupted_resource_workspaces(&self) -> anyhow::Result<()> {
         let (recoveries, staged) = {
             let registry = self.workspace_registry.lock().unwrap();
@@ -175,6 +179,7 @@ impl Mux {
         Ok(())
     }
 
+    #[track_caller]
     pub(super) fn materialize_restored_browsers(
         self: &Arc<Self>,
         contents: &[RestoredResourceContent],

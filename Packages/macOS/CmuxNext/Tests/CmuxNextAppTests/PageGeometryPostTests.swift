@@ -5,7 +5,7 @@ import Testing
 
 /// Lawrence (2026-10-23): "making splits in general has laggy animation, even more laggy if there
 /// are CEF chromium views involved". On every motion frame the window asks its Chromium pages to
-/// re-apply their geometry (`browserChildWindowPagesNeedUpdate`: the divider lines moved), and every
+/// re-apply their geometry (`NSWindow.updateBrowserPageGeometry`: the divider lines moved), and every
 /// page posted the fork's geometry notification, so the fork re-read clip and occlusion, rebuilt the
 /// mask and moved the page window of every page, the static ones too. A page posts only when what
 /// the fork reads (its screen rect, visible rect, clip inputs, occlusion holes) changed since the
@@ -15,13 +15,17 @@ import Testing
     struct TwoPages {
         /// A plain window: `ShellWindow.setFrame` keeps frames on the test screen, which can undo a move.
         let window: NSWindow
-        let left = CEFHostView(frame: CGRect(x: 0, y: 0, width: 400, height: 500))
-        let right = CEFHostView(frame: CGRect(x: 400, y: 0, width: 400, height: 500))
+        /// The pages' own center: the requests of this test reach no other test's observers.
+        let center = NotificationCenter()
+        let left: CEFHostView
+        let right: CEFHostView
         /// Both pages' common ancestor below the content view (the layout root's place).
         let stage = NSView()
 
         init() {
             _ = NSApplication.shared
+            left = CEFHostView(frame: CGRect(x: 0, y: 0, width: 400, height: 500), pageUpdateCenter: center)
+            right = CEFHostView(frame: CGRect(x: 400, y: 0, width: 400, height: 500), pageUpdateCenter: center)
             let content = NSView(frame: CGRect(x: 0, y: 0, width: 800, height: 500))
             window = NSWindow(contentRect: content.frame, styleMask: [.titled, .resizable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
@@ -49,8 +53,7 @@ import Testing
         }
 
         func requestPageUpdate() {
-            // global-notice-allow: CEFHostView observes its window's page update request on the default center (the production path)
-            NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
+            window.updateBrowserPageGeometry(center: center)
         }
     }
 

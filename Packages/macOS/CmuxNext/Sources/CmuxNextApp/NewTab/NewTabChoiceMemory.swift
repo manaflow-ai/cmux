@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextSettings
 import Observation
 
@@ -35,7 +36,7 @@ final class NewTabChoiceMemory {
 
     var picks: AgentPaneLastPicks? {
         _ = revision
-        return defaults.data(forKey: Self.picksKey).flatMap { try? JSONDecoder().decode(AgentPaneLastPicks.self, from: $0) }
+        return defaults.data(forKey: Self.picksKey).flatMap { try? JSONDecoder().blockingDecode(AgentPaneLastPicks.self, from: $0) }
     }
 
     /// Integrate a harness was dismissed on a New Tab page (Leo 2026-10-12: the dismissal sticks).

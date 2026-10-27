@@ -146,7 +146,7 @@ public final class ChiefPetController {
     /// Puts the card up for `toastSeconds`, then folds it into the badge.
     private func present() {
         presenting = true
-        toast.schedule(after: .seconds(Self.toastSeconds)) { @MainActor [weak self] in
+        toast.scheduleOnMain(after: .seconds(Self.toastSeconds)) { [weak self] in
             guard let self else { return }
             self.presenting = false
             self.render(animated: false)
@@ -171,7 +171,7 @@ public final class ChiefPetController {
     private func scheduleExpiry(_ id: UInt64) {
         let timer = DemandTimer(owner: "chiefPet.notice", clock: clock)
         expiries[id] = timer
-        timer.schedule(after: .seconds(Self.doneSeconds)) { @MainActor [weak self] in
+        timer.scheduleOnMain(after: .seconds(Self.doneSeconds)) { [weak self] in
             guard let self else { return }
             self.expiries[id] = nil
             self.feed.expire(id: id)

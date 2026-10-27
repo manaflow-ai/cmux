@@ -44,7 +44,7 @@ public struct ChromiumProfileList {
         if let data = fileManager.contents(atPath: localState.path),
            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let profile = root["profile"] as? [String: Any],
-           let cache = profile["info_cache"] as? [String: Any] {
+           let cache: [String: Any] = profile["info_cache"] as? [String: Any] {
             let order = (profile["profiles_order"] as? [String]) ?? []
             let names = cache.keys.sorted { lhs, rhs in
                 let (li, ri) = (order.firstIndex(of: lhs) ?? Int.max, order.firstIndex(of: rhs) ?? Int.max)
@@ -69,10 +69,11 @@ public struct ChromiumProfileList {
         return entries.filter { fileManager.fileExists(atPath: userDataDirectory.appending(path: $0.directoryName).path) }
     }
 
-    /// "Default" first, then "Profile 2" before "Profile 10".
-    private func sortKey(_ name: String) -> (Int, String) {
-        if name == "Default" { return (0, "") }
-        if name.hasPrefix("Profile "), let number = Int(name.dropFirst(8)) { return (number + 1, "") }
-        return (Int.max, name)
+    /// "Default" first, then "Profile 2" before "Profile 10", then other names. The folder's own
+    /// number is compared, never offset, so a name like "Profile 9223372036854775807" sorts too.
+    private func sortKey(_ name: String) -> (Int, Int, String) {
+        if name == "Default" { return (0, 0, "") }
+        if name.hasPrefix("Profile "), let number = Int(name.dropFirst(8)) { return (1, number, "") }
+        return (2, 0, name)
     }
 }

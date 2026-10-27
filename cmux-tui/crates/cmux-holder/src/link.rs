@@ -45,6 +45,53 @@ pub trait TerminalSink: Send + Sync {
     fn adopted(&self, _end: u64) {}
 }
 
+/// What a trace control call did on a link ([`HolderLink::trace_start`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TraceForward {
+    /// The frame went to a holder that granted
+    /// [`wire::capability::TRACE_CONTROL`]. Its refusal, if any, comes back
+    /// later ([`HolderLink::trace_refusal`]).
+    Sent,
+    /// The holder did not grant the capability (an older holder): nothing
+    /// was sent, and its status is `holder_untraced`.
+    Untraced,
+}
+
+/// Watches each frame the reader thread routes, for the daemon's hang
+/// watcher (cmux-panic-log `hang`, which this std-and-libc crate does not
+/// link): `enter` gets the frame's kind before it is routed and returns a
+/// token, `exit` gets that token once the frame is done. `hang` gets each
+/// [`Kind::Hang`] the holder reports about its own loop.
+#[derive(Clone, Copy)]
+pub struct FrameWatch {
+    pub enter: fn(u16) -> u32,
+    pub exit: fn(u32),
+    pub hang: fn(&wire::HangReport),
+}
+
+impl FrameWatch {
+    /// Watches nothing.
+    pub const NONE: Self = Self { enter: |_| 0, exit: |_| {}, hang: |_| {} };
+}
+
+/// One watched frame: ends its watch when it drops.
+struct WatchedFrame {
+    watch: FrameWatch,
+    token: u32,
+}
+
+impl WatchedFrame {
+    fn enter(watch: FrameWatch, kind: u16) -> Self {
+        Self { watch, token: (watch.enter)(kind) }
+    }
+}
+
+impl Drop for WatchedFrame {
+    fn drop(&mut self) {
+        (self.watch.exit)(self.token);
+    }
+}
+
 /// Why a link ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LinkEnd {
@@ -66,6 +113,9 @@ struct State {
     /// ADOPTs waiting for the holder's [`Kind::Adopted`] (wire version 5).
     adopts: HashMap<u32, SyncSender<AdoptReply>>,
     open: bool,
+    /// The holder's last refusal of a TRACE_START or TRACE_STOP, cleared
+    /// by the next one that goes out.
+    trace_refusal: Option<String>,
 }
 
 /// A SPAWN that started no terminal: the holder refused it (its ERROR
@@ -118,9 +168,17 @@ pub struct HolderLink {
     credit: bool,
     /// The wire version the holder settled on.
     version: u16,
+    /// The [`wire::capability`] bits the holder granted.
+    granted: u32,
     /// How long a spawn waits for the holder's SPAWNED.
     spawn_timeout: Duration,
 }
+
+/// The class of the holder-link reader thread: every echoed key's output
+/// passes through it, so it is the daemon's key echo path class
+/// (`thread_qos::ThreadType::InputCritical` in cmux-tui-core, which sits
+/// above this crate and tests that the two agree).
+pub const LINK_READER_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::UserInteractive;
 
 /// How long a spawn waits for the holder's answer.
 pub const SPAWN_TIMEOUT: Duration = Duration::from_secs(10);
@@ -150,19 +208,32 @@ impl HolderLink {
         on_lost: Box<dyn FnOnce(LinkEnd) + Send>,
         spawn_timeout: Duration,
     ) -> io::Result<(Arc<Self>, Vec<Listed>)> {
+        Self::connect_watched(socket, token, on_lost, spawn_timeout, FrameWatch::NONE)
+    }
+
+    /// [`Self::connect_with_spawn_timeout`], with every frame the reader
+    /// thread routes watched by `watch`.
+    pub fn connect_watched(
+        socket: &Path,
+        token: &[u8; 32],
+        on_lost: Box<dyn FnOnce(LinkEnd) + Send>,
+        spawn_timeout: Duration,
+        watch: FrameWatch,
+    ) -> io::Result<(Arc<Self>, Vec<Listed>)> {
         let (client, listed) = crate::client::HolderClient::connect(socket, token)?;
-        let (stream, reader, version) = client.into_parts();
+        let (stream, reader, version, granted) = client.into_parts();
         stream.set_read_timeout(None)?;
         let link = Arc::new(Self {
             writer: Mutex::new(stream.try_clone()?),
             state: Mutex::new(State { open: true, ..State::default() }),
             credit: version >= 2,
             version,
+            granted,
             spawn_timeout,
         });
         let weak = Arc::downgrade(&link);
-        std::thread::Builder::new().name("holder-link".into()).spawn(move || {
-            let end = read_loop(&stream, reader, &weak);
+        cmux_threads::spawn("holder-link", LINK_READER_QOS, move || {
+            let end = read_loop(&stream, reader, &weak, watch);
             if let Some(link) = weak.upgrade() {
                 link.lost();
             }
@@ -179,6 +250,55 @@ impl HolderLink {
     /// The wire version the holder settled on.
     pub fn version(&self) -> u16 {
         self.version
+    }
+
+    /// The [`wire::capability`] bits the holder granted (0: a holder older
+    /// than them).
+    pub fn capabilities(&self) -> u32 {
+        self.granted
+    }
+
+    /// Whether the holder takes TRACE_START and TRACE_STOP
+    /// ([`wire::capability::TRACE_CONTROL`], granted only while its tracer
+    /// records). One that does not is `holder_untraced`: it never gets
+    /// either frame.
+    pub fn traced(&self) -> bool {
+        self.granted & wire::capability::TRACE_CONTROL != 0
+    }
+
+    /// Whether WRITE frames may carry a key press's flow
+    /// ([`wire::capability::WRITE_FLOW`]).
+    pub fn takes_write_flow(&self) -> bool {
+        self.granted & wire::capability::WRITE_FLOW != 0
+    }
+
+    /// Start the holder's trace recording of `categories`, within
+    /// `budget_bytes` ring bytes (0: no limit). Sends nothing to a holder
+    /// that did not grant [`wire::capability::TRACE_CONTROL`]. The holder
+    /// stops it when this link ends.
+    pub fn trace_start(&self, categories: u64, budget_bytes: u64) -> io::Result<TraceForward> {
+        let payload = wire::TraceStart { categories, budget_bytes }.encode();
+        self.trace_control(Kind::TraceStart, &payload)
+    }
+
+    /// Stop the holder's trace recording; nothing to a holder without
+    /// [`wire::capability::TRACE_CONTROL`].
+    pub fn trace_stop(&self) -> io::Result<TraceForward> {
+        self.trace_control(Kind::TraceStop, &[])
+    }
+
+    /// Why the holder refused the last TRACE_START or TRACE_STOP, if it did.
+    pub fn trace_refusal(&self) -> Option<String> {
+        self.lock().trace_refusal.clone()
+    }
+
+    fn trace_control(&self, kind: Kind, payload: &[u8]) -> io::Result<TraceForward> {
+        if !self.traced() {
+            return Ok(TraceForward::Untraced);
+        }
+        self.lock().trace_refusal = None;
+        self.send(kind, 0, payload, None)?;
+        Ok(TraceForward::Sent)
     }
 
     /// Whether the holder takes ring segments in an ADOPT and says which
@@ -369,6 +489,39 @@ impl HolderLink {
         Ok(())
     }
 
+    /// [`Self::write`] for the key press `flow` (0: none): its last frame
+    /// carries the flow ([`wire::FLAG_FLOW`]), so the holder marks the
+    /// first output it reads after these bytes reached the PTY. `bytes` may
+    /// be empty: a flow mark for input the daemon writes on its custody
+    /// master, sent before that write (best effort: the holder may read the
+    /// echo before it handles the mark). A holder that did not grant
+    /// [`wire::capability::WRITE_FLOW`] gets the plain WRITE (none for empty
+    /// `bytes`): never a trailer it would write into the shell.
+    pub fn write_flow(&self, chan: u32, bytes: &[u8], flow: u64) -> io::Result<()> {
+        if flow == 0 || !self.takes_write_flow() {
+            return self.write(chan, bytes);
+        }
+        let mut chunks = bytes.chunks(wire::MAX_PAYLOAD - 8).peekable();
+        while let Some(chunk) = chunks.next() {
+            if chunks.peek().is_some() {
+                self.send(Kind::Write, chan, chunk, None)?;
+            } else {
+                self.send_flow(chan, chunk, flow)?;
+            }
+        }
+        if bytes.is_empty() {
+            self.send_flow(chan, &[], flow)?;
+        }
+        Ok(())
+    }
+
+    fn send_flow(&self, chan: u32, bytes: &[u8], flow: u64) -> io::Result<()> {
+        let payload = wire::write_flow_payload(bytes, flow);
+        let frame = wire::encode_flagged(Kind::Write, wire::FLAG_FLOW, chan, &payload);
+        let writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        wire::send_all(writer.as_raw_fd(), &frame, &[])
+    }
+
     pub fn signal(&self, chan: u32, signal: i32) -> io::Result<()> {
         self.send(Kind::Signal, chan, &Out::default().i32(signal).0, None)
     }
@@ -414,6 +567,7 @@ fn read_loop(
     stream: &UnixStream,
     mut reader: wire::Reader,
     link: &std::sync::Weak<HolderLink>,
+    watch: FrameWatch,
 ) -> LinkEnd {
     let mut ending = LinkEnd::Lost;
     // Per channel, the offset the link last acknowledged for a sink that
@@ -426,6 +580,7 @@ fn read_loop(
                 Ok(None) => break,
                 Err(_) => return ending,
             };
+            let _watched = WatchedFrame::enter(watch, frame.kind);
             let Some(link) = link.upgrade() else { return ending };
             let chan = frame.chan;
             let mut input = In(&frame.payload);
@@ -461,7 +616,11 @@ fn read_loop(
                     {
                         ending = LinkEnd::Superseded;
                     }
-                    if request == Kind::Spawn as u16
+                    if chan == 0
+                        && (request == Kind::TraceStart as u16 || request == Kind::TraceStop as u16)
+                    {
+                        link.lock().trace_refusal = Some(message);
+                    } else if request == Kind::Spawn as u16
                         && let Some(waiter) = link.lock().spawns.remove(&chan)
                     {
                         let _ = waiter.try_send(Err(io::Error::other(NotStarted(message))));
@@ -520,6 +679,11 @@ fn read_loop(
                         && let Some(sink) = link.lock().sinks.get(&chan).cloned()
                     {
                         sink.gap(requested, oldest);
+                    }
+                }
+                Some(Kind::Hang) if chan == 0 => {
+                    if let Ok(report) = wire::HangReport::decode(&frame.payload) {
+                        (watch.hang)(&report);
                     }
                 }
                 Some(Kind::Exit) => {

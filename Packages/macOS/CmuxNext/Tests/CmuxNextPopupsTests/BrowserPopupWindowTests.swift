@@ -1,8 +1,11 @@
 import AppKit
-import CmuxNextBrowser
+@testable import CmuxNextBrowser
+import CmuxNextDesign
+import CmuxNextInput
 @testable import CmuxNextPopups
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// Popup windows follow Chrome's `TYPE_POPUP` window on macOS (user,
 /// 2026-10-13: "popup windows need parity with chrome"): an independent
@@ -78,7 +81,7 @@ import Testing
 
     private func open(_ url: String, request: BrowserPopupRequest = BrowserPopupRequest(size: CGSize(width: 480, height: 360)))
         -> (BrowserPopupWindows, MockBrowserTab, BrowserPopupWindow, NSWindow) {
-        let popups = BrowserPopupWindows()
+        let popups = BrowserPopupWindows(mainWork: MainWorkScheduler(budget: MainFrameBudget()), inputTap: InputEventTap())
         popups.ordersWindowsIn = false
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: url)))
         let opener = makeOpener()
@@ -168,7 +171,7 @@ import Testing
 
     @Test func aSignInWindowsOmnibarIsReadOnly() async throws {
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
-        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true)
+        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true, mainWork: MainWorkScheduler(budget: MainFrameBudget()), inputTap: nil)
         defer { window.close() }
         let bars = descendants(of: window.contentView).compactMap { $0 as? AddressBarView }
         #expect(bars.count == 1, "the same omnibar view, read-only")
@@ -203,9 +206,110 @@ import Testing
         #expect(editor.selectedRange() == NSRange(location: 0, length: (editor.string as NSString).length), "the whole address is selected")
     }
 
+    // MARK: Event identity in a popup (p04-input-068)
+
+    /// The popup carries the app's input tap as a main window does, so the press that focuses its
+    /// omnibar is a click (the whole address selects on release), and focus with no press is not.
+    @Test func aClickThatFocusesThePopupOmnibarSelectsAllOnRelease() throws {
+        let (popups, _, window, _) = open("https://accounts.example.com/signin")
+        defer { popups.closeAll() }
+        let tap = try #require(window.inputTap, "the popup window carries no input tap")
+        window.orderFrontRegardless()
+        window.contentView?.layoutSubtreeIfNeeded()
+        let bar = window.addressBar
+        let point = bar.convert(NSPoint(x: bar.bounds.midX, y: bar.bounds.midY), to: nil)
+        let press = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [],
+                                                    timestamp: ProcessInfo.processInfo.systemUptime,
+                                                    windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                                    clickCount: 1, pressure: 1))
+        tap.dispatching {
+            tap.deliverObserve(press)
+            #expect(window.makeFirstResponder(bar.field))
+        }
+        #expect(bar.isEditing)
+        #expect(bar.controller.state.mouse?.selectAllOnRelease == true, "the focusing click in a popup placed a caret")
+    }
+
+    @Test func aFocusWithNoPressInThePopupIsNotAClick() throws {
+        let (popups, _, window, _) = open("https://accounts.example.com/signin")
+        defer { popups.closeAll() }
+        let tap = try #require(window.inputTap)
+        let key = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 1,
+                                                windowNumber: window.windowNumber, context: nil, characters: "\t",
+                                                charactersIgnoringModifiers: "\t", isARepeat: false, keyCode: 48))
+        tap.dispatching {
+            tap.deliverObserve(key)
+            #expect(window.makeFirstResponder(window.addressBar.field))
+        }
+        #expect(window.addressBar.isEditing)
+        #expect(window.addressBar.controller.state.mouse == nil, "a Tab into the omnibar counted as a click")
+    }
+
+    /// Return that reaches the field's `doCommandBy` (not the editor's own Return check) commits by
+    /// the modifiers of the key down the field editor handles, never by an older event's.
+    @Test func optionReturnThroughTheFieldsCommandOpensAForegroundTab() throws {
+        let (popups, tab, window, _) = open("https://accounts.example.com/signin")
+        defer { popups.closeAll() }
+        let host = IntentRecorder()
+        tab.delegate = host
+        let bar = window.addressBar
+        #expect(bar.debugTypeAndCommit("https://www.example.org/docs", commit: false))
+        let editor = try #require(bar.fieldEditor)
+        let optionReturn = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .option,
+                                                         timestamp: ProcessInfo.processInfo.systemUptime,
+                                                         windowNumber: window.windowNumber, context: nil, characters: "\r",
+                                                         charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+        editor.handling(optionReturn) {
+            #expect(bar.control(bar.field, textView: editor, doCommandBy: #selector(NSResponder.insertNewline(_:))))
+        }
+        #expect(editor.handlingKeyDown == nil)
+        let opened = try #require(host.urls.first, "Option-Return committed in the popup instead of a new tab")
+        #expect(opened.0.absoluteString == "https://www.example.org/docs")
+        #expect(opened.1 == .foregroundTab)
+    }
+
+    @Test func returnThroughTheFieldsCommandOutsideAKeyDownCommitsInThePopup() async throws {
+        let (popups, tab, window, _) = open("https://accounts.example.com/signin")
+        defer { popups.closeAll() }
+        let host = IntentRecorder()
+        tab.delegate = host
+        let bar = window.addressBar
+        #expect(bar.debugTypeAndCommit("https://www.example.org/next", commit: false))
+        let editor = try #require(bar.fieldEditor)
+        // An accessibility or script run: no key down is being handled, whatever AppKit's current event is.
+        #expect(bar.control(bar.field, textView: editor, doCommandBy: #selector(NSResponder.insertNewline(_:))))
+        #expect(host.urls.isEmpty, "a stale event's modifiers opened a new tab")
+        try await waitUntil { tab.state.url?.absoluteString == "https://www.example.org/next" }
+        #expect(tab.state.url?.absoluteString == "https://www.example.org/next")
+    }
+
+    /// p06-scheduler-221: the fork re-adds the popup's page window above every child, the overlay
+    /// host's panel (omnibar suggestions, toasts) included. No per-event check puts the panel back, so
+    /// the popup's `addChildWindow` does it in the same call, as the main window's does.
+    @Test func aPageAddedToThePopupGoesBelowItsOverlayPanel() {
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
+        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 100, y: 100, width: 480, height: 600), mainWork: MainWorkScheduler(budget: MainFrameBudget()), inputTap: nil)
+        window.orderFrontRegardless()
+        let host = WindowOverlayHost.host(for: window)
+        host.setPlanesWantPanel(true)
+        let page = NSWindow(contentRect: CGRect(x: 100, y: 100, width: 480, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
+        page.isReleasedWhenClosed = false
+        defer {
+            window.removeChildWindow(page)
+            page.orderOut(nil)
+            window.close()
+        }
+        #expect(host.isPanelAttached)
+
+        window.addChildWindow(page, ordered: .above)
+
+        #expect(page.parent === window)
+        #expect(host.isAbovePages, "the popup's page covers its overlays")
+    }
+
     @Test func aSignInWindowTakesCmdL() {
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
-        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true)
+        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true, mainWork: MainWorkScheduler(budget: MainFrameBudget()), inputTap: nil)
         defer { window.close() }
         window.focusAddressBar()
         #expect(window.addressBar.isEditing, "the address can still be selected and copied")
@@ -246,6 +350,32 @@ import Testing
         #expect(!window.isToolbarShown)
         window.showToolbar(true)
         #expect(window.isToolbarShown)
+    }
+
+    /// The window's own full-screen notices reach it through its one ``WindowEvents`` (p06-scheduler-336): one
+    /// subscription per notice on the window's shared observer, which the close ends. (The toolbar they toggle is
+    /// fullscreenHidesTheLocationBar's.)
+    @Test func theWindowFollowsItsFullScreenNoticesThroughItsWindowEvents() {
+        let (popups, tab, window, _) = open("https://example.com")
+        let events = WindowEvents.of(window)
+        #expect(events.subscriberCount(NSWindow.didEnterFullScreenNotification) == 1)
+        #expect(events.subscriberCount(NSWindow.didExitFullScreenNotification) == 1)
+        #expect(popups.handle(tab, .close))
+        #expect(!events.isObserving(NSWindow.didEnterFullScreenNotification), "the closed popup still observes its window")
+        #expect(!events.isObserving(NSWindow.didExitFullScreenNotification))
+    }
+
+    /// The page's title changes are its program's: they reach the window title as one posted visible task, not in
+    /// the page's own turn, and a burst before it runs applies its last title (p06-scheduler-336).
+    @Test func aBurstOfTitleChangesAppliesItsLastTitleInOnePostedTask() async throws {
+        let (popups, tab, window, _) = open("https://accounts.example.com/signin")
+        defer { popups.closeAll() }
+        let before = window.title
+        tab.simulate(.titleChanged("Loading"))
+        tab.simulate(.titleChanged("Sign in - Example"))
+        #expect(window.title == before, "the page's change applied in its own turn")
+        try await waitUntil { window.title == "Sign in - Example" }
+        #expect(window.title == "Sign in - Example")
     }
 
     @Test func escapeStopsALoadAndNeverClosesThePopup() {

@@ -1,0 +1,74 @@
+// Copyright 2018 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+module remote_cocoa.mojom;
+
+import "components/remote_cocoa/common/alert.mojom";
+import "components/remote_cocoa/common/native_widget_ns_window.mojom";
+import "components/remote_cocoa/common/native_widget_ns_window_host.mojom";
+import "components/remote_cocoa/common/text_input_host.mojom";
+import "components/system_media_controls/mac/remote_cocoa/system_media_controls.mojom";
+
+// Empty interface that is used by Application in place of
+// RenderWidgetHostNSViewBridge, RenderWidgetHostNSViewClient,
+// WebContentsNSViewBridge, and WebContentsNSViewClient (which are the real
+// interfaces that should be used). The reason that the correct interfaces
+// cannot be used directly is that they have dependencies on types that are in
+// content.
+// TODO(ccameron): Migrate the interfaces from content types to remote_cocoa
+// types, and then move the interfaces to this component.
+// https://crbug.com/888290
+interface StubInterface {};
+
+// Enum describing what edit command is being forwarded to the NSApplication.
+enum CutCopyPasteCommand {
+  kCut, kCopy, kPaste
+};
+
+// The interface through which the browser controls the NSApplication in an
+// app shim process. This also the root interface to Cocoa, through which
+// various Cocoa types (NSAlert, NSWindow, NSView, etc) are created.
+interface Application {
+  // Create a bridge for an NSAlert. The resulting object owns its own lifetime.
+  CreateAlert(pending_receiver<AlertBridge> alert_bridge_receiver);
+
+  // Create a window for a native widget. The resulting object will be owned by
+  // the connection for |host|. Closing that connection will result in deleting
+  // the bridge.
+  CreateNativeWidgetNSWindow(
+      uint64 bridge_id,
+      pending_associated_receiver<NativeWidgetNSWindow> window_receiver,
+      pending_associated_remote<NativeWidgetNSWindowHost> host,
+      pending_associated_remote<TextInputHost> text_input_host);
+
+  // Create and take ownership of the NSView for a RenderWidgetHostView. The
+  // resulting object will be destroyed when the connection is closed.
+  // The value of |view_id| may be used to look up the NSView (e.g, to add
+  // child NSViews or get a point relative to that NSView).
+  CreateRenderWidgetHostNSView(
+      uint64 view_id,
+      pending_associated_remote<StubInterface> host,
+      pending_associated_receiver<StubInterface> view_receiver);
+
+  // Create and take ownership of a SystemMediaControlsBridge for a
+  // SystemMediaControlsMac. The resulting object will live as long as the
+  // Application lives. Any subsequent calls to this function on the same
+  // Application will reconnect the existing SystemMediaControlsBridge to the
+  // new pending receiver/host.
+  CreateSystemMediaControlsBridge(
+    pending_receiver<system_media_controls.mojom.SystemMediaControls> receiver,
+    pending_remote<system_media_controls.mojom.SystemMediaControlsObserver> host);
+
+  // Create and take ownership of the NSView for a WebContentsView. The
+  // resulting object will be destroyed when the connection is closed.
+  // The value of |view_id| may be used to look up the NSView (e.g, to add
+  // child NSViews).
+  CreateWebContentsNSView(
+      uint64 view_id,
+      pending_associated_remote<StubInterface> host,
+      pending_associated_receiver<StubInterface> view_receiver);
+
+  // Forwards a Cut, Copy or Paste operation to the NSApplication.
+  ForwardCutCopyPaste(CutCopyPasteCommand command);
+};

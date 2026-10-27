@@ -3,9 +3,6 @@
 #   libcef_dll_wrapper.a      CEF's C++ wrapper (from the artifact's libcef_dll/)
 #   libcmux_cef_shim.dylib    Packages/macOS/CmuxNext/CEFShim (C ABI for Swift)
 #   cmux-cef-helper           the subprocess binary for the helper apps
-#   cmux-chromium-host        Chromium's browser process as an app of its own
-#                             (prototype, plans/cmux-next/cef-helper-app-DESIGN.md;
-#                             embed-cef.sh bundles it in Debug builds only)
 #
 # Usage: build-cef-shim.sh <cef_dir> <cache_dir>
 # Prints the output directory on stdout (progress goes to stderr); exits
@@ -44,7 +41,7 @@ key="$(
   } | shasum -a 256 | awk '{print $1}'
 )"
 FINAL_DIR="$CACHE_DIR/$(basename "$CEF_DIR")-${key:0:16}"
-complete() { [[ -f "$1/.build-key" && "$(cat "$1/.build-key")" == "$key" && -f "$1/libcmux_cef_shim.dylib" && -x "$1/cmux-cef-helper" && -x "$1/cmux-chromium-host" ]]; }
+complete() { [[ -f "$1/.build-key" && "$(cat "$1/.build-key")" == "$key" && -f "$1/libcmux_cef_shim.dylib" && -x "$1/cmux-cef-helper" ]]; }
 if complete "$FINAL_DIR"; then
   echo "$FINAL_DIR"
   exit 0
@@ -56,8 +53,10 @@ trap 'rm -rf "$OUT_DIR"' EXIT
 echo "==> building CEF shim into $FINAL_DIR" >&2
 mkdir -p "$OUT_DIR/obj/wrapper" "$OUT_DIR/obj/shim"
 
+# Line tables only, as Chromium's symbol_level = 1 (build/config/compiler/BUILD.gn):
+# file:line in crash reports, through the dSYMs written below.
 common=(
-  -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" -O2
+  -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" -O2 -gline-tables-only
   -std=c++20 -fno-exceptions -fno-rtti -fno-strict-aliasing -fstack-protector -funwind-tables
   -fvisibility=hidden -fvisibility-inlines-hidden -fobjc-call-cxx-cdtors
   -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS
@@ -96,7 +95,7 @@ done
   "$OUT_DIR/obj/shim/shim_page_scheme.mm.o" "$OUT_DIR/obj/shim/shim_downloads.mm.o" \
   "$OUT_DIR/obj/shim/shim_background.mm.o" "$OUT_DIR/obj/shim/shim_bookmarks.mm.o" \
   "$OUT_DIR/obj/shim/shim_permissions.mm.o" "$OUT_DIR/obj/shim/shim_helper_host.mm.o" \
-  "$OUT_DIR/obj/shim/shim_file_dialog.mm.o" \
+  "$OUT_DIR/obj/shim/shim_file_dialog.mm.o" "$OUT_DIR/obj/shim/shim_tracing.mm.o" \
   "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -lobjc
 
 "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
@@ -104,11 +103,13 @@ done
   "$OUT_DIR/obj/shim/helper_main.mm.o" \
   "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface
 
-"$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
-  -o "$OUT_DIR/cmux-chromium-host" \
-  "$OUT_DIR/obj/shim/browser_host_main.mm.o" \
-  "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -framework QuartzCore
-
+# A dSYM beside each binary, read from the objects before they go
+# (embed-cef.sh keeps it next to the app, outside the bundle). A binary without
+# one still ships: its crashes then show symbol names only.
+for binary in libcmux_cef_shim.dylib cmux-cef-helper; do
+  xcrun dsymutil "$OUT_DIR/$binary" -o "$OUT_DIR/$binary.dSYM" >&2 ||
+    { echo "warning: no dSYM for $binary" >&2; rm -rf "$OUT_DIR/$binary.dSYM"; }
+done
 rm -rf "$OUT_DIR/obj"
 printf '%s' "$key" > "$OUT_DIR/.build-key"
 # Atomic publish: rename(2) fails when the target already exists (another

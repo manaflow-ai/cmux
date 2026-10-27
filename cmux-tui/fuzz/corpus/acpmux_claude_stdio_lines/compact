@@ -1,0 +1,5 @@
+{"type":"system","subtype":"status","status":"compacting"}
+{"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"manual","pre_tokens":1000}}
+{"type":"user","isSynthetic":true,"message":{"content":"This session is being continued"}}
+{"type":"system","subtype":"status","status":null,"compact_result":"failed"}
+{"type":"result","subtype":"success","result":"","num_turns":0,"duration_api_ms":0}

@@ -1,0 +1,23 @@
+{
+  "id": "pane-scale",
+  "tier": "T2",
+  "description": "Pane scale (bench_pane_scale.py, grid shape) at 16, 64 and 256 terminal panes: create round trip and time to show per pane, idle app CPU, wakeups and footprint, and per churn phase (focus moves, pane resizes, window resizes, split/close) the op latency and display frame intervals.",
+  "command": ["scripts/cmux-next/bench_pane_scale.py", "--story", "pane-scale", "--counts", "16,64,256",
+              "--phases", "focus,resize,window,churn", "--label", "lab"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "pane_scale\\.(grid|nested)\\.[0-9]+\\.create\\.(rtt|visible)", "unit": "ms", "better": "lower"},
+    {"name": "pane_scale\\.(grid|nested)\\.[0-9]+\\.(focus|resize|window|churn|tabs|status)\\.(op|frame_interval)", "unit": "ms", "better": "lower"},
+    {"name": "pane_scale\\.(grid|nested)\\.[0-9]+\\.idle\\.app_cpu", "unit": "percent", "better": "lower"},
+    {"name": "pane_scale\\.(grid|nested)\\.[0-9]+\\.idle\\.app_wakeups", "unit": "per_s", "better": "lower"},
+    {"name": "pane_scale\\.(grid|nested)\\.[0-9]+\\.app_footprint", "unit": "bytes", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 1200,
+  "needs": ["debug:debug.frames", "debug:debug.hangs", "debug:debug.layers", "debug:debug.layout_counters",
+            "debug:debug.wakeups", "debug:debug.window_frame"],
+  "owner": "Performance Lead",
+  "component": "Layout>Scale"
+}

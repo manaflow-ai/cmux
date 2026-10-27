@@ -3,7 +3,7 @@ import Foundation
 /// Renames a profile or sets/clears its appearance or terminal defaults.
 public struct UpdateProfileRequest: DaemonRequest {
     public typealias Response = ProfileResult
-    public static let command = "update-profile"
+    public static let commandName: DaemonCommandName = "update-profile"
     public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
     public var profile: ProfileID
     public var name: String?
@@ -44,7 +44,7 @@ public struct UpdateProfileRequest: DaemonRequest {
 /// Moves a profile to an insertion index (the `move-workspace` rule).
 public struct MoveProfileRequest: DaemonRequest {
     public typealias Response = ProfileResult
-    public static let command = "move-profile"
+    public static let commandName: DaemonCommandName = "move-profile"
     public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
     public var profile: ProfileID
     public var index: Int
@@ -72,12 +72,16 @@ public struct DeleteProfileRequest: DaemonRequest {
             case closedID = "closed_id"
         }
     }
-    public static let command = "delete-profile"
+    public static let commandName: DaemonCommandName = "delete-profile"
     public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
     public var profile: ProfileID
     public var moveTo: ProfileID?
     public init(profile: ProfileID, moveTo: ProfileID? = nil) {
         self.profile = profile
         self.moveTo = moveTo
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case profile, moveTo = "move_to"
     }
 }

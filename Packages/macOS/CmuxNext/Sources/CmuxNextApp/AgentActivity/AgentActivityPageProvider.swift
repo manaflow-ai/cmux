@@ -1,6 +1,7 @@
 import CmuxNextAgentActivity
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// Serves the Agent Activity page (``PageDescriptor/agentActivity``): `cmux.agentActivity.<method>`
@@ -9,17 +10,25 @@ import Foundation
 @MainActor
 final class AgentActivityPageProvider: PageProvider {
     /// The page's op prefix.
-    static let prefix = "cmux.agentActivity."
+    nonisolated static let prefix = "cmux.agentActivity."
     /// The state stream.
     static let stateStream = "cmux.agentActivity.state"
+    /// The page's requests (``AgentActivityRequests/reply(to:params:)``) and its stream. `perform`
+    /// stops, pauses and resumes live computer-use sessions; the rest read or move the page's own view.
+    nonisolated static let ops = PageOpTable(namespace: prefix,
+                                             read: ["ready", "select", "filter", "scrub", "layout", "follow", "frame", "state"],
+                                             act: ["perform"])
 
     private let requests: AgentActivityRequests
     private var listeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
-    /// Coalesces bursts of model changes into one state event per main-actor turn.
+    /// Coalesces bursts of model changes into one state event per posted task.
     private var pushScheduled = false
+    /// The app's main-thread scheduler: each coalesced push is one `visible` task on it.
+    private let mainWork: MainWorkScheduler
 
-    init(requests: AgentActivityRequests) {
+    init(requests: AgentActivityRequests, mainWork: MainWorkScheduler) {
         self.requests = requests
+        self.mainWork = mainWork
         requests.model.onChange = { [weak self] in self?.schedulePush() }
     }
 
@@ -40,14 +49,16 @@ final class AgentActivityPageProvider: PageProvider {
         let id = UUID()
         listeners[id] = onEvent
         onEvent(Self.json(requests.state()))
-        return PageSubscription { [weak self] in self?.listeners[id] = nil }
+        // Each event carries the model's whole state: the newest replaces the rest.
+        return PageSubscription(frozenDelivery: .latest) { [weak self] in self?.listeners[id] = nil }
     }
 
     private func schedulePush() {
         guard !pushScheduled else { return }
         pushScheduled = true
-        // task-owner: one coalesced state event per main-actor turn; ends at once
-        Task { [weak self] in
+        // `visible`: the page redraws what the model changed, which no input of the person in this turn caused.
+        // node-free: the page host keeps only a hidden page's newest state (`frozenDelivery: .latest`), so the push runs.
+        mainWork.post(.visible, owner: "AgentActivityPageProvider.push") { [weak self] in
             guard let self else { return }
             pushScheduled = false
             let state = Self.json(requests.state())

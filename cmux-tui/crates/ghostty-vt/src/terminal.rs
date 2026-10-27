@@ -328,13 +328,15 @@ pub struct SelectionRange {
     pub end: SelectionPoint,
 }
 
-// The C handle is owned by this value and Ghostty permits freeing it after
-// its terminal is gone. All other access requires the originating Terminal,
-// whose callers already serialize mutation.
+// SAFETY: the C handle is owned by this value and Ghostty permits freeing it
+// after its terminal is gone. All other access requires the originating
+// Terminal, whose callers already serialize mutation.
 unsafe impl Send for TrackedScreenPoint {}
 
 impl Drop for TrackedScreenPoint {
     fn drop(&mut self) {
+        // SAFETY: this value owns `raw` (non-null from grid_ref_track) and frees it
+        // only here; Ghostty allows freeing it after its terminal is gone.
         unsafe { sys::ghostty_tracked_grid_ref_free(self.raw) };
     }
 }
@@ -375,6 +377,7 @@ pub struct Terminal {
     /// Stable primary-screen row markers (`terminal.history`).
     history_markers: history::HistoryMarkers,
     empty_kitty_probe_filter: EmptyKittyProbeFilter,
+    raw_settings: cold::RawSettings,
 }
 
 enum PendingSequenceReplay<'a> {
@@ -420,7 +423,7 @@ fn trim_ascii_spaces(mut bytes: &[u8]) -> &[u8] {
     bytes
 }
 
-// The handle is not thread-safe, but it is movable and we only expose
+// SAFETY: the handle is not thread-safe, but it is movable and we only expose
 // mutation through &mut self, so guarding a Terminal with a Mutex is sound.
 unsafe impl Send for Terminal {}
 
@@ -429,12 +432,15 @@ impl Terminal {
         kitty::install_png_decoder()?;
         let mouse_mode_probe = MouseModeProbe::new()?;
         let mut raw: sys::GhosttyTerminal = ptr::null_mut();
+        // SAFETY: `raw` is a writable local; a null allocator selects the default.
         check(unsafe {
             sys::ghostty_terminal_new(ptr::null(), &mut raw, cols.max(1), rows.max(1))
         })?;
         // The scrollback limit is retained storage in bytes (Ghostty's page
         // budget), not a line count. Snapshots need the continuation of an
         // unfinished escape sequence, so tracking is on from the first byte.
+        // SAFETY: `raw` is the terminal created above; the option reads a size_t from
+        // the live `max_scrollback`.
         let configured = check(unsafe {
             sys::ghostty_terminal_set(
                 raw,
@@ -444,6 +450,8 @@ impl Terminal {
         })
         .and_then(|()| {
             let limit = SNAPSHOT_CONTINUATION_MAX_BYTES;
+            // SAFETY: `raw` is the terminal created above; the option reads a size_t from
+            // the live `limit`.
             check(unsafe {
                 sys::ghostty_terminal_set(
                     raw,
@@ -453,10 +461,12 @@ impl Terminal {
             })
         });
         if let Err(error) = configured {
+            // SAFETY: `raw` came from ghostty_terminal_new and nothing else owns it yet.
             unsafe { sys::ghostty_terminal_free(raw) };
             return Err(error);
         }
         if let Err(error) = configure_kitty_graphics(raw) {
+            // SAFETY: as above: `raw` is unowned and freed once here.
             unsafe { sys::ghostty_terminal_free(raw) };
             return Err(error);
         }
@@ -468,6 +478,8 @@ impl Terminal {
             mode: sys::ghostty_mode_new(2027, false),
             value: true,
         };
+        // SAFETY: `raw` is the terminal created above; MODE_DEFAULT reads the live
+        // `grapheme_default` (a GhosttyTerminalModeConfig).
         if let Err(error) = check(unsafe {
             sys::ghostty_terminal_set(
                 raw,
@@ -475,6 +487,7 @@ impl Terminal {
                 (&grapheme_default as *const sys::GhosttyTerminalModeConfig).cast(),
             )
         }) {
+            // SAFETY: as above: `raw` is unowned and freed once here.
             unsafe { sys::ghostty_terminal_free(raw) };
             return Err(error);
         }
@@ -501,6 +514,7 @@ impl Terminal {
             c1_normalizer: C1Normalizer::default(),
             history_markers: Default::default(),
             empty_kitty_probe_filter: EmptyKittyProbeFilter,
+            raw_settings: Default::default(),
         };
         // SAFETY: `hooks` is heap-pinned for the terminal's lifetime and
         // Drop uninstalls the trampolines before the Box is freed.
@@ -544,6 +558,8 @@ impl Terminal {
             },
         };
         let mut anchor: sys::GhosttyTrackedGridRef = ptr::null_mut();
+        // SAFETY: `self.raw` is this Terminal's live handle and `anchor` a writable
+        // local; the anchor it returns is owned by `self.history_anchor`.
         if check(unsafe { sys::ghostty_terminal_grid_ref_track(self.raw, point, &mut anchor) })
             .is_ok()
         {
@@ -552,6 +568,8 @@ impl Terminal {
     }
 
     fn reset_history_anchor(&mut self) {
+        // SAFETY: `history_anchor` is null or an anchor this Terminal owns; freeing
+        // null is a no-op, and the field is reset before any other use.
         unsafe { sys::ghostty_tracked_grid_ref_free(self.history_anchor) };
         self.history_anchor = ptr::null_mut();
         self.ensure_history_anchor();
@@ -580,10 +598,13 @@ impl Terminal {
         let normalized = self.empty_kitty_probe_filter.write(normalized);
         let mouse_modes_may_have_changed = self.feed_trackers(&normalized);
         self.history_markers_before_write();
+        // SAFETY: `self.raw` is this Terminal's live handle; `normalized` is
+        // readable for `normalized.len()` bytes for the call.
         unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) };
         self.history_markers_after_write();
         let history_rows = self.scrollback_rows();
         let history_anchor_evicted = !self.history_anchor.is_null()
+            // SAFETY: `history_anchor` is a non-null anchor this Terminal owns.
             && !unsafe { sys::ghostty_tracked_grid_ref_has_value(self.history_anchor) };
         if previous_history_rows != history_rows || history_anchor_missing || history_anchor_evicted
         {
@@ -730,6 +751,8 @@ impl Terminal {
     ///
     /// `None` leaves that channel unchanged.
     pub fn set_default_colors(&mut self, fg: Option<Rgb>, bg: Option<Rgb>, cursor: Option<Rgb>) {
+        // SAFETY: `self.raw` is this Terminal's live handle; each COLOR_* option reads
+        // a GhosttyColorRgb from a local that outlives its call.
         unsafe {
             if let Some(fg) = fg {
                 let color = sys::GhosttyColorRgb { r: fg.r, g: fg.g, b: fg.b };
@@ -770,6 +793,8 @@ impl Terminal {
         let bg = bg.map(|color| sys::GhosttyColorRgb { r: color.r, g: color.g, b: color.b });
         let cursor =
             cursor.map(|color| sys::GhosttyColorRgb { r: color.r, g: color.g, b: color.b });
+        // SAFETY: `self.raw` is this Terminal's live handle; each COLOR_* option reads
+        // null (clear) or a GhosttyColorRgb that outlives the loop.
         unsafe {
             for (option, color) in [
                 (sys::GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND, fg.as_ref()),
@@ -790,12 +815,15 @@ impl Terminal {
     /// overrides remain effective; this only replaces their defaults.
     pub fn set_default_palette(&mut self, overrides: &[Option<Rgb>; 256]) {
         let mut palette = [sys::GhosttyColorRgb::default(); 256];
+        // SAFETY: `palette` is 256 writable GhosttyColorRgb, the size the call fills.
         unsafe { sys::ghostty_color_palette_default(palette.as_mut_ptr()) };
         for (slot, color) in palette.iter_mut().zip(overrides) {
             if let Some(color) = color {
                 *slot = sys::GhosttyColorRgb { r: color.r, g: color.g, b: color.b };
             }
         }
+        // SAFETY: `self.raw` is this Terminal's live handle; COLOR_PALETTE reads
+        // GhosttyColorRgb[256] from the live `palette`.
         unsafe {
             sys::ghostty_terminal_set(
                 self.raw,
@@ -808,6 +836,9 @@ impl Terminal {
     /// Set the cursor defaults used until an application overrides them with
     /// DECSCUSR. `None` leaves that default unchanged.
     pub fn set_default_cursor(&mut self, style: Option<CursorShape>, blink: Option<bool>) {
+        // SAFETY: `self.raw` is this Terminal's live handle; DEFAULT_CURSOR_STYLE
+        // reads a GhosttyTerminalCursorStyle and DEFAULT_CURSOR_BLINK a bool, each
+        // from a local that outlives its call.
         unsafe {
             if let Some(style) = style {
                 let style = match style {
@@ -843,6 +874,8 @@ impl Terminal {
                 sys::GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK
             }
         });
+        // SAFETY: `self.raw` is this Terminal's live handle; the options read null
+        // (reset) or a live GhosttyTerminalCursorStyle and bool.
         unsafe {
             sys::ghostty_terminal_set(
                 self.raw,
@@ -936,6 +969,8 @@ impl Terminal {
 
     fn get_palette(&self, data: sys::GhosttyTerminalData) -> Result<[sys::GhosttyColorRgb; 256]> {
         let mut output = [sys::GhosttyColorRgb::default(); 256];
+        // SAFETY: `self.raw` is this Terminal's live handle; both palette kinds
+        // write GhosttyColorRgb[256], the size of `output`.
         check(unsafe { sys::ghostty_terminal_get(self.raw, data, output.as_mut_ptr().cast()) })?;
         Ok(output)
     }
@@ -974,8 +1009,12 @@ impl Terminal {
     fn active_row_wrap_continuation(&self, y: u16) -> Option<bool> {
         let grid_ref = self.grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, 0, u64::from(y))?;
         let mut row = sys::GhosttyRow::default();
+        // SAFETY: `grid_ref` came from this terminal under `&self` (no mutation
+        // since) and `row` is a writable local.
         check(unsafe { sys::ghostty_grid_ref_row(&grid_ref, &mut row) }).ok()?;
         let mut continuation = false;
+        // SAFETY: `row` was just read from the unchanged terminal;
+        // WRAP_CONTINUATION writes a bool.
         check(unsafe {
             sys::ghostty_row_get(
                 row,
@@ -1002,8 +1041,12 @@ impl Terminal {
     ) -> Option<sys::GhosttyRowSemanticPrompt> {
         let grid_ref = self.grid_ref(tag, 0, y)?;
         let mut row = sys::GhosttyRow::default();
+        // SAFETY: `grid_ref` came from this terminal under `&self` (no mutation
+        // since) and `row` is a writable local.
         check(unsafe { sys::ghostty_grid_ref_row(&grid_ref, &mut row) }).ok()?;
         let mut semantic = sys::GHOSTTY_ROW_SEMANTIC_NONE;
+        // SAFETY: `row` was just read from the unchanged terminal; SEMANTIC_PROMPT
+        // writes a GhosttyRowSemanticPrompt.
         check(unsafe {
             sys::ghostty_row_get(
                 row,
@@ -1023,6 +1066,8 @@ impl Terminal {
         cell_height_px: u32,
     ) -> Result<()> {
         let reflows = (cols.max(1), rows.max(1)) != (self.cols(), self.rows());
+        // SAFETY: `self.raw` is this Terminal's live handle; the call takes no
+        // pointers.
         check(unsafe {
             sys::ghostty_terminal_resize(
                 self.raw,
@@ -1058,6 +1103,8 @@ impl Terminal {
         }
 
         let mut graphics: sys::GhosttyKittyGraphics = ptr::null_mut();
+        // SAFETY: `self.raw` is this Terminal's live handle; KITTY_GRAPHICS writes
+        // a GhosttyKittyGraphics handle into the local.
         check(unsafe {
             sys::ghostty_terminal_get(
                 self.raw,
@@ -1070,11 +1117,15 @@ impl Terminal {
         }
 
         for alias in aliases {
+            // SAFETY: `graphics` is non-null storage borrowed from the live terminal
+            // and unchanged since it was read.
             if unsafe { sys::ghostty_kitty_graphics_image(graphics, alias.image_id) }.is_null() {
                 return Err(Error::NoValue);
             }
         }
         for alias in aliases {
+            // SAFETY: `graphics` is the terminal's storage, unchanged since the lookup
+            // above; the call takes no pointers.
             check(unsafe {
                 sys::ghostty_kitty_graphics_image_set_number(
                     graphics,
@@ -1142,6 +1193,8 @@ impl Terminal {
             primary: cursors.primary,
             alternate: cursors.alternate,
         };
+        // SAFETY: `self.raw` is this Terminal's live handle; KITTY_IMAGE_ID_CURSORS
+        // reads a GhosttyTerminalKittyImageIdCursors from the live `raw`.
         check(unsafe {
             sys::ghostty_terminal_set(
                 self.raw,
@@ -1157,21 +1210,6 @@ impl Terminal {
             inflight_bytes: self.kitty_inflight_storage_limit(),
             images: self.kitty_image_count_limit()?,
             placements: self.kitty_placement_count_limit()?,
-        })
-    }
-
-    /// Names the terminfo entry this terminal's program runs as (its TERM),
-    /// which an XTGETTCAP "TN" query reports, as Ghostty does. An empty name
-    /// leaves the query unanswered; libghostty refuses names over 128 bytes.
-    pub fn set_terminfo_name(&mut self, name: &str) -> Result<()> {
-        let value = sys::GhosttyString { ptr: name.as_ptr(), len: name.len() };
-        // SAFETY: libghostty copies the string before the call returns.
-        check(unsafe {
-            sys::ghostty_terminal_set(
-                self.raw,
-                sys::GHOSTTY_TERMINAL_OPT_TERMINFO_NAME,
-                (&value as *const sys::GhosttyString).cast(),
-            )
         })
     }
 
@@ -1196,6 +1234,8 @@ impl Terminal {
 
     /// Set the active terminal's bounded Kitty image storage in bytes.
     pub fn set_kitty_image_storage_limit(&mut self, bytes: u64) -> Result<()> {
+        // SAFETY: `self.raw` is this Terminal's live handle;
+        // KITTY_IMAGE_STORAGE_LIMIT reads a uint64_t from the live `bytes`.
         check(unsafe {
             sys::ghostty_terminal_set(
                 self.raw,
@@ -1214,6 +1254,18 @@ impl Terminal {
         }
         self.kitty_replay_pixel_cache.0 = pixel_cache;
         snapshot.map(|_| ())
+    }
+
+    /// Drop the replay encoder's decoded Kitty pixel copies. Lossless: the
+    /// next replay copies the images libghostty still stores again. The
+    /// daemon calls it under critical memory pressure.
+    pub fn clear_kitty_replay_pixel_cache(&mut self) {
+        self.kitty_replay_pixel_cache.0 = HashMap::new();
+    }
+
+    /// Decoded Kitty pixel bytes the replay encoder's cache holds.
+    pub fn kitty_replay_pixel_cache_bytes(&self) -> usize {
+        kitty::pixel_cache_bytes(&self.kitty_replay_pixel_cache.0)
     }
 
     pub fn kitty_image_storage_limit(&self) -> Result<u64> {
@@ -1246,6 +1298,8 @@ impl Terminal {
 
     /// Set the active terminal's maximum number of stored Kitty images.
     pub fn set_kitty_image_count_limit(&mut self, count: u64) -> Result<()> {
+        // SAFETY: `self.raw` is this Terminal's live handle;
+        // KITTY_IMAGE_COUNT_LIMIT reads a uint64_t from the live `count`.
         check(unsafe {
             sys::ghostty_terminal_set(
                 self.raw,
@@ -1261,6 +1315,8 @@ impl Terminal {
 
     /// Set the active terminal's maximum number of Kitty placements.
     pub fn set_kitty_placement_count_limit(&mut self, count: u64) -> Result<()> {
+        // SAFETY: `self.raw` is this Terminal's live handle;
+        // KITTY_PLACEMENT_COUNT_LIMIT reads a uint64_t from the live `count`.
         check(unsafe {
             sys::ghostty_terminal_set(
                 self.raw,
@@ -1293,6 +1349,8 @@ impl Terminal {
 
     fn get<T: Default>(&self, data: sys::GhosttyTerminalData) -> Result<T> {
         let mut out = T::default();
+        // SAFETY: `self.raw` is this Terminal's live handle, and every caller in
+        // this module names `T` as the output type the header gives for `data`.
         check(unsafe {
             sys::ghostty_terminal_get(self.raw, data, &mut out as *mut T as *mut c_void)
         })?;
@@ -1350,10 +1408,14 @@ impl Terminal {
         };
 
         let mut row = sys::GhosttyRow::default();
+        // SAFETY: `grid_ref` came from this terminal under `&self` (no mutation
+        // since) and `row` is a writable local.
         if check(unsafe { sys::ghostty_grid_ref_row(&grid_ref, &mut row) }).is_err() {
             return false;
         }
         let mut row_semantic = sys::GHOSTTY_ROW_SEMANTIC_NONE;
+        // SAFETY: `row` was just read from the unchanged terminal; SEMANTIC_PROMPT
+        // writes a GhosttyRowSemanticPrompt.
         if check(unsafe {
             sys::ghostty_row_get(
                 row,
@@ -1368,10 +1430,14 @@ impl Terminal {
         }
 
         let mut cell = sys::GhosttyCell::default();
+        // SAFETY: `grid_ref` is still valid (no mutation since) and `cell` is a
+        // writable local.
         if check(unsafe { sys::ghostty_grid_ref_cell(&grid_ref, &mut cell) }).is_err() {
             return false;
         }
         let mut cell_semantic = sys::GHOSTTY_CELL_SEMANTIC_OUTPUT;
+        // SAFETY: `cell` was just read from the unchanged terminal;
+        // SEMANTIC_CONTENT writes a GhosttyCellSemanticContent.
         check(unsafe {
             sys::ghostty_cell_get(
                 cell,
@@ -1432,10 +1498,14 @@ impl Terminal {
         for x in 0..cols {
             let grid_ref = self.grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, x, row)?;
             let mut cell = sys::GhosttyCell::default();
+            // SAFETY: `grid_ref` came from this terminal under `&self` (no mutation
+            // since) and `cell` is a writable local.
             if check(unsafe { sys::ghostty_grid_ref_cell(&grid_ref, &mut cell) }).is_err() {
                 continue;
             }
             let mut semantic = sys::GHOSTTY_CELL_SEMANTIC_OUTPUT;
+            // SAFETY: `cell` was just read from the unchanged terminal;
+            // SEMANTIC_CONTENT writes a GhosttyCellSemanticContent.
             let read = check(unsafe {
                 sys::ghostty_cell_get(
                     cell,
@@ -1483,6 +1553,8 @@ impl Terminal {
     /// complete pages at once; raising it lets history grow again.
     pub fn set_scrollback_max_bytes(&mut self, max_bytes: usize) -> Result<()> {
         let previous_rows = self.scrollback_rows();
+        // SAFETY: `self.raw` is this Terminal's live handle;
+        // SCROLLBACK_MAX_BYTES reads a size_t from the live `max_bytes`.
         check(unsafe {
             sys::ghostty_terminal_set(
                 self.raw,
@@ -1505,6 +1577,8 @@ impl Terminal {
         // getter requires.
         let mut usage: sys::GhosttyTerminalMemoryUsage = unsafe { std::mem::zeroed() };
         usage.size = size_of::<sys::GhosttyTerminalMemoryUsage>();
+        // SAFETY: `self.raw` is this Terminal's live handle; MEMORY_USAGE writes a
+        // GhosttyTerminalMemoryUsage whose `size` is set above.
         check(unsafe {
             sys::ghostty_terminal_get(
                 self.raw,
@@ -1553,6 +1627,8 @@ impl Terminal {
                     size: size_of::<sys::GhosttyGridRef>(),
                     ..Default::default()
                 };
+                // SAFETY: `self.raw` is this Terminal's live handle; `grid_ref` is a
+                // writable local with its `size` set.
                 check(unsafe { sys::ghostty_terminal_grid_ref(self.raw, point, &mut grid_ref) })?;
                 row.push(read_grid_ref_cell(&grid_ref, &palette, &mut grapheme_buf)?);
             }
@@ -1567,6 +1643,8 @@ impl Terminal {
         if s.len == 0 || s.ptr.is_null() {
             return None;
         }
+        // SAFETY: libghostty returned `s.len` readable bytes at the non-null
+        // `s.ptr`, owned by the terminal and unchanged while `&self` borrows it.
         let bytes = unsafe { std::slice::from_raw_parts(s.ptr, s.len) };
         Some(String::from_utf8_lossy(bytes).into_owned())
     }
@@ -1577,6 +1655,8 @@ impl Terminal {
         if s.len == 0 || s.ptr.is_null() {
             return None;
         }
+        // SAFETY: libghostty returned `s.len` readable bytes at the non-null
+        // `s.ptr`, owned by the terminal and unchanged while `&self` borrows it.
         let bytes = unsafe { std::slice::from_raw_parts(s.ptr, s.len) };
         Some(String::from_utf8_lossy(bytes).into_owned())
     }
@@ -1587,6 +1667,8 @@ impl Terminal {
             mode: sys::ghostty_mode_new(mode, ansi),
             value: false,
         };
+        // SAFETY: `self.raw` is this Terminal's live handle; MODE reads `mode` and
+        // writes `value` of the live GhosttyTerminalModeConfig.
         let result = unsafe {
             sys::ghostty_terminal_get(
                 self.raw,
@@ -1602,6 +1684,8 @@ impl Terminal {
             tag: sys::GHOSTTY_SCROLL_VIEWPORT_DELTA,
             value: sys::GhosttyTerminalScrollViewportValue { delta },
         };
+        // SAFETY: `self.raw` is this Terminal's live handle; the call takes no
+        // pointers.
         unsafe { sys::ghostty_terminal_scroll_viewport(self.raw, behavior) }
     }
 
@@ -1610,6 +1694,8 @@ impl Terminal {
             tag: sys::GHOSTTY_SCROLL_VIEWPORT_BOTTOM,
             value: sys::GhosttyTerminalScrollViewportValue { delta: 0 },
         };
+        // SAFETY: `self.raw` is this Terminal's live handle; the call takes no
+        // pointers.
         unsafe { sys::ghostty_terminal_scroll_viewport(self.raw, behavior) }
     }
 
@@ -1633,6 +1719,8 @@ impl Terminal {
             value: sys::GhosttyPointValue { coordinate: sys::GhosttyPointCoordinate { x, y } },
         };
         let mut raw: sys::GhosttyTrackedGridRef = ptr::null_mut();
+        // SAFETY: `self.raw` is this Terminal's live handle and `raw` a writable
+        // local; the returned anchor is owned by the TrackedScreenPoint.
         check(unsafe { sys::ghostty_terminal_grid_ref_track(self.raw, point, &mut raw) })?;
         if raw.is_null() {
             return Err(Error::NoValue);
@@ -1647,6 +1735,8 @@ impl Terminal {
             return None;
         }
         let mut coordinate = sys::GhosttyPointCoordinate::default();
+        // SAFETY: `point.raw` is a non-null anchor from this terminal (instance id
+        // checked above) and `coordinate` a writable local.
         (unsafe {
             sys::ghostty_tracked_grid_ref_point(
                 point.raw,
@@ -1671,6 +1761,8 @@ impl Terminal {
             tag: sys::GHOSTTY_POINT_TAG_SCREEN,
             value: sys::GhosttyPointValue { coordinate: sys::GhosttyPointCoordinate { x, y } },
         };
+        // SAFETY: `tracked.raw` is a non-null anchor from this terminal (instance
+        // id checked above) and `self.raw` its live handle.
         check(unsafe { sys::ghostty_tracked_grid_ref_set(tracked.raw, self.raw, point) })
     }
 
@@ -1701,6 +1793,8 @@ impl Terminal {
         let grid_ref =
             self.grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, point.column, u64::from(point.row))?;
         let mut raw = sys::GhosttyCell::default();
+        // SAFETY: `grid_ref` came from this terminal under `&self` (no mutation
+        // since) and `raw` is a writable local.
         check(unsafe { sys::ghostty_grid_ref_cell(&grid_ref, &mut raw) }).ok()?;
         Some(crate::render::cell_width(raw))
     }
@@ -1722,6 +1816,8 @@ impl Terminal {
             ..Default::default()
         };
         let result =
+            // SAFETY: `self.raw` is this Terminal's live handle; `options` holds a
+            // fresh grid ref and no boundary list, and `selection` is a sized local.
             unsafe { sys::ghostty_terminal_select_word(self.raw, &options, &mut selection) };
         if result == sys::GHOSTTY_NO_VALUE {
             return Ok(None);
@@ -1755,6 +1851,8 @@ impl Terminal {
             size: size_of::<sys::GhosttySelection>(),
             ..Default::default()
         };
+        // SAFETY: `self.raw` is this Terminal's live handle; `options` holds fresh
+        // grid refs and no boundary list, and `selection` is a sized local.
         let result = unsafe {
             sys::ghostty_terminal_select_word_between(self.raw, &options, &mut selection)
         };
@@ -1814,6 +1912,10 @@ impl Terminal {
             ..Default::default()
         };
         let result =
+            // SAFETY: `self.raw` is this Terminal's live handle; `options` holds a fresh
+            // grid ref and the caller's `whitespace` (null, or `whitespace_len` readable
+            // codepoints, or a live non-null pointer with length 0), and `selection` is a
+            // sized local.
             unsafe { sys::ghostty_terminal_select_line(self.raw, &options, &mut selection) };
         if result == sys::GHOSTTY_NO_VALUE {
             return Ok(None);
@@ -1831,6 +1933,8 @@ impl Terminal {
 
     fn selection_point(&self, grid_ref: &sys::GhosttyGridRef) -> Result<SelectionPoint> {
         let mut coordinate = sys::GhosttyPointCoordinate::default();
+        // SAFETY: `self.raw` is this Terminal's live handle; `grid_ref` came from it
+        // with no mutation since, and `coordinate` is a writable local.
         check(unsafe {
             sys::ghostty_terminal_point_from_grid_ref(
                 self.raw,
@@ -2560,17 +2664,23 @@ impl Terminal {
         };
         let mut out =
             sys::GhosttyGridRef { size: size_of::<sys::GhosttyGridRef>(), ..Default::default() };
+        // SAFETY: `self.raw` is this Terminal's live handle and `out` a writable
+        // local with its `size` set.
         let result = unsafe { sys::ghostty_terminal_grid_ref(self.raw, point, &mut out) };
         (result == sys::GHOSTTY_SUCCESS).then_some(out)
     }
 
     fn format(&mut self, opts: sys::GhosttyFormatterTerminalOptions) -> Result<Vec<u8>> {
         let mut formatter: sys::GhosttyFormatter = ptr::null_mut();
+        // SAFETY: `self.raw` is this Terminal's live handle and `formatter` a
+        // writable local; a null allocator selects the default.
         check(unsafe {
             sys::ghostty_formatter_terminal_new(ptr::null(), &mut formatter, self.raw, opts)
         })?;
         let result = (|| {
             let mut needed: usize = 0;
+            // SAFETY: `formatter` is live until the free below; a null buffer with
+            // length 0 only reports the size into `needed`.
             let query = unsafe {
                 sys::ghostty_formatter_format_buf(formatter, ptr::null_mut(), 0, &mut needed)
             };
@@ -2579,6 +2689,7 @@ impl Terminal {
             }
             let mut buf = vec![0u8; needed.max(1)];
             let mut written: usize = 0;
+            // SAFETY: `formatter` is live; `buf` is writable for `buf.len()` bytes.
             check(unsafe {
                 sys::ghostty_formatter_format_buf(
                     formatter,
@@ -2590,6 +2701,8 @@ impl Terminal {
             buf.truncate(written);
             Ok(buf)
         })();
+        // SAFETY: `formatter` came from formatter_terminal_new above and is freed
+        // once, after its last use.
         unsafe { sys::ghostty_formatter_free(formatter) };
         result
     }
@@ -2600,11 +2713,15 @@ impl Terminal {
         max_bytes: usize,
     ) -> Result<Option<Vec<u8>>> {
         let mut formatter: sys::GhosttyFormatter = ptr::null_mut();
+        // SAFETY: `self.raw` is this Terminal's live handle and `formatter` a
+        // writable local; a null allocator selects the default.
         check(unsafe {
             sys::ghostty_formatter_terminal_new(ptr::null(), &mut formatter, self.raw, opts)
         })?;
         let result = (|| {
             let mut needed: usize = 0;
+            // SAFETY: `formatter` is live until the free below; a null buffer with
+            // length 0 only reports the size into `needed`.
             let query = unsafe {
                 sys::ghostty_formatter_format_buf(formatter, ptr::null_mut(), 0, &mut needed)
             };
@@ -2616,6 +2733,7 @@ impl Terminal {
             }
             let mut buf = vec![0u8; needed.max(1)];
             let mut written: usize = 0;
+            // SAFETY: `formatter` is live; `buf` is writable for `buf.len()` bytes.
             check(unsafe {
                 sys::ghostty_formatter_format_buf(
                     formatter,
@@ -2627,6 +2745,8 @@ impl Terminal {
             buf.truncate(written);
             Ok(Some(buf))
         })();
+        // SAFETY: `formatter` came from formatter_terminal_new above and is freed
+        // once, after its last use.
         unsafe { sys::ghostty_formatter_free(formatter) };
         result
     }
@@ -2641,6 +2761,8 @@ fn configure_kitty_graphics(raw: sys::GhosttyTerminal) -> Result<()> {
             &DEFAULT_KITTY_PLACEMENT_COUNT_LIMIT,
         ),
     ] {
+        // SAFETY: the caller passes its new, live terminal; each KITTY_*_LIMIT option
+        // reads a uint64_t from a `'static` constant.
         check(unsafe { sys::ghostty_terminal_set(raw, option, (limit as *const u64).cast()) })?;
     }
     let disabled = false;
@@ -2648,12 +2770,16 @@ fn configure_kitty_graphics(raw: sys::GhosttyTerminal) -> Result<()> {
         sys::GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_FILE,
         sys::GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_SHARED_MEM,
     ] {
+        // SAFETY: the caller passes its new, live terminal; MEDIUM_FILE and
+        // MEDIUM_SHARED_MEM read a bool from the live `disabled`.
         check(unsafe {
             sys::ghostty_terminal_set(raw, option, (&disabled as *const bool).cast())
         })?;
     }
     // The temporary-file medium takes a GhosttyString directory; NULL disables
     // it. A pointer to a bool would be read as a 16-byte string.
+    // SAFETY: the caller passes its new, live terminal; MEDIUM_TEMP_FILE takes
+    // a GhosttyString pointer, and null disables it.
     check(unsafe {
         sys::ghostty_terminal_set(
             raw,
@@ -3226,6 +3352,9 @@ fn vt_replay_row_window(total_rows: u64, screen_rows: u64, cols: u16, max_bytes:
 
 impl Drop for Terminal {
     fn drop(&mut self) {
+        // SAFETY: Drop runs once with the live handle: the anchor (null is a no-op)
+        // and markers are freed first, the callbacks are removed before the Box
+        // they point to is dropped, and `raw` is freed last and never used again.
         unsafe {
             sys::ghostty_tracked_grid_ref_free(self.history_anchor);
             self.history_anchor = ptr::null_mut();
@@ -3241,3 +3370,9 @@ impl Drop for Terminal {
 #[path = "terminal_history.rs"]
 mod history;
 pub use history::{HistoryPage, HistoryPages, HistorySnapshot, MarkerError};
+
+#[path = "cold_pages.rs"]
+mod cold;
+pub use cold::{
+    ColdPagesError, ColdRefused, ColdTerminal, PageMemory, ScrollbackCompression, ThawFailed,
+};

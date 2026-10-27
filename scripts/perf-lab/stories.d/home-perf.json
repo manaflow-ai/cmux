@@ -1,0 +1,19 @@
+{
+  "id": "home-perf",
+  "tier": "T1",
+  "description": "Native classic Home with a 300-message local channel (home-perf.py): every frame interval and main-thread ms while the transcript scrolls, during sends and while keys are typed, each key's debug.key round trip, and the footprint and resident size at launch, with the channel open and at the end.",
+  "command": ["scripts/cmux-next/home-perf.py", "--messages", "300"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "home_perf\\.(scroll|send|typing)\\.(frame_interval|main)", "unit": "ms", "better": "lower"},
+    {"name": "home_perf\\.typing\\.key_dispatch", "unit": "ms", "better": "lower"},
+    {"name": "home_perf\\.memory\\.(launch|open|end)\\.(footprint|rss)", "unit": "bytes", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 120,
+  "needs": ["debug:debug.frames", "debug:debug.home", "debug:debug.home.api", "debug:debug.home.drive", "debug:debug.key", "env:CMUX_NEXT_CLASSIC_HOME"],
+  "owner": "PL-typing",
+  "component": "Home"
+}

@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextInput
 import CmuxNextTabs
 import CmuxNextWakeups
 import Foundation
@@ -19,11 +20,11 @@ struct AgentPaneRelaunchWakeTests {
     static let thisMac = "install:agent-pane-relaunch-wake-test"
     static let work = BackgroundWork(label: "test.relaunch-wake")
 
-    /// A tab store of one run, as the App wires it: tab records in a tree, pages on a page that
-    /// never loads (a loopback port nobody serves), the wake file of the tag's state directory.
+    /// A tab store of one run, as the App wires it: tab records in a tree, pages on the shared test
+    /// page (no agent page script runs), the wake file of the tag's state directory.
     static func run(file: URL, records: [String: AgentSessionRef]) -> AgentTabStore {
-        let tabs = AgentTabStore(build: nil, registry: ActionRegistry(),
-                                 environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9/"], showcase: true)
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry(), work: BackgroundWork(label: "test.agent-pane"), webUI: .agentTabsTestHost(), input: InputEventTap(),
+                                 environment: AgentPageAppTestRoot.environment, showcase: true)
         tabs.localHost = thisMac
         tabs.relaunchWake = AgentPaneRelaunchWake(file: file)
         let tree = DaemonStore()
@@ -96,11 +97,11 @@ struct AgentPaneRelaunchWakeTests {
         page.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: Self.thisMac))
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [page])])
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
-        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(),
-                                 environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9"], showcase: true)
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), work: BackgroundWork(label: "test.agent-pane"), webUI: .agentTabsTestHost(), input: InputEventTap(),
+                                 environment: AgentPageAppTestRoot.environment, showcase: true)
         tabs.localHost = Self.thisMac
         tabs.lookup = { key in store.tab(id: key)?.agentSession.map { ($0, store) } }
-        let handler = NewTabPageHandler(open: { _, _ in }, jump: { _, _ in }, editShortcut: { _ in })
+        let handler = NewTabPageHandler(open: { _, _ in }, jump: { _, _, _ in }, editShortcut: { _ in })
         tabs.firstPageNewTab = { _, _ in (AgentPaneNewTab(kind: .agent), handler) }
         tabs.blankChatHandler = { _ in handler }
         let spare = try #require(tabs.makeSpare(AgentPaneNewTab(kind: .agent)))

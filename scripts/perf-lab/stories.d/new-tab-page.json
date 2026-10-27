@@ -1,0 +1,23 @@
+{
+  "id": "new-tab-page",
+  "tier": "T1",
+  "description": "Cmd-T to the new tab page through the real key path (new-tab-e2e.py --bench-open): the key's main-thread time, key to the frame that shows the adopted spare page and its tab, and the run's dropped and longest frames, light session.",
+  "command": ["scripts/cmux-next/new-tab-e2e.py", "--bench-open", "--runs", "20"],
+  "session": "light",
+  "engine": "webkit",
+  "config": "bench",
+  "metrics": [
+    {"name": "new_tab_page\\.light\\.cmd_t\\.visible", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/cmd_t\\..*/p95"},
+     "floor_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/cmd_t\\..*/floor"}},
+    {"name": "new_tab_page\\.light\\.cmd_t\\.key_ms", "unit": "ms", "better": "lower"},
+    {"name": "new_tab_page\\.light\\.cmd_t\\.dropped", "unit": "count", "better": "lower"},
+    {"name": "new_tab_page\\.light\\.cmd_t\\.longest_frame", "unit": "ms", "better": "lower"},
+    {"name": "new_tab_page\\.light\\.cmd_t\\.[a-z_]+\\.missed_runs", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 5,
+  "seconds": 60,
+  "needs": ["debug:debug.new_tab", "debug:debug.key"],
+  "owner": "PL-webui",
+  "component": "Tabs>NewTabPage"
+}

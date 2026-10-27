@@ -105,7 +105,7 @@ public final class DaemonConnectingView: NSView {
     private func staggerIfConnecting() {
         guard window != nil, state == .connecting else { return }
         if !statusDue {
-            statusTimer.scheduleIfIdle(after: .seconds(MotionTunables.launchTextDelay.value)) { @MainActor [weak self] in
+            statusTimer.scheduleOnMainIfIdle(after: .seconds(MotionTunables.launchTextDelay.value)) { [weak self] in
                 guard let self else { return }
                 statusDue = true
                 DaemonLaunchTimings.shared.mark("connecting_status_shown")

@@ -142,36 +142,8 @@ HOLDER_RS = '''pub fn holder_enabled() -> bool {
     std::env::var("CMUX_TUI_TERMINAL_HOST_MODEL").is_ok_and(|model| model == "holder")
 }
 '''
-# The interface the generated Rust is written against (task p12-perf-process-095's lib.rs).
-RUST_INTERFACE = '''#![deny(warnings)]
-#![allow(dead_code)]
-pub struct Feature {
-    pub index: usize,
-    pub name: &'static str,
-    pub owner: &'static str,
-    pub description: &'static str,
-    pub kind: FeatureKind,
-    pub process: FeatureProcess,
-    pub defaults: FeatureDefaults,
-    pub expires: Option<&'static str>,
-    pub params: &'static [FeatureParamSpec],
-    pub stories: &'static [&'static str],
-    pub sticky: bool,
-    pub runtime_mutable: bool,
-}
-pub enum FeatureKind { PerfPath, KillSwitch, Labs }
-pub enum FeatureProcess { App, Daemon, Both, Chromium }
-pub struct FeatureDefaults { pub dev: bool, pub nightly: bool, pub release: bool }
-pub struct FeatureParamSpec { pub name: &'static str, pub description: &'static str, pub value: FeatureParamValue }
-pub enum FeatureParamValue {
-    Int { default: i64, min: i64, max: i64 },
-    Double { default: f64, min: f64, max: f64 },
-    Duration { default: f64, min: f64, max: f64 },
-    Bool { default: bool },
-}
-pub mod generated;
-pub fn count() -> usize { generated::REGISTERED.len() }
-'''
+# The crate the generated Rust is written against (task p12-perf-process-095): its lib.rs, warnings denied.
+RUST_LIB = REPO / "cmux-tui/crates/cmux-features/src/lib.rs"
 
 
 class Repo:
@@ -259,6 +231,13 @@ class SchemaTests(unittest.TestCase):
         errors = self.errors(with_(KILL, runtimeMutable=True))
         self.assertTrue(any("runtimeMutable" in error and "'teardownTest'" in error for error in errors), errors)
         self.assertEqual(self.errors(with_(KILL, runtimeMutable=True, teardownTest="CmuxNextFeaturesTests.T/testTeardown")), [])
+
+    def test_bench_only_is_for_app_features(self):
+        self.assertEqual(self.errors(with_(PERF, benchOnly=True)), [])
+        for feature in (KILL, HOLDER):  # process daemon, both
+            with self.subTest(process=feature["process"]):
+                self.assertTrue(self.errors(with_(feature, benchOnly=True)))
+        self.assertTrue(self.errors(with_(PERF, benchOnly="yes")))
 
     def test_chromium_feature_only_with_process_chromium(self):
         self.assertTrue(self.errors(with_(CHROMIUM, chromium_feature=None)))
@@ -550,11 +529,11 @@ class GeneratedFileTests(unittest.TestCase):
         """rustfmt (the pre-commit hook) owns the Rust layout; content changes are still drift."""
         self.repo.run()
         raw = gen.rust([KILL, HOLDER])
-        self.repo.write(gen.RUST_OUT, raw.replace("\n    ", "\n        ").replace("},\n    ],", "}],"))
+        self.repo.write(gen.RUST_OUT, raw.replace("\n    ", "\n        ").replace("},\n];", "}];"))
         self.assertEqual(self.repo.run("--check")[0], 0)
-        self.repo.write(gen.RUST_OUT, raw.replace("sticky: true", "sticky: false"))
+        self.repo.write(gen.RUST_OUT, raw.replace("nightly: false", "nightly: true"))
         self.assertEqual(self.repo.run("--check")[0], 1)
-        self.repo.write(gen.RUST_OUT, raw.replace("Ring size in MiB.", "Ring size in  MiB."))
+        self.repo.write(gen.RUST_OUT, raw.replace('"flagsFetch",\n    ', '"flags Fetch",\n    ', 1))
         self.assertEqual(self.repo.run("--check")[0], 1, "string contents keep their spaces")
 
     def test_invalid_feature_fails_check_and_writes_nothing(self):
@@ -585,21 +564,72 @@ class GeneratedFileTests(unittest.TestCase):
         self.assertIn(".bool(default: true)", swift)
         self.assertIn("expires: nil", swift)
 
+    def test_swift_carries_replaced_keys_for_the_local_override(self):
+        """The App reads each replaced tunable at launch as the feature's local override (p12-perf-process-100), so the
+        Swift handle names its `replaces`; a feature without them keeps the label off."""
+        self.repo.run()
+        swift = self.repo.read(gen.SWIFT_OUT)
+        perf = swift[swift.index("public static let cefLayerHosting = Feature("):]
+        self.assertIn('        runtimeMutable: false,\n        replaces: ["browserResize.layerHosting"]\n    )\n',
+                      perf[:perf.index("\n    )\n") + 7])
+        kill = swift[swift.index("public static let flagsFetch = Feature("):]
+        self.assertNotIn("replaces:", kill[:kill.index("\n    )\n")])
+
+    def test_bench_only_features_are_compiled_out_of_shipped_builds(self):
+        """A benchOnly handle and its registry slot exist only under DEBUG || CMUX_BENCH_HOOKS, after every
+        shipped feature, so a Release registry is dense and keeps the shipped features' indices."""
+        probe = with_(PERF, name="aaBenchProbe", benchOnly=True, replaces=None,
+                      params=[{"name": "spin", "type": "bool", "default": True, "description": "Spin."}])
+        self.repo.write_feature(probe)
+        self.repo.run()
+        swift = self.repo.read(gen.SWIFT_OUT)
+        shipped = sorted(feature["name"] for feature in (PERF, HOLDER, KILL, CHROMIUM))
+        for index, name in enumerate(shipped):
+            self.assertIn("public static let %s = Feature(\n        index: %d," % (name, index), swift)
+        guarded = "    #if DEBUG || CMUX_BENCH_HOOKS\n    /// %s\n    public static let aaBenchProbe = Feature(\n" \
+                  "        index: %d," % (probe["description"], len(shipped))
+        self.assertIn(guarded, swift)
+        handle = swift[swift.index("public static let aaBenchProbe"):]
+        self.assertLess(handle.index("    #endif\n"), handle.index("public static let registered"))
+        registry = lambda names: ("    /// Every feature, by index: `registered[feature.index] == feature`.\n"
+                                  "    public static let registered: [Feature] = [\n%s\n    ]\n"
+                                  % "\n".join("        .%s," % name for name in names))
+        self.assertIn("    #if DEBUG || CMUX_BENCH_HOOKS\n%s    #else\n%s    #endif\n}\n"
+                      % (registry(shipped + ["aaBenchProbe"]), registry(shipped)), swift)
+        self.assertNotIn("AA_BENCH_PROBE", self.repo.read(gen.RUST_OUT))
+        self.assertEqual(self.repo.run("--check")[0], 0)
+
+    def test_only_bench_features(self):
+        repo = Repo([with_(PERF, benchOnly=True)])
+        self.addCleanup(repo.close)
+        self.assertEqual(repo.run()[0], 0)
+        swift = repo.read(gen.SWIFT_OUT)
+        self.assertIn("    #else\n    /// Every feature, by index: `registered[feature.index] == feature`.\n"
+                      "    public static let registered: [Feature] = []\n    #endif\n", swift)
+        self.assertIn("index: 0,", swift)
+
     def test_rust_has_only_daemon_side_features(self):
         self.repo.run()
         rust = self.repo.read(gen.RUST_OUT)
-        self.assertIn("pub const FLAGS_FETCH: crate::Feature", rust)
-        self.assertIn("pub const TERMINAL_HOLDER: crate::Feature", rust)
+        self.assertIn('        FLAGS_FETCH = "flagsFetch",\n', rust)
+        self.assertIn('        TERMINAL_HOLDER = "terminalHolder",\n', rust)
         self.assertNotIn("CEF_LAYER_HOSTING", rust)
         self.assertNotIn("BACK_FORWARD_CACHE", rust)
-        self.assertIn("pub static REGISTERED: &[crate::Feature] = &[FLAGS_FETCH, TERMINAL_HOLDER];", rust)
+        table = rust[rust.index("pub(crate) const TABLE"):rust.index("pub mod feature")]
+        self.assertLess(table.index('name: "flagsFetch"'), table.index('name: "terminalHolder"'))
+        self.assertIn("process: crate::Process::Both,", table)
+        self.assertIn("kind: crate::Kind::KillSwitch,", table)
+        self.assertIn("kind: crate::Kind::PerfPath,", table)
+        self.assertIn("defaults: crate::Defaults { dev: true, nightly: false, release: false },", table)
 
     def test_empty_registry(self):
         repo = Repo()
         self.addCleanup(repo.close)
         self.assertEqual(repo.run()[0], 0)
         self.assertIn("public static let registered: [Feature] = []", repo.read(gen.SWIFT_OUT))
-        self.assertIn("pub static REGISTERED: &[crate::Feature] = &[];", repo.read(gen.RUST_OUT))
+        rust = repo.read(gen.RUST_OUT)
+        self.assertIn("pub(crate) const TABLE: &[crate::FeatureDef] = &[];", rust)
+        self.assertIn("    feature_handles!(super::TABLE;);\n", rust)
 
     def test_files_are_written_and_checked_only_once_their_target_exists(self):
         repo = Repo([PERF, HOLDER, KILL, CHROMIUM], targets=False)
@@ -635,13 +665,15 @@ class GeneratedFileTests(unittest.TestCase):
             crate = repo.root / "crate"
             crate.mkdir()
             shutil.copy(repo.root / gen.RUST_OUT, crate / "generated.rs")
-            (crate / "lib.rs").write_text(RUST_INTERFACE)
+            shutil.copy(RUST_LIB, crate / "lib.rs")
+            shutil.copy(RUST_LIB.with_name("hello.rs"), crate / "hello.rs")
             shutil.copy(repo.root / "cmux-tui/rustfmt.toml", crate / "rustfmt.toml")
             fmt = subprocess.run(["rustfmt", "--edition", gen.RUST_EDITION, "--check", "generated.rs"], cwd=crate,
                                  capture_output=True, text=True)
             self.assertEqual(fmt.returncode, 0, fmt.stdout + fmt.stderr)
             build = subprocess.run(["rustc", "--edition", gen.RUST_EDITION, "--crate-type", "lib", "--emit", "metadata",
-                                    "-o", str(crate / "out.rmeta"), "lib.rs"], cwd=crate, capture_output=True, text=True)
+                                    "-D", "warnings", "-o", str(crate / "out.rmeta"), "lib.rs"], cwd=crate,
+                                   capture_output=True, text=True)
             self.assertEqual(build.returncode, 0, build.stderr)
 
 
@@ -701,10 +733,10 @@ extension PaneHostView {
         self.assertEqual(code, 0)
         stale = [line for line in err.splitlines() if "matches no declared tunable" in line]
         self.assertEqual(stale, ["warning: the MQ6 seed %s matches no declared tunable or env read; update the seed list"
-                                 % seed for seed in ("browserHost.helperPrototype", "hibernation.compressedSnapshots",
-                                                     "hostPressure.enabled", "agent.pageHost", "agent.chromium")])
-        _, _, err = self.repo(PERF, with_(KILL, replaces=["agent.pageHost"])).run("--unmigrated")
-        self.assertNotIn("seed agent.pageHost ", err, "a replaced seed is migrated, not stale")
+                                 % seed for seed in ("browserHost.helper", "hibernation.compressedSnapshots",
+                                                     "hostPressure.enabled", "agent.chromium")])
+        _, _, err = self.repo(PERF, with_(KILL, replaces=["agent.chromium"])).run("--unmigrated")
+        self.assertNotIn("seed agent.chromium ", err, "a replaced seed is migrated, not stale")
 
     def test_unmigrated_params_follow_perf_owned_files(self):
         code, out, _ = self.repo().run("--unmigrated-params")
@@ -730,7 +762,7 @@ extension PaneHostView {
         self.assertEqual(stale, [], "every MQ6 seed still names a declared tunable or env read")
         keys = [key for key, _ in rows]
         self.assertIn("motion.pane.holdContent", keys)
-        self.assertIn("CMUX_TUI_TERMINAL_HOST_MODEL", keys)
+        self.assertNotIn("CMUX_TUI_TERMINAL_HOST_MODEL", keys, "terminalHolder replaces the env switch")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
 #if DEBUG
 import Foundation
-@preconcurrency import Sparkle
 
 /// A synthetic update-error scenario that the debug menu can inject so every error popover
 /// variant can be previewed without reproducing the real failure.
@@ -62,40 +61,40 @@ public enum DebugUpdateErrorScenario: String, CaseIterable, Hashable, Sendable {
     var error: NSError {
         switch self {
         case .installerAgentFailure:
-            let underlying = NSError(domain: SUSparkleErrorDomain, code: 10, userInfo: [
+            let underlying = NSError(domain: UpdateStateModel.sparkleErrorDomain, code: 10, userInfo: [
                 NSLocalizedDescriptionKey: "Timeout: agent connection was never initiated",
             ])
-            return NSError(domain: SUSparkleErrorDomain, code: 4005, userInfo: [
+            return NSError(domain: UpdateStateModel.sparkleErrorDomain, code: 4005, userInfo: [
                 NSLocalizedDescriptionKey: "An error occurred while running the updater. Please try again later.",
                 NSLocalizedFailureReasonErrorKey: "The remote port connection was invalidated from the updater.",
                 NSUnderlyingErrorKey: underlying,
             ])
         case .agentInvalidation:
-            return NSError(domain: SUSparkleErrorDomain, code: 4010, userInfo: [
+            return NSError(domain: UpdateStateModel.sparkleErrorDomain, code: 4010, userInfo: [
                 NSLocalizedDescriptionKey: "The updater agent was invalidated.",
             ])
         case .genericInstallFailure:
-            return NSError(domain: SUSparkleErrorDomain, code: 4005, userInfo: [
+            return NSError(domain: UpdateStateModel.sparkleErrorDomain, code: 4005, userInfo: [
                 NSLocalizedDescriptionKey: "The installation failed.",
             ])
         case .installFailureWrappingAuth:
-            let underlying = NSError(domain: SUSparkleErrorDomain, code: 4001, userInfo: [
+            let underlying = NSError(domain: UpdateStateModel.sparkleErrorDomain, code: 4001, userInfo: [
                 NSLocalizedDescriptionKey: "Authorization failed.",
             ])
-            return NSError(domain: SUSparkleErrorDomain, code: 4005, userInfo: [
+            return NSError(domain: UpdateStateModel.sparkleErrorDomain, code: 4005, userInfo: [
                 NSLocalizedDescriptionKey: "An error occurred while installing the update.",
                 NSUnderlyingErrorKey: underlying,
             ])
         case .downloadFailure:
-            return NSError(domain: SUSparkleErrorDomain, code: 2001, userInfo: [
+            return NSError(domain: UpdateStateModel.sparkleErrorDomain, code: 2001, userInfo: [
                 NSLocalizedDescriptionKey: "The update download failed.",
             ])
         case .diskImageTranslocation:
-            return NSError(domain: SUSparkleErrorDomain, code: 1003, userInfo: [
+            return NSError(domain: UpdateStateModel.sparkleErrorDomain, code: 1003, userInfo: [
                 NSLocalizedDescriptionKey: "Running from a disk image.",
             ])
         case .signatureError:
-            return NSError(domain: SUSparkleErrorDomain, code: 3001, userInfo: [
+            return NSError(domain: UpdateStateModel.sparkleErrorDomain, code: 3001, userInfo: [
                 NSLocalizedDescriptionKey: "The update signature is invalid.",
             ])
         case .noInternet:

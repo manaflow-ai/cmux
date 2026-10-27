@@ -12,18 +12,26 @@ import java.util.Objects;
 
 /** Immutable config-reload-requested event. Protocol v6; streams: subscribe. */
 public final class ConfigReloadRequestedEvent implements WireValue, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
+    /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+    private final Field<EventCause> cause;
 
     private ConfigReloadRequestedEvent(Builder builder) {
+        this.cause = builder.cause;
     }
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<EventCause> cause() { return cause; }
     @Override public String event() { return "config-reload-requested"; }
 
     public static ConfigReloadRequestedEvent fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "ConfigReloadRequestedEvent");
         Builder builder = builder();
         ProtocolSupport.literal(Wire.required(object, "event"), "config-reload-requested", "ConfigReloadRequestedEvent.event");
+        Object rawCause = Wire.optional(object, "cause");
+        if (!Wire.isMissing(rawCause)) {
+            builder.cause(EventCause.fromWire(rawCause));
+        }
         return builder.build();
     }
 
@@ -31,23 +39,29 @@ public final class ConfigReloadRequestedEvent implements WireValue, DeltaStreamE
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         object.put("event", "config-reload-requested");
+        Wire.put(object, "cause", cause);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ConfigReloadRequestedEvent that)) return false;
-        return true;
+        return Objects.equals(cause, that.cause);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(); }
+    public int hashCode() { return Objects.hash(cause); }
 
     @Override
     public String toString() { return "ConfigReloadRequestedEvent" + toWire(); }
 
     public static final class Builder {
+        private Field<EventCause> cause = Field.omitted();
 
+        public Builder cause(EventCause value) {
+            this.cause = Field.of(value);
+            return this;
+        }
         public ConfigReloadRequestedEvent build() { return new ConfigReloadRequestedEvent(this); }
     }
 }

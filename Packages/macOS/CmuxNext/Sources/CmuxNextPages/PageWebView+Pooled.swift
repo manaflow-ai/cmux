@@ -3,6 +3,7 @@ public import AppKit
 public import CmuxNextDesign
 public import CmuxNextSettings
 public import WebKit
+import CmuxNextWakeups
 
 /// The configuration and input readiness object made before a pooled WebKit view exists.
 struct PooledHostRecipe {
@@ -18,11 +19,13 @@ final class PagePooledOwner {
 }
 
 extension PageWebView {
+    /// `dataStore` is the store of the page's process group (``WebProcessGroups/dataStore``); nil
+    /// gives the page a store of its own.
     static func hostConfiguration(handler: PageSchemeHandler, documentAttributes: [String: String],
-                                  options: PageEngineOptions) -> (configuration: WKWebViewConfiguration,
-                                                                   inputReadiness: PageInputReadiness) {
+                                  options: PageEngineOptions, dataStore: WKWebsiteDataStore? = nil)
+        -> (configuration: WKWebViewConfiguration, inputReadiness: PageInputReadiness) {
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
+        configuration.websiteDataStore = dataStore ?? .nonPersistent()
         configuration.processPool = PageProcessPool.forNewView
         if options.fullFrameRate { WebKitRenderRate.apply(fullRate: true, to: configuration.preferences) }
         configuration.setURLSchemeHandler(handler, forURLScheme: PageDescriptor.scheme)
@@ -39,6 +42,7 @@ extension PageWebView {
             guard let view = owner?.view else { return nil }
             return PageServedHosts.served(host: host, current: view.descriptor, dynamicSource: view.dynamicResources)
         }
+        // A store of its own: the pool serves only pages that join no process group (PageHostPool.spareServes).
         let host = hostConfiguration(handler: handler, documentAttributes: [:], options: options)
         // The spare's document is parked until a claim binds routes (PageWebView+Claim.swift).
         host.configuration.userContentController.addUserScript(
@@ -50,11 +54,12 @@ extension PageWebView {
     /// True while the view is the pool's parked spare (hidden, not claimed by any page).
     public var isParkedSpare: Bool { superview is PageHostParking }
 
-    /// Makes a pooled page host without loading its document.
-    convenience init(recipe: PooledHostRecipe, routes: [PageRoute] = []) {
+    /// Makes a pooled page host without loading its document, on `deadlines` (the pool's; a test leaves the default).
+    convenience init(recipe: PooledHostRecipe, routes: [PageRoute] = [],
+                     deadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()))) {
         self.init(descriptor: recipe.served, configuration: recipe.configuration,
                   inputReadiness: recipe.inputReadiness, routes: routes, route: nil,
-                  options: recipe.options, surface: nil, dynamicResources: nil, pooled: true, load: false)
+                  options: recipe.options, surface: nil, dynamicResources: nil, pooled: true, load: false, deadlines: deadlines)
         pooledOwner = recipe.owner
         recipe.owner.view = self
     }
@@ -70,6 +75,7 @@ extension PageWebView {
     /// Starts the served bundle document after the pooled view has been parked.
     func startLoading() {
         guard !loaded, webView.url == nil else { return }
+        traceOpenRequested(.spare)
         webView.load(URLRequest(url: descriptor.url()))
     }
 
@@ -79,10 +85,18 @@ extension PageWebView {
                                                forMainFrameOnly: true, in: .page))
         var attributes = documentAttributes
         if attributes["scrollers"] == nil { attributes["scrollers"] = SystemScrollers.pageValue }
+        // `data-engine="webkit"`: only this engine serves a framed document its own sandboxed policy
+        // (``PageResource/sandboxedPolicy``), so a page frames one only here (the agent page's render cards).
+        attributes["engine"] = "webkit"
         if let script = attributesScript(attributes) {
             controller.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentStart,
                                                    forMainFrameOnly: true, in: .page))
         }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // The refactor oracle's page state (p15-oracle-215): pages serve it only in DEV and bench builds.
+        controller.addUserScript(WKUserScript(source: oracleStateScript, injectionTime: .atDocumentStart,
+                                               forMainFrameOnly: true, in: .page))
+        #endif
     }
 
     /// Reinstalls document-start scripts after a pooled host changes its page origin.

@@ -32,6 +32,9 @@ public final class TasksModel {
     public internal(set) var newTaskFocusRequest = 0
     /// The last request a New Task field consumed.
     var newTaskFocusHandled = 0
+    /// The New Task title typed and not sent (client view state): it outlives the pane's view, so
+    /// a page tab whose view was discarded shows it again.
+    public var newTaskDraft = ""
     /// Agent harnesses the Assignee control offers (the App may narrow it).
     public var knownAgents: [String] = TaskAssigneeChoices.defaultAgents
 
@@ -69,6 +72,7 @@ public final class TasksModel {
                                          labels: Array(labels.values), projects: Array(projects.values),
                                          tasks: Array(confirmed.values), sessions: Array(sessions.values))
         let intents = pending.map { TasksPreview.Intent(key: $0.key, op: $0.wire.op, params: $0.wire.params) }
+        // wall-clock: the preview compares task dates, Unix ms.
         let request = TasksPreview.Request(mirror: mirror, intents: intents, now: Int64(Date().timeIntervalSince1970 * 1000))
         return TasksPreview.run(request)?.tasks ?? Array(confirmed.values)
     }
@@ -155,11 +159,12 @@ public final class TasksModel {
         me = snapshot.me
         settings = snapshot.settings
         statuses = snapshot.statuses.sorted { ($0.category.rank, $0.position) < ($1.category.rank, $1.position) }
-        statusByID = Dictionary(uniqueKeysWithValues: statuses.map { ($0.id, $0) })
-        labels = Dictionary(uniqueKeysWithValues: snapshot.labels.map { ($0.id, $0) })
-        projects = Dictionary(uniqueKeysWithValues: snapshot.projects.map { ($0.id, $0) })
-        sessions = Dictionary(uniqueKeysWithValues: snapshot.sessions.map { ($0.id, $0) })
-        confirmed = Dictionary(uniqueKeysWithValues: snapshot.tasks.map { ($0.id, $0) })
+        // The socket refuses a snapshot with a repeated id (TasksSnapshot.checkUniqueIDs); a demo's first row wins.
+        statusByID = Dictionary(statuses.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        labels = Dictionary(snapshot.labels.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        projects = Dictionary(snapshot.projects.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        sessions = Dictionary(snapshot.sessions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        confirmed = Dictionary(snapshot.tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         connection = .connected
         // Reconnect: resend only intents sent before the disconnect, with
         // their keys; the owner's ledger turns a committed one into a replay.

@@ -1,0 +1,22 @@
+{
+  "id": "split-spring",
+  "tier": "T2",
+  "description": "Five Cmd-D (then five Cmd-Shift-D) presses 100 ms apart on a terminal with scrollback, measured until the panes rest (split-spring-terminal.py): every frame interval of the burst, its missed frames and the grids sent to the PTY owner, light session.",
+  "command": ["scripts/cmux-next/split-spring-terminal.py", "--story", "split-spring"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "split_spring\\.(right|down)\\.frame", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/panes\\..*\\.frame/p95"},
+     "floor_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/panes\\..*\\.frame/floor"}},
+    {"name": "split_spring\\.(right|down)\\.missed", "unit": "count", "better": "lower"},
+    {"name": "split_spring\\.(right|down)\\.resizes_sent", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 120,
+  "needs": ["debug:debug.frames", "debug:debug.motion", "debug:debug.window_transition"],
+  "hot_paths": ["motion-frame"],
+  "owner": "PL-motion-core",
+  "component": "Layout>Motion"
+}

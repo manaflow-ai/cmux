@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// acpmux's authenticated loopback WebSocket, split from the dashboard URL
@@ -45,7 +46,7 @@ nonisolated struct AcpmuxReadyLine: Decodable, Equatable {
 
     static func parse(_ line: String) -> AcpmuxReadyLine? {
         guard let data = line.data(using: .utf8),
-              let parsed = try? JSONDecoder().decode(AcpmuxReadyLine.self, from: data), parsed.ready
+              let parsed = try? JSONDecoder().blockingDecode(AcpmuxReadyLine.self, from: data), parsed.ready
         else { return nil }
         return parsed
     }

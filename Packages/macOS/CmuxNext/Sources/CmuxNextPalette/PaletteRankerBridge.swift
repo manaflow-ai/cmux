@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import CCmuxPaletteRankerFFI
 
@@ -27,7 +28,9 @@ public enum PaletteRankerBridgeError: Error, LocalizedError, Sendable {
 ///
 /// A bridge owns one ranker handle and is safe to use from the actor that owns it. The palette
 /// keeps ranking inputs and rendering in Swift; scoring, frecency and tie-breaking live in Rust.
-public final class PaletteRankerBridge {
+// SAFETY: `handle` is the ranker this object created and alone frees (deinit), so it is live for every call made
+// through it.
+@safe public final class PaletteRankerBridge {
     // crash-allow: the handle is serialized by each owning actor or Mutex-protected ranker.
     nonisolated(unsafe) private let handle: OpaquePointer
     /// The index version whose entries the ranker holds: a keystroke on the same index sends only
@@ -37,12 +40,14 @@ public final class PaletteRankerBridge {
 
     /// Creates a bridge with its own ranker handle.
     nonisolated public init() throws {
-        guard let handle = cmux_palette_ranker_new() else { throw PaletteRankerBridgeError.runtimeUnavailable }
-        self.handle = handle
+        // SAFETY: cmux_palette_ranker_new returns a new handle this object owns alone and frees in deinit.
+        guard let handle = unsafe cmux_palette_ranker_new() else { throw PaletteRankerBridgeError.runtimeUnavailable }
+        unsafe self.handle = handle
     }
 
     nonisolated deinit {
-        cmux_palette_ranker_free(handle)
+        // SAFETY: the handle init created, freed once here; no call on it can run after deinit starts.
+        unsafe cmux_palette_ranker_free(handle)
     }
 
     /// Ranks a palette index through the shared ranker.
@@ -63,7 +68,7 @@ public final class PaletteRankerBridge {
     ) throws -> [PaletteRankedSection] {
         if let version, version != installedVersion { try install(index.entries, version: version) }
         return try invoke(PaletteRankerBridgeRequest(
-            operation: "rank",
+            operation: .rank,
             entries: version == nil ? index.entries.map(PaletteRankerBridgeEntry.init) : nil,
             version: version,
             query: query,
@@ -100,7 +105,7 @@ public final class PaletteRankerBridge {
     ) throws -> [PaletteRankedSection] {
         if let version, version != installedVersion { try install(entries, version: version) }
         return try invoke(PaletteRankerBridgeRequest(
-            operation: "rankEmpty",
+            operation: .rankEmpty,
             entries: version == nil ? entries.map(PaletteRankerBridgeEntry.init) : nil,
             version: version,
             query: nil,
@@ -122,8 +127,10 @@ public final class PaletteRankerBridge {
     /// Sends `entries` to the ranker once for `version`.
     nonisolated private func install(_ entries: [PaletteSearchEntry], version: Int) throws {
         let data = try JSONEncoder().encode(entries.map(PaletteRankerBridgeEntry.init))
-        let code = data.withUnsafeBytes { bytes in
-            cmux_palette_ranker_install(handle, Int64(version), bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count)
+        // SAFETY: `bytes` is Data's contiguous storage, valid only inside the closure; the ranker reads bytes.count
+        // bytes from its start during the call and keeps none of them (it parses them into its own entries).
+        let code = unsafe data.withUnsafeBytes { bytes in
+            unsafe cmux_palette_ranker_install(handle, Int64(version), bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count)
         }
         guard code == CMUX_PALETTE_RANKER_OK else {
             installedVersion = nil
@@ -136,17 +143,20 @@ public final class PaletteRankerBridge {
         let data = try JSONEncoder().encode(request)
         var response: UnsafePointer<UInt8>?
         var responseLength = 0
-        let code = data.withUnsafeBytes { bytes in
-            cmux_palette_ranker_rank(handle, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count, &response, &responseLength)
+        // SAFETY: `bytes` is Data's contiguous storage, valid only inside the closure; the ranker reads bytes.count
+        // bytes from its start during the call and keeps none of them. It writes one pointer and one length into
+        // `response` and `responseLength`, locals live for the call: responseLength bytes it owns, valid until the
+        // next call on this handle (cmux_palette_ranker.h), copied into `body` before any other call can run on it.
+        let code = unsafe data.withUnsafeBytes { bytes in
+            unsafe cmux_palette_ranker_rank(handle, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count, &response, &responseLength)
         }
-        guard let response else { throw PaletteRankerBridgeError.invalidResult }
-        // The bytes stay valid until the next call on this handle: copy them now.
-        let body = Data(bytes: response, count: responseLength)
+        guard let response = unsafe response else { throw PaletteRankerBridgeError.invalidResult }
+        let body = unsafe Data(bytes: response, count: responseLength)
         guard code == CMUX_PALETTE_RANKER_OK else {
             throw PaletteRankerBridgeError.runtimeFailed(String(decoding: body, as: UTF8.self))
         }
         do {
-            let sections = try JSONDecoder().decode([PaletteRankerBridgeSection].self, from: body)
+            let sections = try JSONDecoder().blockingDecode([PaletteRankerBridgeSection].self, from: body)
             return sections.map { section in
                 PaletteRankedSection(
                     sectionIndex: section.sectionIndex,

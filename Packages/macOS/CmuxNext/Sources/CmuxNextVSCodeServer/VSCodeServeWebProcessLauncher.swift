@@ -1,18 +1,25 @@
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import Foundation
 
 /// Runs the real `serve-web` binary and waits for its `Web UI available at <url>` line.
 ///
 /// The server's standard output and error share one pipe, drained for the whole life of the
-/// process so its logging never blocks it.
+/// process so its logging never blocks it. The spawn runs on a ``ProcessLauncher`` queue, never
+/// the caller's actor, and the server at the launcher's priority's `processQoS`.
 public struct VSCodeServeWebProcessLauncher: VSCodeServeWebLaunching {
     private let startupTimeout: Duration
+    private let launcher: ProcessLauncher
 
     /// Creates a launcher.
-    /// - Parameter startupTimeout: How long a server may take to print its URL. A first run
-    ///   downloads the server, so the default is a minute (classic cmux's deadline).
-    public init(startupTimeout: Duration = .seconds(60)) {
+    /// - Parameters:
+    ///   - startupTimeout: How long a server may take to print its URL. A first run
+    ///     downloads the server, so the default is a minute (classic cmux's deadline).
+    ///   - launcher: Spawns the server. The default runs the spawn and the server at
+    ///     ``WorkPriority/userVisible``: the editor tab that waits for it is on screen.
+    public init(startupTimeout: Duration = .seconds(60),
+                launcher: ProcessLauncher = ProcessLauncher(label: "com.cmuxterm.next.vscode-serve-web", priority: .userVisible)) {
         self.startupTimeout = startupTimeout
+        self.launcher = launcher
     }
 
     /// Starts `launch`; see ``VSCodeServeWebLaunching/start(_:)``.
@@ -27,7 +34,7 @@ public struct VSCodeServeWebProcessLauncher: VSCodeServeWebLaunching {
         process.standardError = pipe
         let handle = ServeWebProcess(process: process, pipe: pipe)
         do {
-            try process.run()
+            try await launcher.launched(process)
         } catch {
             throw VSCodeServeWebError.launchFailed(error.localizedDescription)
         }

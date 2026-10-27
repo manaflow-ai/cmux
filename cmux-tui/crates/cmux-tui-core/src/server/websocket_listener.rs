@@ -3,6 +3,7 @@
 //! (plans/cmux-next/identity.md section 4), then token or pairing auth.
 
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 use std::net::{SocketAddr, TcpListener};
 
 use tungstenite::protocol::CloseFrame;
@@ -11,8 +12,12 @@ use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::{Message, WebSocket, accept_hdr_with_config};
 
 use super::attachment_http;
+use super::connection_scheduler::connection_qos::ReaderClass;
+use super::connection_scheduler::{REQUEST_THREAD_QOS, spawn_request_thread};
+use super::listen;
 use super::page_files;
 use super::*;
+use crate::diagnostics::{IpcTransport, JsonParseScope};
 use crate::net_keepalive::{WebSocketKeepalive, enable_tcp_keepalive};
 use crate::pairing::CredentialMatch;
 
@@ -40,7 +45,7 @@ impl Drop for WebSocketServer {
             let _ = stream.set_nodelay(true);
         }
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = waits::join(thread);
         }
     }
 }
@@ -141,7 +146,7 @@ pub fn serve_websocket_with_keepalive(
     let thread_shutdown = shutdown.clone();
     let thread_connections = connections.clone();
     let render_service = Arc::new(RenderService::new());
-    let thread = std::thread::Builder::new().name("mux-ws-server".into()).spawn(move || {
+    let thread = cmux_threads::spawn("mux-ws-server", listen::ACCEPT_THREAD_QOS, move || {
         let mut backoff = crate::backoff::Backoff::new(ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX);
         while !thread_shutdown.load(Ordering::Acquire) {
             let (stream, peer) = match listener.accept() {
@@ -178,21 +183,20 @@ pub fn serve_websocket_with_keepalive(
             let render_service = render_service.clone();
             let connections = thread_connections.clone();
             let cleanup_connections = thread_connections.clone();
-            if std::thread::Builder::new()
-                .name("mux-ws-conn".into())
-                .spawn(move || {
-                    handle_websocket_connection_with_permit(
-                        mux,
-                        stream,
-                        peer,
-                        token.as_deref(),
-                        &rules,
-                        render_service,
-                        Some(permit),
-                    );
-                    connections.lock().recover_poison().remove(&id);
-                })
-                .is_err()
+            // It reads frames and runs their requests itself: a request thread.
+            if spawn_request_thread("mux-ws-conn", move || {
+                handle_websocket_connection_with_permit(
+                    mux,
+                    stream,
+                    peer,
+                    token.as_deref(),
+                    &rules,
+                    render_service,
+                    Some(permit),
+                );
+                connections.lock().recover_poison().remove(&id);
+            })
+            .is_err()
             {
                 cleanup_connections.lock().recover_poison().remove(&id);
             }
@@ -359,30 +363,42 @@ fn handle_websocket_connection_with_permit(
     );
     let writer_outbound = outbound;
     let writer_close = writer.clone();
-    let Ok(writer_thread) =
-        std::thread::Builder::new().name("mux-ws-out".into()).spawn(move || {
-            let mut writer_stream = writer_stream;
-            while let Some(item) = writer_outbound.recv() {
-                let result = match item {
-                    OutboundItem::Text(text) => writer_stream.write_websocket_text(&text),
-                    OutboundItem::Flush(flushed) => writer_stream.flush().map(|()| {
-                        let _ = flushed.send(());
-                    }),
-                };
-                if result.is_err() {
-                    writer_outbound.close();
-                    break;
+    let writer_ipc = mux.ipc_stats().clone();
+    let Ok(writer_thread) = cmux_threads::spawn("mux-ws-out", REQUEST_THREAD_QOS, move || {
+        let mut writer_stream = writer_stream;
+        // mq14-allow: the writer thread waits for its own queue (a checked wait).
+        while let Some(item) = writer_outbound.recv() {
+            let result = match item {
+                OutboundItem::Text(text) => {
+                    writer_ipc.line_sent(text.len());
+                    writer_stream.write_websocket_text(&text, &writer_ipc)
                 }
+                // The WebSocket sink refuses frames before they queue.
+                OutboundItem::Frame(..) | OutboundItem::Chunk { .. } => Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "a frame reached a WebSocket",
+                )),
+                OutboundItem::Flush(flushed) => writer_stream.flush().map(|()| {
+                    let _ = flushed.send(());
+                }),
+            };
+            if result.is_err() {
+                writer_outbound.close();
+                break;
             }
-            writer_close.close();
-            let _ = writer_stream.write_websocket_close();
-            let _ = writer_shutdown.shutdown(Shutdown::Both);
-        })
-    else {
+        }
+        writer_close.close();
+        let _ = writer_stream.write_websocket_close();
+        let _ = writer_shutdown.shutdown(Shutdown::Both);
+    }) else {
         writer.close();
         return;
     };
     let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
+    // The connection's stream 0, open until the connection ends
+    // (`server-stats` `ipc`).
+    let ipc = mux.ipc_stats().clone();
+    let _stream = ipc.stream_opened();
     if admission == CredentialMatch::Person {
         mux.control_clients.mark_person(client);
     }
@@ -399,10 +415,15 @@ fn handle_websocket_connection_with_permit(
         // A page-bound credential matched only a handshake that named its page.
         None => {}
     }
-    let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
-        mux.surface_operation_admission.clone(),
-        connection_permit.clone(),
-    ));
+    let class = mux.control_clients.connection_class(client);
+    let mut reader_class = ReaderClass::new(class.clone(), mux.request_qos());
+    let surface_scheduler = Arc::new(
+        ConnectionSurfaceScheduler::new_inner(
+            mux.surface_operation_admission.clone(),
+            connection_permit.clone(),
+        )
+        .classed(class),
+    );
 
     // Any inbound byte, including part of a frame or a Pong, is liveness.
     let mut idle_since = Instant::now();
@@ -420,19 +441,29 @@ fn handle_websocket_connection_with_permit(
         }
         match incoming {
             Ok(Message::Text(text)) => {
+                // The frame's arrival, for its request span (server/request_spans.rs).
+                let arrived = Instant::now();
+                ipc.line_received(text.len());
                 let mut text = text.to_string();
+                // One request of `server-stats` `ipc`, as a line is.
+                let parses = JsonParseScope::enter(&ipc, IpcTransport::Lines);
                 let keep_open =
                     match hello.observe(&mux, client, &text, client_hello::Peer::unknown) {
                         Some(reply) => writer.send_control(&reply).is_ok(),
-                        None => handle_connection_frame(
-                            &mux,
-                            client,
-                            ClientTransport::WebSocket,
-                            &text,
-                            &writer,
-                            &surface_scheduler,
-                        ),
+                        None => {
+                            reader_class.before_line(&mux, client, hello.is_closed());
+                            handle_connection_frame_at(
+                                &mux,
+                                client,
+                                ClientTransport::WebSocket,
+                                &text,
+                                &writer,
+                                &surface_scheduler,
+                                arrived,
+                            )
+                        }
                     };
+                drop(parses);
                 zeroize_string(&mut text);
                 if !keep_open {
                     break;
@@ -445,6 +476,11 @@ fn handle_websocket_connection_with_permit(
                 let _ = websocket.flush();
             }
             Ok(Message::Close(_)) => break,
+            // The protocol is JSON text: a binary message is malformed.
+            Ok(Message::Binary(_)) => {
+                ipc.bad_message();
+                break;
+            }
             Ok(_) => break,
             // A full ping interval of inbound silence (the read timeout:
             // WouldBlock on Unix, TimedOut on Windows). Tungstenite keeps a
@@ -462,14 +498,34 @@ fn handle_websocket_connection_with_permit(
                     break;
                 }
             }
-            Err(_) => break,
+            Err(error) => {
+                if is_malformed_websocket_message(&error) {
+                    ipc.bad_message();
+                }
+                break;
+            }
         }
     }
     let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
     disconnect_client(&mux, client, false);
-    let _ = writer_thread.join();
+    let _ = waits::join(writer_thread);
     let _ = websocket.close(None);
     drop(connection_permit);
+}
+
+/// Whether a read error means the peer sent a malformed message (oversize,
+/// not UTF-8, against the protocol), not that the connection went away.
+fn is_malformed_websocket_message(error: &tungstenite::Error) -> bool {
+    use tungstenite::error::ProtocolError;
+    match error {
+        tungstenite::Error::Capacity(_)
+        | tungstenite::Error::Utf8(_)
+        | tungstenite::Error::AttackAttempt => true,
+        tungstenite::Error::Protocol(protocol) => {
+            !matches!(protocol, ProtocolError::ResetWithoutClosingHandshake)
+        }
+        _ => false,
+    }
 }
 
 /// What admitted the connection, once authenticated: `Person` for a
@@ -531,7 +587,7 @@ fn authenticate_websocket(
         return None;
     }
 
-    match decision.recv_timeout(Duration::from_secs(challenge.expires_in)) {
+    match waits::recv_timeout(&decision, Duration::from_secs(challenge.expires_in)) {
         Ok(PairingDecision::Approved { credential }) => websocket
             .send(Message::Text(json!({"paired": {"credential": credential}}).to_string().into()))
             .is_ok()

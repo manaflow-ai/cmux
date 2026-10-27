@@ -9,6 +9,8 @@
 //! host never takes the daemon down. The customization app installs itself
 //! with its required scopes when it first appears (the user wrote it).
 
+use cmux_threads::checked::fs as files;
+use cmux_threads::checked::sync as waits;
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -158,7 +160,7 @@ fn fingerprint(dir: &Path) -> u64 {
 }
 
 fn collect(dir: &Path, files: &mut Vec<(PathBuf, u64, u128)>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = files::read_dir(dir) else { return };
     for entry in entries.flatten() {
         if files.len() >= MAX_FILES {
             return;
@@ -258,8 +260,8 @@ fn watch_roots(dirs: [Option<&Path>; 2]) -> Vec<PathBuf> {
     let mut roots = Vec::new();
     for dir in dirs.into_iter().flatten() {
         roots.push(dir.to_path_buf());
-        let resolved = std::fs::canonicalize(dir).ok().or_else(|| {
-            let parent = std::fs::canonicalize(dir.parent()?).ok()?;
+        let resolved = files::canonicalize(dir).ok().or_else(|| {
+            let parent = files::canonicalize(dir.parent()?).ok()?;
             Some(parent.join(dir.file_name()?))
         });
         if let Some(resolved) = resolved.filter(|resolved| resolved != dir) {
@@ -276,7 +278,7 @@ fn next_burst(
     relevant: &dyn Fn(&Path) -> bool,
 ) -> bool {
     loop {
-        let Ok(event) = events.recv() else { return false };
+        let Ok(event) = waits::recv(events) else { return false };
         if event.is_ok_and(|event| event.paths.iter().any(|path| relevant(path))) {
             while events.try_recv().is_ok() {}
             return true;

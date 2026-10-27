@@ -12,7 +12,7 @@ enum PageRelayHandshake {
     static func run(_ transport: LineTransport, configuration: DaemonConnectionConfiguration) async throws -> DaemonIdentity {
         let timeout = configuration.requestTimeout
         let first = await transport.pipeline([PipelinedLine(IdentifyRequest())], timeout: timeout)
-        let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: first[0].get().line)
+        let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: first[0].get())
         guard identity.app == "cmux-tui", identity.protocolVersion == 12 else {
             transport.close()
             throw identity.app == "cmux-tui" ? DaemonError.unsupportedProtocol(identity.protocolVersion) : DaemonError.wrongApp(identity.app)
@@ -27,7 +27,7 @@ enum PageRelayHandshake {
         let request = ClientHelloRequest(role: .pageRelay, page: page)
         let hello = await transport.pipeline([PipelinedLine(request)], timeout: timeout)
         do {
-            let reply = try WireCoding.decodeResponse(ClientHelloRequest.Response.self, from: hello[0].get().line)
+            let reply = try WireCoding.decodeResponse(ClientHelloRequest.Response.self, from: hello[0].get())
             configuration.relayIdentity?.connectionID = reply.connectionId
             configuration.relayIdentity?.gestureOperations = Set(reply.pageOperations?.gesture ?? [])
             var events = Set(reply.pageEvents ?? [])
@@ -35,7 +35,7 @@ enum PageRelayHandshake {
                 // A refused or failed subscribe leaves the page without live events, never
                 // without its calls.
                 let subscribed = await transport.pipeline([PipelinedLine(SubscribeRequest(treeEvents: .coarse))], timeout: timeout)
-                if (try? WireCoding.decodeResponse(EmptyResponse.self, from: subscribed[0].get().line)) == nil { events = [] }
+                if (try? WireCoding.decodeResponse(EmptyResponse.self, from: subscribed[0].get())) == nil { events = [] }
             }
             configuration.relayIdentity?.events = events
             return identity
@@ -81,7 +81,7 @@ public final class PageRelayIdentity: Sendable {
 extension DaemonEvent {
     /// One subscribe-stream line as the daemon sent it (`.unknown` with its whole object): what a
     /// page relay connection reports, so the relay forwards events without a Swift type for each.
-    static func raw(name: String, line: Data) -> DaemonEvent {
-        .unknown(name: name, payload: (try? WireCoding.decoder().decode(JSONValue.self, from: line)) ?? .null)
+    static func raw(name: String, line: Data, decoder: WireDecoder = WireCoding.decoder()) -> DaemonEvent {
+        .unknown(name: name, payload: (try? decoder.decode(JSONValue.self, from: line)) ?? .null)
     }
 }

@@ -1,16 +1,13 @@
 public import AppKit
-import CmuxNextWakeups
 
 /// Vertical rubber band only when there is something to scroll to: a list
 /// whose content fits neither scrolls nor bounces, and bounces again once
 /// it overflows. macOS's `.automatic` is always
-/// elastic vertically. Updates from the clip view's and the document's
-/// frame notifications (no polling).
+/// elastic vertically. Updates from the scroll view's ``ScrollGeometryClipView``
+/// resize hook (the clip or the document changed size): no notifications, no polling.
 @MainActor
-public final class ScrollFitElasticity {
+public final class ScrollFitElasticity: ScrollGeometryClient {
     private weak var scrollView: NSScrollView?
-    private var observers: [any NSObjectProtocol] = []
-    private weak var observedDocument: NSView?
 
     /// The elasticity for a document `documentHeight` tall in a clip
     /// `visibleHeight` tall with `insets` (half a point of slack absorbs
@@ -22,40 +19,22 @@ public final class ScrollFitElasticity {
 
     public init(scrollView: NSScrollView) {
         self.scrollView = scrollView
-        let clip = scrollView.contentView
-        clip.postsFrameChangedNotifications = true
-        // Synchronous (no queue): the elasticity is right before the next event (a hop only off main).
-        observers.append(NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: clip, queue: nil) {
-            [weak self] _ in MainDelivery().run { self?.update() }
-        })
+        // Synchronous: the elasticity is right before the next event.
+        ScrollGeometryClipView.install(in: scrollView).addClient(self)
         update()
     }
 
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            for observer in observers { NotificationCenter.default.removeObserver(observer) }
-        }
+    /// A scroll leaves the fit as it was; a resize of the clip or the document re-reads it.
+    public func scrollGeometryDidChange(_ change: ScrollGeometryChange) {
+        if change.contains(.resized) { update() }
     }
 
-    /// Re-reads the document and clip heights; call after the document
-    /// changes size when its frame notifications are off.
+    /// Re-reads the document and clip heights (a change of the content insets, which the clip does not report).
     public func update() {
         guard let scrollView else { return }
-        observeDocument(scrollView.documentView)
         let height = scrollView.documentView?.frame.height ?? 0
         let next = Self.vertical(documentHeight: height, visibleHeight: scrollView.contentView.bounds.height,
                                  insets: scrollView.contentInsets)
         if scrollView.verticalScrollElasticity != next { scrollView.verticalScrollElasticity = next }
-    }
-
-    private func observeDocument(_ document: NSView?) {
-        guard let document, document !== observedDocument else { return }
-        observedDocument = document
-        document.postsFrameChangedNotifications = true
-        observers.append(NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: document, queue: nil) {
-            [weak self] _ in MainDelivery().run { self?.update() }
-        })
     }
 }

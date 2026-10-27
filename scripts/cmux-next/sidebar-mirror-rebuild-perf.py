@@ -2,11 +2,13 @@
 """Main-thread time of a structural sidebar rebuild in the sidebar-document mode (bead cx-x5jpp).
 
   nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA \
-    -- python3 scripts/cmux-next/sidebar-mirror-rebuild-perf.py --label before --out "$NX_ARTIFACTS"
+    -- python3 -I scripts/cmux-next/sidebar-mirror-rebuild-perf.py --label before --out "$NX_ARTIFACTS"
+  scripts/cmux-next/sidebar-mirror-rebuild-perf.py --app <cmux DEV tag.app> [--count 1000] [--rebuilds 20]
   scripts/cmux-next/sidebar-mirror-rebuild-perf.py --tag <tag> [--count 1000] [--rebuilds 20]   (a running tagged app)
 
-Inside an nx-remote GUI job (NX_APP set) it launches $NX_APP with an empty config and quits it with
-$NX_APP_STOP at the end; with --tag it attaches to a running tagged app and quits nothing. Never on
+With --app (default $NX_APP, the app of an nx-remote GUI job) it launches that app through
+bench_launch.BenchApp (the bench env, an empty config, a fresh saved session) and quits it and its
+daemons at the end; with --tag alone it attaches to a running tagged app and quits nothing. Never on
 the laptop. It makes `--count` empty workspaces (`perf-NNNN`, the names
 sidebar-rows-perf-live.py uses, so either script reuses the other's), then `--rebuilds` times
 creates one workspace and closes it again. Each create and each close changes the live workspace
@@ -17,26 +19,35 @@ list again. Measured from `debug.sidebar_perf` (reset before the phase):
   main_ns     main-thread time of the list layout paths
   rebuilds, list_reloads, and the mirror `view` calls (`debug.sidebar_rows` doc.ffi_calls)
 
-It reports the time per `view` call and per rebuild. It fails when the build has no `mirror_ns`
-counter, when the sidebar document mode is not active, or when no `view` call happened.
+It reports the time per `view` call and per rebuild, the p50/p95/p99 of each create-and-close
+cycle, and, with --app, writes each cycle's mirror and layout time as result-v1 (story
+sidebar-mirror-rebuild, sidebar_bench_report.py). It fails when the build has no `mirror_ns` counter, when the sidebar
+document mode is not active, or when no `view` call happened.
 """
 
-import argparse, atexit, json, os, socket, subprocess, sys, tempfile, time
+import argparse, json, os, socket, subprocess, sys, time
 from concurrent.futures import ThreadPoolExecutor
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--app", default=os.environ.get("NX_APP"), help="launch this app (default $NX_APP)")
 parser.add_argument("--tag", default=os.environ.get("NX_APP_TAG"))
 parser.add_argument("--count", type=int, default=1000)
 parser.add_argument("--rebuilds", type=int, default=20)
 parser.add_argument("--label", default="run")
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
 opts = parser.parse_args()
-if not opts.tag:
-    sys.exit("--tag is required outside an nx-remote --app-from-fleet job")
-APP, STOP = os.environ.get("NX_APP"), os.environ.get("NX_APP_STOP")
-SOCKET = os.environ.get("NX_APP_SOCKET") or f"/tmp/cmux-debug-{opts.tag}.sock"
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)  # the bench modules, also under `python3 -I`
+import sidebar_bench_report as report  # noqa: E402
+from bench_launch import BenchApp, tag_of  # noqa: E402
+
+if opts.app:
+    opts.tag = tag_of(os.path.realpath(opts.app))
+if not opts.tag:
+    sys.exit("--app or --tag is required outside an nx-remote --app-from-fleet job")
+SOCKET = os.environ.get("NX_APP_SOCKET") or f"/tmp/cmux-debug-{opts.tag}.sock"
 CLI = os.environ.get("NX_APP_CLI") or os.path.join(HERE, "..", "cmux-debug-cli.sh")
+BENCH = None  # the BenchApp of the app this script launched (--app)
 
 
 def rpc(method, params=None, timeout=60):
@@ -86,23 +97,29 @@ def wait(predicate, seconds):
 
 
 def launch():
-    scratch = tempfile.mkdtemp(prefix="mirror-rebuild-")
-    config, ghostty = os.path.join(scratch, "cmux.json"), os.path.join(scratch, "ghostty")
-    open(config, "w").write("{}")
-    open(ghostty, "w").write("")
-    if os.path.exists(SOCKET):
-        os.unlink(SOCKET)
-    env = ["CMUX_NEXT_NO_ACTIVATE=1", "CMUX_NEXT_SOCKET_MODE=automation", "CMUX_NEXT_TEST_WINDOW_SCREEN=last",
-           f"CMUX_NEXT_CONFIG_FILE={config}", f"CMUX_NEXT_GHOSTTY_CONFIG={ghostty}", "CMUX_NEXT_TEST_WINDOW_FRAME=40,40,1100,720"]
-    subprocess.run(["open", "-n", APP, *[arg for pair in env for arg in ("--env", pair)]], check=True)
-    atexit.register(lambda: STOP and subprocess.run([STOP]))
-    if not wait(lambda: os.path.exists(SOCKET) and (rows().get("doc") or {}).get("active"), 120):
+    """Launches --app through BenchApp (an empty config, the window at 40,40 1100x720 on the last screen) and waits
+    for the sidebar document; SOCKET and CLI then name that app."""
+    global BENCH, SOCKET, CLI
+    BENCH = BenchApp(opts.app, out=opts.out, config={}, window=(40, 40, 1100, 720), screen="last")
+    BENCH.launch()
+    SOCKET = BENCH.socket
+    if not os.environ.get("NX_APP_CLI"):
+        CLI = BENCH.cli
+    if not wait(lambda: (rows().get("doc") or {}).get("active"), 120):
         sys.exit(f"FAIL the tagged app did not come up with the sidebar document active ({rows().get('doc')})")
 
 
-def main():
-    if APP:
-        launch()
+def counter_ms(counters, key):
+    return (counters.get(key) or 0) / 1e6
+
+
+def write_summary(summary):
+    os.makedirs(opts.out, exist_ok=True)
+    with open(os.path.join(opts.out, f"mirror-rebuild-{opts.label}.json"), "w") as out:
+        json.dump(summary, out, indent=2)
+
+
+def measure():
     doc = rows().get("doc") or {}
     if "error" in rows() or not doc.get("active"):
         sys.exit(f"no tagged app with the sidebar document active on {SOCKET} ({doc})")
@@ -117,7 +134,8 @@ def main():
         sys.exit("the sidebar does not list the perf workspaces")
     rpc("debug.sidebar_perf", {"reset": True})
     views_before = view_calls()
-    close_errors = []
+    close_errors, cycles = [], []
+    last = rpc("debug.sidebar_perf") or {}
     for index in range(opts.rebuilds):
         name = f"rebuild-{index:03d}"
         made = cli("workspace", "create", "--empty", "--name", name, "--json")
@@ -135,6 +153,12 @@ def main():
             wait(lambda: name not in titles(), 15)
         else:
             close_errors.append((closed.stdout + closed.stderr).strip()[-200:])
+        # This cycle's share of the counters (they only grow after the reset): result-v1's raw samples.
+        now = rpc("debug.sidebar_perf") or {}
+        if "mirror_ns" in now and "mirror_ns" in last:
+            cycles.append({"mirror_ms": counter_ms(now, "mirror_ns") - counter_ms(last, "mirror_ns"),
+                           "main_ms": counter_ms(now, "main_ns") - counter_ms(last, "main_ns")})
+        last = now
     counters = rpc("debug.sidebar_perf") or {}
     if "mirror_ns" not in counters:
         sys.exit(f"this build has no mirror_ns counter: {counters}")
@@ -147,13 +171,31 @@ def main():
         "close_errors": close_errors[:3],
         "mirror_ms_total": round(counters["mirror_ns"] / 1e6, 2), "main_ms_total": round(counters.get("main_ns", 0) / 1e6, 2),
     }
-    os.makedirs(opts.out, exist_ok=True)
-    with open(os.path.join(opts.out, f"mirror-rebuild-{opts.label}.json"), "w") as out:
-        json.dump(summary, out, indent=2)
+    for key in ("mirror_ms", "main_ms"):
+        values = [c[key] for c in cycles]
+        summary[f"cycle_{key}"] = {f"p{p}": report.pct(values, p, 3) for p in (50, 95, 99)}
+    write_summary(summary)
+    # result-v1 only from an app this script launched (its launch env is BenchApp's), and after the summary is on
+    # disk, so a failure here cannot lose it.
+    if BENCH is None:
+        summary["result_v1"] = "not recorded: attached to an app this bench did not launch (--tag)"
+    else:
+        summary["result_v1"] = report.record_all(BENCH, report.mirror_series(opts.count, cycles))
+    write_summary(summary)
     print(json.dumps(summary), flush=True)
     if views == 0:
         sys.exit("FAIL no mirror view call during the rebuilds")
     print("ok", flush=True)
+
+
+def main():
+    try:
+        if opts.app:
+            launch()
+        measure()
+    finally:
+        if BENCH is not None:
+            BENCH.stop()
 
 
 main()

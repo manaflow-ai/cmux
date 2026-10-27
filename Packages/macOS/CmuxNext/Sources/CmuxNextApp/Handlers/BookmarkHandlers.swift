@@ -30,7 +30,7 @@ enum BookmarkHandlers {
             let name = invocation["name"]?.stringValue ?? BookmarkStrings.newFolder
             try apply(services, .create(.folder(name, in: folder), index: nil), profile)
         })
-        services.palette.sources.actionPages["bookmark.open"] = { [weak services] in services.map(BookmarkPalettePages.open) }
+        services.palettes.sources.actionPages["bookmark.open"] = { [weak services] in services.map(BookmarkPalettePages.open) }
         registry.bind("bookmark.open", run: { invocation in
             guard invocation.target != nil || invocation["bookmark"]?.stringValue?.isEmpty == false else {
                 return services.palette.show(page: BookmarkPalettePages.open(services), relativeTo: context.activeWindow?.window)

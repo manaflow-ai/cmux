@@ -40,9 +40,10 @@
 //! `agent_session.acpmux_unavailable`.
 
 use crate::panic_free::JsonFields;
+use cmux_threads::sync::Mutex;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -82,7 +83,6 @@ const MAX_CWD_BYTES: usize = 4096;
 /// A harness spawns and answers `session/new` (a cold agent can take long).
 const NEW_TIMEOUT: Duration = Duration::from_secs(60);
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
-const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 /// Reads this machine's [`AgentStartHost`] (a few file checks), at each start.
 pub type AgentStartHostSource = Arc<dyn Fn() -> AgentStartHost + Send + Sync>;
@@ -208,37 +208,37 @@ pub(super) fn start(
     if let Err(refusal) = startable(mux, params.surface) {
         return refuse(writer, id, refusal);
     }
-    // A chat never starts in `/`, above the home folder, or in the home folder
-    // unless the person chose it (cx-1bhjj), as on the Mac.
-    if let Err(refusal) = super::agent_session_trust::home_rule(&params.cwd, params.home_confirmed)
-    {
-        return refuse(writer, id, refusal);
-    }
     let Some(slot) = AgentSessionStarts::reserve(mux, params.surface) else {
         return refuse(writer, id, Refusal::Limit);
     };
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-start".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
-            let result = match keyed_gate(&socket, &params) {
-                Ok(()) => run(&worker_mux, client, socket, params).map_err(|r| (r, None)),
-                Err(refused) => Err(refused),
-            };
-            drop(slot);
-            match result {
-                Ok(data) => ok(&worker_writer, worker_id, data),
-                Err((refusal, None)) => refuse(&worker_writer, worker_id, refusal),
-                Err((refusal, Some(data))) => {
-                    super::refuse_with_data(&worker_writer, worker_id, refusal, data)
-                }
-            };
-        });
-    // A failed spawn drops the closure and with it the slot.
-    if spawned.is_err() {
+    // The start keeps the cause of the frame that asked for it.
+    let cause = crate::event_cause::EventCause::current();
+    let request_qos = mux.request_qos();
+    // The start waits on acpmux (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        let _cause = request_qos.enter(cause);
+        // A chat never starts in `/`, above the home folder, or in the
+        // home folder unless the person chose it (cx-1bhjj), as on the
+        // Mac. It resolves the folder on disk, so it runs here, not on
+        // the request thread.
+        let result = super::agent_session_trust::home_rule(&params.cwd, params.home_confirmed)
+            .map_err(|refusal| (refusal, None))
+            .and_then(|()| keyed_gate(&socket, &params))
+            .and_then(|()| run(&worker_mux, client, socket, params).map_err(|r| (r, None)));
+        drop(slot);
+        match result {
+            Ok(data) => ok(&worker_writer, worker_id, data),
+            Err((refusal, None)) => refuse(&worker_writer, worker_id, refusal),
+            Err((refusal, Some(data))) => {
+                super::refuse_with_data(&worker_writer, worker_id, refusal, data)
+            }
+        };
+    });
+    // A refused post drops the closure and with it the slot.
+    if posted.is_err() {
         return refuse(writer, id, Refusal::Limit);
     }
     true

@@ -6,7 +6,7 @@
 //! supervisor's drop) writes the cancel pipe, and the thread ends.
 
 use std::fs::File;
-use std::os::fd::{AsRawFd, OwnedFd, RawFd};
+use std::os::fd::{AsFd, AsRawFd, OwnedFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use std::sync::{Arc, Mutex, Weak};
@@ -61,9 +61,18 @@ impl Activation {
         lock(&self.sockets).is_some()
     }
 
-    /// The listening sockets for a host (agent, provider).
-    pub(super) fn raw_fds(&self) -> Option<(RawFd, RawFd)> {
-        lock(&self.sockets).as_ref().map(|s| (s.agent.as_raw_fd(), s.provider.as_raw_fd()))
+    /// Give a host the listening sockets (agent at `agent_at`, provider
+    /// after it): the builder holds its own copies. False when none are bound.
+    pub(super) fn pass_to(
+        &self,
+        command: &mut cmux_process::Command,
+        agent_at: RawFd,
+    ) -> std::io::Result<bool> {
+        let sockets = lock(&self.sockets);
+        let Some(sockets) = sockets.as_ref() else { return Ok(false) };
+        command.inherit_fd(sockets.agent.as_fd(), agent_at)?;
+        command.inherit_fd(sockets.provider.as_fd(), agent_at + 1)?;
+        Ok(true)
     }
 
     /// Ends the activation thread (the daemon's end) and waits for it,

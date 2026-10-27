@@ -10,7 +10,7 @@ public struct TerminalClipboardSubscribeRequest: DaemonRequest {
         public var clipboardReadReady: Bool
         enum CodingKeys: String, CodingKey { case clipboardReadReady = "clipboard_read_ready" }
     }
-    public static let command = "terminal-clipboard-subscribe"
+    public static let commandName: DaemonCommandName = "terminal-clipboard-subscribe"
     public var terminalIDs: [String]
 
     enum CodingKeys: String, CodingKey { case terminalIDs = "terminal_ids" }
@@ -27,7 +27,7 @@ public struct TerminalClipboardReplyRequest: DaemonRequest {
         public var accepted: Bool
         public var granted: Bool
     }
-    public static let command = "terminal-clipboard-reply"
+    public static let commandName: DaemonCommandName = "terminal-clipboard-reply"
     public var requestID: String
     public var text: String?
 

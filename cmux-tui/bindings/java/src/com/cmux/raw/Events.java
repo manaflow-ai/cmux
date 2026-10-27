@@ -53,6 +53,10 @@ public final class Events {
     public static final EventMetadata HISTORY_CHANGED = new EventMetadata("history-changed", 12, "history-v1", List.of("subscribe"), true);
     public static final EventMetadata KEYBINDINGS_CHANGED = new EventMetadata("keybindings-changed", 12, "keybindings-v1", List.of("subscribe"), true);
     public static final EventMetadata LAYOUT_CHANGED = new EventMetadata("layout-changed", 6, null, List.of("subscribe"), true);
+    public static final EventMetadata LOOPBACK_CLOSED = new EventMetadata("loopback-closed", 12, "loopback-forward-v1", List.of("control"), true);
+    public static final EventMetadata LOOPBACK_CREDIT = new EventMetadata("loopback-credit", 12, "loopback-forward-v1", List.of("control"), true);
+    public static final EventMetadata LOOPBACK_DATA = new EventMetadata("loopback-data", 12, "loopback-forward-v1", List.of("control"), true);
+    public static final EventMetadata LOOPBACK_EOF = new EventMetadata("loopback-eof", 12, "loopback-forward-v1", List.of("control"), true);
     public static final EventMetadata MACHINE_USAGE_CHANGED = new EventMetadata("machine-usage-changed", 12, "machine-usage-v1", List.of("subscribe"), true);
     public static final EventMetadata NOTIFICATION = new EventMetadata("notification", 6, null, List.of("subscribe", "attach-byte", "attach-browser"), true);
     public static final EventMetadata OUTPUT = new EventMetadata("output", 5, null, List.of("attach-byte"), true);
@@ -71,10 +75,12 @@ public final class Events {
     public static final EventMetadata SCREEN_CHANGED = new EventMetadata("screen-changed", 12, "screen-metadata-v1", List.of("subscribe-deltas"), true);
     public static final EventMetadata SCREEN_CLOSED = new EventMetadata("screen-closed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata SCREEN_RENAMED = new EventMetadata("screen-renamed", 7, null, List.of("subscribe-deltas"), true);
+    public static final EventMetadata SCRIPT_LOG = new EventMetadata("script-log", 12, null, List.of("control"), true);
     public static final EventMetadata SCROLL_CHANGED = new EventMetadata("scroll-changed", 6, null, List.of("subscribe", "attach-byte", "attach-render", "attach-browser"), true);
     public static final EventMetadata SETTINGS_CHANGED = new EventMetadata("settings-changed", 12, "settings-v1", List.of("subscribe"), true);
     public static final EventMetadata SIZE_STATE = new EventMetadata("size-state", 12, "shared-sizing-v1", List.of("subscribe", "attach-byte", "attach-render"), true);
     public static final EventMetadata STATUS = new EventMetadata("status", 5, null, List.of("subscribe"), true);
+    public static final EventMetadata STREAM_END = new EventMetadata("stream-end", 12, "attach-streams-v1", List.of("attach-byte", "attach-render", "attach-browser"), true);
     public static final EventMetadata SURFACE_EXITED = new EventMetadata("surface-exited", 5, null, List.of("subscribe"), true);
     public static final EventMetadata SURFACE_OUTPUT = new EventMetadata("surface-output", 5, null, List.of("subscribe"), true);
     public static final EventMetadata SURFACE_RESIZE_FAILED = new EventMetadata("surface-resize-failed", 7, null, List.of("subscribe"), true);
@@ -144,6 +150,10 @@ public final class Events {
         values.put("history-changed", HISTORY_CHANGED);
         values.put("keybindings-changed", KEYBINDINGS_CHANGED);
         values.put("layout-changed", LAYOUT_CHANGED);
+        values.put("loopback-closed", LOOPBACK_CLOSED);
+        values.put("loopback-credit", LOOPBACK_CREDIT);
+        values.put("loopback-data", LOOPBACK_DATA);
+        values.put("loopback-eof", LOOPBACK_EOF);
         values.put("machine-usage-changed", MACHINE_USAGE_CHANGED);
         values.put("notification", NOTIFICATION);
         values.put("output", OUTPUT);
@@ -162,10 +172,12 @@ public final class Events {
         values.put("screen-changed", SCREEN_CHANGED);
         values.put("screen-closed", SCREEN_CLOSED);
         values.put("screen-renamed", SCREEN_RENAMED);
+        values.put("script-log", SCRIPT_LOG);
         values.put("scroll-changed", SCROLL_CHANGED);
         values.put("settings-changed", SETTINGS_CHANGED);
         values.put("size-state", SIZE_STATE);
         values.put("status", STATUS);
+        values.put("stream-end", STREAM_END);
         values.put("surface-exited", SURFACE_EXITED);
         values.put("surface-output", SURFACE_OUTPUT);
         values.put("surface-resize-failed", SURFACE_RESIZE_FAILED);

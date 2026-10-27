@@ -81,7 +81,10 @@ pub(crate) fn tail(text: &str, max: usize) -> &str {
 }
 
 /// The loopback address that accepts a TCP connect on `port`, if any.
+#[track_caller]
 pub(crate) fn probe(port: u16) -> Option<&'static str> {
+    // One or two loopback connects: a `network` round trip (`request_path`).
+    crate::request_path::note(crate::request_path::BlockingKind::Network);
     let v4 = SocketAddr::from(([127, 0, 0, 1], port));
     if TcpStream::connect_timeout(&v4, PROBE_TIMEOUT).is_ok() {
         return Some("127.0.0.1");

@@ -509,6 +509,21 @@ class SingletonTests(Repo):
                 rows, _ = self.refused_rows({f"{SRC}/CmuxNextDomain/Ui.swift": decl + f"enum Ui {{\n    {use}\n}}\n"})
                 self.assertEqual(rows, ["stateful_singletons"], use)
 
+    def test_a_nested_type_shadows_the_system_type_of_its_name_in_its_own_file(self):
+        # p06-scheduler-004 review: CmuxNextFeatures' value struct `Feature` holds a nested `enum Process`; Swift
+        # resolves `Process` inside `Feature` to that enum, so a generated `static let x = Feature(...)` holds no
+        # Foundation.Process. Another file of the package that says `Process()` still means Foundation's.
+        self.write(f"{SRC}/CmuxNextDomain/Feature.swift",
+                   "public struct Feature: Sendable {\n    public enum Process: String, Sendable {\n        case app\n    }\n"
+                   "    public let process: Process\n    public static let local = Feature(process: .app)\n}\n")
+        self.base = self.commit("a value struct with a nested Process")
+        rows, _ = self.refused_rows({f"{SRC}/CmuxNextDomain/Features.generated.swift":
+                                     "extension Feature {\n    public static let starvation = Feature(process: .app)\n}\n"})
+        self.assertEqual(rows, [])
+        self.git("reset", "--quiet", "--hard", self.base)
+        rows, _ = self.refused_rows({f"{SRC}/CmuxNextDomain/Helper.swift": "enum Helper {\n    static let tool = Process()\n}\n"})
+        self.assertEqual(rows, ["stateful_singletons"])
+
     def test_a_protocol_annotation_does_not_hide_a_stateful_initializer(self):
         rows, _ = self.refused_rows({f"{SRC}/CmuxNextDomain/Live.swift":
                                      "protocol Storing: AnyObject {}\nextension Store: Storing {}\n"
@@ -1013,6 +1028,38 @@ class LayerTests(Repo):
         self.assertEqual(graph, {"CmuxNextCore": [], "CmuxNextDomain": ["CFFI", "CmuxNextCore", "CmuxNextUI"],
                                  "CmuxNextUI": ["CmuxNextDomain"], "CFFI": []})
         self.assertEqual(manifest.unreadable, {})
+
+    LINUX_MODE = ('\n#if os(Linux)\nimport Foundation\n'
+                  'if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {\n'
+                  '    package.targets = package.targets.filter { $0.name != "CmuxNextUI" }\n'
+                  '    package.targets.append(.target(name: kept ? "CZlib" : "X"))\n'
+                  '}\n#endif\n')
+
+    def test_a_linux_only_gate_block_is_not_read(self):
+        # No Apple build runs it (p15-oracle-002's Linux mode); the Apple graph is the one before it.
+        plain = counts.parse_manifest(MANIFEST % "")
+        linux = counts.parse_manifest(MANIFEST % "" + self.LINUX_MODE)
+        self.assertEqual(linux.unreadable, {})
+        self.assertEqual({n: t.deps for n, t in linux.targets.items()}, {n: t.deps for n, t in plain.targets.items()})
+        stripped = counts.without_linux_target_blocks(MANIFEST % "" + self.LINUX_MODE)
+        self.assertEqual(stripped.count("\n"), (MANIFEST % "" + self.LINUX_MODE).count("\n"))
+
+    def test_a_gate_block_not_closed_alone_at_its_indentation_is_read(self):
+        text = MANIFEST % "" + self.LINUX_MODE.replace("\n}\n#endif", "\n} ; package.products = []\n#endif")
+        self.assertTrue(counts.parse_manifest(text).unreadable)
+
+    def test_the_gate_form_is_the_package_resolved_policy_one(self):
+        # check-package-resolved-policy.py drops the same blocks of the real manifest; the two readers must
+        # agree on which blocks are Linux-only.
+        spec = importlib.util.spec_from_file_location(
+            "package_resolved_policy", Path(counts.__file__).resolve().parents[1] / "check-package-resolved-policy.py")
+        policy = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(policy)
+        self.assertEqual(policy.LINUX_TARGET_GATE_RE.pattern, counts._LINUX_TARGET_GATE.pattern)
+        real = (Path(counts.__file__).resolve().parents[2] / "Packages/macOS/CmuxNext/Package.swift").read_text()
+        for text in (real, MANIFEST % "" + self.LINUX_MODE):
+            self.assertEqual(counts.without_linux_target_blocks(text).split(),
+                             policy.without_linux_target_blocks(text).split())
 
     def test_an_upward_edge_from_core_is_counted_and_refused(self):
         # Core -> domain is neither hard nor soft, but edges only point down (DESIGN section 2).

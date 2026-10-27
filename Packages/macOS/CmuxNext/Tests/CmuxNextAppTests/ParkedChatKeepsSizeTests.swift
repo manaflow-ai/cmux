@@ -79,7 +79,7 @@ import Testing
 
     private func makePane(_ window: NSWindow) -> PaneContentView {
         let items = (0..<2).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") }
-        let pane = PaneContentView(stripModel: TabStripModel(tabs: items), reveal: LaunchReveal(deadline: .zero))
+        let pane = PaneContentView.testing(stripModel: TabStripModel(tabs: items), reveal: LaunchReveal(deadline: .zero))
         pane.frame = window.contentLayoutRect
         window.contentView = pane
         return pane

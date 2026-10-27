@@ -20,6 +20,10 @@ public enum ChromiumRuntimeInstallError: Error, Equatable, Sendable {
     case signature(String)
     /// Moving the pack into place or writing its record failed.
     case filesystem(String)
+    /// A step stopped before it ran (its task was cancelled, or quit dropped it). Not a failed attempt:
+    /// ``ChromiumRuntimeInstaller`` ends the job without publishing a failure or retrying, and nothing
+    /// was vouched for.
+    case cancelled
 
     /// Stable code for diagnostics (`debug.cef`).
     public var code: String {
@@ -33,6 +37,7 @@ public enum ChromiumRuntimeInstallError: Error, Equatable, Sendable {
         case .missing: "missing"
         case .signature: "signature"
         case .filesystem: "filesystem"
+        case .cancelled: "cancelled"
         }
     }
 
@@ -49,6 +54,7 @@ public enum ChromiumRuntimeInstallError: Error, Equatable, Sendable {
         case .missing(let item): "missing \(item)"
         case .signature(let item): "signature check failed: \(item)"
         case .filesystem(let message): message
+        case .cancelled: "cancelled"
         }
     }
 }

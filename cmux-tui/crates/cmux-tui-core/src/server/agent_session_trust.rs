@@ -25,6 +25,7 @@
 //! `agent_session.home_unconfirmed` otherwise), so one click never trusts a
 //! whole home folder.
 
+use cmux_threads::checked::fs as files;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -41,7 +42,6 @@ pub const AGENT_SESSION_TRUST_CAPABILITY: &str = "agent-session-trust-v1";
 
 const MAX_CWD_BYTES: usize = 4096;
 const CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
-const THREAD_STACK_BYTES: usize = 256 * 1024;
 /// Trust calls that may run at once on one daemon (each waits up to
 /// `CALL_TIMEOUT` on acpmux).
 const MAX_CALLS: usize = 8;
@@ -113,18 +113,16 @@ pub(super) fn trust(
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-trust".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
-            let result = run(&worker_mux, &socket, &params);
-            drop(slot);
-            match result {
-                Ok(data) => ok(&worker_writer, worker_id, data),
-                Err(refusal) => refuse(&worker_writer, worker_id, refusal),
-            }
-        });
-    if spawned.is_err() {
+    // The trust call waits on acpmux (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        let result = run(&worker_mux, &socket, &params);
+        drop(slot);
+        match result {
+            Ok(data) => ok(&worker_writer, worker_id, data),
+            Err(refusal) => refuse(&worker_writer, worker_id, refusal),
+        };
+    });
+    if posted.is_err() {
         return refuse(writer, id, Refusal::Limit);
     }
     true
@@ -144,7 +142,7 @@ fn own_agent_tab(mux: &Mux, surface: SurfaceId) -> bool {
 /// home folder are refused, the home folder needs `home_confirmed`. Fails
 /// closed: with no home folder known, every folder needs `home_confirmed`.
 pub(super) fn home_rule(cwd: &str, home_confirmed: bool) -> Result<(), Refusal> {
-    let canonical = |path: &std::path::Path| std::fs::canonicalize(path).ok();
+    let canonical = |path: &std::path::Path| files::canonicalize(path).ok();
     // A folder that does not exist is acpmux's to refuse.
     let Some(cwd) = canonical(cwd.as_ref()) else { return Ok(()) };
     if cwd.parent().is_none() {
@@ -165,14 +163,16 @@ pub(super) fn home_rule(cwd: &str, home_confirmed: bool) -> Result<(), Refusal> 
 /// list (only page `agent` reads or answers) and, for a set, the person's
 /// gesture (a host confirmation for exactly this request) and origin user.
 /// The rest is the verb's: a trusted local connection, the machine kind
-/// gate, an agent tab of this store, the home folder rule.
+/// gate, an agent tab of this store (checked here, from memory), then the
+/// home folder rule and the acpmux call in the returned job, which the page
+/// router runs on a work item: it waits on the disk and on another process.
 pub(super) fn routed(
-    mux: &Mux,
+    mux: &Arc<Mux>,
     client: u64,
     operation: &str,
     mut params: serde_json::Map<String, Value>,
-) -> Result<Value, crate::resource::ResourceError> {
-    let fail = |refusal: Refusal| {
+) -> Result<RoutedJob, crate::resource::ResourceError> {
+    let fail = move |refusal: Refusal| {
         crate::resource::ResourceError::operation_failed(
             operation,
             refusal.message(),
@@ -200,9 +200,24 @@ pub(super) fn routed(
         return Err(fail(Refusal::UnknownTab));
     }
     let socket = mux.control_clients.agent_sessions.socket().ok_or(fail(Refusal::Unavailable))?;
-    let Some(_slot) = CallSlot::take() else { return Err(fail(Refusal::Limit)) };
-    run(mux, &socket, &params).map_err(fail)
+    let Some(slot) = CallSlot::take() else { return Err(fail(Refusal::Limit)) };
+    let (mux, operation) = (mux.clone(), operation.to_owned());
+    Ok(Box::new(move || {
+        let result = run(&mux, &socket, &params);
+        drop(slot);
+        result.map_err(|refusal| {
+            crate::resource::ResourceError::operation_failed(
+                operation,
+                refusal.message(),
+                json!({"code": refusal.code()}),
+            )
+        })
+    }))
 }
+
+/// The blocking half of a routed trust request (the page router posts it).
+pub(crate) type RoutedJob =
+    Box<dyn FnOnce() -> Result<Value, crate::resource::ResourceError> + Send>;
 
 fn run(mux: &Mux, socket: &std::path::Path, params: &TrustParams) -> Result<Value, Refusal> {
     if params.level.as_deref() == Some("trusted") {

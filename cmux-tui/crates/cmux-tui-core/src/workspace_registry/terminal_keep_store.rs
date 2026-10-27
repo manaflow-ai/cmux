@@ -66,6 +66,7 @@ impl WorkspaceRegistry {
     /// Mark (`true`) or unmark (`false`) a live terminal as `keep`. Tombstoned
     /// or unknown terminals are rejected so a stale request cannot leave an
     /// orphan row behind.
+    #[track_caller]
     pub fn set_terminal_keep(&mut self, terminal_id: &str, keep: bool) -> anyhow::Result<()> {
         validate_terminal_identity("terminal id", terminal_id)?;
         let db = self.connection.get();
@@ -86,6 +87,7 @@ impl WorkspaceRegistry {
     }
 
     /// Whether one terminal is marked `keep`.
+    #[track_caller]
     pub fn terminal_keep(&self, terminal_id: &str) -> anyhow::Result<bool> {
         validate_terminal_identity("terminal id", terminal_id)?;
         Ok(self.connection.get().query_row(
@@ -96,6 +98,7 @@ impl WorkspaceRegistry {
     }
 
     /// Every terminal id marked `keep`, including rows not yet pruned.
+    #[track_caller]
     pub fn kept_terminals(&self) -> anyhow::Result<std::collections::HashSet<String>> {
         let db = self.connection.get();
         let mut statement = db.prepare("SELECT terminal_id FROM terminal_keep")?;
@@ -109,6 +112,7 @@ impl WorkspaceRegistry {
 
     /// Delete `keep` rows whose terminal is tombstoned or no longer
     /// registered. Returns the number of rows removed.
+    #[track_caller]
     pub fn prune_terminal_keep(&mut self) -> anyhow::Result<usize> {
         Ok(self.connection.get().execute(
             "DELETE FROM terminal_keep

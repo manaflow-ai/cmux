@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// The New Tab page's saved environments (``AgentPaneEnvironment``). Fixed param keys (any other
@@ -52,7 +53,7 @@ public nonisolated enum AgentPaneEnvironmentRequest: Equatable, Sendable {
         object["updatedAt"] = nil
         guard JSONSerialization.isValidJSONObject(object),
               let data = try? JSONSerialization.data(withJSONObject: object),
-              let environment = try? JSONDecoder().decode(AgentPaneEnvironment.self, from: data) else { return nil }
+              let environment = try? JSONDecoder().blockingDecode(AgentPaneEnvironment.self, from: data) else { return nil }
         return environment.validated()
     }
 }
@@ -102,6 +103,6 @@ extension AgentPaneEnvironmentRequest {
 
     /// The JSON object the page reads; nil fields are left out.
     static func object(_ environment: AgentPaneEnvironment) throws -> Any {
-        try JSONSerialization.jsonObject(with: JSONEncoder().encode(environment))
+        try JSONSerialization.blockingJSONObject(with: JSONEncoder().encode(environment))
     }
 }

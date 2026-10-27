@@ -72,6 +72,7 @@ impl Mux {
     /// durable path as `notification.create`, under a fresh key, so remote
     /// subscribers of the resource feed and a restarted daemon see it too.
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn post_notification(
         &self,
         title: String,
@@ -90,6 +91,7 @@ impl Mux {
     }
 
     /// A fresh notification that `actor` posts, with an explicit source.
+    #[track_caller]
     pub fn post_notification_as(
         &self,
         actor: &Actor,
@@ -107,6 +109,7 @@ impl Mux {
     /// Post what a program in `surface`'s terminal asked for with OSC 9,
     /// OSC 777 or OSC 99, or an OSC 7501 record's alert. Called by the terminal's output reader after it
     /// released the terminal lock; the reader already applied the rate limit.
+    #[track_caller]
     pub(crate) fn post_terminal_notifications(
         &self,
         surface: SurfaceId,
@@ -136,6 +139,7 @@ impl Mux {
     /// an unread notification, so a program that rings in a loop marks its tab
     /// once and never pushes real notifications out of the ledger. The terminal's
     /// reader also posts at most one per cooldown (`PendingBells`).
+    #[track_caller]
     pub(crate) fn post_bell_notification(&self, surface: SurfaceId) {
         if self.surface_notification(surface).is_some_and(|marker| marker.unread) {
             return;
@@ -350,6 +354,7 @@ impl Mux {
     /// with the resource API and survive a daemon restart. A fresh post
     /// returns the session-local legacy notification id.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn create_durable_notification(
         &self,
         actor: &Actor,
@@ -377,6 +382,7 @@ impl Mux {
     /// `create_durable_notification` with `desktop`: false records the
     /// notification and its unread mark with no desktop banner (a bell).
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn create_durable_notification_with(
         &self,
         actor: &Actor,
@@ -533,6 +539,7 @@ impl Mux {
     /// Delete durable read marks for evicted notifications that the committed
     /// receipts no longer retain. Called after a notification create commits;
     /// ids still retained durably stay queued for a later create.
+    #[track_caller]
     pub(crate) fn prune_evicted_notification_reads(&self) {
         let candidates = std::mem::take(&mut *self.notification_read_prunes.lock().unwrap());
         if candidates.is_empty() {
@@ -556,6 +563,7 @@ impl Mux {
     /// acknowledgement of something already gone is complete by definition.
     /// The refreshed rows are published as one resource revision so every
     /// subscribed client converges on the same `read_by` sets.
+    #[track_caller]
     pub(crate) fn ack_notifications(
         &self,
         mutation: &WorkspaceMutation,
@@ -642,6 +650,7 @@ impl Mux {
     /// for the terminal is dropped.
     /// `clear_notifications_in` for one terminal or the session (tests).
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn clear_notifications(
         &self,
         mutation: &WorkspaceMutation,
@@ -658,6 +667,7 @@ impl Mux {
     /// `clear_notifications` for one terminal, one workspace (its own rows
     /// and those of every terminal and tab it shows), or the whole session.
     /// A workspace that is not in this session is an error.
+    #[track_caller]
     pub(crate) fn clear_notifications_in(
         &self,
         mutation: &WorkspaceMutation,
@@ -704,6 +714,7 @@ impl Mux {
     /// holds the feed lock. `feed` is the feed after the clear's reads: a
     /// ring stays while an item it follows stays unread (moving, or owned
     /// elsewhere), as the tab ack keeps it.
+    #[track_caller]
     fn apply_notification_clear(
         &self,
         mutation: &WorkspaceMutation,

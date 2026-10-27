@@ -22,6 +22,8 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxVNC"),
+        // The portable Mutex the shared session state lives in (p10-stability-172).
+        .package(path: "../CmuxSafeConcurrency"),
     ],
     targets: [
         .binaryTarget(
@@ -29,7 +31,8 @@ let package = Package(
             url: "https://github.com/stasel/WebRTC/releases/download/154.0.0/WebRTC-M154.xcframework.zip",
             checksum: "a2bcdda93578c82452ceb6e49d54a2746e1bcb4caf7c2fa601ffac8028b58c16"
         ),
-        .target(name: "CmuxVNCWebRTC", dependencies: ["WebRTC", .product(name: "CmuxVNC", package: "CmuxVNC")],
+        .target(name: "CmuxVNCWebRTC", dependencies: ["WebRTC", .product(name: "CmuxVNC", package: "CmuxVNC"),
+                                                      .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
                 swiftSettings: swiftSettings),
         .executableTarget(name: "cmux-vnc-host", dependencies: ["CmuxVNCWebRTC", .product(name: "CmuxVNC", package: "CmuxVNC")],
                           swiftSettings: swiftSettings),
@@ -39,3 +42,25 @@ let package = Package(
                     swiftSettings: swiftSettings),
     ]
 )
+
+// BEGIN apply-stability-settings.py: generated from scripts/cmux-next/stability-settings.json; do not edit.
+// p10 stability settings per target (plans/cmux-next/chrome-parity/p10-stability.md C.5): add a row to
+// stability-settings.json and run the lander instead of editing this block or a target's settings.
+let stabilitySettingGroups: [(targets: [String], settings: [SwiftSetting])] = [
+    (
+        targets: [
+            "CmuxVNCWebRTC",
+            "CmuxVNCWebRTCTests",
+            "cmux-vnc-host",
+        ],
+        settings: [
+            .strictMemorySafety(),
+        ]
+    ),
+]
+for group in stabilitySettingGroups {
+    for target in package.targets where group.targets.contains(target.name) {
+        target.swiftSettings = (target.swiftSettings ?? []) + group.settings
+    }
+}
+// END apply-stability-settings.py

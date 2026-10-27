@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The page's reply envelope: `{ok: true, value}` or
@@ -36,7 +37,7 @@ public nonisolated enum AgentPaneReply {
 
     private static func encodedObject<Value: Encodable>(_ value: Value) -> [String: Any] {
         guard let data = try? JSONEncoder().encode(value),
-              let object = try? JSONSerialization.jsonObject(with: data),
+              let object = try? JSONSerialization.blockingJSONObject(with: data),
               let dictionary = object as? [String: Any] else {
             assertionFailure("Agent pane bridge value must be JSON-compatible")
             return [:]

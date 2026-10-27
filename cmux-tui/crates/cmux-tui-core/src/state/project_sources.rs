@@ -8,6 +8,7 @@ mod app_stores;
 mod vscode;
 mod zed;
 
+use cmux_threads::checked::fs as files;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
@@ -168,7 +169,7 @@ pub(crate) fn scan_all(layout: &Layout) -> Vec<SourceScan> {
 
 /// A file's modification time in ms since the epoch.
 fn modified_ms(path: &Path) -> Option<i64> {
-    let modified = std::fs::metadata(path).ok()?.modified().ok()?;
+    let modified = files::metadata(path).ok()?.modified().ok()?;
     let elapsed = modified.duration_since(std::time::UNIX_EPOCH).ok()?;
     i64::try_from(elapsed.as_millis()).ok()
 }
@@ -192,7 +193,7 @@ fn open_read_only(path: &Path) -> Option<rusqlite::Connection> {
 
 /// Reads one watched text source up to its hard byte ceiling.
 fn read_text_bounded(path: &Path) -> Option<String> {
-    let file = std::fs::File::open(path).ok()?;
+    let file = files::open(path).ok()?;
     let mut bytes = Vec::new();
     file.take((MAX_SOURCE_FILE_BYTES + 1) as u64).read_to_end(&mut bytes).ok()?;
     if bytes.len() > MAX_SOURCE_FILE_BYTES {

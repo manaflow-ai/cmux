@@ -25,6 +25,13 @@ public final class MemoryPressureEvents: Sendable {
         source.start { [handlers] level in handlers.call(level) }
     }
 
+    /// The memory pressure level now, also before the first change (the source reads it at start,
+    /// as Chrome's `SystemMemoryPressureEvaluator` sets its initial vote); inside a handler, the
+    /// level that handler is given. Any thread.
+    public var currentLevel: MemoryPressureLevel {
+        source.currentLevel
+    }
+
     /// Calls `handler` on the main actor with each memory pressure change until the returned
     /// registration is released or cancelled.
     ///

@@ -7,11 +7,18 @@
 //! `<prefix>_<tool>` (`cmux-cua` is `cua`), so `cmux_docs` finds them and a
 //! `cmux_exec` script calls them through `Server::call`, under the same
 //! allowlist as every other tool.
+//!
+//! An entry with a `socket` is a tool set the acpmux daemon serves itself
+//! (acpmux `subsession_mcp::DaemonTools`, p07-memory-092): this server dials
+//! that socket and sends the entry's `initializeMeta` with its `initialize`,
+//! which proves the session, so the tools run with no process of their own.
+//! Its command (the acpmux relay) is for a `cmux mcp serve` that reads no
+//! `socket`, and for Windows.
 
+use cmux_process::{Child, Command, Stdio};
 use std::collections::BTreeSet;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -39,6 +46,10 @@ pub(super) struct Spec {
     pub args: Vec<String>,
     pub env: Vec<(String, String)>,
     pub call_timeout: Duration,
+    /// The acpmux daemon socket to dial instead of starting `command` (module docs).
+    pub socket: Option<PathBuf>,
+    /// The `_meta` of its first `initialize`.
+    pub initialize_meta: Option<Value>,
 }
 
 /// The servers in `value` (the env's JSON). A bad entry is left out and
@@ -70,7 +81,9 @@ pub(super) fn specs(value: Option<std::ffi::OsString>) -> Vec<Spec> {
             let call_timeout = item["callTimeoutSecs"]
                 .as_u64()
                 .map_or(CALL_TIMEOUT, |secs| Duration::from_secs(secs.clamp(1, 24 * 3600)));
-            Some(Spec { name, command, args, env, call_timeout })
+            let socket = item["socket"].as_str().map(PathBuf::from);
+            let initialize_meta = item.get("initializeMeta").filter(|m| m.is_object()).cloned();
+            Some(Spec { name, command, args, env, call_timeout, socket, initialize_meta })
         })
         .collect()
 }
@@ -114,16 +127,32 @@ impl Failure {
 }
 
 struct Conn {
-    child: Child,
-    stdin: ChildStdin,
+    peer: Peer,
+    stdin: Box<dyn Write + Send>,
     lines: mpsc::Receiver<String>,
     next_id: u64,
 }
 
+/// What a connection talks to: a server process, or the acpmux daemon.
+enum Peer {
+    Process(Child),
+    #[cfg(unix)]
+    Daemon(std::os::unix::net::UnixStream),
+}
+
 impl Drop for Conn {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        match &mut self.peer {
+            Peer::Process(child) => {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            // Ends the reader thread's read too.
+            #[cfg(unix)]
+            Peer::Daemon(stream) => {
+                let _ = stream.shutdown(std::net::Shutdown::Both);
+            }
+        }
     }
 }
 
@@ -223,42 +252,17 @@ impl Upstream {
 
     fn try_start(&mut self) -> Result<(), String> {
         self.conn = None;
-        let mut child = Command::new(&self.spec.command)
-            .args(&self.spec.args)
-            // This server's own folding and allowlist stay with it.
-            .env_remove(ENV)
-            .envs(self.spec.env.iter().map(|(k, v)| (k, v)))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .map_err(|error| format!("cannot start {}: {error}", self.spec.command.display()))?;
-        let stdin = child.stdin.take().ok_or("no stdin")?;
-        let stdout = child.stdout.take().ok_or("no stdout")?;
-        let (tx, lines) = mpsc::channel();
-        std::thread::Builder::new()
-            .name(format!("cmux-mcp-upstream-{}", self.prefix))
-            .spawn(move || {
-                for line in BufReader::new(stdout).lines() {
-                    let Ok(line) = line else { break };
-                    if tx.send(line).is_err() {
-                        break;
-                    }
-                }
-            })
-            .map_err(|error| error.to_string())?;
-        self.conn = Some(Conn { child, stdin, lines, next_id: 1 });
-        let init = self
-            .request(
-                "initialize",
-                json!({
-                    "protocolVersion": PROTOCOL_VERSION,
-                    "capabilities": {},
-                    "clientInfo": {"name": "cmux", "version": env!("CARGO_PKG_VERSION")},
-                }),
-                START_TIMEOUT,
-            )
-            .map_err(Failure::message)?;
+        self.conn = Some(self.connect()?);
+        let mut init = json!({
+            "protocolVersion": PROTOCOL_VERSION,
+            "capabilities": {},
+            "clientInfo": {"name": "cmux", "version": env!("CARGO_PKG_VERSION")},
+        });
+        // The daemon's tool sets: the caller that proves the session, and the server (module docs).
+        if let Some(meta) = &self.spec.initialize_meta {
+            init["_meta"] = meta.clone();
+        }
+        let init = self.request("initialize", init, START_TIMEOUT).map_err(Failure::message)?;
         self.instructions = init["instructions"].as_str().map(str::to_owned);
         self.notify("notifications/initialized")?;
         let mut tools = Vec::new();
@@ -276,6 +280,55 @@ impl Upstream {
         self.tools = Some(tools);
         self.failed = None;
         Ok(())
+    }
+
+    /// A new connection: the daemon's own when the spec names its socket
+    /// (unix), else the server process.
+    fn connect(&self) -> Result<Conn, String> {
+        #[cfg(unix)]
+        if let Some(socket) = &self.spec.socket {
+            let stream = std::os::unix::net::UnixStream::connect(socket).map_err(|error| {
+                format!("cannot reach the daemon at {}: {error}", socket.display())
+            })?;
+            let clone = || stream.try_clone().map_err(|error| error.to_string());
+            let lines = self.read_lines(clone()?)?;
+            let stdin = Box::new(clone()?);
+            return Ok(Conn { peer: Peer::Daemon(stream), stdin, lines, next_id: 1 });
+        }
+        let mut child = Command::new(&self.spec.command)
+            .args(&self.spec.args)
+            // This server's own folding and allowlist stay with it.
+            .env_remove(ENV)
+            .envs(self.spec.env.iter().map(|(k, v)| (k, v)))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .map_err(|error| format!("cannot start {}: {error}", self.spec.command.display()))?;
+        let stdin = child.stdin.take().ok_or("no stdin")?;
+        let stdout = child.stdout.take().ok_or("no stdout")?;
+        let lines = self.read_lines(stdout)?;
+        Ok(Conn { peer: Peer::Process(child), stdin: Box::new(stdin), lines, next_id: 1 })
+    }
+
+    /// The lines of `output`, read on a thread of their own.
+    fn read_lines(
+        &self,
+        output: impl std::io::Read + Send + 'static,
+    ) -> Result<mpsc::Receiver<String>, String> {
+        let (tx, lines) = mpsc::channel();
+        std::thread::Builder::new()
+            .name(format!("cmux-mcp-upstream-{}", self.prefix))
+            .spawn(move || {
+                for line in BufReader::new(output).lines() {
+                    let Ok(line) = line else { break };
+                    if tx.send(line).is_err() {
+                        break;
+                    }
+                }
+            })
+            .map_err(|error| error.to_string())?;
+        Ok(lines)
     }
 
     fn notify(&mut self, method: &str) -> Result<(), String> {

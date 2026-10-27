@@ -21,8 +21,8 @@ enum LoopbackForwardEvent: Sendable, Equatable {
     }
 
     /// nil for other events and malformed lines.
-    static func decode(name: String, line: Data) -> LoopbackForwardEvent? {
-        guard name.hasPrefix("loopback-"), let raw = try? JSONDecoder().decode(Raw.self, from: line) else { return nil }
+    static func decode(name: String, line: Data, decoder: WireDecoder = WireCoding.decoder()) -> LoopbackForwardEvent? {
+        guard name.hasPrefix("loopback-"), let raw = try? decoder.decode(Raw.self, from: line) else { return nil }
         switch name {
         case "loopback-data":
             guard let text = raw.data, let bytes = Data(base64Encoded: text) else { return nil }

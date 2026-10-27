@@ -7,6 +7,17 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// The fork and shim have the renderer paths (`CEFForkFeatures.rendererPaths`): no tab keeps a
     /// DevTools session, so the per-renderer reuse switch applies.
     var rendererPaths = false
+    /// Chromium `base::Feature`s the app's features turn on (process `chromium` in
+    /// schemas/features/features.d, for example `cefTimerSlack`'s `TimerSlackMac`).
+    var chromiumFeatures: [String] = []
+    /// Chromium `base::Feature`s the app's features turn off (process `chromium`, off from any source:
+    /// the channel default, the remote document, policy or `CMUX_DISABLE_FEATURES`). They go in one
+    /// `disable-features` entry and leave the `enable-features` entry, also a feature cmux itself names
+    /// there: disable wins, as in Chromium's `FeatureList::InitFromCommandLine` (base/feature_list.cc).
+    var disabledChromiumFeatures: [String] = []
+    /// The default-off feature `chromiumSpareAfterFirstTab`: pass the fork's spare renderer policy
+    /// (`spareRendererAfterFirstTab`).
+    var spareAfterFirstTab = false
     /// Development builds share one ad hoc identity per tag; the real
     /// keychain would prompt for "Chromium Safe Storage" on every rebuild.
     var useMockKeychain: Bool
@@ -15,6 +26,11 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Extensions the app bundle ships (`CEFBuiltInExtensions`); they do not
     /// turn on the extensions developer mode.
     var builtInExtensions: [String] = []
+    /// The default-off feature `chromiumAdBlockerAtFirstTab` on a fork with `cmux_ext_load_command_line_async`:
+    /// ``builtInExtensions`` stay off `--load-extension` and load into each persistent profile right
+    /// before its first browser tab (``CEFBuiltInExtensionLoads``), so Home with no browser tab runs no
+    /// extension background page.
+    var builtInExtensionsAtFirstTab = false
     /// Unpacked extensions stay enabled without developer mode: true while
     /// the built-in uBlock Origin loads or the person has their own unpacked
     /// copy of it (`CEFBuiltInExtensions.Plan`).
@@ -22,6 +38,21 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Extra Chromium switches for diagnosis (development bundles only), for
     /// example `show-browser-frame-regions` or `enable-ui-devtools=9223`.
     var extraSwitches: [String] = []
+    /// Switches a bench run sets (`CMUX_NEXT_BENCH_CEF_SWITCHES`, development and bench bundles of a
+    /// Debug or bench build only): only the names in ``benchSwitchNames``.
+    var benchSwitches: [String] = []
+    /// The agent site's main-frame cap from the default-off feature `agentPageRendererSharing` (its
+    /// `mainFrames` param); nil while the feature is off.
+    var agentPageMainFrameCap: Int?
+    /// PL-memory's cmux page sharing table (``pageSchemeProcessPerSite``): each cmux page host that may
+    /// share a renderer, with its cap (``CEFPageSchemes/siteCaps(_:)``). Empty: no switch.
+    var pageSiteCaps: [PageSiteCap] = []
+
+    /// The switches a bench run may set: the pair Web Page Replay needs to serve a recorded archive
+    /// (catapult web_page_replay_go/README.md: `--host-resolver-rules` maps every host to the replay
+    /// server, `--ignore-certificate-errors-spki-list` trusts only its certificate). Any other switch
+    /// would make a bench build measure an engine Release never runs, so it is dropped.
+    static let benchSwitchNames: Set<String> = ["host-resolver-rules", "ignore-certificate-errors-spki-list"]
 
     /// The longest one Chromium pump pass runs before it returns to the main run loop: a quarter
     /// of a 120 Hz frame, so the app's own frame work and the display link fit beside a pass.
@@ -31,6 +62,22 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// size only up to a deadline the app sets (the same version as `CEFLayerHosting.resizeSyncForkAPI`,
     /// which is main-actor isolated; this value is read where the switches are worked out, off it).
     static let resizeSyncForkAPI: Int32 = 27
+
+    /// The fork's switch that keeps main-frame process reuse's DevTools check per renderer
+    /// (`CEFForkFeatures.rendererPathsForkAPI`, fork API 29): Chromium's
+    /// content/browser/renderer_host/render_frame_host_manager.cc asks
+    /// `DevToolsAgentHost::WasEverAttachedToAnyFrame` for the whole browser instead.
+    static let processReusePerRendererDevTools = "cmux-process-reuse-per-renderer-devtools"
+    /// Chrome keeps one spare renderer (live, no site lock, no document) for the profile that
+    /// last took a new process (`content/browser/renderer_host/spare_render_process_host_manager_impl.cc`
+    /// PrepareForFutureRequests). On desktop it has no destroy timer (StartDestroyTimer gets a
+    /// timeout only with Android's kAndroidWarmUpSpareRendererWithTimeout), and
+    /// kKillSpareRenderOnMemoryPressure is disabled by default: memory pressure only refuses a
+    /// new spare. With this fork switch (manaflow-ai/cef `cp/p13-webui-020`) a profile gets a
+    /// spare only after one of its browser tabs starts an http(s) navigation, so the cmux pages
+    /// profile, extension background pages and the spare windows should never make one. The
+    /// spare keeps Chrome desktop's lifetime. Older forks ignore the switch.
+    static let spareRendererAfterFirstTab = "cmux-spare-renderer-after-first-tab"
 
     var arguments: [String] {
         var result: [String] = []
@@ -57,16 +104,12 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // (cef-cmux 066b083f, `--cmux-pump-time-slice-us`) ends a pass after this slice and asks for
         // "now" again when work is left, so display frames run between passes. Older forks ignore it.
         result.append("cmux-pump-time-slice-us=\(Self.pumpTimeSliceMicroseconds)")
-        // The fork resizes a page's child window with its pane, and Chromium 154 then holds the
-        // app's Core Animation commit (its CATransactionCoordinator pre-commit handler, on our main
-        // thread) until it has a frame at the new size, or for up to 500 ms: each frame of a split
-        // or close that resized a page waited for that page's relayout and raster. AsyncLiveResize
-        // skips the wait in NativeWidgetNSWindowBridge::UpdateWindowGeometry; a page window is never
-        // in a live resize of its own, so the async live-resize path it also turns on never runs.
-        // From fork API 27 the fork's own default is no wait, and a layer-hosted page waits up to
-        // the deadline CEFLayerHosting sets, so AsyncLiveResize would only lose that sync.
-        if forkAPIVersion < Self.resizeSyncForkAPI { result.append("enable-features=AsyncLiveResize") }
         result.append(contentsOf: Self.chromePromptOffSwitches)
+        result.append(Self.syncOffSwitch)
+        // One entry each: the shim merges them into CEF's own lists (CEFShim/src/command_line_switches.h),
+        // and Chromium passes the lists to every child process.
+        result.append("enable-features=" + enabledFeatures.joined(separator: ","))
+        result.append("disable-features=" + disabledFeatures.joined(separator: ","))
         // Chrome shares a renderer between at most 2 main frames of one site below its process
         // limit (kProcessPerSiteUpToMainFrameThreshold), but Chromium 154 turns that off for the
         // whole process once any frame ever had a DevTools agent (RenderFrameHostManager,
@@ -74,6 +117,18 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // the check per renderer only (a renderer with a DevTools agent is never shared), so one
         // agent does not end sharing everywhere (fork API 29; tab-lifecycle.md "Renderer sharing").
         if rendererPaths { result.append(Self.processReusePerRendererDevTools) }
+        // Chrome gives every NTP one renderer (ChromeContentBrowserClient::ShouldUseProcessPerSite) and
+        // sends top-chrome WebUI to a live renderer of its lock (ShouldTryToUseExistingProcessHost). The
+        // fork reads this table the second way, so a cap holds: a listed cmux page host joins a live
+        // renderer of its own host (with page groups registered, of its group) while that renderer has
+        // fewer main frames than the cap and no DevTools agent (cmux_page_groups.cc, cp/p13-webui-011).
+        // A host with no entry keeps Chromium's process per origin. Without the renderer paths every
+        // page talks through DevTools and the fork shares none, so the switch needs them too.
+        let siteCaps = pageSiteTable
+        if rendererPaths, forkAPIVersion >= Self.pageSiteSharingForkAPI, !siteCaps.isEmpty {
+            result.append(Self.pageSchemeProcessPerSiteArgument(siteCaps))
+        }
+        if spareAfterFirstTab { result.append(Self.spareRendererAfterFirstTab) }
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
         // (CEFShim/src/command_line_switches.h). Chromium's code-sign clone
@@ -83,7 +138,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         if useMockKeychain {
             result.append("use-mock-keychain")
         }
-        let loaded = builtInExtensions + loadExtensions
+        let loaded = (builtInExtensionsAtFirstTab ? [] : builtInExtensions) + loadExtensions
         if !loaded.isEmpty {
             result.append("load-extension=" + loaded.joined(separator: ","))
         }
@@ -95,8 +150,128 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // built-in entry Chromium keeps in the profile. The shim merges this
         // into CEF's list.
         if keepsUnpackedEnabled { result.append("disable-features=ExtensionDisableUnsupportedDeveloper") }
+        result.append(contentsOf: benchSwitches)
         result.append(contentsOf: extraSwitches)
         return result
+    }
+
+    /// The Chromium `base::Feature`s of the one `enable-features` entry, each once.
+    var enabledFeatures: [String] {
+        var features: [String] = []
+        // The fork resizes a page's child window with its pane, and Chromium 154 then holds the
+        // app's Core Animation commit (its CATransactionCoordinator pre-commit handler, on our main
+        // thread) until it has a frame at the new size, or for up to 500 ms: each frame of a split
+        // or close that resized a page waited for that page's relayout and raster. AsyncLiveResize
+        // skips the wait in NativeWidgetNSWindowBridge::UpdateWindowGeometry; a page window is never
+        // in a live resize of its own, so the async live-resize path it also turns on never runs.
+        // From fork API 27 the fork's own default is no wait, and a layer-hosted page waits up to
+        // the deadline CEFLayerHosting sets, so AsyncLiveResize would only lose that sync.
+        if forkAPIVersion < Self.resizeSyncForkAPI { features.append("AsyncLiveResize") }
+        // The app's Chromium features come last, for example `cefTimerSlack` (default off):
+        // `kTimerSlackMac` (base/message_loop/message_pump_apple.mm, message_pump_kqueue.cc) gives each
+        // CFRunLoop and kqueue pump's delayed timer the task's leeway. It changes renderer, GPU and
+        // utility processes and the browser's non-UI threads only: the UI thread's MessagePumpExternal
+        // arms no base timer, and the app's deadline queue gets the leeway from the fork's absolute
+        // run times (p14-energy-046).
+        // A feature the app turns off leaves this entry, so the two lists never name one feature.
+        let named = [Self.chromePromptOffFeature] + Self.wakeUpAlignmentFeatures + Self.idleSourceOffFeatures
+        let disabled = Set(disabledFeatures)
+        for feature in named + chromiumFeatures
+        where !features.contains(feature) && !disabled.contains(Self.featureName(of: feature)) {
+            features.append(feature)
+        }
+        return features
+    }
+
+    /// The Chromium `base::Feature`s of the one `disable-features` entry, each once: the idle services
+    /// cmux does not use (``idleServiceOffFeatures``), then the app's off features.
+    var disabledFeatures: [String] {
+        var features: [String] = []
+        for feature in Self.idleServiceOffFeatures + disabledChromiumFeatures where !features.contains(feature) {
+            features.append(feature)
+        }
+        return features
+    }
+
+    /// The feature an `enable-features` entry names: `IPH_DemoMode:chosen_feature/IPH_Dummy` is
+    /// `IPH_DemoMode` (the `Name<Study:param/value` syntax `FeatureList::ParseEnableFeatures` reads,
+    /// base/feature_list.cc; a leading `*` is the default-state marker).
+    static func featureName(of entry: String) -> String {
+        String(entry.drop { $0 == "*" }.prefix { $0 != "<" && $0 != ":" })
+    }
+
+    /// Chromium's wake-up alignment. Both are `FEATURE_DISABLED_BY_DEFAULT`; Chrome turns them on
+    /// only through field trials, and `disable-field-trial-config` leaves them off in cmux:
+    /// - `AlignWakeUps` (base/task/task_features.h, .cc): `MessagePump::AdjustDelayedRunTime`
+    ///   (base/message_loop/message_pump.cc) snaps a delayed wake-up to the next `kDefaultLeeway`
+    ///   (8 ms) tick of `TimeTicks()`, never past the task's latest time (a precise task keeps
+    ///   its time), so the threads of every process wake together. The sequence manager asks the
+    ///   pump for each delayed wake-up (thread_controller_with_message_pump_impl.cc).
+    /// - `BatterySaverModeAlignWakeUps` (content/public/common/content_features.cc): in battery
+    ///   saver, `ChildThreadImpl::SetBatterySaverMode` (content/child/child_thread_impl.cc) widens
+    ///   the grid to 32 ms in each child process. It does nothing until saver mode is set.
+    ///
+    /// The app's Chromium UI thread runs CEF's `MessagePumpExternal` (fork
+    /// libcef/browser/browser_message_loop.cc, made by `MessagePumpFactoryForUI` when
+    /// `external_message_pump` is set). It derives from `base::MessagePumpForUI`, which is plain
+    /// `base::MessagePump` on Mac (base/message_loop/message_pump_for_ui.h), and keeps the base
+    /// `AdjustDelayedRunTime`, so the UI thread snaps too. The browser's other threads and every
+    /// child process use Chromium's own pumps (message_pump_apple.mm, message_pump_kqueue.cc).
+    ///
+    /// `TimerSlackMac` is not in this list: with it on, those pumps return `earliest_time` from
+    /// `AdjustDelayedRunTime` and give the kernel the leeway instead of the snap, which the UI
+    /// thread gets only from the absolute run times of p14-energy-046. It stays the default-off
+    /// feature `cefTimerSlack` (``chromiumFeatures``).
+    static let wakeUpAlignmentFeatures = ["AlignWakeUps", "BatterySaverModeAlignWakeUps"]
+
+    /// Chromium features that quiet an idle source (Q8, p14-energy-042..044: a posting location at or above
+    /// 0.02 tasks/s in an idle session), one location each. Chromium 154.0.8037 sources:
+    /// - `PartitionAllocAdaptiveMemoryReclaimInterval` (base/allocator/partition_alloc_features.cc,
+    ///   `FEATURE_DISABLED_BY_DEFAULT`, so `disable-field-trial-config` leaves it off). Location
+    ///   `MemoryReclaimerSupport::Run` (base/allocator/partition_alloc_support.cc): every process with
+    ///   PartitionAlloc as malloc (all of them on Mac) decommits empty slot spans on its main thread every
+    ///   4 s (`MemoryReclaimer::GetRecommendedReclaimIntervalInMicroseconds`, partition_alloc/memory_reclaimer.cc),
+    ///   0.25/s each in the app's CrBrowserMain, the GPU and utility processes, and every renderer while it
+    ///   is foreground. With the feature the interval starts at 8 s and doubles up to 1 min while a reclaim
+    ///   decommits under 100 KiB (0.017/s at idle); above 200 KiB it halves back toward 4 s
+    ///   (`MemoryReclaimer::ComputeNextReclaimInterval`), so a process with memory to give back reclaims as
+    ///   often as before. Nothing visible depends on the cadence.
+    static let idleSourceOffFeatures = ["PartitionAllocAdaptiveMemoryReclaimInterval"]
+
+    /// The first fork API whose `cmux-page-scheme-process-per-site` reads a per-site cap table
+    /// (``CEFForkFeatures/pageSiteSharingForkAPI``, the fork train's number). API 29 has only
+    /// `cmux-process-reuse-per-renderer-devtools`.
+    static let pageSiteSharingForkAPI: Int32 = CEFForkFeatures.pageSiteSharingForkAPI
+
+    /// The one cmux page sharing table the switch carries: ``pageSiteCaps``, with the agent site's entry
+    /// set to ``agentPageMainFrameCap`` when that feature gives one.
+    var pageSiteTable: [PageSiteCap] {
+        guard let agentCap = agentPageMainFrameCap else { return pageSiteCaps }
+        let others = pageSiteCaps.filter { $0.site != Self.agentPageSite }
+        return (others + [PageSiteCap(site: Self.agentPageSite, mainFrames: agentCap)]).sorted { $0.site < $1.site }
+    }
+
+    /// PL-memory's switch for the cmux page scheme (p07-memory 049: ShouldUseProcessPerSite in the fork).
+    /// Its value lists the cmux-page sites that share a renderer, each with the most main frames one
+    /// renderer takes; a cmux-page site with no entry keeps Chrome's process reuse.
+    static let pageSchemeProcessPerSite = "cmux-page-scheme-process-per-site"
+
+    /// The New Tab and every agent chat are this one site (`cmux-page://cmux.agent`), shared the way Chrome
+    /// shares one process for every NTP (ChromeContentBrowserClient::ShouldUseProcessPerSite).
+    static let agentPageSite = "cmux.agent"
+
+    /// One cmux-page site and its main-frame cap. Chrome has one cap for every site, the
+    /// ProcessPerSiteMainFrameThreshold param (2) of kProcessPerSiteUpToMainFrameThreshold
+    /// (content/public/common/content_features.cc); the agent site's 8 bounds how many pages one renderer
+    /// crash or one streaming chat reaches (plans/cmux-next/chrome-parity/p13-webui.md, risk 4).
+    struct PageSiteCap: Equatable, Sendable {
+        var site: String
+        var mainFrames: Int
+    }
+
+    /// `cmux-page-scheme-process-per-site=<site>:<mainFrames>[,<site>:<mainFrames>...]`.
+    static func pageSchemeProcessPerSiteArgument(_ caps: [PageSiteCap]) -> String {
+        pageSchemeProcessPerSite + "=" + caps.map { "\($0.site):\($0.mainFrames)" }.joined(separator: ",")
     }
 
     /// Chrome's own promotions, tips and first-run prompts are for Google
@@ -118,7 +293,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     ///   dialog (search_engine_choice_service.cc). Defense in depth: a build
     ///   without Chrome branding makes no dialog service unless
     ///   `force-search-engine-choice-screen` is set.
-    /// - `enable-features=IPH_DemoMode:chosen_feature/IPH_Dummy`: the
+    /// - `IPH_DemoMode:chosen_feature/IPH_Dummy` (``chromePromptOffFeature``,
+    ///   in the one `enable-features` entry, ``enabledFeatures``): the
     ///   feature-engagement tracker runs in demo mode with only IPH_Dummy
     ///   valid (Tracker::Create, CreateDemoModeTracker), and nothing triggers
     ///   IPH_Dummy. Code that asks the tracker directly, not through
@@ -135,31 +311,69 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// client in this build, so DICE is off), the outdated-build bubble
     /// (Google Chrome builds only) and the Privacy Sandbox ad privacy notice
     /// (removed in Chromium 154, kPrivacySandboxAdPrivacyUxDeprecation).
-    /// The fork's switch for per-renderer DevTools checks in main-frame process reuse (fork API 29).
-    static let processReusePerRendererDevTools = "cmux-process-reuse-per-renderer-devtools"
-
     static let chromePromptOffSwitches = [
         "no-first-run",
         "no-default-browser-check",
         "disable-search-engine-choice-screen",
-        "enable-features=IPH_DemoMode:chosen_feature/IPH_Dummy",
     ]
+
+    static let chromePromptOffFeature = "IPH_DemoMode:chosen_feature/IPH_Dummy"
+
+    /// Chrome runtime services that work with no page shown and that cmux does not use (p13-webui-084;
+    /// the census, and what stays on and why, is perf-lead.md "Chrome runtime idle services"): the
+    /// ``syncOffSwitch`` and these features in the one `disable-features` entry (``disabledFeatures``).
+    /// Chromium 154 sources are named on each constant. Safe Browsing, the component updater
+    /// (Widevine CDM, CRLSet), network time and Cast stay on.
+    static let idleServiceOffFeatures = hangWatcherOffFeatures + [optimizationHintsOffFeature]
+
+    /// `disable-sync` (components/sync/base/command_line_switches.h, kDisableSync):
+    /// SyncServiceFactory::GetForProfile returns null, so the profile makes no SyncServiceImpl, sync
+    /// engine or sync invalidations listener. cmux has no Google sign-in (no OAuth client, DICE off)
+    /// and owns the bookmarks tree; password code reads a null sync service as "not syncing"
+    /// (password_sync_util.cc GetPasswordSyncState), and the fork's generation switch needs no sync.
+    static let syncOffSwitch = "disable-sync"
+
+    /// `EnableHangWatcher` and `EnableHangWatcherOnGpuProcess` (base/threading/hang_watcher.cc): a
+    /// HangWatcher thread in each Chromium process (the app is the browser process) wakes every 10 s
+    /// (kHangWatcherMonitoringPeriod) and reports a hung thread with DumpWithoutCrashing. Chromium
+    /// turns it on only "where the generated data is used"; cmux ships no crash_reporter.cfg, so the
+    /// dumps go nowhere. The GPU process reads its own feature (HangWatcher::InitializeOnMainThread).
+    static let hangWatcherOffFeatures = ["EnableHangWatcher", "EnableHangWatcherOnGpuProcess"]
+
+    /// `OptimizationHints` (components/optimization_guide/core/optimization_guide_features.cc): with it
+    /// off, the Optimization Hints component is not registered with the component updater
+    /// (optimization_hints_component_installer.cc RegisterOptimizationHintsComponent) and the hints
+    /// manager has no hints to fetch or refresh. No cmux feature reads the hints; Chrome's automation
+    /// launchers (Puppeteer, chrome-launcher) turn it off too. `OptimizationTargetPrediction` stays:
+    /// Safe Browsing's client-side detection model arrives through the optimization guide's model
+    /// provider (client_side_detection_service.cc).
+    static let optimizationHintsOffFeature = "OptimizationHints"
 
     /// Switches for this process. `CMUX_NEXT_CEF_LOAD_EXTENSIONS` is a
     /// colon-separated list of unpacked extension directories.
     /// `CMUX_NEXT_CEF_EXTRA_SWITCHES` is a colon-separated list of switches
     /// (leading dashes optional). Debug builds of development bundles only;
     /// see plans/cmux-next/browser.md ("Chromium diagnostics").
+    /// `CMUX_NEXT_BENCH_CEF_SWITCHES` is a newline-separated list of `name=value`
+    /// switches (``benchSwitches(_:)``); Debug and bench builds of development
+    /// bundles read it.
     static func current(
         forkAPIVersion: Int32,
         rendererPaths: Bool = false,
+        chromiumFeatures: [String] = [],
+        disabledChromiumFeatures: [String] = [],
+        spareAfterFirstTab: Bool = false,
         bundleIdentifier: String?,
         environment: [String: String],
         builtInExtensions: [String] = [],
-        keepsUnpackedEnabled: Bool = false
+        builtInExtensionsAtFirstTab: Bool = false,
+        keepsUnpackedEnabled: Bool = false,
+        agentPageMainFrameCap: Int? = nil,
+        pageSiteCaps: [PageSiteCap] = []
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
-        let dev = bundle.contains(".debug") || bundle.hasSuffix(".dev") || environment["CMUX_MOCK_KEYCHAIN"] == "1"
+        let developmentBundle = bundle.contains(".debug") || bundle.hasSuffix(".dev")
+        let dev = developmentBundle || environment["CMUX_MOCK_KEYCHAIN"] == "1"
         let extensions = (environment["CMUX_NEXT_CEF_LOAD_EXTENSIONS"] ?? "")
             .split(separator: ":")
             .map(String.init)
@@ -169,14 +383,26 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         #else
         let extra: [String] = []
         #endif
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let bench = developmentBundle ? Self.benchSwitches(environment["CMUX_NEXT_BENCH_CEF_SWITCHES"]) : []
+        #else
+        let bench: [String] = []
+        #endif
         return CEFSwitches(
             forkAPIVersion: forkAPIVersion,
             rendererPaths: rendererPaths,
+            chromiumFeatures: chromiumFeatures,
+            disabledChromiumFeatures: disabledChromiumFeatures,
+            spareAfterFirstTab: spareAfterFirstTab,
             useMockKeychain: dev,
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,
+            builtInExtensionsAtFirstTab: builtInExtensionsAtFirstTab && !builtInExtensions.isEmpty,
             keepsUnpackedEnabled: keepsUnpackedEnabled,
-            extraSwitches: extra
+            extraSwitches: extra,
+            benchSwitches: bench,
+            agentPageMainFrameCap: agentPageMainFrameCap,
+            pageSiteCaps: pageSiteCaps
         )
     }
 
@@ -185,5 +411,18 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             .split(separator: ":")
             .map { String($0.drop { $0 == "-" }) }
             .filter { !$0.isEmpty }
+    }
+
+    /// The allowed switches of `value`: one `name=value` per line (leading dashes optional, a
+    /// value may hold colons and commas, as `MAP *:443 127.0.0.1:8081,EXCLUDE localhost` does).
+    /// A line whose name is not in ``benchSwitchNames`` or that has no value is dropped.
+    static func benchSwitches(_ value: String?) -> [String] {
+        (value ?? "")
+            .split(whereSeparator: \.isNewline)
+            .map { String($0.drop { $0 == "-" }) }
+            .filter { line in
+                guard let equals = line.firstIndex(of: "="), line.index(after: equals) < line.endIndex else { return false }
+                return benchSwitchNames.contains(String(line[..<equals]))
+            }
     }
 }

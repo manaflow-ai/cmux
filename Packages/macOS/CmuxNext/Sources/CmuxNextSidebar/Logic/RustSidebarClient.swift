@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import CCmuxLayoutReducerFFI
 
@@ -22,7 +23,7 @@ nonisolated enum RustSidebarClient {
                 continue
             }
             guard code == CMUX_LAYOUT_REDUCER_OK, outputLength <= capacity else { return nil }
-            return try? JSONDecoder().decode(Response.self, from: Data(output.prefix(outputLength)))
+            return try? JSONDecoder().blockingDecode(Response.self, from: Data(output.prefix(outputLength)))
         }
         return nil
     }

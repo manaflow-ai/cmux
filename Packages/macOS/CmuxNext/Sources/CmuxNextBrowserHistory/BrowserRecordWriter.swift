@@ -212,7 +212,7 @@ public final class BrowserRecordWriter {
             record.forward = recorded.forward
         }
         let echo = record.url.flatMap { sentURLs.firstIndex(of: $0) }
-        if let echo { sentURLs.removeFirst(echo + 1) }
+        if let echo { sentURLs.removeSubrange(...echo) }
         guard record != recorded else { return }
         let previous = recorded
         recorded = record
@@ -248,7 +248,7 @@ public final class BrowserRecordWriter {
         guard pending == nil else { return }
         let delay = delay, sleep = sleep
         pending = Task { [weak self] in
-            do { try await sleep(delay) } catch { return } // wakeup-allow: one `delay` write window per burst of changes; flushNow() and cancel() cancel it
+            do { try await sleep(delay) } catch { return } // wakeup-allow: deadline of one `delay` write window per burst of changes; flushNow() and cancel() cancel it
             guard let self, !Task.isCancelled else { return }
             let latest = self.unsent
             self.pending = nil

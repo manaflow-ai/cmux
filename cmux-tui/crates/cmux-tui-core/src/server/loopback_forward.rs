@@ -25,18 +25,22 @@
 //!   `loopback-closed {stream, error?}`. Data, EOF and close of one stream
 //!   travel in one ordered outbound stream.
 
+use cmux_threads::sync::{Condvar, Mutex, RwLock};
 use std::collections::{HashMap, VecDeque};
+use std::fmt;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpStream};
 use std::ops::RangeInclusive;
-use std::sync::{Arc, Condvar, Mutex, RwLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use serde::Deserialize;
+use serde::de::{self, Deserializer, Visitor};
 use serde_json::{Value, json};
 
-use super::{MessageWriter, OutboundStream, Response, send_response};
+use super::routes::{Route, RouteLine, RouteName};
+use super::{FrameStage, MessageWriter, OutboundStream, Response, send_response};
 use crate::{mux::Mux, panic_free::RecoverPoison};
 
 pub const LOOPBACK_FORWARD_CAPABILITY: &str = "loopback-forward-v1";
@@ -594,7 +598,7 @@ fn run_reader(stream: Arc<ForwardStream>, forwarder: Arc<Mux>) {
         let allowed = {
             let mut inner = stream.inner.lock().recover_poison();
             while inner.send_credit == 0 && !inner.closed {
-                inner = stream.changed.wait(inner).recover_poison();
+                inner = stream.changed.idle().wait(inner).recover_poison();
             }
             if inner.closed {
                 return;
@@ -649,7 +653,7 @@ fn run_writer(stream: Arc<ForwardStream>, forwarder: Arc<Mux>) {
         let chunk = {
             let mut inner = stream.inner.lock().recover_poison();
             while inner.queue.is_empty() && !inner.client_shutdown && !inner.closed {
-                inner = stream.changed.wait(inner).recover_poison();
+                inner = stream.changed.idle().wait(inner).recover_poison();
             }
             if inner.closed {
                 return;
@@ -708,7 +712,7 @@ struct LoopbackRequest {
 
 #[derive(Deserialize)]
 #[serde(tag = "cmd")]
-enum LoopbackCommand {
+pub(super) enum LoopbackCommand {
     #[serde(rename = "loopback-open")]
     Open {
         stream: u64,
@@ -718,7 +722,7 @@ enum LoopbackCommand {
         window: Option<usize>,
     },
     #[serde(rename = "loopback-data")]
-    Data { stream: u64, data: String },
+    Data { stream: u64, data: Base64Frame },
     #[serde(rename = "loopback-credit")]
     Credit { stream: u64, bytes: usize },
     #[serde(rename = "loopback-shutdown")]
@@ -729,24 +733,69 @@ enum LoopbackCommand {
     Status,
 }
 
-/// Handles a `loopback-*` message on the connection's reader thread, apart
-/// from the per-connection surface queue, so forwarded bytes never use the
-/// daemon's surface-operation budget. Returns `None` for other messages.
+/// A `loopback-data` payload, decoded from the line's base64 text while the
+/// line parses: the text goes straight into the bytes the stream queues for
+/// its target, never through a `String` copy first. Text that is not base64,
+/// or that decodes to more than [`MAX_FRAME_BYTES`], is `Bad`, so the line
+/// still reaches its stream and the stream ends with `bad-frame`.
+pub(super) enum Base64Frame {
+    Bytes(Vec<u8>),
+    Bad,
+}
+
+impl Base64Frame {
+    /// The longest padded base64 text of at most [`MAX_FRAME_BYTES`].
+    const MAX_TEXT_BYTES: usize = MAX_FRAME_BYTES.div_ceil(3) * 4;
+
+    fn decode(text: &str) -> Self {
+        if text.len() > Self::MAX_TEXT_BYTES {
+            return Self::Bad;
+        }
+        match base64::engine::general_purpose::STANDARD.decode(text.as_bytes()) {
+            Ok(bytes) if bytes.len() <= MAX_FRAME_BYTES => Self::Bytes(bytes),
+            _ => Self::Bad,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Base64Frame {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct FrameVisitor;
+        impl Visitor<'_> for FrameVisitor {
+            type Value = Base64Frame;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a base64 string")
+            }
+
+            fn visit_str<E: de::Error>(self, text: &str) -> Result<Self::Value, E> {
+                Ok(Base64Frame::decode(text))
+            }
+        }
+        deserializer.deserialize_str(FrameVisitor)
+    }
+}
+
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[Route] = &[Route {
+    names: &[RouteName::Prefix("loopback-")],
+    stage: FrameStage::LoopbackForward,
+    entry: handle,
+}];
+
+/// The route's typed handler for a `loopback-*` line, on the connection's
+/// reader thread apart from the per-connection surface queue, so forwarded
+/// bytes never use the daemon's surface-operation budget. The line's `cmd`
+/// named this family, so it decodes the line once into its
+/// [`LoopbackCommand`] (a data frame's bytes included) and answers it. A line
+/// that is none of the commands is left to the `Command` parse (`None`).
 ///
 /// A client must wait for the `set-client-info` reply before its first
 /// `loopback-open`, because that command runs on the ordered dispatcher.
-pub(super) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains("\"loopback-") {
-        return None;
-    }
-    let request = serde_json::from_str::<LoopbackRequest>(message).ok()?;
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
+    let LoopbackRequest { id, command } = crate::line_parses::parse(message).ok()?;
     let forwarder = &mux.control_clients.loopback;
-    let LoopbackRequest { id, command } = request;
     let allowed = mux.control_clients.is_unix(client)
         && mux.control_clients.supports_capability(client, LOOPBACK_FORWARD_CAPABILITY);
     match command {
@@ -763,13 +812,13 @@ pub(super) fn try_handle(
             let Some(target) = allowed.then(|| forwarder.stream(client, stream)).flatten() else {
                 return Some(unknown_stream(writer, id, stream));
             };
-            match base64::engine::general_purpose::STANDARD.decode(data.as_bytes()) {
-                Ok(bytes) if bytes.len() <= MAX_FRAME_BYTES => {
+            match data {
+                Base64Frame::Bytes(bytes) => {
                     if !bytes.is_empty() {
                         target.accept_data(forwarder, bytes);
                     }
                 }
-                _ => target.fail(forwarder, "bad-frame", true),
+                Base64Frame::Bad => target.fail(forwarder, "bad-frame", true),
             }
             Some(id.is_none() || ok(writer, id, json!({})))
         }
@@ -846,23 +895,21 @@ fn open(
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-loopback-open".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
-            connect_and_start(
-                worker_mux,
-                client,
-                worker_id,
-                stream,
-                audit_host,
-                port,
-                target,
-                window,
-                worker_writer,
-            );
-        });
-    if spawned.is_err() {
+    // The connect waits on the network (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        connect_and_start(
+            worker_mux,
+            client,
+            worker_id,
+            stream,
+            audit_host,
+            port,
+            target,
+            window,
+            worker_writer,
+        );
+    });
+    if posted.is_err() {
         forwarder.release(client);
         return open_error(writer, id, OpenError::Limit);
     }
@@ -886,6 +933,7 @@ fn connect_and_start(
     let mut failure = OpenError::Refused;
     let mut connected = None;
     for address in target.candidates(port) {
+        crate::request_path::note(crate::request_path::BlockingKind::Network);
         match TcpStream::connect_timeout(&address, CONNECT_TIMEOUT) {
             Ok(socket) => {
                 // Defense in depth: the peer must be a loopback address.

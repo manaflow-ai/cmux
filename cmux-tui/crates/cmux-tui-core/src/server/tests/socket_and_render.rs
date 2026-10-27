@@ -1,23 +1,6 @@
-//! Socket paths, the start lock, JSON line limits, and render attach messages, deltas and the shared graphics cache.
+//! Socket paths, the start lock, and render attach messages, deltas and the shared graphics cache.
 
 use super::*;
-
-#[test]
-fn json_line_limit_excludes_the_newline_delimiter() {
-    let exact_payload = "x".repeat(MAX_JSON_LINE_BYTES);
-    assert_eq!(json_line_payload_len(&exact_payload), MAX_JSON_LINE_BYTES);
-
-    let mut exact_line = exact_payload;
-    exact_line.push('\n');
-    assert_eq!(json_line_payload_len(&exact_line), MAX_JSON_LINE_BYTES);
-
-    let oversized_payload = "x".repeat(MAX_JSON_LINE_BYTES + 1);
-    assert!(json_line_payload_len(&oversized_payload) > MAX_JSON_LINE_BYTES);
-
-    let mut oversized_line = oversized_payload;
-    oversized_line.push('\n');
-    assert!(json_line_payload_len(&oversized_line) > MAX_JSON_LINE_BYTES);
-}
 
 #[test]
 fn default_socket_path_preserves_compatible_runtime_dir() {
@@ -87,6 +70,7 @@ fn socket_start_lock_rejects_a_fifo_without_blocking() {
     let socket = dir.path().join("mux.sock");
     let lock = dir.path().join("mux.sock.spawn-lock");
     let lock_path = CString::new(lock.as_os_str().as_bytes()).unwrap();
+    // SAFETY: `lock_path` is a NUL-terminated CString that outlives the call.
     let result = unsafe { libc::mkfifo(lock_path.as_ptr(), 0o600) };
     assert_eq!(result, 0, "mkfifo failed: {}", std::io::Error::last_os_error());
 
@@ -131,7 +115,7 @@ fn socket_start_lock_migrates_existing_lock_to_owner_only_mode() {
 
     let _guard = SocketStartLock::acquire(&socket, Instant::now()).unwrap();
     let metadata = std::fs::metadata(&lock).unwrap();
-    assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+    assert_eq!(metadata.uid(), platform::effective_uid());
     assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
 }
 

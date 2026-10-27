@@ -23,9 +23,13 @@
 //! `CanLowerNiceTo` test passes (base/threading/platform_thread_internal_posix.cc:
 //! root, or a target inside RLIMIT_NICE); otherwise it is refused and counted.
 
+use std::marker::PhantomData;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::registry;
+
+/// QoS overrides one thread starts on another (a lock waiter on its owner).
+pub(crate) mod boost;
 
 /// The QoS a cmux thread declares. Ordered from lowest to highest priority.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -35,9 +39,8 @@ pub enum ThreadQos {
     Background = 0,
     /// Automation, watchers, best-effort lanes (Chromium kUtility).
     Utility = 1,
-    /// The class a user shell or agent child process starts at, set around
-    /// its fork (p02-threads tasks 207 and 223: `with_qos(Default, ...)`).
-    /// Not a class for daemon threads.
+    /// The class a user shell or agent child process starts at (see
+    /// [`crate::process`]). Not a class for daemon threads.
     Default = 2,
     /// Request dispatch the person waits on (Chromium kDefault).
     UserInitiated = 3,
@@ -96,6 +99,31 @@ impl ThreadQos {
             Self::UserInitiated => QOS_CLASS_USER_INITIATED,
             Self::UserInteractive => QOS_CLASS_USER_INTERACTIVE,
         }
+    }
+
+    /// The base scheduler priority of the class on macOS (xnu
+    /// osfmk/kern/thread_policy.c `thread_qos_policy_params.qos_pri`): what
+    /// `THREAD_EXTENDED_INFO` `pth_priority` reads for a thread at the class
+    /// with relative priority 0, overrides included. UserInteractive is
+    /// BASEPRI_BACKGROUND (46); xnu `thread_recompute_priority` adds 1 (47)
+    /// only in the frontmost app (`thep_qos_ui_is_urgent`).
+    #[cfg(target_vendor = "apple")]
+    pub const fn macos_base_priority(self) -> i32 {
+        match self {
+            Self::Background => 4,
+            Self::Utility => 20,
+            Self::Default => 31,
+            Self::UserInitiated => 37,
+            Self::UserInteractive => 46,
+        }
+    }
+
+    /// The highest class whose base priority is at most `priority`, `None`
+    /// below Background's. The frontmost app's UserInteractive priority (47)
+    /// is UserInteractive too.
+    #[cfg(target_vendor = "apple")]
+    pub fn from_macos_base_priority(priority: i32) -> Option<Self> {
+        Self::ALL.into_iter().rev().find(|qos| qos.macos_base_priority() <= priority)
     }
 
     /// The class of a raw macOS QoS class value as the kernel reports it,
@@ -171,26 +199,78 @@ pub fn current() -> LiveQos {
     sys::live_self()
 }
 
+/// The calling thread's QoS as the scheduler applies it, overrides included
+/// ([`current`] reads the class the thread asked for). macOS: the class of
+/// the thread's base priority (`THREAD_EXTENDED_INFO` `pth_priority`, see
+/// [`ThreadQos::from_macos_base_priority`]); Linux: the nice value, which an
+/// override sets.
+pub fn current_effective() -> LiveQos {
+    sys::effective_self()
+}
+
+/// True when a thread at the process's base class (macOS: any class in the
+/// table; Linux: nice 0) can change to `qos` and take the change back. A
+/// process property, so a caller can ask once and skip a change it cannot
+/// make instead of having every attempt refused and counted. Linux: root,
+/// a class at nice 0, or an RLIMIT_NICE that allows nice 0 again (Chromium's
+/// `CanLowerNiceTo`).
+pub fn reversible(qos: ThreadQos) -> bool {
+    sys::reversible(qos)
+}
+
 /// Runs `f` at `qos` and restores the calling thread's QoS after, also when
-/// `f` panics.
-///
-/// A change the thread could not undo is not made: `f` runs at the current
-/// QoS and the refusal is counted. On Linux that is a demotion (raising nice
-/// above a value it may not lower back to); on macOS a thread whose class is
-/// outside the table (QOS_CLASS_MAINTENANCE), which the kernel takes no
-/// request for. A macOS thread with no class (QOS_CLASS_UNSPECIFIED) comes
-/// back at [`ThreadQos::Default`], the class with the same base priority
-/// (31), and its registry row records Default as its effective QoS.
+/// `f` panics. [`QosScope`] is the same rule as a guard.
 pub fn with_qos<R>(qos: ThreadQos, f: impl FnOnce() -> R) -> R {
-    let saved = sys::save();
-    let effective = registry::with_current(registry::Row::effective);
-    if !sys::can_restore(qos, &saved) {
-        record_refusal();
-        return f();
-    }
-    let _restore = Restore { saved, effective };
-    set_current(qos);
+    let _scope = QosScope::enter(qos);
     f()
+}
+
+/// The calling thread runs at a QoS until the scope drops, then gets back
+/// the QoS it had (Chromium's `ScopedBoostPriority`,
+/// base/threading/scoped_thread_priority.h). Scopes nest; it is not `Send`,
+/// so it ends on the thread it began.
+///
+/// A change the thread could not undo is not made: the thread stays at its
+/// current QoS and the refusal is counted. On Linux that is a demotion
+/// (raising nice above a value it may not lower back to); on macOS a thread
+/// whose class is outside the table (QOS_CLASS_MAINTENANCE), which the
+/// kernel takes no request for. A macOS thread with no class
+/// (QOS_CLASS_UNSPECIFIED) comes back at [`ThreadQos::Default`], the class
+/// with the same base priority (31), and its registry row records Default
+/// as its effective QoS.
+#[must_use = "the QoS holds only while the scope lives"]
+pub struct QosScope {
+    /// Dropped with the scope: puts the saved QoS back.
+    _restore: Option<Restore>,
+    applied: bool,
+    _not_send: PhantomData<*const ()>,
+}
+
+impl QosScope {
+    /// Runs the calling thread at `qos` until the scope drops.
+    pub fn enter(qos: ThreadQos) -> Self {
+        let saved = sys::save();
+        let effective = registry::with_current(registry::Row::effective);
+        if !sys::can_restore(qos, &saved) {
+            record_refusal();
+            return Self { _restore: None, applied: false, _not_send: PhantomData };
+        }
+        let restore = Restore { saved, effective };
+        let applied = set_current(qos) == QosChange::Applied;
+        Self { _restore: Some(restore), applied, _not_send: PhantomData }
+    }
+
+    /// True when the thread runs at the scope's QoS; false when the change
+    /// was refused (counted) or the platform has none.
+    pub fn applied(&self) -> bool {
+        self.applied
+    }
+}
+
+impl std::fmt::Debug for QosScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("QosScope").field("applied", &self.applied).finish()
+    }
 }
 
 struct Restore {
@@ -225,6 +305,16 @@ impl Drop for Restore {
 /// under that lock before it exits).
 pub(crate) fn live_of(thread: &registry::NativeThread) -> LiveQos {
     sys::live_of(thread)
+}
+
+/// The scheduler priority a registered thread runs at now, after QoS,
+/// overrides and decay: macOS `THREAD_EXTENDED_INFO` `pth_curpri` (Default
+/// 31, UserInteractive 47), Linux the `priority` field of
+/// `/proc/<pid>/task/<tid>/stat` (20 + nice for normal policies,
+/// -1 - rt_priority for FIFO and RR), read with syscalls. `None` when the
+/// read fails or the platform has none. Same caller guarantee as [`live_of`].
+pub(crate) fn priority_of(thread: &registry::NativeThread) -> Option<i32> {
+    sys::priority_of(thread)
 }
 
 #[cfg(target_vendor = "apple")]
@@ -286,6 +376,29 @@ mod sys {
         live(thread.pthread())
     }
 
+    pub(super) fn priority_of(thread: &NativeThread) -> Option<i32> {
+        // SAFETY: `thread` is live (see `live_of`). The port name is the
+        // thread's own; this takes no reference, so none is released.
+        let port = unsafe { libc::pthread_mach_thread_np(thread.pthread()) };
+        if port == 0 {
+            return None;
+        }
+        let mut info = std::mem::MaybeUninit::<libc::thread_extended_info>::zeroed();
+        let mut count = libc::THREAD_EXTENDED_INFO_COUNT;
+        // SAFETY: `info` has room for THREAD_EXTENDED_INFO_COUNT integers,
+        // the count passed; the kernel writes at most that many.
+        let rc = unsafe {
+            libc::thread_info(
+                port,
+                libc::THREAD_EXTENDED_INFO as libc::thread_flavor_t,
+                info.as_mut_ptr().cast::<libc::integer_t>(),
+                &mut count,
+            )
+        };
+        // SAFETY: zero-initialized (a valid thread_extended_info), then filled.
+        (rc == libc::KERN_SUCCESS).then(|| unsafe { info.assume_init() }.pth_curpri)
+    }
+
     pub(super) fn save() -> Saved {
         // SAFETY: pthread_self has no preconditions.
         Saved(read(unsafe { libc::pthread_self() }))
@@ -307,6 +420,34 @@ mod sys {
         restore_class(saved).is_some()
     }
 
+    pub(super) fn reversible(_qos: ThreadQos) -> bool {
+        true
+    }
+
+    pub(super) fn effective_self() -> LiveQos {
+        // SAFETY: pthread_self has no preconditions; the port it maps to
+        // carries no reference to release (unlike mach_thread_self).
+        let port = unsafe { libc::pthread_mach_thread_np(libc::pthread_self()) };
+        // SAFETY: plain old data the kernel fills.
+        let mut info: libc::thread_extended_info_data_t = unsafe { std::mem::zeroed() };
+        let mut count = libc::THREAD_EXTENDED_INFO_COUNT;
+        // SAFETY: `info` is valid for `count` integers, the size of the
+        // flavor's struct.
+        let rc = unsafe {
+            libc::thread_info(
+                port,
+                libc::THREAD_EXTENDED_INFO as libc::thread_flavor_t,
+                (&raw mut info).cast::<libc::integer_t>(),
+                &mut count,
+            )
+        };
+        if rc != libc::KERN_SUCCESS {
+            return LiveQos::Unknown;
+        }
+        ThreadQos::from_macos_base_priority(info.pth_priority)
+            .map_or(LiveQos::Unknown, LiveQos::Class)
+    }
+
     pub(super) fn restore(saved: &Saved) -> Restored {
         let Some((qos, relative_priority)) = restore_class(saved) else {
             return Err(());
@@ -323,7 +464,7 @@ mod sys {
     use crate::registry::NativeThread;
 
     pub(super) struct Saved {
-        nice: Option<i32>,
+        pub(super) nice: Option<i32>,
     }
 
     fn self_tid() -> u64 {
@@ -332,7 +473,7 @@ mod sys {
 
     /// The nice value of thread `tid`. The raw syscall returns `20 - nice`
     /// (1..=40), so unlike libc's getpriority it has no -1 ambiguity.
-    fn nice_of(tid: u64) -> Option<i32> {
+    pub(super) fn nice_of(tid: u64) -> Option<i32> {
         // SAFETY: plain syscall with integer arguments.
         let raw = unsafe {
             libc::syscall(libc::SYS_getpriority, libc::PRIO_PROCESS, tid as libc::c_long)
@@ -343,7 +484,7 @@ mod sys {
     /// Chromium's `CanLowerNiceTo`
     /// (base/threading/platform_thread_internal_posix.cc): root, or a target
     /// inside the RLIMIT_NICE soft limit. CAP_SYS_NICE is not checked.
-    fn may_lower_nice_to(nice: i32) -> bool {
+    pub(super) fn may_lower_nice_to(nice: i32) -> bool {
         // SAFETY: geteuid has no preconditions.
         if unsafe { libc::geteuid() } == 0 {
             return true;
@@ -385,6 +526,24 @@ mod sys {
         thread.tid().and_then(nice_of).map_or(LiveQos::Unknown, LiveQos::Nice)
     }
 
+    pub(super) fn priority_of(thread: &NativeThread) -> Option<i32> {
+        let tid = thread.tid()?;
+        let pid = libc::pid_t::try_from(tid).ok()?;
+        // SAFETY: plain syscall with an integer argument; on Linux a tid
+        // names that one thread.
+        let policy = unsafe { libc::sched_getscheduler(pid) };
+        match policy & !libc::SCHED_RESET_ON_FORK {
+            libc::SCHED_FIFO | libc::SCHED_RR => {
+                let mut param = libc::sched_param { sched_priority: 0 };
+                // SAFETY: `param` is valid for the call.
+                (unsafe { libc::sched_getparam(pid, &mut param) } == 0)
+                    .then(|| -1 - param.sched_priority)
+            }
+            _ if policy >= 0 => nice_of(tid).map(|nice| 20 + nice),
+            _ => None,
+        }
+    }
+
     pub(super) fn save() -> Saved {
         Saved { nice: nice_of(self_tid()) }
     }
@@ -393,8 +552,16 @@ mod sys {
         saved.nice.is_some_and(|nice| qos.linux_nice() <= nice || may_lower_nice_to(nice))
     }
 
+    pub(super) fn reversible(qos: ThreadQos) -> bool {
+        qos.linux_nice() <= 0 || may_lower_nice_to(0)
+    }
+
     pub(super) fn restore(saved: &Saved) -> Restored {
         if saved.nice.is_some_and(set_nice) { Ok(None) } else { Err(()) }
+    }
+
+    pub(super) fn effective_self() -> LiveQos {
+        live_self()
     }
 }
 
@@ -417,6 +584,10 @@ mod sys {
         LiveQos::Unknown
     }
 
+    pub(super) fn priority_of(_thread: &NativeThread) -> Option<i32> {
+        None
+    }
+
     pub(super) fn save() -> Saved {
         Saved
     }
@@ -425,8 +596,16 @@ mod sys {
         true
     }
 
+    pub(super) fn reversible(_qos: ThreadQos) -> bool {
+        true
+    }
+
     pub(super) fn restore(_saved: &Saved) -> Restored {
         Ok(None)
+    }
+
+    pub(super) fn effective_self() -> LiveQos {
+        LiveQos::Unknown
     }
 }
 
@@ -438,6 +617,20 @@ mod tests {
     fn linux_nice_table_matches_spec_capped_at_zero() {
         let nice: Vec<i32> = ThreadQos::ALL.iter().map(|qos| qos.linux_nice()).collect();
         assert_eq!(nice, [10, 5, 0, 0, 0]);
+    }
+
+    #[test]
+    fn classes_at_the_base_nice_are_always_reversible() {
+        for qos in [ThreadQos::Default, ThreadQos::UserInitiated, ThreadQos::UserInteractive] {
+            assert!(reversible(qos), "{qos}");
+        }
+        // A lowering is reversible exactly when a thread at the base class
+        // could take it back: the rule a QosScope applies per change.
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        assert_eq!(
+            reversible(ThreadQos::Utility),
+            sys::can_restore(ThreadQos::Utility, &sys::Saved { nice: Some(0) })
+        );
     }
 
     #[test]
@@ -464,6 +657,30 @@ mod tests {
         }
         assert_eq!(ThreadQos::from_qos_class(QOS_CLASS_UNSPECIFIED as u32), None);
         assert_eq!(ThreadQos::from_qos_class(QOS_CLASS_MAINTENANCE), None);
+    }
+
+    #[cfg(target_vendor = "apple")]
+    #[test]
+    fn macos_base_priorities_round_trip_including_the_frontmost_boost() {
+        for qos in ThreadQos::ALL {
+            assert_eq!(ThreadQos::from_macos_base_priority(qos.macos_base_priority()), Some(qos));
+        }
+        assert_eq!(ThreadQos::UserInteractive.macos_base_priority(), 46);
+        assert_eq!(ThreadQos::from_macos_base_priority(47), Some(ThreadQos::UserInteractive));
+        assert_eq!(ThreadQos::from_macos_base_priority(45), Some(ThreadQos::UserInitiated));
+        assert_eq!(ThreadQos::from_macos_base_priority(3), None);
+    }
+
+    #[cfg(target_vendor = "apple")]
+    #[test]
+    fn macos_current_effective_reports_each_class_a_thread_runs_at() {
+        for qos in ThreadQos::ALL {
+            let read = crate::spawn("qos-effective-test", qos, current_effective)
+                .expect("spawn")
+                .join()
+                .expect("thread");
+            assert_eq!(read, LiveQos::Class(qos), "{qos}");
+        }
     }
 
     #[cfg(target_vendor = "apple")]

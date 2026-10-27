@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextSidebar
+import CmuxNextWakeups
 import Testing
 
 /// With the sidebar hidden, the pointer anywhere over the top-left corner, the traffic lights and
@@ -14,7 +15,7 @@ import Testing
         _ = NSApplication.shared
         let model = SidebarModel()
         model.presentation = .hidden
-        let root = WindowRootView(sidebar: SidebarContainerView(model: model))
+        let root = WindowRootView(sidebar: SidebarContainerView(model: model, mainWork: MainWorkScheduler(budget: MainFrameBudget())))
         let window = NSWindow(contentRect: root.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

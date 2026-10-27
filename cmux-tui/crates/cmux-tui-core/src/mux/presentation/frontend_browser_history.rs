@@ -9,6 +9,7 @@ use super::*;
 impl Mux {
     /// Record the URL, title, or favicon a frontend-rendered browser
     /// reports. `favicon_url: Some(None)` clears the favicon.
+    #[track_caller]
     pub fn update_frontend_browser_tab(
         &self,
         surface: SurfaceId,
@@ -29,6 +30,7 @@ impl Mux {
 
     /// Record a frontend-rendered browser's location and optional hosting app
     /// owner; `actor` sets the owner.
+    #[track_caller]
     pub fn update_frontend_browser_tab_with_owner_as(
         &self,
         actor: &Actor,
@@ -53,6 +55,7 @@ impl Mux {
     /// owner, and browser profile assignment. A profile is addressed by its
     /// stable id or exact display name and `Some(None)` clears it.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn update_frontend_browser_tab_with_owner_and_profile_as(
         &self,
         actor: &Actor,
@@ -118,6 +121,7 @@ impl Mux {
 
     /// The frontend browser id behind a surface, with the errors
     /// `update_frontend_browser_tab` reports.
+    #[track_caller]
     fn require_frontend_browser_id(&self, surface: SurfaceId) -> anyhow::Result<BrowserPublicId> {
         let runtime =
             self.surface(surface).ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
@@ -128,6 +132,7 @@ impl Mux {
     /// Store (`Some`) or clear (`None`) the opaque session history (back and
     /// forward entries, scroll) a frontend keeps for a frontend-rendered
     /// browser.
+    #[track_caller]
     pub fn set_frontend_browser_history(
         &self,
         surface: SurfaceId,
@@ -139,6 +144,7 @@ impl Mux {
     }
 
     /// The session history last stored for a frontend-rendered browser.
+    #[track_caller]
     pub fn frontend_browser_history(&self, surface: SurfaceId) -> anyhow::Result<Option<String>> {
         let browser_id = self.require_frontend_browser_id(surface)?;
         let registry = self.workspace_registry.lock().unwrap();

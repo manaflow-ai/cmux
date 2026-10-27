@@ -73,18 +73,31 @@ public final class HomeController {
     public var isVisibleToUser = false {
         didSet { if isVisibleToUser { reportReadIfNeeded() } }
     }
+    /// What the row bitmap and picture caches keep together. Lowering it frees
+    /// nothing (the next store drops the oldest); `trim(toFraction:)` and
+    /// `setHidden(true)` free now (HomeController+Memory.swift).
+    public var memoryBudget: HomeMemoryBudget {
+        didSet {
+            scene.bitmaps.maxBytes = memoryBudget.rowBitmapBytes
+            scene.media.maxBytes = memoryBudget.pictureBytes
+        }
+    }
 
     /// - Parameters:
     ///   - palette: colours from the app theme (`HomePalette.themed`); there is no default.
     ///   - deadline: the host's one-shot timer for cleanup after animations.
+    ///   - memoryBudget: what the bitmap and picture caches keep (the Mac passes its share of
+    ///     its memory budget; the default sizes it from the device's memory).
     public init(conversation: ConversationID, me: ParticipantID, palette: HomePalette, deadline: any HomeDeadline,
                 calendar: Calendar = .autoupdatingCurrent, locale: Locale = .autoupdatingCurrent,
+                memoryBudget: HomeMemoryBudget = .forDevice(),
                 now: @escaping @MainActor () -> Date = { Date() }) {
         self.conversation = conversation
         self.me = me
         self.deadline = deadline
+        self.memoryBudget = memoryBudget
         currentDate = now
-        scene = HomeScene(palette: palette)
+        scene = HomeScene(palette: palette, memoryBudget: memoryBudget)
         builder = RowBuilder(format: RowFormat(calendar: calendar, locale: locale))
         container.actions = RowLayer.noActions
         container.masksToBounds = true

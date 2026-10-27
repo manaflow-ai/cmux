@@ -31,13 +31,12 @@ extension KeyRouter {
     /// its unshifted key ("}" or "]" for Shift-]).
     /// `ghostty: false` leaves the Ghostty entries out (a browser chord in
     /// a browser context, which never runs a Ghostty keybind).
-    func resolve(_ event: NSEvent, context: KeyContext, ghostty: Bool = true) -> KeyBinding? {
-        let table = RegistryKeyBindings(registry).table
-        let bits = context.bits
-        let accepts = Self.acceptsEntry(ghostty: ghostty, codeEditor: bits.contains(.codeEditorFocused))
+    func resolve(_ event: NSEvent, context: KeyContext, ghostty: Bool = true) -> KeyBinding? { // perf-hot: 0.5ms key-dispatch (every chord key-down)
+        let bindings = RegistryKeyBindings(registry), table = bindings.table
+        let input = CompiledWhen.Input(context), bits = input.bits, codeEditor = bits.contains(.codeEditorFocused)
         for shortcut in ActionRegistry.shortcuts(for: event) {
-            if let winner = table.resolve([shortcut], in: context, isRunnable: { [registry] in RegistryKeyBindings(registry).canPerform($0, in: bits) },
-                                          accepts: accepts).winner {
+            if let winner = table.resolveWinner(CollectionOfOne(shortcut), in: input, isRunnable: { bindings.canPerform($0, in: bits) },
+                                                accepts: { Self.accepts($0, ghostty: ghostty, codeEditor: codeEditor) }) {
                 return winner
             }
         }
@@ -51,11 +50,13 @@ extension KeyRouter {
     /// adding the next match, Cmd-Opt-Up/Down moved focus instead of adding a cursor. A keybind the
     /// user wrote in their Ghostty config (`.ghostty`) still wins, as everywhere.
     nonisolated static func acceptsEntry(ghostty: Bool, codeEditor: Bool) -> @Sendable (KeyBinding) -> Bool {
-        { entry in
-            if !ghostty, entry.source.isGhostty { return false }
-            if codeEditor, entry.source == .ghosttyFallback { return false }
-            return true
-        }
+        { accepts($0, ghostty: ghostty, codeEditor: codeEditor) }
+    }
+
+    nonisolated static func accepts(_ entry: KeyBinding, ghostty: Bool, codeEditor: Bool) -> Bool {
+        if !ghostty, entry.source.isGhostty { return false }
+        if codeEditor, entry.source == .ghosttyFallback { return false }
+        return true
     }
 
     /// The candidate for a key-down in a window with `focus` (no chord).

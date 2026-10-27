@@ -2,7 +2,7 @@
 /// (`terminal-snapshot-v1`). Fire-and-forget from the view.
 public struct SnapshotRequestRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "snapshot-request"
+    public static let commandName: DaemonCommandName = "snapshot-request"
     public var surface: SurfaceID
     public var reason: SnapshotRequestReason
 

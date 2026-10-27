@@ -10,10 +10,12 @@
 //! respawns it. A terminal that ran for the whole window starts again at
 //! 0 s, because its attempts aged out.
 //!
-//! The wait is a condition-variable wait with a timeout that the owner's
-//! shutdown wakes ([`TerminalRespawns::wake_all`]); a woken or shut-down
-//! wait abandons the attempt, and the receipt stays a respawnable host
-//! loss for the next owner's start sweep ([`Mux::respawn_lost_terminals_at_start`]).
+//! The wait is a delayed work item (`Work::post_delayed`, p02-threads 230),
+//! no thread per terminal. Shutdown drops a waiting attempt
+//! ([`PendingRespawn`]) and an attempt that runs after shutdown began does
+//! nothing; either way the attempt is abandoned, and the receipt stays a
+//! respawnable host loss for the next owner's start sweep
+//! ([`Mux::respawn_lost_terminals_at_start`]).
 
 use std::collections::VecDeque;
 
@@ -92,44 +94,37 @@ impl RespawnGuard {
     }
 }
 
-impl TerminalRespawns {
-    /// Wake every respawn worker that waits out a backoff delay.
-    pub(crate) fn wake_all(&self) {
-        let _lock = self.wake.0.lock().unwrap_or_else(PoisonError::into_inner);
-        self.wake.1.notify_all();
+/// A respawn attempt waiting out its backoff. Dropped without running (the
+/// work item was dropped at shutdown, or ran after shutdown began), it
+/// abandons the attempt.
+#[cfg(any(unix, windows))]
+pub(in crate::mux) struct PendingRespawn {
+    pub(in crate::mux) plan: Option<RespawnPlan>,
+    pub(in crate::mux) owner: Weak<Mux>,
+}
+
+#[cfg(any(unix, windows))]
+impl Drop for PendingRespawn {
+    fn drop(&mut self) {
+        let Some(plan) = self.plan.take() else { return };
+        if let Some(mux) = self.owner.upgrade() {
+            mux.abandon_terminal_respawn(&plan.terminal_id);
+        }
     }
 }
 
 impl Mux {
-    /// Wait `delay` before a respawn attempt. False when the owner began
-    /// shutting down meanwhile (the attempt is abandoned).
+    /// The owner began shutting down: a respawn attempt is abandoned.
     #[cfg(any(unix, windows))]
-    pub(super) fn wait_respawn_backoff(&self, delay: Duration) -> bool {
-        let stopping =
-            || self.shutting_down.load(Ordering::Acquire) || self.session_shutdown.began();
-        if delay.is_zero() {
-            return !stopping();
-        }
-        let deadline = Instant::now() + delay;
-        let (lock, wake) = &self.terminal_respawns.wake;
-        let mut guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
-        loop {
-            if stopping() {
-                return false;
-            }
-            let now = Instant::now();
-            if now >= deadline {
-                return true;
-            }
-            guard =
-                wake.wait_timeout(guard, deadline - now).unwrap_or_else(PoisonError::into_inner).0;
-        }
+    pub(super) fn respawn_stopping(&self) -> bool {
+        self.shutting_down.load(Ordering::Acquire) || self.session_shutdown.began()
     }
 
     /// An attempt abandoned before it started (the owner shuts down): clear
     /// the respawning marker; the tab shows the committed host loss, which
     /// the next owner's start sweep respawns.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn abandon_terminal_respawn(&self, terminal_id: &str) {
         self.pending_terminals.lock().unwrap_or_else(PoisonError::into_inner).retain(
             |_, (id, pending)| id != terminal_id || *pending != PendingTerminal::Respawning,
@@ -142,6 +137,7 @@ impl Mux {
     /// owner respawns it, and take the dead runtime out of its tabs, so they
     /// show that durable receipt.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn end_terminal_respawn_exhausted(
         &self,
         terminal_id: &str,
@@ -171,6 +167,7 @@ impl Mux {
     /// Rewrite an exited terminal's receipt from `recorded` to `replacement`
     /// (a no-op when the stored receipt is not `recorded` any more).
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn rewrite_lost_receipt(
         &self,
         terminal_id: &str,
@@ -185,6 +182,7 @@ impl Mux {
     /// receipt, and when it committed and `detach_runtime` names the
     /// terminal, take its runtime out of the tabs (returned for cleanup).
     #[cfg(any(unix, windows))]
+    #[track_caller]
     fn replace_lost_receipt(
         &self,
         terminal_id: &str,
@@ -231,6 +229,7 @@ impl Mux {
     /// respawn a daemon restart or logout cut off, a shell a session
     /// shutdown ended). Runs once, after host adoption.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(crate) fn respawn_lost_terminals_at_start(&self) {
         let snapshot = self
             .workspace_registry

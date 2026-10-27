@@ -2,7 +2,9 @@ public import Dispatch
 
 extension DispatchQueue {
     /// Runs `work` on the queue and waits for it, like `sync(execute:)`, as a checked blocking
-    /// call (``assertBlockingAllowed(_:fileID:line:)``): the caller waits for everything queued before it.
+    /// call (``blockingCall(_:fileID:line:_:)``): the caller waits for everything queued before it.
+    /// In Debug and bench-checks builds, a caller whose QoS is above the queue's records one QoS inversion
+    /// at its site (``BlockingDetector/qosInversions``); Release compiles that check out.
     ///
     /// - Parameters:
     ///   - fileID: The calling code's `#fileID`.
@@ -11,22 +13,27 @@ extension DispatchQueue {
     /// - Returns: What `work` returns.
     /// - Throws: What `work` throws.
     @inlinable
-    public func blockingSync<T>(fileID: StaticString = #fileID, line: UInt = #line, execute work: () throws -> T) rethrows -> T {
-        assertBlockingAllowed(.syncWait, fileID: fileID, line: line)
-        return try sync(execute: work)
+    public func blockingSync<T, Failure: Error>(
+        fileID: StaticString = #fileID, line: UInt = #line, execute work: () throws(Failure) -> T
+    ) throws(Failure) -> T {
+        #if DEBUG || CMUX_BLOCKING_CHECKS
+        BlockingViolationTable.qosWait(onto: self, fileID: fileID, line: line)
+        #endif
+        return try blockingCall(.syncWait, fileID: fileID, line: line) { () throws(Failure) -> T in
+            try sync { Result(catching: work) }.get()
+        }
     }
 }
 
 extension DispatchWorkItem {
     /// Waits for the work item, like `wait()`, as a checked blocking call
-    /// (``assertBlockingAllowed(_:fileID:line:)``).
+    /// (``blockingCall(_:fileID:line:_:)``).
     ///
     /// - Parameters:
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
     @inlinable
     public func blockingWait(fileID: StaticString = #fileID, line: UInt = #line) {
-        assertBlockingAllowed(.syncWait, fileID: fileID, line: line)
-        wait()
+        blockingCall(.syncWait, fileID: fileID, line: line) { wait() }
     }
 }

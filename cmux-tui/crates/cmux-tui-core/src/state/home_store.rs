@@ -118,6 +118,7 @@ impl EmptyWorkspaceMark {
 
     /// The rows this mark writes in the transaction that creates the
     /// workspace.
+    #[track_caller]
     pub(crate) fn write(
         &self,
         transaction: &Transaction<'_>,
@@ -213,6 +214,7 @@ fn mark_workspace_home(transaction: &Transaction<'_>, workspace_id: &str) -> any
 /// with its `workspace_placement` changes queued into the creation's
 /// `session.events` batch. The personal store shares the registry
 /// transaction, so `personal_revision` and its journal fact move with it.
+#[track_caller]
 fn place_home_first(transaction: &Transaction<'_>, workspace_key: &str) -> anyhow::Result<()> {
     // The creation patch already gave home a last-place row and queued its
     // placement (personal_order::place_created_workspaces). That first

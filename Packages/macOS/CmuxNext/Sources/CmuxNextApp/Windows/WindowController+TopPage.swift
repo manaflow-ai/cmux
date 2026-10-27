@@ -1,7 +1,30 @@
 import AppKit
 import CmuxNextDaemon
+import CmuxNextWakeups
 
 extension WindowController {
+    /// Shows the requested workspace (or top page) whenever what it depends on changes. A service observation:
+    /// it parks, discards and wakes workspaces for a hidden window too.
+    func observeWorkspace() {
+        guard !tornDown else { return }
+        let machines = services.machines, cloud = services.cloud, windows = services.windows, state = state
+        workspaceObservation = ServiceObservation(.visible, owner: "WindowController.showWorkspace", on: services.mainWork) {
+            Self.readShowInputs(state, cloud: cloud, machines: machines, windows: windows)
+        } apply: { [weak self] _ in
+            self?.showWorkspace(requested: state.workspaceID)
+            // A parked terminal (the classic migration's background workspaces) starts on its first show.
+            if let id = state.workspaceID, let (workspace, daemon) = machines.workspace(id: id) { daemon.wakeParkedTabs(in: workspace) }
+        }
+    }
+
+    /// Reads what `showWorkspace` depends on (the request, each machine's workspace list): O(machines), no id list.
+    private static func readShowInputs(_ state: WindowState, cloud: CloudService, machines: MachineRegistry, windows: WindowManager) {
+        _ = (state.workspaceID, state.page, state.machineID, cloud.hasLoadedMachines, multiViewEnabled)
+        _ = creationKey(state, cloud, machines)
+        _ = windows.registry.members(of: state.id)
+        for daemon in machines.daemons { _ = (daemon.store.isLoaded, daemon.store.workspaces.count) }
+    }
+
     /// Shows top page `route` in the content area (TOP-SECTION-ITEMS-ARE-PAGES):
     /// the shown workspace parks and stays mounted, `state.workspaceID` stays,
     /// so selecting a workspace swaps it back in the same frame. One
@@ -13,6 +36,8 @@ extension WindowController {
         if root.content === view { return true }
         parkContentForPage()
         root.show(view)
+        // A page built again after a discard shows as the person left it.
+        topPages.didShow(route)
         // Pages draw in the room theme (the window's own scope).
         themeScope.show(nil)
         root.titlebar.title = topPages.title(for: route)
@@ -63,9 +88,16 @@ extension WindowController {
 
     /// Every content swap, a top page or a workspace: the titlebar's Back and
     /// Forward re-read the shown page's history. The sidebar never shows Back
-    /// (Lawrence 2026-10-09); Go Back leaves a page for its workspace.
+    /// (Lawrence 2026-10-09); Go Back leaves a page for its workspace. The
+    /// top pages hear which page is hidden from now on, and when a page a paint
+    /// hold kept on screen leaves the window (their discard deadlines).
     func followContentChanges() {
-        root.onContentChange = { [weak self] in self?.services.locationTrail.pageHistoryDidChange() }
+        root.onContentChange = { [weak self] in
+            guard let self else { return }
+            services.locationTrail.pageHistoryDidChange()
+            topPages.contentDidChange(shown: root.content)
+        }
+        root.onContentWithdrawn = { [weak self] in self?.topPages.contentDidLeaveWindow() }
     }
 
     /// The top page this window shows, if any.

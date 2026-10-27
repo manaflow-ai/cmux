@@ -1,10 +1,12 @@
+import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 
-/// Local video and audio files the pane may play. The page's CSP loads media only from the pane's
-/// own origin, so a checked file gets an unguessable `cmux-agent://pane/__media/<token>.<ext>` URL
-/// that ``AgentPaneSchemeHandler`` serves in byte ranges. The page never names a file itself: it
-/// asks `media.load` with the path from the reply, and the host checks it like a reply image.
+/// Local video and audio files the pane may play. A checked file gets an unguessable
+/// `cmux-page://cmux.agent/__media/<token>.<ext>` URL on the agent page's own origin, which
+/// ``file(for:)`` maps back to the file and ``AgentPageResources`` serves in byte ranges. The page
+/// never names a file itself: it asks `media.load` with the path from the reply, and the host
+/// checks it like a reply image.
 /// Web media (an https link: a GitHub user attachment, a CI artifact) follows the reply image
 /// setting and network rules; bytes that are video or audio (``sniff(_:)``) are kept as a private
 /// copy in ``cacheFolder`` and played like a file.
@@ -20,7 +22,8 @@ final class AgentPaneMediaGrants {
     nonisolated static let maximumBytes = 4 << 30
     /// Most files granted at once; the oldest grant goes first.
     static let maximumGrants = 256
-    static let pathPrefix = "/__media/"
+    /// The agent page's dynamic prefix the files are served under (``PageDescriptor/agent``).
+    nonisolated static let prefix = "__media"
 
     /// Where web media copies live; one is removed when its grant goes.
     nonisolated static let cacheFolder = FileManager.default.temporaryDirectory.appending(path: "cmux-agent-media", directoryHint: .isDirectory)
@@ -64,7 +67,7 @@ final class AgentPaneMediaGrants {
                 }
             }
         }
-        return "\(AgentPaneSource.bundledScheme)://\(AgentPaneSource.bundledHost)\(Self.pathPrefix)\(name)"
+        return "\(PageDescriptor.agent.origin)/\(Self.prefix)/\(name)"
     }
 
     /// The media type `data` really is (by its first bytes, not the link), as an extension from
@@ -101,10 +104,15 @@ final class AgentPaneMediaGrants {
 
     /// The granted file a media URL names, nil for any other URL.
     func file(for url: URL) -> URL? {
-        guard url.scheme?.lowercased() == AgentPaneSource.bundledScheme,
-              url.host?.lowercased() == AgentPaneSource.bundledHost,
-              url.path.hasPrefix(Self.pathPrefix) else { return nil }
-        return files[String(url.path.dropFirst(Self.pathPrefix.count))]
+        let path = "/\(Self.prefix)/"
+        guard url.scheme?.lowercased() == PageDescriptor.scheme, url.host?.lowercased() == PageDescriptor.agent.id,
+              url.port == nil, url.user == nil, url.path.hasPrefix(path) else { return nil }
+        return file(named: String(url.path.dropFirst(path.count)))
+    }
+
+    /// The granted file `name` (`<token>.<ext>`, the last component of its URL) names, nil for any other name.
+    func file(named name: String) -> URL? {
+        files[name]
     }
 }
 

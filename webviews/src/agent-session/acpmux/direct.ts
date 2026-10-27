@@ -40,6 +40,7 @@ import { postNative } from "./native";
 import { forgetTail, keptTail, KEPT_EVENTS, readHostTail, rememberReadAhead, rememberTail } from "./tailCache";
 import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { HandoffClient } from "./handoff/client";
+import type { CheckpointMethod } from "./checkpoints/protocol";
 import { PermissionGroupClient } from "./permissions/client";
 import { cancelledKey, questionFromPermission, summaryLines, type AgentQuestion } from "./question/model";
 import { cancelledArgs, decidedQuestion, QUESTION_RECORD } from "./question/record";
@@ -76,6 +77,7 @@ import { AskTracker, pendingReader, SIDE_SESSION_METHOD } from "./needsYou/asks"
 import { chatTools, toolApplied, type ToolApplied } from "./summary/chatTools";
 import { taskGoal } from "./goal";
 import { recordedConversationEvents } from "./conversation/exportEvents";
+import { onPageLifecycleChange, pageIsActive } from "../../pages/shared/pageLifecycle";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -1257,6 +1259,8 @@ export class AcpmuxDirectClient {
   onHarnessesChanged?: () => void;
   /// `_acpmux/process_update` listeners (inspector/processes.ts).
   private readonly processListeners = new Set<(process: unknown) => void>();
+  /// Stops following the page's lifecycle (pages/shared/pageLifecycle.ts).
+  private readonly unobserveLifecycle: () => void;
   /// A prompt carrying the workspace context is on its way (send).
   private contextInFlight = false;
 
@@ -1273,7 +1277,9 @@ export class AcpmuxDirectClient {
     this.listener = listener;
     this.onLost = onLost;
     this.selectedSessionId = host.sessionId;
-    if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.showChanged);
+    // Hidden, frozen and shown come from the page's own lifecycle (pageLifecycle.ts): no native
+    // stream, and a show or a resume reads nothing.
+    this.unobserveLifecycle = onPageLifecycleChange(this.showChanged);
     // The chat on screen is handed over when this page goes away as well as when it is left, so a
     // tab closed or reloaded on a chat leaves that chat warm for the next tab (keptAttachments.ts
     // hands the composer's chips over the same way). Without this the only chat the host ever
@@ -2228,6 +2234,14 @@ export class AcpmuxDirectClient {
   /// One turn's repository changes: checkpoint `from` against checkpoint `to`.
   gitCheckpointDiff(from: string, to: string): Promise<unknown> {
     return this.git("git.checkpoint.diff", { from, to, include_patch: true });
+  }
+
+  /// The checkpoint feature's requests (checkpoints/protocol.ts `CHECKPOINT_METHODS`): the native
+  /// host owns them, and mock mode's in-page daemon answers them for the selected session, as it
+  /// answers `git.diff`.
+  gitCheckpoint(method: CheckpointMethod, params: Record<string, unknown>): Promise<unknown> {
+    if (this.gitRoute !== "daemon") return postNative(method, params);
+    return this.request(method, { sessionId: this.selectedSessionId, ...params });
   }
 
   private git(
@@ -5618,7 +5632,7 @@ export class AcpmuxDirectClient {
     this.missingRecheck = undefined;
     clearTimeout(this.stopTimer);
     this.stopTimer = undefined;
-    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
+    this.unobserveLifecycle();
     if (typeof window !== "undefined") window.removeEventListener("pagehide", this.pageWentAway);
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
@@ -5884,9 +5898,9 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
 }
 
 /// Whether the person can see the page: WebKit reports `hidden` for a web view out of its window,
-/// hidden, or in an occluded window.
+/// hidden, or in an occluded window; a frozen or parked page is not shown either.
 function pageShown(): boolean {
-  return typeof document === "undefined" || document.visibilityState !== "hidden";
+  return pageIsActive();
 }
 
 /// Whether the pane's host refused to relay a request (`data.origin: "native"`): acpmux never saw it.

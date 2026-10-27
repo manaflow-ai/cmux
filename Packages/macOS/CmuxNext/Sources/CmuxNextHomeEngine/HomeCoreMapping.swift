@@ -1,5 +1,6 @@
 import CmuxAgentQuestion
 public import CmuxHomeCore
+import CmuxNextCompat
 public import CmuxNextDaemon
 import Foundation
 
@@ -7,11 +8,12 @@ import Foundation
 /// Home core's types (CmuxHomeCore, plans/cmux-next/home-mac.md). Pure; the
 /// owner's ids and seqs pass through unchanged.
 public nonisolated enum HomeCoreMapping {
+    // crash-allow: its options are set once in the initializer, then only `date(from:)` reads it; ISO8601DateFormatter is thread-safe.
     nonisolated(unsafe) private static let dates: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
-    }()  // ISO8601DateFormatter is thread safe.
+    }()
 
     static func date(_ text: String?) -> Date? {
         guard let text else { return nil }
@@ -123,7 +125,7 @@ public nonisolated enum HomeCoreMapping {
             participants: summary.participants.map(participant), lastSeq: summary.lastSeq, rev: summary.rev,
             createdAt: date(summary.createdAt) ?? .distantPast, updatedAt: date(summary.updatedAt) ?? .distantPast,
             lastMessage: summary.lastMessage.map(message),
-            readCursors: Dictionary(uniqueKeysWithValues: summary.readCursors.map { (ParticipantID($0.key), $0.value) }))
+            readCursors: Dictionary(summary.readCursors.map { (ParticipantID($0.key), $0.value) }, uniquingKeysWith: { first, _ in first }))
     }
 
     /// The parts an op sends. The local owner stores text, work, attachment
@@ -180,7 +182,7 @@ public nonisolated enum HomeCoreMapping {
             return (conversation.rawValue, .removeReaction(messageID: message.rawValue, partIndex: partIndex, kind: Self.reactionKind(reaction)))
         case .answerQuestion(let message, let conversation, let partIndex, let answer):
             guard let data = try? answer.conversationAnswer.data(),
-                  let value = try? JSONDecoder().decode(JSONValue.self, from: data) else { return nil }
+                  let value = try? JSONDecoder().blockingDecode(JSONValue.self, from: data) else { return nil }
             return (conversation.rawValue, .answerQuestion(messageID: message.rawValue, partIndex: partIndex, answer: value))
         case .updateThread(let conversation, let root, let title, let status, let owner):
             return (conversation.rawValue, .updateThread(root: root.rawValue, title: title, status: status?.rawValue, owner: owner))

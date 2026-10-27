@@ -61,6 +61,7 @@ final class EmptyGroupRowView: SidebarRowView {
         label.frame = NSRect(x: x, y: (b.height - h) / 2, width: max(0, b.width - x - Metrics.space2), height: h)
     }
 
+    /// Layer colors only: `layerContentsRedrawPolicy` (.onSetNeedsDisplay, SidebarRowView) runs it on needsDisplay, never on a resize.
     override func updateLayer() {
         performWithTheme {
             label.setColor(offersAdd ? Palette.textSecondary : Palette.textTertiary)

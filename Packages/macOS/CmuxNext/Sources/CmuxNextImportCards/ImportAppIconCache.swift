@@ -1,6 +1,9 @@
 import AppKit
+import CmuxNextCompat
 import Observation
 
+// memory: fixed keys are the import cards' apps: the browsers of `ImportBrowser` and the five
+// `ImportSuggestionsCenter.agentApps`, one 64 px PNG data URL each.
 /// Source apps' icons for the import cards, as small `data:image/png` URLs (a cmux page's CSP allows `img-src
 /// data:` only), from Launch Services only (no file of the app is read).
 ///
@@ -51,10 +54,12 @@ final class ImportAppIconCache {
         urls[bundleID] = .some(url)
     }
 
-    /// Launch Services' icon of the app, drawn into a bitmap of its own (no shared graphics state), as PNG.
+    /// Launch Services' icon of the app, through its checked seams, drawn into a bitmap of its own (no shared
+    /// graphics state), as PNG.
     nonisolated static func renderLive(_ bundleID: String) -> String? {
-        guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return nil }
-        let image = NSWorkspace.shared.icon(forFile: app.path)
+        let system = SystemWorkspaceQuerying()
+        guard let app = system.application(withBundleIdentifier: bundleID) else { return nil }
+        let image = system.fileIcon(atPath: app.path)
         let pixels = Int(side * 2)
         guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels, bitsPerSample: 8,
                                             samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,

@@ -142,7 +142,8 @@ extension HistogramID {
         case remoteStream = "remote_stream"
     }
 
-    /// The launch temperature from the page-in count (Chrome's startup_metric_utils).
+    /// The launch temperature from the page-in count (Chrome's startup_metric_utils), built from the launch's one
+    /// classifier, `LaunchClock.Temperature` (``init(_:)``; an undetermined launch has none).
     public enum LaunchTemperature: String, Sendable, CaseIterable {
         /// Few page-ins: the app's pages were in memory.
         case warm

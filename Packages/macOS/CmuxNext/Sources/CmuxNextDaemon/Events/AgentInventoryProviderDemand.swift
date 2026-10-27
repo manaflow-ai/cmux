@@ -22,8 +22,8 @@ public nonisolated struct AgentInventoryProviderDemand: Codable, Sendable, Equat
         self.init(sequence: sequence, enabled: enabled)
     }
 
-    static func payload(line: Data) -> JSONValue {
-        guard let demand = try? WireCoding.decoder().decode(Self.self, from: line) else { return .null }
+    static func payload(line: Data, decoder: WireDecoder = WireCoding.decoder()) -> JSONValue {
+        guard let demand = try? decoder.decode(Self.self, from: line) else { return .null }
         return .object(["sequence": .string(String(demand.sequence)), "enabled": .bool(demand.enabled)])
     }
 }

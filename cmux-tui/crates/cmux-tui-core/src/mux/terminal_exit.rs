@@ -6,11 +6,14 @@
 use anyhow::Context;
 use serde_json::{Value, json};
 
+use super::mux_work::Retry;
 use super::*;
 use crate::terminal_end::TerminalEnd;
+use cmux_threads::work::{Lane, Priority};
 
 impl Mux {
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn persist_terminal_exit_for_test(
         &self,
         terminal_id: &TerminalPublicId,
@@ -40,6 +43,7 @@ impl Mux {
 
     /// Test seam: run the deferred exit detaches whose shutdown lead passed.
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn run_due_exit_settles_for_test(&self) {
         self.run_due_exit_settles();
     }
@@ -50,6 +54,16 @@ impl Mux {
     /// termination signal wakes it, before any teardown.
     pub fn begin_session_shutdown(&self) {
         self.session_shutdown.begin();
+    }
+
+    /// A holder of this session ended without its terminal's exit: lost, or
+    /// replaced on its still-running shell. Counted for `oracle-state`
+    /// `childExits.holder` where the owner logs it, so the count is this
+    /// owner's own and never depends on the loss log's rotation or on other
+    /// sessions sharing its directory. Nothing when the oracle is compiled out.
+    pub(crate) fn note_holder_exit(&self) {
+        #[cfg(any(debug_assertions, feature = "oracle"))]
+        self.oracle_holder_exits.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Log that this owner got termination signal `signal` from `sender_pid`
@@ -76,6 +90,7 @@ impl Mux {
     /// Called by a surface's reader thread when its child exits. Hosted
     /// terminals preserve a durable exit receipt while all views detach;
     /// local surfaces are removed immediately.
+    #[track_caller]
     pub fn surface_exited(self: &Arc<Self>, id: SurfaceId) {
         if self.sidebar_surface_exited(id) {
             self.emit(MuxEvent::SurfaceExited(id, None));
@@ -104,6 +119,7 @@ impl Mux {
     /// Exit persistence is first-writer-wins. A transient SQLite failure
     /// leaves the old topology intact and retries through a weak owner until
     /// the atomic lifecycle-and-detach commit succeeds or shutdown begins.
+    #[track_caller]
     pub(super) fn schedule_exited_terminal_detach(
         self: &Arc<Self>,
         terminal_id: String,
@@ -113,45 +129,25 @@ impl Mux {
         let Some(detach_lease) = self.terminal_exit_detaches.acquire(terminal_id.clone()) else {
             return;
         };
-        let cleanup_id = terminal_id.clone();
-        let mux = Arc::downgrade(self);
         let surface = Arc::downgrade(surface);
-        let spawn_result = std::thread::Builder::new()
-            .name(format!("terminal-exit-detach-{terminal_id}"))
-            .spawn(move || {
-                let _detach_lease = detach_lease;
-                let mut delay = Duration::from_millis(25);
-                loop {
-                    std::thread::sleep(delay);
-                    let Some(mux) = mux.upgrade() else { break };
-                    if mux.shutting_down.load(Ordering::Acquire) {
-                        break;
-                    }
-                    let reconciled = surface
-                        .upgrade()
-                        .map(|surface| mux.mark_hosted_surface_exited(&surface, reason))
-                        .unwrap_or_else(|| {
-                            mux.detach_exited_terminal_topology(&terminal_id).map(drop)
-                        });
-                    match reconciled {
-                        Ok(()) => break,
-                        Err(error) => {
-                            eprintln!(
-                                "cmux-tui: could not detach exited terminal \
-                                 {terminal_id}: {error:#}"
-                            );
-                            delay = (delay * 2).min(Duration::from_secs(5));
-                        }
-                    }
-                }
-            });
-        if let Err(error) = spawn_result {
-            eprintln!(
-                "cmux-tui: could not schedule exited terminal {cleanup_id} detach: {error:#}"
-            );
+        let mut backoff = Duration::from_millis(25);
+        let posted = self.post_mux_retry(backoff, Priority::UserVisible, Lane::Files, move |mux| {
+            let _detach_lease = &detach_lease;
+            let reconciled = surface
+                .upgrade()
+                .map(|surface| mux.mark_hosted_surface_exited(&surface, reason))
+                .unwrap_or_else(|| mux.detach_exited_terminal_topology(&terminal_id).map(drop));
+            let Err(error) = reconciled else { return Retry::Done };
+            eprintln!("cmux-tui: could not detach exited terminal {terminal_id}: {error:#}");
+            backoff = (backoff * 2).min(Duration::from_secs(5));
+            Retry::After(backoff)
+        });
+        if posted.is_err() {
+            eprintln!("cmux-tui: could not schedule an exited terminal detach: shutting down");
         }
     }
 
+    #[track_caller]
     pub(super) fn mark_hosted_surface_exited(
         &self,
         surface: &Arc<Surface>,
@@ -178,6 +174,7 @@ impl Mux {
     /// event in one registry transaction. Callers may observe the same exit
     /// through the live frame, sidecar recovery, and dead-host reconciliation;
     /// the first commit is the latch and all later observations are no-ops.
+    #[track_caller]
     pub(super) fn persist_terminal_exit(
         &self,
         terminal_id: &str,
@@ -216,6 +213,9 @@ impl Mux {
                     end,
                 );
                 loss.log();
+                if loss.is_loss() {
+                    self.note_holder_exit();
+                }
                 loss
             });
         // cx-6so.49: whether this loss may respawn, checked before the locks.
@@ -433,6 +433,7 @@ impl Mux {
     /// Start the shell of an `on_exit` shell terminal whose process ended in
     /// the tab at `slot`, through the manual restart (`restart_dead_tab`).
     /// A refused restart (the owner shuts down) leaves the tab kept, dead.
+    #[track_caller]
     fn drop_exited_terminal_to_shell(&self, slot: SurfaceId) {
         let Some(mux) = self.exit_settles.owner() else { return };
         if let Err(error) = mux.restart_dead_tab(slot) {
@@ -450,6 +451,7 @@ impl Mux {
     /// end (R41): a tab the detach keeps (a host loss) has no runtime surface
     /// after a restart, so its end and loss cause come only from that record
     /// (cx-ayt2: a restart path that skipped it showed "Process exited").
+    #[track_caller]
     pub(super) fn detach_exited_terminal_topology(
         &self,
         terminal_id: &str,
@@ -460,6 +462,7 @@ impl Mux {
         detached
     }
 
+    #[track_caller]
     fn detach_exited_terminal_topology_only(&self, terminal_id: &str) -> anyhow::Result<bool> {
         let mut registry = self.workspace_registry.lock().unwrap();
         let terminal = registry
@@ -617,6 +620,6 @@ fn host_loss_log_test_delay() {
         && let Ok(delay) = delay.parse::<u64>()
         && delay > 0
     {
-        std::thread::sleep(Duration::from_millis(delay.min(5_000)));
+        crate::request_path::sleep(Duration::from_millis(delay.min(5_000)));
     }
 }

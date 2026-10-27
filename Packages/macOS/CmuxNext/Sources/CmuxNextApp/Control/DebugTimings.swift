@@ -1,26 +1,32 @@
 import AppKit
 import class CmuxNextAgentPane.AgentPaneLaunchTimings
+import CmuxNextControl
+import protocol CmuxNextAgentPane.PaneFirstPaintGated
 import CmuxNextDesign
+import CmuxNextLaunch
 import CmuxNextPalette
 import CmuxNextSettings
+import CmuxNextSignposts
 import CmuxNextTerminal
+import CmuxNextTrace
 import CmuxNextUpdater
+import CmuxNextWakeups
 import class CmuxNextDaemon.DaemonLaunchTimings
 import Darwin
-import os
 import CmuxNextCompat
 
 /// `debug.timings`: main-thread spans of the paths the stall bench measures
 /// (scripts/cmux-next/bench-stalls.py): launch phases, each palette and icon
 /// picker open, each terminal surface creation. `clear` drops the per-event lists (the
-/// launch marks stay). Each span is also an Instruments signpost interval
-/// (subsystem com.cmuxterm.app.next, category "stalls").
+/// launch marks stay). In every build, recording or not, each open's main-thread work is also a catalog
+/// thread slice of category `stall`: `stall.palette_open` (`PaletteController`) and `stall.icon_picker_open`
+/// (`IconPickerService`), in the trace ring and as os_signpost intervals.
 @MainActor
 enum DebugTimings {
-    static let signposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "stalls")
-
-    /// Launch marks from any thread (the daemon start path runs off main).
-    private nonisolated static let launchMarks = Mutex<[(name: String, ms: Double)]>([])
+    /// Launch marks from any thread (the daemon start path runs off main), the startup trace they go
+    /// to when the launch asked for one (`CMUX_TRACE_STARTUP`), and the `launch.*` slices they end.
+    private nonisolated static let launchMarks = Mutex<(marks: LaunchMarks, slices: LaunchSlices)>(
+        (LaunchMarks(), LaunchSlices(processStartNanos: processStart.uptimeNanos)))
     private static var paletteOpens: [PaletteOpenTiming] = []
     private static var iconPickerOpens: [IconPickerOpenTiming] = []
     private static var surfaces: [Double] = []
@@ -40,35 +46,92 @@ enum DebugTimings {
         return Double(seconds) * 1_000 + Double(attoseconds) / 1e15
     }
 
-    private nonisolated static let processStart: Date = {
-        var info = kinfo_proc()
-        var size = MemoryLayout<kinfo_proc>.stride
-        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
-        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return Date() }
-        let start = info.kp_proc.p_un.__p_starttime
-        return Date(timeIntervalSince1970: Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000)
-    }()
+    /// The process start and the page-ins every launch mark reads (the system's).
+    private nonisolated static let launchClock = LaunchClock()
+    /// When the kernel started this process (PROC_PIDTBSDINFO), on the wall clock and the trace clock; now
+    /// when the kernel does not answer. The launch's one clock pairing: every mark's date reaches the trace
+    /// clock through it (``LaunchMarks/uptimeNanos(of:pairedWith:)``).
+    private nonisolated static let processStart: LaunchClock.Instant = launchClock.processStart() ?? launchClock.now()
+    private nonisolated static let processStartDate = Date(timeIntervalSince1970: Double(processStart.wallNanos) / 1e9)
+    /// ``processStart`` on the trace clock (`CLOCK_UPTIME_RAW` nanoseconds), the zero of `debug.startup`'s task times.
+    nonisolated static var processStartUptimeNanos: UInt64 { processStart.uptimeNanos }
 
     /// Records a launch mark (milliseconds since process start) once per
     /// name, from any thread. The first record of a name goes to
     /// ``LaunchMarkSink``: a launch os_signpost in every build, and the
-    /// bench's pipe when one was passed.
+    /// bench's pipe when one was passed; and to the startup trace when one is attached. A milestone mark
+    /// ends its `launch.*` slice; ``LaunchSlices/temperatureMark`` reads the page-ins first (Chrome reads them
+    /// before its message-loop start's own work), writes the slices that waited, records `launch.pageins`, and
+    /// sends the bench `launch.temperature.<name>` and `launch.pageins_run_loop_start`.
+    /// A first live content frame (``LaunchMarks/liveContentFrameMarks``) also marks `first_live_content_frame`, once.
     nonisolated static func markLaunch(_ name: String, at date: Date = Date()) {
-        let ms = date.timeIntervalSince(processStart) * 1_000
-        let first = launchMarks.withLock { marks in
-            guard !marks.contains(where: { $0.name == name }) else { return false }
-            marks.append((name, ms))
-            return true
+        let reading = LaunchSlices.Reading(mark: name, clock: launchClock)
+        let endNanos = reading.milestone == nil ? 0 : LaunchMarks.uptimeNanos(of: date, pairedWith: processStart)
+        let (ms, trace, step) = launchMarks.withLock { state -> (Double?, StartupTrace?, LaunchSlices.Step) in
+            guard let ms = state.marks.record(name, at: date, processStart: processStartDate) else {
+                return (nil, state.marks.trace, LaunchSlices.Step())
+            }
+            return (ms, state.marks.trace, state.slices.apply(reading, atUptimeNanos: endNanos))
         }
-        if first {
-            LaunchMarkSink.shared.write(name: name, ms: ms)
-            #if DEBUG || CMUX_BENCH_HOOKS
-            UpdateHarness.mark("launch.\(name)", at: date)
-            #endif
+        guard let ms else { return }
+        step.publish(into: .shared)
+        LaunchMarkSink.shared.write(name: name, ms: ms)
+        LaunchMarks.forward(name, at: date, to: trace, pairedWith: processStart)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        UpdateHarness.mark("launch.\(name)", at: date)
+        #endif
+        if let pageins = step.pageins {
+            LaunchMarkSink.shared.writeValue(name: LaunchSlices.pageinsValueMark, value: pageins)
+        }
+        if let temperatureInstant = step.temperatureInstant { markLaunch(temperatureInstant, at: date) }
+        if let derived = LaunchMarks.derivedMark(of: name) { markLaunch(derived, at: date) }
+    }
+
+    /// The startup trace `CMUX_TRACE_STARTUP` asks for, attached before the first mark (`main`).
+    nonisolated static func makeStartupTrace() -> StartupTrace? {
+        guard let trace = StartupTrace.fromEnvironment(processStartNanos: processStart.uptimeNanos) else { return nil }
+        launchMarks.withLock { $0.marks.attach(trace, processStart: processStart) }
+        return trace
+    }
+
+    /// Marks `first_page_frame` when `view`, a page just put in a pane (an agent page or an
+    /// internal page, ``PaneFirstPaintGated``), first paints while its tab's visibility `node` is
+    /// visible. A page that paints out of sight (the New Tab spare parked in its window, a pane of
+    /// a hidden window) is not live content; Chrome's `FirstWebContentsProfiler` likewise stops
+    /// at a hidden or background tab (chrome/browser/metrics/first_web_contents_profiler.cc).
+    static func markFirstPageFrame(of view: NSView?, node: VisibilityNode) {
+        let pageFrame = "first_page_frame"
+        guard let gated = view as? any PaneFirstPaintGated, !launchMarks.withLock({ $0.marks.contains(pageFrame) }) else { return }
+        gated.whenFirstPainted { [weak node] in
+            guard node?.isVisible == true else { return }
+            markLaunch(pageFrame)
         }
     }
 
-    static func install() {
+    /// Marks `run_loop_start` at the main run loop's first entry, Chrome's
+    /// `RecordBrowserMainMessageLoopStart`: a one-shot entry observer, which the run loop
+    /// removes after its one call. Call it in `main()` just before `NSApp.run()`.
+    static func armRunLoopStartMark() {
+        MainRunLoopObserver.once(activities: .entry, order: CFIndex.min) { markLaunch("run_loop_start") }
+    }
+
+    /// Marks `first_idle` the first time the main run loop is about to sleep after
+    /// `applicationDidFinishLaunching`, Chrome's `RecordBrowserMainLoopFirstIdle`: a one-shot
+    /// before-waiting observer ordered after AppKit's display and the Core Animation commit,
+    /// so the turn it closes is the whole launch turn. Call it at `did_finish_launching_end`.
+    static func armFirstIdleMark() {
+        MainRunLoopObserver.once(activities: .beforeWaiting, order: CFIndex.max) { markLaunch("first_idle") }
+    }
+
+    /// - Parameters:
+    ///   - watchdog: Sends main-thread turns over 1 ms to `startupTrace` until it closes.
+    ///   - startupTrace: The launch's startup trace (``makeStartupTrace()``), or nil.
+    static func install(watchdog: MainThreadWatchdog, startupTrace: StartupTrace?) {
+        if let startupTrace {
+            watchdog.setMainTurnSink(minimumNanos: StartupTrace.mainTurnThresholdNanos) { startupTrace.mainTurn(start: $0, end: $1) }
+            // Closed, the trace takes nothing more: the sink comes off and a main turn is one relaxed load again.
+            startupTrace.whenClosed { watchdog.setMainTurnSink(minimumNanos: 0, nil) }
+        }
         DaemonLaunchTimings.shared.install { markLaunch($0, at: $1) }
         AgentPaneLaunchTimings.shared.install { markLaunch($0) }
         TerminalTimings.onSurfaceCreated = { duration in
@@ -110,8 +173,9 @@ enum DebugTimings {
         if omnibarClicks.count < capacity { omnibarClicks.append((engine, input, keyToFrame)) }
     }
 
-    static func handle(_ params: [String: JSONValue]) -> JSONValue {
-        let report = self.report
+    /// - Parameter launchValues: The app's numeric launch values (`AppServices.launchValues`), listed as `launch_values`.
+    static func handle(_ params: [String: JSONValue], launchValues: [String: Double] = [:]) -> JSONValue {
+        let report = Self.report(launchValues: launchValues)
         if params["clear"]?.boolValue == true {
             paletteOpens.removeAll()
             iconPickerOpens.removeAll()
@@ -124,12 +188,33 @@ enum DebugTimings {
         return report
     }
 
-    private static var report: JSONValue {
+    /// `debug.startup_trace`: writes what the startup trace holds now (on the files lane, never on main) and
+    /// returns its status; `{"close": true}` closes it first. With no trace: `trace_ring_bytes` 0.
+    nonisolated static var startupTraceMethod: ControlMethod {
+        .async("debug.startup_trace") { call in
+            guard let trace = launchMarks.withLock({ $0.marks.trace }) else { return ["enabled": false, "trace_ring_bytes": 0] }
+            if call.params["close"]?.boolValue == true { trace.close() }
+            let status = await trace.flush()
+            return ["enabled": true, "file": .string(status.file.path), "seconds": .number(status.seconds),
+                    "trace_ring_bytes": .number(Double(status.ringBytes)), "pending": .number(Double(status.pending)),
+                    "dropped": .number(Double(status.dropped)), "written_events": .number(Double(status.written)),
+                    "closed": .bool(status.closed), "failure": status.failure.map(JSONValue.string) ?? .null]
+        }
+    }
+
+    private static func report(launchValues: [String: Double]) -> JSONValue {
         func round(_ ms: Double) -> JSONValue { .number((ms * 10).rounded() / 10) }
         var launch: [String: JSONValue] = [:]
-        for mark in launchMarks.withLock({ $0 }) { launch[mark.name] = round(mark.ms) }
+        let (marks, slices) = launchMarks.withLock { ($0.marks.all, $0.slices) }
+        for mark in marks { launch[mark.name] = round(mark.ms) }
         return [
             "launch_ms_since_process_start": .object(launch),
+            // Numeric launch values kept in the process (p08-startup-064; `debug.startup` reads them as counters).
+            "launch_values": .object(launchValues.mapValues { JSONValue.number($0) }),
+            // The launch's clock (p09-observability-034): null until the main run loop's start reads the page-ins.
+            "launch_clock": ["temperature": slices.temperature.map { JSONValue.string($0.name) } ?? .null,
+                             "pageins": slices.pageins.map { JSONValue.number(Double($0)) } ?? .null,
+                             "process_start_uptime_ns": .number(Double(slices.processStartNanos))],
             "palette_opens": .array(paletteOpens.map { open in
                 ["ms": round(milliseconds(open.total)), "input_ms": round(milliseconds(open.input)),
                  "key_to_frame_ms": round(milliseconds(open.keyToFrame)), "model_ms": round(milliseconds(open.model)),

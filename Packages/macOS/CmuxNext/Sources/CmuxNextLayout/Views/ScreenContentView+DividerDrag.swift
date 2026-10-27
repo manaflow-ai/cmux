@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextInput
 import QuartzCore
 
 /// Divider and column-edge drags, emitted as transactional layout intents.
@@ -52,26 +53,29 @@ extension ScreenContentView {
                 guard let column = layout.columns.first(where: { $0.id == columnID }), let stack = baseGeometry.rowStacks[columnID],
                       let upperFrame = stack.frame(of: upper) else { return }
                 let y = local(windowPoint).y + rowOffset(of: kind)
-                let minimums = Dictionary(uniqueKeysWithValues: column.rows.map {
+                let minimums = Dictionary(column.rows.map {
                     ($0.id, SplitGeometry.minimumSize(of: $0.root, style: context.style).height)
-                })
+                }, uniquingKeysWith: { first, _ in first })
                 activeDrag = DividerDragState(kind: kind, transaction: .make(), grabOffset: y - upperFrame.maxY, container: stack.frame,
                                         axis: .vertical, rows: RowDragStart(rows: column.rows, stack: stack, minimums: minimums))
             }
             model.setGestureActive(true)
             context.requestFrames()
-        case let .moved(windowPoint):
-            activeDrag?.sample(contentPoint(fromWindow: windowPoint, kind: kind), at: CACurrentMediaTime())
-            applyDrag(at: windowPoint, phase: .changed)
+        case let .sampled(windowPoint, time):
+            activeDrag?.sample(contentPoint(fromWindow: windowPoint, kind: kind), at: time)
+        case let .moved(windowPoint, time, shown):
+            activeDrag?.sample(contentPoint(fromWindow: windowPoint, kind: kind), at: time)
+            applyDrag(at: windowPoint, shownAt: shown, phase: .changed)
             context.requestFrames()
-        case let .ended(windowPoint):
+        case let .ended(windowPoint, time):
             // A press and release with no move between them is a click, not a resize: saving
             // the ratio the divider is drawn at (clamped by a narrow window) would replace the
             // stored one.
             if activeDrag?.pointer == nil { return endDrag() }
             if case .split = kind, let drag = activeDrag {
-                // The layout this release makes springs on from the pointer's velocity.
-                releasedDivider = (kind, drag.releaseVelocity(at: CACurrentMediaTime()), CACurrentMediaTime())
+                // The layout this release makes springs on from the pointer's velocity, read at the
+                // release event's time (the samples' clock); the entry ages from when it is handled.
+                releasedDivider = (kind, drag.releaseVelocity(at: time), CACurrentMediaTime())
             }
             applyDrag(at: windowPoint, phase: .ended)
             activeDrag = nil
@@ -89,18 +93,38 @@ extension ScreenContentView {
         context.model.setGestureActive(false)
     }
 
-    func applyDrag(at windowPoint: NSPoint, phase: LayoutGesturePhase) {
+    /// A new handle's drags read this screen's frame-aligned input (``LayoutRootView/dragFrameInput``)
+    /// and resampler (``LayoutRootView/dragResampler``), the latest each time a drag begins.
+    func followDragInput(_ handle: DividerHandleView) {
+        handle.pointerFrames = { [weak self] in self?.context.dragFrameInput }
+        handle.dragResampler = { [weak self] in self?.newDragResampler() }
+    }
+
+    /// A new divider drag's resampler; none under Reduce Motion, where the divider follows the real
+    /// pointer.
+    func newDragResampler() -> DragResampler? {
+        context.newDragResampler()
+    }
+
+    /// Moves the dragged divider or edge for the pointer at `realWindowPoint`, drawn at
+    /// `shownWindowPoint` (the pointer resampled at the frame's time; nil: the real point). The snap,
+    /// the fling and the release read the real point; only what is drawn reads the shown one.
+    func applyDrag(at realWindowPoint: NSPoint, shownAt shownWindowPoint: NSPoint? = nil, phase: LayoutGesturePhase) {
         guard let drag = activeDrag else { return }
+        let realPoint = contentPoint(fromWindow: realWindowPoint, kind: drag.kind)
+        let windowPoint = shownWindowPoint ?? realWindowPoint
         let point = contentPoint(fromWindow: windowPoint, kind: drag.kind)
         let style = context.style
         switch drag.kind {
         case let .split(id):
             // A fling that would carry the divider onto a snap within the spring's reach lands there.
             let reach = phase == .ended && context.animatesPaneLayout ? (releasedDivider?.velocity ?? 0) * CGFloat(Motion.panes.dividerReleaseProjection) : 0
-            let projected = drag.axis == .horizontal ? CGPoint(x: point.x + reach, y: point.y) : CGPoint(x: point.x, y: point.y + reach)
+            let projected = drag.axis == .horizontal ? CGPoint(x: realPoint.x + reach, y: realPoint.y) : CGPoint(x: realPoint.x, y: realPoint.y + reach)
             var probe = drag
             let flung = reach != 0 ? probe.splitRatio(at: projected, style: style, phase: phase) : nil
-            guard let ratio = flung.flatMap({ drag.snaps.contains($0) ? $0 : nil }) ?? activeDrag?.splitRatio(at: point, style: style, phase: phase)
+            let shown: CGPoint? = shownWindowPoint == nil ? nil : point
+            guard let ratio = flung.flatMap({ drag.snaps.contains($0) ? $0 : nil })
+                ?? activeDrag?.splitRatio(at: realPoint, shownAt: shown, style: style, phase: phase)
             else { return }
             context.model.setSplitRatio(id, ratio: ratio, transaction: drag.transaction, phase: phase)
         case let .columnEdge(id):

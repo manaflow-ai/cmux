@@ -1,11 +1,16 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextControl
 import CmuxNextCrashReporting
+import CmuxNextDaemon
 import CmuxNextHangReports
+import CmuxNextInput
+import CmuxNextMetrics
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextSignposts
+import CmuxNextWakeups
 import os
 
 /// This Mac's personal terms (``ImageClassifier/personalTerms()``: NSFullUserName is an
@@ -36,26 +41,71 @@ final class HangReportsController {
     /// Nil on a build that never sends (Release, RC, DEV without the opt-in, tests): nothing is
     /// built, read or subscribed there.
     let service: HangReportService?
+    /// Feeds the service's main-thread ledger the activation notices and input (nil where the
+    /// builder's wire schema does not carry active time).
+    private let activityFeed: MainThreadActivityFeed?
+    /// Samples `memory.hidden_workspace_kib` at workspace switches, resign-active and report triggers (task 061),
+    /// in every build: the histogram is local until a report sends it. The app's window manager and its one
+    /// resign-active subscription (`AppServices.startIdleWakeups`) tell it the transitions.
+    let memory: HiddenWorkspaceMemory?
     /// Whether a managed profile forces `DisableTelemetry` (read off the main thread at start).
     private let managedDisables: @Sendable () -> Bool
+    /// Before each report: the local daemon's `daemon.request.<class>` from its metrics file (task 062).
+    let daemonMetrics: DaemonMetricsFold?
+    /// The local daemon's pid now; nil without one.
+    private let daemonPID: @MainActor @Sendable () -> Int32?
     private let defaults: UserDefaults
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "hang-reports")
     private var subscriber: MetricKitSubscriber?
-    private var settingsObservation: Task<Void, Never>?
+    /// Follows `diagnostics.hangReports`: a service observation (it turns reporting on and off whatever shows) whose
+    /// newest value the one follow loop takes after each follow.
+    private var settingsObservation: ServiceObservation<Bool>?
+    /// What the one-time question needs, from ``start(settings:asks:firstWindow:)``.
+    private var asking: Asking?
     private var launchedOnce = false
     /// The card kinds put up this launch (each at most once): an invitation answered Not Now still
     /// lets a later switch-on in the same launch get its confirm card.
     private var askedThisLaunch: Set<HangReportAskPolicy.Decision> = []
+    /// Hang reports are background work: the follow loop, the managed check and MetricKit's deliveries run off
+    /// main at best effort; only View Hang Report, a person's click, is user-blocking.
+    private let work: BackgroundWork
+    private let mainWork: MainWorkScheduler
 
-    init(service: HangReportService?, managedDisables: @escaping @Sendable () -> Bool, defaults: UserDefaults = .standard) {
+    private struct Asking {
+        let settings: SettingsController
+        let asks: SidebarAsks
+        let firstWindow: @MainActor () async -> Void
+    }
+
+    init(service: HangReportService?, managedDisables: @escaping @Sendable () -> Bool, defaults: UserDefaults = .standard,
+         activityFeed: MainThreadActivityFeed? = nil, memory: HiddenWorkspaceMemory? = nil, daemonMetrics: DaemonMetricsFold? = nil,
+         daemonPID: @escaping @MainActor @Sendable () -> Int32? = { nil }, work: BackgroundWork, mainWork: MainWorkScheduler) {
         self.service = service
+        self.activityFeed = activityFeed
+        self.memory = memory
         self.managedDisables = managedDisables
         self.defaults = defaults
+        self.daemonMetrics = daemonMetrics
+        self.daemonPID = daemonPID
+        self.work = work
+        self.mainWork = mainWork
     }
 
     /// The controller for this launch: the service over this build's folder, the real transport,
-    /// classifier and dyld resolver, and the app's own envelope values.
+    /// classifier and dyld resolver, the app's own envelope values, and (when the wire schema carries
+    /// them) the active time and `watchdog`'s main-turn and input-queueing histograms. Before each report the local
+    /// daemon's request latency is folded from its metrics file in `metricsFolder` on `work`'s files lane. `memory`
+    /// samples at the report triggers too, and runs where nothing is sent. `wireSchema` is schema 3 only while the
+    /// `hangReportsSchema3` feature says cmux.com accepts it. `features` reads the features hash and overrides the
+    /// app runs with, at each report. `blockingSites` reads the blocking detector's main-thread sites (and reset count), whose counts a
+    /// schema-3 report carries by hashed site id.
     static func forThisLaunch(policy: CrashReportingPolicy, folder: URL, counts: @escaping @Sendable () async -> CoarseCounts,
+                              watchdog: MainThreadWatchdog, input: any InputObserving, events: AppEvents, memory: HiddenWorkspaceMemory,
+                              work: BackgroundWork, mainWork: MainWorkScheduler,
+                              metricsFolder: URL, daemonPID: @escaping @MainActor @Sendable () -> Int32?,
+                              wireSchema: HangReport.WireSchema = .deployed,
+                              features: @escaping @Sendable () -> HangReport.FeatureState? = { nil },
+                              blockingSites: @escaping @Sendable () -> BlockingDetector.MainThreadRead = { .init() },
                               environment: [String: String] = ProcessInfo.processInfo.environment) -> HangReportsController {
         let devOptIn = policy.channel == .dev && environment[devOptInKey] == "1"
         let mayReport = (policy.channel == .nightly || devOptIn) && !CrashReportingPolicy.isTestProcess(environment)
@@ -63,30 +113,59 @@ final class HangReportsController {
         let managedDisables: @Sendable () -> Bool = {
             managed.read().forced[CrashReportingPolicy.disableTelemetryPolicyKey]?.boolValue == true
         }
-        guard mayReport else { return HangReportsController(service: nil, managedDisables: managedDisables) }
+        guard mayReport else {
+            return HangReportsController(service: nil, managedDisables: managedDisables, memory: memory, work: work, mainWork: mainWork)
+        }
         let endpoint = devOptIn ? environment[devEndpointKey] ?? URLSessionHangReportTransport.defaultEndpoint
             : URLSessionHangReportTransport.defaultEndpoint
-        let resolver = DyldImageResolver()
-        let builder = HangReportBuilder(classifier: ImageClassifier(appBundlePath: Bundle.main.bundlePath, forbiddenTerms: personalTermsOfThisMac),
-                                        resolver: resolver)
-        let collector = HangReportCollector(resolve: { builder.frames(addresses: $0) })
-        let info = Bundle.main.infoDictionary ?? [:]
-        let os = ProcessInfo.processInfo.operatingSystemVersion
-        let service = HangReportService(
-            store: HangReportStore(directory: folder), transport: URLSessionHangReportTransport(endpoint: endpoint),
-            builder: builder, scanner: PrivacyLeakScanner(forbiddenTerms: personalTermsOfThisMac), identity: InstallIdentity(),
-            collector: collector,
-            environment: HangReportService.Environment(
-                app: HangReport.App(version: info["CFBundleShortVersionString"] as? String ?? "0",
-                                    build: info["CFBundleVersion"] as? String ?? "0",
-                                    channel: policy.channel?.rawValue ?? "dev"),
-                os: HangReport.OS(version: "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)"),
-                hardware: .current(), counts: counts,
-                // A managed block, or this Mac's consent record removed, while cmux runs: the next
-                // trigger turns reports off and drops what was recorded. UserDefaults is
-                // thread-safe; the record is read in the app's own domain.
-                stillAllowed: { [key = Self.consentKey] in !managedDisables() && UserDefaults.standard.object(forKey: key) is Date }))
-        return HangReportsController(service: service, managedDisables: managedDisables)
+        // Schema 3's field data: this process's histograms in the metrics folder the next launch folds, and the
+        // black boxes where the daemon (its key-flow folder), the holders and the hosts write them.
+        let bundleID = Bundle.main.bundleIdentifier
+        let metricsDirectory = HangReportFieldSources.appMetricsDirectory(bundleID: bundleID)
+        let flows = DaemonDiagnosticKnobs(processEnvironment: environment).daemonEnvironment["CMUX_TRACE_FLOWS"]
+        let rings = HangReportFieldSources.RingFolders.app(bundleID: bundleID, flowsDirectory: flows.map { URL(filePath: $0, directoryHint: .isDirectory) })
+        if wireSchema.carriesFieldData {
+            MetricsStore.startApp(directory: metricsDirectory, channel: policy.channel?.rawValue ?? "dev", work: work)
+        }
+        // A managed block, or this Mac's consent record removed, while cmux runs: the next trigger
+        // turns reports off and drops what was recorded. UserDefaults is thread-safe; the record is
+        // read in the app's own domain.
+        let service = HangReportService.forThisApp(
+            folder: folder, endpoint: endpoint, channel: policy.channel?.rawValue ?? "dev", personalTerms: personalTermsOfThisMac,
+            counts: counts, stillAllowed: { [key = Self.consentKey] in !managedDisables() && UserDefaults.standard.object(forKey: key) is Date },
+            mainThreadHistograms: { [watchdog] in
+                MainThreadReportLedger.Histograms(edgesNanos: MainTurnHistogram.edgesNanos, turnCounts: watchdog.turnHistogram.snapshot().counts,
+                                                  inputQueueingCounts: watchdog.inputQueueHistogram.snapshot().counts)
+            }, wireSchema: wireSchema, metricsDirectory: metricsDirectory, rings: rings, features: features,
+            blockingSites: blockingSites)
+        let feed = service.mainThreadLedger.map {
+            MainThreadActivityFeed(ledger: $0, input: input, events: events, isActive: NSApp?.isActive ?? false)
+        }
+        let daemonMetrics = DaemonMetricsFold(reader: ChildMetricsReader(role: .daemon, directory: metricsFolder), metrics: Metrics(),
+                                              work: work)
+        return HangReportsController(service: service, managedDisables: managedDisables, activityFeed: feed, memory: memory,
+                                     daemonMetrics: daemonMetrics, daemonPID: daemonPID, work: work, mainWork: mainWork)
+    }
+
+    /// The local daemon's request latency into the app's histograms, before a report reads them (no socket request).
+    private func foldDaemonMetrics() async {
+        await Self.foldDaemonMetrics(daemonMetrics, pid: daemonPID(), logger: logger)
+    }
+
+    /// One fold of `daemonMetrics` for the daemon `pid`. Every outcome is counted in its tally (`debug.shipping_mode`'s
+    /// `hang_reports.daemon_metrics_fold`); one that left the daemon's samples out of the report is also logged.
+    private static func foldDaemonMetrics(_ daemonMetrics: DaemonMetricsFold?, pid: Int32?, logger: Logger) async {
+        guard let daemonMetrics else { return }
+        let outcome = await daemonMetrics.fold(pid: pid)
+        let described = String(describing: outcome), daemon = pid ?? 0
+        switch outcome {
+        case .folded, .noDaemon, .busy:
+            break
+        case .missing, .noStore, .cancelled:
+            logger.notice("daemon metrics not folded: \(described, privacy: .public), pid \(daemon, privacy: .public)")
+        case .unreadable, .cursorUnwritten:
+            logger.error("daemon metrics not folded: \(described, privacy: .public), pid \(daemon, privacy: .public)")
+        }
     }
 
     /// The watchdog sink (the app chains it after the lag-spike reporter); nil where nothing is sent.
@@ -94,6 +173,14 @@ final class HangReportsController {
 
     /// Whether this build can send hang reports at all.
     var isAvailable: Bool { service != nil }
+
+    /// `debug.shipping_mode`'s hang reports (``ShippingModeReport/HangReports``) with the setting's value now.
+    func shippingModeState(setting: Bool?) async -> ShippingModeReport.HangReports {
+        let decision = isAvailable ? setting.map { String(describing: Self.decision(defaults: defaults, settingOn: $0)) } : nil
+        return ShippingModeReport.HangReports(available: isAvailable, setting: setting, decision: decision,
+                                              enabled: await service?.isEnabled ?? false,
+                                              daemonMetricsFold: await daemonMetrics?.tally.byName)
+    }
 
     /// Follows the setting from the first load on (``HangReportAskPolicy``): sends only with this
     /// Mac's consent record; otherwise shows the confirm or the one-time invitation card after
@@ -104,33 +191,51 @@ final class HangReportsController {
         settings.userWillWrite = { [defaults] descriptor, value in
             Self.recordUserWrite(defaults: defaults, path: descriptor.path, value: value)
         }
-        let managedDisables = managedDisables
-        settingsObservation = Task { [weak self, weak settings] in
+        asking = Asking(settings: settings, asks: asks, firstWindow: firstWindow)
+        let managedDisables = managedDisables, work = work
+        // task-owner: the controller's one follow loop (it lives with the launch): the managed check on the files lane,
+        // then the setting's newest value after each follow, one at a time, since each follow awaits the service.
+        work.task(.bestEffort) { [weak self, weak settings] in
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
-            guard await Task.detached(priority: .utility, operation: { !managedDisables() }).value else {
+            guard let disabled = try? await work.run(.bestEffort, mayBlock: .files, { managedDisables() }) else { return }
+            if disabled {
                 await self?.apply(false, settingOn: false)
                 return
             }
-            for await on in ObservationStream({ settings.snapshot.hangReports }) {
-                guard let self else { return }
-                await follow(settingOn: on, settings: settings, asks: asks, firstWindow: firstWindow)
+            guard let values = await self?.followSetting(settings) else { return }
+            for await on in values {
+                await self?.follow(settingOn: on)
             }
         }
     }
 
+    /// Follows the setting from its loaded value on, handing the newest value to the follow loop (a follow in
+    /// progress takes the newest one next; the observation coalesces too).
+    private func followSetting(_ settings: SettingsController) -> AsyncStream<Bool> {
+        let (values, continuation) = AsyncStream.makeStream(of: Bool.self, bufferingPolicy: .bufferingNewest(1))
+        settingsObservation = ServiceObservation(.background, owner: "HangReports.setting", on: mainWork) {
+            settings.snapshot.hangReports
+        } apply: { on in
+            continuation.yield(on)
+        }
+        return values
+    }
+
     /// The policy's decision for the setting's value now, then sends, or asks once this launch.
-    private func follow(settingOn: Bool, settings: SettingsController, asks: SidebarAsks,
-                        firstWindow: @escaping @MainActor () async -> Void) async {
+    private func follow(settingOn: Bool) async {
         let decision = Self.decision(defaults: defaults, settingOn: settingOn)
         await apply(decision == .send, settingOn: settingOn)
         guard decision == .confirm || decision == .invite, !askedThisLaunch.contains(decision) else { return }
         askedThisLaunch.insert(decision)
         // task-owner: one question after the first frame; it ends when the person answers.
-        Task { [weak self] in
-            await firstWindow()
-            await self?.ask(asks: asks, settings: settings)
-        }
+        work.task(.userVisible) { [weak self] in await self?.askAfterFirstWindow() }
+    }
+
+    private func askAfterFirstWindow() async {
+        guard let asking else { return }
+        await asking.firstWindow()
+        await ask(asks: asking.asks, settings: asking.settings)
     }
 
     /// Quitting: the watchdog's findings wait on disk for the next launch's report.
@@ -139,12 +244,15 @@ final class HangReportsController {
     }
 
     /// View Hang Report: the last report sent, else a preview; opened in a cmux file tab.
-    func viewReport(open: @escaping @MainActor (URL) -> Void) {
+    func viewReport(open: @escaping @MainActor @Sendable (URL) -> Void) {
         guard let service else { return }
-        // task-owner: one read and open; nothing to cancel.
-        Task {
+        let mainWork = mainWork, memory = memory, daemonMetrics = daemonMetrics, pid = daemonPID(), logger = logger
+        // task-owner: one memory sample, fold, read and open, the rest of the person's click; nothing to cancel.
+        work.task(.userBlocking) {
+            await memory?.sampleNow(.report)
+            await Self.foldDaemonMetrics(daemonMetrics, pid: pid, logger: logger)
             guard let url = await service.viewableReport() else { return }
-            open(url)
+            mainWork.postFromAnyThread(.userBlocking, owner: "HangReports.view") { open(url) }
         }
     }
 
@@ -160,15 +268,22 @@ final class HangReportsController {
             if subscriber == nil {
                 // MetricKit hands over payloads it kept from before the consent: dropped.
                 let since = defaults.object(forKey: Self.consentKey) as? Date ?? Date()
+                let work = work, memory = memory, daemonMetrics = daemonMetrics, daemonPID = daemonPID, logger = logger
                 let subscriber = MetricKitSubscriber(since: since) { input in
-                    // task-owner: one delivery handed to the service actor.
-                    Task { await service.receive(input) }
+                    // task-owner: one memory sample and fold, then one delivery handed to the service actor, at best effort.
+                    work.task(.bestEffort) {
+                        await memory?.sampleNow(.report)
+                        let pid = await daemonPID()
+                        await Self.foldDaemonMetrics(daemonMetrics, pid: pid, logger: logger)
+                        await service.receive(input)
+                    }
                 }
                 subscriber.start()
                 self.subscriber = subscriber
             }
             if !launchedOnce {
                 launchedOnce = true
+                await foldDaemonMetrics()
                 await service.launched()
             }
         } else {

@@ -73,7 +73,7 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
             </button>
           </div>
         )}
-        <div className={`cloud-body layout-${snap.layout}`}>
+        <div className={`cloud-body layout-${snap.layout}`} data-page-scroll="machines">
           <section className="cloud-machines" aria-label={t(L.machines)}>
             <div className="cloud-section-header">
               <h2 className="cloud-section-title">{t(L.machines)}</h2>

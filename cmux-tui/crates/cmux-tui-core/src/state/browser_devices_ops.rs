@@ -13,6 +13,7 @@ use crate::state::store::{StateChanges, StateCommit, state_upsert};
 
 impl Mux {
     /// Stores custom `device` (a custom device with its title is replaced).
+    #[track_caller]
     pub(crate) fn state_browser_device_add(
         &self,
         mutation: &WorkspaceMutation,
@@ -34,6 +35,7 @@ impl Mux {
     }
 
     /// Removes custom device `title`; removing a missing one changes nothing.
+    #[track_caller]
     pub(crate) fn state_browser_device_remove(
         &self,
         mutation: &WorkspaceMutation,

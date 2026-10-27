@@ -1,5 +1,7 @@
 public import AppKit
+import CmuxNextCompat
 public import CmuxNextSettings
+public import CmuxNextWakeups
 public import Foundation
 public import Observation
 
@@ -27,10 +29,6 @@ public final class AgentPaneModel {
 
     /// Called when the page switches to or creates a session, so the App can keep it with the tab.
     @ObservationIgnored public var onSessionChange: ((String) -> Void)?
-    /// Called when acpmux reports the agent the pane's session runs (its `session/new` or
-    /// `_acpmux/attach` reply; ``AcpmuxPaneSessions/harness(of:)``), so the App records the
-    /// harness on the tab (cx-w4bbw). Only for the session the pane shows.
-    @ObservationIgnored public var onSessionHarness: ((_ session: String) -> Void)?
     @ObservationIgnored public var onUnsentDraft: ((String) -> Void)? // a new chat's typed text, until it has a session
     /// Reports each settled scroll and returns the native display settings to the page.
     @ObservationIgnored public var onFramePacing: (([Double]) -> [String: Any])?
@@ -51,8 +49,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onRememberNewTab: ((AgentPaneRememberedPick) -> Void)?
     /// The new tab page's style switch picked a template, or its edit mode changed a widget.
     @ObservationIgnored public var onEditNewTab: ((AgentPaneNewTabEdit) -> Void)?
-    /// The location bar picked an open tab or workspace (`tab.jump`).
-    @ObservationIgnored public var onJump: ((AgentPaneJumpTarget, String) -> Void)?
+    /// The location bar picked an open tab or workspace (`tab.jump`), with the `NSEvent.timestamp` of the page's
+    /// click or Return that picked it (nil when the page sent none).
+    @ObservationIgnored public var onJump: ((AgentPaneJumpTarget, String, TimeInterval?) -> Void)?
     /// The new tab page asked to change a kind's shortcut.
     @ObservationIgnored public var onEditShortcut: ((AgentPaneTabKind) -> Void)?
     /// Runs an app action requested by an empty-state or new-tab control, with its string arguments.
@@ -102,6 +101,9 @@ public final class AgentPaneModel {
     /// What this chat's last page held when it let go (hibernation); the next handshake
     /// carries it (`wake`) and clears it.
     @ObservationIgnored public var pendingWake: AgentPaneWakeState?
+    /// The agent chat open that made this pane (its `create.tab` stages, ``ChatOpenStages``); nil for a pane made
+    /// with no open (a restored one, the prewarmed New Tab page). Its page is made with it.
+    @ObservationIgnored public var chatOpen: ChatOpenStages?
     /// The last quit's state of this chat while the launch still reads it (``AgentPaneRelaunchWake/hand(_:to:)``):
     /// the page's first `ready` awaits it into ``pendingWake``.
     @ObservationIgnored public var wakeSource: (@MainActor () async -> AgentPaneWakeState?)?
@@ -120,13 +122,16 @@ public final class AgentPaneModel {
     /// Whether the Changes view's git writes (cx-tcwj) may run here: only a chat on this Mac. Unset: never.
     @ObservationIgnored public var gitWritesHere: (@MainActor () -> Bool)?
     /// Moves a file the turn created to the Trash (`turn.undo`); tests replace it.
-    @ObservationIgnored public var trashFile: @Sendable (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
+    @ObservationIgnored public var trashFile: @Sendable (URL) throws -> Void = AgentPaneGitDiscard.systemTrash
 
     /// Whether this pane's tab may turn into a terminal or browser tab (`tab.open`, `tab.typeAhead`): a local tab's, also one that adopted the spare (cx-ckt2z).
     @ObservationIgnored public package(set) var allowsTabConversion: Bool
     /// The host's acpmux socket for this pane (in the app the page never holds one).
     @ObservationIgnored public let transport: AgentPaneTransport
-    @ObservationIgnored public let shell = AgentPaneShell() // shell mode: shell.run, shell.read, shell.stop
+    /// The app's one deadline placer (`AppServices.mainDeadlines`); its `work` is the app's one main-thread scheduler,
+    /// which the pane's main-thread follow-ups, observations and deadlines are posted on.
+    @ObservationIgnored public let deadlines: MainDeadlineScheduler
+    @ObservationIgnored public let shell: AgentPaneShell // shell mode: shell.run, shell.read, shell.stop
     /// The App's side of reply chips, images and the preview card's browsers.
     @ObservationIgnored public let replyLinks = AgentPaneReplyLinks()
     /// The last handshake's connection, until the page opens it: used once, so the LocalApp token is never kept beyond one handshake.
@@ -194,10 +199,14 @@ public final class AgentPaneModel {
         seed: AgentPaneSeedSource? = nil,
         newTab: AgentPaneNewTab? = nil,
         allowsTabConversion: Bool = false,
-        transport: AgentPaneTransport = AgentPaneTransport()
+        transport: AgentPaneTransport? = nil,
+        deadlines: MainDeadlineScheduler
     ) {
         self.allowsTabConversion = allowsTabConversion
         self.host = host
+        self.deadlines = deadlines
+        shell = AgentPaneShell(deadlines: deadlines)
+        let transport = transport ?? AgentPaneTransport(mainWork: deadlines.work)
         self.transport = transport
         self.sessionId = sessionId
         self.seed = seed
@@ -215,12 +224,21 @@ public final class AgentPaneModel {
             guard let onConfirmHarness = self?.onConfirmHarness else { return answer(false) }
             onConfirmHarness(prompt, answer)
         }
-        transport.sessions.onHarness { [weak self] session, _ in
-            // task-owner: one hop to the main actor per reply that names a session's harness
-            Task { @MainActor in
-                guard let self, session == self.sessionId else { return }
-                self.onSessionHarness?(session)
-            }
+    }
+
+    /// Calls `handler` when acpmux reports the agent the pane's session runs (its `session/new` or
+    /// `_acpmux/attach` reply; ``AcpmuxPaneSessions/harness(of:)``), so the App records the harness on
+    /// the tab (cx-w4bbw). Only for the session the pane shows. The reply is read on the socket's
+    /// queue; each report reaches the main actor as one `visible` task on `mainWork` (the tab's mark
+    /// shows it, and the daemon, not the person, caused it).
+    public func followSessionHarness(on mainWork: MainWorkScheduler, _ handler: @escaping @MainActor @Sendable (_ session: String) -> Void) {
+        let owner = mainWork.board.owner("AgentPaneModel.sessionHarness")
+        let report: @MainActor @Sendable (String) -> Void = { [weak self] session in
+            guard let self, session == self.sessionId else { return }
+            handler(session)
+        }
+        transport.sessions.onHarness { session, _ in
+            mainWork.postFromAnyThread(.visible, owner: owner) { report(session) }
         }
     }
 
@@ -303,7 +321,7 @@ public final class AgentPaneModel {
             AgentPaneLaunchTimings.shared.mark("agent_pane.newtab_context")
             // Only a page with no chat yet is a New Tab page; the handshake still sends the same context.
             guard sessionId == nil, let newTab, let data = try? JSONEncoder().encode(newTab),
-                  let object = try? JSONSerialization.jsonObject(with: data) else { return AgentPaneReply.success() }
+                  let object = try? JSONSerialization.blockingJSONObject(with: data) else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["newTab": object])
         // Another machine's chats are not this Mac's: only a local page's list warms the next page.
         case .newTabWarm(let warm): if !remoteChat { AgentPaneNewTab.warmed = warm }; return AgentPaneReply.success()
@@ -312,7 +330,7 @@ public final class AgentPaneModel {
         case .editNewTab(let edit): guard let onEditNewTab else { return Self.unsupported(edit.method) }; onEditNewTab(edit); return AgentPaneReply.success()
         case .nowPlaying(let command): return AgentPaneNowPlaying.shared.perform(command) ? AgentPaneReply.success() : Self.unsupported("nowPlaying.command")
         case .runAction(let id): return runAction(id)
-        case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
+        case .jump(let target, let id, let inputAt): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id, inputAt.flatMap { AgentPaneRequest.uptime(ofPageInputAt: $0) }); return AgentPaneReply.success()
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
         case .chooseFolder: return await chooseFolder()
         case .chooseChatFolder: return await chooseChatFolder()

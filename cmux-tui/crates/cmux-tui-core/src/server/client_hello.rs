@@ -23,6 +23,16 @@
 //! and a refused proof is `client_hello.refused` (no retry). Either prover sets the
 //! connection's `verified_app`; neither changes its `peer_key`.
 //!
+//! Features (p12-perf-process-150): the daemon outlives the app, so a role
+//! `main` hello may carry the app's daemon features, `features: {hash,
+//! values: {name: bool}}` (its `daemon` and `both` features). The reply's
+//! `features: {hash, applied, pending}` says what the daemon did
+//! (`cmux_features::Live::reconcile`): a verified app's off for a
+//! `process=daemon` kill switch applies at once, every other difference is
+//! pending and the daemon keeps its own value for the session. A challenged
+//! step 1 reports with no kill; its step 2, once proved, reports again with
+//! the kills. Nothing here reads a file or the network.
+//!
 //! A page relay connection carries only `cmux.protocol/2` requests (pages
 //! speak nothing else through the relay). Every other line on it is refused
 //! with `origin.forbidden {required: "agent", derived: "page"}` (default
@@ -33,6 +43,7 @@
 //! `subscribe` (the host does, in its relay handshake).
 
 use crate::panic_free::JsonFields;
+use cmux_features::Live;
 use cmux_link::app_caller::PeerToken;
 use cmux_local_auth::frontend_proof::{self, NONCE_LEN};
 use zeroize::Zeroizing;
@@ -41,6 +52,81 @@ use super::*;
 use crate::request_origin::{HelloRole, RequestOrigin, page_router_table, valid_install_id};
 
 const CLIENT_HELLO: &str = "client-hello";
+/// Most feature values one hello may carry (the registry has far fewer).
+const MAX_HELLO_FEATURES: usize = 512;
+/// Longest feature name or hash a hello may carry.
+const MAX_FEATURE_TEXT: usize = 128;
+
+/// Installs the daemon's features, resolved once at start, that hellos
+/// reconcile against. False when they were installed already.
+pub fn install_daemon_features(mux: &Mux, features: Live) -> bool {
+    mux.control_clients.features.set(features).is_ok()
+}
+
+/// The daemon's features with the kill switches hellos turned off; None
+/// before [`install_daemon_features`].
+pub fn daemon_features(mux: &Mux) -> Option<&Live> {
+    mux.control_clients.features.get()
+}
+
+/// The app's daemon features from a role-main hello.
+struct HelloFeatures {
+    hash: Option<String>,
+    values: Vec<(String, bool)>,
+}
+
+impl HelloFeatures {
+    /// `features: {hash?, values: {name: bool}}`; None when absent or null.
+    fn parse(value: Option<&Value>) -> Result<Option<Self>, ()> {
+        let object = match value {
+            None | Some(Value::Null) => return Ok(None),
+            Some(Value::Object(object)) => object,
+            Some(_) => return Err(()),
+        };
+        if object.keys().any(|key| key != "hash" && key != "values") {
+            return Err(());
+        }
+        let hash = match object.get("hash") {
+            None => None,
+            Some(Value::String(hash)) if hash.len() <= MAX_FEATURE_TEXT => Some(hash.clone()),
+            Some(_) => return Err(()),
+        };
+        let Some(Value::Object(values)) = object.get("values") else { return Err(()) };
+        if values.len() > MAX_HELLO_FEATURES {
+            return Err(());
+        }
+        let values = values
+            .iter()
+            .map(|(name, enabled)| match enabled {
+                Value::Bool(enabled) if name.len() <= MAX_FEATURE_TEXT => {
+                    Ok((name.clone(), *enabled))
+                }
+                _ => Err(()),
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(Some(Self { hash, values }))
+    }
+
+    /// The reply's `features`, after reconciling with the daemon's (kills
+    /// only for a `verified` app); None before the daemon installed its own.
+    fn reconcile(&self, mux: &Mux, verified: bool) -> Option<Value> {
+        daemon_features(mux).map(|live| self.report(live, verified))
+    }
+
+    /// The reply's `features` from `live` alone. The hello's values and the
+    /// daemon's in-memory features are all this step gets, so it can read
+    /// no file, no flags document and no network.
+    fn report(&self, live: &Live, verified: bool) -> Value {
+        let values = self.values.iter().map(|(name, enabled)| (name.as_str(), *enabled));
+        let reconciled = live.reconcile(self.hash.as_deref(), values, verified);
+        let pending: Vec<Value> = reconciled
+            .pending
+            .iter()
+            .map(|item| json!({"name": item.name, "app": item.app, "daemon": item.daemon}))
+            .collect();
+        json!({"hash": reconciled.hash, "applied": reconciled.applied, "pending": pending})
+    }
+}
 
 enum Window {
     /// Step 1 may come; `identified` once the one allowed `identify` came.
@@ -51,6 +137,8 @@ enum Window {
     Challenged {
         install_id: String,
         nonce: Zeroizing<[u8; NONCE_LEN]>,
+        /// Reconciled again, with kills, once step 2 proves the app.
+        features: Option<HelloFeatures>,
     },
     Closed,
 }
@@ -143,6 +231,12 @@ impl HelloGate {
         self.window = Window::Closed;
     }
 
+    /// Whether the window has closed: no later line changes the connection's
+    /// role or proof, so its origin is final.
+    pub(super) fn is_closed(&self) -> bool {
+        matches!(self.window, Window::Closed)
+    }
+
     /// Sees every line before dispatch. `Some(reply)` answers the line here
     /// (a `client-hello`, or a page relay's legacy line) and nothing else
     /// sees it; `None` dispatches it as usual.
@@ -163,6 +257,7 @@ impl HelloGate {
             return None;
         }
         let window = std::mem::replace(&mut self.window, Window::Closed);
+        crate::diagnostics::note_json_parse();
         let value = match serde_json::from_str::<Value>(line) {
             Ok(value) => value,
             Err(_) if self.page_relay => return Some(page_relay_refusal(None)),
@@ -189,8 +284,8 @@ impl HelloGate {
                     None,
                 )),
                 Window::Open { .. } => self.start(mux, client, &value, peer),
-                Window::Challenged { install_id, nonce } => {
-                    prove(mux, client, &value, &install_id, &nonce)
+                Window::Challenged { install_id, nonce, features } => {
+                    prove(mux, client, &value, &install_id, &nonce, features.as_ref())
                 }
             },
             Some("identify") if matches!(window, Window::Open { identified: false }) => {
@@ -231,6 +326,9 @@ impl HelloGate {
                 "page" => {
                     "client-hello page is for role page_relay: 1-64 characters of a-z 0-9 -, starting with a letter"
                 }
+                "features" => {
+                    "client-hello features is for role main: {hash?: string, values: {name: bool}}, at most 512 values"
+                }
                 _ => "client-hello install_id must be 1-128 characters of A-Z a-z 0-9 _ -",
             };
             ("client_hello.bad_request", message, Some(json!({"field": field})))
@@ -255,6 +353,10 @@ impl HelloGate {
             }
             Some(_) => return Err(bad("page")),
         };
+        let features = HelloFeatures::parse(value.get("features")).map_err(|()| bad("features"))?;
+        if features.is_some() && role != HelloRole::Main {
+            return Err(bad("features"));
+        }
         let peer = peer();
         // Prover A, outside every lock: role main on a signed build.
         let signed =
@@ -274,6 +376,11 @@ impl HelloGate {
             data.insert("page_operations", page_router_table::page_operations(page));
             data.insert("page_events", json!(page_router_table::page_events(page)));
         }
+        // A signed app is verified now; an install-key app only after step 2.
+        if let Some(report) = features.as_ref().and_then(|features| features.reconcile(mux, signed))
+        {
+            data.insert("features", report);
+        }
         // Uniform nonce rule: role main with an install id always gets one,
         // known id or not and signed build or not (no oracle).
         let (HelloRole::Main, Some(install_id)) = (role, install_id.and_then(Value::as_str)) else {
@@ -283,7 +390,9 @@ impl HelloGate {
         // A connection whose nonce could not be made stays unverified.
         if getrandom::fill(nonce.as_mut_slice()).is_ok() {
             data.insert("nonce", Value::String(frontend_proof::hex(nonce.as_slice())));
-            self.window = Window::Challenged { install_id: install_id.to_string(), nonce };
+            let features = features.filter(|_| !signed);
+            self.window =
+                Window::Challenged { install_id: install_id.to_string(), nonce, features };
         }
         Ok(data)
     }
@@ -294,6 +403,7 @@ impl HelloGate {
 /// `cmux.protocol/2` request, which the page's allow list then decides, or
 /// an allowed raw command); anything else is refused here.
 fn scoped_refusal(line: &str, allowed: &[&str]) -> Option<Value> {
+    crate::diagnostics::note_json_parse();
     let Ok(value) = serde_json::from_str::<Value>(line) else {
         return Some(scoped_page_refusal(None));
     };
@@ -356,6 +466,7 @@ fn prove(
     value: &Value,
     install_id: &str,
     nonce: &[u8; NONCE_LEN],
+    features: Option<&HelloFeatures>,
 ) -> Result<Value, Refusal> {
     const REFUSED: Refusal = ("client_hello.refused", "client-hello refused", None);
     let field = |name: &str| value.get(name).and_then(Value::as_str);
@@ -367,12 +478,16 @@ fn prove(
     {
         return Err(REFUSED);
     }
-    Ok(json!({
+    let mut data = json!({
         "verified": true,
         "install_id": install_id,
         "connection_id": client.to_string(),
         "user_origin_allowed": user_origin_allowed(mux, client),
-    }))
+    });
+    if let Some(report) = features.and_then(|features| features.reconcile(mux, true)) {
+        data.insert("features", report);
+    }
+    Ok(data)
 }
 
 /// `user_origin_allowed` in both hello replies: whether an origin `user`

@@ -1,6 +1,5 @@
 import Foundation
 import IOSurface
-import ObjectiveC.runtime
 
 /// A booted simulator's built-in display as the IOSurface the simulator
 /// renders into. cmux draws that surface directly (``PhoneScreenView`` sets
@@ -13,9 +12,17 @@ import ObjectiveC.runtime
 /// callbacks, so a hidden tab costs nothing.
 @MainActor
 final class SimulatorScreenSource {
+    /// The display whose callbacks are registered, and its surface getter, resolved once.
+    private struct Registration {
+        let descriptor: NSObject
+        let id: NSUUID
+        let surface: () -> IOSurface?
+    }
+
+    private static let registerName =
+        "registerScreenCallbacksWithUUID:callbackQueue:frameCallback:surfacesChangedCallback:propertiesChangedCallback:"
     private let device: NSObject
-    private var descriptor: NSObject?
-    private var callbackID: NSUUID?
+    private var registration: Registration?
     /// Called on the main thread for every new frame and surface change.
     var onFrame: (@MainActor (IOSurface) -> Void)?
 
@@ -25,7 +32,7 @@ final class SimulatorScreenSource {
 
     /// The built-in display's surface now (nil before ``start()`` publishes one).
     var surface: IOSurface? {
-        descriptor.flatMap { Self.surface(of: $0) }
+        registration?.surface()
     }
 
     /// Registers for frames. Throws when this Xcode has no framebuffer callbacks.
@@ -34,37 +41,41 @@ final class SimulatorScreenSource {
         guard let io = privateObject(device, "io") else { throw unavailable }
         privateVoid(io, "updateIOPorts")
         let ports = (privateObject(io, "ioPorts") as? [NSObject]) ?? (privateObject(io, "deviceIOPorts") as? [NSObject]) ?? []
-        let selector = privateSelector("registerScreenCallbacksWithUUID:callbackQueue:frameCallback:surfacesChangedCallback:propertiesChangedCallback:")
+        let selector = privateSelector(Self.registerName)
         let candidates = ports.compactMap { privateObject($0, "descriptor") }.filter { $0.responds(to: selector) }
         guard !candidates.isEmpty else { throw unavailable }
         // Surfaces appear only once callbacks are registered, so register on
         // every display descriptor, then keep the built-in one.
-        var registered: [(NSObject, NSUUID)] = []
+        var registered: [Registration] = []
         for candidate in candidates {
             let id = NSUUID()
-            guard register(candidate, id: id, selector: selector) else { continue }
-            registered.append((candidate, id))
+            guard register(candidate, id: id) else { continue }
+            registered.append(Registration(descriptor: candidate, id: id, surface: Self.surfaceReader(candidate)))
         }
-        let builtIn = registered.first { Self.isBuiltIn($0.0) && Self.surface(of: $0.0) != nil }
-            ?? registered.first { Self.surface(of: $0.0) != nil }
-        for (other, id) in registered where other !== builtIn?.0 { Self.unregister(other, id) }
+        let builtIn = registered.first { Self.isBuiltIn($0.descriptor) && $0.surface() != nil }
+            ?? registered.first { $0.surface() != nil }
+        for other in registered where other.descriptor !== builtIn?.descriptor { Self.unregister(other.descriptor, other.id) }
         guard let builtIn else { throw unavailable }
-        descriptor = builtIn.0
-        callbackID = builtIn.1
+        registration = builtIn
         if let surface { onFrame?(surface) }
     }
 
     /// Unregisters the callbacks: no frame work happens until ``start()``.
     func stop() {
-        if let descriptor, let callbackID { Self.unregister(descriptor, callbackID) }
-        descriptor = nil
-        callbackID = nil
+        if let registration { Self.unregister(registration.descriptor, registration.id) }
+        registration = nil
     }
 
     private var unavailable: PhoneError { .unsupported(mode: .simulator, what: "a live screen with this Xcode") }
 
-    private func register(_ descriptor: NSObject, id: NSUUID, selector: Selector) -> Bool {
-        guard let imp = class_getMethodImplementation(type(of: descriptor), selector) else { return false }
+    private typealias Register = @convention(c) (AnyObject, Selector, AnyObject, AnyObject, AnyObject, AnyObject, AnyObject) -> Void
+
+    private func register(_ descriptor: NSObject, id: NSUUID) -> Bool {
+        // The UUID, the callback queue and the three callback blocks.
+        guard let method = PrivateMethod(descriptor, Self.registerName),
+              let register = method.function(Register.self, returns: .void, arguments: Array(repeating: .object, count: 5)) else {
+            return false
+        }
         // SimulatorKit calls these on the queue we pass: main.
         let frame: @convention(block) () -> Void = { [weak self] in
             // main-proof: registered with callbackQueue DispatchQueue.main, so SimulatorKit runs it on main.
@@ -78,9 +89,7 @@ final class SimulatorScreenSource {
             // main-proof: registered with callbackQueue DispatchQueue.main, so SimulatorKit runs it on main.
             MainActor.assumeIsolated { self?.publish() }
         }
-        typealias Function = @convention(c) (AnyObject, Selector, AnyObject, AnyObject, AnyObject, AnyObject, AnyObject) -> Void
-        unsafeBitCast(imp, to: Function.self)(descriptor, selector, id, DispatchQueue.main,
-                                              frame as AnyObject, changed as AnyObject, properties as AnyObject)
+        register(descriptor, method.selector, id, DispatchQueue.main, frame as AnyObject, changed as AnyObject, properties as AnyObject)
         return true
     }
 
@@ -90,13 +99,15 @@ final class SimulatorScreenSource {
     }
 
     private static func unregister(_ descriptor: NSObject, _ id: NSUUID) {
-        let selector = privateSelector("unregisterScreenCallbacksWithUUID:")
-        guard descriptor.responds(to: selector) else { return }
-        _ = descriptor.perform(selector, with: id)
+        privateVoid(descriptor, "unregisterScreenCallbacksWithUUID:", id)
     }
 
-    private static func surface(of descriptor: NSObject) -> IOSurface? {
-        (privateObject(descriptor, "framebufferSurface") ?? privateObject(descriptor, "ioSurface")) as? IOSurface
+    /// The display's framebuffer surface getter (`ioSurface` on older SimulatorKit), resolved once:
+    /// every frame reads it.
+    private static func surfaceReader(_ descriptor: NSObject) -> () -> IOSurface? {
+        let framebuffer = privateGetter(descriptor, "framebufferSurface")
+        let legacy = privateGetter(descriptor, "ioSurface")
+        return { (framebuffer?() ?? legacy?()) as? IOSurface }
     }
 
     /// Current SimulatorKit marks the built-in display `isDefault`; older ones use screen type 0.

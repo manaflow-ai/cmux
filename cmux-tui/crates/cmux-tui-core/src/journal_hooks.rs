@@ -1,4 +1,5 @@
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 use std::collections::{BTreeMap, HashMap, HashSet};
 #[cfg(all(test, target_os = "linux"))]
 use std::io::Read;
@@ -7,21 +8,15 @@ use std::io::Write;
 use std::mem::size_of;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
-#[cfg(all(test, target_os = "linux"))]
-use std::os::unix::process::CommandExt;
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
-#[cfg(any(not(unix), all(test, target_os = "linux")))]
-use std::process::Command;
-use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak, mpsc};
 use std::time::{Duration, Instant};
 
+#[cfg(any(not(unix), all(test, target_os = "linux")))]
+use cmux_process::Command;
+use cmux_process::Stdio;
 use regex::bytes::{Regex, RegexBuilder};
 use serde_json::json;
-#[cfg(windows)]
-use wait_timeout::ChildExt;
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 #[cfg(windows)]
@@ -127,7 +122,9 @@ struct WindowsHookJob {
 
 #[cfg(windows)]
 impl WindowsHookJob {
-    fn assign(child: &std::process::Child) -> std::io::Result<Self> {
+    fn assign(child: &cmux_process::Child) -> std::io::Result<Self> {
+        // SAFETY: null security attributes and a null name are documented as
+        // allowed; the returned handle is checked before use.
         let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if handle.is_null() {
             return Err(std::io::Error::last_os_error());
@@ -137,6 +134,8 @@ impl WindowsHookJob {
         information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
         let information_size = u32::try_from(size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
             .expect("Windows job information fits in u32");
+        // SAFETY: the job handle is live (owned by `job`); the pointer and size
+        // describe the `information` value, which outlives the call.
         if unsafe {
             SetInformationJobObject(
                 job.handle,
@@ -149,12 +148,16 @@ impl WindowsHookJob {
             return Err(std::io::Error::last_os_error());
         }
 
+        // SAFETY: OpenProcess takes plain values; the handle is checked and closed below.
         let process = unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, child.id()) };
         if process.is_null() {
             return Err(std::io::Error::last_os_error());
         }
+        // SAFETY: both handles are live: the job is owned by `job`, the process
+        // handle was just opened and is closed only after this call.
         let assigned = unsafe { AssignProcessToJobObject(job.handle, process) };
         let assign_error = (assigned == 0).then(std::io::Error::last_os_error);
+        // SAFETY: `process` is the handle opened above and is not used after this.
         unsafe {
             CloseHandle(process);
         }
@@ -165,12 +168,13 @@ impl WindowsHookJob {
     }
 
     fn terminate_descendants(&self) {
+        // SAFETY: the job handle is owned by `self` and stays open until drop.
         unsafe {
             TerminateJobObject(self.handle, 1);
         }
     }
 
-    fn terminate_and_wait(&self, child: &mut std::process::Child) {
+    fn terminate_and_wait(&self, child: &mut cmux_process::Child) {
         self.terminate_descendants();
         let _ = child.kill();
         let _ = child.wait();
@@ -178,7 +182,9 @@ impl WindowsHookJob {
 }
 
 #[cfg(windows)]
-fn resume_suspended_hook_child(child: &std::process::Child) -> std::io::Result<()> {
+fn resume_suspended_hook_child(child: &cmux_process::Child) -> std::io::Result<()> {
+    // SAFETY: CreateToolhelp32Snapshot takes plain values; the handle is
+    // checked and closed below.
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
     if snapshot == INVALID_HANDLE_VALUE {
         return Err(std::io::Error::last_os_error());
@@ -189,23 +195,29 @@ fn resume_suspended_hook_child(child: &std::process::Child) -> std::io::Result<(
                 .expect("Windows thread entry size fits in u32"),
             ..THREADENTRY32::default()
         };
+        // SAFETY: `snapshot` is live; the entry is exclusively borrowed and its
+        // `dwSize` is set as Thread32First requires.
         if unsafe { Thread32First(snapshot, &mut thread_entry) } == 0 {
             return Err(std::io::Error::last_os_error());
         }
         loop {
             if thread_entry.th32OwnerProcessID == child.id() {
+                // SAFETY: OpenThread takes plain values; the handle is checked and closed below.
                 let thread =
                     unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, thread_entry.th32ThreadID) };
                 if thread.is_null() {
                     return Err(std::io::Error::last_os_error());
                 }
+                // SAFETY: `thread` is the live handle just opened.
                 let resume_result = unsafe { ResumeThread(thread) };
                 let resume_error = (resume_result == u32::MAX).then(std::io::Error::last_os_error);
+                // SAFETY: `thread` is the handle opened above and is not used after this.
                 unsafe {
                     CloseHandle(thread);
                 }
                 return resume_error.map_or(Ok(()), Err);
             }
+            // SAFETY: as Thread32First: `snapshot` is live and the entry exclusively borrowed.
             if unsafe { Thread32Next(snapshot, &mut thread_entry) } == 0 {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
@@ -214,6 +226,7 @@ fn resume_suspended_hook_child(child: &std::process::Child) -> std::io::Result<(
             }
         }
     })();
+    // SAFETY: `snapshot` was opened above and the closure that used it has returned.
     unsafe {
         CloseHandle(snapshot);
     }
@@ -223,6 +236,7 @@ fn resume_suspended_hook_child(child: &std::process::Child) -> std::io::Result<(
 #[cfg(windows)]
 impl Drop for WindowsHookJob {
     fn drop(&mut self) {
+        // SAFETY: `self` owns the job handle; drop runs once and nothing uses it after.
         unsafe {
             CloseHandle(self.handle);
         }
@@ -306,12 +320,15 @@ pub(crate) fn start(mux: &Arc<Mux>) -> anyhow::Result<()> {
     }
     let weak = Arc::downgrade(mux);
     let thread_runtime = runtime.clone();
-    let spawned =
-        std::thread::Builder::new().name("mux-session-journal-hooks".into()).spawn(move || {
+    let spawned = cmux_threads::spawn(
+        "mux-session-journal-hooks",
+        cmux_threads::ThreadQos::Utility,
+        move || {
             let _runtime_guard = JournalHookRuntimeGuard(thread_runtime.clone());
             let mut claim = DispatcherClaim::new(weak.clone());
             run_dispatcher(weak, &mut claim, thread_runtime);
-        });
+        },
+    );
     if let Err(error) = spawned {
         runtime.finish();
         mux.release_journal_hook_dispatcher();
@@ -372,9 +389,13 @@ fn start_delivery_workers(
         let completions = completion_tx.clone();
         let journal = journal.clone();
         let runtime = runtime.clone();
-        let spawned = std::thread::Builder::new()
-            .name(format!("journal-hook-worker-{index}"))
-            .spawn(move || run_delivery_worker(&jobs, &completions, &journal, &runtime));
+        let spawned = cmux_threads::spawn(
+            format!("journal-hook-worker-{index}"),
+            cmux_threads::ThreadQos::Utility,
+            move || {
+                run_delivery_worker(&jobs, &completions, &journal, &runtime);
+            },
+        );
         match spawned {
             Ok(handle) => {
                 capacity += 1;
@@ -395,7 +416,7 @@ fn run_delivery_worker(
     runtime: &JournalHookRuntime,
 ) {
     loop {
-        let job = match jobs.lock().recover_poison().recv() {
+        let job = match waits::recv(&jobs.lock().recover_poison()) {
             Ok(job) => job,
             Err(_) => return,
         };
@@ -598,7 +619,7 @@ impl DeliveryWorkers {
         let sender = std::mem::replace(&mut self.sender, closed);
         drop(sender);
         for handle in self.handles.drain(..) {
-            if handle.join().is_err() {
+            if waits::join(handle).is_err() {
                 eprintln!("cmux-tui: journal hook worker panicked during shutdown");
             }
         }
@@ -929,14 +950,18 @@ fn execute_delivery_with_shutdown(
         )
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(Stdio::null())
+        .qos_ceiling(cmux_threads::HELPER_CHILD);
     #[cfg(windows)]
     command.creation_flags(CREATE_SUSPENDED);
     if let Some(session_id) = session_id {
         command.env("CMUX_JOURNAL_SESSION_ID", session_id);
     }
     #[cfg(unix)]
-    tree.configure(&mut command);
+    if let Err(error) = tree.configure(&mut command) {
+        return (None, Some(format!("prepare hook process scope: {error}")));
+    }
+    crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => return (None, Some(format!("start hook executable: {error}"))),
@@ -1025,11 +1050,15 @@ fn execute_hook_child_unix(
     child_exit: &UnixChildExitSignal,
 ) -> Result<(), (Option<i32>, Option<String>)> {
     let fd = stdin.as_raw_fd();
+    // SAFETY: `fd` is owned by `stdin`, which is alive for this whole function;
+    // F_GETFL reads the descriptor's flags and touches no memory.
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
     if flags < 0 {
         let error = std::io::Error::last_os_error();
         return Err((None, Some(format!("configure hook stdin: {error}"))));
     }
+    // SAFETY: `fd` is still owned by the live `stdin`; F_SETFL only sets the
+    // status flags just read, plus O_NONBLOCK.
     if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
         let error = std::io::Error::last_os_error();
         return Err((None, Some(format!("configure hook stdin: {error}"))));
@@ -1115,6 +1144,8 @@ fn wait_hook_stdin_writable(
         }
         let mut descriptor = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
         let poll_ms = remaining.min(Duration::from_millis(50)).as_millis().max(1) as libc::c_int;
+        // SAFETY: `descriptor` is one valid, exclusively borrowed pollfd and the
+        // count is 1, so poll writes only its `revents`.
         let result = unsafe { libc::poll(&mut descriptor, 1, poll_ms) };
         if result > 0 {
             return Ok(());
@@ -1131,7 +1162,7 @@ fn wait_hook_stdin_writable(
 
 #[cfg(windows)]
 fn execute_hook_child_portable(
-    child: &mut std::process::Child,
+    child: &mut cmux_process::Child,
     mut stdin: std::process::ChildStdin,
     input: &[u8],
     process_group: u32,
@@ -1142,34 +1173,38 @@ fn execute_hook_child_portable(
     let deadline = Instant::now() + timeout;
     let input = input.to_vec();
     let (write_result_sender, write_result_receiver) = mpsc::sync_channel(1);
-    let writer =
-        match std::thread::Builder::new().name("journal-hook-stdin".into()).spawn(move || {
+    let writer = match cmux_threads::spawn(
+        "journal-hook-stdin",
+        cmux_threads::ThreadQos::Utility,
+        move || {
             let result = stdin.write_all(&input);
             drop(stdin);
             let _ = write_result_sender.send(result);
-        }) {
-            Ok(writer) => writer,
-            Err(error) => {
-                job.terminate_and_wait(child);
-                return (None, Some(format!("start hook stdin writer: {error}")));
-            }
-        };
+        },
+    ) {
+        Ok(writer) => writer,
+        Err(error) => {
+            job.terminate_and_wait(child);
+            return (None, Some(format!("start hook stdin writer: {error}")));
+        }
+    };
 
     loop {
         if cancelled.load(Ordering::Acquire) {
             job.terminate_and_wait(child);
-            let _ = writer.join();
+            let _ = waits::join(writer);
             return hook_shutdown_result();
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             job.terminate_and_wait(child);
-            let _ = writer.join();
+            let _ = waits::join(writer);
             return (None, Some(format!("hook timed out after {} ms", timeout.as_millis())));
         }
-        match write_result_receiver.recv_timeout(remaining.min(Duration::from_millis(10))) {
+        match waits::recv_timeout(&write_result_receiver, remaining.min(Duration::from_millis(10)))
+        {
             Ok(Ok(())) => {
-                let _ = writer.join();
+                let _ = waits::join(writer);
                 return wait_for_hook_exit_windows(
                     child,
                     process_group,
@@ -1180,25 +1215,25 @@ fn execute_hook_child_portable(
                 );
             }
             Ok(Err(error)) => {
-                let _ = writer.join();
+                let _ = waits::join(writer);
                 job.terminate_and_wait(child);
                 return (None, Some(format!("write hook event: {error}")));
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 job.terminate_and_wait(child);
-                let _ = writer.join();
+                let _ = waits::join(writer);
                 return (None, Some("hook stdin writer stopped without a result".into()));
             }
             Err(mpsc::RecvTimeoutError::Timeout) => match child.try_wait() {
                 Ok(Some(status)) => {
                     job.terminate_descendants();
-                    let _ = writer.join();
+                    let _ = waits::join(writer);
                     return hook_exit_result(status, process_group);
                 }
                 Ok(None) => {}
                 Err(error) => {
                     job.terminate_and_wait(child);
-                    let _ = writer.join();
+                    let _ = waits::join(writer);
                     return (None, Some(format!("wait for hook executable: {error}")));
                 }
             },
@@ -1208,7 +1243,7 @@ fn execute_hook_child_portable(
 
 #[cfg(windows)]
 fn wait_for_hook_exit_windows(
-    child: &mut std::process::Child,
+    child: &mut cmux_process::Child,
     process_group: u32,
     deadline: Instant,
     timeout: Duration,
@@ -1281,7 +1316,7 @@ fn hook_exit_result(
     (code, error)
 }
 
-fn terminate_hook_child(child: &mut std::process::Child) {
+fn terminate_hook_child(child: &mut cmux_process::Child) {
     let _ = child.kill();
     let _ = child.wait();
 }
@@ -1408,11 +1443,19 @@ mod tests {
                     // A normal daemon closes inherited descriptors before it
                     // creates a new session.
                     for fd in 3..1024 {
+                        // SAFETY: this helper body runs on a libtest test thread. The
+                        // only other thread is libtest's main thread, blocked waiting
+                        // for this test's result; it owns no descriptor at 3 or above
+                        // and neither does any Rust object here. Closing an unused
+                        // number only returns EBADF.
                         unsafe {
                             libc::close(fd);
                         }
                     }
                 }
+                // SAFETY: this helper body runs on a libtest test thread. The
+                // only other thread is libtest's main thread, blocked waiting
+                // for this test's result; it does not read the environment.
                 "clear-environment" => unsafe {
                     // A daemon can replace its environment after exec. The
                     // scope must retain an independent ownership marker.
@@ -1420,10 +1463,15 @@ mod tests {
                 },
                 "close-fds-and-clear-environment" => {
                     for fd in 3..1024 {
+                        // SAFETY: as in "close-fds": libtest's blocked main thread
+                        // and the Rust objects here own no descriptor at 3 or above.
                         unsafe {
                             libc::close(fd);
                         }
                     }
+                    // SAFETY: as in "clear-environment": libtest's main thread is
+                    // blocked waiting for this test's result and does not read the
+                    // environment.
                     unsafe {
                         std::env::remove_var("CMUX_TUI_PROCESS_SCOPE");
                     }
@@ -1431,6 +1479,7 @@ mod tests {
                 "fork-during-cleanup" => {}
                 other => panic!("unexpected detached hook helper mode {other}"),
             }
+            // SAFETY: setsid takes no arguments and touches no memory.
             let session = unsafe { libc::setsid() };
             if mode == "fork-during-cleanup" {
                 assert!(session > 0, "the test-only tracker path could not create a session");
@@ -1491,7 +1540,7 @@ mod tests {
                 .stderr(Stdio::null())
                 .process_group(0);
             let mut tree = UnixProcessScope::prepare().unwrap();
-            tree.configure(&mut command);
+            tree.configure(&mut command).unwrap();
             let mut child = command.spawn().unwrap();
             tree.bind(child.id()).unwrap();
             let mut signal = accepted_receiver

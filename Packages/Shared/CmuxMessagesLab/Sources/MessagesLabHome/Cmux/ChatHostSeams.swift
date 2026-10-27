@@ -4,6 +4,10 @@ import CmuxHomeRender
 /// Where the vendored ChatController sends the user's changes in cmux. The
 /// projection store is a mirror of HomeStore (the single writer), so a send
 /// or a tapback is an intent, never a local transcript edit.
+///
+/// Main actor: the controller asks from its event handlers and menus, and the
+/// one conformer, `HomeProjection`, is the main-actor HomeStore adapter.
+@MainActor
 protocol ChatIntents: AnyObject {
     /// The user opened, drilled or closed a thread view (a permalink waiting for its message stops waiting).
     func threadMovedByUser()
@@ -94,6 +98,15 @@ public protocol ChatWakeScheduler: AnyObject {
     /// Replaces any pending wake-up.
     func schedule(after seconds: Double, _ action: @escaping @MainActor @Sendable () -> Void)
     func cancel()
+    /// A new one-shot deadline for a view of the transcript (the scroller's fade-in, widen and hide),
+    /// named `owner` in the host's wakeup ledger. `exact`: it fires at its time, with no leeway (a
+    /// delay measured to the frame); else the host may move it by its leeway to share a wake.
+    /// Default: a ``RunLoopDeadline``.
+    @MainActor func makeDeadline(owner: String, exact: Bool) -> any ViewDeadline
+}
+
+extension ChatWakeScheduler {
+    @MainActor public func makeDeadline(owner: String, exact: Bool) -> any ViewDeadline { RunLoopDeadline(exact: exact) }
 }
 
 extension ChatIntents {

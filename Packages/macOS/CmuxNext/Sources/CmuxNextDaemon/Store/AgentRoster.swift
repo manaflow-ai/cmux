@@ -36,6 +36,7 @@ public struct AgentRoster: Sendable {
         bySurface = Dictionary(list.map { ($0.surface, $0) }, uniquingKeysWith: { $1 })
     }
 
+    // wall-clock: compared with the daemon's updatedAtMs, Unix ms.
     private static var nowMs: UInt64 { UInt64(exactly: (Date().timeIntervalSince1970 * 1000).rounded()) ?? 0 }
 
     private mutating func notePrompt(from old: AgentStatus?, to new: AgentStatus) {

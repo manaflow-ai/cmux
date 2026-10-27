@@ -1,21 +1,33 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextSignposts
 
 /// The parent view of a pane's Chromium window. The fork's
 /// `CmuxParentViewTracker` keeps the page window over this view, clips it to
-/// the visible rect, and punches holes where `cmuxOcclusionRects` says native
-/// UI must show above the page (find bar, prompt bar) or must get the mouse
-/// (the window's dividers and switcher, `BrowserWindowOcclusionProviding`),
-/// and masks it to `cmuxClipPath` (rounded pane and window corners).
+/// the visible rect, punches holes where native UI must show above the page
+/// (find bar, prompt bar) or must get the mouse (the window's dividers and
+/// switcher, `BrowserWindowOcclusionProviding`), and masks it to the rounded
+/// pane and window corners. What it reads lives in `ChildWindowPageFallback`.
+///
+/// With the feature `cefAttachedPages` and the fork's attach call, each tab's Chromium view is a subview of
+/// this view instead (`CEFLayerHosting.attachedPages`, Chrome's model): the page draws, takes clicks and keys
+/// and gets the first responder as any view does, after the window's key routing (`KeyRouter` in
+/// `sendEvent` and the window's `performKeyEquivalent` run before any view's), and the page window never
+/// orders in. Layer hosting and the page window above are the fallback of a tab the fork does not attach.
 final class CEFHostView: NSView {
     /// Rects in this view's coordinates where native UI covers the page.
     var occlusionRects: [CGRect] = [] {
         didSet {
             guard occlusionRects != oldValue else { return }
             postGeometryChange()
+            for case let page as ChromiumHostPageView in subviews { showOcclusion(in: page) }
         }
     }
-    private var windowObserver: (any NSObjectProtocol)?
+
+    /// Host mode: `page`'s cursor leaves out the native UI over the page, as the page window does.
+    func showOcclusion(in page: ChromiumHostPageView) {
+        page.cursorHoles = occlusionRects.map { convert($0, to: page) }
+    }
     /// The shown page's own background (`CEFTab.pageBackdropColor`). While
     /// the window live-resizes, this view fills with it instead of the pane
     /// ground: the page window's gap shows this view until Chromium's frame
@@ -34,18 +46,48 @@ final class CEFHostView: NSView {
     var liveResizeWillStart: (() -> Void)?
     /// Hands files dragged in from another app to the shown page (`CEFFileDragRelay`).
     let fileDrag = CEFFileDragRelay()
-    /// Layer hosting (fork API 26) of the page window over this view (`CEFLayerHosting`).
-    let layerHosting = CEFLayerHosting()
+    /// Layer hosting (fork API 26) of the page window over this view, or its tabs' attached Chromium views
+    /// (`CEFLayerHosting`).
+    let layerHosting: CEFLayerHosting
+    /// Widgets that order an attached page's window in over this view (`CEFPageWindowWidgets`).
+    let pageWindowWidgets = CEFPageWindowWidgets()
+    /// Takes a `cef.geometry` instant per geometry post (tests set one on their own trace runtime).
+    var signposter = Signposter.cef
+    /// Where its window's page update requests arrive (`BrowserPageUpdates`): `.default` in the app,
+    /// a private center in tests.
+    let pageUpdateCenter: NotificationCenter
 
-    override init(frame: NSRect) {
+    /// - Parameters:
+    ///   - pageUpdateCenter: where its window's page update requests arrive.
+    ///   - layerHosting: the page's layer hosting; tests pass one with a fake fork and their own turn.
+    init(frame: NSRect, pageUpdateCenter: NotificationCenter, layerHosting: CEFLayerHosting) {
+        self.pageUpdateCenter = pageUpdateCenter
+        self.layerHosting = layerHosting
         super.init(frame: frame)
         wantsLayer = true
         updateBackground()
         fileDrag.view = self
         layerHosting.view = self
-        #if DEBUG
+        // The page window ordered in or out for a widget: the fork places it over this view now.
+        pageWindowWidgets.changed = { [weak self] in self?.childWindowPage.pagesNeedUpdate(force: true) }
+        #if DEBUG || CMUX_BENCH_HOOKS
         Self.registerMotionSampler()
         #endif
+    }
+
+    /// A host view that takes its window's page update requests on `NotificationCenter.default`.
+    override convenience init(frame: NSRect) {
+        self.init(frame: frame, pageUpdateCenter: .default, layerHosting: CEFLayerHosting())
+    }
+
+    /// A host view with its own page update center (tests) and the app's layer hosting.
+    convenience init(frame: NSRect, pageUpdateCenter: NotificationCenter) {
+        self.init(frame: frame, pageUpdateCenter: pageUpdateCenter, layerHosting: CEFLayerHosting())
+    }
+
+    /// A host view with its own layer hosting (tests) that takes page update requests on `.default`.
+    convenience init(frame: NSRect, layerHosting: CEFLayerHosting) {
+        self.init(frame: frame, pageUpdateCenter: .default, layerHosting: layerHosting)
     }
 
     @available(*, unavailable)
@@ -69,6 +111,13 @@ final class CEFHostView: NSView {
         updateBackground()
     }
 
+    /// The content lifecycle shows and hides the shown page by this flag (`CEFTab.setContentVisible`,
+    /// `CEFPaneHost.present`): a hosted page's layer goes with it in this transaction, and the fork
+    /// hears the page's visibility after the commit (`CEFLayerHosting.visibilityMayHaveChanged`).
+    override var isHidden: Bool {
+        didSet { if isHidden != oldValue { layerHosting.visibilityMayHaveChanged() } }
+    }
+
     /// Until Chromium's page window shows its first frame, the page area
     /// follows the shared pane ground. It stays clear over Liquid Glass so
     /// the window backdrop remains visible. During a live resize it takes
@@ -89,85 +138,16 @@ final class CEFHostView: NSView {
         }
     }
 
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
-        }
-    }
-
-    /// Read by the fork (`-cmuxOcclusionRects`, NSArray of NSValue NSRect)
-    /// on every geometry update, so window rects convert at the current
-    /// position.
-    @objc func cmuxOcclusionRects() -> NSArray {
-        Self.trackerStats.occlusionReads += 1
-        // The fork reads these first on every update of a shown page.
-        readGeometry = CEFHostGeometry(of: self)
-        return allOcclusionRects.map { NSValue(rect: $0) } as NSArray
-    }
-
-    /// Read by the fork (`-cmuxClipPath`) on every geometry update: the
-    /// pane's rounded clip and the window's rounded corners, so no square
-    /// page corner shows past either. Nil when the page is a plain rect.
-    /// The same path object comes back until the shape changes; the fork
-    /// only reads it (it maps a copy to screen coordinates).
-    @objc func cmuxClipPath() -> NSBezierPath? {
-        Self.trackerStats.clipReads += 1
-        layerHosting.trackerDidRead()
-        return clipShape().bezier
-    }
+    /// What the fork's page tracker reads, and the window's page update requests, while the fork has
+    /// a page window over this view (`ChildWindowPageFallback`).
+    private(set) lazy var childWindowPage: ChildWindowPageGeometry = {
+        let geometry = ChildWindowPageGeometry()
+        geometry.view = self
+        return geometry
+    }()
 
     /// The pane's rounded clip, the column strip's clip and the window's corners, in this view.
-    var pageClip: CGPath? { clipShape().path }
-
-    /// The last clip shape and what it was worked out from. The fork reads
-    /// the clip and the occlusion rects on every geometry update, several
-    /// times per display frame while a pane moves, and also on window moves,
-    /// key changes and occlusion changes that move nothing. The path
-    /// operations run only when the bounds, a clip or a cutout changed; the
-    /// walk of the ancestors that finds those still runs on every read.
-    private var clipMemo: ClipMemo?
-
-    private struct ClipMemo {
-        let inputs: CEFClipShape.Inputs
-        let path: CGPath?
-        /// `path` for the fork; nil when the page is a plain rect, and when it
-        /// shows nothing: a page clipped away entirely is hidden by an occlusion
-        /// hole over all of it (`allOcclusionRects`), the fork's documented way
-        /// to keep a page from showing.
-        let bezier: NSBezierPath?
-    }
-
-    private func clipShape() -> ClipMemo {
-        let started = CEFTrackerStats.now()
-        defer { Self.trackerStats.clipSeconds += CEFTrackerStats.now() - started }
-        let inputs = CEFClipShape.Inputs(around: self)
-        if let clipMemo, clipMemo.inputs == inputs {
-            Self.trackerStats.clipHits += 1
-            return clipMemo
-        }
-        Self.trackerStats.clipBuilds += 1
-        let path = inputs.path
-        let bezier = CEFClipShape.showsNothing(path) ? nil : path.map { NSBezierPath(cgPath: $0) }
-        let memo = ClipMemo(inputs: inputs, path: path, bezier: bezier)
-        clipMemo = memo
-        return memo
-    }
-
-    /// The chrome's rects plus the window's interactive overlays over this
-    /// view, in this view's coordinates.
-    var allOcclusionRects: [CGRect] {
-        if CEFClipShape.showsNothing(pageClip), !bounds.isEmpty { return [bounds] }
-        var rects = occlusionRects
-        if let provider = window as? any BrowserWindowOcclusionProviding {
-            for rect in provider.browserOcclusionRectsInWindow {
-                let local = convert(rect, from: nil).intersection(bounds)
-                if !local.isNull, !local.isEmpty { rects.append(local) }
-            }
-        }
-        return Self.outermost(rects)
-    }
+    var pageClip: CGPath? { childWindowPage.clipShape().path }
 
     /// `rects` without those inside another (one of equal rects stays): a
     /// hole inside a hole, such as the error page's in the New Tab page's,
@@ -180,47 +160,32 @@ final class CEFHostView: NSView {
         }.map(\.element)
     }
 
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
-        windowObserver = nil
-        readGeometry = nil
-        // A resize-wait tunable edit made while out of a window applies (CEFResizeSyncDeadline).
-        layerHosting.windowDidChange()
-        guard let window else { return }
-        windowObserver = NotificationCenter.default.addObserver(forName: Notification.Name.browserChildWindowPagesNeedUpdate, object: window, queue: .main) { [weak self] note in
-            let force = note.userInfo?[browserPagesForceUpdateKey] as? Bool ?? false
-            MainActor.assumeIsolated { self?.pagesNeedUpdate(force: force) } // main-proof: observer on queue: .main
-        }
+    /// The shown tab's attached Chromium view takes this view's bounds (`CEFAttachedPages`), as Chrome sizes
+    /// a tab's view to its contents container (`WebContentsViewMac::SetBounds`); the find bar and the other
+    /// subviews stay above it. No fork call: Chromium hears the new size from its own view.
+    override func layout() { // perf-hot: 0.1ms cef-geometry (each layout of a pane's host view)
+        super.layout()
+        layerHosting.attachedPages.layout()
     }
 
-    /// What the fork read on its last update of this page (`cmuxOcclusionRects`);
-    /// nil before its first read and after a window change.
-    private var readGeometry: CEFHostGeometry?
+    override func resizeSubviews(withOldSize oldSize: NSSize) {
+        super.resizeSubviews(withOldSize: oldSize)
+        layerHosting.attachedPages.layout()
+    }
 
-    /// The window asks its pages to re-apply their geometry (the divider lines
-    /// or the sidebar moved, a clip or corner changed, the window moved). The
-    /// fork is told only when what it reads changed since its last read: on a
-    /// motion frame the static pages have nothing to re-place, re-clip or
-    /// re-mask (Lawrence 2026-10-23: splits lag more with Chromium pages).
-    /// `force`: a page window moved by something other than the fork must be
-    /// put back over its host even though the host did not move.
-    func pagesNeedUpdate(force: Bool) {
-        let now = CEFHostGeometry(of: self)
-        guard force || readGeometry != now else {
-            Self.trackerStats.geometrySkips += 1
-            return
-        }
-        postGeometryChange()
-        // The fork updates inside the post; a hidden or not yet created page reads nothing
-        // there, so what it was told is recorded here (a still hidden page has nothing new).
-        readGeometry = now
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // A resize-wait tunable edit made while out of a window applies (CEFResizeSyncDeadline).
+        layerHosting.windowDidChange()
+        childWindowPage.windowDidChange()
     }
 
     /// Tells the tracker about moves AppKit does not report (layer
     /// transforms, manual frame animation in an ancestor).
+    /// Each post is one `cef.geometry` instant.
     func postGeometryChange() { // perf-hot: 0.2ms cef-geometry (each post makes the fork re-place one page window)
         Self.trackerStats.geometryPosts += 1
+        signposter.cefGeometryPost()
         NotificationCenter.default.post(name: CEFHostView.geometryDidChange, object: self)
     }
 
@@ -358,6 +323,6 @@ final class CEFTabContentView: NSView, PaneMotionSettling {
         } else if tab?.deviceEmulation?.fit == nil, let current {
             current.removeFromSuperview()
         }
-        needsLayout = true
+        needsLayout = true // invalidate: a new emulation (`applyEmulation`'s change check) moves the page to its fit
     }
 }

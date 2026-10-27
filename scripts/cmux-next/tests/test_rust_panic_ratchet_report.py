@@ -219,8 +219,16 @@ class ReportTierTest(unittest.TestCase):
         # The lab keys never reach the `clippy -D warnings` CI run.
         self.assertNotIn("await-holding-invalid-types", workspace)
         self.assertNotIn("future-size-threshold", workspace)
-        # CLIPPY_CONF_DIR replaces the workspace file: the lab run keeps every workspace setting.
+        # CLIPPY_CONF_DIR replaces the workspace file: the lab run keeps every workspace setting. The lab's
+        # disallowed-methods is a superset (task 206 adds the blocking calls and may word a reason for its
+        # cmux_blocking wrapper), so for that key every workspace path must be there; the rest repeat as is.
         for key, value in workspace.items():
+            if key == "disallowed-methods":
+                lab_paths = {entry["path"] for entry in lab.get(key, [])}
+                for entry in value:
+                    self.assertIn(entry["path"], lab_paths,
+                                  f"lab/clippy/clippy.toml must keep cmux-tui/clippy.toml's {key} rule {entry['path']}")
+                continue
             self.assertEqual(lab.get(key), value, f"lab/clippy/clippy.toml must repeat cmux-tui/clippy.toml's {key}")
 
 

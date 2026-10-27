@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Watches one file for changes with kernel vnode events (no polling).
@@ -10,19 +11,61 @@ public import Foundation
 /// directories appear. `onChange` runs on a private serial queue; bursts of
 /// events call it several times, so consumers should read the file's latest
 /// state rather than count events.
-public final class ConfigFileWatcher: @unchecked Sendable {
+///
+/// ``start(reportInitialChange:)`` and ``stop()`` never wait for that queue: the
+/// watch's opens and stats run there, never on the caller's thread (the main
+/// thread), as Chrome's `FilePathWatcher` sets up its kqueue on a sequence that may
+/// block (base/files/file_path_watcher_kqueue.cc).
+public final class ConfigFileWatcher: @unchecked Sendable { // crash-allow: the sources and what they watch change only on the serial `queue` (arm, disarm, the event handlers) and in deinit; `run` is a Mutex, the rest is immutable
     public let url: URL
-    private let queue = DispatchQueue(label: "com.cmuxterm.next.settings.watcher")
+    private let queue: DispatchQueue
     private let onChange: @Sendable () -> Void
+    /// Which start is current: set by the caller's start and stop, read on the queue.
+    private let run = Mutex(Run())
     // Queue-confined state.
     private var fileSource: (any DispatchSourceFileSystemObject)?
     private var directorySource: (any DispatchSourceFileSystemObject)?
     private var watchedDirectory: URL?
     private var fileIdentity: (dev: dev_t, ino: ino_t)?
-    private var isStopped = false
+    private var marked = Mark.unset
 
-    public init(url: URL, onChange: @escaping @Sendable () -> Void) {
+    private struct Run {
+        /// Bumped by every start and stop: an arm queued before a later call does nothing.
+        var generation: UInt64 = 0
+        var running = false
+    }
+
+    /// When the arm reports its one change.
+    private enum InitialChange {
+        case always
+        /// When the file or its folder changed at or after this time (a quiet start).
+        case changedSince(timespec)
+        /// When the file's state differs from the ``mark()``.
+        case differsFromMark
+    }
+
+    /// The file at a ``mark()``: nil when it did not exist.
+    private struct FileState: Equatable {
+        let dev: dev_t
+        let ino: ino_t
+        let ctimeSeconds: Int
+        let ctimeNanoseconds: Int
+    }
+
+    private enum Mark {
+        case unset
+        case recorded(FileState?)
+    }
+
+    public convenience init(url: URL, onChange: @escaping @Sendable () -> Void) {
+        self.init(url: url, queue: DispatchQueue(label: "com.cmuxterm.next.settings.watcher", qos: .utility), onChange: onChange)
+    }
+
+    /// A watcher whose arm, events and `onChange` run on `queue`, a serial queue (tests hold it to
+    /// order a save before the arm).
+    init(url: URL, queue: DispatchQueue, onChange: @escaping @Sendable () -> Void) {
         self.url = url
+        self.queue = queue
         self.onChange = onChange
     }
 
@@ -31,40 +74,99 @@ public final class ConfigFileWatcher: @unchecked Sendable {
         directorySource?.cancel()
     }
 
-    /// Arms the watch, then optionally reports one change so the consumer
-    /// reads the file after the watch exists. A consumer that already has a
-    /// current snapshot can disable that initial notification and react only
-    /// to subsequent edits.
+    /// Arms the watch, then reports one change so the consumer reads the file
+    /// after the watch exists.
     public func start() {
         start(reportInitialChange: true)
     }
 
+    /// Arms the watch on the watcher's queue and returns at once. With the initial change on, it is
+    /// reported there after the watch exists, so a consumer that reads the file then loses no save.
+    /// A consumer that already has a current snapshot turns it off and hears only later edits; a
+    /// save made after this call but before the watch exists is one of them: the arm compares the
+    /// file's and its folder's change times with this call's time. A ``stop()`` after it ends the watch.
     public func start(reportInitialChange: Bool = true) {
-        // Arm before returning so a caller that just read a snapshot cannot
-        // lose a save in the gap between that read and the watcher setup.
-        queue.sync { [self] in
-            isStopped = false
-            rearm()
-            if reportInitialChange { onChange() }
-        }
+        begin(reportInitialChange ? .always : .changedSince(Self.wallClock()))
     }
 
-    public func stop() {
-        queue.sync {
-            isStopped = true
-            fileSource?.cancel()
-            fileSource = nil
-            directorySource?.cancel()
-            directorySource = nil
-            watchedDirectory = nil
-            fileIdentity = nil
+    /// Records the file's state on the watcher's queue (its identity and status change time, or
+    /// that it does not exist), for a consumer that read the file now and arms the watch later with
+    /// ``startFromMark()``. Nothing is watched until then.
+    public func mark() {
+        queue.async { [self] in marked = .recorded(Self.state(of: url.resolvingSymlinksInPath().path)) }
+    }
+
+    /// Arms the watch on the watcher's queue and returns at once, for a consumer that called
+    /// ``mark()`` when it read the file and arms later (a launch watch posted after startup). One
+    /// change is reported when the file's state differs from the mark: written, replaced, created or
+    /// deleted. Entries added to or removed from its folder are not changes of the file, so the gap
+    /// between the mark and the arm can be long. Without a mark it reports one change.
+    public func startFromMark() {
+        begin(.differsFromMark)
+    }
+
+    private func begin(_ initial: InitialChange) {
+        let generation = run.withLock { run in
+            run.generation &+= 1
+            run.running = true
+            return run.generation
         }
+        queue.async { [self] in arm(generation, initial) }
+    }
+
+    /// The same as ``start(reportInitialChange:)``, which does not wait either.
+    public func startWithoutWaiting(reportInitialChange: Bool = true) {
+        start(reportInitialChange: reportInitialChange)
+    }
+
+    /// Ends the watch and returns at once; the queue closes the sources. Not a fence: a report
+    /// that already started on the queue may still call `onChange` once after this returns, but no
+    /// later event is reported. Consumers hop to their own actor and drop a late call there.
+    public func stop() {
+        run.withLock { run in
+            run.generation &+= 1
+            run.running = false
+        }
+        queue.async { [self] in disarm() }
     }
 
     // MARK: - Queue-confined
 
+    /// Arms the watch of start `generation` unless a later start or stop came, then reports one
+    /// change as `initial` says.
+    private func arm(_ generation: UInt64, _ initial: InitialChange) {
+        guard run.withLock({ $0.generation == generation }) else { return }
+        rearm()
+        switch initial {
+        case .always:
+            break
+        case .changedSince(let time):
+            if !changed(since: time) { return }
+        case .differsFromMark:
+            defer { marked = .unset }
+            if case .recorded(let state) = marked, state == Self.state(of: url.resolvingSymlinksInPath().path) { return }
+        }
+        report()
+    }
+
+    private func disarm() {
+        guard !run.withLock({ $0.running }) else { return }
+        fileSource?.cancel()
+        fileSource = nil
+        directorySource?.cancel()
+        directorySource = nil
+        watchedDirectory = nil
+        fileIdentity = nil
+    }
+
+    /// Calls `onChange` while a start is current (a ``stop()`` between the check and the call does
+    /// not stop that one call).
+    private func report() {
+        if run.withLock({ $0.running }) { onChange() }
+    }
+
     private func rearm() {
-        guard !isStopped else { return }
+        guard run.withLock({ $0.running }) else { return }
         let target = url.resolvingSymlinksInPath()
         // A deeper directory can appear between choosing one and arming its
         // source (mkdir -p), so re-check until the choice is stable.
@@ -97,7 +199,7 @@ public final class ConfigFileWatcher: @unchecked Sendable {
         let after = fileIdentity
         // A rename over the file or a create/delete changes its identity.
         if before?.dev != after?.dev || before?.ino != after?.ino {
-            onChange()
+            report()
         }
     }
 
@@ -108,7 +210,20 @@ public final class ConfigFileWatcher: @unchecked Sendable {
             fileIdentity = nil
             rearm()
         }
-        onChange()
+        report()
+    }
+
+    /// Whether the file changed (its status change time) or its watched folder gained, lost or
+    /// renamed an entry (its modification time) at or after `time`.
+    private func changed(since time: timespec) -> Bool {
+        let file = url.resolvingSymlinksInPath().path
+        let folder = watchedDirectory?.path
+        return blockingCall(.fsMetadata) {
+            var info = stat()
+            if stat(file, &info) == 0, Self.isAtOrAfter(info.st_ctimespec, time) { return true }
+            guard let folder, stat(folder, &info) == 0 else { return false }
+            return Self.isAtOrAfter(info.st_mtimespec, time)
+        }
     }
 
     private func makeSource(
@@ -136,6 +251,27 @@ public final class ConfigFileWatcher: @unchecked Sendable {
             candidate = parent
         }
         return candidate
+    }
+
+    /// The file system's clock: file change times come from it (`vfs_timestamp`).
+    private static func wallClock() -> timespec {
+        var now = timespec()
+        clock_gettime(CLOCK_REALTIME, &now)
+        return now
+    }
+
+    private static func isAtOrAfter(_ time: timespec, _ reference: timespec) -> Bool {
+        time.tv_sec != reference.tv_sec ? time.tv_sec > reference.tv_sec : time.tv_nsec >= reference.tv_nsec
+    }
+
+    /// The file's identity and status change time (a write, a chmod), or nil when it does not exist.
+    private static func state(of path: String) -> FileState? {
+        blockingCall(.fsMetadata) {
+            var info = stat()
+            guard stat(path, &info) == 0 else { return nil }
+            return FileState(dev: info.st_dev, ino: info.st_ino, ctimeSeconds: Int(info.st_ctimespec.tv_sec),
+                             ctimeNanoseconds: Int(info.st_ctimespec.tv_nsec))
+        }
     }
 
     private static func identity(of path: String) -> (dev: dev_t, ino: ino_t)? {

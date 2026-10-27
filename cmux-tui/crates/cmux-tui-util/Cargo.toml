@@ -15,6 +15,8 @@ workspace = true
 test-support = []
 
 [dependencies]
+cmux-threads.workspace = true
+cmux-trace.workspace = true
 cmux-tui-platform.workspace = true
 getrandom.workspace = true
 libc.workspace = true

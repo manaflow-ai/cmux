@@ -27,7 +27,7 @@ struct AgentPaneMenuLookTests {
                      copied: @escaping (String) -> Void = { _ in }, page: @escaping (String, [String: String]) -> Void = { _, _ in }) -> NSMenu {
         let menu = webKitMenu(webKit)
         AgentPaneContextMenu.rebuild(menu, target: target, selection: selection, devTools: false, scope: ThemeScope.app.fullStrength,
-                                     actions: .init(copy: copied, fork: { _ in }, linkItems: { LinkMenu().linkItems(for: $0) }, page: page))
+                                     actions: .init(copy: copied, fork: { _ in }, linkItems: { LinkMenu(queries: nil).linkItems(for: $0) }, page: page))
         return menu
     }
 

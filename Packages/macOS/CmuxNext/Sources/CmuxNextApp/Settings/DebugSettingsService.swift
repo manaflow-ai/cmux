@@ -8,9 +8,12 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextChiefViews
 import CmuxNextCompat
+import CmuxNextControl
+import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextFeed
 import CmuxNextFloating
+import CmuxNextHibernation
 import CmuxNextHistory
 import CmuxNextHome
 import CmuxNextIcons
@@ -37,14 +40,15 @@ enum TunableCatalog {
             + [AgentPaneTunables.inspector.descriptor]
             + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + FeedTunables.all
             + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + HomeTunables.all + HomeTunables.headerPanels + [SidebarToggleIcon.tunable.descriptor] + BrowserImportTunables.all + NavigationTunables.all + BrowserResizeTunables.all + BrowserPageTunables.all + AccountTunables.all
-            + TitlebarHistoryTunables.all + HibernationTunables.all
+            + TitlebarHistoryTunables.all + HibernationTunables.all + MemoryDiscardToggles.all
             + HangFileTunables.all + HostPressureTunables.all
             + BrowserHostTunables.all
     }
 }
 
 /// Owns Debug Settings (DEV and NIGHTLY builds, `DevTools`): activates the
-/// tunable store at launch with this build's override file, and opens it
+/// tunable store at launch with this build's override file (also in a bench
+/// build that a bench script gives one, ``loadsTunables``), and opens it
 /// (palette "Open Debug Settings", `action.run openDebugSettings`,
 /// `debug.tunables`) as an internal page tab, or as its own window like
 /// Settings (`settings.presentation`). In Release and RC nothing here runs:
@@ -55,10 +59,10 @@ final class DebugSettingsService: InternalPageProvider {
     unowned let services: AppServices
     private var controller: DebugSettingsWindowController?
     private var sharedModel: DebugSettingsModel?
-    /// The React page of the window and of each tab (by key), closed (``PageWebView/close()``)
-    /// with its window or tab. Only that close ends the page's subscriptions: the router's event
-    /// handler holds the ``DebugSettingsPageProvider``, so a page left open keeps following the
-    /// hang files and rebuilding its state for a page nobody shows.
+    /// The React page of the window and of each tab (by key), closed through the host that opened
+    /// it (`services.webUI.close`) with its window or tab. Only that close ends the page's
+    /// subscriptions: the router's event handler holds the ``DebugSettingsPageProvider``, so a page
+    /// left open keeps following the hang files and rebuilding its state for a page nobody shows.
     private var windowPage: PageWebView?
     private var tabPages: [String: PageWebView] = [:]
     /// Where overrides persist (nil before launch or without dev tools).
@@ -77,20 +81,49 @@ final class DebugSettingsService: InternalPageProvider {
         controller?.window ?? services.pages.window(showing: .debugSettings, windows: services.windows.controllers)?.window
     }
 
-    /// Registers the catalog and activates the store (dev tools only).
+    /// Registers the catalog and activates the store (dev tools, or a bench run's override file).
     func start() {
-        guard isAvailable else { return }
+        guard let url = Self.launchFile(launch: services.environment.launch, environment: ProcessInfo.processInfo.environment) else { return }
         let store = TunableStore.shared
         store.register(TunableCatalog.all)
-        let launch = services.environment.launch
-        let url = Self.fileURL(environment: ProcessInfo.processInfo.environment, tag: launch.tag,
-                               bundleID: launch.bundleID, build: launch.build)
         fileURL = url
         store.activate(file: url)
+        // The Sentry scope names the arm features.list reports, the file's toggles and later changes included.
+        let features = FeatureFlagsPage.report(services.features, tunables: store, daemon: services.environment.daemonFeatureHello)
+        services.lifetimeFollowers.append(services.crashReporting.reporter.followFeatures(on: services.mainWork) { CrashFeatureScope(features.fieldState) })
         // CmuxNextCloud does not see tunables; Release keeps CloudAuth's default (automatic).
         services.cloud.auth.signInWindow = { .init(rawValue: AccountTunables.signInWindow.value.rawValue) ?? .automatic }
         // The store loads the file off the main actor, after the first icons draw: the family is read here.
         IconPack.useOverlay(Self.launchIconFamily(url).overlay)
+    }
+
+    /// The override file launch activates the tunable store with (``loadsTunables``), or nil where it stays inert.
+    /// `main` reads the tunables features replace from it before the launch's features resolve.
+    nonisolated static func launchFile(launch: LaunchIdentity, environment: [String: String]) -> URL? {
+        guard loadsTunables(devTools: DevTools.isEnabled, benchBuild: isBenchBuild,
+                            bundleID: launch.bundleID, environment: environment) else { return nil }
+        return fileURL(environment: environment, tag: launch.tag, bundleID: launch.bundleID, build: launch.build)
+    }
+
+    /// Whether launch activates the tunable store: with dev tools, or in a bench build
+    /// (`reload.sh --config bench`) of a development bundle whose bench script names its
+    /// override file (`CMUX_NEXT_DEBUG_TUNABLES_FILE`, as chromium-host-bench.py does). A bench
+    /// run's tunables then apply and `debug.tunables` can change them, while the Debug
+    /// Settings window and the `isDebugOnly` actions stay off (``DevTools``).
+    nonisolated static func loadsTunables(devTools: Bool, benchBuild: Bool, bundleID: String?,
+                                          environment: [String: String]) -> Bool {
+        if devTools { return true }
+        guard benchBuild, let bundle = bundleID, bundle.contains(".debug") || bundle.hasSuffix(".dev") else { return false }
+        return !(environment[fileOverrideKey]?.trimmingCharacters(in: .whitespaces) ?? "").isEmpty
+    }
+
+    /// Whether this compile is a bench build (`-DCMUX_BENCH_HOOKS`).
+    nonisolated static var isBenchBuild: Bool {
+        #if CMUX_BENCH_HOOKS
+        true
+        #else
+        false
+        #endif
     }
 
     /// Debug Settings `icons.family` as the override file holds it at launch (`pack` without one).
@@ -139,7 +172,7 @@ final class DebugSettingsService: InternalPageProvider {
                                                            onFind: page.map { page in { _ = page.send(command: "focusSearch") } })
             controller.onClose = { [weak self] in
                 guard let self else { return }
-                windowPage?.close()
+                if let page = windowPage { services.webUI.close(page) }
                 windowPage = nil
                 self.controller = nil
                 dropModelWhenUnused()
@@ -174,11 +207,12 @@ final class DebugSettingsService: InternalPageProvider {
         let model = sharedModel ?? DebugSettingsModel(store: TunableStore.shared, descriptors: TunableCatalog.all)
         sharedModel = model
         if let page = webPage(model: model) {
-            tabPages.updateValue(page, forKey: key)?.close() // called once per tab; a replaced page is no tab's view
+            // Called once per tab; a replaced page is no tab's view.
+            if let replaced = tabPages.updateValue(page, forKey: key) { services.webUI.close(replaced) }
             DebugSettingsModel.followTheme(window?.themeScope ?? .app)
             return page
         }
-        return model.makePaneView(scope: window?.themeScope ?? .app)
+        return VisibilityGatedHostingView(owner: "DebugSettingsPage", hosting: model.makePaneView(scope: window?.themeScope ?? .app))
     }
 
     /// The React page over `model` when Debug Settings `debugSettings.surface` is `web` (the
@@ -186,16 +220,27 @@ final class DebugSettingsService: InternalPageProvider {
     /// (`DebugSettingsWindowController`), so the page needs no title bar inset.
     private func webPage(model: DebugSettingsModel) -> PageWebView? {
         guard PageTunables.debugSettings.value == .web else { return nil }
-        let provider = DebugSettingsPageProvider(model: model, hangs: services.quit.watchdog?.episodes)
+        let provider = DebugSettingsPageProvider(model: model, hangs: services.quit.watchdog?.episodes, on: services.mainWork)
         let native = AppPageNativeProvider(services: services, page: .debugSettings)
         let routes = [PageRoute(prefix: "cmux.debug.tunables.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
-        guard let page = PageWebView(descriptor: .debugSettings, routes: routes) else { return nil }
+        guard let page = services.webUI.open(PageOpenRequest(descriptor: .debugSettings, routes: routes)) else { return nil }
         native.anchor = { [weak page] in page }
         return page
     }
 
     func tabClosed(_ key: String) {
-        tabPages.removeValue(forKey: key)?.close()
+        if let page = tabPages.removeValue(forKey: key) { services.webUI.close(page) }
         dropModelWhenUnused()
+    }
+
+    // MARK: Discard (`memoryDiscardInternalPages`)
+
+    /// Ten minutes hidden: a tunable is written as it changes, and the search and selection live in
+    /// the shared model, which stays while the tab does, so the next page opens where it was.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// The tab's page went (the tab store closed it); the model stays with the tab.
+    func viewDiscarded(_ key: String) {
+        if let page = tabPages.removeValue(forKey: key) { services.webUI.close(page) }
     }
 }

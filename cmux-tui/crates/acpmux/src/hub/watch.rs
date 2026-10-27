@@ -29,10 +29,6 @@ use serde_json::{Value, json};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
-
-/// How often a watched transcript is checked for new lines.
-const POLL: Duration = Duration::from_millis(400);
 
 /// A transcript bigger than this is read from its newest part only.
 const MAX_BYTES: u64 = 64 << 20;
@@ -91,6 +87,48 @@ pub(super) fn read_lines(file: &Path, offset: u64) -> std::io::Result<(Vec<Strin
     Ok((lines, start + end as u64 + 1))
 }
 
+/// The watcher to keep alive while a transcript is followed, and its wakes.
+type Changes = (notify::RecommendedWatcher, tokio::sync::mpsc::Receiver<()>);
+
+/// A watch on `file`'s folder that sends once per batch of changes to `file`, and the watcher
+/// to keep alive while it is read. None, logged, when the folder cannot be watched (it is gone,
+/// or the system is out of watches): the chat shows what the transcript holds now and follows
+/// it again at the next daemon start.
+fn changes(file: &Path) -> Option<Changes> {
+    use notify::Watcher;
+    let (folder, name) = (file.parent()?.to_owned(), file.file_name()?.to_owned());
+    // One pending wake is enough: each wake reads everything new.
+    let (tx, rx) = tokio::sync::mpsc::channel(1);
+    let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+        if event.is_ok_and(|e| changes_file(&e, &name)) {
+            let _ = tx.try_send(());
+        }
+    })
+    .map_err(
+        |e| tracing::warn!(file = %file.display(), "a watched transcript cannot be followed: {e}"),
+    )
+    .ok()?;
+    if let Err(e) = watcher.watch(&folder, notify::RecursiveMode::NonRecursive) {
+        tracing::warn!(file = %file.display(), "a watched transcript cannot be followed: {e}");
+        return None;
+    }
+    Some((watcher, rx))
+}
+
+/// Whether folder event `event` may have changed the file named `name`. An open, a read or a
+/// close after reading is no change: Linux inotify reports them (`notify` watches `IN_OPEN`),
+/// and the watch's own read would wake the next one. Chromium's FilePathWatcher watches only
+/// changes (`base/files/file_path_watcher_inotify.cc`: no `IN_OPEN`, `IN_ACCESS`).
+fn changes_file(event: &notify::Event, name: &std::ffi::OsStr) -> bool {
+    use notify::event::{AccessKind, AccessMode, EventKind};
+    let change = match event.kind {
+        EventKind::Access(AccessKind::Close(AccessMode::Write)) => true,
+        EventKind::Access(_) => false,
+        _ => true,
+    };
+    change && event.paths.iter().any(|p| p.file_name() == Some(name))
+}
+
 impl Hub {
     /// Makes a just-created adopted `session` watch `file` instead of running the conversation.
     pub(super) fn begin_watch(
@@ -111,11 +149,25 @@ impl Hub {
     /// Starts showing `session`'s watched transcript and following it (a new watch, or one a
     /// daemon restart found in the store).
     pub(super) fn start_watch(self: &Arc<Self>, session: &Arc<Session>) {
-        if session.meta().watching.is_none() {
-            return;
-        }
+        self.follow_watch(session, changes);
+    }
+
+    /// [`Hub::start_watch`] with the folder watch `watch` makes (`changes`; a test's fails).
+    /// The transcript is read once whether or not the watch was made.
+    fn follow_watch(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        watch: impl FnOnce(&Path) -> Option<Changes> + Send + 'static,
+    ) -> Option<tokio::task::JoinHandle<()>> {
+        session.meta().watching.as_ref()?;
         let (hub, session) = (self.clone(), session.clone());
-        tokio::spawn(async move {
+        Some(tokio::spawn(async move {
+            // The transcript's folder, watched for a change to the file (the file itself may be
+            // replaced or appear later): each change reads what the app appended. No change, no
+            // wake (D6); it replaced a 400 ms poll of every watched chat. It is made before the
+            // first read, so a change after that read wakes the next.
+            let Some(watching) = session.meta().watching else { return };
+            let mut changes = watch(&watching.file);
             loop {
                 let Some(watching) = session.meta().watching else { return };
                 if session.status() == SessionStatus::Closed {
@@ -133,11 +185,18 @@ impl Hub {
                 if offset != watching.offset {
                     hub.show_watched(&session, &lines, offset);
                 }
-                if !more {
-                    tokio::time::sleep(POLL).await;
+                if more {
+                    continue;
+                }
+                // No watch: what the transcript holds now is shown, and nothing follows it.
+                let Some((_watcher, changed)) = changes.as_mut() else { return };
+                tokio::select! {
+                    change = changed.recv() => if change.is_none() { return },
+                    // A take-over, a close or a purge: the loop's checks above end it.
+                    () = session.watch_end.notified() => {}
                 }
             }
-        });
+        }))
     }
 
     /// Appends what `lines` add as history and moves the read position to `offset`, unless the
@@ -277,6 +336,7 @@ impl Hub {
             }
             open
         };
+        session.watch_end.notify_one();
         // The other app's open turn is settled here: this chat's own turns follow.
         if let Some(turn) = open {
             self.end_watched_turn(session, &turn, None);
@@ -301,6 +361,37 @@ mod tests {
     use super::*;
     use std::io::Write;
 
+    /// The watch's own read opens the transcript, and Linux inotify reports that open
+    /// (`notify` watches `IN_OPEN`): an open or a read is no change, or each read wakes the
+    /// next one and an idle watch spins. A write, a new file, a rename or a delete is one.
+    #[test]
+    fn opening_or_reading_the_transcript_is_no_change() {
+        use notify::event::{
+            AccessKind, AccessMode, CreateKind, DataChange, EventKind, ModifyKind, RemoveKind,
+        };
+        let file = Path::new("/projects/-w/chat.jsonl");
+        let event = |kind| notify::Event::new(kind).add_path(file.to_owned());
+        let name = file.file_name().unwrap();
+        for kind in [
+            EventKind::Access(AccessKind::Open(AccessMode::Any)),
+            EventKind::Access(AccessKind::Read),
+            EventKind::Access(AccessKind::Close(AccessMode::Read)),
+        ] {
+            assert!(!changes_file(&event(kind), name), "{kind:?} woke the watch");
+        }
+        for kind in [
+            EventKind::Modify(ModifyKind::Data(DataChange::Any)),
+            EventKind::Access(AccessKind::Close(AccessMode::Write)),
+            EventKind::Create(CreateKind::File),
+            EventKind::Remove(RemoveKind::File),
+        ] {
+            assert!(changes_file(&event(kind), name), "{kind:?} did not wake the watch");
+        }
+        let other = notify::Event::new(EventKind::Create(CreateKind::File))
+            .add_path(std::path::PathBuf::from("/projects/-w/other.jsonl"));
+        assert!(!changes_file(&other, name), "another file's change woke the watch");
+    }
+
     #[test]
     fn only_complete_lines_are_read_and_the_offset_follows_them() {
         let dir = std::env::temp_dir().join(format!("acpmux-watch-lines-{}", std::process::id()));
@@ -323,6 +414,58 @@ mod tests {
         assert!(lines.is_empty());
         std::fs::OpenOptions::new().append(true).open(&file).unwrap().write_all(b"{}\n").unwrap();
         assert_eq!(read_lines(&file, offset).unwrap().0, ["{}"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A watcher can fail to start (Linux allows 128 inotify instances per user by default, one
+    /// per watched chat): the chat still shows what its transcript holds.
+    #[tokio::test]
+    async fn a_watch_whose_folder_watcher_fails_still_shows_the_transcript() {
+        let dir = std::env::temp_dir().join(format!(
+            "acpmux-watch-nowatcher-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("rollout.jsonl");
+        let event = |kind: &str, message: &str| json!({"timestamp": "2026-10-18T09:00:00.000Z", "type": "event_msg", "payload": {"type": kind, "message": message}});
+        let records = [
+            json!({"type": "session_meta", "payload": {"id": "a", "cwd": "/"}}),
+            event("user_message", "first prompt"),
+            event("agent_message", "first answer"),
+            json!({"type": "event_msg", "payload": {"type": "task_complete"}}),
+        ];
+        let text: String = records.iter().map(|r| format!("{r}\n")).collect();
+        std::fs::write(&file, text).unwrap();
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let mut meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "s-watch", "name": "watch",
+            "harness": "codex", "cwd": "/", "status": "idle", "createdAt": 0, "updatedAt": 0,
+        }))
+        .unwrap();
+        meta.watching = Some(Watching {
+            family: "codex".into(),
+            file: file.clone(),
+            offset: 0,
+            codex_items: false,
+            open: None,
+        });
+        let session = hub.make_session(meta);
+        let follow = hub.follow_watch(&session, |_| None).expect("a watched session is followed");
+        follow.await.unwrap();
+        let prompts: Vec<String> = hub
+            .events(&session.id, 0, 100)
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.kind == "user_message")
+            .filter_map(|e| e.msg["text"].as_str().map(str::to_owned))
+            .collect();
+        assert_eq!(prompts, ["first prompt"]);
+        let len = std::fs::metadata(&file).unwrap().len();
+        assert_eq!(session.meta().watching.map(|w| w.offset), Some(len));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

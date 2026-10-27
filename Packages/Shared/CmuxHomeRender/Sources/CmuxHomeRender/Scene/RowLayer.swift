@@ -93,11 +93,18 @@ final class RowLayer {
         content.addSublayer(typingContainer)
     }
 
-    /// Back to the pool: no animations, no row.
+    /// Back to the pool: no animations, no row and no image, so a pooled row
+    /// holds no bitmap or picture the caches have let go. The next
+    /// `configure` asks the caches again.
     func prepareForReuse() {
         clearAnimations()
         applied = []
         key = ""
+        spec = nil
+        mediaHash = nil
+        bitmap.contents = nil
+        receiptOld.contents = nil
+        mediaImage.contents = nil
         setPlayer(nil)
     }
 

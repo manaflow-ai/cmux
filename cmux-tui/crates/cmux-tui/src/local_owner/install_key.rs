@@ -2,10 +2,10 @@
 //! spawns (P8 3b-2; Windows cx-jdb.8): never in argv or the environment,
 //! only on a pipe the owner alone holds, read once and kept in memory only.
 
+#[cfg(unix)]
+use cmux_process::Command;
 #[cfg(any(unix, windows))]
 use std::io::{self, Write};
-#[cfg(unix)]
-use std::process::Command;
 
 /// Private startup option (P8 3b-2): the app's install key arrives on this
 /// inherited pipe (`cmuxik1 <install_id> <hex key>`), never in argv or the
@@ -117,31 +117,27 @@ fn launcher_key(_fd: Option<i32>) -> Option<cmux_tui_core::server::FrontendKey> 
     None
 }
 
+/// The descriptor number the owner gets the install key pipe's read end at
+/// (the readiness pipe is 3).
+#[cfg(unix)]
+const OWNER_INSTALL_KEY_FD: std::os::fd::RawFd = 4;
+
 /// The install key pipe: the whole payload is written now (it fits the
 /// pipe buffer) and the write end closes, so the owner reads to end of
-/// file. Only the owner gets the read end (`pre_exec` clears close-on-exec
-/// on its copy); the returned reader closes in this process after spawn.
+/// file. Only the owner gets the read end, as `OWNER_INSTALL_KEY_FD`
+/// (`Command::inherit_fd`); the returned reader closes in this process
+/// after spawn.
 #[cfg(unix)]
 pub(super) fn install_key_pipe(
     command: &mut Command,
     key: &cmux_tui_core::server::FrontendKey,
 ) -> io::Result<io::PipeReader> {
-    use std::os::fd::AsRawFd;
-    use std::os::unix::process::CommandExt;
+    use std::os::fd::AsFd;
     let (reader, mut writer) = io::pipe()?;
     writer.write_all(key.to_payload().as_bytes())?;
     drop(writer);
-    let read_fd = reader.as_raw_fd();
-    command.arg(OWNER_INSTALL_KEY_FD_ARG).arg(read_fd.to_string());
-    // SAFETY: fcntl is async-signal-safe and touches only this descriptor.
-    unsafe {
-        command.pre_exec(move || {
-            if libc::fcntl(read_fd, libc::F_SETFD, 0) != 0 {
-                return Err(io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
+    command.arg(OWNER_INSTALL_KEY_FD_ARG).arg(OWNER_INSTALL_KEY_FD.to_string());
+    command.inherit_fd(reader.as_fd(), OWNER_INSTALL_KEY_FD)?;
     Ok(reader)
 }
 
@@ -150,7 +146,7 @@ pub(super) fn install_key_pipe(
 /// exited) leaves it without a key, as a bad payload does.
 #[cfg(windows)]
 pub(super) fn send_over_stdin(
-    child: &mut std::process::Child,
+    child: &mut cmux_process::Child,
     key: Option<&cmux_tui_core::server::FrontendKey>,
 ) {
     if let (Some(key), Some(mut stdin)) = (key, child.stdin.take()) {

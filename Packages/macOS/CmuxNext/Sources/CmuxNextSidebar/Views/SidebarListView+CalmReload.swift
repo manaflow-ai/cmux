@@ -32,6 +32,13 @@ extension SidebarListView {
         reload(animated: false, fromModel: true)
     }
 
+    /// Tells ``newRows`` which workspaces this list lists now (`reload` runs it, so every path that shows a row
+    /// does: a held change released, a space switch, a drop's end). Off screen it lists nothing anyone sees.
+    func reportListedRows() {
+        guard let newRows, let window else { return }
+        newRows.drew(in: window) { workspaces[$0] != nil }
+    }
+
     /// A change waits now: the pointer is over the rows and no drag, drop or landing runs (those
     /// reload at their end, which shows the change).
     private var holdsModelChangeNow: Bool {
@@ -42,6 +49,7 @@ extension SidebarListView {
     /// The window's pointer is inside the list's visible part, with the list on screen in the active app
     /// (a pointer resting over a background app's window is not the user reading this list).
     var pointerIsOverVisibleRows: Bool {
+        // visibility-walk-allow: pointer hit test: whether the pointer rests on this list's shown rows now
         guard NSApp?.isActive == true, let window, window.isVisible, !isHiddenOrHasHiddenAncestor else { return false }
         return visibleRect.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
     }

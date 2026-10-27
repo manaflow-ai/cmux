@@ -19,6 +19,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 | Browser attach v6 | `attach-surface` command on a browser | `browser-state`, `frame`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Control lifecycle notice | No command; sent after a successful `shutdown-daemon` or `session.shutdown` acknowledgment | `daemon-shutdown` |
 | Control input notice | No command; sent to a connection whose queued input for a creating terminal was not written | `terminal-input-unclaimed` |
+| Attach stream with `attach-streams-v1` | `attach-surface` with `stream` | the events of its mode, each with `stream`, then `stream-end` |
 | Native owner inventory watch | Trusted Unix `agent-inventory-watch` with `agent-inventory-watch-v1` | `agent-inventory-changed`, `agent-inventory-watch-ended` |
 
 Events and command responses share one full-duplex connection. Each event or response is a complete transport message: a JSON line on Unix or a text frame on WebSocket. Clients must route messages by checking for `event`. If `event` is absent, the message is a command response and should be matched by `id`.
@@ -27,7 +28,7 @@ Events and command responses share one full-duplex connection. Each event or res
 
 Every entity-scoped event carries its subject id in the field named below. Tree deltas also carry every parent id needed to place the entity. Legacy session-wide events have no numeric entity subject; the table marks them `session` rather than inventing an id and changing their v5/v6 payloads.
 
-Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas belong only to a subscription that selected `tree_events:"deltas"`; `tree-changed` belongs to the default `"coarse"` subscription and may also appear on a delta subscription as a resync fallback. The tree-event selection does not affect other subscribe events. Attach events belong to the attachment selected by `attach-surface`; their `surface` field permits multiple attachments on one connection. `notification` and `scroll-changed` can appear on subscribe and selected attach streams. Consumers must tolerate those duplicated routes. Protocol v10 has no public stream id or cancellation command, so a connection must use at most one subscription and one attachment per surface when event origin must be unambiguous.
+Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas belong only to a subscription that selected `tree_events:"deltas"`; `tree-changed` belongs to the default `"coarse"` subscription and may also appear on a delta subscription as a resync fallback. The tree-event selection does not affect other subscribe events. Attach events belong to the attachment selected by `attach-surface`; their `surface` field permits multiple attachments on one connection. `notification` and `scroll-changed` can appear on subscribe and selected attach streams. Consumers must tolerate those duplicated routes. Without `attach-streams-v1` there is no attach stream id or cancellation command, so a connection must use at most one subscription and one attachment per surface when event origin must be unambiguous. With it, a client names each attachment with a stream id it mints (see [Attach streams](#attach-streams)), and every item of that attachment carries the id.
 
 Control lifecycle notices are sent on the authenticated control queue. They do not require a `subscribe` registration and are ordered after the command response that caused them.
 
@@ -141,6 +142,29 @@ existing per-placement subscribers invalidate every view. The receipt remains
 addressable through the terminal registry until `terminal.close` tombstones
 it, but no placement or live runtime remains. Browser surfaces and
 unregistered compatibility PTYs are also reaped on exit.
+
+## Event cause
+
+A connection that echoes `event-cause-v1` in `set-client-info` before its
+`subscribe` gets an optional `cause` string on every subscribe event line. It
+says what set the event off, so a frontend can schedule its work (the person's
+changes first, automation last). It is a scheduling hint only: it grants
+nothing and the daemon never reads it for authorization. Other connections
+never see the field, so the event schemas are unchanged for them.
+
+| `cause` | Set off by |
+| --- | --- |
+| `frontend` | a request of the verified app connection (origin `user`) |
+| `automation` | a request of any other connection: an agent, the CLI, a script, a page relay or the app supervisor (origins `agent`, `page`, `app`) |
+| absent | the daemon or a program on its own: terminal output, an OSC title or status, hooks, reaps, timers |
+
+A request's `origin` claim can only lower its cause, as it only narrows its
+origin. Work a request hands to another thread keeps its cause: a
+terminal-creating command that commits on the terminal worker pool reports
+the cause of the request that queued it. When the subscriber coalesces two
+latest-state events (for example two `title-changed` of one surface), the
+kept event takes the higher cause, in the order `frontend`, absent,
+`automation`.
 
 ## Subscribe Events
 
@@ -1384,6 +1408,33 @@ Example:
 {"event":"terminal-clipboard-read-cancelled","request_id":"6f1c2b9e-3d4a-4e5f-8a7b-1c2d3e4f5a6b"}
 ```
 
+### script-log
+
+| Field | Value |
+| --- | --- |
+| event | `script-log` |
+| status | implemented targeted control event |
+| since | protocol 12 |
+
+Payload:
+
+```text
+object{event:"script-log", level:string, message:string, request?:json, session?:string}
+```
+
+Meaning: One console line of a running script cell, sent only on the
+connection that runs it and before the cell's reply. `request` is the id of
+the `script-run` that wrote it; `session` names the REPL session
+(`script-repl-open`) whose cell wrote it; exactly one of the two is present.
+Lines past the cell's budget are dropped and counted in the reply's
+`dropped_log_lines`.
+
+Example:
+
+```json
+{"event":"script-log","level":"log","message":"hello","request":7}
+```
+
 ## Attach Events
 
 ### render-state
@@ -1533,10 +1584,10 @@ Example:
 Payload:
 
 ```text
-object{event:"output",surface:Id,data:Base64,colors?:TerminalColors}
+object{event:"output",surface:Id,data:Base64,colors?:TerminalColors,flow?:uint64}
 ```
 
-Meaning: Live PTY bytes applied after the `vt-state` snapshot. Chunks preserve byte order for the attached surface. Chunk boundaries are implementation details. Hosted output that atomically changes authored colors includes the complete `colors` value to apply with that chunk.
+Meaning: Live PTY bytes applied after the `vt-state` snapshot. Chunks preserve byte order for the attached surface. Chunk boundaries are implementation details. Hosted output that atomically changes authored colors includes the complete `colors` value to apply with that chunk. `flow` is present only on the output of the PTY owner's first read after the bytes of a `send` that carried a `flow` reached the PTY: it is that key press's id (the echo of the key), once per `send`. It is set whenever a `send` carried a `flow`, whether or not a trace is recording. Input that was dropped or failed sets none. A client that does not trace ignores it.
 
 Example:
 
@@ -1671,6 +1722,83 @@ Example:
 {"event":"detached","surface":1}
 {"event":"detached","surface":1,"reason":"disconnected-by","by":{"display_name":"Maya","device_name":"Mac Studio"}}
 ```
+
+### stream-end
+
+| Field | Value |
+| --- | --- |
+| event | `stream-end` |
+| status | implemented |
+| since | protocol 12 additive; capability `attach-streams-v1` |
+
+Payload:
+
+```text
+object{event:"stream-end",stream:uint16,reason:"canceled"|"detached"|"overflow"|"attach_failed"}
+```
+
+Meaning: The last item of a client-minted attach stream. Nothing of that
+stream follows it, and its id may name a new `attach-surface` once the
+client has read it. `canceled`: `cancel-stream` or `detach-attached-view`
+of that view; what the stream still queued is dropped. `detached`: the view
+ended (its surface or output tap ended, or a `detached` event of that
+stream came first); every item queued before it is delivered. `overflow`:
+the stream fell behind its outbound budget; it takes the place of the
+attach `overflow` event, and the client reattaches. `attach_failed`: the
+`attach-surface` that took the id failed after taking it; its error reply
+follows.
+
+Example:
+
+```json
+{"event":"stream-end","stream":3,"reason":"canceled"}
+```
+
+## Attach streams
+
+Capability `attach-streams-v1` (p05-ipc-074) lets one connection carry
+many views, each a stream the client names, like the associated
+interfaces of a Mojo message pipe: the side that opens an endpoint picks its
+id, every message names its endpoint, and the closing notice is the last
+message of the endpoint (chromium
+`mojo/public/cpp/bindings/lib/multiplex_router.cc`).
+
+- The capability is a framed IPC grant
+  ([transports.md](transports.md#framed-ipc-grants)): `identify` offers it
+  and the client echoes it in `set-client-info`. A `stream` on a connection
+  without the grant is refused with `streams_not_granted`.
+- `attach-surface {stream}` takes a `uint16` id the client chose. An id
+  whose `stream-end` is not queued yet is refused with `stream_in_use`; the
+  open stream and the connection are unchanged.
+- A connection holds at most 4096 open streams and the daemon at most 16384
+  across its connections. An open past either is refused with
+  `stream_capacity` (this connection) or `server_stream_capacity` (the
+  daemon); only that open fails, with no `stream-end`, and the connection
+  and its open streams are unchanged. An id is counted until its
+  `stream-end` is queued.
+- Every item of the view carries `"stream": id` as its first member: the
+  READY (`vt-state`, `snapshot`, `render-state` or `browser-state`) before the
+  reply, then output, resizes, notifications, `detached`, and `stream-end`.
+  The `surface` field is unchanged.
+- `stream-end` is the stream's last item. The id is free once it is queued.
+- View requests take an optional `stream`: `resize-attached-view`,
+  `release-attached-view-size`, `detach-attached-view` and
+  `snapshot-request`. The daemon checks it: no open stream with that id is
+  `unknown_stream`, a stream of another surface is
+  `stream_surface_mismatch`. On the three view commands, `stream` alone
+  selects that stream's lease (`stream_has_no_lease` when the client did
+  not send `view-attachment-lease-v1`); with `lease`, the lease must be that
+  stream's (`stream_lease_mismatch`). `snapshot-request` with `stream` asks
+  that view only.
+- `cancel-stream {stream}` ends the stream with `stream-end{canceled}` and
+  removes its view before it answers `{stream, outcome:"applied"}`. It is
+  idempotent: an id with no open stream answers `outcome:"ended"`.
+- Streams are independent: one stream whose reader stopped fills only its
+  own queue, and the other streams and the command replies of the
+  connection keep flowing. Losing the connection ends every stream; there
+  is no `stream-end` then.
+- Without `stream`, `attach-surface` behaves as before: no tag, the
+  `overflow` event, no `stream-end`.
 
 ### size-state
 

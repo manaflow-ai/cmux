@@ -1,4 +1,7 @@
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import CmuxNextWakeups
 
 /// One read of what the last quit saved for this launch, started at once on a `BackgroundWork` lane, whose result
@@ -21,7 +24,7 @@ public nonisolated final class LaunchRead<Value: Sendable>: Sendable {
 
     private struct State {
         var value: Value?
-        var waiters: [CheckedContinuation<Value, Never>] = []
+        var waiters: [OnceContinuation<Value, OnceContinuationError>] = []
     }
 
     /// Starts `body` on `work`'s files lane.
@@ -31,33 +34,65 @@ public nonisolated final class LaunchRead<Value: Sendable>: Sendable {
     ///   - priority: How much a person waits for it; default ``WorkPriority/userBlocking`` (a pane's first frame).
     ///   - shutdown: What quit does with it before it has started; ``ShutdownBehavior/blockShutdown`` when a
     ///     ``finished()`` must end (quit itself awaits it), else dropped and ``value`` stays nil.
+    ///   - dropped: The result when quit drops the read before it started or refuses it (posted after
+    ///     `work.shutdown()` returned), so ``value`` has it and ``finished()`` ends; nil leaves both waiting.
+    ///   - fileID: The caller's `#fileID`, which names a slow block-shutdown read (leave the default).
+    ///   - line: The caller's `#line`.
     ///   - body: The blocking read. It runs on a lane thread.
     public init(on work: BackgroundWork, priority: WorkPriority = .userBlocking, shutdown: ShutdownBehavior = .skipOnShutdown,
+                dropped: Value? = nil, fileID: StaticString = #fileID, line: UInt = #line,
                 _ body: @escaping @Sendable () -> Value) {
-        work.post(priority, mayBlock: .files, shutdown: shutdown) { [self] in
-            let value = body()
-            let waiters = self.state.withLock { state in
-                state.value = value
-                defer { state.waiters = [] }
-                return state.waiters
-            }
-            for waiter in waiters { waiter.resume(returning: value) }
-        }
+        work.post(priority, mayBlock: .files, shutdown: shutdown, fileID: fileID, line: line,
+                  abandoned: { [self] in if let dropped { end(with: dropped) } }) { [self] in end(with: body()) }
     }
 
-    /// The result once the read has ended; nil while it runs (or when quit dropped it before it started).
+    /// Starts `body` in `sequence`, after every item posted to it before: a read whose result a later read's
+    /// user needs first goes before it in one sequence (the files lane runs other reads of a priority at once).
+    /// The result is stored before the next item of `sequence` starts.
+    ///
+    /// - Parameters:
+    ///   - sequence: The sequence of reads it runs in, on its lane.
+    ///   - priority: How much a person waits for it; default ``WorkPriority/userBlocking``.
+    ///   - shutdown: What quit does with it before it has started (as ``init(on:priority:shutdown:dropped:fileID:line:_:)``).
+    ///   - dropped: The result when quit drops the read before it started or refuses it.
+    ///   - fileID: The caller's `#fileID` (leave the default).
+    ///   - line: The caller's `#line`.
+    ///   - body: The blocking read. It runs on a lane thread.
+    public init(in sequence: WorkSequence, priority: WorkPriority = .userBlocking, shutdown: ShutdownBehavior = .skipOnShutdown,
+                dropped: Value? = nil, fileID: StaticString = #fileID, line: UInt = #line,
+                _ body: @escaping @Sendable () -> Value) {
+        sequence.post(priority, shutdown: shutdown, fileID: fileID, line: line,
+                      abandoned: { [self] in if let dropped { end(with: dropped) } }) { [self] in end(with: body()) }
+    }
+
+    /// Stores the result and resumes every ``finished()`` waiting for it.
+    private func end(with value: Value) {
+        let waiters = state.withLock { state in
+            state.value = value
+            defer { state.waiters = [] }
+            return state.waiters
+        }
+        for waiter in waiters { waiter.resume(returning: value) }
+    }
+
+    /// The result once the read has ended; nil while it runs (or when quit dropped it and there is no `dropped`).
     public var value: Value? {
         state.withLock { $0.value }
     }
 
-    /// The result, once the read has ended (the caller suspends; no thread waits).
+    /// The result, once the read has ended (the caller suspends; no thread waits). The state keeps each
+    /// waiter until ``end(with:)``, so a wait is never dropped; one that were waits again.
     public func finished() async -> Value {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Value, Never>) in
-            let value = state.withLock { state -> Value? in
-                if state.value == nil { state.waiters.append(continuation) }
-                return state.value
+        do {
+            return try await withOnceContinuation { (continuation: OnceContinuation<Value, OnceContinuationError>) in
+                let value = state.withLock { state -> Value? in
+                    if state.value == nil { state.waiters.append(continuation) }
+                    return state.value
+                }
+                if let value { continuation.resume(returning: value) }
             }
-            if let value { continuation.resume(returning: value) }
+        } catch {
+            return await finished()
         }
     }
 }

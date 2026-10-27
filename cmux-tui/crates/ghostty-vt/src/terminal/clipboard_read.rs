@@ -42,7 +42,10 @@ pub(super) unsafe extern "C" fn clipboard_read_trampoline(
     userdata: *mut c_void,
     read: *const sys::GhosttyClipboardRead,
 ) {
+    // SAFETY: `userdata` is the terminal's heap-pinned Hooks (`repr(C)`,
+    // `callbacks` first), and no other reference to it is live during the call.
     let callbacks = unsafe { &mut *(userdata as *mut Callbacks) };
+    // SAFETY: libghostty passes a readable GhosttyClipboardRead for the call.
     let read = unsafe { &*read };
     let token_end = std::mem::offset_of!(sys::GhosttyClipboardRead, token) + size_of::<u64>();
     // Only OSC 52 reads carry a token; anything else (Kitty OSC 5522) is
@@ -66,6 +69,8 @@ pub(super) unsafe extern "C" fn clipboard_read_trampoline(
         remember: false,
     };
     if let Some(answer) = read.reply {
+        // SAFETY: `answer` is libghostty's reply function for this `read`, and
+        // `reply` is a sized local with no content pointers.
         unsafe { answer(read, &reply) };
     }
     f(ClipboardReadRequest { token: read.token, location });
@@ -82,9 +87,12 @@ impl Terminal {
         } else {
             ptr::null()
         };
+        // SAFETY: `self.raw` is this Terminal's live handle; CLIPBOARD_READ takes
+        // null (off) or a function of the GhosttyTerminalClipboardReadFn signature.
         unsafe {
             sys::ghostty_terminal_set(self.raw, sys::GHOSTTY_TERMINAL_OPT_CLIPBOARD_READ, callback)
         };
+        self.raw_settings.clipboard_reads_deferred = !callback.is_null();
     }
 
     /// Answers the deferred read `token`: `Some(text)` returns the text (at
@@ -113,6 +121,8 @@ impl Terminal {
             remember: false,
         };
         let result =
+            // SAFETY: `self.raw` is this Terminal's live handle; `reply` and the
+            // strings it points to (`mime`, `text`) outlive the call.
             unsafe { sys::ghostty_terminal_clipboard_read_complete(self.raw, token, &reply) };
         result == sys::GHOSTTY_SUCCESS
     }

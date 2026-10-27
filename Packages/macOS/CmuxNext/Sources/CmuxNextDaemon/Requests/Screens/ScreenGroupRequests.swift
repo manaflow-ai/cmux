@@ -37,7 +37,7 @@ public struct ScreenGroupResult: Decodable, Sendable, Equatable {
 
 public struct CreateScreenGroupRequest: DaemonRequest {
     public typealias Response = ScreenGroupResult
-    public static let command = "create-screen-group"
+    public static let commandName: DaemonCommandName = "create-screen-group"
     public static let requiredCapability: String? = DaemonCapability.screenGroups.rawValue
     public var screens: [ScreenID]
     public var name: String?
@@ -51,7 +51,7 @@ public struct CreateScreenGroupRequest: DaemonRequest {
 
 public struct UpdateScreenGroupRequest: DaemonRequest {
     public typealias Response = ScreenGroupResult
-    public static let command = "update-screen-group"
+    public static let commandName: DaemonCommandName = "update-screen-group"
     public static let requiredCapability: String? = DaemonCapability.screenGroups.rawValue
     public var group: ScreenGroupID
     public var name: String?

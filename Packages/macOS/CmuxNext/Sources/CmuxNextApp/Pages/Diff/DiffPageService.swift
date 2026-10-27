@@ -6,6 +6,8 @@ import CmuxNextCompat
 import CmuxNextDesign
 import typealias CmuxNextDaemon.SurfaceID
 import CmuxNextDiff
+import CmuxNextHibernation
+import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
@@ -33,7 +35,7 @@ nonisolated enum DiffOpenFailure: Error, Sendable, Equatable {
 /// folder (``DiffFolderChoosing``, the cmux picker) or takes a dropped one.
 /// Every open records the repository in ``DiffRecents``.
 final class DiffPageService: InternalPageProvider {
-    private struct Tab {
+    struct Tab {
         var repository: DiffRepository?
         var source: DiffOpenSource
         /// The chat turn its Last turn scope shows (D2), from the chat that opened it.
@@ -43,6 +45,8 @@ final class DiffPageService: InternalPageProvider {
         var host: DiffTabHost?
         /// The reopen on a card's turn in flight (``retarget(_:to:source:)``), one at a time.
         var reopen: Task<Void, Never>?
+        /// The page state its discard kept, for the next page's first config.
+        var viewState: JSONValue?
     }
 
     // crash-allow: AppServices owns this service for the app's whole life (ViewerService's lazy page services), so it outlives it.
@@ -60,12 +64,16 @@ final class DiffPageService: InternalPageProvider {
     private lazy var diffGit: any DiffGitRunning = DiffAgentGit(link: services.agentGit.local)
     /// The folder picker of `cmux.diff.chooseFolder`.
     var chooser: any DiffFolderChoosing = OpenPanelFolderChooser()
-    private var tabs: [String: Tab] = [:]
+    var tabs: [String: Tab] = [:]
     /// Teardowns still closing sessions (tests wait on them).
     private(set) var closing: [Task<Void, Never>] = []
+    /// The clock of the view state deadline (``viewStateTimeout``).
+    let clock: any Clock<Duration>
 
-    init(services: AppServices, runtime: DiffPageRuntime? = nil, recents: DiffRecents? = nil, stores: DiffPageStores? = nil) {
+    init(services: AppServices, runtime: DiffPageRuntime? = nil, recents: DiffRecents? = nil, stores: DiffPageStores? = nil,
+         clock: any Clock<Duration> = ContinuousClock()) {
         self.services = services
+        self.clock = clock
         if let runtime { self.runtime = runtime }
         if let recents { recentsStore = recents }
         if let stores { self.stores = stores }
@@ -275,10 +283,13 @@ final class DiffPageService: InternalPageProvider {
         let ready = tab.repository.map { runtime.prepare(repository: $0, source: tab.source, turn: tab.turn) }
         let provider = DiffPageProvider(ready: ready, sidecar: runtime.sidecar, languages: runtime.languages, host: host,
                                         stores: stores, git: diffGit)
+        provider.viewState = tab.viewState
+        tab.viewState = nil
         let native = AppPageNativeProvider(services: services, page: .diff)
         let routes = [PageRoute(prefix: "cmux.diff.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
-        guard let page = PageWebView(descriptor: .diff, routes: routes, options: Self.engineOptions, surface: .diff,
-                                     dynamicResources: DiffPatchSource { [weak provider] in provider?.ready }) else {
+        let patches = DiffPatchSource { [weak provider] in provider?.ready }
+        guard let page = services.webUI.open(PageOpenRequest(descriptor: .diff, routes: routes, options: Self.engineOptions,
+                                                             surface: .diff, dynamicResources: patches)) else {
             ready?.cancel()
             return NSView()
         }
@@ -306,20 +317,23 @@ final class DiffPageService: InternalPageProvider {
     /// read its path): a dropped file opens its folder. The page reloads to
     /// show the repository.
     static func folderDrop(provider: DiffPageProvider, page: PageWebView) -> PageFileDrop {
+        // The page keeps its `fileDrop` reason until the open returns (PageFileDrop.take).
         PageFileDrop(accepts: { [weak provider] url in url.isFileURL && provider?.isPicking == true }, open: { [weak provider, weak page] url in
             let folder = url.hasDirectoryPath ? url : url.deletingLastPathComponent()
-            // task-owner: one open of the dropped folder; ends when the tab shows it or refuses it
-            Task {
-                guard let provider, (try? await provider.open(folder: folder, source: .default)) != nil else {
-                    return NSSound.beep()
-                }
-                page?.reload()
+            guard let provider, (try? await provider.open(folder: folder, source: .default)) != nil else {
+                return NSSound.beep()
             }
+            page?.reload()
         })
     }
 
     func tabClosed(_ key: String) {
         guard let tab = tabs.removeValue(forKey: key) else { return }
+        release(tab)
+    }
+
+    /// Closes `tab`'s page, its reopen and its provider's sessions and grant.
+    private func release(_ tab: Tab) {
         tab.reopen?.cancel()
         tab.page?.close()
         guard let provider = tab.provider else { return }
@@ -330,6 +344,54 @@ final class DiffPageService: InternalPageProvider {
             await teardown.value
             self?.closing.removeAll { $0 == teardown }
         }
+    }
+
+    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-026)
+
+    /// How long a page may take to say what it shows before its discard goes on without it.
+    static let viewStateTimeout: Duration = .seconds(1)
+
+    /// Ten minutes hidden, as Chrome's proactive discards (proactive_discarding_policy.cc). The diff
+    /// is read again from git when the tab shows; viewed marks, collapsed files and comments live in
+    /// the host's stores and survive the discard.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// A comment draft or the open commit form keeps the page (Chrome's `kUserEdits`): the page
+    /// says so when it changes (`cmux.diff.input`).
+    func keepReasons(for key: String) -> [CannotDiscardReason] {
+        tabs[key]?.provider?.holdsUnsavedInput == true ? [.unsavedEdits] : []
+    }
+
+    /// Asks the page what it shows (`cmux.diff.viewState`: the file at the top and how far into
+    /// it, the files the reader unfolded, the options that last for the tab). A page that does not
+    /// answer in time comes back at its top.
+    func saveViewState(for key: String, content: NSView) async -> ContentViewState {
+        guard let page = tabs[key]?.page else { return ContentViewState() }
+        let answer = await PageAnswerDeadline(Self.viewStateTimeout, clock: clock).answer {
+            try await page.router.callPage("cmux.diff.viewState", params: .object([:]))
+        }
+        guard let answer, answer != .null, tabs[key]?.page === page else { return ContentViewState() }
+        return ContentViewState(page: answer)
+    }
+
+    /// The page gets its state in its first config (``makeView(for:in:)``), not from its view.
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) async {}
+
+    /// The page state the discard kept, for the next page's first config.
+    func willRemakeView(for key: String, with state: ContentViewState) {
+        tabs[key]?.viewState = state.page
+    }
+
+    /// Tab `key`'s page, provider, sessions and grant go; the tab keeps its repository, scope, turn
+    /// and view state, and its next show prepares a new grant.
+    func viewDiscarded(_ key: String) {
+        guard var tab = tabs[key] else { return }
+        release(tab)
+        tab.reopen = nil
+        tab.page = nil
+        tab.provider = nil
+        tab.host = nil
+        tabs[key] = tab
     }
 
     /// App quit: removes every tab's grant now (patches included). Sessions are

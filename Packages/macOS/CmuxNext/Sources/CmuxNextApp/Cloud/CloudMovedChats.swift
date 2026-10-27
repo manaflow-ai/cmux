@@ -1,4 +1,5 @@
 import CmuxNextCloud
+import CmuxNextCompat
 import Foundation
 
 /// The chats Move to Cloud (``CloudMove``) moved from this Mac, by their tab record on the
@@ -69,7 +70,7 @@ final class CloudMovedChats {
         guard let defaults = defaults() else { return memory }
         guard let data = defaults.data(forKey: Self.defaultsKey) else { return [:] }
         // One by one: an entry this version can't read drops alone, never the whole ledger.
-        let read = (try? JSONDecoder().decode([String: Lenient].self, from: data)) ?? [:]
+        let read = (try? JSONDecoder().blockingDecode([String: Lenient].self, from: data)) ?? [:]
         return read.compactMapValues(\.entry)
     }
 

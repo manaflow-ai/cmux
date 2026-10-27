@@ -6,12 +6,16 @@ public import Foundation
 import CmuxNextAgentActivity
 import CmuxNextHome
 public import CmuxNextPages
+public import CmuxNextWakeups
 
 extension PageDescriptor {
     /// The Chief view gallery (webviews/src/pages/chief-views): experimental views beside the Chief,
     /// over the agents the app already mirrors, the CI fleet dashboard and the repository's PRs.
     static let chiefViews = PageDescriptor(
-        id: "cmux.chief-views", resource: "chief-views", namespaces: [ChiefViewsPageProvider.prefix])
+        id: "cmux.chief-views", resource: "chief-views", processGroup: .solo, namespaces: [ChiefViewsPageProvider.prefix],
+        // ChiefViewsPageProvider: `set_fleet_url` writes a default, `open` and `open_url` reveal a chat or open a link.
+        opTables: [PageOpTable(namespace: ChiefViewsPageProvider.prefix, read: ["agents", "agents_changed", "fleet", "landing"],
+                               act: ["set_fleet_url", "open", "open_url"])])
 }
 
 /// What the gallery needs from the app: where the agents are and how to show one. The app passes
@@ -27,12 +31,16 @@ public struct ChiefViewsHost {
     var revealTab: @MainActor (String) -> Bool
     /// Opens a pull request on Home's right side.
     var openURL: @MainActor (URL) -> Void
+    /// The app's one main-thread scheduler (`AppServices.mainWork`): the page's agent stream follows on it.
+    var mainWork: MainWorkScheduler
 
     public init(workspaces: @escaping @MainActor () -> [(WorkspaceModel, DaemonService)],
                 machineName: @escaping @MainActor (DaemonService) -> String?,
                 openChat: @escaping @MainActor (String) throws -> Void,
                 revealTab: @escaping @MainActor (String) -> Bool,
-                openURL: @escaping @MainActor (URL) -> Void) {
+                openURL: @escaping @MainActor (URL) -> Void,
+                mainWork: MainWorkScheduler) {
+        self.mainWork = mainWork
         self.workspaces = workspaces
         self.machineName = machineName
         self.openChat = openChat
@@ -61,15 +69,21 @@ public final class ChiefViewsPage {
     public nonisolated static var tunables: [TunableDescriptor] { ChiefViewsTunables.all }
 
     private let host: ChiefViewsHost
+    private let webUI: WebUIHost
 
-    public init(host: ChiefViewsHost) {
+    /// - Parameters:
+    ///   - host: The app's lanes, tabs and navigation the page reads and drives.
+    ///   - webUI: The app's page host (`AppServices.webUI`), which makes the page view.
+    public init(host: ChiefViewsHost, webUI: WebUIHost) {
         self.host = host
+        self.webUI = webUI
     }
 
     /// A new page view with its own provider; nil when the page's bundle is missing.
     public func makeView() -> PageWebView? {
         let provider = ChiefViewsPageProvider(host: .live(host))
-        return PageWebView(descriptor: .chiefViews, routes: [PageRoute(prefix: ChiefViewsPageProvider.prefix, provider: provider)])
+        return webUI.open(PageOpenRequest(descriptor: .chiefViews,
+                                          routes: [PageRoute(prefix: ChiefViewsPageProvider.prefix, provider: provider)]))
     }
 }
 
@@ -80,6 +94,7 @@ extension ChiefViewsPageProvider.Host {
             agents: {
                 ChiefViewsAgent.current(lanes: .shared, workspaces: app.workspaces(), machineName: app.machineName)
             },
+            mainWork: app.mainWork,
             fetch: ChiefViewsPageProvider.liveFetch,
             defaults: .standard,
             environment: ProcessInfo.processInfo.environment,

@@ -1,4 +1,5 @@
 import CmuxNextSettings
+import CmuxNextWakeups
 import Darwin
 import Foundation
 
@@ -75,7 +76,9 @@ final class FileChangeWatch {
         let clock = clock, debounce = debounce, url = url, inWorkspace = inWorkspace()
         pending = Task { [weak self] in
             do {
-                try await clock.sleep(for: debounce) // wakeup-allow: one debounce per disk event burst, cancelled by the next event
+                // wakeup-allow: deadline one debounce per disk event burst, cancelled by the next event. One task is the
+                // debounce and the read it starts, so the next event cancels either.
+                try await clock.sleep(for: debounce, tolerance: WakeLeeway.window(delay: debounce).tolerance)
             } catch {
                 return
             }
@@ -93,7 +96,9 @@ final class FileChangeWatch {
     /// The file's stamp, and its content when the stamp differs from `previous` (nil: gone).
     @concurrent private static func read(_ url: URL, inWorkspace: Bool, unless previous: Stamp?) async -> (Stamp?, FileSnapshot?) {
         var info = stat()
-        guard stat(url.path, &info) == 0 else { return (nil, nil) }
+        // SAFETY: stat reads the NUL-terminated copy of the path made for the call and writes one struct stat
+        // into `info`, a local live for the call.
+        guard unsafe stat(url.path, &info) == 0 else { return (nil, nil) }
         let stamp = Stamp(device: Int64(info.st_dev), inode: UInt64(info.st_ino), size: Int64(info.st_size),
                           modified: Int64(info.st_mtimespec.tv_sec) * 1_000_000_000 + Int64(info.st_mtimespec.tv_nsec))
         guard stamp != previous else { return (stamp, nil) }

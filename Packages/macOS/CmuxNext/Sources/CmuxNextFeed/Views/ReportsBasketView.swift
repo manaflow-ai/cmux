@@ -1,15 +1,14 @@
 import AppKit
 import CmuxNextDesign
-import Observation
+import CmuxNextWakeups
 
 /// Labs dogfood for the no-wake reports target. Durable mailbox rows are
 /// projected here as a human-only basket; selecting Reply sends a new
 /// addressed message through the host callback and never mutates the report.
 ///
-/// AppKit (plans/cmux-next/no-swiftui-DESIGN.md rule 1). It reads `model.reports` with
-/// `withObservationTracking`, re-armed after each change while the view is in a window; out of a
-/// window the registration lapses at the next change, deinit drops it (the callback holds the
-/// view weakly), and coming back re-reads the model.
+/// AppKit (plans/cmux-next/no-swiftui-DESIGN.md rule 1). It follows `model.reports` with a
+/// `FrameObservation` while the view is in a window (one render at the next frame after a change);
+/// leaving the window cancels it, and coming back reads the model again.
 final class ReportsBasketView: NSView {
     let model: FeedModel
     let onReply: (@MainActor (ReportReply) async -> Bool)?
@@ -25,8 +24,9 @@ final class ReportsBasketView: NSView {
     private var unsent: [String: ReportReply] = [:]
 
     private var colors: ReportsBasketColors?
-    /// A `withObservationTracking` registration is pending (at most one at a time).
-    private var armed = false
+    /// The app's one main-thread scheduler, and the reports followed while in a window.
+    private let mainWork: MainWorkScheduler
+    private var reportsWatch: FrameObservation<[FeedReport]>?
 
     private(set) var rows: [ReportsBasketRow] = []
     private(set) var detail: ReportsBasketDetail?
@@ -49,8 +49,9 @@ final class ReportsBasketView: NSView {
 
     private var reports: [FeedReport] { model.reports }
 
-    init(model: FeedModel, onReply: (@MainActor (ReportReply) async -> Bool)?) {
+    init(model: FeedModel, mainWork: MainWorkScheduler, onReply: (@MainActor (ReportReply) async -> Bool)?) {
         self.model = model
+        self.mainWork = mainWork
         self.onReply = onReply
         super.init(frame: .zero)
         wantsLayer = true
@@ -97,23 +98,18 @@ final class ReportsBasketView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard window != nil else { return }
+        guard window != nil else {
+            reportsWatch?.cancel()
+            reportsWatch = nil
+            return
+        }
         selected = selected ?? reports.first?.id
-        if armed { render() } else { observe() }
-    }
-
-    /// Reads the reports in a tracked scope and draws them. The next change re-arms only while the
-    /// view is in a window; out of one, the registration lapses after that change, and coming back
-    /// arms again. A registration still pending on re-entry is reused, so there is never a second.
-    private func observe() {
-        guard window != nil else { return }
-        armed = true
-        withObservationTracking { _ = model.reports } onChange: { [weak self] in
-            // task-owner: re-arms one observation; it ends at once when the view left its window or is gone
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.armed = false
-                self.observe()
+        if reportsWatch == nil {
+            // node-free: the panel, the page tab and the sidebar section each follow only while the basket is in a window
+            reportsWatch = FrameObservation(owner: "feed.reportsBasket", delivery: .visible(nil), on: mainWork) { [model] in
+                model.reports
+            } onChange: { [weak self] _ in
+                self?.render()
             }
         }
         render()

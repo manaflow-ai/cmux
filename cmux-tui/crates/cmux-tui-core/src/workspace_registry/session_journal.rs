@@ -18,6 +18,12 @@ pub(crate) const MAX_JOURNAL_CONTENT_BYTES: usize = 256 * 1024;
 const MIGRATION_EVENT_ID: &str = "event_session_journal_v9_migration";
 const MIGRATION_EVENT_KIND: &str = "session.journal.migrated";
 
+/// The journal writer's hang tier: a batch commit (one writer-loop turn)
+/// busy this long is written to the hang log with the writer's stack (the
+/// request watchdog's `journal-writer` scope). Requests wait on these
+/// commits, so a stuck commit stalls every client.
+pub(crate) const JOURNAL_WRITER_HANG: std::time::Duration = std::time::Duration::from_secs(2);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum JournalClass {
@@ -163,7 +169,7 @@ pub(crate) struct TerminalOutputRecordsWindow {
 /// A short-lived WAL reader owned by one subscriber thread. It never shares
 /// the registry writer connection or its mutex.
 pub(crate) struct SessionJournalReader {
-    connection: Connection,
+    pub(super) connection: Connection,
 }
 
 pub(crate) struct JournalRestoreCursor {
@@ -1160,6 +1166,7 @@ pub(crate) fn append_journal_record(
 }
 
 impl WorkspaceRegistry {
+    #[track_caller]
     pub fn session_journal_after(
         &self,
         sequence: u64,
@@ -1175,6 +1182,7 @@ impl WorkspaceRegistry {
     /// fixed, so it can be neither an agent-hook nor an agent-plugin event.
     /// Replaying such a reducer through this read costs the other records,
     /// not the output history.
+    #[track_caller]
     pub(crate) fn session_journal_without_output_after(
         &self,
         sequence: u64,
@@ -1188,6 +1196,7 @@ impl WorkspaceRegistry {
     /// decoding any records. Reducer recovery uses this to reject a stale
     /// snapshot cursor while remaining valid when the journal has compacted
     /// its earliest records.
+    #[track_caller]
     pub fn session_journal_head(&self) -> anyhow::Result<u64> {
         query_journal_head(&self.connection.get())
     }
@@ -1195,6 +1204,7 @@ impl WorkspaceRegistry {
     /// Persisted fold position of one journal reducer: (version, cursor,
     /// snapshot). A version mismatch on load discards the snapshot so the
     /// reducer re-folds from the journal head.
+    #[track_caller]
     pub(crate) fn journal_reducer_state(
         &self,
         reducer_id: &str,
@@ -1224,6 +1234,7 @@ impl WorkspaceRegistry {
 
     /// Durably record a reducer's fold position and state snapshot. Cursor
     /// values are stored as strings so 64-bit sequences survive JSON.
+    #[track_caller]
     pub(crate) fn put_journal_reducer_state(
         &self,
         reducer_id: &str,
@@ -1247,6 +1258,7 @@ impl WorkspaceRegistry {
     /// The most recently started journal output stream for one terminal:
     /// its generation and the exclusive end offset of its journaled bytes.
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn terminal_stream_latest(
         &self,
         terminal_id: &str,
@@ -1281,6 +1293,7 @@ impl WorkspaceRegistry {
     /// terminal exit snapshot for exited ones) and readers see the coverage
     /// clamp through the window's start offset.
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn terminal_output_records_after(
         &self,
         terminal_id: &str,
@@ -1795,7 +1808,7 @@ fn query_session_journal_after_subjects(
     Ok(SessionJournalSubjectPage { head_sequence, scanned_through, records })
 }
 
-type JournalSegmentRow = (String, i64, i64, i64, String, Vec<u8>, i64, Vec<u8>);
+pub(crate) type JournalSegmentRow = (String, i64, i64, i64, String, Vec<u8>, i64, Vec<u8>);
 
 fn journal_segment_row(row: &Row<'_>) -> rusqlite::Result<JournalSegmentRow> {
     Ok((
@@ -1810,13 +1823,15 @@ fn journal_segment_row(row: &Row<'_>) -> rusqlite::Result<JournalSegmentRow> {
     ))
 }
 
-struct DecodedJournalSegment {
-    start_sequence: u64,
-    end_sequence: u64,
-    records: Vec<SessionJournalRecord>,
+pub(crate) struct DecodedJournalSegment {
+    pub(crate) start_sequence: u64,
+    pub(crate) end_sequence: u64,
+    pub(crate) records: Vec<SessionJournalRecord>,
 }
 
-fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJournalSegment> {
+pub(crate) fn decode_journal_segment(
+    row: JournalSegmentRow,
+) -> anyhow::Result<DecodedJournalSegment> {
     let (
         segment_id,
         start_sequence,
@@ -1953,7 +1968,7 @@ fn archived_records_after(
     Ok(records)
 }
 
-type StoredRecordRow = (
+pub(crate) type StoredRecordRow = (
     i64,
     String,
     i64,
@@ -1999,7 +2014,7 @@ fn stored_record_row(row: &Row<'_>) -> rusqlite::Result<StoredRecordRow> {
     ))
 }
 
-fn decode_record(row: StoredRecordRow) -> anyhow::Result<SessionJournalRecord> {
+pub(crate) fn decode_record(row: StoredRecordRow) -> anyhow::Result<SessionJournalRecord> {
     let (
         sequence,
         event_id,

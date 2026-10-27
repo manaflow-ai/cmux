@@ -68,7 +68,23 @@ struct Daemon {
     child: std::process::Child,
     dir: PathBuf,
     socket: PathBuf,
+    /// Written by any start of the `fake` harness.
     marker: PathBuf,
+    /// Written by any start of the `other` harness.
+    other_marker: PathBuf,
+}
+
+/// A harness command that appends to `marker` before it runs the fake agent.
+fn marked_argv(marker: &Path) -> Value {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    json!([
+        "/bin/sh",
+        "-c",
+        "echo started >>\"$1\"; shift; exec python3 \"$@\"",
+        "sh",
+        marker,
+        fake
+    ])
 }
 
 impl Daemon {
@@ -77,21 +93,18 @@ impl Daemon {
     async fn start(tag: &str, switch: Option<(&str, &str)>, memory: bool) -> Self {
         let dir = scratch(tag);
         let marker = dir.join("harness-started");
-        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        // Any start of the harness (a session or a model probe) leaves the marker.
-        let argv = json!([
-            "/bin/sh",
-            "-c",
-            "echo started >>\"$1\"; shift; exec python3 \"$@\"",
-            "sh",
-            marker,
-            fake
-        ]);
+        let other_marker = dir.join("other-started");
+        // Any start of a harness (a session or a model probe) leaves its marker.
+        let harnesses = json!({
+            "fake": {"argv": marked_argv(&marker)},
+            "other": {"argv": marked_argv(&other_marker)},
+        });
         std::fs::write(
-        dir.join("config.json"),
-        json!({"harnesses": {"fake": {"argv": argv}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
-    )
-    .unwrap();
+            dir.join("config.json"),
+            json!({"harnesses": harnesses, "defaultHarness": "fake", "permissionPolicy": "approve-all"})
+                .to_string(),
+        )
+        .unwrap();
         let socket = dir.join("s.sock");
         // Launches allowed unless `switch` turns them off; the bare PATH holds
         // no real agent either way.
@@ -129,7 +142,7 @@ impl Daemon {
             panic!("daemon exited without a readiness line");
         });
         tokio::time::timeout(Duration::from_secs(20), ready).await.unwrap().unwrap();
-        Self { child, dir, socket, marker }
+        Self { child, dir, socket, marker, other_marker }
     }
 
     async fn stop(mut self) {
@@ -184,6 +197,42 @@ async fn denied_daemon_starts_no_agent(tag: &str, switch: (&str, &str)) {
     assert!(hosts.is_empty(), "agent host records: {hosts:?}");
     // And the harness command never ran at all.
     assert!(!marker.exists(), "the harness started: {:?}", std::fs::read_to_string(marker));
+    assert!(!daemon.other_marker.exists(), "the other harness started");
+    daemon.stop().await;
+}
+
+/// `ACPMUX_AGENT_LAUNCH=only:fake` (a perf bench's replay agent): a session,
+/// prewarm or probe that names another harness is refused as under `deny`
+/// and that harness never runs; the listed harness starts.
+#[tokio::test]
+async fn an_only_list_starts_the_named_harness_alone() {
+    let daemon = Daemon::start("only", Some(("ACPMUX_AGENT_LAUNCH", "only:fake")), false).await;
+    let dir = &daemon.dir;
+    let mut rpc = Rpc::connect(&daemon.socket).await;
+    assert_eq!(rpc.call("_acpmux/status", json!({})).await["agentLaunch"], "only");
+
+    let reply = rpc
+        .send(
+            "session/new",
+            json!({"cwd": dir, "mcpServers": [], "_meta": {"acpmux": {"name": "o", "harness": "other"}}}),
+        )
+        .await;
+    assert_eq!(reply["error"]["code"], -32010, "{reply}");
+    assert_eq!(reply["error"]["data"]["reason"], "agent_launch_disabled", "{reply}");
+    let prewarm =
+        rpc.call("_acpmux/prewarm", json!({"harness": "other", "cwd": dir, "wait": true})).await;
+    assert_eq!(prewarm["accepted"], false, "{prewarm}");
+    rpc.call("_acpmux/models", json!({"refresh": true})).await;
+    assert!(!daemon.other_marker.exists(), "the other harness started");
+
+    // The listed harness (the default here) starts.
+    rpc.call(
+        "session/new",
+        json!({"cwd": dir, "mcpServers": [], "_meta": {"acpmux": {"name": "f", "harness": "fake"}}}),
+    )
+    .await;
+    assert!(daemon.marker.exists(), "the listed harness never started");
+    assert!(!daemon.other_marker.exists(), "the other harness started");
     daemon.stop().await;
 }
 

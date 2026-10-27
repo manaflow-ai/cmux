@@ -1,0 +1,19 @@
+{
+  "id": "column-resize-live",
+  "tier": "T2",
+  "description": "Column edge drag (column-resize-live.py, cx-ww20): three columns (a terminal and two New Tab pages) so the strip overflows, the first column edge dragged right in 30 paced 6 pt steps while debug.window_record records each frame; how far the dragged edge is from the pointer after each step (points) and the steps that sampled no edge, light session.",
+  "command": ["scripts/cmux-next/column-resize-live.py", "--story", "column-resize-live"],
+  "session": "light",
+  "engine": "webkit",
+  "config": "bench",
+  "metrics": [
+    {"name": "column_resize\\.edge_lag", "unit": "unitless", "better": "lower"},
+    {"name": "column_resize\\.failed_steps", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 90,
+  "needs": ["debug:debug.focus", "debug:debug.layers", "debug:debug.mouse", "debug:debug.window_record",
+            "debug:debug.window_snapshot"],
+  "owner": "PL-motion-core",
+  "component": "Layout>Resize"
+}

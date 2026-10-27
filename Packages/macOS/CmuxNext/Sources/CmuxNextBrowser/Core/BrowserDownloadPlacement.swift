@@ -106,7 +106,9 @@ public final class BrowserDownloadPlacement {
     /// `renamex_np(RENAME_EXCL)`: fails with EEXIST when anything (a file,
     /// a dangling symlink) is at `destination`; never follows or replaces it.
     static func moveExclusively(_ source: URL, to destination: URL) throws {
-        let result = renamex_np(source.path(percentEncoded: false), destination.path(percentEncoded: false), UInt32(RENAME_EXCL))
+        // SAFETY: both paths are NUL-terminated copies Swift keeps alive for the call, and
+        // renamex_np only reads them.
+        let result = unsafe renamex_np(source.path(percentEncoded: false), destination.path(percentEncoded: false), UInt32(RENAME_EXCL))
         if result != 0 { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
     }
 

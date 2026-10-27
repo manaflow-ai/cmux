@@ -62,7 +62,7 @@ public struct ConversationThread: Decodable, Sendable, Equatable {
 /// `conversation-thread`: the root and up to `limit` (1...500) replies after `afterSeq`.
 public struct ConversationThreadRequest: DaemonRequest {
     public typealias Response = ConversationThread
-    public static let command = "conversation-thread"
+    public static let commandName: DaemonCommandName = "conversation-thread"
     public static let requiredCapability: String? = DaemonCapability.conversationThread.rawValue
     public static let maxLimit = 500
     public var conversation: String

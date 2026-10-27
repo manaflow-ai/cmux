@@ -24,11 +24,12 @@ impl Mux {
     /// Run `operation` on the conversation store, opening
     /// `conversations.sqlite3` in the session state directory on first use
     /// (in memory for an in-memory session).
+    #[track_caller]
     pub(crate) fn with_conversations<T>(
         &self,
         operation: impl FnOnce(&mut ConversationStore) -> anyhow::Result<T>,
     ) -> anyhow::Result<T> {
-        let mut store = self.conversations.store.lock().unwrap();
+        let mut store = self.conversations.lock_store_for_sqlite().unwrap();
         if store.is_none() {
             let directory = self.session_state_directory();
             *store = Some(ConversationStore::open(directory.as_deref())?);
@@ -40,6 +41,7 @@ impl Mux {
     /// derives from its result, after the store lock is released. Writes
     /// and their events are serialized, so subscribers see each
     /// conversation's `rev` in commit order.
+    #[track_caller]
     pub(crate) fn conversation_write<T>(
         &self,
         write: impl FnOnce(&mut ConversationStore) -> anyhow::Result<T>,
@@ -51,6 +53,7 @@ impl Mux {
     /// [`Self::conversation_write`] for a write that commits several changes
     /// in one transaction: every event is published after the commit, in
     /// order.
+    #[track_caller]
     pub(crate) fn conversation_write_many<T>(
         &self,
         write: impl FnOnce(&mut ConversationStore) -> anyhow::Result<T>,
@@ -220,7 +223,9 @@ impl Mux {
 
     /// The bindings lock (tests poison it).
     #[cfg(test)]
-    pub(crate) fn conversation_bindings(&self) -> &Mutex<std::collections::BTreeMap<u64, String>> {
+    pub(crate) fn conversation_bindings(
+        &self,
+    ) -> &std::sync::Mutex<std::collections::BTreeMap<u64, String>> {
         &self.conversations.bindings
     }
 
@@ -292,7 +297,7 @@ impl Mux {
 
     /// Ends `client`'s binding when its connection ends.
     pub(crate) fn unbind_conversation_principal(&self, client: u64) {
-        // Safety: a removal never grants access, so a poisoned bindings lock
+        // Poison recovery: a removal never grants access, so a poisoned bindings lock
         // still drops the binding.
         let bound = self
             .conversations
@@ -306,7 +311,7 @@ impl Mux {
         {
             self.end_agent_typing(&participant);
         }
-        // Safety: a removal never grants access, so a poisoned peers lock
+        // Poison recovery: a removal never grants access, so a poisoned peers lock
         // still drops the record.
         self.conversations
             .remote
@@ -314,11 +319,16 @@ impl Mux {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(&client);
-        // Its attachment uploads end with it (never opens the store).
-        if let Some(store) =
-            self.conversations.store.lock().unwrap_or_else(PoisonError::into_inner).as_mut()
-        {
-            store.attachments_client_closed(client);
+        // Its attachment uploads end with it (never opens the store); their
+        // partial files are removed after the store lock is released.
+        let closed = self
+            .conversations
+            .lock_store()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_mut()
+            .map(|store| store.attachments_client_closed(client));
+        if let Some(closed) = closed {
+            closed.remove_partial_files();
         }
     }
 

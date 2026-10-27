@@ -29,11 +29,14 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 symbol: "eyeglasses", surfaces: [.palette, .keyboard, .menu],
                 cliName: "app new-incognito-window", mainMenu: .window
             ),
+            // A window target (`window:<id>`, the control socket's window ids) closes that window;
+            // without one, the active window.
             ActionDescriptor(
                 id: "closeWindow",
                 title: String(localized: "action.closeWindow", defaultValue: "Close Window", bundle: .module),
                 defaultShortcut: Shortcut("w", modifiers: [.control, .command]), category: .window,
-                symbol: "xmark.rectangle", surfaces: [.palette, .keyboard, .menu], cliName: "app close-window", mainMenu: .file
+                symbol: "xmark.rectangle", surfaces: [.palette, .keyboard, .menu], targets: [.window],
+                cliName: "app close-window", mainMenu: .file
             ),
             // Every other open window; each window's own close check runs (an
             // incognito window asks), and terminals keep running as for Close Window.

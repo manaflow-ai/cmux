@@ -1,0 +1,3 @@
+{"harness":"claude","items":[{"id":"q1","header":"Framework","prompt":"Which framework?","options":[{"id":"o1","label":"React"},{"id":"o2","label":"Vue"}],"allowsOther":true},{"id":"q2","header":"Extras","prompt":"Which extras?","multiSelect":true,"options":[{"id":"e1","label":"Lint"},{"id":"e2","label":"Tests"},{"id":"e3","label":"CI"}]}]}
+q1=Svelte
+q2=e3

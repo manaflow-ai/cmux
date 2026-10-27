@@ -119,9 +119,9 @@ public final class AgentPaneRelaunchWake {
         }
         guard let data = reader.data(at: file, maximumBytes: maximumBytes) else { return [:] }
         let decoder = JSONDecoder()
-        let saved = (try? decoder.decode([String: Saved].self, from: data))
+        let saved = (try? decoder.blockingDecode([String: Saved].self, from: data))
             // A file the last build wrote, contents inline.
-            ?? (try? decoder.decode([String: AgentPaneWakeState].self, from: data))?.mapValues { Saved(state: $0) }
+            ?? (try? decoder.blockingDecode([String: AgentPaneWakeState].self, from: data))?.mapValues { Saved(state: $0) }
             ?? [:]
         var budget = budget
         return saved.compactMapValues { saved in
@@ -145,6 +145,8 @@ public final class AgentPaneRelaunchWake {
         let read = read
         // task-owner: every ask is awaited below, before the quit goes on.
         let asks = pages.map { page in
+            // main-hop-allow: each ask is the page's main-actor async state read (a page script); the quit's collect
+            // starts them all at once and awaits each below, as the history writers' quit flushes do
             (page, page.view.model.pendingWake == nil && page.view.model.hasHandshake ? Task { await read(page.view, limit) } : nil)
         }
         for (page, ask) in asks {

@@ -7,12 +7,12 @@
 use super::MessageWriter;
 use super::OutboundStream;
 use crate::panic_free::JsonFields;
+use crate::server::request_hang_watch::ipc_reply;
+use cmux_threads::checked::sync as waits;
 
 use super::INITIAL_BROWSER_RESIZE_TIMEOUT;
 use super::SHARED_SIZING_CAPABILITY;
 use super::ViewResizePreparation;
-use super::handle_attach_send_error;
-use super::report_attach_overflow;
 use super::size_state_for_client;
 use crate::Mux;
 use crate::MuxEvent;
@@ -224,7 +224,9 @@ pub(super) fn wait_for_initial_browser_resize(
     surface: SurfaceId,
     reservation: u64,
 ) -> anyhow::Result<()> {
-    match completion.recv_timeout(INITIAL_BROWSER_RESIZE_TIMEOUT) {
+    // The browser host sizes the surface: a cross-process round trip. Its
+    // callers run on work items (connection_frame.rs, resource_connection.rs).
+    match ipc_reply(|| waits::recv_timeout(completion, INITIAL_BROWSER_RESIZE_TIMEOUT)) {
         Ok(Ok(())) => Ok(()),
         Ok(Err(error)) => {
             anyhow::bail!(
@@ -386,4 +388,37 @@ fn apply_view_geometry_replacement(
     } else {
         mux.remove_surface_size_client(surface, client);
     }
+}
+
+pub(super) fn report_attach_overflow(
+    writer: &MessageWriter,
+    surface_id: SurfaceId,
+    lifecycle: &AttachLifecycle,
+    outbound_stream: &OutboundStream,
+) {
+    if !lifecycle.claim_overflow_report() {
+        return;
+    }
+    // A client-minted stream ends with its own `stream-end{overflow}`.
+    let _ = match outbound_stream.client_stream {
+        Some(_) => writer.send_overflow_terminal(outbound_stream),
+        None => writer.send_terminal(&attach_overflow_json(surface_id), outbound_stream),
+    };
+}
+
+pub(super) fn handle_attach_send_error(lifecycle: &AttachLifecycle, error: &std::io::Error) {
+    if error.kind() == std::io::ErrorKind::WouldBlock {
+        lifecycle.mark_overflow();
+    } else {
+        lifecycle.cancel();
+    }
+}
+
+pub(super) fn attach_overflow_json(surface: SurfaceId) -> Value {
+    json!({
+        "event": "overflow",
+        "scope": "surface",
+        "surface": surface,
+        "error": "surface stream fell behind; reattach the surface",
+    })
 }

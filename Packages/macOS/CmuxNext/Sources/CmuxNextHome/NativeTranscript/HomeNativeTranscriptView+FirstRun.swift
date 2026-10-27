@@ -29,29 +29,10 @@ extension HomeNativeTranscriptView {
         firstRun.hero.setAvatar(picture: picture, text: text)
     }
 
-    /// Whether the Chief pet shows (`DesignSettings.homeChiefPetEnabled`, from `home.chiefPetEnabled`):
-    /// the first-run panel's pet row reads Show or Hide Chief Pet.
-    func followChiefPet() {
-        withObservationTracking {
-            firstRun.setPetShown(DesignSettings.shared.homeChiefPetEnabled)
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in self?.followChiefPet() }
-        }
-    }
-
     /// The user's agents for the first-run panel's glance (the host maps
     /// them from the tab status the strip and the sidebar draw); empty lists
     /// none.
     public func setFirstRunAgents(_ agents: [HomeAgentGlance]) {
         firstRun.setAgents(agents)
-    }
-
-    /// Debug Settings > Home > Chief front page hero: off keeps the rows-only first-run panel.
-    func followHeroTunable() {
-        withObservationTracking {
-            firstRun.showsHero = HomeTunables.firstRunHero.value
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in self?.followHeroTunable() }
-        }
     }
 }

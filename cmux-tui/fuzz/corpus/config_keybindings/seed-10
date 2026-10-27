@@ -1,0 +1,8 @@
+cmd+opt+up	focusUp	
+// keybindings.json
+[
+  {
+    "key": "cmd+opt+up",
+    "command": "-focusUp"
+  }
+]

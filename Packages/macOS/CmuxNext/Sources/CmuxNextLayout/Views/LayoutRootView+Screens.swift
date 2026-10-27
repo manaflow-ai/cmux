@@ -3,6 +3,8 @@ import CmuxNextDesign
 
 /// Screen views: the animated screen switch.
 extension LayoutRootView {
+    /// Sets every screen's frame target for the switch from `old` to `new`; the caller's change turn
+    /// hands it to the render server or places it (`applyScreenFrames`). Returns true if it springs.
     func switchScreens(from old: ScreenID?, to new: ScreenID?, order: [ScreenID], animated: Bool) -> Bool {
         let oldIndex = old.flatMap { order.firstIndex(of: $0) } ?? -1
         let newIndex = new.flatMap { order.firstIndex(of: $0) } ?? 0
@@ -25,7 +27,6 @@ extension LayoutRootView {
             if !animated { frame.snap() }
             screenFrames[id] = frame
         }
-        applyScreenFrames()
         return animated
     }
 

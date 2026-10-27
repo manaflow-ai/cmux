@@ -24,9 +24,9 @@
 use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use anyhow::{Context as _, bail};
+use cmux_process::Command;
 
 /// Where one file to push comes from.
 #[derive(Clone, Debug)]

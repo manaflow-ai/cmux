@@ -12,7 +12,12 @@ fields only: the Xcode verify phase runs with a PATH that may lack bun.
 
 `--inputs` prints the pathspecs the source key hashes, one per line.
 
-Usage: web-bundle-key.py ROOT [--stamp | --verify-stamp | --source | --outputs | --inputs]
+`--shared` checks a built tree (the repository or a build-web-bundles.sh --out-root): every
+`cmux-page://cmux.shared/<file>` a bundle names is a file in the tree's own pages/_shared, the
+folder that origin serves, and the bundles name one React file between them
+(webviews/scripts/shared/shared-react.mjs). It prints that file and exits 1 with each problem.
+
+Usage: web-bundle-key.py ROOT [--stamp | --verify-stamp | --source | --outputs | --inputs | --shared]
 """
 import hashlib
 import os
@@ -54,6 +59,15 @@ OUTPUTS = [
 ]
 
 IGNORED_NAMES = {".DS_Store"}
+
+# The pages output's folder that cmux-page://cmux.shared/ serves (PageSharedChunks.bundledRoot).
+SHARED_ROOT = "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/_shared"
+# A name is the longest run of these bytes after the prefix, counted when it ends in .js or .css
+# (WebUpdateTree.sharedNames reads the same way).
+SHARED_URL = re.compile(rb"cmux-page://cmux\.shared/([A-Za-z0-9._/-]+)")
+SHARED_TYPES = (".js", ".css")
+SHARED_SCANNED = (".html", ".js", ".mjs", ".css")
+REACT_FILE = re.compile(r"^react-[A-Za-z0-9]+\.js$")
 
 # The bundlers resolve relative specifiers in these files. A specifier that
 # leaves webviews/ (the agent pane imports web/data/model-catalog/snapshot.json,
@@ -210,6 +224,43 @@ def output_digest(root):
     return h.hexdigest()
 
 
+def output_files(root):
+    """Every file under OUTPUTS, relative to `root`, in output_digest's order."""
+    for top in OUTPUTS:
+        base = os.path.join(root, top)
+        if os.path.isfile(base):
+            yield top
+        elif os.path.isdir(base):
+            for d, dirs, names in os.walk(base):
+                dirs.sort()
+                for n in sorted(names):
+                    if n not in IGNORED_NAMES:
+                        yield os.path.relpath(os.path.join(d, n), root)
+
+
+def shared_problems(root):
+    """(problems, react): each cmux.shared file a bundle names that the tree's SHARED_ROOT lacks,
+    and the React files the bundles name (one when the trees share it)."""
+    problems, react = [], set()
+    shared = os.path.join(root, SHARED_ROOT)
+    for rel in output_files(root):
+        if not rel.endswith(SHARED_SCANNED):
+            continue
+        with open(os.path.join(root, rel), "rb") as f:
+            names = {m.group(1).decode() for m in SHARED_URL.finditer(f.read())}
+        names = {name for name in names if name.endswith(SHARED_TYPES)}
+        for name in sorted(names):
+            path = os.path.join(shared, name)
+            plain = not any(part in ("", ".", "..") for part in name.split("/"))
+            if not plain or os.path.islink(path) or not os.path.isfile(path):
+                problems.append(f"{rel}: cmux-page://cmux.shared/{name} is not in {SHARED_ROOT}")
+            elif REACT_FILE.match(name):
+                react.add(name)
+    if len(react) > 1:
+        problems.append(f"the bundles name {len(react)} React files: {', '.join(sorted(react))}")
+    return problems, sorted(react)
+
+
 def main(argv):
     if len(argv) < 2 or len(argv) > 3:
         print(__doc__.strip().splitlines()[-1], file=sys.stderr)
@@ -223,6 +274,12 @@ def main(argv):
         print(output_digest(root))
     elif mode == "--stamp":
         print(f"{source_key(root)} {output_digest(root)} bun-{bun_version()}")
+    elif mode == "--shared":
+        problems, react = shared_problems(root)
+        for problem in problems:
+            print(f"error: {problem}", file=sys.stderr)
+        print(f"shared React: {', '.join(react) or 'none'}")
+        return 1 if problems else 0
     elif mode == "--verify-stamp":
         print(f"{source_key(root)} {output_digest(root)}")
     else:

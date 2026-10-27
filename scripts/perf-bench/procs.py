@@ -17,8 +17,21 @@
   ri_phys_footprint      (9) what Activity Monitor calls Memory
   ri_diskio_byteswritten (19) bytes the process wrote to disk (the disk-write rows)
 
+`power_assertions` reads `pmset -g assertions` for a pid set and `thermal_state` the Mac's thermal state
+(idle-budget.py records both per window).
+
+Readers that run outside the measured processes (no wakeup of theirs): nettop (bytes and connections per
+process: `nettop_command`, `parse_nettop`), `log show` (unified-log lines per process: `read_log`, `parse_log`)
+and top's IDLEW of another user's process (`top_idlew`: WindowServer without root).
+
 `proc_pidinfo(PROC_PIDTASKINFO)` adds the overhead counters of speed-of-sound-DESIGN.md:
 threads, Mach messages sent + received (IPC), Unix + Mach syscalls and context switches.
+
+`priorities()` reads each process's scheduling role for idle-budget.py's role audit (p14-energy-106): the task's
+base priority (`proc_pidinfo(PROC_PIDTASKINFO)` pti_priority) and the kernel's darwinbg bit and nice
+(`proc_pidinfo(PROC_PIDTBSDINFO)` pbi_flags, the bit `taskinfo` prints, and pbi_nice). Neither read wakes the
+process. `ps -o pri` is not used: it prints the highest priority of the process's threads (adv_cmds ps, ki->curpri),
+which follows thread QoS and boosts, not the task's role.
 
 GPU time per process is the IORegistry's `accumulatedGPUTime` of each GPU user client (what Activity
 Monitor's GPU Time column reads): `gpu_ms_per_s`, None when the registry cannot be read.
@@ -30,23 +43,35 @@ included. A coalition that cannot be read is None, never zeros.
 
 An instance is every process of one browser run: the main pid's descendants,
 every process whose executable lies inside the bundle (helpers, crashpad,
-cmux daemons and terminal hosts, which outlive their parents), and every
+cmux daemons and terminal hosts, which outlive their parents), every
 process macOS counts the main pid responsible for (Safari's and cmux's
-WebKit XPC processes).
+WebKit XPC processes), the Computer Use helper started with `--owner-pid <main pid>`,
+and every descendant of one of its acpmux agent hosts
+(`__agent-host`, pooled ones included: the harness and its tools run from
+outside the bundle, under a host that detached from its daemon). Those
+descendants are kind `agent-harness` (`agent_harness_pids`).
 
 The libraries load on first use, so the pure parts (`usage_from_words`, `rates`, `gpu_ns_from_registry`,
-`coalition_from_words`, `coalition_rates`, `window_totals`) import and test on any OS.
+`coalition_from_words`, `coalition_rates`, `window_totals`, `priorities` with its reads passed) import and test on any OS.
 """
 from __future__ import annotations
 
+import csv
 import ctypes
+import datetime
+import json
+import math
 import os
 import plistlib
 import re
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from functools import cache
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "cmux-next"))
+from tab_pages import process_table, process_type_kind  # noqa: E402,F401  (the one `ps` reader and --type classifier)
 
 
 class _Timebase(ctypes.Structure):
@@ -301,18 +326,72 @@ def overhead(pid: int):
             (info.syscalls_mach + info.syscalls_unix) & 0xFFFFFFFF, info.csw & 0xFFFFFFFF)
 
 
+class _BSDInfo(ctypes.Structure):
+    """`struct proc_bsdinfo` (sys/proc_info.h), read with PROC_PIDTBSDINFO: same user, no root."""
+    _fields_ = [("pbi_flags", ctypes.c_uint32), ("pbi_status", ctypes.c_uint32), ("pbi_xstatus", ctypes.c_uint32),
+                ("pbi_pid", ctypes.c_uint32), ("pbi_ppid", ctypes.c_uint32), ("pbi_uid", ctypes.c_uint32),
+                ("pbi_gid", ctypes.c_uint32), ("pbi_ruid", ctypes.c_uint32), ("pbi_rgid", ctypes.c_uint32),
+                ("pbi_svuid", ctypes.c_uint32), ("pbi_svgid", ctypes.c_uint32), ("rfu_1", ctypes.c_uint32),
+                ("pbi_comm", ctypes.c_char * 16), ("pbi_name", ctypes.c_char * 32), ("pbi_nfiles", ctypes.c_uint32),
+                ("pbi_pgid", ctypes.c_uint32), ("pbi_pjobc", ctypes.c_uint32), ("e_tdev", ctypes.c_uint32),
+                ("e_tpgid", ctypes.c_uint32), ("pbi_nice", ctypes.c_int32), ("pbi_start_tvsec", ctypes.c_uint64),
+                ("pbi_start_tvusec", ctypes.c_uint64)]
+
+
+_PROC_PIDTBSDINFO = 3
+# sys/proc_info.h: the task runs darwin background now (PRIO_DARWIN_BG, a darwinbg role or a background QoS
+# ceiling: what `taskinfo` prints as darwinbg), and the part another process set on it.
+PROC_FLAG_DARWINBG = 0x8000
+PROC_FLAG_EXT_DARWINBG = 0x10000
+
+
+def bsd_state(pid: int):
+    """(darwinbg, nice) of `pid` now: whether the kernel runs it darwin background (pbi_flags) and its nice value
+    (pbi_nice); None when it cannot be read (gone, not macOS)."""
+    try:
+        libproc = _darwin().libproc
+    except OSError:
+        return None
+    info = _BSDInfo()
+    size = ctypes.sizeof(info)
+    if libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(_PROC_PIDTBSDINFO), ctypes.c_uint64(0),
+                            ctypes.byref(info), ctypes.c_int(size)) != size:
+        return None
+    return bool(info.pbi_flags & (PROC_FLAG_DARWINBG | PROC_FLAG_EXT_DARWINBG)), info.pbi_nice
+
+
+def task_priority(pid: int) -> int | None:
+    """The task's base priority (proc_pidinfo PROC_PIDTASKINFO pti_priority, bsd/kern/proc_info.c fill_taskprocinfo:
+    task->priority), the priority task_policy gives the task as a whole, not its busiest thread's; None when it
+    cannot be read."""
+    try:
+        libproc = _darwin().libproc
+    except OSError:
+        return None
+    info = _TaskInfo()
+    size = ctypes.sizeof(info)
+    if libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(_PROC_PIDTASKINFO), ctypes.c_uint64(0),
+                            ctypes.byref(info), ctypes.c_int(size)) != size:
+        return None
+    return info.priority
+
+
+def priorities(pids, task_priority_of=task_priority, bsd_state_of=bsd_state) -> dict[int, dict]:
+    """{pid: {base, nice, darwinbg}} of `pids` now: the task's base priority (task_priority) and its darwinbg bit
+    and nice (bsd_state). A pid with neither read (gone) is left out; one unread value is None. Tests pass the
+    reads."""
+    found = {}
+    for pid in pids:
+        base = task_priority_of(pid)
+        bsd = bsd_state_of(pid)
+        if base is None and bsd is None:
+            continue
+        found[pid] = {"base": base, "darwinbg": bsd[0] if bsd else None, "nice": bsd[1] if bsd else None}
+    return found
+
+
 def _delta32(last: int, first: int) -> int:
     return (last - first) & 0xFFFFFFFF
-
-
-def process_table():
-    out = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
-    rows = []
-    for line in out.splitlines():
-        parts = line.strip().split(None, 2)
-        if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
-            rows.append((int(parts[0]), int(parts[1]), parts[2]))
-    return rows
 
 
 def resident_mb() -> dict[int, float]:
@@ -338,13 +417,81 @@ def main_pid(bundle: str) -> int | None:
     return min(pids) if pids else None
 
 
+# The Computer Use helper app (CuaHelperIdentity.appName), in a cmux bundle's Contents/Library or on its own.
+CUA_HELPER_APP = "/cmux Computer Use.app/Contents/MacOS/"
+# The crash watcher (CrashWatcher.swift): `zsh -f -c <script> cmux-crash-watcher <pid> <sample file> <seconds>`.
+CRASH_WATCHER = re.compile(r"^/bin/zsh -f -c .* cmux-crash-watcher \d+ ", re.S)
+# The standalone terminal holder's argv[0] (cmux-tui-platform host_exe.rs HOLDER_NAME); the built-in one runs as
+# `<host executable> __holder`.
+HOLDER_NAME = "cmux-holder"
+
+
+def is_holder(cmd: str) -> bool:
+    """Whether `cmd` is a terminal holder: the built-in (`__holder`) or the standalone `cmux-holder`."""
+    return "__holder" in cmd or os.path.basename(cmd.split(" --", 1)[0].strip()) == HOLDER_NAME
+
+
+class ProcessTree:
+    """The parents and commands of one `ps` table ([(pid, ppid, command)], process_table): what a process's
+    ancestry tells that its command line cannot (a terminal's job, an agent's harness)."""
+
+    def __init__(self, table):
+        self.parent = {pid: ppid for pid, ppid, _cmd in table}
+        self.command = {pid: cmd for pid, _ppid, cmd in table}
+
+    def ancestors(self, pid: int) -> list[tuple[int, str]]:
+        """[(pid, command)] of `pid`'s parents, nearest first, up to launchd; a parent not in the table ends it."""
+        out, seen = [], {pid}
+        parent = self.parent.get(pid)
+        while parent and parent not in seen and parent in self.command:
+            out.append((parent, self.command[parent]))
+            seen.add(parent)
+            parent = self.parent.get(parent)
+        return out
+
+
+# The word acpmux starts an agent host with (cmux-tui/crates/acpmux/src/agent_host/mod.rs HOST_ARG): one host per
+# agent session and per pooled entry (`hosts/pool/`), the harness its child.
+AGENT_HOST_ARG = "__agent-host"
+AGENT_HARNESS = "agent-harness"
+
+
+def is_agent_host(cmd: str) -> bool:
+    """Whether `cmd` is an acpmux agent host (`acpmux __agent-host`, or `cmux acp __agent-host` in the multicall
+    binary)."""
+    return AGENT_HOST_ARG in cmd.split()
+
+
+def agent_harness_pids(table) -> dict[int, int]:
+    """{pid: host pid} of every descendant of an agent host in `table` ([(pid, ppid, command)], process_table): the
+    harness and whatever it runs, under its nearest host. A host is never a harness."""
+    children: dict[int, list[int]] = {}
+    hosts = []
+    for pid, ppid, cmd in table:
+        children.setdefault(ppid, []).append(pid)
+        if is_agent_host(cmd):
+            hosts.append(pid)
+    host_set = set(hosts)
+    found: dict[int, int] = {}
+    for host in hosts:
+        stack = list(children.get(host, []))
+        while stack:
+            pid = stack.pop()
+            if pid in host_set or pid in found:
+                continue  # a host under a host is its own; a racy table's cycle ends here
+            found[pid] = host
+            stack.extend(children.get(pid, []))
+    return found
+
+
 def kind_of(cmd: str) -> str:
-    """A short process kind for the per-kind breakdown."""
-    if "--type=renderer" in cmd:
+    """A short process kind for the per-kind breakdown (xbench's names for the tab_pages.process_type_kind kinds)."""
+    chromium = process_type_kind(cmd)
+    if chromium in ("cef-renderer", "cef-extension"):
         return "renderer"
-    if "--type=gpu-process" in cmd:
+    if chromium == "cef-gpu":
         return "gpu"
-    if "--type=utility" in cmd:
+    if chromium == "cef-utility":
         match = re.search(r"--utility-sub-type=(\S+)", cmd)
         return "utility:" + (match.group(1).rsplit(".", 1)[-1] if match else "?")
     if "com.apple.WebKit." in cmd:
@@ -355,6 +502,10 @@ def kind_of(cmd: str) -> str:
         return "cmux-tui"
     if "/bin/acpmux" in cmd:
         return "acpmux"
+    if CUA_HELPER_APP in cmd.split(" --", 1)[0]:
+        return "cua-helper"
+    if CRASH_WATCHER.search(cmd):
+        return "crash-watcher"
     exe = cmd.split(" --", 1)[0].split(" -")[0]
     if " Helper" in exe:
         return "helper"
@@ -402,9 +553,11 @@ class Instance:
         self.pid = pid
         self.roots = _roots(bundle)
         self.seen: set[int] = set()
+        self.harness: dict[int, int] = {}  # the last pids() read's agent harness processes: {pid: host pid}
 
-    def pids(self) -> dict[int, str]:
-        table = process_table()
+    def pids(self, table: list[tuple[int, int, str]] | None = None) -> dict[int, str]:
+        """{pid: command} of the instance in `table` (process_table rows; read now when None)."""
+        table = process_table() if table is None else table
         children: dict[int, list[int]] = {}
         commands = {}
         for pid, ppid, cmd in table:
@@ -423,13 +576,24 @@ class Instance:
                 found.add(pid)
             elif responsible is not None and pid != self.pid and responsible(pid) == self.pid:
                 found.add(pid)
-        # Terminal hosts name their daemon (`--owner ...@<pid>`) and run from outside the bundle.
+        # Terminal hosts and holders name their daemon (`--owner ...@<pid>`) and run from outside the bundle; the
+        # Computer Use helper names the app (`--owner-pid <pid>`), disclaims its responsibility and may run from
+        # another cmux.
         for pid, cmd in commands.items():
-            owner = re.search(r"--owner \S+@(\d+)", cmd) if "__terminal-host" in cmd else None
+            owner = re.search(r"--owner \S+@(\d+)", cmd) if "__terminal-host" in cmd or is_holder(cmd) else None
             if owner and int(owner.group(1)) in found:
                 found.add(pid)
+            if CUA_HELPER_APP in cmd and re.search(rf"--owner-pid {self.pid}(\s|$)", cmd):
+                found.add(pid)
+        # Agent harnesses run from outside the bundle, under a host that is the instance's.
+        self.harness = {pid: host for pid, host in agent_harness_pids(table).items() if host in found}
+        found |= set(self.harness)
         self.seen |= found
         return {pid: commands[pid] for pid in found}
+
+    def kind(self, pid: int, cmd: str) -> str:
+        """`kind_of`, with the last pids() read's agent harness processes as `agent-harness`."""
+        return AGENT_HARNESS if pid in self.harness else kind_of(cmd)
 
     def memory(self, per_pid: bool = False) -> dict:
         """Physical footprint now: total MB, process count and MB per kind (and per process with
@@ -446,9 +610,10 @@ class Instance:
             mb = got[3] / MB
             total += mb
             count += 1
-            kinds[kind_of(cmd)] = kinds.get(kind_of(cmd), 0.0) + mb
+            name = self.kind(pid, cmd)
+            kinds[name] = kinds.get(name, 0.0) + mb
             if per_pid:
-                rows.append({"pid": pid, "kind": kind_of(cmd), "command": cmd[:160], "footprint_mb": round(mb, 1),
+                rows.append({"pid": pid, "kind": name, "command": cmd[:160], "footprint_mb": round(mb, 1),
                              "rss_mb": rss.get(pid)})
         result = {"mb": round(total, 1), "processes": count,
                   "kinds": {k: round(v, 1) for k, v in sorted(kinds.items(), key=lambda kv: -kv[1])}}
@@ -490,7 +655,7 @@ class Instance:
                            "mach_msgs_per_s": _delta32(last_overhead[2], first_overhead[2]) / elapsed,
                            "syscalls_per_s": _delta32(last_overhead[3], first_overhead[3]) / elapsed,
                            "csw_per_s": _delta32(last_overhead[4], first_overhead[4]) / elapsed})
-            rows.append({"pid": pid, "kind": kind_of(cmd), "threads": last_overhead[1], **values})
+            rows.append({"pid": pid, "kind": self.kind(pid, cmd), "threads": last_overhead[1], **values})
         result = window_totals(rows)
         result["seconds"] = round(elapsed, 1)
         result["coalition"] = coalition_rates(coalition_first, coalition_last, elapsed)
@@ -531,3 +696,284 @@ def _alive(pid: int) -> bool:
 
 def load_average() -> float:
     return os.getloadavg()[0]
+
+
+# `pmset -g assertions`, "Listed by owning process": one header line per assertion, then indented detail lines
+# (`Created for PID: N.` when a daemon such as powerd or runningboardd holds it on a process's behalf).
+# A header is `pid N(process): [assertion ID] age type named: "name"`; the age (HH:MM:SS held so far) changes
+# between reads, the ID does not.
+_ASSERTION_RE = re.compile(r"^\s*pid (\d+)\((.*?)\): \[(0x[0-9a-fA-F]+)\] (\S+) (\S+)(?: named: \"(.*)\")?")
+_CREATED_FOR_RE = re.compile(r"Created for PID: (\d+)")
+
+
+def power_assertions(pids, text: str | None = None) -> list[dict]:
+    """The power assertions held by or created for a pid of `pids`: [{pid, process, id, type, name, age, line}].
+
+    `id` is the assertion's ID (`0x...`, the same at every read while it is held) and `age` how long it has been
+    held at this read. `text` is `pmset -g assertions` output (read now when None). An assertion created for one
+    of the pids by another process counts for that pid."""
+    if text is None:
+        text = subprocess.run(["pmset", "-g", "assertions"], capture_output=True, text=True).stdout
+    wanted = set(pids)
+    found, current = [], None
+    for line in text.splitlines():
+        header = _ASSERTION_RE.match(line)
+        if header:
+            pid, process, assertion_id, age, kind, name = header.groups()
+            current = {"pid": int(pid), "process": process, "id": assertion_id.lower(), "type": kind,
+                       "name": name or "", "age": age, "line": line.strip()[:240]}
+            found.append(current)
+            continue
+        if current is not None and line[:1] in ("\t", " ") and line.strip():
+            created = _CREATED_FOR_RE.search(line)
+            if created:
+                current["created_for"] = int(created.group(1))
+        else:
+            current = None
+    return [a for a in found if a["pid"] in wanted or a.get("created_for") in wanted]
+
+
+THERMAL_STATES = ("nominal", "fair", "serious", "critical")  # NSProcessInfoThermalState 0...3
+
+
+def thermal_state() -> str | None:
+    """The Mac's `ProcessInfo.processInfo.thermalState` now (system-wide, the value the app reads), or None."""
+    try:
+        objc = ctypes.CDLL("/usr/lib/libobjc.A.dylib")
+        ctypes.CDLL("/System/Library/Frameworks/Foundation.framework/Foundation")
+    except OSError:
+        return None
+    objc.objc_getClass.restype = ctypes.c_void_p
+    objc.objc_getClass.argtypes = [ctypes.c_char_p]
+    objc.sel_registerName.restype = ctypes.c_void_p
+    objc.sel_registerName.argtypes = [ctypes.c_char_p]
+    send_object = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)(("objc_msgSend", objc))
+    send_integer = ctypes.CFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.c_void_p)(("objc_msgSend", objc))
+    info = send_object(objc.objc_getClass(b"NSProcessInfo"), objc.sel_registerName(b"processInfo"))
+    if not info:
+        return None
+    state = send_integer(info, objc.sel_registerName(b"thermalState"))
+    return THERMAL_STATES[state] if 0 <= state < len(THERMAL_STATES) else None
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Network, unified log and top's IDLEW (D15 of plans/cmux-next/chrome-parity/p14-energy.md). Each reader asks
+# the kernel or logd, never the measured processes, so a reading wakes none of them. Each has a pure parser
+# that scripts/cmux-next/tests/test_idle_budget.py covers with fixtures on any host.
+
+NETTOP = "/usr/bin/nettop"
+LOG = "/usr/bin/log"
+TOP = "/usr/bin/top"
+
+
+def nettop_command(seconds: float) -> list[str]:
+    """nettop for a window of `seconds`: CSV (-L) of one sample a second (-s 1), byte deltas (-d), raw numbers
+    (-x), no name lookups (-n). Sample 0 has the totals so far and is not counted; samples 1..N are the window.
+    No -P: each process row is followed by its flows, so one run gives the bytes and the connections."""
+    return [NETTOP, "-x", "-n", "-d", "-L", str(max(1, math.ceil(seconds)) + 1), "-s", "1"]
+
+
+_FLOW = re.compile(r"((?:tcp|udp|quic)\d?) (.+)<->(.+)")
+_PROCESS = re.compile(r"(.+)\.(\d+)")
+
+
+def _nettop_samples(text: str) -> list[list[dict]]:
+    """nettop's CSV as samples (each starts at a `time,...` header) of rows {column: value, "name": ...}."""
+    samples: list[list[dict]] = []
+    header: list[str] | None = None
+    for line in csv.reader(text.splitlines()):
+        if not line:
+            continue
+        if line[0] == "time":
+            header = line
+            samples.append([])
+            continue
+        if header is None or len(line) < 2:
+            continue
+        row = {column: line[index] for index, column in enumerate(header) if column and index < len(line)}
+        row["name"] = line[1]
+        samples[-1].append(row)
+    return samples
+
+
+def _bytes(row: dict) -> int:
+    values = (row.get(column, "").strip() for column in ("bytes_in", "bytes_out"))
+    return sum(int(value) for value in values if value.isdigit())
+
+
+# A window sample may land up to this long before the window's end (nettop's 1 s interval and its jitter).
+NETTOP_SLACK_S = 1.5
+
+
+def _nettop_stamp(sample: list[dict], near: float) -> float | None:
+    """The epoch of a sample's `time` column (local HH:MM:SS.ffffff, no date): the day nearest to `near`."""
+    if not sample:
+        return None
+    try:
+        clock = datetime.datetime.strptime(sample[0].get("time", ""), "%H:%M:%S.%f").time()
+    except ValueError:
+        return None
+    day = datetime.datetime.fromtimestamp(near).date()
+    stamps = [datetime.datetime.combine(day + datetime.timedelta(days=shift), clock).timestamp() for shift in (-1, 0, 1)]
+    return min(stamps, key=lambda stamp: abs(stamp - near))
+
+
+def _window_samples(samples: list[list[dict]], start: float | None, end: float | None) -> list[list[dict]] | None:
+    """The delta samples that count: without a window samples 1..N; with one, those stamped inside start..end, and
+    None unless they cover it (a sample at or before `start` precedes them, the last lands within NETTOP_SLACK_S of
+    `end`). Sample 0 holds the totals so far and never counts."""
+    samples = [sample for sample in samples if sample]
+    if len(samples) < 2:
+        return None
+    if start is None or end is None:
+        return samples[1:]
+    stamps = [_nettop_stamp(sample, start) for sample in samples]
+    if any(stamp is None for stamp in stamps):
+        return None
+    inside = [index for index in range(1, len(samples)) if start <= stamps[index] <= end]
+    if not inside or stamps[inside[0] - 1] > start or stamps[inside[-1]] < end - NETTOP_SLACK_S:
+        return None
+    return [samples[index] for index in inside]
+
+
+def _host(end: str) -> str:
+    """The host of a nettop -n end: `17.253.4.125:443` and IPv6 `fe80::1%en0.443` (port after a dot)."""
+    if end.count(":") == 1:
+        return end.rsplit(":", 1)[0]
+    head, _, port = end.rpartition(".")
+    return head if head and port.isdigit() and ":" in head else end
+
+
+def remote_matches(allowed: str, end: str) -> bool:
+    """Whether a remote end (`tcp4 17.253.4.125:443`, parse_nettop's) is `allowed`: the same `proto host:port`,
+    `host:port` or `host`, compared whole (never a substring: 1.1.1.1 is not 11.1.1.1)."""
+    address = end.split(" ", 1)[-1]
+    return allowed in (end, address, _host(address))
+
+
+def parse_nettop(text: str, start: float | None = None, end: float | None = None) -> dict[int, dict] | None:
+    """{pid: {bytes, loopback_bytes, connections, remotes, remote_bytes}} from `nettop_command` output, or None when
+    the output does not measure the window (fewer than two samples, or with start..end (epoch seconds) samples that
+    do not cover it): not measured is never 0 bytes.
+
+    Only the samples stamped inside start..end count (`_window_samples`), so reads made around the window are not
+    counted. bytes: in + out of the process rows; loopback_bytes: the part of its lo0 flows; connections: flows of
+    the last counted sample with a remote end that are not listening; remote_bytes: {remote end: bytes} of the flows
+    that moved bytes; remotes: those ends, then the ends only open at the end (the owner of an over)."""
+    samples = _window_samples(_nettop_samples(text), start, end)
+    if samples is None:
+        return None
+    out: dict[int, dict] = {}
+    opened: dict[int, list[str]] = {}
+    for index, sample in enumerate(samples):
+        last = index == len(samples) - 1
+        got = None
+        for row in sample:
+            flow = _FLOW.fullmatch(row["name"])
+            if flow is None:
+                process = _PROCESS.fullmatch(row["name"])
+                pid = None if process is None else int(process.group(2))
+                got = None if pid is None else out.setdefault(
+                    pid, {"bytes": 0, "loopback_bytes": 0, "connections": 0, "remotes": [], "remote_bytes": {}})
+                if got is not None:
+                    got["bytes"] += _bytes(row)
+                continue
+            if got is None:
+                continue
+            moved = _bytes(row)
+            if row.get("interface") == "lo0":
+                got["loopback_bytes"] += moved
+            remote = flow.group(3).strip()
+            end_name = f"{flow.group(1)} {remote}"
+            if moved:
+                got["remote_bytes"][end_name] = got["remote_bytes"].get(end_name, 0) + moved
+            if last and row.get("state") != "Listen" and not remote.startswith("*"):
+                got["connections"] += 1
+                opened.setdefault(pid, []).append(end_name)
+    for pid, got in out.items():
+        got["remotes"] = list(dict.fromkeys([*got["remote_bytes"], *opened.get(pid, [])]))
+    return out
+
+
+def _log_time(epoch: float) -> str:
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(epoch))
+
+
+def log_command(pids, start: float, end: float) -> list[str]:
+    """`log show` of every line (info and debug too) the pids wrote around start..end (epoch seconds), one JSON
+    object a line. The query is whole seconds; parse_log keeps only the lines inside start..end."""
+    predicate = " OR ".join(f"processID == {pid}" for pid in sorted(pids)) or "processID == -1"
+    return [LOG, "show", "--style", "ndjson", "--info", "--debug", "--start", _log_time(math.floor(start)),
+            "--end", _log_time(math.ceil(end)), "--predicate", predicate]
+
+
+def _event_epoch(stamp) -> float | None:
+    try:
+        return datetime.datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S.%f%z").timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_log(text: str, pids=None, start: float | None = None, end: float | None = None) -> dict[int, dict]:
+    """{pid: {lines, owners: {"subsystem:category": lines}}} from `log show --style ndjson`, counting only events
+    of `pids` stamped inside start..end (a line that is not an event is skipped). An event with no subsystem is
+    owned by its sender image."""
+    out: dict[int, dict] = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        pid = event.get("processID")
+        if not isinstance(pid, int) or (pids is not None and pid not in pids):
+            continue
+        if start is not None or end is not None:
+            at = _event_epoch(event.get("timestamp"))
+            if at is None or (start is not None and at < start) or (end is not None and at > end):
+                continue
+        owner = f"{event.get('subsystem') or '-'}:{event.get('category') or '-'}"
+        if owner == "-:-":
+            owner = os.path.basename(event.get("senderImagePath") or "") or "-"
+        got = out.setdefault(pid, {"lines": 0, "owners": {}})
+        got["lines"] += 1
+        got["owners"][owner] = got["owners"].get(owner, 0) + 1
+    return out
+
+
+def read_log(pids, start: float, end: float) -> dict[int, dict] | None:
+    """parse_log of `log show` for the pids over start..end, or None when the log cannot be read."""
+    try:
+        done = subprocess.run(log_command(pids, start, end), capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if done.returncode != 0:
+        return None
+    return parse_log(done.stdout, set(pids), start, end)
+
+
+def parse_top_idlew(text: str, pid: int) -> int | None:
+    """The cumulative IDLEW (package idle wakeups) of `pid` in `top -l 1 -pid PID -stats pid,idlew` output;
+    top marks a value that changed with a trailing + or -."""
+    found = None
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] == str(pid):
+            value = parts[1].rstrip("+-")
+            if value.isdigit():
+                found = int(value)
+    return found
+
+
+def top_idlew(pid: int) -> int | None:
+    """The cumulative IDLEW of `pid` from `top`, for another user's process when proc_pid_rusage cannot read it
+    (WindowServer without root): package idle wakeups only, so a rate compares it with a top reading, never with an
+    rusage one."""
+    try:
+        text = subprocess.run([TOP, "-l", "1", "-pid", str(pid), "-stats", "pid,idlew"], capture_output=True,
+                              text=True, timeout=30).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return parse_top_idlew(text, pid)

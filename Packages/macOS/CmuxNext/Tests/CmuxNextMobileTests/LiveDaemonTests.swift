@@ -1,5 +1,6 @@
 import CmuxMobileRPC
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextMobile
@@ -45,6 +46,7 @@ enum LiveDaemon {
         let id = UUID().uuidString.prefix(8).lowercased()
         let root = URL(fileURLWithPath: "/tmp/cnm-it-\(id)")
         let launcher = DaemonLauncher(
+            work: BackgroundWork(label: "test.daemon-launcher"),
             configuration: .init(binary: try #require(LiveBinary.url), session: "cnm-it-\(id)",
                                  stateDirectory: root.appendingPathComponent("state")),
             environment: { LoginEnvironment.shared.daemonEnvironment(login: nil, base: ProcessInfo.processInfo.environment, overrides: [:]) })

@@ -2,7 +2,7 @@ public import AppKit
 public import CmuxScreenKit
 import CmuxNextDevices
 import CmuxNextRemoteView
-import CmuxNextWakeups
+public import CmuxNextWakeups
 public import Observation
 
 /// What the pane's chrome shows, beyond `ScreenSession`'s own state.
@@ -74,24 +74,37 @@ public final class MacScreenPane {
     }
 
     /// How long a hidden tab keeps its stream (switching tabs back and forth stays live).
-    public var hiddenGrace: Duration = .seconds(20)
+    public var hiddenGrace: Duration = MacScreenPane.defaultHiddenGrace
+    /// The ``hiddenGrace`` of a new pane.
+    nonisolated public static let defaultHiddenGrace: Duration = .seconds(20)
     private let inputSink: MacScreenInputSink?
     private var visible = false
-    private let hideTimer = DemandTimer(owner: "mac-screen.hidden-grace")
+    /// Ends the session ``hiddenGrace`` after the tab hid (`background`, nobody waits); nil without a session.
+    private let hideTimer: MainDeadline?
+    /// The session's phase and stall (``observePhase(_:on:)``).
+    private var phaseWatch: FrameObservation<StreamState>?
+    private struct StreamState: Equatable {
+        var phase: ScreenSession.Phase
+        var isStalled: Bool
+    }
 
     /// One of the user's devices from the device hub. Each stream is one
     /// approved session: `viewer` asks for it and hands its ticket's
     /// signaling to the session once; a dropped stream does not reconnect on
-    /// its own (Try Again asks again).
-    public init(hubDevice viewer: MacScreenHubViewer, name: String, preferences: ScreenPreferences) {
+    /// its own (Try Again asks again). The chrome updates while `node` (the
+    /// tab) is visible, on `mainWork`'s frames.
+    public init(hubDevice viewer: MacScreenHubViewer, name: String, preferences: ScreenPreferences, node: VisibilityNode,
+                on mainWork: MainWorkScheduler) {
         let session = ScreenSession(title: name, preferences: preferences, signaling: { [weak viewer] in viewer?.takeSignaling() })
         session.reconnectLimit = 0
         model = MacScreenPaneModel(session: session, name: name, gate: .open, hub: viewer)
+        hideTimer = MainDeadline(owner: "mac-screen.hidden-grace", workClass: .background, alignment: .whenHidden(node),
+                                 scheduler: viewer.deadlines)
         let sink = MacScreenInputSink(session: session)
         inputSink = sink
-        view = MacScreenPaneView(model: model)
+        view = MacScreenPaneView(model: model, node: node, on: mainWork)
         view.input.sink = sink
-        wire(session)
+        wire(session, on: mainWork)
         viewer.startStream = { [weak self] in
             guard let self, let session = self.session else { return }
             connectSession(session)
@@ -106,15 +119,16 @@ public final class MacScreenPane {
 
     /// A tab restored on an old pairing-link record: link pairing is no
     /// longer supported, so it says so (Close Tab, Open Mac Screen).
-    public init(unsupportedLink: Void) {
+    public init(unsupportedLinkIn node: VisibilityNode, on mainWork: MainWorkScheduler) {
         model = MacScreenPaneModel(session: nil, name: L.t("macScreen.tab.homeTitle", "Mac Screen"), gate: .unsupported)
         inputSink = nil
-        view = MacScreenPaneView(model: model)
+        hideTimer = nil
+        view = MacScreenPaneView(model: model, node: node, on: mainWork)
         view.chrome.actions.openHome = { [weak self] in self?.handlers.openHome() }
         view.chrome.actions.closeTab = { [weak self] in self?.handlers.closeTab() }
     }
 
-    private func wire(_ session: ScreenSession) {
+    private func wire(_ session: ScreenSession, on mainWork: MainWorkScheduler) {
         session.onVideoTrack = { [weak self] box in
             guard let self else { return }
             model.hasFrame = false
@@ -164,30 +178,31 @@ public final class MacScreenPane {
             session.tap(shortcut.key, modifiers: shortcut.modifiers)
         }
         actions.focusScreen = { [weak self] in self?.focus() }
-        observePhase(session)
+        observePhase(session, on: mainWork)
     }
 
-    /// Follows the session's phase: the picture and the hub hear about a stall or a failure.
-    private func observePhase(_ session: ScreenSession) {
-        withObservationTracking {
-            _ = session.phase
-            _ = session.isStalled
-        } onChange: { [weak self, weak session] in
-            Task { @MainActor [weak self] in
-                guard let self, let session else { return }
-                if case .connected = session.phase {
-                    model.everConnected = true
-                } else {
-                    model.hasFrame = false
-                }
-                model.hub?.streamStalled(session.isStalled)
-                // A device hub stream that could not start, or dropped: the hub hears it too.
-                if case .failed = session.phase, model.hub?.phase.streamingScope != nil { model.hub?.streamFailed() }
-                view.needsLayout = true
-                handlers.keyboardChanged()
-                observePhase(session)
-            }
+    /// Follows the session's phase: the picture and the hub hear about a stall or a failure, once
+    /// per frame however many changes came in it.
+    private func observePhase(_ session: ScreenSession, on mainWork: MainWorkScheduler) {
+        // node-free: the hub hears a failed or stalled stream while the tab is hidden in its grace too.
+        phaseWatch = FrameObservation(owner: "mac-screen.pane.phase", delivery: .visible(nil), on: mainWork) {
+            StreamState(phase: session.phase, isStalled: session.isStalled)
+        } onChange: { [weak self] state in
+            self?.streamStateChanged(state)
         }
+    }
+
+    private func streamStateChanged(_ state: StreamState) {
+        if case .connected = state.phase {
+            model.everConnected = true
+        } else {
+            model.hasFrame = false
+        }
+        model.hub?.streamStalled(state.isStalled)
+        // A device hub stream that could not start, or dropped: the hub hears it too.
+        if case .failed = state.phase, model.hub?.phase.streamingScope != nil { model.hub?.streamFailed() }
+        view.needsLayout = true
+        handlers.keyboardChanged()
     }
 
     public var session: ScreenSession? { model.session }
@@ -201,7 +216,7 @@ public final class MacScreenPane {
 
     /// The tab is shown: a device tab with a scope waiting asks the hub.
     public func resume() {
-        hideTimer.cancel()
+        hideTimer?.cancel()
         guard !visible else { return }
         visible = true
         if let hub = model.hub {
@@ -220,7 +235,7 @@ public final class MacScreenPane {
         guard visible else { return }
         visible = false
         view.input.releaseKeyboard()
-        hideTimer.schedule(after: hiddenGrace) { @MainActor [weak self] in
+        hideTimer?.schedule(after: hiddenGrace) { [weak self] in
             guard let self, !visible else { return }
             model.hub?.endForHiddenTab()
         }
@@ -228,7 +243,7 @@ public final class MacScreenPane {
 
     /// The tab closed: end the session now.
     public func close() {
-        hideTimer.cancel()
+        hideTimer?.cancel()
         visible = false
         if let hub = model.hub, hub.phase != .idle {
             // The hub hears why first, then the stream closes.
@@ -276,11 +291,13 @@ public final class MacScreenPaneView: NSView {
     var capture: NSView { input.view }
     let chrome: MacScreenChromeHost
     private let model: MacScreenPaneModel
+    /// The model's card and picture state (``observe(_:on:)``).
+    private var layoutWatch: FrameObservation<LayoutState>?
     static let toolbarHeight: CGFloat = 34
 
-    init(model: MacScreenPaneModel) {
+    init(model: MacScreenPaneModel, node: VisibilityNode, on mainWork: MainWorkScheduler) {
         self.model = model
-        chrome = MacScreenChromeHost(model: model)
+        chrome = MacScreenChromeHost(model: model, node: node, on: mainWork)
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
@@ -290,7 +307,7 @@ public final class MacScreenPaneView: NSView {
         addSubview(chrome.card)
         input.geometry = { [weak self] in self?.geometry }
         syncInputGate()
-        observe()
+        layoutWatch = observe(node, on: mainWork)
     }
 
     @available(*, unavailable)
@@ -359,21 +376,25 @@ public final class MacScreenPaneView: NSView {
     public var debugVideoFrame: CGRect { video.frame }
     #endif
 
-    /// Lays out again when the chrome's state changes the card or the picture.
-    private func observe() {
-        withObservationTracking {
-            _ = model.card
-            _ = model.session?.isStalled
-            _ = model.gate
-            _ = model.hasFrame
-            _ = model.viewOnly
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.needsLayout = true
-                // The card came or went: input follows at once, not on the next layout.
-                self?.syncInputGate()
-                self?.observe()
-            }
+    /// Lays out again when the chrome's state changes the card or the picture: once per frame
+    /// while the tab shows, and once when it shows again after a change.
+    private func observe(_ node: VisibilityNode, on mainWork: MainWorkScheduler) -> FrameObservation<LayoutState> {
+        FrameObservation(owner: "mac-screen.pane.layout", delivery: .visible(node), on: mainWork) { [model] in
+            LayoutState(card: model.card, isStalled: model.session?.isStalled ?? false, gate: model.gate,
+                        hasFrame: model.hasFrame, viewOnly: model.viewOnly)
+        } onChange: { [weak self] _ in
+            self?.needsLayout = true
+            // The card came or went: input follows in the same apply, not on the next layout.
+            self?.syncInputGate()
         }
+    }
+
+    /// What ``observe(_:on:)`` follows of the model.
+    private struct LayoutState: Equatable {
+        var card: MacScreenCard?
+        var isStalled: Bool
+        var gate: MacScreenPaneModel.Gate
+        var hasFrame: Bool
+        var viewOnly: Bool
     }
 }

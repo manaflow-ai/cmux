@@ -7,6 +7,8 @@
 //! temporary and renamed into place. A record dated in the future (beyond a
 //! minute of clock skew) or older than [`STALE`] is not fresh.
 
+use cmux_threads::checked::fs as files;
+use std::fs;
 use std::io::{Read as _, Write as _};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -30,8 +32,8 @@ pub(super) fn fresh(at_ms: u64, now: u64) -> bool {
 }
 
 /// Opens `path` without following a final symlink (Unix).
-fn open_options() -> std::fs::OpenOptions {
-    let mut options = std::fs::OpenOptions::new();
+fn open_options() -> fs::OpenOptions {
+    let mut options = fs::File::options();
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
@@ -43,7 +45,7 @@ fn open_options() -> std::fs::OpenOptions {
 /// The file's bytes when it is a regular file of this user within the size
 /// bound, read through one handle (no symlink, no swap after the check).
 pub(super) fn read_trusted(path: &Path) -> Option<Vec<u8>> {
-    let file = open_options().read(true).open(path).ok()?;
+    let file = files::open_with(open_options().read(true), path).ok()?;
     let meta = file.metadata().ok()?;
     if !meta.is_file() || meta.len() > MAX_FILE_BYTES {
         return None;
@@ -51,8 +53,7 @@ pub(super) fn read_trusted(path: &Path) -> Option<Vec<u8>> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        // SAFETY: geteuid has no preconditions.
-        if meta.uid() != unsafe { libc::geteuid() } {
+        if meta.uid() != crate::platform::effective_uid() {
             return None;
         }
     }
@@ -68,7 +69,7 @@ pub(super) fn save<T: Serialize>(directory: &Path, name: &str, records: &T) -> s
     let temporary = directory.join(format!("{name}.{}.tmp", std::process::id()));
     // A leftover (or planted) temporary goes first: the new one is created
     // fresh and never through a symlink.
-    let _ = std::fs::remove_file(&temporary);
+    let _ = files::remove_file(&temporary);
     let written = (|| {
         let mut options = open_options();
         options.write(true).create_new(true);
@@ -77,14 +78,15 @@ pub(super) fn save<T: Serialize>(directory: &Path, name: &str, records: &T) -> s
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        let mut file = options.open(&temporary)?;
+        let mut file = files::open_with(&options, &temporary)?;
+        crate::request_path::note(crate::request_path::BlockingKind::FsWrite);
         file.write_all(&bytes)?;
-        file.sync_data()?;
+        files::sync_data(&file)?;
         drop(file);
-        std::fs::rename(&temporary, &path)
+        files::rename(&temporary, &path)
     })();
     if written.is_err() {
-        let _ = std::fs::remove_file(&temporary);
+        let _ = files::remove_file(&temporary);
     }
     written
 }

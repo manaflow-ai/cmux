@@ -4,6 +4,7 @@ import CmuxNextActions
 @testable import CmuxNextFeed
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The right sidebar cleanup (Lawrence and Leo, 2026-10-21): every section sits on the same ground
 /// (the window's, no panel of another color), the sidebar resizes by dragging its edge facing the
@@ -53,7 +54,7 @@ struct RightSidebarCleanupTests {
     @Test func theFeedPanelAndPageKeepTheirGround() {
         _ = NSApplication.shared
         for surface in [FeedHostView.Surface.page, .panel] {
-            let feed = FeedHostView(model: FeedModel(source: MockFeedSource()), surface: surface)
+            let feed = FeedHostView(model: FeedModel(source: MockFeedSource()), surface: surface, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             feed.updateLayer()
             let ground = NSColor(feed.appearanceState.colors.background).alphaComponent
             #expect(ground > 0, "\(surface) lost its ground")

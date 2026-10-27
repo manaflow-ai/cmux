@@ -13,10 +13,34 @@
 //! Each line is a JSON object with these keys, plus every key in `fields`:
 //! `message`, `location` (`file:line:col`), `thread`, `at_ms`, `test`
 //! (true for a debug test panic, which the app never sends) and
-//! `backtrace` (at most [`MAX_BACKTRACE_BYTES`]).
+//! `backtrace` (at most [`MAX_BACKTRACE_BYTES`]), and `crash_keys` (the
+//! process's [`crash_keys`] at the panic) when any key is set. Once the
+//! process's trace black box runs (`cmux_trace::init_blackbox`), a line also
+//! has its `role` and `uptime_ms` (since that start), and a panic inside
+//! `cmux_trace::trace_scope!`s has `scopes` (their names, innermost first) and
+//! `scope_depth` (how many were open, those past the names too) ([`trace_context`]).
+//!
+//! The hang log beside it ([`hang`]) gets one JSON line per watched scope
+//! that runs past its hang deadline, with the hung thread's stack.
+//!
+//! [`Supervisor`] runs long-lived threads and tasks under a declared failure
+//! policy ([`Fatal`] by default, [`Restart`] for state-private workers) and a
+//! [`ShutdownBehavior`]; a fatal failure adds a `"kind": "supervised_exit"`
+//! line and ends the process.
+
+pub mod crash_keys;
+pub mod hang;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
+
+mod supervise;
+
+pub use supervise::{
+    ExitProcess, Failure, FailureSink, Fatal, FatalReason, FatalReport, PoisonProbe, Restart,
+    SUPERVISED_FATAL_EXIT_CODE, ShutdownBehavior, ShutdownReport, StopToken, SuperviseError,
+    Supervisor, WorkerHandle, WorkerOutcome,
+};
 
 /// Largest backtrace kept per line.
 pub const MAX_BACKTRACE_BYTES: usize = 16 * 1024;
@@ -43,16 +67,23 @@ pub fn install_with_opener(
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let thread = std::thread::current().name().unwrap_or("unnamed").to_string();
-        let message = info
-            .payload()
-            .downcast_ref::<&str>()
-            .map(|text| (*text).to_string())
-            .or_else(|| info.payload().downcast_ref::<String>().cloned())
-            .unwrap_or_else(|| "non-text panic payload".to_string());
+        let message = supervise::payload_text(info.payload());
         let location = info.location().map(ToString::to_string).unwrap_or_default();
         let backtrace = std::backtrace::Backtrace::force_capture().to_string();
         let test = is_test_thread(&thread);
-        append_opened(&opener, &record(&fields, &message, &location, &thread, test, backtrace));
+        let mut line = record(&fields, &message, &location, &thread, test, backtrace);
+        let keys = crash_keys::snapshot();
+        if let serde_json::Value::Object(object) = &mut line {
+            if !keys.is_empty() {
+                object.insert("crash_keys".into(), keys.to_json());
+            }
+            object.extend(trace_context(
+                cmux_trace::process_role(),
+                cmux_trace::process_uptime_ns(),
+                &cmux_trace::scope_stack(),
+            ));
+        }
+        append_opened(&opener, &line);
         previous(info);
     }));
 }
@@ -85,6 +116,29 @@ pub fn record(
     line.insert("test".into(), test.into());
     line.insert("backtrace".into(), backtrace.into());
     serde_json::Value::Object(line)
+}
+
+/// The trace keys of a panic line: `role` and `uptime_ms` when the process
+/// traces, `scopes` (innermost first) and `scope_depth` when the panicking
+/// thread had scopes open. The hook reads them on the panicking thread.
+pub fn trace_context(
+    role: Option<cmux_trace::Role>,
+    uptime_ns: Option<u64>,
+    scopes: &cmux_trace::ScopeStack,
+) -> Fields {
+    let mut context = Fields::new();
+    if let Some(role) = role {
+        context.insert("role".into(), role.as_str().into());
+    }
+    if let Some(uptime_ns) = uptime_ns {
+        context.insert("uptime_ms".into(), (uptime_ns / 1_000_000).into());
+    }
+    if scopes.depth() > 0 {
+        let names: Vec<serde_json::Value> = scopes.names().map(Into::into).collect();
+        context.insert("scopes".into(), names.into());
+        context.insert("scope_depth".into(), scopes.depth().into());
+    }
+    context
 }
 
 /// Append `record` as one line, unless the log is full. Never panics.

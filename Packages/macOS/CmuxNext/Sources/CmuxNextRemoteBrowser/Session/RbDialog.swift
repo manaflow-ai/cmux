@@ -1,6 +1,6 @@
 import Foundation
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// A JavaScript dialog (`Dialog`).
 public nonisolated struct RbDialog: Sendable, Equatable, Decodable {
     /// `alert`, `confirm`, `prompt`, `beforeunload`.

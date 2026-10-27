@@ -1,5 +1,8 @@
 import AppKit
 import CmuxNextCompat
+public import CmuxNextInput
+public import CmuxNextWakeups
+public import Foundation
 
 /// The agent panes a chat's subagents opened in (`chat.subagentPane`), one tracker per acpmux
 /// session, so every pane on that session asks the same one: each subagent's tab, so a second
@@ -111,13 +114,13 @@ public final class AgentSubagentPanes {
         public var again: (Request) -> Void
         /// The time, for ``focusBound``.
         public var now: () -> ContinuousClock.Instant
-        /// Calls `acted` on the person's next action (``watchUser(_:)``); returns what stops watching.
+        /// Calls `acted` on the person's next action (``watchUser(on:appEvents:)``); returns what stops watching.
         public var watchUser: (_ acted: @escaping @MainActor @Sendable () -> Void) -> () -> Void
 
         public init(isOpen: @escaping (String) -> Bool, focus: @escaping (String, Bool) -> Void,
                     place: @escaping (String, Bool, @escaping @MainActor (String) -> Void, @escaping @MainActor (Bool) -> Void) -> Bool,
                     again: @escaping (Request) -> Void, now: @escaping () -> ContinuousClock.Instant = { .now },
-                    watchUser: @escaping (@escaping @MainActor @Sendable () -> Void) -> () -> Void = AgentSubagentPanes.watchUser) {
+                    watchUser: @escaping (@escaping @MainActor @Sendable () -> Void) -> () -> Void) {
             self.isOpen = isOpen
             self.focus = focus
             self.place = place
@@ -174,26 +177,39 @@ public final class AgentSubagentPanes {
         order.removeAll { !isOpen($0) }
     }
 
-    /// Calls `acted` on the next click or key press in the app, or when another window takes the
-    /// keyboard or the app resigns active; returns what stops watching.
-    nonisolated public static func watchUser(_ acted: @escaping @MainActor @Sendable () -> Void) -> () -> Void {
-        let monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { event in
-            guard Thread.isMainThread else { return event }
-            // main-proof: guarded by Thread.isMainThread above (AppKit calls local monitors on main)
-            MainActor.assumeIsolated { acted() }
-            return event
-        }
-        let center = NotificationCenter.default
-        let observers = [NSWindow.didBecomeKeyNotification, NSApplication.didResignActiveNotification].map { name in
-            MainActorObservation(name, center: center) {
-                acted()
+    /// The ``Hooks/watchUser`` over `input`: calls `acted` on the next click or key press in the app,
+    /// or when another window takes the keyboard or the app resigns active, and returns what stops
+    /// watching. It holds one press subscription on the app's input tap only while a focus is owed.
+    ///
+    /// The subscription is an intercept at ``InputEventTap/InterceptOrder/standard`` that always
+    /// passes, where the AppKit local monitor it replaces ran: a press the key router (an app
+    /// shortcut) or an earlier intercept (a modal, a popup) consumed is not the person's next action
+    /// and leaves the focus owed, as before.
+    ///
+    /// - Parameters:
+    ///   - input: The app's input tap (`AppServices.inputTap`).
+    ///   - appEvents: The app's one ``AppEvents`` (`AppServices.appEvents`): window and app activation come through its
+    ///     one observer per notice, not one per watch (tests make one on their own center).
+    public static func watchUser(on input: InputEventTap, appEvents: AppEvents)
+        -> (_ acted: @escaping @MainActor @Sendable () -> Void) -> () -> Void {
+        { acted in
+            let presses = input.subscribe(class: [.key, .button], phase: .intercept(order: .standard)) { event in
+                if Self.presses.matches(event.type) { acted() }
+                return .pass
+            }
+            // Delivered always: the owed focus is the app's, whichever pane shows.
+            let observers = [
+                appEvents.subscribe(NSWindow.didBecomeKeyNotification, owner: "AgentSubagentPanes.watchUser") { acted() },
+                appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "AgentSubagentPanes.watchUser") { acted() },
+            ]
+            return {
+                presses.cancel()
+                observers.forEach { $0.cancel() }
             }
         }
-        return {
-            if let monitor { NSEvent.removeMonitor(monitor) }
-            observers.forEach { $0.cancel() }
-        }
     }
+
+    private static let presses: InputEventTap.Presses = [.keyDown, .mouseDown]
 
     /// The `revealTurn` value that opens a pane on subagent `agent`'s view (the page's
     /// `SUBAGENT_REVEAL`).

@@ -1,5 +1,6 @@
 import CmuxNextCompat
 public import CmuxNextSettings
+public import CmuxNextWakeups
 
 /// `agentPane.showContextUsage` and `agentPane.showDictation` (``AgentPaneComposerSetting``) reach
 /// the page as the `composer` event, read by the page's composerSettings.ts. The same event carries
@@ -24,7 +25,7 @@ extension AgentPaneComposerSetting {
     @MainActor public func push(to view: AgentPaneView) {
         guard Self.lookChanging || self != view.model.composer else { return }
         view.model.composer = self
-        view.deliver([.composer(self)], scripts: [pageScript])
+        view.deliver([.composer(self)])
     }
 
     /// The page's value with the plain footer look, the model menu choice and the harness switch.
@@ -37,33 +38,29 @@ extension AgentPaneComposerSetting {
         return .object(value)
     }
 
-    /// The script that gives a loaded old-host page the composer's settings.
-    var pageScript: String { "window.cmuxAcpmuxComposer?.(\(pageValueWithLook.compactText));" }
-
     /// Debug Settings' plain footer look, model menu and harness switch as the pages last got them,
     /// and whether a change is being pushed (``push(to:)`` then sends every page the event again).
     @MainActor private static var lookShown = Look(plainFooter: false, modelMenu: .compact, harnessSwitch: false,
                                                    escapeDoublePress: true)
     @MainActor private static var lookChanging = false
-    @MainActor private static var lookObservation: Task<Void, Never>?
 
     /// Follows Debug Settings' plain footer look, model menu and harness switch for the agent tabs:
-    /// `push` (the tabs' push of their page settings to every view) runs on each change.
-    @MainActor public static func followLook(_ push: @escaping () -> Void) {
-        lookObservation?.cancel()
-        // task-owner: lives as long as the agent tabs (one per app); event-driven (Observation)
-        lookObservation = Task {
-            for await on in ObservationStream({
-                Look(plainFooter: AgentPaneTunables.composerPlainFooter.value, modelMenu: AgentPaneTunables.modelMenu.value,
-                     harnessSwitch: AgentPaneTunables.harnessSwitchInStartedChat.value,
-                     escapeDoublePress: AgentPaneTunables.escapeStopDoublePress.value)
-            }) {
-                guard on != lookShown else { continue }
-                lookShown = on
-                lookChanging = true
-                push()
-                lookChanging = false
-            }
+    /// `push` (the tabs' push of their page settings to every view, hidden ones too, so this is a
+    /// ``ServiceObservation``, not a view's) runs on each change, as one task on `mainWork`: `visible`,
+    /// or `userBlocking` when the person's own toggle caused it.
+    ///
+    /// - Returns: The follow; the caller keeps it, and releasing it ends the follow.
+    @MainActor public static func followLook(on mainWork: MainWorkScheduler, _ push: @escaping () -> Void) -> AnyObject {
+        ServiceObservation(.visible, owner: "AgentPaneComposerSetting.look", on: mainWork) {
+            Look(plainFooter: AgentPaneTunables.composerPlainFooter.value, modelMenu: AgentPaneTunables.modelMenu.value,
+                 harnessSwitch: AgentPaneTunables.harnessSwitchInStartedChat.value,
+                 escapeDoublePress: AgentPaneTunables.escapeStopDoublePress.value)
+        } apply: { on in
+            guard on != lookShown else { return }
+            lookShown = on
+            lookChanging = true
+            push()
+            lookChanging = false
         }
     }
 }

@@ -30,9 +30,16 @@ struct HomeAttachmentOpen {
 
 extension HomeAttachmentOpen {
     /// cmux: opens `file` in `host` (``HomeFileHost``: cmux beside Home, never Finder), else
-    /// through the host's path-link opener (`onAppLink`), else with the system.
+    /// through the host's path-link opener (`onAppLink`), else with the system (its asynchronous
+    /// open: Launch Services answers without the main thread waiting).
     @MainActor static func open(_ file: URL, host: HomeFileHost?, appLink: ((URL) -> Void)? = nil) {
-        if let host { host.open(file) } else if let appLink { appLink(file) } else { NSWorkspace.shared.open(file) }
+        if let host {
+            host.open(file)
+        } else if let appLink {
+            appLink(file)
+        } else {
+            NSWorkspace.shared.open(file, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
+        }
     }
 
     /// The attachment's menu rows: the host's file menu, or Open in Default App (`fallback`).

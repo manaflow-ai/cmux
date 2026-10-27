@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextDesign
-import Observation
+public import CmuxNextWakeups
 
 /// The Add Device card's content (AppKit, plans/cmux-next/no-swiftui-DESIGN.md): the title, the
 /// three ways, the chosen way's body and the footer. It draws the model again whenever a value it
@@ -18,9 +18,13 @@ public final class AddDeviceView: NSView {
 
     private let stack = NSStackView()
     private var actions: [AddDeviceAction] = []
+    private let mainWork: MainWorkScheduler
+    private var renderLoop: ObservationLoop?
 
-    public init(model: AddDeviceModel) {
+    /// `mainWork` is the app's one main-thread scheduler: the card draws the model at its frames.
+    public init(model: AddDeviceModel, mainWork: MainWorkScheduler) {
         self.model = model
+        self.mainWork = mainWork
         super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 200))
         translatesAutoresizingMaskIntoConstraints = false
         setAccessibilityIdentifier("cmux.addDevice")
@@ -37,17 +41,17 @@ public final class AddDeviceView: NSView {
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
             widthAnchor.constraint(equalToConstant: Self.width),
         ])
-        render()
+        // node-free: a floating card over every Space and full screen, in no tab; it draws only while open
+        renderLoop = ObservationLoop(owner: "addDevice.card", delivery: .visible(nil), on: mainWork) { [weak self] in self?.render() }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// Draws the model and re-draws when a value read here changes.
+    /// Draws the model (``renderLoop`` runs it again at the next frame after a value read here changes).
     private func render() {
-        withObservationTracking { build() } onChange: { [weak self] in
-            Task { @MainActor in self?.render() }
-        }
+        build()
+        // sync-layout: fittingSize below sizes the card to the rebuilt rows.
         layoutSubtreeIfNeeded()
         onResize(fittingSize)
     }

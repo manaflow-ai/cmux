@@ -51,6 +51,7 @@ extension AppActions {
             }
             // A headless caller (CLI, MCP, or an agent acting for the person)
             // needs the created Chief's durable id, not an empty `created` list.
+            // main-hop-allow: the action's userBlocking rest (p06 rule 2), awaited by a capturing caller: it awaits the main-actor HomeService; post has no userBlocking class
             registry.track(result: Task { @MainActor in
                 switch await services.home.createChiefForAction(named: name, backend: backend) {
                 case .success(let chief):
@@ -100,6 +101,7 @@ extension AppActions {
                     return withDock(services) { dock in
                         if dock.mode == .channels, let channels = dock.channels {
                             // task-owner: one page call; ends with its answer (a second at most)
+                            // main-hop-allow: userBlocking rest of the person's key (p06 rule 2): it awaits the main-actor page; post has no userBlocking class
                             Task { @MainActor in
                                 if await !HomeDockTab.moveConversation(channels, by: offset) {
                                     registry.refuse(MiscHandlerStrings.channelsCannotStep, quiet: true)

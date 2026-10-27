@@ -15,14 +15,16 @@ public import Atomics
 /// The slot does not own its memory: the word must stay mapped and 8-byte aligned while any copy of
 /// the slot is used. Two slots over the same address are the same atomic.
 @frozen
-public struct AtomicPointerSlot: @unchecked Sendable { // crash-allow: every access is one hardware atomic on the caller's aligned word
+public struct AtomicPointerSlot: Sendable { // its one stored property, UnsafeAtomic, is Sendable (swift-atomics)
     @usableFromInline let raw: UnsafeAtomic<UInt64>
 
     /// Makes a slot over the word at `pointer`, which must be 8-byte aligned.
     @inlinable
     public init(_ pointer: UnsafeMutablePointer<UInt64>) {
-        assert(Int(bitPattern: pointer) & (MemoryLayout<UInt64>.alignment - 1) == 0, "AtomicPointerSlot needs an 8-byte aligned word")
-        raw = UnsafeAtomic<UInt64>(at: UnsafeMutableRawPointer(pointer).assumingMemoryBound(to: UInt64.AtomicRepresentation.self))
+        assert(unsafe Int(bitPattern: pointer) & (MemoryLayout<UInt64>.alignment - 1) == 0, "AtomicPointerSlot needs an 8-byte aligned word")
+        // SAFETY: the slot touches only the one aligned UInt64 at `pointer`, which the caller keeps mapped while the
+        // slot is used (the type's contract above); UInt64's atomic representation has UInt64's size and alignment.
+        raw = unsafe UnsafeAtomic<UInt64>(at: UnsafeMutableRawPointer(pointer).assumingMemoryBound(to: UInt64.AtomicRepresentation.self))
     }
 
     /// Returns the current value.

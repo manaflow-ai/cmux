@@ -45,6 +45,7 @@ from typing import Protocol
 HERE = Path(__file__).resolve().parent
 DEFAULT_SUBSCRIPTIONS = HERE / "subscriptions.json"
 DEFAULT_TARGETS = HERE / "targets.json"
+REPO_ROOT = HERE.parents[1]
 DEFAULT_REPO = "manaflow-ai/cmux"
 ISSUE_LABEL = "perf-regression"
 ACTOR = "perf-lab-alerts"
@@ -89,6 +90,8 @@ ANOMALY_CONFIG_KEYS = frozenset({
     "max_window_size", "min_segment_size", "min_absolute_change",
     "min_relative_change", "min_steppiness", "multiple_of_std_dev",
 })
+# AnomalyConfig fields that are point counts (int32 in sheriff.proto), with their least value.
+ANOMALY_CONFIG_COUNTS = {"max_window_size": 1, "min_segment_size": 0}
 DEFAULT_MAX_WINDOW_SIZE = 50
 MATCH_FIELDS = ("story", "metric", "engine", "host_class", "build_config")
 SUBSCRIPTION_KINDS = ("target", "perf-hot", "family", "aggregate")
@@ -192,7 +195,13 @@ def _parse_entry(raw: object, where: str) -> Subscription:
     if (not isinstance(config, dict) or set(config) - ANOMALY_CONFIG_KEYS
             or not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in config.values())):
         raise AlertsError(f"{where} ({raw['name']}): anomaly_config takes numbers for {sorted(ANOMALY_CONFIG_KEYS)}")
-    return Subscription(raw["name"], raw["kind"], raw["owner"], dict(match), tuple(targets), dict(config))
+    config = dict(config)
+    for key, least in ANOMALY_CONFIG_COUNTS.items():
+        if key in config:
+            if not float(config[key]).is_integer() or config[key] < least:
+                raise AlertsError(f"{where} ({raw['name']}): anomaly_config {key} must be a whole number >= {least}")
+            config[key] = int(config[key])
+    return Subscription(raw["name"], raw["kind"], raw["owner"], dict(match), tuple(targets), config)
 
 
 # ---------- targets (targets.json, task 007) ----------
@@ -249,10 +258,12 @@ class ChangePoint:
 
 
 class Detector(Protocol):
-    def change_points(self, values: Sequence[float], config: Mapping[str, float]) -> Sequence[ChangePoint]: ...
+    def change_points(self, values: Sequence[float], config: Mapping[str, float]) -> Sequence[ChangePoint]:
+        """The steps that pass the config's thresholds, newest first (catapult FindChangePoints order)."""
 
-    def target_miss(self, values: Sequence[float], target: float, better: str) -> bool:
-        """True when the newest segment's median misses the target and the previous segment's did not."""
+    def target_miss(self, values: Sequence[float], target: float, better: str) -> int | None:
+        """The index of the newest segment's first value when that segment's median misses the target and the
+        previous segment's did not; else None."""
 
 
 class CatapultDetector:
@@ -261,7 +272,8 @@ class CatapultDetector:
     anomaly.find_change_points takes catapult's (x, y) series and AnomalyConfig keywords and returns
     catapult ChangePoints (`find_change_points.py`: extended_start and extended_end as x values,
     median_before, median_after); here x is the value index. anomaly.target_miss(values, target) judges
-    a lower-is-better series, so a higher-is-better one is passed negated.
+    a lower-is-better series, so a higher-is-better one is passed negated; its TargetMiss.x_value is the
+    index where the missing segment starts.
     """
 
     def __init__(self) -> None:
@@ -272,10 +284,37 @@ class CatapultDetector:
         return [ChangePoint(int(point.extended_start), int(point.extended_end),
                             float(point.median_before), float(point.median_after)) for point in found]
 
-    def target_miss(self, values: Sequence[float], target: float, better: str) -> bool:
+    def target_miss(self, values: Sequence[float], target: float, better: str) -> int | None:
         if better == "higher":
-            return bool(self._anomaly.target_miss([-value for value in values], -target))
-        return bool(self._anomaly.target_miss(list(values), target))
+            miss = self._anomaly.target_miss([-value for value in values], -target)
+        else:
+            miss = self._anomaly.target_miss(list(values), target)
+        return None if miss is None else int(miss.x_value)
+
+
+FloorSource = Callable[[SeriesInfo], "float | None"]
+
+
+def load_floors(root: Path = REPO_ROOT) -> FloorSource:
+    """Each series' noise floor: its catalog metric's floor_ref (stories.d), resolved by anomaly.row_floor.
+
+    The series' story is the catalog story id; the first metric whose name pattern full-matches the series'
+    metric gives the floor. A series with no such metric, or a metric with no floor_ref, has none.
+    """
+    anomaly = _load_sibling("perf_lab_anomaly", "anomaly.py")
+    catalog = anomaly.catalog
+    try:
+        floors = {story.id: [(re.compile(metric.name), anomaly.row_floor(metric.floor_ref, root))
+                             for metric in story.metrics if metric.floor_ref is not None]
+                  for story in catalog.load_catalog(root).stories}
+    except (catalog.CatalogError, catalog.RefError) as error:
+        raise AlertsError(f"catalog floors under {root}: {error}") from None
+
+    def floor(series: SeriesInfo) -> float | None:
+        return next((value for pattern, value in floors.get(series.story, ()) if pattern.fullmatch(series.metric)),
+                    None)
+
+    return floor
 
 
 # ---------- detection ----------
@@ -333,8 +372,12 @@ def _series_rows(store, keys: Sequence[str] | None) -> list[SeriesInfo]:
 
 
 def detect(store, subscriptions: Subscriptions, detector: Detector, targets: TargetSource,
-           *, keys: Sequence[str] | None = None) -> DetectReport:
-    """Runs change-point detection and target_miss on the given series (every series when keys is None)."""
+           *, keys: Sequence[str] | None = None, floors: FloorSource | None = None) -> DetectReport:
+    """Runs change-point detection and target_miss on the given series (every series when keys is None).
+
+    A series' noise floor (floors, from load_floors) is its MIN_ABSOLUTE_CHANGE. A subscription's
+    min_absolute_change may raise it, never go below it: a step smaller than the noise floor is noise.
+    """
     report = DetectReport()
     for series in _series_rows(store, keys):
         report.series += 1
@@ -343,6 +386,9 @@ def detect(store, subscriptions: Subscriptions, detector: Detector, targets: Tar
             report.unmonitored += 1
             continue
         config = dict(subscription.anomaly_config)
+        floor = floors(series) if floors is not None else None
+        if floor is not None:
+            config["min_absolute_change"] = max(floor, config.get("min_absolute_change", floor))
         window = int(config.get("max_window_size", DEFAULT_MAX_WINDOW_SIZE))
         points = judged_points(store.series_points(series.key, limit=window))
         if not points:
@@ -356,16 +402,15 @@ def detect(store, subscriptions: Subscriptions, detector: Detector, targets: Tar
             start, end = _candidate_range(positions, change.extended_start, change.extended_end)
             improvement = not is_regression(series.better, change.median_before, change.median_after)
             found.append(("edivisive", start, end, change.median_before, change.median_after, improvement))
-        # The tile's range is the newest step's when one passed the thresholds, else the judged window.
-        miss_range = (_candidate_range(positions, changes[-1].extended_start, changes[-1].extended_end)
-                      if changes else (positions[0], positions[-1]))
         for target_id in subscription.targets:
             target = targets(target_id)
             if target is None:
                 continue
             values = [point_stat(point.samples, target.stat) for point in points]
-            if detector.target_miss(values, target.value, series.better):
-                found.append(("target_miss", *miss_range, None, None, False))
+            miss_start = detector.target_miss(values, target.value, series.better)
+            if miss_start is not None:
+                # The tile's range: the commits between the last point before the missing segment and its first.
+                found.append(("target_miss", *_candidate_range(positions, miss_start, miss_start), None, None, False))
         if found:
             store._write(lambda: _record(store, series, found, report))
     return report
@@ -400,7 +445,9 @@ def _group_for(db: sqlite3.Connection, now: str, series: SeriesInfo, start: int,
     marks = ",".join("?" * len(OPEN_STATES))
     group = db.execute(
         f"""SELECT id, state, start_pos, end_pos FROM alert_groups
-            WHERE state IN ({marks}) AND start_pos <= ? AND end_pos >= ? ORDER BY id LIMIT 1""",
+            WHERE state IN ({marks}) AND start_pos <= ? AND end_pos >= ?
+              AND NOT EXISTS (SELECT 1 FROM alerts h WHERE h.group_id = alert_groups.id AND h.rule = 'harness_broken')
+            ORDER BY id LIMIT 1""",
         (*OPEN_STATES, end, start)).fetchone()
     if group is not None:
         # The culprit is in every member's range. Once a bisect runs, its range stays fixed.
@@ -610,9 +657,18 @@ def _stats(samples: Sequence[float], unit: str) -> str:
     return " / ".join(_fmt(summary[key], unit) for key in ("p50", "p95", "p99"))
 
 
-def _sha_at(store, config: str, pos: int, *, before: bool) -> str | None:
-    query = ("SELECT sha FROM builds WHERE config = ? AND commit_pos < ? ORDER BY commit_pos DESC LIMIT 1" if before
-             else "SELECT sha FROM builds WHERE config = ? AND commit_pos >= ? ORDER BY commit_pos LIMIT 1")
+def waterfall_sha(store, config: str, pos: int, *, before: bool) -> str | None:
+    """An alert range's end as a commit: the last waterfall point before `pos`, or the first one at or after it.
+
+    Only waterfall runs count: a bisect or try run also stores its build at its commit position, and a range end
+    must be a commit the waterfall measured. The issue's compare link and the bisect range (pinpoint_exec.py) both
+    come from here."""
+    query = ("""SELECT b.sha FROM builds b WHERE b.config = ? AND b.commit_pos < ? AND EXISTS
+                (SELECT 1 FROM runs u WHERE u.build_id = b.id AND u.kind = 'waterfall')
+                ORDER BY b.commit_pos DESC LIMIT 1""" if before else
+             """SELECT b.sha FROM builds b WHERE b.config = ? AND b.commit_pos >= ? AND EXISTS
+                (SELECT 1 FROM runs u WHERE u.build_id = b.id AND u.kind = 'waterfall')
+                ORDER BY b.commit_pos LIMIT 1""")
     row = store._db.execute(query, (config, pos)).fetchone()
     return None if row is None else row["sha"]
 
@@ -642,8 +698,8 @@ def render_issue(store, group: sqlite3.Row, alerts: Sequence[GroupAlert], owner:
     ]
     for alert in alerts:
         before, after = _segment_samples(store, alert)
-        good = _sha_at(store, alert.series.build_config, alert.start_pos, before=True)
-        bad = _sha_at(store, alert.series.build_config, alert.end_pos, before=False)
+        good = waterfall_sha(store, alert.series.build_config, alert.start_pos, before=True)
+        bad = waterfall_sha(store, alert.series.build_config, alert.end_pos, before=False)
         span = f"{alert.start_pos}..{alert.end_pos}"
         if good and bad:
             span = f"[{span}](https://github.com/{repo}/compare/{good[:12]}...{bad[:12]})"
@@ -740,7 +796,8 @@ def _open(db: Path, scratch: Path | None):
     return handle
 
 
-def main(argv: Sequence[str] | None = None, *, detector: Detector | None = None, github: GitHub | None = None) -> int:
+def main(argv: Sequence[str] | None = None, *, detector: Detector | None = None, github: GitHub | None = None,
+         floors: FloorSource | None = None) -> int:
     parser = argparse.ArgumentParser(prog="alerts.py", description=__doc__.split("\n\n")[0])
     parser.add_argument("--subscriptions", type=Path, default=DEFAULT_SUBSCRIPTIONS)
     parser.add_argument("--targets", type=Path, default=DEFAULT_TARGETS)
@@ -776,7 +833,7 @@ def main(argv: Sequence[str] | None = None, *, detector: Detector | None = None,
             try:
                 if args.command == "detect":
                     report = detect(store, subscriptions, detector or CatapultDetector(), load_targets(args.targets),
-                                    keys=args.series)
+                                    keys=args.series, floors=floors or load_floors())
                     print(json.dumps({"dry_run": dry, **report.to_dict()}, indent=2))
                 elif args.command == "sync-issues":
                     client = github or GhClient(args.repo)

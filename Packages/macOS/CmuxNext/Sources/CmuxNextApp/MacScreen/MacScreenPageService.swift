@@ -5,9 +5,11 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
 import typealias CmuxNextDaemon.SurfaceID
+import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextMacScreen
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 extension InternalPageID {
@@ -94,6 +96,22 @@ final class MacScreenPageService: InternalPageProvider {
     func restore(_ route: String, for key: String) { pages.restore(route, for: key) }
     func title(forRoute route: String) -> String? { pages.title(forRoute: route) }
 
+    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-028)
+
+    /// Released when its stream stops: a hidden screen keeps its session for the pane's hidden
+    /// grace (switching tabs back and forth stays live), then ends it (``MacScreenPane/pause()``),
+    /// and nothing the view holds is worth keeping after that. Shown again, the tab asks the Mac
+    /// for the same scope.
+    static let hiddenPolicy = ContentDiscardPolicy.afterHidden(MacScreenPane.defaultHiddenGrace)
+
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { Self.hiddenPolicy }
+
+    /// A request waiting on the other Mac's approval keeps the view: releasing it withdraws the request.
+    func keepReasons(for key: String) -> [CannotDiscardReason] { pages.isRequesting(key) ? [.inProgress] : [] }
+
+    /// The session ends and the tab keeps what it shows ("home" or the device).
+    func viewDiscarded(_ key: String) { pages.viewDiscarded(key) }
+
     /// Opens a Mac Screen tab showing `record` after `pane`'s selected tab: a
     /// store tab where the pane's daemon holds page tabs, else an app-only
     /// one. `focus` selects and focuses it; `byPerson`: a person asked for it
@@ -134,8 +152,9 @@ final class MacScreenPageService: InternalPageProvider {
     func replaceBrowserTab(_ key: String, url: URL) {
         guard replacing.insert(key).inserted else { return }
         let record = MacScreenRecord(url: url) ?? MacScreenRecord(macID: nil)
-        // task-owner: one replacement after the snapshot that listed the tab is applied
-        Task { @MainActor [weak self] in
+        // One replacement after the snapshot that listed the tab is applied: a later visible task.
+        // node-free: the tab's record changes whether or not its pane shows, so a hidden tab is replaced too.
+        services?.mainWork.post(.visible, owner: "MacScreenPages.replaceBrowserTab") { [weak self] in
             guard let self, let services else { return }
             if let pane = services.paneController(listing: key) {
                 open(record, in: pane, focus: pane.stripModel.selectedID?.rawValue == key, byPerson: false)
@@ -147,9 +166,13 @@ final class MacScreenPageService: InternalPageProvider {
 
 extension AppServices {
     static func makeMacScreenPages(_ services: AppServices) -> MacScreenPages {
-        let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID))
+        let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID), deadlines: services.mainDeadlines,
+                                   appEvents: services.appEvents)
         pages.useShortcuts(of: services.registry)
+        pages.pointerFrames = { [weak services] in services?.remotePointerFrames }
         pages.hubHost.indicatorMenuItem = { [weak registry = services.registry] in registry?.makeMenuItem(for: $0) }
+        // A shared screen may show any window: a connected viewer's vote reaches every window node under the app.
+        pages.hubHost.sharedScreenNode = services.appVisibility.node
         return pages
     }
 
@@ -159,7 +182,7 @@ extension AppServices {
         let account = DeviceHubService.Account(awaitRestored: { await auth.awaitRestored() },
                                                 userID: { auth.isSignedIn ? (auth.user?.id ?? "") : nil },
                                                 accessToken: { try await auth.tokens().access })
-        return DeviceHubService(pages: services.macScreenPages, account: account, bundleIdentifier: services.environment.launch.bundleID)
+        return DeviceHubService(pages: services.macScreenPages, account: account, bundleIdentifier: services.environment.launch.bundleID, energy: services.mainWork.energy)
     }
 
     /// Mac Screen follows its settings (Send System Shortcuts; DEV: Relay Only).
