@@ -1,4 +1,6 @@
 import CmuxNextBrowserImport
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import SQLite3
 import Testing
@@ -80,6 +82,42 @@ import Testing
         try await store.stopSync(profile: "p1")
         await sync.reconcile()
         #expect(await sync.watched.isEmpty)
+    }
+
+    /// p14-energy-127: under Energy Saver a browser's write is read 4 times later (80 s, 8 s leeway), so a person
+    /// browsing in Chrome wakes cmux 4 times less often; outside it the wait stays 20 s.
+    @Test func energySaverWaitsFourTimesLongerBeforeTheRead() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "history-saver-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let profile = root.appending(path: "Chrome/Default", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
+        let file = profile.appending(path: "History")
+        try Self.history(file, pages: ["https://one.example/"])
+        let store = ImportedDataStore(directory: root.appending(path: "store", directoryHint: .isDirectory))
+        var record = ImportSourceRecord(browser: .chrome, profileDirectory: "Default", displayName: "Google Chrome",
+                                        proposedProfileID: "p1", targetProfileID: "p1")
+        record.syncedHistoryFile = file
+        try await store.save(ImportBatch(source: record, kinds: [.history]))
+
+        let normal = ImportHistorySync(store: store, grants: nil, energy: EnergyPolicySource()) { _, _, _ in }
+        #expect(normal.currentDelay == .seconds(20))
+
+        let clock = ManualClock()
+        let delivered = Delivered()
+        let sync = ImportHistorySync(store: store, grants: nil, energy: EnergyPolicySource(EnergyPolicy(saverReason: .battery)),
+                                     clock: clock) { id, pages, gone in await delivered.add(id, pages, gone) }
+        #expect(sync.currentDelay == .seconds(80))
+        // The watch's catch-up read waits on the clock like any write's.
+        await sync.reconcile()
+        try await clock.waitForSleeper()
+        let request = try #require(clock.sleepRequests.last)
+        #expect(request.deadline.offset == .seconds(80))
+        #expect(request.tolerance == .seconds(8))
+        #expect(await delivered.calls == 0)
+        clock.advance(by: .seconds(80))
+        await Self.until { await delivered.pages["p1"]?.count == 1 }
+        #expect(await delivered.pages["p1"]?.map(\.url.host) == ["one.example"])
+        await sync.stop()
     }
 
     @Test func removingAProfilesImportsKeepsItsMappingAndStopsSync() async throws {

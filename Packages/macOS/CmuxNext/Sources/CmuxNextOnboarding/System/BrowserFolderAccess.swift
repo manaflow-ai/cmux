@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextBrowserImport
+public import CmuxNextWakeups
 import CmuxNextDesign
 
 /// Import from Browser's folder grants for the app: detection that reads only
@@ -60,9 +61,11 @@ public final class BrowserFolderAccess {
         return (try? grants.grant(picked, for: browser)) != nil
     }
 
-    /// Keep in Sync over `store`, reading through the same folder grants as an import.
-    public func historySync(store: ImportedDataStore, deliver: @escaping ImportHistorySync.Deliver) -> ImportHistorySync {
-        ImportHistorySync(store: store, grants: grants, deliver: deliver)
+    /// Keep in Sync over `store`, reading through the same folder grants as an import; `energy` (the app's
+    /// Energy Saver policy) stretches its wait from a browser's write to the read.
+    public func historySync(store: ImportedDataStore, energy: EnergyPolicySource?,
+                            deliver: @escaping ImportHistorySync.Deliver) -> ImportHistorySync {
+        ImportHistorySync(store: store, grants: grants, energy: energy, deliver: deliver)
     }
 
     /// Puts the granted folders of the plan's browsers in scope; call the

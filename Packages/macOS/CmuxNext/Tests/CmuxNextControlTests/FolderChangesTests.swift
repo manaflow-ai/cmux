@@ -40,4 +40,35 @@ import Testing
         #expect(await changes.next() != nil)
         #expect((ledger.snapshot().first { $0.owner == "FolderChanges" && $0.reason == "change" }?.count ?? 0) >= 2)
     }
+
+    /// p14-energy-127: with a coalescing wait, a burst another app writes (50 files) is one element, after a
+    /// flexible timer; Energy Saver stretches the wait 4 times.
+    @Test func aBurstIsOneElementAfterTheCoalescingWait() async throws {
+        let folder = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
+            .appendingPathComponent("folder-burst-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let ledger = WakeupLedger()
+        let watch = FolderChanges(folders: [folder], coalesce: .milliseconds(500), ledger: ledger)
+        var changes = watch.events().makeAsyncIterator()
+        try await Task.sleep(for: .milliseconds(100))
+
+        for index in 0..<50 {
+            try Data([UInt8(index)]).write(to: folder.appendingPathComponent("synced-\(index).png"))
+        }
+        #expect(await changes.next() != nil)
+        // Longer than the wait again: the burst made no second element.
+        try await Task.sleep(for: .milliseconds(800))
+        #expect((ledger.snapshot().first { $0.owner == "FolderChanges" && $0.reason == "change" }?.count ?? 0) == 1)
+        #expect((ledger.snapshot().first { $0.owner == "FolderChanges.coalesce" && $0.reason == "deadline" }?.count ?? 0) == 1)
+    }
+
+    @Test func energySaverStretchesTheCoalescingWaitFourTimes() {
+        let energy = EnergyPolicySource()
+        let watch = FolderChanges(folders: [], coalesce: .seconds(1), energy: energy, ledger: WakeupLedger())
+        #expect(watch.currentCoalesce == .seconds(1))
+        energy.update(EnergyPolicy(saverReason: .thermal))
+        #expect(watch.currentCoalesce == .seconds(4))
+        #expect(FolderChanges(folders: [], ledger: WakeupLedger()).currentCoalesce == .zero)
+    }
 }

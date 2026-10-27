@@ -33,6 +33,8 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     var visibilityNode: VisibilityNode { visibility.node }
     private var observation: VisibleObservation<([FileExplorerRow], URL?, String?)>?
     private var following: ServiceObservation<URL?>?
+    /// Tells the model whether the section shows: a hidden tree stops watching its folder.
+    private var shownFlips: VisibilitySubscription?
 
     /// - Parameters:
     ///   - model: The tree (the handlers act on its selection).
@@ -61,6 +63,12 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         self.apps = apps
         super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
         build()
+        // Shown means laid out in a shown place (``ViewVisibility/isShown``): a hidden app, a miniaturized window
+        // or a hidden section stops the watch; an occluded window keeps it, so a switch between apps relists nothing.
+        model.setShown(visibility.isShown)
+        shownFlips = visibilityNode.subscribe(owner: "FileExplorerSection.watch") { [weak model] state in
+            model?.setShown(state > .hidden)
+        }
         observation = VisibleObservation(visibility.node, owner: "FileExplorerSection.render", on: mainWork) { [model] in
             (model.rows, model.root, model.failure)
         } apply: { [weak self] _ in

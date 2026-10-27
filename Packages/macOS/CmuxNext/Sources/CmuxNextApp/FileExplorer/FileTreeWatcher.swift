@@ -8,9 +8,16 @@ import CmuxNextWakeups
 /// coalesces a burst (``latency``) into one value. Inside a `.git` folder only
 /// the index, HEAD and refs count (a `git add`, a commit, a checkout), never
 /// objects or logs, so `git status` reading the repository never wakes it.
+///
+/// Under Energy Saver a stream coalesces ``EnergyPolicy/pollStretch`` times longer (read when the
+/// stream starts), so an agent or a build writing the tree wakes the app 4 times less often. The
+/// model stops the stream while no surface shows the tree (``FileExplorerModel/setShown(_:)``), and
+/// its next start reads the policy again.
 nonisolated struct FileTreeWatcher: FileTreeWatching {
-    /// The coalescing latency in seconds.
+    /// The coalescing latency in seconds, outside Energy Saver.
     var latency: CFTimeInterval
+    /// The app's Energy Saver policy (`MainWorkScheduler.energy`); nil keeps ``latency``.
+    var energy: EnergyPolicySource?
     /// Called once the FSEvents stream runs (tests wait for it before changing a file).
     var started: (@Sendable () -> Void)?
     /// The line that made the watcher: each of its watches is in the arm census under it (Debug and bench builds,
@@ -18,15 +25,21 @@ nonisolated struct FileTreeWatcher: FileTreeWatching {
     private let file: StaticString
     private let line: UInt
 
-    init(latency: CFTimeInterval = 0.2, started: (@Sendable () -> Void)? = nil, file: StaticString = #fileID, line: UInt = #line) {
+    init(latency: CFTimeInterval = 0.2, energy: EnergyPolicySource? = nil, started: (@Sendable () -> Void)? = nil,
+         file: StaticString = #fileID, line: UInt = #line) {
         self.latency = latency
+        self.energy = energy
         self.started = started
         self.file = file
         self.line = line
     }
 
+    /// The latency a stream started now coalesces with: ``latency`` times the saver's poll stretch.
+    var currentLatency: CFTimeInterval { latency * CFTimeInterval(energy?.policy.pollStretch ?? 1) }
+
     func changes(under folders: [URL]) -> AsyncStream<Void> {
-        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+        let latency = currentLatency
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let paths = folders.map { FolderWatcherPath.real($0) }
             let box = FileTreeWatchStream(paths: paths, latency: latency, started: started,
                                           census: ArmCensusWatch(.watcher, owner: "FileTreeWatcher", file: file, line: line),

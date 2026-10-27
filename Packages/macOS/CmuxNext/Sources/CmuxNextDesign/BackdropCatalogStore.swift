@@ -64,7 +64,8 @@ public final class BackdropCatalogStore {
         let owner = mainWork.board.owner("BackdropCatalogStore.build")
         // task-owner: the store's refresh loop, off main; stop() cancels it
         task = Task { @concurrent [weak self] in
-            let changes = FolderChanges(folders: folders).events()
+            // A burst of writes (an unzip, a sync client) is one rebuild, 1 s after its first change (4 s in Energy Saver).
+            let changes = FolderChanges(folders: folders, coalesce: .seconds(1), energy: mainWork.energy).events()
             let first = build()
             mainWork.postFromAnyThread(.visible, owner: owner) { [weak self] in self?.land(first) }
             // wakeup-allow: each pass is one folder change event, never a poll

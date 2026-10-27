@@ -39,6 +39,12 @@ final class FileExplorerModel {
     /// The folders the running watch covers, and its task.
     @ObservationIgnored private var watched: [URL] = []
     @ObservationIgnored private var watching: Task<Void, Never>?
+    /// A surface shows the tree (``setShown(_:)``); while none does, nothing watches it.
+    @ObservationIgnored private var isShown = true
+    /// The tree went unwatched while hidden: changes may have been missed, so the next show lists it again.
+    @ObservationIgnored private var missedChanges = false
+    /// The listing a show runs to catch up with the changes made while the tree was hidden.
+    @ObservationIgnored private(set) var catchUp: Task<Void, Never>?
 
     init(lister: any DirectoryListing = DirectoryLister(), git: any MarkdownGitRunning = ProcessMarkdownGitRunner(),
          watcher: any FileTreeWatching = FileTreeWatcher()) {
@@ -51,11 +57,38 @@ final class FileExplorerModel {
     // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
         watching?.cancel()
+        catchUp?.cancel()
+    }
+
+    /// Whether a surface shows the tree. A hidden tree stops its watch, so writes by other apps (an agent,
+    /// a build) wake nothing; the next show lists it once and watches again. Chrome stops the work of a
+    /// hidden page the same way and refreshes it when it shows (`WebContentsImpl::WasHidden` / `WasShown`).
+    func setShown(_ shown: Bool) {
+        guard shown != isShown else { return }
+        isShown = shown
+        guard shown else { return stopWatching() }
+        guard missedChanges, root != nil else { return }
+        missedChanges = false
+        // task-owner: the one catch-up listing of a show; a newer listing supersedes it (the model's generation)
+        // main-hop-allow: reload is the model's main-actor async listing (DirectoryLister and git run off main); this task only starts it
+        catchUp = Task { [weak self] in await self?.reload() }
+    }
+
+    /// Ends the running watch; the tree may now miss changes until it lists again.
+    private func stopWatching() {
+        watching?.cancel()
+        watching = nil
+        if !watched.isEmpty { missedChanges = true }
+        watched = []
     }
 
     /// Watches `folders` (the root, and the repository's `.git` folder): each burst of changes
-    /// lists the tree again. The same folders keep the running watch.
+    /// lists the tree again. The same folders keep the running watch; a hidden tree watches nothing.
     private func watch(_ folders: [URL]) {
+        guard isShown else {
+            missedChanges = true
+            return
+        }
         guard folders != watched else { return }
         watched = folders
         watching?.cancel()
@@ -63,7 +96,8 @@ final class FileExplorerModel {
         // main-hop-allow: each burst of changes relists through the model's main-actor async reload, whose listing and git run off main
         watching = Task { [weak self] in
             for await _ in changes {
-                guard let self else { return }
+                // A stopped watch may still hold a buffered change: the show that starts the next watch lists anyway.
+                guard let self, !Task.isCancelled else { return }
                 await self.reload()
             }
         }

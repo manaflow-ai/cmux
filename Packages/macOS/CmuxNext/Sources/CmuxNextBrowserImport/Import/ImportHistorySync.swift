@@ -1,5 +1,5 @@
 import CmuxNextCompat
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import Darwin
 public import Foundation
 import os
@@ -13,6 +13,9 @@ import os
 /// deletes `History-journal`), then one coalesced read, skipped when the
 /// database files did not change. ``reconcile()`` starts and stops watches to
 /// match the store, with one catch-up read per new watch.
+///
+/// Under Energy Saver the wait is ``EnergyPolicy/pollStretch`` times longer (80 s), with a tenth of it as
+/// leeway, so a browser writing its history while the person browses there wakes cmux 4 times less often.
 public actor ImportHistorySync {
     /// Into a profile's live history: `pages` to merge, `forget` to take out.
     public typealias Deliver = @Sendable (_ profile: String, _ pages: [ImportedHistoryEntry], _ forget: [URL]) async -> Void
@@ -20,6 +23,10 @@ public actor ImportHistorySync {
     private let store: ImportedDataStore
     private let grants: BrowserFolderGrants?
     private let delay: Duration
+    /// The app's Energy Saver policy (`MainWorkScheduler.energy`); nil keeps ``delay``.
+    private let energy: EnergyPolicySource?
+    /// The clock the reads wait on (a `ManualClock` in tests).
+    private let clock: any Clock<Duration>
     private let limit: Int
     private let deliver: Deliver
     private var watches: [String: HistoryFileWatch] = [:]
@@ -27,15 +34,25 @@ public actor ImportHistorySync {
     /// Each watched database's files (size and change time) at its last read.
     private var lastRead: [String: [Int64]] = [:]
 
-    /// `grants`: the folder grants reads need (nil: folders are read directly).
+    /// - Parameters:
+    ///   - grants: The folder grants reads need (nil: folders are read directly).
+    ///   - delay: The wait from a write to its read, outside Energy Saver.
+    ///   - energy: The app's Energy Saver policy, which stretches the wait; nil keeps `delay`.
+    ///   - clock: The clock the reads wait on.
     public init(store: ImportedDataStore, grants: BrowserFolderGrants?, delay: Duration = .seconds(20),
+                energy: EnergyPolicySource? = nil, clock: any Clock<Duration> = ContinuousClock(),
                 limit: Int = ImportPlan.defaultHistoryLimit, deliver: @escaping Deliver) {
         self.store = store
         self.grants = grants
         self.delay = delay
+        self.energy = energy
+        self.clock = clock
         self.limit = limit
         self.deliver = deliver
     }
+
+    /// The wait a write starts now: ``delay`` times the saver's poll stretch.
+    public nonisolated var currentDelay: Duration { delay * (energy?.policy.pollStretch ?? 1) }
 
     /// The sources being watched now.
     public var watched: Set<String> { Set(watches.keys) }
@@ -137,12 +154,13 @@ public actor ImportHistorySync {
         lastRead[key] = nil
     }
 
-    /// A write arrived: one read `delay` later, however many writes follow.
+    /// A write arrived: one read ``currentDelay`` later (10% leeway), however many writes follow.
     private func changed(_ key: String) {
         guard watches[key] != nil else { return }
-        let timer = timers[key] ?? DemandTimer(owner: "ImportHistorySync")
+        let timer = timers[key] ?? DemandTimer(owner: "ImportHistorySync", clock: clock, energy: energy)
         timers[key] = timer
-        timer.scheduleIfIdle(after: delay) { [weak self] in await self?.refresh(key) }
+        let wait = currentDelay
+        timer.scheduleIfIdle(after: wait, tolerance: wait / 10) { [weak self] in await self?.refresh(key) }
     }
 
     /// Reads the source's pages again when its database changed and hands on

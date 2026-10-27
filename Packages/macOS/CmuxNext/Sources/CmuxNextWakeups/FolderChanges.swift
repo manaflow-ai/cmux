@@ -15,12 +15,22 @@ public import Foundation
 /// two elements is either seen by the watch or happened before the element, and the consumer's
 /// work for the element (re-reading the folders) covers it.
 ///
+/// With a ``coalesce`` wait, a burst another app writes (a sync client, an unzip) is one element: the
+/// first change arms a flexible ``DemandTimer`` and the element comes when it fires, ``coalesce`` times
+/// the Energy Saver's ``EnergyPolicy/pollStretch`` later with a tenth of that as leeway. Changes until
+/// then are before the element, so its re-read covers them. The timer is a `kFlexibleNoSooner` delayed
+/// task (Chromium's base/task/delay_policy.h): it never fires early and may fire late to share a wake.
+///
 /// ```swift
 /// for await _ in FolderChanges(folders: [wallpapers, userImages]).events() { rebuild() }
 /// ```
 public struct FolderChanges: Sendable {
     /// The folders whose contents matter.
     public let folders: [URL]
+    /// The wait from a burst's first change to its element, outside Energy Saver; zero yields at once.
+    public let coalesce: Duration
+    /// The app's Energy Saver policy (`MainWorkScheduler.energy`); nil keeps ``coalesce``.
+    private let energy: EnergyPolicySource?
     private let ledger: WakeupLedger
     #if DEBUG || CMUX_BENCH_HOOKS
     /// The line that made the watch, for the arm census.
@@ -29,29 +39,40 @@ public struct FolderChanges: Sendable {
 
     /// - Parameters:
     ///   - folders: The folders whose contents matter; missing ones are watched through a parent.
+    ///   - coalesce: The wait from a burst's first change to its element (zero: each change yields at once).
+    ///   - energy: The app's Energy Saver policy, which stretches `coalesce`; nil keeps it.
     ///   - ledger: Where the watch counts its wakes. In Debug and bench builds its ``ArmCensus`` also gets the watch's
     ///     launch arm and first change (startup-queue.py arms, p08-startup-085).
     ///   - file: The line that made the watch, named by the arm census (leave the default).
     ///   - line: See `file`.
-    public init(folders: [URL], ledger: WakeupLedger = .shared, file: StaticString = #fileID, line: UInt = #line) {
+    public init(folders: [URL], coalesce: Duration = .zero, energy: EnergyPolicySource? = nil, ledger: WakeupLedger = .shared,
+                file: StaticString = #fileID, line: UInt = #line) {
         self.folders = folders
+        self.coalesce = coalesce
+        self.energy = energy
         self.ledger = ledger
         #if DEBUG || CMUX_BENCH_HOOKS
         site = ArmCensus.Site(file: file, line: line)
         #endif
     }
 
+    /// The wait a burst starting now coalesces over: ``coalesce`` times the saver's poll stretch.
+    public var currentCoalesce: Duration { coalesce * (energy?.policy.pollStretch ?? 1) }
+
     /// One element after each burst of changes in any watched folder. Ends when the consumer
     /// stops iterating (the watches are cancelled with it).
     public func events() -> AsyncStream<Void> {
         let targets = folders.map(\.path)
         let ledger = ledger
+        let coalescing = self
         #if DEBUG || CMUX_BENCH_HOOKS
         let site = site
         #endif
         let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         // task-owner: the stream's watch loop; cancelled when the consumer stops iterating
         let loop = Task.detached(priority: .utility) {
+            let burst = coalescing.coalesce > .zero
+                ? DemandTimer(owner: "FolderChanges.coalesce", ledger: ledger, energy: coalescing.energy) : nil
             var armed = Self.arm(targets)
             #if DEBUG || CMUX_BENCH_HOOKS
             var census = ArmCensusEntry()
@@ -81,9 +102,18 @@ public struct FolderChanges: Sendable {
                     census.armed(in: ledger.armCensus, .watcher, owner: "FolderChanges", site: site)
                     #endif
                 }
-                ledger.record("FolderChanges", reason: "change")
-                continuation.yield()
+                guard let burst else {
+                    ledger.record("FolderChanges", reason: "change")
+                    continuation.yield()
+                    continue
+                }
+                let wait = coalescing.currentCoalesce
+                burst.scheduleIfIdle(after: wait, tolerance: wait / 10) {
+                    ledger.record("FolderChanges", reason: "change")
+                    continuation.yield()
+                }
             }
+            burst?.cancel()
             armed.cancel()
             continuation.finish()
         }

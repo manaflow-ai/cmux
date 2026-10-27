@@ -32,7 +32,7 @@ final class FileExplorerService {
         let id = UUID().uuidString
         let apps = services.map { WorkspaceFileApps(queries: $0.workspaceQueries) }
         let view = FileExplorerSectionView(
-            model: FileExplorerModel(),
+            model: FileExplorerModel(watcher: FileTreeWatcher(energy: mainWork.energy)),
             mainWork: mainWork,
             rootFolder: { [weak self, weak controller] in controller.flatMap { self?.folder(focusedIn: $0) } },
             perform: { [weak self] id in self?.perform(ActionID(rawValue: id)) },

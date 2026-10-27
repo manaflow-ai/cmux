@@ -25,6 +25,9 @@ final class ChatsFeed {
     private let reconnect: MainDeadline
     /// Where the socket folder's notices reach the main thread (``watchForSocket()``).
     private let mainWork: MainWorkScheduler
+    /// Coalesces the socket folder's notices off main: other processes write that folder, and a burst of
+    /// their writes is one look for the socket (``socketFolderWait``).
+    private let socketFolderNotices: DemandTimer
     private var requestID = 2
     /// The seq of the last index change in the mirror (acpmux numbers every change; the page
     /// names the last one it holds). Nil from a daemon that does not number them.
@@ -47,6 +50,18 @@ final class ChatsFeed {
         socket = socketPath
         mainWork = deadlines.work
         reconnect = MainDeadline(owner: "ChatsFeed.reconnect", workClass: .background, scheduler: deadlines)
+        // timer-class-allow: armed and fired off main by the folder's kqueue handler; its fire posts one .background main task
+        socketFolderNotices = DemandTimer(owner: "ChatsFeed.socketFolder", energy: deadlines.work.energy)
+    }
+
+    /// The wait from a burst of writes in the socket's folder to the one look for the socket, outside
+    /// Energy Saver; the saver stretches it by ``EnergyPolicy/pollStretch``. The chats themselves stay a
+    /// live push from acpmux, as `AgentTurnStateFeed` does.
+    nonisolated static let socketFolderWait: Duration = .milliseconds(250)
+
+    /// ``socketFolderWait`` stretched by `energy`'s saver.
+    nonisolated static func socketFolderWait(in energy: EnergyPolicy) -> Duration {
+        socketFolderWait * energy.pollStretch
     }
 
     /// One chat by key, O(1).
@@ -60,6 +75,7 @@ final class ChatsFeed {
     nonisolated deinit {
         subscription?.cancel()
         directoryWatch?.cancel()
+        socketFolderNotices.cancel()
     }
 
     /// Starts one long-lived watch for the first live observer.
@@ -242,12 +258,17 @@ final class ChatsFeed {
         // SAFETY: open reads the NUL-terminated copy of the path Swift makes for the call.
         let fd = unsafe open(directory, O_EVTONLY)
         guard fd >= 0 else { return }
-        // The notices arrive off main; each posts one background task (the socket appearing is no one's input).
+        // The notices arrive off main; a burst of them posts one background task (the socket appearing is
+        // no one's input) after a flexible wait with a tenth of it as leeway.
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete],
                                                                queue: .global(qos: .utility))
         let work = mainWork
+        let notices = socketFolderNotices
         source.setEventHandler { [weak self] in
-            work.postFromAnyThread(.background, owner: "ChatsFeed.socketFolder") { [weak self] in self?.connectIfIdle() }
+            let wait = ChatsFeed.socketFolderWait(in: work.energy.policy)
+            notices.scheduleIfIdle(after: wait, tolerance: wait / 10) { [weak self] in
+                work.postFromAnyThread(.background, owner: "ChatsFeed.socketFolder") { [weak self] in self?.connectIfIdle() }
+            }
         }
         source.setCancelHandler { close(fd) }
         directoryWatch = source
