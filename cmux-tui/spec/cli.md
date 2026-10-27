@@ -36,7 +36,9 @@ socket so several `remote connect --wireguard-hub <socket>` clients share one
 key; it prints one `hub-ready` JSON line when listening and removes the socket
 on SIGTERM or SIGINT. With `--client-token-stdin` it reads a token as stdin's
 first line and serves only clients presenting it (`remote connect
---wireguard-hub-token-stdin`); `--config -` reads the config from the rest of stdin.
+--wireguard-hub-token-stdin`); a client without it reaches port 22 only (`wg dial`, an ssh
+`ProxyCommand` that bridges stdio to HOST:PORT through the hub; ssh authenticates both ends).
+`--config -` reads the config from the rest of stdin.
 
 `cmux-tui __daemon-capabilities [--json]` (private, not in help) prints, with
 no daemon running, the capabilities every daemon

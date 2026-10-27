@@ -45,11 +45,15 @@ Mac the VPC, which widens access rather than narrowing it.
   gets method `0xFF` or an auth failure and reaches nothing (gap 3).
 - 2026-10-27, with feat-cmux-next's `cmux cloud enroll-machine` (ssh through the hub with the
   `cmux wg dial --hub` ProxyCommand, a separate process with no token): a client without the
-  token reaches port 22 only (`OPEN_PORTS` in `wireguard_hub.rs`). ssh authenticates both ends
-  itself (this Mac's key in the machine's `authorized_keys`, the host key pinned at
-  enrollment), so the lane opens nothing a same-user program could not already reach with
-  that key. Every other port (noVNC, the desktop hosts, dev servers, the daemon link) still
-  needs the token.
+  token reaches port 22 only (`OPEN_PORTS` in `wireguard_hub.rs`), on any address inside the
+  tunnel's routes. ssh authenticates both ends itself (this Mac's key in the machine's
+  `authorized_keys`, the host key pinned at enrollment), and every other port (noVNC, the
+  desktop hosts, dev servers, the daemon link) still needs the token. What the lane gives
+  back: a same-user program that can use this Mac's ssh key (the key file or the agent)
+  can `ssh -L` through an enrolled machine's sshd to that machine's loopback services, which
+  the token alone would have kept from it. Still narrower than before the token (no gate at
+  all). Narrowing it further (the open lane only for enrolled addresses, or `restrict`
+  options on the enrolled `authorized_keys` line) is a policy question for 13742.
 - `wg hub --config -` reads the wg-quick config from stdin. The app no longer
   writes `wireguard.conf` and deletes an earlier build's copy.
 - `remote connect --wireguard-hub-token-stdin`: the app hands each link
