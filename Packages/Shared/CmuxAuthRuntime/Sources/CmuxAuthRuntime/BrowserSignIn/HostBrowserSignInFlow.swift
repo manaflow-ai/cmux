@@ -2,6 +2,9 @@ public import Foundation
 public import Observation
 import os
 import StackAuth
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// macOS hosted-browser sign-in flow, including external URL callbacks and
 /// attempt/sign-out race guards.
@@ -47,7 +50,7 @@ public final class HostBrowserSignInFlow {
     private let log = AuthDebugLog()
 
     @ObservationIgnored private var activeSession: (any HostBrowserAuthSession)?
-    @ObservationIgnored private var activeSessionContinuation: CheckedContinuation<HostBrowserAuthSessionResult?, Never>?
+    @ObservationIgnored private var activeSessionContinuation: OnceContinuation<HostBrowserAuthSessionResult?, OnceContinuationError>?
     @ObservationIgnored private var activeSessionContinuationAttemptID: UInt64?
     @ObservationIgnored private var activeAttemptTimeoutTask: Task<Void, Never>?
     @ObservationIgnored private var activeAttemptTask: Task<Bool, Never>?
@@ -361,9 +364,10 @@ public final class HostBrowserSignInFlow {
         return task
     }
 
+    /// nil (no result, as a cancel answers) when the attempt's continuation is dropped without a resume.
     private func runBrowserSession(attemptID: UInt64, inDefaultBrowser: Bool) async -> HostBrowserAuthSessionResult? {
-        await withCheckedContinuation {
-            (continuation: CheckedContinuation<HostBrowserAuthSessionResult?, Never>) in
+        try? await withOnceContinuation {
+            (continuation: OnceContinuation<HostBrowserAuthSessionResult?, OnceContinuationError>) in
             activeSessionContinuation = continuation
             activeSessionContinuationAttemptID = attemptID
             if inDefaultBrowser {

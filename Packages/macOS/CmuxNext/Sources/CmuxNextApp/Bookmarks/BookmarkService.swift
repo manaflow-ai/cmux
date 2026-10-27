@@ -1,7 +1,9 @@
 import CmuxNextBookmarks
 import CmuxNextBrowser
 import CmuxNextBrowserImport
+import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 import Observation
 import os
@@ -36,12 +38,21 @@ final class BookmarkService {
     @ObservationIgnored var fileTrees: [String: [BookmarkNode]] = [:]
     @ObservationIgnored var fileLoaded = false
     @ObservationIgnored var saving: Task<Void, Never>?
-    @ObservationIgnored var homeObservation: Task<Void, Never>?
-    @ObservationIgnored var barObservation: Task<Void, Never>?
-    @ObservationIgnored var faviconObservation: Task<Void, Never>?
+    @ObservationIgnored var homeObservation: ServiceObservation<ObservationTrigger<Bool>>?
+    /// The running switch to or from the daemon's trees; the next one waits for it (``observeHome()``).
+    @ObservationIgnored var homeSwitch: Task<Void, Never>?
+    /// Bumped by every capability change: a switch step of an older one does nothing.
+    @ObservationIgnored var homeGeneration: UInt64 = 0
+    /// The switch's copy of the file into the home daemon; nil: ``migrateFileToDaemon()``. A test sets it
+    /// to change the capability while a switch copies.
+    @ObservationIgnored var homeCopy: (@MainActor () async -> Void)?
+    @ObservationIgnored var barObservation: ServiceObservation<Bool>?
+    @ObservationIgnored var faviconObservation: ServiceObservation<Int>?
     /// Stored folder icons a bar drew the folder symbol for while they load (``followFolderIcons()``).
     var awaitedFolderIcons: Set<String> = []
-    @ObservationIgnored var folderIconObservation: Task<Void, Never>?
+    @ObservationIgnored var folderIconObservation: ServiceObservation<Set<String>>?
+    /// Each omnibar suggestion engine's bookmark feed, by engine (``BookmarkSuggestionFeed``).
+    @ObservationIgnored var suggestionFeeds: [ObjectIdentifier: ServiceObservation<[BookmarkNode]>] = [:]
     @ObservationIgnored var migrating = false
     /// Finished by ``startSync()``: the launch read's import migration waits for it (`LaunchStart.bookmarkSync`).
     private let syncStarted: AsyncStream<Void>
@@ -59,10 +70,14 @@ final class BookmarkService {
         weak var entry: BrowserEntry?
         let bar: BookmarksBarView
         let source: BookmarkBarSourceAdapter
-        init(entry: BrowserEntry, bar: BookmarksBarView, source: BookmarkBarSourceAdapter) {
+        /// The tab's visibility node (`TabContentCache.node(for:)`), held so a reload waiting for
+        /// the tab to show is not dropped with it.
+        let node: VisibilityNode
+        init(entry: BrowserEntry, bar: BookmarksBarView, source: BookmarkBarSourceAdapter, node: VisibilityNode) {
             self.entry = entry
             self.bar = bar
             self.source = source
+            self.node = node
         }
     }
 
@@ -84,19 +99,16 @@ final class BookmarkService {
         services.machines.local.store.sideEvents.subscribe { [weak self] event in
             if case .bookmarksChanged(let profile, _) = event { self?.daemonChanged(profile) }
         }
-        // task-owner: one-shot launch read of the bookmark file, then the imports' migration once the sync started
-        Task { [weak self] in
+        let mainWork = services.mainWork, syncStarted = syncStarted
+        // task-owner: one-shot launch read of the bookmark file. The file actor reads off main; the trees apply as
+        // one posted `visible` task (bars and stars show them), then the legacy imports migrate once, after the sync
+        // started (``startSync()``, `LaunchStart.bookmarkSync`).
+        Task { @concurrent [weak self] in
             let loaded = await file.load()
-            guard let self else { return }
-            fileTrees = loaded
-            fileLoaded = true
-            if !usesDaemon {
-                trees = loaded.mapValues(BookmarkTree.init(ordered:))
-                changed(profiles: Set(loaded.keys))
-            }
-            observeHome()
+            await mainWork.apply(.visible, owner: "BookmarkService.fileLoaded") { [weak self] () -> Void in self?.fileRead(loaded) }
             for await _ in syncStarted {}
-            await migrateLegacyImports()
+            guard let importStore, let self else { return }
+            await self.migrateLegacyImports(store: importStore, directory: directory, mainWork: mainWork)
         }
     }
 
@@ -110,6 +122,17 @@ final class BookmarkService {
             chromium = BookmarkChromiumSync(service: self)
             syncStart.finish()
         }
+    }
+
+    /// The bookmark file's trees are read: they are the truth until the home daemon serves bookmarks.
+    private func fileRead(_ loaded: [String: [BookmarkNode]]) {
+        fileTrees = loaded
+        fileLoaded = true
+        if !usesDaemon {
+            trees = loaded.mapValues(BookmarkTree.init(ordered:))
+            changed(profiles: Set(loaded.keys))
+        }
+        observeHome()
     }
 
     // MARK: Reading
@@ -189,8 +212,9 @@ final class BookmarkService {
         let nodes = trees[profile]?.ordered ?? []
         fileTrees[profile] = nodes
         let previous = saving, logger = logger
-        // task-owner: chained single-file saves; each waits for the previous
-        saving = Task {
+        // task-owner: chained single-file saves; each waits for the previous. Off main: the file actor writes,
+        // and nothing applies on main after it.
+        saving = Task { @concurrent in
             await previous?.value
             do { try await file.save(profile: profile, nodes: nodes) } catch {
                 logger.error("save bookmarks: \(String(describing: error), privacy: .public)")

@@ -24,7 +24,7 @@ import CmuxNextRemoteBrowser
 final class HistoryPageService: HistoryPageSource {
     private unowned let services: AppServices
     /// The Stashed page's stashes (stash-v1), History's sibling page.
-    private(set) lazy var stash = StashService(host: stashHost)
+    private(set) lazy var stash = StashService(host: stashHost, mainWork: services.mainWork)
     private(set) lazy var stashHost = StashAppHost(services)
 
     init(services: AppServices) {
@@ -212,6 +212,7 @@ extension TabContentCache {
                 pages.forget(key)
                 self?.leaveAppPage(key, to: target)
             }
+            page.pointerFrames = services.remotePointerFrames
             return page
         }
         if VaultPageAddress.matches(url) {
@@ -235,7 +236,7 @@ extension TabContentCache {
     /// page of its record's engine (WebKit when Chromium cannot start).
     func leaveAppPage(_ key: String, to url: URL) {
         let profile = browserProfile?(key) ?? .default
-        let config = BrowserTabConfiguration(id: BrowserTabID(rawValue: key), profile: profile, initialURL: url)
+        let config = BrowserTabConfiguration(id: BrowserTabID(rawValue: key), profile: profile, initialURL: url, origin: .user)
         guard let tab = tabModel(key), tab.browserEngine == BrowserEngineTag.cef.rawValue, browserTabs.cefUnavailable() == nil else {
             return swapPage(key, with: unproxiedWebKitPage(config))
         }

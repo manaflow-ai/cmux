@@ -5,7 +5,7 @@ import CmuxNextInput
 import Testing
 
 /// Sidebar hover once per frame (feature `pointerFrameHover`, p04-input-033) on p04-input-030's
-/// `PointerFrameCoalescer`, as Chromium delivers rAF-aligned moves (main_thread_event_queue.cc): the
+/// `FrameInputCoalescer`, as Chromium delivers rAF-aligned moves (main_thread_event_queue.cc): the
 /// first move of a frame interval hovers in its own turn, the rest of the interval once at the frame,
 /// at the latest point. Enter, exit and a press are discrete: they land the pending moves first, so a
 /// click after fast moves acts on the row under its own point. The list, the space bar and the rail.
@@ -108,7 +108,7 @@ import Testing
         #expect(harness.frames.coalescer.hasPending)
         harness.frame()
         #expect(harness.hoverChanges == [harness.rows[0].key, harness.rows[7 % harness.rows.count].key])
-        #expect(harness.list.hoverMoves.maxDeliveriesPerFrame == 2)
+        #expect(harness.list.frameInputHover.maxDeliveriesPerFrame == 2)
         #expect(!harness.frames.coalescer.hasPending)
     }
 
@@ -195,7 +195,7 @@ import Testing
         #expect(bar.hovered == 1, "the interval's later moves wait for the frame")
         frames.frame()
         #expect(bar.hovered == 2, "the frame hovered the latest space")
-        #expect(bar.hoverMoves.maxDeliveriesPerFrame == 2)
+        #expect(bar.frameInputHover.maxDeliveriesPerFrame == 2)
 
         try move(to: 0)
         try move(to: 3)

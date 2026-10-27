@@ -188,7 +188,7 @@ import Testing
 }
 
 /// The records a test's trace runtime writes, in order.
-private final class CreateRecordLog: Sendable {
+private nonisolated final class CreateRecordLog: Sendable {
     private let state = Mutex<[TraceRuntime.StubRecord]>([])
 
     func append(_ record: TraceRuntime.StubRecord) { state.withLock { $0.append(record) } }
@@ -201,6 +201,8 @@ private final class UnaskedSupervisor: ChromiumHostSupervising {
     func attachment() async throws(ChromiumHostAttachError) -> ChromiumHostAttachment {
         throw .cannotStart("not used in CEFPaneHostTests")
     }
+
+    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
 }
 
 /// Stand-in shim: window creates return `started` and closes are recorded; every other function does

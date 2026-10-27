@@ -1511,6 +1511,9 @@ Each file is in exactly one task. Section 8 lists the planned cut (FG300-FG346),
   feature `launchStartDeferral`. The updater's settings follow stays first-frame: `Updater.start`
   needs the person's schedule and ring, and the sidebar's What's New and tip switches follow it. A
   Mac Screen tab or Settings > Devices posts `DeviceHub.startNeeded` right after the first frame.
+  The startup tip since posts `Settings.start`, `HangReports.start`, `ConfigActions.start`, `Themes.start`
+  (critical), `MouseSideButtons.start`, `KeybindingsFile.start` and Ghostty's config watch, and folds the
+  daemon's prompts into `Daemon.start`: those have their class as the post's priority and no `LaunchStart` case.
 
 **p06-scheduler-050: Idle adopters.**
 - Files: `CmuxNextBrowser/CEF/CEFSpareWindow.swift`, `CmuxNextChromiumWarmup/ChromiumWarmup.swift`,

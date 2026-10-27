@@ -9,6 +9,8 @@
 // for a page whose engine page is closed (WebKit, or Chromium on an older fork). The host gives it back
 // through sessionStorage before the page's scripts run, so `readPageState` is the one way back.
 
+import { useEffect, useRef, useSyncExternalStore } from "react";
+
 /** The `window.webkit.messageHandlers` name the host takes the state on (PageWebView.pageStateHandler). */
 export const PAGE_STATE_HANDLER = "cmuxPageState";
 /** The sessionStorage key of the saved state. */
@@ -110,4 +112,268 @@ export function readPageState<T>(host: PageStateHost = windowPageStateHost()): T
   } catch {
     return undefined;
   }
+}
+
+// ---- Lifecycle state, timers and frames (task 033) ----
+//
+// Native tells the engine, never the page: a hidden page gets `visibilitychange`, a frozen one the
+// standard `freeze` and, on thaw, `resume` (Chromium dispatches both from
+// third_party/blink/renderer/core/page/page.cc SetPageFrozen, per the Page Lifecycle API; WebKit has
+// no freeze event and stays hidden). There is no cmux lifecycle stream. Native guarantees the order:
+// hidden before freeze, resume before visible.
+//
+// A parked (pooled or preloaded) document counts as hidden until the host claims it, so a page that
+// loads visible off screen to paint its cover starts no timer before anyone can see it.
+//
+// Timers and animation loops go through `startPageInterval` / `startPageAnimationFrame` (or their
+// hooks): they run only while the page is active and start nothing while it is hidden or frozen.
+// Showing the page again reads nothing: a poll waits for its next period, and only a clock that
+// asks for `catchUpOnShow` ticks once on show.
+
+/** Chrome's Page Lifecycle states that a page can observe; `discarded` never runs page code. */
+export type PageLifecycleState = "active" | "hidden" | "frozen";
+
+/** The part of `Document` the lifecycle reads. */
+export interface LifecycleDocument {
+  readonly visibilityState: string;
+  addEventListener(type: string, listener: () => void): void;
+  removeEventListener(type: string, listener: () => void): void;
+}
+
+/**
+ * Set to `true` by the host before page code runs when the document loads in a parked pooled host
+ * (the prewarmed spare, PageWebView's pooled recipe). The spare has no routes yet, so the page
+ * client holds every call and subscription until the host claims the document for a page.
+ */
+export const PARKED_NAME = "__cmuxPageParked";
+
+/** The document events that change the state. */
+const EVENTS = ["visibilitychange", "freeze", "resume"] as const;
+
+/**
+ * One document's lifecycle. Listeners are told only when the state changes; the document's
+ * listeners exist only while someone observes.
+ */
+export class PageLifecycle {
+  private frozen = false;
+  private parked: boolean;
+  private current: PageLifecycleState;
+  private readonly listeners = new Set<(state: PageLifecycleState) => void>();
+
+  constructor(
+    private readonly doc: LifecycleDocument | undefined,
+    parked = false,
+  ) {
+    this.parked = parked;
+    this.current = this.compute();
+  }
+
+  /** The state now. A page with no document (a test, a worker) is active. */
+  state(): PageLifecycleState {
+    return this.compute();
+  }
+
+  /** Calls `listener` on each change of state; returns the unsubscribe function. */
+  observe(listener: (state: PageLifecycleState) => void): () => void {
+    if (this.listeners.size === 0) {
+      this.current = this.compute();
+      for (const type of EVENTS) this.doc?.addEventListener(type, this.changed);
+    }
+    this.listeners.add(listener);
+    return () => {
+      if (!this.listeners.delete(listener) || this.listeners.size > 0) return;
+      for (const type of EVENTS) this.doc?.removeEventListener(type, this.changed);
+    };
+  }
+
+  /** The host claimed this parked document (pageClient.ts CLAIM_OP). */
+  claimed(): void {
+    if (!this.parked) return;
+    this.parked = false;
+    this.changed();
+  }
+
+  private compute(): PageLifecycleState {
+    if (this.frozen) return "frozen";
+    if (this.parked || this.doc?.visibilityState === "hidden") return "hidden";
+    return "active";
+  }
+
+  private readonly changed = (event?: { type?: string }): void => {
+    // `freeze` and `resume` carry no state of their own on the document; remember which came last.
+    if (event?.type === "freeze") this.frozen = true;
+    else if (event?.type === "resume") this.frozen = false;
+    const next = this.compute();
+    if (next === this.current) return;
+    this.current = next;
+    for (const listener of this.listeners) listener(next);
+  };
+}
+
+const lifecycles = new WeakMap<object, PageLifecycle>();
+
+/** The lifecycle of the current document of `target` (the page's global by default), made once
+    per document. */
+export function pageLifecycleFor(
+  target: Record<string, unknown> = globalThis as unknown as Record<string, unknown>,
+): PageLifecycle {
+  const doc = target.document as LifecycleDocument | undefined;
+  const key = doc ?? target;
+  let lifecycle = lifecycles.get(key);
+  if (!lifecycle) {
+    lifecycle = new PageLifecycle(doc, target[PARKED_NAME] === true);
+    lifecycles.set(key, lifecycle);
+  }
+  return lifecycle;
+}
+
+/**
+ * Calls `listener` when the page becomes active, hidden or frozen. In the agent pane this counts as
+ * a `visibilitychange` listener (scripts/cmux-next/check-switch-fetches.py): it must not read data.
+ */
+export function onPageLifecycleChange(
+  listener: (state: PageLifecycleState) => void,
+  lifecycle: PageLifecycle = pageLifecycleFor(),
+): () => void {
+  return lifecycle.observe(listener);
+}
+
+/** Whether the person can see the page. */
+export function pageIsActive(lifecycle: PageLifecycle = pageLifecycleFor()): boolean {
+  return lifecycle.state() === "active";
+}
+
+/** The timer seam: the page's own timers, or a fake clock in tests. */
+export interface PageTimers {
+  every(ms: number, callback: () => void): unknown;
+  cancelEvery(handle: unknown): void;
+  frame(callback: (time: number) => void): unknown;
+  cancelFrame(handle: unknown): void;
+}
+
+export const browserTimers: PageTimers = {
+  // wakeup-allow: bounded the page's one interval; startPageInterval arms it only while the page is active.
+  every: (ms, callback) => setInterval(callback, ms),
+  cancelEvery: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
+  frame: (callback) => requestAnimationFrame(callback),
+  cancelFrame: (handle) => cancelAnimationFrame(handle as number),
+};
+
+export interface PageIntervalOptions {
+  lifecycle?: PageLifecycle;
+  timers?: PageTimers;
+  /**
+   * Ticks once when the page shows again after a hide, for a clock whose text computes from a start
+   * time. Never for a read: showing a page makes no fetch.
+   */
+  catchUpOnShow?: boolean;
+}
+
+/** Runs `callback` every `ms` while the page is active; returns the stop function. */
+export function startPageInterval(callback: () => void, ms: number, options: PageIntervalOptions = {}): () => void {
+  const lifecycle = options.lifecycle ?? pageLifecycleFor();
+  const timers = options.timers ?? browserTimers;
+  let handle: unknown;
+  let running = false;
+  let missed = false;
+  const sync = (state: PageLifecycleState) => {
+    if (state !== "active") {
+      if (running) timers.cancelEvery(handle);
+      running = false;
+      handle = undefined;
+      missed = true;
+      return;
+    }
+    if (running) return;
+    if (missed && options.catchUpOnShow) callback();
+    missed = false;
+    running = true;
+    handle = timers.every(ms, callback);
+  };
+  const unobserve = lifecycle.observe(sync);
+  sync(lifecycle.state());
+  return () => {
+    unobserve();
+    if (running) timers.cancelEvery(handle);
+    running = false;
+  };
+}
+
+export interface PageAnimationFrameOptions {
+  lifecycle?: PageLifecycle;
+  timers?: PageTimers;
+}
+
+/**
+ * Calls `callback` on every frame while the page is active, until it returns `false` or the stop
+ * function runs. A hidden or frozen page has no frame scheduled; the loop resumes on show.
+ */
+export function startPageAnimationFrame(
+  callback: (time: number) => boolean | void,
+  options: PageAnimationFrameOptions = {},
+): () => void {
+  const lifecycle = options.lifecycle ?? pageLifecycleFor();
+  const timers = options.timers ?? browserTimers;
+  let handle: unknown;
+  let scheduled = false;
+  let done = false;
+  const stop = () => {
+    done = true;
+    unobserve();
+    if (scheduled) timers.cancelFrame(handle);
+    scheduled = false;
+  };
+  const step = (time: number) => {
+    scheduled = false;
+    if (done) return;
+    if (callback(time) === false) return stop();
+    schedule();
+  };
+  const schedule = () => {
+    if (done || scheduled || lifecycle.state() !== "active") return;
+    scheduled = true;
+    handle = timers.frame(step);
+  };
+  const unobserve = lifecycle.observe((state) => {
+    if (state === "active") return schedule();
+    if (scheduled) timers.cancelFrame(handle);
+    scheduled = false;
+  });
+  schedule();
+  return stop;
+}
+
+/** The page's lifecycle state, re-rendering on each change. */
+export function usePageLifecycle(lifecycle: PageLifecycle = pageLifecycleFor()): PageLifecycleState {
+  return useSyncExternalStore(
+    (notify) => lifecycle.observe(notify),
+    () => lifecycle.state(),
+    () => "active",
+  );
+}
+
+/** `startPageInterval` for a component: `ms` null stops it. The latest `callback` runs. */
+export function usePageInterval(callback: () => void, ms: number | null, options: PageIntervalOptions = {}): void {
+  const latest = useRef(callback);
+  latest.current = callback;
+  const { lifecycle, timers, catchUpOnShow } = options;
+  useEffect(() => {
+    if (ms === null) return;
+    return startPageInterval(() => latest.current(), ms, { lifecycle, timers, catchUpOnShow });
+  }, [ms, lifecycle, timers, catchUpOnShow]);
+}
+
+/** `startPageAnimationFrame` for a component while `running`. The latest `callback` runs. */
+export function usePageAnimationFrame(
+  callback: (time: number) => boolean | void,
+  running: boolean,
+  options: PageAnimationFrameOptions = {},
+): void {
+  const latest = useRef(callback);
+  latest.current = callback;
+  const { lifecycle, timers } = options;
+  useEffect(() => {
+    if (!running) return;
+    return startPageAnimationFrame((time) => latest.current(time), { lifecycle, timers });
+  }, [running, lifecycle, timers]);
 }

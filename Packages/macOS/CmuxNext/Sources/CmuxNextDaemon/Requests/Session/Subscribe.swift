@@ -13,6 +13,10 @@ public struct SubscribeRequest: DaemonRequest {
         self.treeEvents = treeEvents
         self.surface = surface
     }
+
+    enum CodingKeys: String, CodingKey {
+        case treeEvents = "tree_events", surface
+    }
 }
 
 public struct ListWorkspacesRequest: DaemonRequest {

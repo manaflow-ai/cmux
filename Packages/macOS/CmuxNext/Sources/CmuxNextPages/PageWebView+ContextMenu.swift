@@ -5,8 +5,8 @@ extension PageWebView {
     /// default (Copy on a selection, ``PageWKWebView/keepDesktopItems(in:)``); a host that offers
     /// its own items (the agent pane's Copy Message) sets it and keeps the menu desktop-like itself.
     public var contextMenuEditor: (@MainActor (NSMenu) -> Void)? {
-        get { webView.contextMenuEditor }
-        set { webView.contextMenuEditor = newValue }
+        get { webKitHooks.contextMenuEditor }
+        set { webKitHooks.contextMenuEditor = newValue }
     }
 
     /// Keeps WebKit's desktop default items in `menu` (Copy on a selection): what a page without a

@@ -10,6 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from generated_server_families import GeneratedFamiliesError, generated_commands  # noqa: E402
 from handler_commands import HandlerCommandError, handler_commands  # noqa: E402
 
 
@@ -244,9 +245,20 @@ def module_command_profiles() -> dict[str, str]:
 
 
 def command_names() -> set[str]:
+    """The Command enum's variants: the hand-written ones in server.rs and
+    the ones cmux-ipc build.rs generates (generated_server_families.py), plus
+    the commands server modules decode."""
     source = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
     variants = rust_enum_variants(source, "Command")
     names = {camel_to_kebab(variant) for variant in variants}
+    try:
+        generated = generated_commands(TUI, load_sdk_catalog())
+    except GeneratedFamiliesError as error:
+        fail(str(error))
+    written = sorted(names & generated)
+    if written:
+        fail(f"generated family commands also written by hand: {', '.join(written)}")
+    names |= generated
     modules = module_command_names()
     overlap = sorted(names & set(modules))
     if overlap:

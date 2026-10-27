@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextLaunch
@@ -16,6 +17,8 @@ final class HistoryService {
     /// history in memory only (tests).
     var supportDirectory: URL?
     private var sinks: [BrowserProfileID: BrowserVisitSink] = [:]
+    /// Each profile log's page cache in the memory coordinator (`memorySqliteTrim`), kept with its sink.
+    private var logMemory: [BrowserProfileID: AsyncMemoryConsumerRegistration] = [:]
     /// The omnibox persistence per profile: the daemon when it serves `history-v1`, else `sinks`.
     private var routes: [BrowserProfileID: RoutingVisitSink] = [:]
     let hidden: HiddenHistoryStore
@@ -93,6 +96,7 @@ final class HistoryService {
         }
         let sink = BrowserVisitSink(log: BrowserVisitLog(url: url))
         sinks[profile] = sink
+        logMemory[profile] = AppMemoryConsumers(services: services).registerVisitLog(sink.log)
         return sink
     }
 
@@ -329,5 +333,6 @@ final class HistoryService {
         }
         sinks[profile]?.clear(since: nil)
         sinks[profile] = nil
+        logMemory[profile] = nil
     }
 }

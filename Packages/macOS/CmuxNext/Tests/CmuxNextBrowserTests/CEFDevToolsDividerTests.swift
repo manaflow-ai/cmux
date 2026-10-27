@@ -6,7 +6,7 @@ import CmuxNextWakeupsTestSupport
 import Testing
 
 /// The DevTools divider at most twice per frame (feature `pointerFrameDrags`, p04-input-031): with
-/// the window's PointerFrameCoalescer (p04-input-030) the first drag event of a frame interval moves
+/// the window's FrameInputCoalescer (p04-input-030) the first drag event of a frame interval moves
 /// the line in its own turn and the rest once more at the frame, to the latest point (Chromium's
 /// rAF-aligned input, `main_thread_event_queue.cc`); the release lands the pending move first.
 @MainActor @Suite(.serialized) struct CEFDevToolsDividerTests {
@@ -14,7 +14,7 @@ import Testing
         let divider = CEFDevToolsDivider(frame: NSRect(x: 0, y: 300, width: 800, height: 6))
         let window: NSWindow
         let scheduler: FrameScheduler
-        let coalescer: PointerFrameCoalescer
+        let coalescer: FrameInputCoalescer
         var moves: [CGPoint] = []
         private var frames = 0
 
@@ -23,15 +23,14 @@ import Testing
             _ = NSApplication.shared
             let ledger = WakeupLedger()
             scheduler = FrameScheduler.testing(clock: ManualClock(), ledger: ledger, mediaTime: { 1000 }) { _ in DevToolsDividerTestLink() }
-            let coalescer = PointerFrameCoalescer(
-                scheduler: scheduler, fallback: DemandTimer(owner: "PointerFrameCoalescer.fallback", clock: ManualClock(), ledger: ledger))
+            let coalescer = FrameInputCoalescer(scheduler: scheduler, clock: ManualClock(), ledger: ledger)
             self.coalescer = coalescer
             let host = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 640))
             host.addSubview(divider)
             window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.contentView = host
-            divider.pointerFrames = coalesced ? PointerFrameCoalescers(tap: nil) { _ in coalescer } : nil
+            divider.pointerFrames = coalesced ? FrameInputCoalescers { _ in coalescer } : nil
             divider.onMove = { [unowned self] point in moves.append(point) }
         }
 

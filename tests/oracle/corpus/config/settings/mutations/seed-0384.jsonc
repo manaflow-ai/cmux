@@ -1,0 +1,10 @@
+{
+  "notifications": {
+    "dismissal": true,
+  },
+  "browser": {
+    "agentMouse": {
+      "maxMoveMs": 1000e0,
+    },
+  }
+}

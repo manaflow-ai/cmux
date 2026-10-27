@@ -4,6 +4,7 @@ import CmuxNextPages
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// The agent composer's + > Attach files or images is a page `<input type="file">` that
 /// `PageOpenPanel` answers with the app's panel made ahead (`MadeAheadOpenPanel`). A new panel per
@@ -23,7 +24,7 @@ import Testing
         let shared = MadeAheadOpenPanel()
 
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: .agentPaneTestHost(), openPanel: shared, gestures: .testing()))
+        let view = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentPaneTestHost(), openPanel: shared, gestures: .testing()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled, .resizable],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

@@ -78,7 +78,7 @@ public struct CreateTerminalRequest: TerminalSpawningRequest {
     }
 
     enum CodingKeys: String, CodingKey {
-        case argv, command, cwd, name, cols, rows, terminalID, env, keep
+        case argv, command, cwd, name, cols, rows, terminalID = "terminal_id", env, keep
         case shellArgs = "shell_args"
     }
     public func encode(to encoder: any Encoder) throws {

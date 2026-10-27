@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextPages
 import CmuxNextPagesTestSupport
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -20,7 +21,7 @@ struct AgentPaneDebugClickPageHostTests {
 
     @Test func clickFindsAnElementOfThePageTheChatShows() async throws {
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file),
+        let view = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
                                               webUI: .agentPaneTestHost(), gestures: .testing()))
         view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         // The page loads in the page host.
@@ -56,7 +57,7 @@ struct AgentPaneDebugClickPageHostTests {
                 return #"{"result":{"type":"string","value":"{\"x\":308,\"y\":18,\"tag\":\"button\"}"}}"#
             }
         }
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file),
+        let view = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
                                               webUI: .agentPaneTestHost(chromium: hosting), gestures: .testing()))
         view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         let deadline = Date().addingTimeInterval(5)
@@ -66,7 +67,7 @@ struct AgentPaneDebugClickPageHostTests {
         let remove = await view.debugLocate(selector: "", text: "Remove red.png")
         #expect(remove["tag"] as? String == "button", "\(remove)")
         #expect(remove["x"] as? Double == 308, "\(remove)")
-        #expect(await view.debugPress(x: 308, y: 18))
+        #expect(await view.debugPress(x: 308, y: 18) == .devtools, "a fork without the native click reports DevTools")
         let presses = hosting.made.last?.calls.filter { $0.method == "Input.dispatchMouseEvent" } ?? []
         #expect(presses.map { $0.params["type"] as? String } == ["mousePressed", "mouseReleased"])
         #expect(presses.allSatisfy { $0.params["x"] as? Double == 308 && $0.params["y"] as? Double == 18 })

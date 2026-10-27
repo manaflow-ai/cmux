@@ -1,194 +1,346 @@
 import CmuxNextCompat
+import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import Foundation
 
-/// Bounded, demand-driven buffer between an attach connection's reader
-/// thread and the terminal view that consumes `events`.
+/// Bounded, demand-driven buffer between an attach reader thread and the
+/// terminal view that consumes `events`. What happens once the consumer falls
+/// more than `highWater` output bytes behind depends on ``Backpressure``:
 ///
-/// Backpressure: once armed (after the attach response), the reader thread
-/// blocks while more than `highWater` output bytes wait, and resumes below
-/// `lowWater`. The socket then stops draining, so the daemon's bounded attach
-/// mailbox overflows and it ends the stream with `overflow` instead of the
-/// app buffering without limit; the view reattaches from a fresh replay.
-/// Replays never block (a 10 MiB replay must not wedge the attach
-/// handshake). Consecutive plain output chunks are merged on the way out.
-final class TerminalEventQueue: @unchecked Sendable {
+/// - ``Backpressure/parkReader`` (the legacy per-view attach connection): the
+///   reader thread blocks until the consumer drains to `lowWater`. The socket
+///   then stops draining, so the daemon's bounded attach mailbox overflows and
+///   it ends the stream with `overflow`; the view reattaches from a fresh replay.
+/// - ``Backpressure/dropAndResync(_:)`` (a stream on the shared connection):
+///   the reader never waits, so a stopped view cannot delay another stream or a
+///   control reply on that connection. The queue drops the output a fresh READY
+///   supersedes, asks for that READY and drops such output until it arrives, as
+///   ``StreamDemux``'s sinks do (Chrome's `MultiplexRouter` never blocks its IO
+///   thread on one endpoint, `mojo/public/cpp/bindings/lib/multiplex_router.cc`).
+///   At most one request is out: while a READY waits for the consumer, an
+///   overflow drops only the output after it, and the request goes out when the
+///   consumer takes that READY. A throttled request is sent again after the
+///   daemon's delay; a failed one ends the stream with `closed(.overflow)`.
+///
+/// Both bounds apply only once armed (after the attach reply): a replay is the
+/// handshake itself and must not wedge it. The resync bound counts live output
+/// only, never a READY's history (up to 32 MiB: the answer to a resync, a resize
+/// or the attach). Consecutive plain output chunks are merged on the way out.
+///
+/// Live output that goes straight to the view's lane (``TerminalEchoRouter``)
+/// parks the same reader on the lane's capacity instead (``waitForLane(_:)``), and
+/// output the router holds behind a marker parks it on the router's hold limit
+/// (``holdForMarker()``), under either policy. Every event, output included,
+/// enters through ``pushWithoutWaiting(_:)``, so the overflow bound of
+/// ``Backpressure/dropAndResync(_:)`` applies there.
+final class TerminalEventQueue: Sendable {
     let highWater: Int
     let lowWater: Int
     let mergeLimit: Int
-    /// Called on the reader thread, with the lock held, each time a `push`
-    /// starts to block above `highWater`. Tests use it to observe
-    /// backpressure without timing; it must not block or touch the queue.
+    /// Called on the reader thread each time a `push` starts to block above
+    /// `highWater`, before it waits. Tests use it to observe backpressure
+    /// without timing; it must not block.
     private let onReaderBlocked: (@Sendable () -> Void)?
     /// Counts the output bytes the queue copies when it merges chunks
     /// (``DaemonWireStats/Snapshot/outputBytesCopiedApp``); nil counts nothing.
     private let recorder: DaemonWireStats.Recorder?
+    private let backpressure: Backpressure
+    /// Queued output bytes above which the reader parks: `highWater` for ``Backpressure/parkReader``,
+    /// never for ``Backpressure/dropAndResync(_:)``.
+    private let parkAbove: Int
+    /// Sends a throttled request again (``Backpressure/dropAndResync(_:)`` only).
+    private let retryTimer: DemandTimer?
+    private let state = Mutex(State())
+    // concurrency-allow: the designed backpressure that makes the daemon drop a slow view: only the attach
+    // connection's dedicated reader thread (LineTransport) waits on it, never the main thread or a pool thread.
+    private let readerWake = DispatchSemaphore(value: 0)
 
-    // All mutable state is guarded by `condition`.
-    private let condition = NSCondition()
-    private var items: [TerminalChannelEvent] = []
-    private var head = 0
-    private var outputBytes = 0
-    private var waiter: CheckedContinuation<TerminalChannelEvent?, Never>?
-    private var finished = false
-    private var armed = false
+    /// What a push that never waits did with its event.
+    private enum Admission: Sendable {
+        case queuedOrDropped
+        case handed(OnceContinuation<TerminalChannelEvent?, OnceContinuationError>)
+        /// A snapshot attach overflowed with no READY queued: send the request of `epoch`.
+        case resync(epoch: UInt64)
+    }
 
+    /// - Parameter clock: What the retry of a throttled resync sleeps on; tests pass a `ManualClock`.
     init(highWater: Int = 8 << 20, lowWater: Int = 2 << 20, mergeLimit: Int = 1 << 20,
+         backpressure: Backpressure = .parkReader, clock: any Clock<Duration> = ContinuousClock(),
          recorder: DaemonWireStats.Recorder?, onReaderBlocked: (@Sendable () -> Void)? = nil) {
         self.highWater = highWater
         self.lowWater = lowWater
         self.mergeLimit = mergeLimit
+        self.backpressure = backpressure
+        if case .dropAndResync = backpressure {
+            retryTimer = DemandTimer(owner: "TerminalEventQueue.resync", clock: clock)
+            parkAbove = .max
+        } else {
+            retryTimer = nil
+            parkAbove = highWater
+        }
         self.recorder = recorder
         self.onReaderBlocked = onReaderBlocked
     }
 
-    /// Enables blocking once the consumer can start draining.
+    /// Enables the bound once the consumer can start draining.
     func arm() {
-        condition.lock()
-        armed = true
-        condition.unlock()
+        state.withLock { $0.armed = true }
     }
 
-    /// Reader thread. May block while the consumer is behind.
+    /// Reader thread. With ``Backpressure/parkReader`` it may block while the consumer is behind;
+    /// with ``Backpressure/dropAndResync(_:)`` it waits only on the lane or a marker.
     func push(_ event: TerminalChannelEvent) {
-        condition.lock()
-        guard !finished else {
-            condition.unlock()
+        pushWithoutWaiting(event)
+        waitWhileFull()
+    }
+
+    /// Reader thread: waits while the consumer is behind (``Backpressure/parkReader``, armed and above
+    /// `highWater`) or a marker holds the reader. Returns at once otherwise.
+    func waitWhileFull() {
+        guard state.withLock({ $0.parkReader(above: parkAbove) }) else { return }
+        onReaderBlocked?()
+        parkReader()
+    }
+
+    /// Reader thread: hands one live chunk to the view's lane (`enqueue`, given the lane's wake) and, when the
+    /// lane says it is above its capacity, waits until the lane wakes it, the stream ends or the link detaches
+    /// (``releaseLane()``). `enqueue` returns whether the reader must wait; the lane calls the wake exactly once
+    /// when it returned true.
+    func waitForLane(_ enqueue: (_ wake: @escaping @Sendable () -> Void) -> Bool) {
+        let holds = state.withLock { state -> Bool in
+            state.laneHeld = !state.laneClosed
+            return state.laneHeld
+        }
+        guard enqueue({ [self] in releaseLane() }), holds else {
+            state.withLock { $0.laneHeld = false }
             return
         }
-        if let waiter {
-            self.waiter = nil
-            condition.unlock()
-            waiter.resume(returning: event)
-            return
+        guard state.withLock({ $0.parkReader(above: parkAbove) }) else { return }
+        onReaderBlocked?()
+        parkReader()
+    }
+
+    /// Any thread: the lane drained below its capacity or closed, or (`closing`) the link detached and neither
+    /// the lane nor a marker holds the reader again; a reader waiting for the lane goes on.
+    func releaseLane(closing: Bool = false) {
+        let release = state.withLock { state -> Bool in
+            state.laneHeld = false
+            if closing {
+                state.laneClosed = true
+                state.markerHeld = false
+            }
+            return state.releaseReader()
         }
-        items.append(event)
-        outputBytes += Self.outputSize(event)
-        if armed, !finished, outputBytes > highWater { onReaderBlocked?() }
-        while armed, !finished, outputBytes > highWater {
+        if release { readerWake.signal() }
+    }
+
+    /// Under the router's lock: the output held behind a marker is above the router's hold limit, so the
+    /// reader's next ``waitWhileFull()`` waits until ``releaseMarkerHold()``, which the router calls under the
+    /// same lock: an acknowledgement is never missed, and an older one never releases a newer hold.
+    func holdForMarker() {
+        state.withLock { state in
+            let closed = state.laneClosed
+            state.markerHeld = !closed
+        }
+    }
+
+    /// Under the router's lock: the marker the held output waited behind was acknowledged (the output went to
+    /// the lane), or the output went onto the stream; a reader waiting on it goes on.
+    func releaseMarkerHold() {
+        let release = state.withLock { state -> Bool in
+            state.markerHeld = false
+            return state.releaseReader()
+        }
+        if release { readerWake.signal() }
+    }
+
+    /// Waits on `readerWake` until nothing holds the reader; ``State/parkReader(above:)`` marked it parked.
+    private func parkReader() {
+        var parked = true
+        while parked {
             // The designed backpressure that makes the daemon drop a slow view: a checked wait, only on the attach
             // connection's dedicated reader thread (LineTransport), never the main thread or a pool thread.
-            condition.blockingWait()
+            readerWake.blockingWait()
+            parked = state.withLock { $0.parkReader(above: parkAbove) }
         }
-        condition.unlock()
     }
 
-    /// Any thread. Queues a small, non-output event without the backpressure wait, so a caller may
-    /// hold its own lock across it (a size state is pushed under the lock that orders generations).
+    private func pushDroppingOnOverflow(_ event: TerminalChannelEvent) {
+        let admission = state.withLock { state -> Admission in
+            guard !state.finished, !state.dropWhileResyncing(event) else { return .queuedOrDropped }
+            if case .snapshot(let frame) = event, frame.phase == .ready { state.snapshotAttach = true }
+            if state.overflows(adding: Self.liveOutputSize(event), highWater: highWater) {
+                state.overflows += 1
+                state.droppedEvents += 1
+                guard state.snapshotAttach else {
+                    // A byte attach has no READY to ask for: end the stream, and the view reattaches.
+                    state.dropSuperseded()
+                    state.finished = true
+                    state.items.append(.closed(.overflow))
+                    return .queuedOrDropped
+                }
+                guard state.queuedFreshStates == 0 else {
+                    // The consumer has not taken the last READY: no second request until it does.
+                    state.keepNewestFreshState()
+                    state.resync = .deferred
+                    return .queuedOrDropped
+                }
+                state.dropSuperseded()
+                return .resync(epoch: state.beginResync())
+            }
+            if let waiter = state.waiter.take() { return .handed(waiter) }
+            state.append(event)
+            return .queuedOrDropped
+        }
+        switch admission {
+        case .queuedOrDropped: break
+        case .handed(let waiter): waiter.resume(returning: event)
+        case .resync(let epoch): sendResync(epoch: epoch)
+        }
+    }
+
+    /// Sends the request of `epoch`, outside the queue's lock; its answer comes back to
+    /// ``resyncAnswered(_:epoch:)``.
+    private func sendResync(epoch: UInt64) {
+        guard case .dropAndResync(let request) = backpressure else { return }
+        request { [weak self] outcome in self?.resyncAnswered(outcome, epoch: epoch) }
+    }
+
+    /// Any thread. A throttled request goes out again after the daemon's delay; a failed one ends the
+    /// stream with `closed(.overflow)`, so the attach machine reattaches. An answer to an older
+    /// request, or to one a fresh state already answered, changes nothing.
+    private func resyncAnswered(_ outcome: ResyncOutcome, epoch: UInt64) {
+        switch outcome {
+        case .accepted:
+            return
+        case .throttled(let delay):
+            guard state.withLock({ $0.awaitsReady(epoch: epoch) }) else { return }
+            retryTimer?.schedule(after: delay) { [weak self] in self?.retryResync(epoch: epoch) }
+        case .failed:
+            end(with: .closed(.overflow)) { $0.awaitsReady(epoch: epoch) }
+        }
+    }
+
+    private func retryResync(epoch: UInt64) {
+        let retry = state.withLock { state -> Bool in
+            guard state.awaitsReady(epoch: epoch) else { return false }
+            state.resyncRequests += 1
+            return true
+        }
+        if retry { sendResync(epoch: epoch) }
+    }
+
+    /// Any thread. Queues an event without the backpressure wait, so a caller may hold its own lock
+    /// across it (a size state is pushed under the lock that orders generations, and the echo router
+    /// queues output under its own). While a resync waits for its READY, an event that READY supersedes
+    /// (the echo of dropped output) is dropped; with ``Backpressure/dropAndResync(_:)`` output over the
+    /// bound drops and resyncs here (the request goes out without waiting).
     func pushWithoutWaiting(_ event: TerminalChannelEvent) {
-        condition.lock()
-        guard !finished else {
-            condition.unlock()
-            return
+        switch backpressure {
+        case .parkReader: queueOrHand(event)
+        case .dropAndResync: pushDroppingOnOverflow(event)
         }
-        if let waiter {
-            self.waiter = nil
-            condition.unlock()
-            waiter.resume(returning: event)
-            return
+    }
+
+    private func queueOrHand(_ event: TerminalChannelEvent) {
+        let waiter = state.withLock { state -> OnceContinuation<TerminalChannelEvent?, OnceContinuationError>? in
+            guard !state.finished, !state.dropWhileResyncing(event) else { return nil }
+            if let waiter = state.waiter.take() { return waiter }
+            state.append(event)
+            return nil
         }
-        items.append(event)
-        outputBytes += Self.outputSize(event)
-        condition.unlock()
+        waiter?.resume(returning: event)
     }
 
     /// Ends the stream after `last` (if any) and anything already queued.
     /// Unblocks a waiting reader.
     func finish(_ last: TerminalChannelEvent? = nil) {
-        condition.lock()
-        guard !finished else {
-            condition.unlock()
-            return
+        end(with: last) { _ in true }
+    }
+
+    /// ``finish(_:)`` when `condition` holds under the queue's lock.
+    private func end(with last: TerminalChannelEvent?, if condition: (State) -> Bool) {
+        let (ended, waiter, release) = state.withLock {
+            state -> (Bool, OnceContinuation<TerminalChannelEvent?, OnceContinuationError>?, Bool) in
+            guard !state.finished, condition(state) else { return (false, nil, false) }
+            state.finished = true
+            let release = state.releaseReader()
+            if let waiter = state.waiter.take() { return (true, waiter, release) }
+            if let last { state.items.append(last) }
+            return (true, nil, release)
         }
-        finished = true
-        condition.broadcast()
-        if let waiter {
-            self.waiter = nil
-            condition.unlock()
-            waiter.resume(returning: last)
-            return
-        }
-        if let last { items.append(last) }
-        condition.unlock()
+        guard ended else { return }
+        retryTimer?.cancel()
+        if release { readerWake.signal() }
+        waiter?.resume(returning: last)
     }
 
     /// Consumer drops the stream: discard everything and release the reader.
     func cancel() {
-        condition.lock()
-        finished = true
-        items.removeAll()
-        head = 0
-        outputBytes = 0
-        condition.broadcast()
-        let waiter = self.waiter
-        self.waiter = nil
-        condition.unlock()
+        let (waiter, release) = state.withLock { state -> (OnceContinuation<TerminalChannelEvent?, OnceContinuationError>?, Bool) in
+            state.finished = true
+            state.items.removeAll()
+            state.head = 0
+            state.outputBytes = 0
+            state.liveOutputBytes = 0
+            state.queuedFreshStates = 0
+            return (state.waiter.take(), state.releaseReader())
+        }
+        retryTimer?.cancel()
+        if release { readerWake.signal() }
         waiter?.resume(returning: nil)
     }
 
-    /// Next event, merging consecutive plain output chunks up to `mergeLimit`.
+    /// Next event, merging consecutive plain output chunks up to `mergeLimit`; nil once the stream ended,
+    /// or when the parked waiter was dropped unresumed.
     func next() async -> TerminalChannelEvent? {
-        await withCheckedContinuation { continuation in
+        try? await withOnceContinuation { (continuation: OnceContinuation<TerminalChannelEvent?, OnceContinuationError>) in
             takeOrWait(continuation)
         }
     }
 
     /// Resumes at once when an event is queued or the stream ended;
     /// otherwise parks the continuation for the next `push`/`finish`.
-    private func takeOrWait(_ continuation: CheckedContinuation<TerminalChannelEvent?, Never>) {
-        condition.lock()
-        if let event = popMerged() {
-            condition.unlock()
-            continuation.resume(returning: event)
-        } else if finished {
-            condition.unlock()
-            continuation.resume(returning: nil)
-        } else {
-            waiter = continuation
-            condition.unlock()
+    private func takeOrWait(_ continuation: OnceContinuation<TerminalChannelEvent?, OnceContinuationError>) {
+        let (ready, release, resync) = state.withLock { state -> (TerminalChannelEvent??, Bool, UInt64?) in
+            if let event = state.popMerged(mergeLimit: mergeLimit, recorder: recorder) {
+                let resync = state.takeDeferredResync()
+                // At or below `lowWater` the reader reads again.
+                guard state.outputBytes <= lowWater else { return (.some(event), false, resync) }
+                return (.some(event), state.releaseReader(), resync)
+            }
+            if state.finished { return (.some(nil), false, nil) }
+            state.waiter = continuation
+            return (nil, false, nil)
         }
+        if release { readerWake.signal() }
+        if let resync { sendResync(epoch: resync) }
+        if let ready { continuation.resume(returning: ready) }
     }
 
     var bufferedOutputBytes: Int {
-        condition.lock()
-        defer { condition.unlock() }
-        return outputBytes
+        state.withLock { $0.outputBytes }
     }
 
-    // Caller holds the lock.
-    /// Nil when no event is queued.
-    private func popMerged() -> TerminalChannelEvent? {
-        guard var event = items[checked: head] else { return nil }
-        head += 1
-        if case .output(var data, nil) = event {
-            var merged = false
-            while data.count < mergeLimit, case .output(let more, nil)? = items[checked: head] {
-                data.append(more)
-                head += 1
-                merged = true
-            }
-            // A merge writes every byte of the result into a new buffer.
-            if merged { recorder?.outputCopied(data.count) }
-            event = .output(data, colors: nil)
-            outputBytes -= data.count
-        } else {
-            outputBytes -= Self.outputSize(event)
-        }
-        if head > 256, head * 2 > items.count {
-            items.removeFirst(head)
-            head = 0
-        }
-        if outputBytes <= lowWater { condition.broadcast() }
-        return event
+    /// Overflows so far (``Backpressure/dropAndResync(_:)``); each one resynced, deferred a resync
+    /// or ended the stream.
+    var overflowCount: Int {
+        state.withLock { $0.overflows }
     }
 
-    /// Bulk bytes: output and snapshot history. A READY, like a replay,
-    /// never blocks the reader (it is one screen, sent before the attach
-    /// reply on attach).
-    private static func outputSize(_ event: TerminalChannelEvent) -> Int {
-        switch event {
-        case .output(let data, _): data.count
-        case .snapshot(let frame) where frame.phase != .ready: frame.data.count
-        default: 0
-        }
+    /// `snapshot-request`s sent so far, the retries of a throttled one included.
+    var resyncRequestCount: Int {
+        state.withLock { $0.resyncRequests }
+    }
+
+    /// Events dropped by overflows and while a resync waited for its READY.
+    var droppedEventCount: Int {
+        state.withLock { $0.droppedEvents }
+    }
+
+    var resyncPhase: ResyncPhase {
+        state.withLock { $0.resync }
     }
 }

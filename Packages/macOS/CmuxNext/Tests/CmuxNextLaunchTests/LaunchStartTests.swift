@@ -20,7 +20,7 @@ import Testing
         #expect(Self.deferred.allSatisfy { $0.startClass.priority == .afterStartup })
         // A first-frame start that has a critical row is named as there (startup-DESIGN.md section 1).
         let critical = Set(StartupScheduler.criticalAllowlist.map(\.description))
-        for start in [LaunchStart.localDaemon, .featurePolicy, .themes, .managedPolicy] {
+        for start in [LaunchStart.localDaemon, .featurePolicy, .managedPolicy] {
             #expect(critical.contains(start.name.description), "\(start.name)")
         }
     }
@@ -73,13 +73,13 @@ import Testing
     @Test func aFirstFrameStartRunsInTheLaunchTurnAsTheCurrentTask() {
         let s = StartupTestScheduler(), ran = StartsRan()
         LaunchStart.localDaemon.run(on: s.startup, deferring: true) { ran.names.append(s.startup.log.currentMainTask ?? "none") }
-        let made = LaunchStart.daemonPrompts.runNow(on: s.startup) { () -> Int in
+        let made = LaunchStart.browserProfiles.runNow(on: s.startup) { () -> Int in
             ran.names.append(s.startup.log.currentMainTask ?? "none")
             return 7
         }
         LaunchStart.energy.runNow(on: nil) { ran.names.append(s.startup.log.currentMainTask ?? "none") }
         #expect(made == 7, "the start's value comes back")
-        #expect(ran.names == ["Daemon.start", "DaemonPrompts.start", "none"])
+        #expect(ran.names == ["Daemon.start", "BrowserProfiles.load", "none"])
         #expect(s.startup.log.currentMainTask == nil, "the word is cleared after the start")
         s.hand.drain()
         #expect(s.startup.log.records.isEmpty, "a first-frame start is a direct call, not a post")

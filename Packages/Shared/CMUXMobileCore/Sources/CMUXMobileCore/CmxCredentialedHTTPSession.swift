@@ -13,7 +13,10 @@ public enum CmxCredentialedHTTPSessionError: Error, Equatable, Sendable {
 /// request. This is required for custom credential headers because Foundation's
 /// normal cross-origin redirect handling strips `Authorization` but can preserve
 /// unrelated headers such as a refresh token.
-public final class CmxCredentialedHTTPSession: @unchecked Sendable {
+///
+/// Plainly `Sendable`: every stored property is an immutable `Sendable` value
+/// (the session, its stateless redirect delegate and the byte limit).
+public final class CmxCredentialedHTTPSession: Sendable {
     public static let defaultMaximumResponseByteCount = 4 * 1_024 * 1_024
 
     private let redirectDelegate: CmxCredentialedHTTPRedirectDelegate
@@ -77,9 +80,10 @@ public final class CmxCredentialedHTTPSession: @unchecked Sendable {
     }
 }
 
+/// Refuses every redirect. Stateless, so plainly `Sendable`.
 final class CmxCredentialedHTTPRedirectDelegate: NSObject,
     URLSessionTaskDelegate,
-    @unchecked Sendable
+    Sendable
 {
     #if canImport(FoundationNetworking)
     func urlSession(

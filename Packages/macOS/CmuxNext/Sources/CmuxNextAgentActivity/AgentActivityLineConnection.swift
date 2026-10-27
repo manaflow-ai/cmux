@@ -1,4 +1,7 @@
 public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import struct CmuxSafeConcurrency.OnceContinuationFaultReporter
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import Darwin
 import os
 public import Foundation
@@ -68,10 +71,10 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
         }
     }
 
-    /// Fails a one-shot request at its deadline.
+    /// Fails a one-shot request at its deadline; nothing once the connection ended (it answered).
     func expire() {
         queue.async { [self] in
-            let callback = onExpire
+            let callback = closed ? nil : onExpire
             onExpire = nil
             onClose = nil
             onLine = nil
@@ -91,6 +94,14 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
             onLine = nil
             finish()
         }
+    }
+
+    /// ``cancel()`` in the current turn of the queue, for an `onLine` callback (which runs on it) that has
+    /// its answer: no later line of the same read, close or deadline of this connection calls back.
+    func finishFromCallback() {
+        onClose = nil
+        onLine = nil
+        finish()
     }
 
     private func write(_ data: Data) {
@@ -187,74 +198,40 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
     /// after `deadline`.
     public static func oneShot(path: String, send: Data, deadline: Duration,
                         acceptsServer: (@Sendable (UnixSocketPeer) -> Bool)? = nil) async throws -> Data {
+        try await oneShot(path: path, send: send, deadline: deadline, acceptsServer: acceptsServer, faults: .systemLog)
+    }
+
+    /// ``oneShot(path:send:deadline:acceptsServer:)`` with the reporter of its continuation's faults (tests).
+    ///
+    /// Every answer comes from the connection's queue: the first reply line ends the connection in its own
+    /// turn (``finishFromCallback()``), and an end or an expiry clears the other callbacks, so exactly one of
+    /// line, close and deadline resumes. A cancel answers `CancellationError` at once (`.cancellable`) and
+    /// `cancel()` drops the close callback, so the call never waits out its deadline.
+    static func oneShot(path: String, send: Data, deadline: Duration,
+                        acceptsServer: (@Sendable (UnixSocketPeer) -> Bool)?,
+                        faults: OnceContinuationFaultReporter) async throws -> Data {
         let connection = AgentActivityLineConnection(path: path, acceptsServer: acceptsServer)
-        let once = OnceBox()
-        let cancelled = CancelBox()
         let timeout = DemandTimer(owner: "agent-activity.request-deadline")
         defer { timeout.cancel() }
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, any Error>) in
-                // `cancel()` drops the close callback, so a cancelled call resumes here, not at its deadline.
-                let alreadyCancelled = cancelled.arm {
-                    if once.claim() { continuation.resume(throwing: CancellationError()) }
-                }
-                if alreadyCancelled { return }
+            try await withOnceThrowingContinuation(cancellation: .cancellable, faults: faults) {
+                (continuation: OnceContinuation<Data, any Error>) in
                 connection.onExpire = {
                     continuation.resume(throwing: AgentActivitySourceError.timedOut)
                 }
                 connection.start(
                     send: send,
                     onLine: { line in
-                        if once.claim() { continuation.resume(returning: line) }
-                        connection.cancel()
+                        continuation.resume(returning: line)
+                        connection.finishFromCallback()
                     },
                     onClose: {
-                        if once.claim() { continuation.resume(throwing: AgentActivitySourceError.closed) }
+                        continuation.resume(throwing: AgentActivitySourceError.closed)
                     })
-                timeout.schedule(after: deadline) {
-                    if once.claim() { connection.expire() }
-                }
+                timeout.schedule(after: deadline) { connection.expire() }
             }
         } onCancel: {
             connection.cancel()
-            cancelled.fire()
-        }
-    }
-}
-
-/// The cancel action of one `oneShot` call. `fire` may come before `arm` (a task cancelled before
-/// the call began): `arm` then runs the action at once and says so.
-private nonisolated final class CancelBox: Sendable {
-    private let state = Mutex<(fired: Bool, action: (@Sendable () -> Void)?)>((false, nil))
-
-    func arm(_ action: @escaping @Sendable () -> Void) -> Bool {
-        let fired = state.withLock { state in
-            if !state.fired { state.action = action }
-            return state.fired
-        }
-        if fired { action() }
-        return fired
-    }
-
-    func fire() {
-        let action = state.withLock { state in
-            state.fired = true
-            defer { state.action = nil }
-            return state.action
-        }
-        action?()
-    }
-}
-
-/// Resumes a continuation exactly once across racing callbacks.
-private nonisolated final class OnceBox: Sendable {
-    private let done = Mutex(false)
-
-    func claim() -> Bool {
-        done.withLock { done in
-            if done { return false }
-            done = true
-            return true
         }
     }
 }

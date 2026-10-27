@@ -93,7 +93,7 @@ final class MainPaneCardView: NSView {
         CATransaction.setDisableActions(true)
         layer.masksToBounds = clips
         CATransaction.commit()
-        if let window { NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window) }
+        window?.updateBrowserPageGeometry()
         return true
     }
 
@@ -162,7 +162,7 @@ extension WindowRootView {
             }
         }
         applySidebarRail()
-        needsLayout = true
+        needsLayout = true // invalidate: the callers moved the gutter, the right panel or the titlebar inset.
         updateMainPaneShade()
     }
 
@@ -183,9 +183,7 @@ extension WindowRootView {
     /// told to re-read their clip.
     func updateMainPaneShade() {
         let radius = mainPaneCornerRadius
-        if contentHost.setCornerRadius(radius), let window {
-            NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
-        }
+        if contentHost.setCornerRadius(radius) { window?.updateBrowserPageGeometry() }
         let alpha = Metrics.mainPaneChromeShade(isDark: themeTokens.isDark)
         mainPaneShade.update(card: contentHost.frame, radius: radius, alpha: alpha)
     }

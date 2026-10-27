@@ -14,15 +14,19 @@ dependencies = [
  "cmux-chat-index",
  "cmux-coderouter",
  "cmux-codex-acp",
+ "cmux-features",
  "cmux-git",
+ "cmux-hang-watch",
  "cmux-link",
  "cmux-local-auth",
  "cmux-lock-rank",
+ "cmux-memory",
  "cmux-panic-log",
  "cmux-sdk",
  "cmux-server-core",
  "cmux-trace",
  "cmux-unix-socket",
+ "cmux-wake",
  "cmux-worktree-care",
  "crossterm",
  "dirs",
@@ -838,6 +842,7 @@ dependencies = [
  "cmux-panic-log",
  "cmux-pty",
  "cmux-server-core",
+ "cmux-threads",
  "futures-util",
  "getrandom 0.3.4",
  "http",
@@ -965,6 +970,7 @@ dependencies = [
 name = "cmux-app-host"
 version = "0.1.0"
 dependencies = [
+ "cmux-threads",
  "libc",
  "rquickjs",
  "serde",
@@ -1055,6 +1061,7 @@ dependencies = [
  "cmux-link",
  "cmux-local-auth",
  "cmux-panic-log",
+ "cmux-threads",
  "fs4",
  "futures-util",
  "getrandom 0.3.4",
@@ -1141,6 +1148,15 @@ dependencies = [
 [[package]]
 name = "cmux-features"
 version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-agent-pane-policy",
+ "cmux-config",
+ "cmux-tui-platform",
+ "plist",
+ "ring",
+ "serde_json",
+]
 
 [[package]]
 name = "cmux-feed-core"
@@ -1154,7 +1170,7 @@ dependencies = [
 name = "cmux-flow-trace"
 version = "0.1.0"
 dependencies = [
- "libc",
+ "cmux-trace",
 ]
 
 [[package]]
@@ -1170,8 +1186,17 @@ dependencies = [
 name = "cmux-git"
 version = "0.1.0"
 dependencies = [
+ "cmux-process",
+ "cmux-threads",
  "libc",
- "wait-timeout",
+]
+
+[[package]]
+name = "cmux-hang-watch"
+version = "0.1.0"
+dependencies = [
+ "cmux-trace",
+ "libc",
 ]
 
 [[package]]
@@ -1193,9 +1218,11 @@ name = "cmux-holder"
 version = "0.1.0"
 dependencies = [
  "cmux-flow-trace",
+ "cmux-hang-watch",
  "cmux-ipc",
  "cmux-memory",
  "cmux-process",
+ "cmux-threads",
  "cmux-trace",
  "libc",
 ]
@@ -1323,6 +1350,7 @@ dependencies = [
 name = "cmux-mux2"
 version = "0.1.0"
 dependencies = [
+ "cmux-threads",
  "ghostty-vt",
  "libc",
 ]
@@ -1347,6 +1375,7 @@ dependencies = [
  "cmux-blocking",
  "cmux-local-auth",
  "cmux-panic-log",
+ "cmux-threads",
  "futures-util",
  "getrandom 0.3.4",
  "jsonschema",
@@ -1367,14 +1396,18 @@ dependencies = [
 name = "cmux-panic-log"
 version = "0.1.0"
 dependencies = [
+ "cmux-trace",
  "libc",
  "serde_json",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
 name = "cmux-process"
 version = "0.1.0"
 dependencies = [
+ "cmux-threads",
  "libc",
  "wait-timeout",
 ]
@@ -1385,6 +1418,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cmux-process",
+ "cmux-threads",
  "libc",
  "portable-pty",
  "windows-sys 0.61.2",
@@ -1452,6 +1486,7 @@ dependencies = [
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
+ "cmux-threads",
  "cmux-tui-core",
  "cmux-unix-socket",
  "cmux-wg",
@@ -1536,6 +1571,7 @@ dependencies = [
  "cmux-blocking",
  "cmux-panic-log",
  "cmux-server-core",
+ "cmux-threads",
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
@@ -1613,6 +1649,7 @@ dependencies = [
  "cmux-panic-log",
  "cmux-remote",
  "cmux-remote-protocol",
+ "cmux-threads",
  "cmux-tui-core",
  "cmux-wg",
  "getrandom 0.3.4",
@@ -1648,7 +1685,9 @@ version = "0.1.0"
 name = "cmux-threads"
 version = "0.1.0"
 dependencies = [
+ "crossbeam-channel",
  "libc",
+ "tokio",
 ]
 
 [[package]]
@@ -1678,8 +1717,11 @@ dependencies = [
  "cmux-blocking",
  "cmux-build-identity",
  "cmux-config",
+ "cmux-features",
+ "cmux-hang-watch",
  "cmux-holder",
  "cmux-host",
+ "cmux-ipc",
  "cmux-link",
  "cmux-lock-rank",
  "cmux-panic-log",
@@ -1750,6 +1792,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-cloud-wire",
+ "cmux-threads",
  "serde",
  "serde_json",
  "url",
@@ -1763,6 +1806,7 @@ dependencies = [
  "anyhow",
  "backtrace",
  "base64",
+ "bytes",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
  "cmux-app-host",
@@ -1774,6 +1818,7 @@ dependencies = [
  "cmux-feed-core",
  "cmux-flow-trace",
  "cmux-git",
+ "cmux-hang-watch",
  "cmux-history",
  "cmux-holder",
  "cmux-ipc",
@@ -1799,6 +1844,7 @@ dependencies = [
  "cmux-tui-remote-access",
  "cmux-tui-util",
  "cmux-unix-socket",
+ "cmux-wake",
  "flate2",
  "fs4",
  "getrandom 0.3.4",
@@ -1806,6 +1852,7 @@ dependencies = [
  "jsonschema",
  "libc",
  "notify",
+ "objc2-foundation",
  "parking_lot",
  "proptest",
  "quick-xml",
@@ -1832,6 +1879,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cmux-process",
+ "cmux-threads",
  "cmux-tui-platform",
  "getrandom 0.3.4",
  "libc",
@@ -1849,6 +1897,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-threads",
  "getrandom 0.3.4",
  "libc",
  "serde",
@@ -1915,11 +1964,13 @@ version = "0.0.0"
 name = "cmux-tui-util"
 version = "0.1.0"
 dependencies = [
+ "cmux-threads",
  "cmux-trace",
  "cmux-tui-platform",
  "getrandom 0.3.4",
  "libc",
  "rusqlite",
+ "serde",
  "serde_json",
 ]
 
@@ -1932,6 +1983,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-wake"
+version = "0.1.0"
+dependencies = [
+ "cmux-threads",
+ "libc",
+]
+
+[[package]]
 name = "cmux-weft"
 version = "0.1.0"
 dependencies = [
@@ -1940,6 +1999,7 @@ dependencies = [
  "base64",
  "cmux-blocking",
  "cmux-panic-log",
+ "cmux-threads",
  "cmux-wg",
  "futures-util",
  "getrandom 0.3.4",
@@ -1954,6 +2014,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "subtle",
+ "tempfile",
  "tokio",
  "tokio-tungstenite",
  "x25519-dalek",
@@ -1985,6 +2046,7 @@ name = "cmux-worktree-care"
 version = "0.1.0"
 dependencies = [
  "cmux-git",
+ "cmux-threads",
  "libc",
  "serde",
  "serde_json",

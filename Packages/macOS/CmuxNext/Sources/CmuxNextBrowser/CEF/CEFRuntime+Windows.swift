@@ -6,17 +6,20 @@ import Foundation
 /// gets the new tab, or 0 when Chromium must open nothing.
 let cefWindowRequestCallback: CEFShimLibrary.WindowRequestFn = { context, kind, disposition, source, hasBounds,
     x, y, width, height, userGesture, url, profile in
-    guard let context, Thread.isMainThread else { return 0 }
+    // SAFETY: only the context's address is read; CEFRuntime.from turns it back into the runtime.
+    let address = unsafe UInt(bitPattern: context)
+    guard address != 0, Thread.isMainThread else { return 0 }
+    // SAFETY: the shim's strings are NUL-terminated and valid during this call; String(cString:) copies each.
+    let text = unsafe (url.map(String.init(cString:)) ?? "", profile.map(String.init(cString:)) ?? "")
     let request = CEFWindowRequest(
         kind: CEFWindowRequest.Kind(rawValue: kind) ?? .window,
         disposition: CEFDisposition(raw: Int(disposition)),
         sourceBrowser: source,
         bounds: hasBounds != 0 ? CGRect(x: Int(x), y: Int(y), width: Int(width), height: Int(height)) : nil,
-        url: url.map { String(cString: $0) } ?? "",
+        url: text.0,
         userGesture: userGesture != 0,
-        profilePath: CEFRuntime.normalizedPath(profile.map { String(cString: $0) } ?? "")
+        profilePath: CEFRuntime.normalizedPath(text.1)
     )
-    let address = UInt(bitPattern: context)
     return MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread in the guard above
         CEFRuntime.from(address)?.windowRequests.handle(request) ?? 0
     }
@@ -123,6 +126,9 @@ public struct CEFWindowReport: Sendable {
     /// Tabs Chromium created that wait for a pane window.
     public var unplacedTabs: Int
     public var forkAPIVersion: Int
+    /// Chromium started with `cmux-process-reuse-per-renderer-devtools` (fork API 29 and the shim's
+    /// renderer paths): a DevTools agent stops main-frame sharing only for its own renderer.
+    public var processReusePerRendererDevTools = false
     /// The latest popup window events (fork API 13).
     public var popupWindows: [String] = []
 }
@@ -143,6 +149,7 @@ extension CEFRuntime {
             chromiumWindows: started ? windowGuard.offendingWindows().map { "\(NSStringFromClass(type(of: $0))) \"\($0.title)\"" } : [],
             unplacedTabs: orphans.unplaced.count,
             forkAPIVersion: Int(forkAPIVersion),
+            processReusePerRendererDevTools: processReusePerRendererDevTools,
             popupWindows: windowRequests.log.popupWindows
         )
     }

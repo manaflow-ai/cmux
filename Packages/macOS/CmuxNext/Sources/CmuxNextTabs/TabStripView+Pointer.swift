@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 public import CmuxNextInput
+public import CmuxNextWakeups
 import QuartzCore
 // Hit testing, hover, clicks, context menu, and wheel scrolling.
 extension TabStripView {
@@ -13,7 +14,7 @@ extension TabStripView {
         let showsUnpinned = scrollMapping.showsUnpinned(at: local.x)
         for item in displayed where item.isPinned || showsUnpinned {
             guard let cell = cells[item.id], cell.frame.width > 0.5 else { continue }
-            let frame = cell.frame
+            let frame = scroller.shownFrame(cell.layer) // where it shows, the scroll's translation included
             // The full strip height is the hit area, not just the tab body.
             if local.x >= frame.minX, local.x < frame.maxX, local.y >= 0, local.y <= tabsClip.bounds.height {
                 return item.id
@@ -25,7 +26,7 @@ extension TabStripView {
     func isInCloseButton(_ id: TabID, _ point: CGPoint) -> Bool {
         guard let cell = cells[id], let rect = cell.closeButtonRect else { return false }
         let local = convert(point, to: tabsClip)
-        let inCell = CGPoint(x: local.x - cell.frame.minX, y: local.y - cell.frame.minY)
+        let inCell = CGPoint(x: local.x - scroller.shownFrame(cell.layer).minX, y: local.y - cell.frame.minY)
         return rect.insetBy(dx: -2, dy: -2).contains(inCell)
     }
 
@@ -35,7 +36,7 @@ extension TabStripView {
         // The close button wins where the slack reaches it.
         guard let cell = cells[id], let rect = cell.audioButtonRect, !isInCloseButton(id, point) else { return false }
         let local = convert(point, to: tabsClip)
-        let inCell = CGPoint(x: local.x - cell.frame.minX, y: local.y - cell.frame.minY)
+        let inCell = CGPoint(x: local.x - scroller.shownFrame(cell.layer).minX, y: local.y - cell.frame.minY)
         return rect.insetBy(dx: -3, dy: -4).contains(inCell)
     }
 
@@ -113,9 +114,16 @@ extension TabStripView {
 
     /// The windows' frame-aligned pointer input (feature `pointerFrameHover`): a frame interval's first move
     /// hovers at once and the rest once at its frame, at the latest point. Nil: each move hovers at once.
-    public var hoverFrameInput: PointerFrameCoalescers? {
+    public var hoverFrameInput: FrameInputCoalescers? {
         get { hoverMoves.frames }
         set { hoverMoves.frames = newValue }
+    }
+
+    /// The windows' frame-aligned wheels (feature `tabStripScrollFrames`): a frame's wheel and trackpad
+    /// deltas move one layer at most twice per frame (`TabStripScroller`). Nil: each scroll event lays out.
+    public var scrollFrameInput: FrameInputCoalescers? {
+        get { scroller.frames }
+        set { scroller.frames = newValue }
     }
 
     /// A move hovers on its frame interval's leading edge or once at the frame with `hoverFrameInput`,
@@ -127,7 +135,7 @@ extension TabStripView {
     }
 
     /// One hover delivery: the point is converted now, so a strip that scrolled since the move
-    /// hit-tests its tabs where they are now.
+    /// hit-tests its tabs where they show now (`TabStripScroller.shownFrame`).
     func hoverMoved(toWindowPoint point: CGPoint) {
         updateHover(at: convert(point, from: nil), moved: true)
     }
@@ -151,8 +159,10 @@ extension TabStripView {
     // MARK: - Clicks
 
     public override func mouseDown(with event: NSEvent) {
-        // The frame's pending hover lands first, so the press acts on the tab under its own point.
+        // The frame's pending scroll and hover land first, so the press acts on the tab under its own point.
+        scroller.landForInput()
         hoverMoves.flush()
+        dragMoves.began()
         hoverCards.dismiss(.action)
         let point = convert(event.locationInWindow, from: nil)
         // A press before the strip's model sync (right after a close) catches up first.
@@ -216,13 +226,11 @@ extension TabStripView {
             cells[id]?.isAudioPressed = isInAudioButton(id, point)
             return
         }
-        if drag != nil {
-            updateDrag(at: point, event: event)
-            return
-        }
-        if groups.drag != nil {
-            updateGroupDrag(at: point, event: event)
-            return
+        if drag != nil || groups.drag != nil {
+            guard isPastTearOff(point) else { return dragMoves.dragged(event) }
+            // The tear-off hands the drag to the App's session at this event's point: the frame's pending point is stale.
+            dragMoves.cancel()
+            return drag != nil ? updateDrag(at: point, event: event) : updateGroupDrag(at: point, event: event)
         }
         if let press = groups.press, !press.openedEditor, hypot(point.x - press.start.x, point.y - press.start.y) > TabTunables.dragStartDistance.value {
             beginGroupDrag(press)
@@ -236,6 +244,7 @@ extension TabStripView {
     }
 
     public override func mouseUp(with event: NSEvent) {
+        dragMoves.ended() // the frame's pending point lands before the drop
         let point = convert(event.locationInWindow, from: nil)
         if let id = pressedCloseID {
             pressedCloseID = nil
@@ -270,6 +279,7 @@ extension TabStripView {
 
     public override func otherMouseDown(with event: NSEvent) {
         guard event.buttonNumber == 2 else { return super.otherMouseDown(with: event) }
+        scroller.landForInput()
         hoverCards.dismiss(.action)
         middlePressID = tabID(at: convert(event.locationInWindow, from: nil))
     }
@@ -288,6 +298,7 @@ extension TabStripView {
     }
 
     private func contextMenu(for event: NSEvent) -> NSMenu? {
+        scroller.landForInput()
         hoverCards.dismiss(.action)
         let point = convert(event.locationInWindow, from: nil)
         if isInNewTabButton(point) {
@@ -307,16 +318,9 @@ extension TabStripView {
         return contextMenuProvider?(.emptyStrip)
     }
 
+    /// An overflowing strip scrolls (`TabStripScroller`); one whose tabs fit passes the event up.
     public override func scrollWheel(with event: NSEvent) {
-        guard result.isOverflowing else { return super.scrollWheel(with: event) }
-        var delta = event.scrollingDeltaX
-        // Vertical wheels scroll the strip too.
-        if abs(event.scrollingDeltaY) > abs(delta) { delta = event.scrollingDeltaY }
-        if !event.hasPreciseScrollingDeltas { delta *= 12 }
-        settleScroll()
-        scrollOffset = TabScrollMath.clamp(scrollOffset - delta, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
-        hoverCards.dismiss(.action)
-        applyFrames()
+        if !scroller.scrollWheel(event) { super.scrollWheel(with: event) }
     }
 
     /// Mouse-up after a press on +. Returns whether the press was on +.

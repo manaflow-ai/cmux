@@ -53,20 +53,10 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_idle import Client, usage, wait_for_socket  # noqa: E402
+from bench_frames import split_raw_frames  # noqa: E402
 from bench_launch import BenchApp, PERF_LAB, RecordError, load_by_path  # noqa: E402
 
 perf_result = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
-
-# The per-frame arrays of `debug.frames` stop with `raw` (these and every `*_per_frame` key): the first two are
-# recorded as result-v1, and none goes into the report, which keeps the app's summary statistics.
-RAW_FRAME_KEYS = ("intervals_ms", "main_ms")
-
-
-def split_raw_frames(frames):
-    """(summary, {intervals_ms, main_ms}) of a raw `debug.frames` stop reply."""
-    raw = {key: frames.get(key) or [] for key in RAW_FRAME_KEYS}
-    summary = {k: v for k, v in frames.items() if k not in RAW_FRAME_KEYS and not k.endswith("_per_frame")}
-    return summary, raw
 
 COLORS = ["#c0392b", "#27ae60", "#2980b9", "#8e44ad", "#d35400", "#16a085", "#2c3e50", "#f39c12", "#7f8c8d", "#e84393"]
 

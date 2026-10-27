@@ -388,7 +388,8 @@
         {
           "id": "win_000000000000000000000000000000a1",
           "isKey": true,
-          "responder": "terminal",
+          "responder": "content",
+          "responderPane": "pane_000000000000000000000000000000d1",
           "layoutFocus": "pane_000000000000000000000000000000d1",
           "ghosttyFocused": ["tab_000000000000000000000000000000e1"],
           "childPage": null,
@@ -397,7 +398,7 @@
           "consistent": true,
           "model": {
             "pane": "pane_000000000000000000000000000000d1",
-            "target": "pane",
+            "target": "content",
             "resolved": "terminal",
             "resolvedPane": "pane_000000000000000000000000000000d1",
             "resolvedTab": "tab_000000000000000000000000000000e1",

@@ -18,7 +18,9 @@ public import CmuxNextWakeups
 ///   posted with feature `launchStartDeferral` and run where they ran before without it.
 ///
 /// A start the launch posts through ``LaunchServicePosts`` (SSH, the updater, the platform services,
-/// the service starts, the browser follows) has its class there, as the post's priority. The exhaustive
+/// the service starts, the browser follows) or as its own ``StartupScheduler`` post (`Settings.start`,
+/// `HangReports.start`, `ConfigActions.start`, the critical `Themes.start`, `MouseSideButtons.start`,
+/// `KeybindingsFile.start`, Ghostty's config watch) has its class there, as the post's priority. The exhaustive
 /// switches make every case here state its class and name; they cannot make a launch call use a case,
 /// so a start added to the launch with neither stays unclassified until it gets one. Not starts: the
 /// launch's wiring (handlers, binds, menus, window hooks), its startup machinery (the scheduler, the
@@ -37,16 +39,10 @@ public enum LaunchStart: CaseIterable, Sendable {
     case debugSettings
     /// Ghostty's keybinds in the key router: the first key press reads them.
     case ghosttyKeybinds
-    /// Ghostty's config file watch: an edit while the first window builds applies to it.
-    case ghosttyConfigReload
     /// The terminal key path's input-source switch keys (read off main).
     case inputSources
     /// The managed (MDM) policy the settings and the first window obey.
     case managedPolicy
-    /// The settings file's load and watch: every setting the first frame reads.
-    case settings
-    /// Opt-in hang reports: a hang in the launch is reported.
-    case hangReports
     /// The chat settings pushed to the agent daemon: restored agent chats run with them at once.
     case chatSettingsPush
     /// The glass mode the first frame's pages draw with (its follow is the `Glass.observe` post).
@@ -61,15 +57,10 @@ public enum LaunchStart: CaseIterable, Sendable {
     case hibernation
     /// `energy.saver` into the policy driver, so its first policy follows the setting.
     case energySaver
-    /// cmux.json's custom actions: the menus and the palette list them.
-    case configActions
-    /// The theme catalog the first frame's chrome draws with.
-    case themes
     /// `browser.showBookmarksBar` and the bar's icons: a restored page shows its bar or not.
     case bookmarksBar
-    /// The daemon's prompts (pairing, trust): the local daemon's first request may ask one.
-    case daemonPrompts
-    /// The local daemon: its first snapshot is the first frame's content.
+    /// The local daemon and its prompts (pairing, trust), subscribed before the connect: its first snapshot is the
+    /// first frame's content, and its first request may ask one.
     case localDaemon
     /// The administrator's disabled features, applied before any window shows one.
     case featurePolicy
@@ -77,10 +68,6 @@ public enum LaunchStart: CaseIterable, Sendable {
     case browserProfiles
     /// Home's workspace: the restore's first workspace waits for it.
     case homeWorkspace
-    /// The mouse's back and forward buttons: input from the first frame on.
-    case mouseSideButtons
-    /// keybindings.json, the binding table's user layer: the first key press reads it.
-    case keybindingsFile
     /// The bookmark store: the file read, the daemon's bookmark events and the import sink. The
     /// bookmarks bar of a restored page reads it, and a bookmark made while the app launches is
     /// written through it.
@@ -106,10 +93,9 @@ public enum LaunchStart: CaseIterable, Sendable {
     /// When this start runs.
     public var startClass: LaunchStartClass {
         switch self {
-        case .energy, .debugSettings, .ghosttyKeybinds, .ghosttyConfigReload, .inputSources, .managedPolicy, .settings,
-             .hangReports, .chatSettingsPush, .glass, .notificationPreferences, .updaterSettings, .hibernation, .energySaver,
-             .configActions, .themes, .bookmarksBar, .daemonPrompts, .localDaemon, .featurePolicy, .browserProfiles,
-             .homeWorkspace, .mouseSideButtons, .keybindingsFile, .bookmarks, .historyPages, .chromiumRuntime:
+        case .energy, .debugSettings, .ghosttyKeybinds, .inputSources, .managedPolicy, .chatSettingsPush, .glass,
+             .notificationPreferences, .updaterSettings, .hibernation, .energySaver, .bookmarksBar, .localDaemon,
+             .featurePolicy, .browserProfiles, .homeWorkspace, .bookmarks, .historyPages, .chromiumRuntime:
             .firstFrame
         case .cloud, .historyRetention, .chromiumLikely, .bookmarkSync:
             .afterReveal
@@ -123,27 +109,19 @@ public enum LaunchStart: CaseIterable, Sendable {
         case .energy: "AppServices.startEnergy"
         case .debugSettings: "DebugSettings.start"
         case .ghosttyKeybinds: "GhosttyKeybindSync.start"
-        case .ghosttyConfigReload: "GhosttyConfigLiveReload.start"
         case .inputSources: "InputSources.start"
         case .managedPolicy: "ManagedPolicyBridge.start"
-        case .settings: "Settings.start"
-        case .hangReports: "HangReports.start"
         case .chatSettingsPush: "ChatSettingsPush.start"
         case .glass: "Glass.seed"
         case .notificationPreferences: "Notifications.seed"
         case .updaterSettings: "Updater.follow"
         case .hibernation: "AppServices.startHibernation"
         case .energySaver: "EnergySaver.follow"
-        case .configActions: "ConfigActions.start"
-        case .themes: "Themes.start"
         case .bookmarksBar: "Bookmarks.followBar"
-        case .daemonPrompts: "DaemonPrompts.start"
         case .localDaemon: "Daemon.start"
         case .featurePolicy: "FeaturePolicyEnforcer.start"
         case .browserProfiles: "BrowserProfiles.load"
         case .homeWorkspace: "Home.startWorkspace"
-        case .mouseSideButtons: "MouseSideButtons.start"
-        case .keybindingsFile: "KeybindingsFile.start"
         case .bookmarks: "Bookmarks.start"
         case .historyPages: "History.start"
         case .chromiumRuntime: "ChromiumRuntime.start"

@@ -4,6 +4,13 @@ import Foundation
 /// call goes through a live browser of the profile (the fork addresses
 /// profiles by browser). Management needs fork API v3; older forks list
 /// only the enabled extensions that have a toolbar action.
+///
+/// The same in both backends (plans/cmux-next/chrome-parity/p01-process.md, task 026): the lists
+/// are mirror reads, and every management op is an async op in the token form
+/// (``CEFRuntime/sendAsync(_:)``), whose answer is Chromium's verdict: the call's result in process,
+/// the host's REPLY in host mode. In host mode a change makes the lists pending until that REPLY
+/// (the remote shim clears the marks before it hands the REPLY over), so ``snapshot()`` is nil
+/// meanwhile and the refresh at the answer reads the host's lists.
 final class CEFExtensionBackend: BrowserExtensionBackend {
     private unowned let runtime: CEFRuntime
     private let profileID: BrowserProfileID
@@ -21,44 +28,75 @@ final class CEFExtensionBackend: BrowserExtensionBackend {
         runtime.tabsByBrowser.first { $0.value.profileID == profileID }?.key
     }
 
+    /// Nil with no live browser, and while a list has no value (a host-mode mirror a change made
+    /// pending, or one the host has not pushed yet): an empty list would read as every extension gone.
     func snapshot() -> (extensions: [BrowserExtensionInfo], commands: [BrowserExtensionCommand])? {
         guard let shim = runtime.shim, let browser = anchor else { return nil }
         guard supportsManagement else {
-            let actions = CEFExtensionAction.decodeList(shim.takeString(shim.extActions(browser, CEFExtensionAction.iconPixels)) ?? "[]")
-            return (BrowserExtensionInfo.fromActions(actions), [])
+            guard let actions = shim.extActions(browser, CEFExtensionAction.iconPixels) else { return nil }
+            return (BrowserExtensionInfo.fromActions(CEFExtensionAction.decodeList(actions)), [])
         }
-        let list = BrowserExtensionInfo.decodeList(shim.takeString(shim.extList(browser)) ?? "[]")
-        let keys = BrowserExtensionCommand.decodeList(shim.takeString(shim.extCommands(browser)) ?? "[]")
-        return (list, keys)
+        guard let list = shim.extList(browser), let keys = shim.extCommands(browser) else { return nil }
+        return (BrowserExtensionInfo.decodeList(list), BrowserExtensionCommand.decodeList(keys))
     }
 
-    func setEnabled(_ id: String, _ enabled: Bool) -> Bool { call { $0.extSetEnabled($1, id, enabled ? 1 : 0) } }
-    func uninstall(_ id: String) -> Bool { call { $0.extUninstall($1, id) } }
-
-    func movePinned(_ id: String, to index: Int) -> Bool {
-        supportsPinnedOrder && call { $0.extMovePinned($1, id, Int32(index)) }
+    func setEnabled(_ id: String, _ enabled: Bool, answered: @escaping (Bool) -> Void) -> Bool {
+        guard let browser = anchor else { return false }
+        return answer(runtime.sendAsync { $0.extSetEnabled(browser, id, enabled ? 1 : 0) }, label: "extension enable", answered)
     }
 
-    /// Fork API v5 reloads in place; older forks disable and enable again.
-    func reload(_ id: String) -> Bool {
-        if runtime.forkAPIVersion >= 5 { return call { $0.extReload($1, id) } }
-        return setEnabled(id, false) && setEnabled(id, true)
-    }
-    func setPinned(_ id: String, _ pinned: Bool) -> Bool { call { $0.extSetPinned($1, id, pinned ? 1 : 0) } }
-    func loadUnpacked(at path: String) -> Bool { call { $0.extLoadUnpacked($1, path) } }
-
-    func openOptions(_ id: String, from tab: (any BrowserTab)?) -> Bool {
-        guard let shim = runtime.shim, let browser = (tab as? CEFTab)?.browserID ?? anchor else { return false }
-        return shim.extOpenOptions(browser, id) == 1
+    func uninstall(_ id: String, answered: @escaping (Bool) -> Void) -> Bool {
+        guard let browser = anchor else { return false }
+        return answer(runtime.sendAsync { $0.extUninstall(browser, id) }, label: "extension uninstall", answered)
     }
 
+    func movePinned(_ id: String, to index: Int, answered: @escaping (Bool) -> Void) -> Bool {
+        guard supportsPinnedOrder, let browser = anchor else { return false }
+        return answer(runtime.sendAsync { $0.extMovePinned(browser, id, Int32(index)) }, label: "extension move", answered)
+    }
+
+    /// Fork API v5 reloads in place; older forks disable, then enable at the disable's answer.
+    func reload(_ id: String, answered: @escaping (Bool) -> Void) -> Bool {
+        if runtime.forkAPIVersion >= 5 {
+            guard let browser = anchor else { return false }
+            return answer(runtime.sendAsync { $0.extReload(browser, id) }, label: "extension reload", answered)
+        }
+        return setEnabled(id, false) { [weak self] disabled in
+            guard disabled, let self, self.setEnabled(id, true, answered: answered) else { return answered(false) }
+        }
+    }
+
+    func setPinned(_ id: String, _ pinned: Bool, answered: @escaping (Bool) -> Void) -> Bool {
+        guard let browser = anchor else { return false }
+        return answer(runtime.sendAsync { $0.extSetPinned(browser, id, pinned ? 1 : 0) }, label: "extension pin", answered)
+    }
+
+    /// Chromium checks the folder and its manifest.
+    func loadUnpacked(at path: String, answered: @escaping (Bool) -> Void) -> Bool {
+        guard let browser = anchor else { return false }
+        return answer(runtime.sendAsync { $0.extLoadUnpacked(browser, path) }, label: "load unpacked", answered)
+    }
+
+    /// Whether Chromium opened the options page.
+    func openOptions(_ id: String, from tab: (any BrowserTab)?, answered: @escaping (Bool) -> Void) -> Bool {
+        guard let browser = (tab as? CEFTab)?.browserID ?? anchor else { return false }
+        return answer(runtime.sendAsync { $0.extOpenOptions(browser, id) }, label: "extension options", answered)
+    }
+
+    /// A post with no answer: the store matched the command to a registered shortcut of an enabled
+    /// extension in this turn, as Chrome's ExtensionKeybindingRegistry decides from its registered
+    /// list (chrome/browser/extensions/extension_keybinding_registry.cc).
     func runCommand(_ command: BrowserExtensionCommand, in tab: any BrowserTab) -> Bool {
         guard let shim = runtime.shim, let browser = (tab as? CEFTab)?.browserID else { return false }
-        return shim.extCommandRun(browser, command.extensionID, command.name) == 1
+        _ = shim.extCommandRun(browser, command.extensionID, command.name)
+        return true
     }
 
-    private func call(_ body: (CEFShimLibrary, Int32) -> Int32) -> Bool {
-        guard let shim = runtime.shim, let browser = anchor else { return false }
-        return body(shim, browser) == 1
+    /// Whether a management op was sent; `answered` gets Chromium's verdict once (in this turn in
+    /// process, in the turn of the host's REPLY in host mode; false for no answer).
+    private func answer(_ sent: CEFShimAnswer<Int32>, label: String, _ answered: @escaping (Bool) -> Void) -> Bool {
+        if case .unsent = sent { return false }
+        runtime.whenAnswered(sent, label: label) { answered($0 == 1) }
+        return true
     }
 }

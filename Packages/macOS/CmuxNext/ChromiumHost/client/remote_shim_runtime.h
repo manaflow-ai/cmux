@@ -21,6 +21,7 @@
 #include <optional>
 #include <string>
 
+#include "chromium_host_mint.h"
 #include "chromium_host_tlv.h"
 
 #define CMUX_REMOTE_EXPORT __attribute__((visibility("default")))
@@ -90,6 +91,54 @@ CMUX_REMOTE_EXPORT int cmux_remote_shim_attached(void);
 // (CEFForkFeatures reads this in host mode, not the remote dylib's own symbols).
 CMUX_REMOTE_EXPORT int cmux_remote_shim_host_has_export(const char* name);
 CMUX_REMOTE_EXPORT void cmux_remote_shim_get_stats(cmux_remote_shim_stats* out);
+// Main thread. The token of the latest op sent for a REPLY (an async op, a non-void preinit's
+// verdict): read right after the call, it names that call's answer, which the reply callback
+// delivers under it (task 018: CEFHostReplies awaits it). 0 when that call sent nothing.
+CMUX_REMOTE_EXPORT uint32_t cmux_remote_shim_last_reply_token(void);
+// Main thread. REPLY frames go to `reply(ctx, ...)` from now on, in place of the configured
+// callback and its ctx (task 018: CEFRemoteShim hands them to CEFHostReplies); NULL drops them
+// (replies_unhandled). The next cmux_remote_shim_configure sets them again.
+CMUX_REMOTE_EXPORT void cmux_remote_shim_set_reply(void* ctx, cmux_remote_reply_fn reply);
+// Main thread. The channel's end goes to `ended(ctx, reason)` from now on, in place of the
+// configured callback and its ctx (task 091: CEFRemoteShim hands it to CEFHostReplies, whose
+// tokens then resolve as hostGone in that turn); NULL drops it. A detach cmux asks for is never
+// reported. The next cmux_remote_shim_configure sets it again.
+CMUX_REMOTE_EXPORT void cmux_remote_shim_set_ended(void* ctx, cmux_remote_ended_fn ended);
+// Main thread. The input ring's writer (ChromiumHostInputRing, tasks 041 and 042) calls it for
+// each frame of an input kind (IsOrderedInput) it writes, in write order (kPing and kStats keep
+// `seq` as their request id): returns the frame's input seq (Header::seq) and puts in
+// `ctl_seq` the control seq to stamp (SetCtlSeq), that of the last ordered op posted before it.
+// Ordered ops carry the returned seq as the input they follow (task 092; chromium_host_wire.h,
+// "One ordered input stream"). With no host attached it returns 0 and `ctl_seq` 0: the writer
+// writes nothing for that frame. Both seqs start again with the next host.
+CMUX_REMOTE_EXPORT uint32_t cmux_remote_shim_order_input(uint32_t* ctl_seq);
+// Main thread. Takes `port`, a send right to the attached host's resize fence inbox (the
+// bootstrap name cmux passed as --resize-fence, looked up off the main thread after the HELLO;
+// ChromiumHost/src/host_resize.h, task 052): 1 when kept until the host detaches, 0 (the right
+// released) with no host attached.
+CMUX_REMOTE_EXPORT int cmux_remote_shim_set_resize_fence_channel(unsigned int port);
+// What cmux_remote_shim_page_resize did.
+typedef enum {
+  CMUX_REMOTE_RESIZE_NOT_SENT = 0,  // no host attached, view token 0, or over a bound
+  CMUX_REMOTE_RESIZE_UNFENCED = 1,  // sent with no fence: no answer comes
+  CMUX_REMOTE_RESIZE_FENCED = 2,    // sent with its fence: the host answers
+} cmux_remote_page_resize_result;
+// Main thread. Sizes page view `view_token`'s page (`browser_id`: the tab it shows) to `width` x
+// `height` points with kOpPageResize, on the ordered stream. With `fence_port` (a send right of
+// this process to a -[CAContext createFencePort] port) and a fence channel, a copy of that right
+// goes to the host first, which gives the fork its own right before the page's frame change
+// (deadline `deadline_frames` display frames, at most kMaxFenceDeadlineFrames) and answers with
+// i32 1 when the fork took it: CMUX_REMOTE_RESIZE_FENCED, the answer's token in
+// cmux_remote_shim_last_reply_token. With no fence, no channel or a full inbox it goes unfenced.
+// The caller's right stays its own either way.
+CMUX_REMOTE_EXPORT int cmux_remote_shim_page_resize(uint64_t view_token, int browser_id, int width, int height,
+                                                    unsigned int fence_port, unsigned int deadline_frames);
+// Sends a copy of the send right `fence` and its `seq` to the fence inbox `channel`: 1 when sent.
+typedef int (*cmux_remote_fence_send_fn)(unsigned int channel, unsigned int fence, uint64_t seq);
+// Main thread. How cmux_remote_shim_page_resize sends a fence right: nullptr (the default) is the
+// Mach message of host_resize.h (SendFence), which sends nothing where there is no Mach; the
+// tests pass their own to drive the fenced path on Linux.
+CMUX_REMOTE_EXPORT void cmux_remote_shim_set_fence_sender(cmux_remote_fence_send_fn send);
 
 }  // extern "C"
 
@@ -101,10 +150,10 @@ using TlvReader = cmux_host::control::TlvReader;
 
 class TlvWriter : public cmux_host::control::TlvWriter {
  public:
-  // An NSView* travels as its page view token (ChromiumHostPageView, task 040): the client
-  // numbers each view the first time it crosses and keeps the number on the view, so it dies
-  // with the view and is never another view's; NULL is 0.
-  void View(void* ns_view);
+  // A parent view argument (NSView* in the in-process ABI): in host mode cmux passes the token it
+  // minted for the page view (ChromiumHostPageView, CEFRuntime.mintPageViewToken: never 0, never
+  // reused), not a view pointer, and it travels as is; NULL is 0.
+  void View(void* view_token);
 };
 
 // Control channel; queued before the first attach (never dropped: past the channel's quota the
@@ -126,13 +175,13 @@ bool PostForReply(uint16_t op, uint32_t token, const TlvWriter& args);
 int32_t PostPreinit(uint16_t op, uint32_t token, const TlvWriter& args);
 // Never 0.
 uint32_t NextToken();
-// Browser and window ids from 1 << 20, so they never meet one Chromium assigned; DevTools
-// message ids below 2^30 (the header's shim-internal range), from 2^29 so they never meet the
-// host shim's own counter. 0 when the range is used up.
+// Browser ids from 1 << 20, so they never meet one Chromium assigned; DevTools message ids below
+// 2^30 (the header's shim-internal range), from 2^29 so they never meet the host shim's own
+// counter (chromium_host_mint.h; the host maps them, host_client_ids.h). 0 when the range is used up.
 int32_t MintID(uint16_t op);
-inline constexpr int32_t kFirstMintedBrowserID = 1 << 20;
-inline constexpr int32_t kFirstMintedDevToolsID = 1 << 29;
-inline constexpr int32_t kEndMintedDevToolsID = 1 << 30;
+inline constexpr int32_t kFirstMintedBrowserID = cmux_host::mint::kFirstBrowserID;
+inline constexpr int32_t kFirstMintedDevToolsID = cmux_host::mint::kFirstDevToolsID;
+inline constexpr int32_t kEndMintedDevToolsID = cmux_host::mint::kEndDevToolsID;
 // A malloc'd copy, freed by cmux_shim_free or cmux_shim_free_owned.
 char* Dup(const std::string& text);
 void MarkPending(uint16_t mirror_op, uint32_t token, const TlvWriter& key, uint32_t wildcards);
