@@ -39,15 +39,16 @@ struct ChildReaderKillChaosTests {
         let lines = cli.lines(["-c", Self.killedWriter])
         let ended = try await withDeadline(.seconds(30), label: "host cli lines") { () async -> (Int, (any Error)?) in
             var count = 0
+            var failure: (any Error)?
             do {
                 for try await line in lines {
                     #expect(line == Self.line)
                     count += 1
                 }
-                return (count, nil)
             } catch {
-                return (count, error)
+                failure = error
             }
+            return (count, failure)
         }
         #expect(ended.0 == Self.linesBeforeKill)
         let stop = try #require(ended.1 as? HostCLIStop, "a killed run ends its lines with HostCLIStop")
