@@ -2,6 +2,7 @@ import CmuxNextControl
 import CmuxNextInput
 @testable import CmuxNextInputDiagnostics
 import CmuxNextInputCore
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -10,6 +11,13 @@ import Testing
 /// after half a ring (128 slots) fills; the batch carries the tracker's lost slots; reset starts the section over.
 @MainActor @Suite(.serialized)
 struct InputLatencyDebugSourceTests {
+    /// A main-thread scheduler whose posted turns run as main-actor tasks: each read's hand-over is a posted task.
+    static func mainWork() -> MainWorkScheduler {
+        MainWorkScheduler.testing(ledger: WakeupLedger(), performTurn: { turn in Task { @MainActor in turn() } }) { _ in
+            LatencyTestLink()
+        }
+    }
+
     /// Closes `count` view keys through the harness's fake commit boundary, 1 ms apart.
     private func closeKeys(_ count: Int, in harness: InputLatencyTrackerTests.Harness) throws {
         for _ in 0..<count {
@@ -25,7 +33,7 @@ struct InputLatencyDebugSourceTests {
         let harness = InputLatencyTrackerTests.Harness()
         let reporter = InputLatencyReporter()
         let reader = Task.detached(priority: .utility) { await reporter.run() }
-        let source = InputLatencyDebugSource(reporter: reporter, tracker: harness.tracker, mainWork: DebugInputTests.mainWork())
+        let source = InputLatencyDebugSource(reporter: reporter, tracker: harness.tracker, mainWork: Self.mainWork())
         source.follow { 8_333_333 }
         let debugInput = DebugInput(sources: [source])
 
@@ -56,7 +64,7 @@ struct InputLatencyDebugSourceTests {
         try closeKeys(6, in: harness)
         let reporter = InputLatencyReporter()
         let reader = Task.detached(priority: .utility) { await reporter.run() }
-        let source = InputLatencyDebugSource(reporter: reporter, tracker: harness.tracker, mainWork: DebugInputTests.mainWork())
+        let source = InputLatencyDebugSource(reporter: reporter, tracker: harness.tracker, mainWork: Self.mainWork())
         source.follow { 8_333_333 }
 
         let latency = try DebugInputTests.decode(InputLatencySnapshot.self,
@@ -67,4 +75,40 @@ struct InputLatencyDebugSourceTests {
         reporter.finish()
         await reader.value
     }
+
+    @Test func theSlotsActionListsEachKeyNewestFirstAndResetStartsItOver() async throws {
+        let harness = InputLatencyTrackerTests.Harness()
+        let debugInput = DebugInput(sources: [], recorders: [InputLatencySlotsRecorder(tracker: harness.tracker,
+                                                                                       mainWork: Self.mainWork())])
+        let firstEvent = harness.now - 2_000_000
+        try closeKeys(3, in: harness)
+
+        let reply = try await debugInput.reply(to: DebugInput.Request(params: ["action": .string("slots")]))
+        let object = try DebugInputTests.object(reply)
+        #expect(object["closed"] as? Int == 3)
+        let slots = try #require(object["slots"] as? [[String: Any]])
+        #expect(slots.count == 3)
+        #expect(slots.allSatisfy { $0["kind"] as? String == "keyPress" && $0["target"] as? String == "textView" })
+        let generated = slots.compactMap { ($0["generated_ns"] as? NSNumber)?.uint64Value }
+        #expect(generated == generated.sorted(by: >), "newest first")
+        #expect(generated.last.map { max($0, firstEvent) - min($0, firstEvent) < 1_000 } == true, "the oldest is the first key's event")
+        // FakePresentation answers commit + 1 ms; each key's event is 2 ms old at its begin and commits 1 ms later.
+        #expect(slots.allSatisfy { ($0["total_ms"] as? Double).map { abs($0 - 4) < 0.001 } == true })
+        #expect(slots.allSatisfy { ($0["stages_ms"] as? [String: Double])?["presented"] != nil })
+
+        _ = try await debugInput.reply(to: .reset)
+        try closeKeys(1, in: harness)
+        let after = try DebugInputTests.object(try await debugInput.reply(to: DebugInput.Request(params: ["action": .string("slots")])))
+        #expect((after["slots"] as? [[String: Any]])?.count == 1, "only the key closed since the reset")
+        let all = try DebugInputTests.object(try await debugInput.reply(
+            to: DebugInput.Request(params: ["action": .string("slots"), "since_launch": .bool(true)])))
+        #expect((all["slots"] as? [[String: Any]])?.count == 4)
+    }
+}
+
+/// The test scheduler's display link: never fires.
+@MainActor
+private final class LatencyTestLink: FrameLink {
+    var isPaused = false
+    func invalidate() {}
 }

@@ -25,6 +25,9 @@ BLOCKING_CHECKS=0
 PGO_PROFILE=0
 # The --config name (debug, release, bench, bench-checks, profile), stamped into a tagged app as CMUXBuildConfiguration.
 BUILD_CONFIG_NAME="debug"
+# 1 when the last configuration flag was --release (the fleet's `cmux-ci build cmux --release`), not --config release:
+# a dogfood tag then builds bench (Resources/build/cmux-next.dogfood.conf).
+RELEASE_FLAG=0
 PRODUCT_APP_NAME="$BASE_APP_NAME"
 DERIVED_DATA=""
 NAME_SET=0
@@ -738,7 +741,9 @@ Options:
                          CMUX_DEV_BACKEND_MODE=local to use http://localhost:<port>.
   --release              Build the Release configuration (optimized, no DEBUG) of
                          this tagged app, for dogfooding real performance. The
-                         debug.* socket commands are compiled out.
+                         debug.* socket commands are compiled out, except for a
+                         tag that Resources/build/cmux-next.dogfood.conf names
+                         (release_bench_tags): that tag builds --config bench.
   --config <debug|release|bench|bench-checks|profile>
                          debug (default) and release as above. bench: the Release
                          configuration (-O, whole module, the shipped flags) plus
@@ -1151,7 +1156,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --release)
-      BUILD_CONFIGURATION="Release" BENCH_HOOKS=0 BLOCKING_CHECKS=0 PGO_PROFILE=0 BUILD_CONFIG_NAME="release"
+      BUILD_CONFIGURATION="Release" BENCH_HOOKS=0 BLOCKING_CHECKS=0 PGO_PROFILE=0 BUILD_CONFIG_NAME="release" RELEASE_FLAG=1
       shift
       ;;
     --config|--config=*)
@@ -1164,7 +1169,7 @@ while [[ $# -gt 0 ]]; do
         profile) BUILD_CONFIGURATION="Release" BENCH_HOOKS=1 BLOCKING_CHECKS=0 PGO_PROFILE=1 ;;
         *) echo "error: --config takes debug, release, bench, bench-checks or profile (got '${config_name}')" >&2; exit 1 ;;
       esac
-      BUILD_CONFIG_NAME="$config_name"
+      BUILD_CONFIG_NAME="$config_name" RELEASE_FLAG=0
       ;;
     --credentials-file)
       AUTH_CREDENTIALS_FILE="${2:-}"
@@ -1234,6 +1239,25 @@ if [[ -z "$TAG" ]]; then
   echo "error: --tag is required (example: ./scripts/reload.sh --tag fix-sidebar-theme)" >&2
   usage
   exit 1
+fi
+
+# A dogfood tag's --release is the bench configuration: optimized as Release (-O, whole module, no debug dylib, no
+# previews, no DEBUG) with the debug.* socket commands and the input latency tracker's debug.input sections the
+# dogfood gate, the journeys and the benches drive (CMUX_BENCH_HOOKS). The fleet recipe passes only --release, so the
+# checked-in Resources/build/cmux-next.dogfood.conf names the tags (first-seconds-lag.md step 4). `--config release`
+# stays the plain Release build for any tag.
+dogfood_conf="$SCRIPT_DIR/../Resources/build/cmux-next.dogfood.conf"
+if [[ "$RELEASE_FLAG" -eq 1 && -f "$dogfood_conf" ]]; then
+  release_bench_tags="$(sed -n 's/^release_bench_tags=//p' "$dogfood_conf" | tail -1)"
+  read -r -a release_bench_globs <<<"$release_bench_tags"
+  for release_bench_glob in ${release_bench_globs[@]+"${release_bench_globs[@]}"}; do
+    # shellcheck disable=SC2053 # the conf's value is a glob
+    if [[ "$TAG" == $release_bench_glob ]]; then
+      BUILD_CONFIGURATION="Release" BENCH_HOOKS=1 BLOCKING_CHECKS=0 PGO_PROFILE=0 BUILD_CONFIG_NAME="bench"
+      echo "==> --release of dogfood tag '$TAG' (release_bench_tags '$release_bench_glob' in Resources/build/cmux-next.dogfood.conf): the bench configuration"
+      break
+    fi
+  done
 fi
 
 # Per-build isolation (cx-is1kf.4): a shipped build owns these names (its
