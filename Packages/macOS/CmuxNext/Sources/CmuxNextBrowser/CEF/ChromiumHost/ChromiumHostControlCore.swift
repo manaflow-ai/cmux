@@ -333,8 +333,10 @@ nonisolated final class ChromiumHostControlCore: Sendable {
         if failure == nil, !paused, !ChromiumHostControlMessage.pendingFdsFit(buffer[start...], pending: fds.count) {
             failure = .malformed
         }
-        buffer.removeFirst(start)
         if postsDrain { scheduleDrain() }
+        // A decoded frame never claims more bytes than it was decoded from; a decoder that did is a malformed wire.
+        guard start <= buffer.count else { return (.malformed, false) }
+        buffer.removeFirst(start)
         return (failure, paused)
     }
 

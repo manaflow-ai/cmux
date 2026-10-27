@@ -56,8 +56,8 @@ nonisolated extension OmniboxQuickIndex {
             best.insert(candidate, at: index)
             bestIDs.insert(id, at: index)
             if best.count > limit {
-                best.removeLast()
-                bestIDs.removeLast()
+                _ = best.popLast()
+                _ = bestIDs.popLast()
             }
             if best.count == limit { floor = best[limit - 1].score }
         }

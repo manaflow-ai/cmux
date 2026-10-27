@@ -182,13 +182,14 @@ nonisolated struct ChromiumHostInputOutbox: Sendable {
     /// of fewer bytes than were written since the last one.
     private mutating func compactIfSparse() {
         guard written >= 64 * 1024, written * 2 > bytes.count else { return }
-        let shift = written
+        let shift = written, retired = head
+        // Not compacting is always correct: the bytes and entries stay where they are until the next pass.
+        guard shift <= bytes.count, retired <= entries.count else { return }
         bytes.removeFirst(shift)
-        written = 0
         // A partly written frame's rest is now at the front; its entry is retired with the others before `head`.
-        entries.removeFirst(head)
+        entries.removeFirst(retired)
+        written = 0
         for index in entries.indices { entries[index].start -= shift }
-        let retired = head
         func rebased(_ slot: Slot?) -> Slot? {
             guard let slot, slot.entry >= retired else { return nil }
             return Slot(frame: slot.frame, entry: slot.entry - retired)

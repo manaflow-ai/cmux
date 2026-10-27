@@ -58,7 +58,7 @@ struct PageFirstKeyOffer {
     mutating func take(_ event: NSEvent, from tab: ObjectIdentifier) -> Held? {
         guard let index = entries.firstIndex(where: { $0.matches(event) }) else { return nil }
         let held = entries[index].held
-        entries.removeFirst(index + 1)
+        entries.removeSubrange(...index)
         return held.tab == tab ? held : nil
     }
 

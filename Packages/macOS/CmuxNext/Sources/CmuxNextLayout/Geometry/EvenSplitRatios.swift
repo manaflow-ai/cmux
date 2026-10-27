@@ -49,7 +49,7 @@ public nonisolated enum EvenSplitRatios {
         path.append(node)
         if a == .leaf(pane) || b == .leaf(pane) { return true }
         if ancestors(of: pane, in: a, path: &path) || ancestors(of: pane, in: b, path: &path) { return true }
-        path.removeLast()
+        _ = path.popLast()
         return false
     }
 

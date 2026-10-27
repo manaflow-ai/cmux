@@ -33,7 +33,7 @@ enum TerminalSnapshotInflate {
             }
         }
         guard written == rawBytes else { return nil }
-        out.removeLast()
+        out.count = rawBytes  // drops the spare byte
         return out
     }
 }

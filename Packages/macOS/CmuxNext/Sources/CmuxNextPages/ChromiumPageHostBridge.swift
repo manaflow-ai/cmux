@@ -107,8 +107,9 @@ public final class ChromiumPageHostBridge: PageHostBridge {
             if count > 0, bytes > Self.maximumBatchBytes { break }
             count += 1
         }
-        defer { scripts.removeFirst(count) }
-        return Array(scripts.prefix(count))
+        let batch = Array(scripts.prefix(count))
+        scripts.removeSubrange(..<batch.count)
+        return batch
     }
 
     /// The most script bytes sent in one `Runtime.evaluate`.
