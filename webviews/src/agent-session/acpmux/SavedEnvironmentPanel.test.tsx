@@ -112,3 +112,57 @@ test("keeps a saved environment usable when folder browse rejects", async () => 
   );
   expect([...container.querySelectorAll("button")].some((button) => button.textContent === "Retry")).toBe(false);
 });
+
+test("releases the browse guard after switching environment kind", async () => {
+  const container = installDom();
+  const rejectBrowse: ((error: Error) => void)[] = [];
+  let calls = 0;
+  const browse = () =>
+    new Promise<string | undefined>((_resolve, reject) => {
+      calls += 1;
+      rejectBrowse.push(reject);
+    });
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <UiProvider container={container}>
+        <SavedEnvironmentPanel
+          environment={{
+            id: "cmux-local",
+            name: "cmux local",
+            kind: "local",
+            folder: "/Users/you/src/cmux",
+            updatedAt: 1,
+          }}
+          folders={[{ id: "/Users/you/src/cmux", label: "cmux" }]}
+          onBrowse={browse}
+          machines={[]}
+          machineFolders={() => []}
+          onSave={async () => undefined}
+          onClose={() => {}}
+        />
+      </UiProvider>,
+    );
+  });
+
+  const chooseFolder = async () => {
+    await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-location-button")!.click());
+    await act(async () => document.querySelector<HTMLElement>("[data-choose]")!.click());
+  };
+  await chooseFolder();
+  expect(calls).toBe(1);
+  await act(async () =>
+    [...container.querySelectorAll<HTMLButtonElement>(".acpmux-env-tab")]
+      .find((button) => button.textContent === "SSH")
+      ?.click(),
+  );
+  await act(async () =>
+    [...container.querySelectorAll<HTMLButtonElement>(".acpmux-env-tab")]
+      .find((button) => button.textContent === "Local")
+      ?.click(),
+  );
+  await chooseFolder();
+  expect(calls).toBe(2);
+  await act(async () => rejectBrowse[1]!(new Error("Folder access was denied.")));
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Folder access was denied.");
+});

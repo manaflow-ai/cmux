@@ -264,7 +264,7 @@ export function SavedEnvironmentPanel({
             {error}
           </output>
           {browseFailed && !ssh && (
-            <button type="button" className="acpmux-env-button" onClick={browse} disabled={browsing}>
+            <button type="button" className="acpmux-env-button" onClick={() => void browse()} disabled={browsing}>
               {t("project.retry")}
             </button>
           )}
