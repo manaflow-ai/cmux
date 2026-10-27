@@ -307,8 +307,16 @@
   padding: var(--cv-media-action-margin);
   opacity: 0;
 }
-.cv-media:has(> .cv-media__frame.is-playing) > .cv-media__actions {
+.cv-media:not(.has-short-video):has(> .cv-media__frame.is-playing) > .cv-media__actions {
   top: calc(6px + 31px + 8px - var(--cv-media-action-margin));
+}
+/* Short players have no room between their native control bars. Keep this row outside the
+ * video both before and during playback, so playing does not shift the transcript. */
+.cv-media.has-short-video {
+  padding-top: 40px;
+}
+.cv-media.has-short-video > .cv-media__actions {
+  top: 0;
 }
 @media (prefers-reduced-motion: no-preference) {
   .cv-media__actions {

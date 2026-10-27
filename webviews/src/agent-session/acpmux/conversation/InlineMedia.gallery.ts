@@ -146,6 +146,20 @@ export default agentPaneEntry({
       snapshot: recording,
       play: playThenHover,
     },
+    "video-short-playing": {
+      note: "A 100 px player keeps Open in tab and Expand above the video, clear of both native control bars.",
+      chipHost: HOST,
+      snapshot: recording,
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-media.is-video video"));
+        const video = ctx.document.querySelector<HTMLVideoElement>(".cv-media.is-video video")!;
+        video.style.height = "100px";
+        video.style.width = "360px";
+        video.style.objectFit = "contain";
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-media.has-short-video"));
+        await playThenHover(ctx);
+      },
+    },
     "video-hover-intent": {
       note: "After hover intent: the muted preview starts after a deliberate 250 ms rest and the poster eases back; motion-off users stay on the poster.",
       chipHost: HOST,
