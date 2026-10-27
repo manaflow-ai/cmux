@@ -305,11 +305,7 @@ fn ssh_config_hosts_from_path(config: &Path, ssh_root: &Path, home: &Path) -> Ve
     ssh_config_targets_from_path(config, ssh_root, home).into_iter().map(|h| h.alias).collect()
 }
 
-fn ssh_config_targets_from_path(
-    config: &Path,
-    ssh_root: &Path,
-    home: &Path,
-) -> Vec<SshConfigHost> {
+fn ssh_config_targets_from_path(config: &Path, ssh_root: &Path, home: &Path) -> Vec<SshConfigHost> {
     let mut discovery = SshConfigDiscovery {
         ssh_root,
         home,

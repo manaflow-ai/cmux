@@ -279,10 +279,11 @@ fn ssh_config_hosts_follow_the_network_computers_without_repeats() {
     let row = serde_json::to_value(alpha).unwrap();
     assert_eq!(row["found"], "ssh-config");
 
-    // With no network at all, the ssh config still offers its hosts.
+    // With no network at all, the ssh config still offers its hosts; with no
+    // tailnet to say otherwise, an alias of a tailnet name is one of them.
     let listing = model::merge(&src, NetworkStatus::none("no tailscale"), &[]);
     let names: Vec<&str> = listing.available.iter().map(|a| a.name.as_str()).collect();
-    assert_eq!(names, vec!["alpha", "build-box", "old-air", "Zeta"]);
+    assert_eq!(names, vec!["alpha", "build-box", "old-air", "studio-ts", "Zeta"]);
 }
 
 #[test]
