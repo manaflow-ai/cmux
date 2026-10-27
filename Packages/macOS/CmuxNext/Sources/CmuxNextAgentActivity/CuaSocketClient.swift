@@ -11,9 +11,9 @@ public struct CuaSocketClient: Sendable {
         self.configuration = configuration
     }
 
-    public func send(_ method: String, _ args: [String: Any] = [:],
+    public func send(_ method: String, name: String? = nil, _ args: [String: Any] = [:],
                      deadline: Duration = .seconds(5)) async throws -> [String: Any] {
-        let line = AgentActivityWire.requestLine(method: method, args: args, authToken: configuration.authToken,
+        let line = AgentActivityWire.requestLine(method: method, name: name, args: args, authToken: configuration.authToken,
                                                  hostAuthToken: configuration.hostAuthToken)
         let data = try await AgentActivityLineConnection.oneShot(path: configuration.socketPath, send: line,
                                                                  deadline: deadline,

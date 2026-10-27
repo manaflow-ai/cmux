@@ -22,6 +22,10 @@ struct ComputerUseSetupTests {
         func answer() {
             result = .answered(ComputerUsePermissions(accessibility: true, screenRecording: true), helper: nil)
         }
+
+        func setResult(_ value: ComputerUseSetup.Read) {
+            result = value
+        }
     }
 
     /// Retry delays end at once, without wall time or a sleep used to settle work.
@@ -148,5 +152,52 @@ struct ComputerUseSetupTests {
         #expect(setup.phase == .starting)
         await wait(setup, for: .ready)
         #expect(box.restarts == 1)
+    }
+
+    /// On macOS 26 the Screen Recording toggle alone leaves the helper's capture
+    /// check false until the helper itself asks once (seen 2026-10-27). Allow must
+    /// send that host-only request to the running helper, then open System Settings.
+    @Test func allowAsksTheRunningHelperToRequestTheGrant() async {
+        let reader = Reader()
+        await reader.setResult(.answered(ComputerUsePermissions(accessibility: true, screenRecording: false), helper: nil))
+        let box = InputBox()
+        let requests = GrantRequests()
+        var opened: [URL] = []
+        let setup = ComputerUseSetup(inputs: { box.value },
+                                     configuration: { .init(socketPath: "/unused/cua.sock", authToken: "a", hostAuthToken: "h",
+                                                            machineName: "") },
+                                     read: { _ in await reader.read() },
+                                     resolveHelper: { _ in nil },
+                                     openURL: { opened.append($0) },
+                                     requestGrant: { _, pane in await requests.add(pane) },
+                                     notifications: NotificationCenter(), distributed: NotificationCenter(), clock: RetryClock())
+        setup.start()
+        await wait(setup, for: .ready)
+        setup.open(.screenRecording)
+        for await count in ObservationStream({ requests.count }) where count == 1 { break }
+        #expect(await requests.panes == [.screenRecording])
+        #expect(opened.count == 1)
+
+        // Off: no helper runs, so only System Settings opens.
+        box.value = ComputerUseSetup.Inputs(disabledByPolicy: false, enabled: false, helper: .off)
+        await wait(setup, for: .off)
+        setup.open(.accessibility)
+        #expect(await requests.panes == [.screenRecording])
+        #expect(opened.count == 2)
+    }
+
+    actor GrantRequestsStore {
+        var panes: [ComputerUsePermissionPane] = []
+        func add(_ pane: ComputerUsePermissionPane) { panes.append(pane) }
+    }
+
+    @MainActor @Observable final class GrantRequests {
+        var count = 0
+        private let store = GrantRequestsStore()
+        var panes: [ComputerUsePermissionPane] { get async { await store.panes } }
+        nonisolated func add(_ pane: ComputerUsePermissionPane) async {
+            await store.add(pane)
+            await MainActor.run { count += 1 }
+        }
     }
 }

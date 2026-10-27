@@ -78,6 +78,7 @@ final class ComputerUseSetup {
     @ObservationIgnored private let read: @Sendable (AgentActivitySocketSource.Configuration) async -> Read
     @ObservationIgnored private let resolveHelper: @Sendable (URL?) async -> URL?
     @ObservationIgnored private let openURL: @MainActor (URL) -> Void
+    @ObservationIgnored private let requestGrant: @Sendable (AgentActivitySocketSource.Configuration, ComputerUsePermissionPane) async -> Void
     @ObservationIgnored private let restartHelper: @MainActor () async -> Void
     @ObservationIgnored private let enableSetting: @MainActor () -> Void
     @ObservationIgnored private let notifications: NotificationCenter
@@ -101,6 +102,9 @@ final class ComputerUseSetup {
          read: @escaping @Sendable (AgentActivitySocketSource.Configuration) async -> Read = { await ComputerUseSetup.socketRead($0) },
          resolveHelper: @escaping @Sendable (URL?) async -> URL? = ComputerUseSetup.signedHelper,
          openURL: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.openInBackground($0) },
+         requestGrant: @escaping @Sendable (AgentActivitySocketSource.Configuration, ComputerUsePermissionPane) async -> Void = {
+             await ComputerUseSetup.socketRequestGrant($0, $1)
+         },
          restartHelper: @escaping @MainActor () async -> Void = {},
          enableSetting: @escaping @MainActor () -> Void = {},
          notifications: NotificationCenter = .default,
@@ -111,6 +115,7 @@ final class ComputerUseSetup {
         self.read = read
         self.resolveHelper = resolveHelper
         self.openURL = openURL
+        self.requestGrant = requestGrant
         self.restartHelper = restartHelper
         self.enableSetting = enableSetting
         self.notifications = notifications
@@ -179,9 +184,36 @@ final class ComputerUseSetup {
 
     /// Opens the Privacy & Security list for `pane` in System Settings; the
     /// read on the app's next activation picks up the change.
+    /// When the helper runs, it first raises macOS's own request for the
+    /// grant, attributed to the helper (`request_system_permission`, host
+    /// only). On macOS 26 the Screen Recording toggle alone is not enough: the
+    /// helper must ask once ("bypass the system private window picker"), or
+    /// its capture check stays false (seen 2026-10-27 on macOS 26.6).
     func open(_ pane: ComputerUsePermissionPane) {
+        if phase == .ready, driver == .legacy, let configuration = configuration() {
+            let requestGrant = requestGrant
+            // task-owner: one host request to the helper; the next read (app activation, trust change) shows the answer.
+            Task { await requestGrant(configuration, pane) }
+        }
         guard let url = Self.settingsURL(pane) else { return }
         openURL(url)
+    }
+
+    /// One `request_system_permission` to the helper with the host token.
+    /// It answers at once and raises the prompt itself; a refusal (an older
+    /// helper) only means no prompt.
+    static func socketRequestGrant(_ configuration: AgentActivitySocketSource.Configuration,
+                                   _ pane: ComputerUsePermissionPane) async {
+        let name = switch pane {
+        case .accessibility: "accessibility"
+        case .screenRecording: "screen_recording"
+        }
+        do {
+            _ = try await CuaSocketClient(configuration: configuration).send("request_system_permission", name: name,
+                                                                             deadline: .seconds(2))
+        } catch {
+            setupLogger.notice("cmux Computer Use helper did not take the \(name, privacy: .public) request: \(String(describing: error), privacy: .public)")
+        }
     }
 
     /// Turns Computer Use on (the person's own click in onboarding). The
