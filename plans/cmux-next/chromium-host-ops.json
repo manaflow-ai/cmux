@@ -1626,9 +1626,7 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFTab+BackForwardList.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [
@@ -1636,7 +1634,7 @@
         "tab.navigation_state[browser_id]"
       ],
       "reply_event": null,
-      "reason": "1 when it went: the caller predicts it from the mirrored entries (offset within range) in the same turn; its site stops reading the result (task 022)."
+      "reason": "1 when it went: CEFTab.goToNativeEntry predicts it from the mirrored entries (the target index within them, Chrome's NavigationControllerImpl::CanGoToOffset) in the same turn and never reads the result (task 022)."
     },
     {
       "name": "cmux_shim_tab_window_id",
@@ -2013,8 +2011,8 @@
       ],
       "returns": "int",
       "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFRuntime+Events.swift",
-        "CmuxNextBrowser/CEF/CEFTabNodeVisibility.swift"
+        "CmuxNextBrowser/CEF/CEFRuntime+DevToolsSend.swift",
+        "CmuxNextBrowser/CEF/CEFTab+Perform.swift"
       ],
       "mirror_key": null,
       "refresh_events": [],
@@ -2249,7 +2247,7 @@
     },
     {
       "name": "cmux_shim_ext_action_run",
-      "class": "async",
+      "class": "post",
       "args": [
         {
           "name": "browser_id",
@@ -2269,14 +2267,12 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFTab+Events.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [],
-      "reply_event": "wire:REPLY",
-      "reason": "Whether Chromium ran the action or opened its popup is known only in the host."
+      "reply_event": null,
+      "reason": "One-way, as Chrome's ExtensionActionViewController::ExecuteUserAction decides from the action's own state: CEFTab.runExtensionAction marks the popup open from the mirrored ext_actions (enabled, has_popup) and EXTENSION_POPUP_CLOSED ends it; it never reads the result (task 022)."
     },
     {
       "name": "cmux_shim_ext_action_hide_popup",
@@ -2383,9 +2379,7 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFTab.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [
@@ -2393,7 +2387,7 @@
         "tab.navigation_state[browser_id]"
       ],
       "reply_event": null,
-      "reason": "Returns 1 when the fork has the call: the caller reads navigation_restore_supported (mirror) instead and loads the URL itself on a fork without it (task 022)."
+      "reason": "Returns 1 when the fork restored: CEFEngine sets a tab's pending restore only when navigation_restore_supported (mirror) and fork API 10 say the fork restores, and CEFTab.attach sends it one-way without reading the result, as Chrome's NavigationController::Restore returns nothing (task 022)."
     },
     {
       "name": "cmux_shim_navigation_restore_supported",
@@ -3556,14 +3550,12 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFTab+PasswordFill.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Returns 0 only when the fork lacks the switch (fork_api_version mirror, API 15). Ordered on the control channel, so fill is off before any later op of an agent-driven tab; its site reads the mirror instead (task 025)."
+      "reason": "Returns 0 only when the fork lacks the switch: CEFPasswordFill.apply reads fork_api_version (mirror, API 15) instead and never reads the result. Ordered on the control channel, so fill is off before any later op of an agent-driven tab (task 022)."
     },
     {
       "name": "cmux_shim_passkeys_available",
