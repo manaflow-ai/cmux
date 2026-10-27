@@ -11,6 +11,9 @@ public nonisolated struct NotificationPreferences: Hashable, Sendable {
     public var desktop: DesktopNotificationMode = .unlessFocused
     /// `"default"`, a sound in /System/Library/Sounds (for example `"Glass"`), or `"none"`.
     public var sound = "default"
+    /// `notifications.sounds`: per-event sounds, volume, timing, the burst cooldown, and the
+    /// workspace, group and agent levels (``NotificationSoundPreferences``).
+    public var sounds = NotificationSoundPreferences()
     public var quietHours: QuietHours?
     /// A notification for a pane typed into within this many seconds is
     /// read at once (no ring, banner or sound). 0 turns it off.

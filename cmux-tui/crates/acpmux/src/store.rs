@@ -620,6 +620,11 @@ pub trait Store: Send + Sync {
     fn compacted_seq(&self, _id: &str) -> Option<u64> {
         None
     }
+    /// Retention: when the log was last written, in ms, from its newest segment. None: the store
+    /// keeps no log on disk, or the chat has none.
+    fn log_written_at(&self, _id: &str) -> Option<u64> {
+        None
+    }
     /// Reads the log and, unless a dry run, writes its compacted segments beside it. None: the
     /// store keeps no log on disk, or the chat has none.
     fn stage_compaction(&self, _id: &str, _mode: CompactMode) -> Result<Option<Staged>> {
@@ -1298,6 +1303,10 @@ impl Store for LocalStore {
 
     fn compacted_seq(&self, id: &str) -> Option<u64> {
         LocalStore::compacted_seq(self, id)
+    }
+
+    fn log_written_at(&self, id: &str) -> Option<u64> {
+        LocalStore::log_written_at(self, id)
     }
 
     fn stage_compaction(&self, id: &str, mode: CompactMode) -> Result<Option<Staged>> {

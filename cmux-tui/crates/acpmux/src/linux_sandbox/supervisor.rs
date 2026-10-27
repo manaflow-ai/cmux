@@ -1,6 +1,6 @@
 //! E1 write-open supervision; no production caller until G2.
-//! Activation also requires F: all sandbox path mutations must use this same
-//! serial supervisor, so directories cannot be renamed during a checked open.
+//! Activation also requires F: every mutation must hold the same process-wide
+//! mutex and per-uid flock through resolve/check/perform, across all supervisors.
 //! Bwrap supplies read-only mounts and masks; this is not a standalone sandbox.
 //! Activation requires A2 to reject mounts under writable roots that are not
 //! whole filesystems, and G1 to reject group/world-writable roots. Shared-root
@@ -11,6 +11,11 @@
 //! Stricter: non-UTF-8 paths and anonymous/deleted proc-fd targets are refused.
 //! Opens use O_NONBLOCK while acquiring the fd (a FIFO without a reader fails
 //! ENXIO); the requested blocking mode is restored before handing it over.
+//! Only regular files, FIFOs and character devices 1:{3,5,7,8,9} may be reopened
+//! for writes (plus directories for O_TMPFILE). No tty or block-device opens.
+//! Unlike native open, policy-permitted O_TRUNC may take effect before ADDFD
+//! reports EMFILE. Creation is exclusive and rolled back on delivery failure
+//! only while the name still addresses our inode; no placeholder fd is injected.
 #![allow(dead_code)]
 
 use super::{lookup, rules::WritePolicy};
@@ -289,7 +294,14 @@ fn resolve_inner(
                     || (queue.len() == 1
                         && matches!(
                             queue[0].as_str(),
-                            "null" | "zero" | "tty" | "stdout" | "stderr"
+                            "null"
+                                | "zero"
+                                | "full"
+                                | "random"
+                                | "urandom"
+                                | "tty"
+                                | "stdout"
+                                | "stderr"
                         ))
                     || (queue.len() == 2 && queue[0] == "fd"));
             check_directory(pin.as_raw_fd(), device_route)?;
@@ -336,6 +348,200 @@ fn resolve_inner(
         object: None,
         directory_required,
     })
+}
+
+fn arguments(data: &seccomp_data) -> Result<(i32, u64, i32, u32)> {
+    let a = data.args;
+    if data.nr as c_long == SYS_openat {
+        return Ok((a[0] as i32, a[1], a[2] as i32, a[3] as u32));
+    }
+    #[cfg(target_arch = "x86_64")]
+    {
+        const SYS_OPEN: c_long = libc::SYS_open;
+        const SYS_CREAT: c_long = libc::SYS_creat;
+        match data.nr as c_long {
+            n if n == SYS_OPEN => return Ok((AT_FDCWD, a[0], a[1] as i32, a[2] as u32)),
+            n if n == SYS_CREAT => {
+                return Ok((AT_FDCWD, a[0], O_WRONLY | O_CREAT | O_TRUNC, a[1] as u32));
+            }
+            _ => {}
+        }
+    }
+    Err(EACCES)
+}
+
+fn valid_errno(errno: i32) -> Result<bool> {
+    match errno {
+        EINTR => Ok(true),
+        ENOENT => Ok(false),
+        _ => Err(EACCES),
+    }
+}
+
+/// Checks the notification id, retrying EINTR until the stop fd is readable.
+fn valid(fd: RawFd, id: &u64, stop: RawFd) -> Result<bool> {
+    loop {
+        if unsafe { ioctl(fd, SECCOMP_IOCTL_NOTIF_ID_VALID, id) } == 0 {
+            return Ok(true);
+        }
+        let errno = error();
+        match valid_errno(errno) {
+            Ok(true) => {
+                let mut pollfd = pollfd { fd: stop, events: POLLIN, revents: 0 };
+                let rc = unsafe { poll(&mut pollfd, 1, 10) };
+                if rc < 0 && error() != EINTR {
+                    return Err(EACCES);
+                }
+                if pollfd.revents & POLLIN != 0 {
+                    return Err(ECANCELED);
+                }
+            }
+            Ok(false) => return Ok(false),
+            Err(errno) => return Err(errno),
+        }
+    }
+}
+
+fn reject_write_device(mode: mode_t, rdev: dev_t) -> Result<()> {
+    match mode & S_IFMT {
+        S_IFREG | S_IFIFO => Ok(()),
+        S_IFDIR => Err(EISDIR),
+        S_IFLNK => Err(ELOOP),
+        S_IFCHR if [3, 5, 7, 8, 9].iter().any(|minor| rdev == makedev(1, *minor)) => Ok(()),
+        _ => Err(EACCES),
+    }
+}
+
+fn open_mode(mode: u32, _mask: u32) -> u32 {
+    mode
+}
+
+/// Pins and inspects the inode actually reopened. A competing creator gets
+/// one retry (two attempts total), then EAGAIN. The test hook models a leaf
+/// replacement after inspection; it cannot redirect the pinned proc-fd reopen.
+fn open_leaf(
+    resolved: &Resolved,
+    flags: i32,
+    mode: u32,
+    after_inspect: impl FnOnce(),
+) -> Result<(OwnedFd, bool)> {
+    let mut hook = Some(after_inspect);
+    for attempt in 0..2 {
+        let pin = match resolved.object.as_ref() {
+            Some(object) => object.try_clone().map_err(|_| EACCES),
+            None => open_at(resolved.parent.as_raw_fd(), &resolved.name, O_PATH | O_NOFOLLOW, 0),
+        };
+        match pin {
+            Ok(pin) => {
+                if flags & (O_CREAT | O_EXCL) == (O_CREAT | O_EXCL) {
+                    return Err(EEXIST);
+                }
+                let info = stat(pin.as_raw_fd())?;
+                let tmpfile = flags & O_TMPFILE == O_TMPFILE;
+                if !tmpfile || info.st_mode & S_IFMT != S_IFDIR {
+                    reject_write_device(info.st_mode, info.st_rdev)?;
+                }
+                if let Some(hook) = hook.take() {
+                    hook();
+                }
+                // The pinned inode, never the mutable leaf name, is reopened.
+                // O_EXCL has independent meaning for anonymous O_TMPFILE files.
+                let acquired = (flags & !(O_CREAT | O_NOFOLLOW | if tmpfile { 0 } else { O_EXCL }))
+                    | O_NONBLOCK
+                    | O_NOCTTY;
+                let suffix = if resolved.directory_required { "/" } else { "" };
+                let opened = open_at(
+                    AT_FDCWD,
+                    &format!("/proc/self/fd/{}{suffix}", pin.as_raw_fd()),
+                    acquired,
+                    mode,
+                )?;
+                return Ok((opened, false));
+            }
+            Err(ENOENT) if attempt != 0 => return Err(EAGAIN),
+            Err(ENOENT) if flags & O_CREAT != 0 => {
+                if let Some(hook) = hook.take() {
+                    hook();
+                }
+                match open_at(
+                    resolved.parent.as_raw_fd(),
+                    &resolved.name,
+                    flags | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK | O_NOCTTY,
+                    mode,
+                ) {
+                    Ok(opened) => return Ok((opened, true)),
+                    Err(EEXIST) if flags & O_EXCL == 0 => {}
+                    Err(errno) => return Err(errno),
+                }
+            }
+            Err(errno) => return Err(errno),
+        }
+    }
+    Err(EAGAIN)
+}
+
+// Called under both transaction locks; never remove a replacement inode.
+fn rollback_created(resolved: &Resolved, opened: &OwnedFd) {
+    let Ok(info) = stat(opened.as_raw_fd()) else { return };
+    let Ok(name) = CString::new(resolved.name.as_str()) else { return };
+    let mut current: stat = unsafe { std::mem::zeroed() };
+    if unsafe {
+        fstatat(resolved.parent.as_raw_fd(), name.as_ptr(), &mut current, AT_SYMLINK_NOFOLLOW)
+    } == 0
+        && (current.st_dev, current.st_ino) == (info.st_dev, info.st_ino)
+    {
+        unsafe {
+            unlinkat(resolved.parent.as_raw_fd(), name.as_ptr(), 0);
+        }
+    }
+}
+
+fn emulate(fd: RawFd, request: &seccomp_notif, policy: &WritePolicy, stop: RawFd) -> Result<()> {
+    let (dir, address, flags, mode) = arguments(&request.data)?;
+    // Pin this task's proc directory before copying memory; PID reuse cannot
+    // redirect later root/cwd/fd/status lookups to another process.
+    let task = open_at(AT_FDCWD, &format!("/proc/{}", request.pid), O_PATH | O_DIRECTORY, 0)
+        .map_err(|_| EACCES)?;
+    let path = copy_path(request.pid, address);
+    if !valid(fd, &request.id, stop)? {
+        return Ok(());
+    }
+    let path = path?;
+    let status = std::fs::read_to_string(format!("/proc/self/fd/{}/status", task.as_raw_fd()))
+        .map_err(|_| EACCES)?;
+    let field = |name: &str| status.lines().find_map(|line| line.strip_prefix(name));
+    let mask = u32::from_str_radix(field("Umask:").ok_or(EACCES)?.trim(), 8).map_err(|_| EACCES)?;
+    let nspid = field("NSpid:").and_then(|p| p.split_whitespace().last()).ok_or(EACCES)?;
+    let mut resolved = resolve(task.as_raw_fd(), dir, &path, flags, nspid)?;
+    if resolved.directory_required {
+        resolved.name.push('/');
+    }
+    policy.check(Path::new(&resolved.logical)).map_err(|_| EACCES)?;
+    if !valid(fd, &request.id, stop)? {
+        return Ok(());
+    }
+    let previous_umask = unsafe { umask(mask as mode_t) };
+    let opened_result = open_leaf(&resolved, flags, open_mode(mode, mask), || {});
+    unsafe { umask(previous_umask) };
+    let (opened, created) = opened_result?;
+    let delivery = (|| {
+        if flags & (O_NONBLOCK | O_PATH) == 0 {
+            let current = checked(unsafe { fcntl(opened.as_raw_fd(), F_GETFL) })?;
+            checked(unsafe { fcntl(opened.as_raw_fd(), F_SETFL, current & !O_NONBLOCK) })?;
+        }
+        let add = seccomp_notif_addfd {
+            id: request.id,
+            flags: SECCOMP_ADDFD_FLAG_SEND as u32,
+            srcfd: opened.as_raw_fd() as u32,
+            newfd: 0,
+            newfd_flags: (flags & O_CLOEXEC) as u32,
+        };
+        checked(unsafe { ioctl(fd, SECCOMP_IOCTL_NOTIF_ADDFD, &add) }).map(|_| ())
+    })();
+    if delivery.is_err() && created {
+        rollback_created(&resolved, &opened);
+    }
+    delivery
 }
 
 /// E1b owns the notification loop. E1a keeps the resolver callable and
@@ -390,6 +596,153 @@ mod tests {
             .find_map(|line| line.strip_prefix("NSpid:").and_then(|p| p.split_whitespace().last()))
             .expect("NSpid")
             .to_owned()
+    }
+
+    #[test]
+    fn review_write_open_rejects_unapproved_devices() {
+        assert!(reject_write_device(S_IFCHR, makedev(5, 0)).is_err());
+        assert!(reject_write_device(S_IFBLK, makedev(8, 0)).is_err());
+    }
+
+    #[test]
+    fn delivery_object_types_use_device_numbers() {
+        for minor in [3, 5, 7, 8, 9] {
+            assert_eq!(reject_write_device(S_IFCHR | 0o666, makedev(1, minor)), Ok(()));
+        }
+        for (kind, device) in
+            [(S_IFCHR, makedev(5, 0)), (S_IFCHR, makedev(1, 1)), (S_IFBLK, 0), (S_IFSOCK, 0)]
+        {
+            assert_eq!(reject_write_device(kind, device), Err(EACCES));
+        }
+        assert_eq!(reject_write_device(S_IFDIR, 0), Err(EISDIR));
+    }
+
+    #[test]
+    fn review_id_valid_retries_interrupted_ioctl() {
+        assert_eq!(valid_errno(EINTR), Ok(true));
+        assert_eq!(valid_errno(ENOENT), Ok(false));
+        assert!(valid_errno(EACCES).is_err());
+    }
+
+    // Finite hook-controlled swaps avoid racing test timing or privileged mounts.
+    #[test]
+    fn delivery_reopens_the_inspected_inode() {
+        let fixture = Fixture::new();
+        let leaf = fixture.0.join("leaf");
+        fs::write(&leaf, b"original").unwrap();
+        let resolved =
+            resolve(task().as_raw_fd(), AT_FDCWD, leaf.to_str().unwrap(), O_WRONLY, &nspid())
+                .unwrap();
+        let original = fs::File::open(&leaf).unwrap();
+        let opened = open_leaf(&resolved, O_WRONLY, 0, || {
+            fs::rename(&leaf, fixture.0.join("old")).unwrap();
+            fs::write(&leaf, b"replacement").unwrap();
+        })
+        .unwrap()
+        .0;
+        assert_eq!(
+            stat(opened.as_raw_fd()).unwrap().st_ino,
+            stat(original.as_raw_fd()).unwrap().st_ino
+        );
+    }
+
+    #[test]
+    fn delivery_rolls_back_only_its_own_created_inode() {
+        let fixture = Fixture::new();
+        let leaf = fixture.0.join("new");
+        let resolved = resolve(
+            task().as_raw_fd(),
+            AT_FDCWD,
+            leaf.to_str().unwrap(),
+            O_CREAT | O_WRONLY,
+            &nspid(),
+        )
+        .unwrap();
+        let opened = open_at(
+            resolved.parent.as_raw_fd(),
+            &resolved.name,
+            O_CREAT | O_EXCL | O_WRONLY,
+            0o600,
+        )
+        .unwrap();
+        rollback_created(&resolved, &opened);
+        assert!(!leaf.exists());
+        fs::write(&leaf, b"replacement").unwrap();
+        rollback_created(&resolved, &opened);
+        assert_eq!(fs::read(&leaf).unwrap(), b"replacement");
+    }
+
+    #[test]
+    fn delivery_fifo_swap_never_opens_the_replacement() {
+        let fixture = Fixture::new();
+        let leaf = fixture.0.join("leaf");
+        fs::write(&leaf, b"original").unwrap();
+        let fifo = CString::new(fixture.0.join("fifo").to_str().unwrap()).unwrap();
+        assert_eq!(unsafe { mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        let resolved =
+            resolve(task().as_raw_fd(), AT_FDCWD, leaf.to_str().unwrap(), O_WRONLY, &nspid())
+                .unwrap();
+        let opened = open_leaf(&resolved, O_WRONLY, 0, || {
+            fs::rename(fixture.0.join("fifo"), &leaf).unwrap();
+        })
+        .unwrap()
+        .0;
+        assert_eq!(stat(opened.as_raw_fd()).unwrap().st_mode & S_IFMT, S_IFREG);
+        assert!(matches!(open_leaf(&resolved, O_WRONLY, 0, || {}), Err(ENXIO)));
+    }
+
+    #[test]
+    fn delivery_competing_creator_is_reopened_only_without_excl() {
+        let fixture = Fixture::new();
+        for exclusive in [0, O_EXCL] {
+            let leaf = fixture.0.join(format!("created-{exclusive}"));
+            let resolved = resolve(
+                task().as_raw_fd(),
+                AT_FDCWD,
+                leaf.to_str().unwrap(),
+                O_CREAT | O_WRONLY,
+                &nspid(),
+            )
+            .unwrap();
+            let result = open_leaf(&resolved, O_CREAT | O_WRONLY | exclusive, 0o600, || {
+                fs::write(&leaf, b"competitor").unwrap();
+            });
+            if exclusive != 0 {
+                assert!(matches!(result, Err(EEXIST)));
+            } else {
+                assert!(!result.unwrap().1, "must not roll back another creator's name");
+            }
+            assert_eq!(fs::read(&leaf).unwrap(), b"competitor");
+        }
+    }
+
+    #[test]
+    fn delivery_device_swap_never_opens_the_replacement() {
+        let fixture = Fixture::new();
+        let device = CString::new(fixture.0.join("device").to_str().unwrap()).unwrap();
+        if unsafe { mknod(device.as_ptr(), S_IFCHR | 0o600, makedev(5, 0)) } < 0 {
+            let errno = error();
+            assert!(matches!(errno, EPERM | EACCES | EOPNOTSUPP));
+            eprintln!("skipped: device fixture requires mknod permission: {errno}");
+            return;
+        }
+        let leaf = fixture.0.join("leaf");
+        fs::write(&leaf, b"original").unwrap();
+        let resolved =
+            resolve(task().as_raw_fd(), AT_FDCWD, leaf.to_str().unwrap(), O_WRONLY, &nspid())
+                .unwrap();
+        let opened = open_leaf(&resolved, O_WRONLY, 0, || {
+            fs::rename(fixture.0.join("device"), &leaf).unwrap();
+        })
+        .unwrap()
+        .0;
+        assert_eq!(stat(opened.as_raw_fd()).unwrap().st_mode & S_IFMT, S_IFREG);
+        assert!(matches!(open_leaf(&resolved, O_WRONLY, 0, || {}), Err(EACCES)));
+    }
+
+    #[test]
+    fn review_open_mode_preserves_umask_for_default_acl() {
+        assert_eq!(open_mode(0o666, 0o077), 0o666);
     }
 
     #[test]
