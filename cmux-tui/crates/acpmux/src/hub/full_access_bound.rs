@@ -76,11 +76,11 @@ impl FullAccessView {
         // count, so a report applied after this read is in the reads below (review 3 of #26052).
         let counted = || session.floor.unapplied_full_access.load(Ordering::SeqCst) > 0;
         let reported = counted();
-        #[cfg(test)]
-        between_view_reads(session);
         let undeclared_mode =
             session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let meta = session.meta();
+        #[cfg(test)]
+        between_view_reads(session);
         // Again after: one the tap counted while the mode was read is seen too (review 4).
         let reported = reported || counted();
         Self {
@@ -1035,32 +1035,56 @@ mod tests {
         assert!(!full_access_allowed_by(Some(true), false), "a forced on raises nothing");
     }
 
-    /// Review 3 of #26052: a report the inbound loop applies while the view is read (it sets the
-    /// mode, then takes back the report's count) is seen by one of the view's reads.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn a_report_applied_while_the_view_is_read_still_counts() {
-        let (_hub, chat, _) = two_chats_on(&[], false).await;
-        chat.meta.lock().unwrap().modes = Some(json!({"currentModeId": "normal"}));
-        chat.floor.unapplied_full_access.store(1, Ordering::SeqCst);
-        BETWEEN_VIEW_READS.set(Some(|s: &Session| {
-            s.meta.lock().unwrap().modes = Some(json!({"currentModeId": "full-access"}));
-            s.floor.unapplied_full_access.store(0, Ordering::SeqCst);
-        }));
-        let view = FullAccessView::of_session(&chat);
-        assert!(runs_full_access(&view).is_some(), "a report applied between the reads was missed");
-    }
+    /// The other side of `a_report_tapped_and_applied_while_the_view_is_read_is_seen`.
+    static VIEW_READ: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    static REPORT_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    static DONE_IN_READ: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-    /// Review 4 of #26052: a report the tap counts while the view reads the mode (not applied
-    /// yet) is seen by the view.
+    /// Reviews 3 to 5 of #26052: a report the tap counts and the inbound loop applies (it sets
+    /// the mode, then takes back the count) while the view is read is in the view: a view read
+    /// while a report came and went never says the agent asks. `BETWEEN_VIEW_READS` holds the
+    /// read 300 ms; the tap and `on_update` run on another thread meanwhile, counted only, or
+    /// counted and applied.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn a_report_counted_while_the_view_is_read_counts() {
-        let (_hub, chat, _) = two_chats_on(&[], false).await;
-        chat.meta.lock().unwrap().modes = Some(json!({"currentModeId": "normal"}));
-        BETWEEN_VIEW_READS.set(Some(|s: &Session| {
-            s.floor.unapplied_full_access.fetch_add(1, Ordering::SeqCst);
-        }));
-        let view = FullAccessView::of_session(&chat);
-        assert!(runs_full_access(&view).is_some(), "a report counted between the reads was missed");
+    async fn a_report_tapped_and_applied_while_the_view_is_read_is_seen() {
+        for applied in [false, true] {
+            let (hub, chat, _) = two_chats_on(&[], false).await;
+            chat.meta.lock().unwrap().modes =
+                Some(json!({"currentModeId": "normal", "availableModes": []}));
+            for flag in [&VIEW_READ, &REPORT_DONE, &DONE_IN_READ] {
+                flag.store(false, Ordering::SeqCst);
+            }
+            let tap = hub.session_tap(&chat);
+            let params = json!({"sessionId": "own",
+                                "update": {"sessionUpdate": "current_mode_update",
+                                           "currentModeId": "full-access"}});
+            let report = crate::rpc::Message::Notification {
+                method: crate::rpc::method::SESSION_UPDATE.to_owned(),
+                params: Some(params.clone()),
+            };
+            let (h, c) = (hub.clone(), chat.clone());
+            let reporter = tokio::task::spawn_blocking(move || {
+                while !VIEW_READ.load(Ordering::SeqCst) {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                tap(crate::agent::Direction::In, &report, None);
+                if applied {
+                    h.on_update(&c, Some(&params), false);
+                }
+                REPORT_DONE.store(true, Ordering::SeqCst);
+            });
+            BETWEEN_VIEW_READS.set(Some(|_: &Session| {
+                VIEW_READ.store(true, Ordering::SeqCst);
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                DONE_IN_READ.store(REPORT_DONE.load(Ordering::SeqCst), Ordering::SeqCst);
+            }));
+            let view = FullAccessView::of_session(&chat);
+            reporter.await.unwrap();
+            assert!(
+                !DONE_IN_READ.load(Ordering::SeqCst) || runs_full_access(&view).is_some(),
+                "a report that came and went while the view was read is not in it (applied: {applied})"
+            );
+        }
     }
 
     /// Review 4 of #26052: a report the off's ended agent sends after its end is not counted for
