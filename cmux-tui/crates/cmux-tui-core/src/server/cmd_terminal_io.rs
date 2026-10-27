@@ -127,16 +127,6 @@ pub(super) fn send(
     require_pty(&surface)?;
     // Bytes queued for this terminal while it was being created go first.
     mux.wait_for_creating_input_flush(&surface);
-    // A reply meant for the program that asked must not reach the shell that took the foreground
-    // back after it exited: checked here, right before the write, not a round trip earlier.
-    if let Some(expected) = expect_foreground {
-        let found = surface.process_id().and_then(platform::foreground_process_name);
-        if found.as_deref() != Some(expected.as_str()) {
-            return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
-                "foreground changed: the expected program no longer runs in the foreground"
-            )));
-        }
-    }
     if let Some(expected) = expect_agent {
         // Only this surface's own terminal's record: a surface with no terminal id fails closed
         // (an unfiltered roster would name another terminal's agent).
@@ -160,24 +150,38 @@ pub(super) fn send(
             )));
         }
     }
+    let raw = bytes.map(|b64| base64::engine::general_purpose::STANDARD.decode(b64)).transpose()?;
+    // The whole send (text, bytes and Return) is one turn of the terminal's input FIFO: no
+    // other input, from this connection's streams or any other, lands inside it.
+    let turn = surface.input_turn().ok_or_else(|| anyhow::anyhow!("surface is not a terminal"))?;
+    // A reply meant for the program that asked must not reach the shell that took the foreground
+    // back after it exited: checked here, in the send's turn right before the write, not a
+    // round trip earlier.
+    if let Some(expected) = expect_foreground {
+        let found = surface.process_id().and_then(platform::foreground_process_name);
+        if found.as_deref() != Some(expected.as_str()) {
+            return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
+                "foreground changed: the expected program no longer runs in the foreground"
+            )));
+        }
+    }
     if paste {
         let mut payload = text.unwrap_or_default().into_bytes();
-        if let Some(b64) = bytes {
-            payload.extend(base64::engine::general_purpose::STANDARD.decode(b64)?);
+        if let Some(raw) = raw {
+            payload.extend(raw);
         }
-        surface.write_paste(&payload)?;
+        surface.write_paste_in(&turn, &payload, None)?;
     } else {
         // The key press's flow goes with its first write, so one echo carries it.
         let flow = flow.unwrap_or(0);
         let mut echo_flow = flow;
         if let Some(text) = text {
             let text_flow = if text.is_empty() { 0 } else { std::mem::take(&mut echo_flow) };
-            surface.write_bytes_flow(text.as_bytes(), text_flow)?;
+            surface.write_bytes_in(&turn, text.as_bytes(), text_flow)?;
         }
-        if let Some(b64) = bytes {
-            let raw = base64::engine::general_purpose::STANDARD.decode(b64)?;
+        if let Some(raw) = raw {
             cmux_flow_trace::hop("daemon.send.write", flow, surface.flow_terminal_id());
-            surface.write_bytes_flow(&raw, echo_flow)?;
+            surface.write_bytes_in(&turn, &raw, echo_flow)?;
             cmux_flow_trace::hop("daemon.send.written", flow, surface.flow_terminal_id());
         }
     }
@@ -185,10 +189,12 @@ pub(super) fn send(
         // Return as its own key: a full-screen agent editor reads a pasted newline as a line
         // break, not a submit.
         // The text is already in: a failed Return must not read as "nothing was written".
-        surface.write_bytes(b"\r").map_err(|error| {
+        surface.write_bytes_in(&turn, b"\r", 0).map_err(|error| {
             anyhow::anyhow!("submit failed after the text was written: {error}")
         })?;
     }
+    // The turn ends before the state lock is taken (crate::lock_rank `PtyInput`).
+    drop(turn);
     mux.note_terminal_input(surface.id, client);
     Ok(json!({}))
 }

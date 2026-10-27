@@ -228,6 +228,10 @@ pub struct PtyTerminalRuntime {
     pub(super) command_tracker: Mutex<crate::shell_history::CommandTracker>,
     pub(super) mouse_encoders: RankedMutex<Box<MouseEncoders>>,
     pub(super) runtime: RankedMutex<PtyRuntime>,
+    /// The terminal's input FIFO: every input to it (any view, connection
+    /// or thread) writes all of its bytes in one turn of it, in arrival
+    /// order (crate::pty_write).
+    pub(super) input_fifo: crate::pty_write::PtyInputFifo,
     /// Explicit lifecycle authority for this process. Session content may
     /// survive a daemon replacement through a durable host; daemon-owned
     /// auxiliaries must terminate with the backend that created them.

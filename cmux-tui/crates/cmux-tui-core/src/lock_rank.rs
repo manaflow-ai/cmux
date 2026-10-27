@@ -1,8 +1,9 @@
 //! Debug-build lock ranks (lockdep style) for the mux and surface locks.
 //!
 //! Order, outer first: workspace registry -> journal writer -> registry
-//! connection -> `Mux::state` -> Kitty limits request -> PTY geometry ->
-//! terminal -> PTY runtime -> Kitty limits -> attach taps -> leaf. A thread may acquire a ranked lock only when its rank is
+//! connection -> `Mux::state` -> PTY input turn -> Kitty limits request ->
+//! PTY geometry -> terminal -> PTY runtime -> Kitty limits -> attach taps ->
+//! leaf. A thread may acquire a ranked lock only when its rank is
 //! after every rank the thread already holds. A blocking acquisition at a rank
 //! equal to or before a held rank panics in debug and test builds and names
 //! both locks, so every test, Testbox gate and debug dogfood build checks the
@@ -44,6 +45,15 @@ pub(crate) enum LockRank {
     RegistryConnection,
     /// `Mux::state`.
     MuxState,
+    /// Not a mutex: a terminal's input turn, taken from its
+    /// `pty_write::PtyInputFifo` and held for one whole input (a `send` with
+    /// its paste and Return, an INPUT frame, an image paste, a clear-history
+    /// key). The write it holds the turn for takes the terminal (a paste's
+    /// bracketed mode) and the runtime lock, so it ranks before both. It
+    /// ranks after `Mux::state`, so an input turn never takes the registry or
+    /// the state lock: a turn can wait behind a write the child does not
+    /// read, and nothing daemon-wide may wait with it.
+    PtyInput,
     /// `PtyTerminalRuntime::kitty_limits_request`, held for a whole Kitty
     /// limits request, including the runtime, terminal and taps it takes.
     KittyLimitsRequest,
@@ -97,7 +107,7 @@ mod held {
             panic!(
                 "lock order violation: acquiring {name} ({rank:?}) while this thread holds \
                  {held_name} ({held_rank:?}); the order is workspace.registry > journal.writer > \
-                 registry.connection > mux.state > pty.kitty_limits_request > \
+                 registry.connection > mux.state > pty.input > pty.kitty_limits_request > \
                  pty.geometry > pty.term > pty.runtime > pty.kitty_graphics_limits > \
                  pty.taps > leaf (see PtyTerminalRuntime)"
             );

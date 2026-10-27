@@ -61,8 +61,11 @@ impl Surface {
         // releasing it: the surface's reader delivers that acknowledgement,
         // and after a reconnect it takes the runtime lock before it reads
         // the new stream.
+        // The host may type the fallback key: the request is sent in an
+        // input turn, so it never lands inside another input.
         #[cfg(any(unix, windows))]
         {
+            let turn = pty.input_fifo.enter();
             let pending = match &*pty.runtime.lock().unwrap() {
                 PtyRuntime::Hosted(host) => Some(host.begin_clear_history(fallback_key)?),
                 PtyRuntime::ExitedHosted => {
@@ -72,6 +75,7 @@ impl Surface {
                 }
                 PtyRuntime::Local { .. } => None,
             };
+            drop(turn);
             match pending {
                 Some(Some(pending)) => return pending.wait(),
                 Some(None) => {
@@ -88,6 +92,9 @@ impl Surface {
         let mut observed_progress = pty.stream_progress.revision();
         let mut stream_wait = None;
         loop {
+            // The fallback key is input: it is written in a turn of the
+            // input FIFO, taken before the terminal lock (crate::lock_rank).
+            let turn = pty.input_fifo.enter();
             let mut term = pty.term.lock().unwrap();
             let before = terminal_scroll_position(&term);
             let scroll_changed = match apply_clear_history_transition(&mut term, fallback_key)
@@ -95,6 +102,7 @@ impl Surface {
             {
                 ClearHistoryTransition::Blocked => {
                     drop(term);
+                    drop(turn);
                     let deadline = stream_wait
                         .get_or_insert_with(|| {
                             pty.stream_progress
@@ -140,6 +148,7 @@ impl Surface {
                 }
             };
             drop(term);
+            drop(turn);
             if let Some((offset, at_bottom)) = scroll_changed
                 && let Some(mux) = pty.mux.upgrade()
             {
