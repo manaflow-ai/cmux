@@ -46,6 +46,8 @@ parser.add_argument("--focus-timeline", type=int, default=0,
                     help="before the keyed tabs: N new tabs with no key, debug.focus read back to back for --timeline-ms after "
                          "the newSurface reply; prints when the first responder and the focus model change (SCRATCH)")
 parser.add_argument("--timeline-ms", type=float, default=1500)
+parser.add_argument("--journal-all", action="store_true", help="print the input journal of every tab (SCRATCH)")
+parser.add_argument("--key-at-ms", type=float, default=0, help="type the first key this long after the newSurface send (0: at the reply)")
 parser.add_argument("--journal-lost", action="store_true", help="print the input journal of each tab that lost a key (SCRATCH)")
 opts, _unknown = parser.parse_known_args()
 
@@ -173,6 +175,17 @@ def first_key_ms(rows, base):
     return None
 
 
+HOPS = ("dispatch_start_ms", "dispatch_end_ms", "io_write_ms", "socket_submit_ms", "output_received_ms", "output_parsed_ms", "contents_ms")
+
+
+def key_hops(rows, index):
+    """Press `index`'s probe row hops (ms from the key), or None."""
+    for row in rows:
+        if (row.get("index") or "") == str(index):
+            return {h: (float(row[h]) if row.get(h) else None) for h in HOPS}
+    return None
+
+
 def main():
     # Active by default, as for a person: keys the app holds for a new terminal go on through NSApp.sendEvent to the key
     # window, which an inactive app does not have.
@@ -202,13 +215,17 @@ def main():
             base = max([int(r["index"]) for r in before if (r.get("index") or "").isdigit()], default=-1) + 1
             t0 = time.perf_counter()
             marker = f"lag2-keys-{index}"
-            if opts.journal_lost:
+            if opts.journal_lost or opts.journal_all:
                 try:
                     CONTROL.rpc("debug.journal", {"marker": marker, "last": 1}, timeout=20)
                 except Exception:
                     pass
             reply = CONTROL.action("newSurface", focus=True)
             reply_ms = round((time.perf_counter() - t0) * 1000, 2)
+            if opts.key_at_ms:  # the first key at a fixed time from the send, the same for every build
+                wait = opts.key_at_ms / 1000 - (time.perf_counter() - t0)
+                if wait > 0:
+                    time.sleep(wait)
             answers = []
             for key in range(opts.keys):
                 k0 = time.perf_counter()
@@ -223,9 +240,16 @@ def main():
             line = focused_line()
             tab = {"tab": index, "reply_ms": reply_ms, "reply": json.dumps(reply)[:160], "line": line[-120:],
                    "all": line.endswith(typed), "first_key_ms": first_key_ms(hid_input.probe_rows(PROBE), base),
-                   "keys_ms": [first_key_ms(hid_input.probe_rows(PROBE), base + k) for k in range(opts.keys)], "answers": answers}
+                   "keys_ms": [first_key_ms(hid_input.probe_rows(PROBE), base + k) for k in range(opts.keys)], "answers": answers,
+                   "key0_hops": key_hops(hid_input.probe_rows(PROBE), base)}
             result["tabs"].append(tab)
             note(f"  tab {index}: {'ok  ' if tab['all'] else 'LOST'} {line[-40:]!r} first key {tab['first_key_ms']} ms keys {tab['keys_ms']}")
+            hops = tab["key0_hops"] or {}
+            note(f"      key0 at +{answers[0]['at_ms'] if answers else '?'} ms (reply {reply_ms}): "
+                 + " ".join(f"{h.replace('_ms', '')}={hops.get(h)}" for h in HOPS))
+            if opts.journal_all and tab["all"]:
+                for item in journal_since(marker):
+                    note(f"      J {item['ms']} {item['kind']}")
             if not tab["all"]:
                 for answer in answers:
                     note(f"      key at +{answer['at_ms']} ms: {answer['handled_by']} {answer['trace']}")

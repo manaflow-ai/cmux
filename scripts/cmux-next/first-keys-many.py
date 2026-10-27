@@ -25,6 +25,13 @@ for sha in opts.apps_sha256.split(","):
                 one = json.load(handle)
         except (OSError, ValueError) as error:
             one = {"error": repr(error)}
+        if isinstance(one, dict) and one.get("tabs"):
+            import statistics
+            def med(h):
+                v = [t["key0_hops"][h] for t in one["tabs"] if t.get("key0_hops") and t["key0_hops"].get(h) is not None]
+                return round(statistics.median(v), 2) if v else None
+            print(f"HOPS {sha[:12]} {variant}: " + " ".join(f"{h.replace('_ms', '')}={med(h)}" for h in
+                  ("dispatch_end_ms", "io_write_ms", "output_received_ms", "output_parsed_ms", "contents_ms")), flush=True)
         report["apps"].append({"sha256": sha, "app": os.path.basename(app), "variant": variant, "exit": run.returncode, **one})
         if opts.json:  # the step's artifact (artifacts/split-spring/report.json): written after every run
             with open(opts.json, "w") as handle:
