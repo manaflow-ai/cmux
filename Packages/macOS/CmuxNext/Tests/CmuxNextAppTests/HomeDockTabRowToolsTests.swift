@@ -128,6 +128,20 @@ import Testing
         #expect(workspaces.isEmpty)
     }
 
+    /// Home is an internal page, not an agent-session tab. Its children taking focus must
+    /// not move the rail's source to the right pane or change where later children open.
+    @Test(arguments: [InternalPageID.homeDock, .homeTab])
+    func railKeepsHomeAsAnchorAfterChildrenTakeFocus(page: InternalPageID) {
+        let tabs: [(id: String, page: InternalPageID?, isChief: Bool)] = [
+            ("child-a", nil, false), ("home", page, false), ("child-b", nil, false),
+        ]
+        for focused in ["home", "child-a", "child-b"] {
+            #expect(SidebarSectionHandlers.chiefSubagentAnchor(tabs: tabs, focused: focused) == "home")
+        }
+        #expect(SidebarSectionHandlers.chiefSubagentAnchor(tabs: [("child-a", nil, false)], focused: "child-a") == "child-a")
+        #expect(SidebarSectionHandlers.chiefSubagentAnchor(tabs: [], focused: nil) == nil)
+    }
+
     /// Open Chief Subagent run with no subagent row (its shortcut, `cmux action run` without
     /// `--target`) says why in the refusal notice a keyboard run shows, and the caller gets the
     /// reason, instead of doing nothing.

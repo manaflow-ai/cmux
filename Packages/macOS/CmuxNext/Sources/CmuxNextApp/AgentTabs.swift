@@ -47,6 +47,7 @@ final class AgentTabStore {
                                     _ created: (@MainActor (String) -> Void)?, _ finished: (@MainActor (Bool) -> Void)?) -> Bool? = { _, _, _, _, _ in nil }
     /// Every agent tab the trees list, with its record.
     var subagentTabsBeside: @MainActor (String) -> [(key: String, record: AgentSessionRef)] = { _ in [] }
+    var subagentSources: [String: String] = [:]
     var isBeside: @MainActor (_ chat: String, _ tab: String) -> Bool = { _, _ in false }
     var listTabs: @MainActor () -> [(key: String, record: AgentSessionRef)] = { [] }
     /// Creates the store tab with idempotency key `key` (AppServices: `new-conversation-tab` on

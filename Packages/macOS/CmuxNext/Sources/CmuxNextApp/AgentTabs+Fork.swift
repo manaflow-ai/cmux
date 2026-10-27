@@ -11,7 +11,7 @@ extension AgentTabStore {
     func openFork(_ session: String, at destination: AgentForkDestination, beside provisional: String, reveal: String? = nil) -> Bool {
         let open: (PaneID, DaemonService) throws -> AgentTabPending = { [weak self] pane, daemon in
             guard let self else { throw CancellationError() }
-            return try self.open(in: pane, of: daemon, session: session, host: daemon.isLocal ? lookup(resolve(provisional))?.record.host : nil)
+            return try self.open(in: pane, of: daemon, session: session, host: daemon.isLocal ? lookup(resolve(provisional))?.record.host : nil, reopening: lookup(resolve(provisional))?.record)
         }
         let opened = OpenedFork()
         let move: ActionID? = switch destination {

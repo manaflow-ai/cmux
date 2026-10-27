@@ -175,6 +175,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
     /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
     case subagentPane(String, focus: Bool, workspace: Bool = false)
+    case subagentList
     /// `chat.processTerminal {toolCallId}`: the background process this chat's tool call started,
     /// in a read-only terminal tab beside the chat (``AgentPaneProcessViewer``).
     case processTerminal(toolCall: String)

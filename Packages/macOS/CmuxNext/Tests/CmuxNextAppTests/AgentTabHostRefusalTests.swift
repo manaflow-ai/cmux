@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextDaemonService
+import CmuxNextDaemon
 import Testing
 
 /// 2026-10-20 (cosmic-gray nightly): `app_agent_open` with `host: "cmux16"` failed with "the agent
@@ -29,4 +30,12 @@ import Testing
         #expect(AgentTabStore.hostRefusal(local, localHost: local, chiefHost: chief, daemonIsLocal: false)
             == RefusalStrings.agentTabMachineMismatch)
     }
+    @Test func aRemoteRootMayReopenOnlyOnItsOwnDaemon() {
+        let root = AgentSessionRef(host: "registry:remote", session: "root")
+        #expect(AgentTabStore.canReopenRemote("root", source: root, registry: "registry:remote"))
+        #expect(!AgentTabStore.canReopenRemote("root", source: root, registry: "registry:other"))
+        #expect(!AgentTabStore.canReopenRemote("other", source: root, registry: "registry:remote"))
+        #expect(!AgentTabStore.canReopenRemote("root", source: nil, registry: "registry:remote"))
+    }
+
 }

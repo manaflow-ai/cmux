@@ -58,7 +58,10 @@ extension AgentTabStore {
             else { toggles.open(id, cwd: cwd, extra: extra, chat: chat, store: store, actions: actions) }
         }
         model.header?.openSubagentWorkspace = { [weak self] session, agent in
-            self?.openFork(session, at: .workspace, beside: provisional, reveal: AgentSubagentPanes.reveal(agent)) ?? false
+            self?.openFork(session, at: .workspace, beside: self?.subagentSource(provisional) ?? provisional, reveal: AgentSubagentPanes.reveal(agent)) ?? false
+        }
+        model.header?.openSubagentList = { [weak self] session in
+            self?.openSubagent(nil, of: session, focus: true, beside: provisional) ?? false
         }
         model.chatMenuItems = actions.menuItems
         model.onSearchWeb = actions.searchWeb
@@ -74,10 +77,36 @@ extension AgentTabStore {
         return openBeside(provisional, split: split) { pane, daemon in try self.open(in: pane, of: daemon, newTab: newTab) }
     }
 
-    private func openSubagent(_ agent: String, of session: String, focus: Bool, beside provisional: String) -> Bool { // the tracker (AgentSubagentPanes) decides; the app opens and moves the tab
-        AgentSubagentPanes.session("\(session):\(resolve(provisional))").open(agent, focus: focus, chat: provisional, hooks: .init(isOpen: { [weak self] key in guard let self else { return false }; return isBeside(resolve(provisional), resolve(key)) }, focus: { [weak self] key, script in _ = self?.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: self?.resolve(key) ?? key), arguments: script ? ["focus": .bool(true)] : [:], origin: script ? .script : .user)) },
-            place: { [weak self] anchor, hasSide, created, finished in self?.openBeside(hasSide ? anchor : provisional, split: !hasSide, origin: focus ? .user : .script, main: provisional, open: { [weak self] pane, daemon in guard let self else { throw CancellationError() }; return try open(in: pane, of: daemon, session: session, host: daemon.isLocal ? lookup(resolve(provisional))?.record.host : nil) },
-                created: { [weak self] in created($0); self?.revealTurn(AgentSubagentPanes.reveal(agent), in: $0) }, finished: finished) ?? false }, again: { [weak self] request in _ = self?.openSubagent(request.agent, of: session, focus: request.focus, beside: request.chat) })) }
+    private func openSubagent(_ agent: String?, of session: String, focus: Bool, beside provisional: String) -> Bool {
+        let source = subagentSource(provisional)
+        let identity = agent.map { "agent:\($0)" } ?? "list"
+        let reveal = agent.map(AgentSubagentPanes.reveal) ?? "subagents:list"
+        return AgentSubagentPanes.session("\(session):\(source)").open(identity, focus: focus, chat: source, hooks: .init(
+            isOpen: { [weak self] key in self?.isBeside(source, self?.resolve(key) ?? key) ?? false },
+            focus: { [weak self] key, script in
+                _ = self?.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: self?.resolve(key) ?? key), arguments: script ? ["focus": .bool(true)] : [:], origin: script ? .script : .user))
+            }, place: { [weak self] anchor, hasSide, created, finished in
+                guard let self else { return false }
+                return openBeside(hasSide ? anchor : source, split: !hasSide, origin: focus ? .user : .script, main: source,
+                    open: { [weak self] pane, daemon in
+                        guard let self else { throw CancellationError() }
+                        let record = lookup(source)?.record
+                        return try open(in: pane, of: daemon, session: session, host: daemon.isLocal ? record?.host : nil, reopening: record)
+                    }, created: { [weak self] key in
+                        created(key)
+                        self?.subagentSources[key] = source
+                        self?.revealTurn(reveal, in: key)
+                    }, finished: finished)
+            }, again: { [weak self] request in
+                _ = self?.openSubagent(request.agent == "list" ? nil : String(request.agent.dropFirst(6)), of: session, focus: request.focus, beside: request.chat)
+            }))
+    }
+
+    func subagentSource(_ tab: String) -> String {
+        let tab = resolve(tab)
+        guard let source = subagentSources[tab].map(resolve), locate(source) != nil else { return tab }
+        return source
+    }
     /// A tab in chat tab `provisional`'s pane, then moved to a new split on its right when `split`; else a tab there, focused when `created` is set.
     /// A split asked for chat `main` when that chat is its screen's main pane (``openInMainPane``) is a tab in the column on its right instead.
     @discardableResult
@@ -111,25 +140,33 @@ extension AgentTabStore {
     /// first tab lands. Keyed by source tab so the same chat in another workspace stays there.
     @discardableResult
     @MainActor func openChildBeside(_ session: String, beside chat: String, host: String? = nil) -> Bool {
-        let source = resolve(chat), host = host ?? lookup(resolve(chat))?.record.host
-        return AgentSidePanes.chat(source).open(session, chat: source, pane: { [weak self] key in
-            guard let self, isBeside(resolve(source), resolve(key)) else { return nil }
-            return locate(resolve(key))?.pane.rawValue
-        }) { [weak self] anchor, created, finished in
+        let source = subagentSource(chat), host = host ?? lookup(resolve(chat))?.record.host
+        let pane: (String) -> String? = { [weak self] key in
+            guard let self, isBeside(resolve(source), resolve(key)), let location = locate(resolve(key)) else { return nil }
+            return "\(ObjectIdentifier(location.daemon).hashValue):\(location.pane.rawValue)"
+        }
+        let place: (String?, @escaping @MainActor (String) -> Void, @escaping @MainActor () -> Void) -> Bool = { [weak self] anchor, created, finished in
             guard let self else { return false }
             if showSessionBeside(session, chat: source, host: host) { finished(); return true }
-            return openBeside(anchor ?? source, split: anchor == nil, main: source, open: { [weak self] pane, daemon in
+            let open: (DaemonPaneID, DaemonService) throws -> AgentTabPending = { [weak self] pane, daemon in
                 guard let self else { throw CancellationError() }
-                return try open(in: pane, of: daemon, session: session, host: daemon.isLocal || host != lookup(source)?.record.host ? host : nil)
-            }, created: created, finished: { _ in finished() })
+                let record = lookup(source)?.record
+                return try self.open(in: pane, of: daemon, session: session, host: daemon.isLocal || host != record?.host ? host : nil, reopening: record)
+            }
+            return openBeside(anchor ?? source, split: anchor == nil, main: source, open: open, created: created, finished: { _ in finished() })
         }
+        return AgentSidePanes.chat(source).open(session, chat: source, pane: pane, place: place)
     }
 }
 
 extension AppServices {
+    @MainActor func subagentSourcePane(of chat: String) -> PaneController? {
+        locateTab(chat).flatMap { paneController(for: $0.1) } ?? paneController(showingTab: chat)
+    }
+
     /// Same column order and right-neighbor fallback used by links, including split layouts.
     @MainActor func subagentSidePane(of chat: String) -> PaneController? {
-        guard let (_, pane) = locateTab(chat), let source = paneController(for: pane), let content = source.workspace else { return nil }
+        guard let source = subagentSourcePane(of: chat), let content = source.workspace else { return nil }
         if case .tab(let id) = MainPaneLayout.side(from: source, services: self) { return content.panes[id] }
         let takes: (LayoutPaneID) -> Bool = { content.panes[$0]?.stripModel.showsNewTabButton == true }
         if !source.stripModel.showsNewTabButton, let screen = content.layoutModel.screen(containing: source.layoutPaneID),

@@ -9,6 +9,12 @@ extension AgentTabStore {
     /// The `origin` of the app's `new-conversation-tab` requests for agent chats.
     static let createOrigin = "cmux-next-agent-tab"
 
+    /// Reopening a known tab's session on the same daemon is safe even when it is a root chat.
+    static func canReopenRemote(_ session: String, source: AgentSessionRef?, registry: String?) -> Bool {
+        guard let source, let registry else { return false }
+        return source.host == registry && source.session == session
+    }
+
     /// Adds a new agent chat tab to `pane`'s strip. The tab shows at once (R81): a create intent on the store's
     /// log shows a provisional tab until the store's tab replaces it; a refusal removes it again. View state
     /// (seed, new tab page, spare page, link) is kept under the provisional id and moves to the store's id then.
@@ -28,7 +34,7 @@ extension AgentTabStore {
     /// - Throws: ``AgentTabRefusal`` when the pane cannot hold one (nothing is shown).
     func open(in pane: PaneID, of daemon: DaemonService, session: String? = nil, seed: AgentPaneSeedSource? = nil,
               newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil, spare: AgentPaneView? = nil,
-              linked: Bool = false, adopt: AgentPaneAdopt? = nil, host: String? = nil,
+              linked: Bool = false, adopt: AgentPaneAdopt? = nil, host: String? = nil, reopening: AgentSessionRef? = nil,
               idempotencyKey: String = UUID().uuidString.lowercased(), split: SplitDirection? = nil) throws -> AgentTabPending {
         guard let localHost, holdsTabs(daemon), reachable(daemon) else {
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
@@ -44,7 +50,7 @@ extension AgentTabStore {
         // A chat a chat of that machine started there (its daemon listed it, `agent-session-children`):
         // that machine's own chat, filed under its store, which checks it against its own list.
         let remoteChild = !daemon.isLocal && host == nil && adopt == nil
-            && session.map { RemoteAgentSessionLinks.shared.parents[$0] != nil } == true
+            && session.map { RemoteAgentSessionLinks.shared.parents[$0] != nil || Self.canReopenRemote($0, source: reopening, registry: Self.registryHost(of: daemon)) } == true
         // A session never leaves its machine (cx-k21v): a pane of another machine never gets a
         // chat of this Mac (its session, an outside chat it resumes, a past chat of this Mac's list;
         // the New Tab page's open-here included). The store binds a `registry:` tab's session only
@@ -205,6 +211,7 @@ extension AgentTabStore {
             views[real] = view
         }
         if let value = sessions.removeValue(forKey: key) { sessions[real] = value }
+        if let value = subagentSources.removeValue(forKey: key) { subagentSources[real] = value }
         unsentDrafts.move(key, to: real)
         if let value = newTabPages.removeValue(forKey: key) { newTabPages[real] = value }
         if let value = seeds.removeValue(forKey: key) { seeds[real] = value }
@@ -317,6 +324,7 @@ extension AgentTabStore {
         }
         notices[key] = nil
         sessions[key] = nil
+        subagentSources[key] = nil
         newTabPages[key] = nil
         seeds[key] = nil
         remoteSeeds[key] = nil

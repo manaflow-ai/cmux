@@ -1,4 +1,4 @@
-import { useSubagentList } from "./subagents/SubagentListPanel";
+import { SubagentListPanel, useSubagentList } from "./subagents/SubagentListPanel";
 import { openChildSession, type SubagentClick } from "./subagents/subagentNavigation";
 import React, {
   lazy,
@@ -4559,8 +4559,9 @@ function AcpmuxPane() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   /// The subagent whose own view the transcript shows (its line in a group opens it), or none.
   const [subagentView, setSubagentView] = useState<string>();
+  const allSubagents = useSubagentList(callNative);
   /// The subagent this pane was opened on (a `subagent:` reveal, subagents/subagentPanes.ts), shown
-  /// once its chat is; such a pane shows the chat's other subagents in place, never in more panes.
+  /// once its chat is. Further row clicks still go through native tab tracking.
   const [requestedSubagent, setRequestedSubagent] = useState<string>();
   const subagentPane = useRef(false);
   /// This pane was opened on a subagent (a `subagent:` reveal): while it shows a subagent, it shows
@@ -4571,6 +4572,10 @@ function AcpmuxPane() {
   /// where the chat's rows are.
   const showMessage = useRef<(messageId: string) => string | undefined>(() => undefined);
   const reveal = (value: string) => {
+    if (allSubagents.reveal(value)) {
+      subagentPane.current = true;
+      return;
+    }
     // A `message=<id>` link (schemas/deeplinks/agent-link.json): bring that message's row in
     // once the transcript has it, and leave the view alone when this session never saw it.
     const message = revealedMessage(value);
@@ -5843,15 +5848,11 @@ function AcpmuxPane() {
     [canBackground, snapshot.isWorking, snapshot.rows],
   );
   const backgroundHint = !quick && canBackground && snapshot.isWorking ? runInBackground : undefined;
-  /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`), or in
-  /// this pane when this is a subagent's pane or the host opens none.
+  /// Native placement owns subagent identity and tab reuse, including nested row clicks.
   const showSubagent = useCallback((id: string, intent: boolean | SubagentClick = true) => {
     const focus = typeof intent === "boolean" ? intent : true;
     const workspace = typeof intent !== "boolean" && intent.metaKey;
-    if (subagentPane.current && !workspace) return setSubagentView(id);
-    void openSubagentPane(callNative, id, focus, workspace).then((opened) => {
-      if (!opened && focus && !workspace) setSubagentView(id);
-    });
+    void openSubagentPane(callNative, id, focus, workspace);
   }, []);
   const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
   useOpenNewSubagents(
@@ -6302,18 +6303,6 @@ function AcpmuxPane() {
   const opensSideChat = useRef(false);
   const archiveChatRef = useRef<(() => void) | undefined>(undefined);
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
-  const allSubagents = useSubagentList(
-    shownSessionId,
-    {
-      agents: chatAgents,
-      waiting: waitingAgents,
-      onOpen: showSubagent,
-      onOpenSession: openOfferChat,
-      sessions: childSessions,
-      subsessions: chatSubsessions.rows,
-    },
-    artifact,
-  );
   const trayNode =
     !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0) ? (
       <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
@@ -9494,6 +9483,19 @@ function AcpmuxPane() {
     <ShortcutsContext.Provider value={shortcuts}>
       <section ref={setShell} className="acpmux-shell" aria-busy="true" />
     </ShortcutsContext.Provider>
+  ) : allSubagents.shown ? (
+    <ShortcutsContext.Provider value={shortcuts}>
+      <section ref={setShell} className="acpmux-shell">
+        <SubagentListPanel
+          agents={chatAgents}
+          waiting={waitingAgents}
+          onOpen={showSubagent}
+          onOpenSession={openOfferChat}
+          sessions={childSessions}
+          subsessions={chatSubsessions.rows}
+        />
+      </section>
+    </ShortcutsContext.Provider>
   ) : (
     <ShortcutsContext.Provider value={shortcuts}>
       <section
@@ -9944,8 +9946,7 @@ function AcpmuxPane() {
           summaryPanel}
         {/* Beside the chat view only: New Tab, Harnesses and a replay have no session header. */}
         {!harnessesOpen && !showNewTab && !(replaying && replaying === snapshot.sessionId) && inspector.panel}
-        {allSubagents.panel}
-        {artifact && !allSubagents.panel && (
+        {artifact && (
           <ArtifactPanel
             key={artifact.opened}
             artifact={artifact}

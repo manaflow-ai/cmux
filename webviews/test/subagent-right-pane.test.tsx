@@ -64,7 +64,8 @@ const agent = {
   startedAt: Date.now(),
 };
 const waiting = new Set<string>();
-const { useSubagentList } = await import("../src/agent-session/acpmux/subagents/SubagentListPanel");
+const { SubagentListPanel, useSubagentList, SUBAGENT_LIST_REVEAL } =
+  await import("../src/agent-session/acpmux/subagents/SubagentListPanel");
 const { openSubagentPane } = await import("../src/agent-session/acpmux/subagents/subagentPanes");
 const { openChildSession } = await import("../src/agent-session/acpmux/subagents/subagentNavigation");
 type Open = (id: string, event?: { metaKey: boolean }) => void;
@@ -145,7 +146,8 @@ test("child-session row preserves Cmd-click and exposes identity", async () => {
 });
 
 test("View all requests the full list in the companion pane", async () => {
-  const calls: string[] = [];
+  const calls: [string, Record<string, unknown>][] = [];
+  let reveal: (value: string) => boolean;
   const finished = Array.from({ length: 7 }, (_, i) => ({
     kind: "agent" as const,
     id: String(i),
@@ -153,11 +155,21 @@ test("View all requests the full list in the companion pane", async () => {
     agent: { ...agent, id: String(i), state: "completed", endedAt: Date.now() },
   }));
   function ViewAll() {
-    const list = useSubagentList("parent", {
-      agents: finished.map((row) => row.agent),
-      waiting,
-      onOpen: (id) => calls.push(id),
+    const list = useSubagentList(async (method, params) => {
+      calls.push([method, params]);
+      return { opened: true };
     });
+    reveal = list.reveal;
+    if (list.shown)
+      return (
+        <SubagentListPanel
+          agents={finished.map((row) => row.agent)}
+          waiting={waiting}
+          onOpen={(id, event) => {
+            void openSubagentPane(async (method, params) => calls.push([method, params]), id, true, event?.metaKey);
+          }}
+        />
+      );
     return (
       <>
         <SubagentTray
@@ -168,16 +180,20 @@ test("View all requests the full list in the companion pane", async () => {
           onOpen={() => {}}
           onShowAll={list.show}
         />
-        {list.panel}
       </>
     );
   }
   await act(async () => root.render(<ViewAll />));
   const more = host.querySelector<HTMLButtonElement>(".acpmux-running-tray__finished")!;
   await act(async () => more.click());
-  const pane = host.querySelector("aside.acpmux-artifact")!;
+  expect(calls).toEqual([["chat.subagentList", {}]]);
+  expect(host.querySelector("aside")).toBeNull();
+  expect(host.querySelectorAll("li[data-finished]").length).toBe(3);
+  await act(async () => {
+    reveal(SUBAGENT_LIST_REVEAL);
+  });
+  const pane = host.querySelector("section.acpmux-main")!;
   expect(pane.querySelectorAll("li").length).toBe(7);
   await act(async () => pane.querySelector<HTMLButtonElement>("li button")!.click());
-  expect(calls).toEqual(["0"]);
-  expect(host.querySelectorAll("li[data-finished]").length).toBe(3);
+  expect(calls.at(-1)).toEqual(["chat.subagentPane", { subagent: "0", focus: true }]);
 });
