@@ -18,11 +18,15 @@ public protocol BrowserKeyRouting: AnyObject {
     /// Before `tab`'s DevTools sees a key equivalent (its own shortcuts,
     /// such as Cmd-Opt-I closing it, win over the DevTools frontend).
     func browserTab(_ tab: any BrowserTab, devToolsKeyEquivalent event: NSEvent) -> BrowserKeyDisposition
+    /// After `tab`'s page left a key-down unhandled (no `preventDefault`): returns whether the host
+    /// ran the shortcut it held back for the page, so the engine's own handling stops.
+    func browserTab(_ tab: any BrowserTab, unhandledKeyEquivalent event: NSEvent) -> Bool
 }
 
 extension BrowserKeyRouting {
     public func pageOwnsAllKeys(_ tab: any BrowserTab) -> Bool { false }
     public func browserTab(_ tab: any BrowserTab, devToolsKeyEquivalent event: NSEvent) -> BrowserKeyDisposition { .passToPage }
+    public func browserTab(_ tab: any BrowserTab, unhandledKeyEquivalent event: NSEvent) -> Bool { false }
 }
 
 // MARK: - Prompts

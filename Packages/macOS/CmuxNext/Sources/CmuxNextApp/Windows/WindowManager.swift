@@ -30,6 +30,8 @@ final class WindowManager {
     /// Per-window state by window id, for every registered window.
     var states: [String: WindowState] = [:]
     private weak var lastActive: WindowController?
+    /// The cmux window the event in dispatch came from (`dispatching(eventFrom:_:)`).
+    var eventOrigin: EventOrigin?
     /// Called after a window is ordered in (the restart notice attaches).
     var onPresent: ((WindowController) -> Void)?
     /// Writes the window records (WindowRecordSaver).
@@ -65,6 +67,15 @@ final class WindowManager {
     /// Windows being closed by the registry (not by the user).
     var programmaticCloses: Set<String> = []
     private(set) var restored = false
+    /// Windows the person closed before `restore` finished (cx-ghagp): the restore puts back the
+    /// saved registry, where they are open, and must not open them again. Empty once it finished.
+    var closedDuringRestore: Set<String> = []
+    /// True while `restore` runs.
+    private(set) var restoring = false
+    /// The launch window the person closed before `restore` finished: the restore registers the
+    /// workspaces it would have shown under this id, which is in `closedDuringRestore`, so they
+    /// stay in a closed window. Nil once it finished.
+    var closedLaunchWindowID: String?
     /// The windows the previous launch left open, captured at restore (Restore Previous App
     /// Launch reopens those closed since); nil before restore and when nothing was saved.
     var previousLaunch: PreviousLaunch?
@@ -107,12 +118,17 @@ final class WindowManager {
     }
 
     /// The registry's recency (the window order, saved as `WindowRecord.order`) follows each order and key change.
-    private func windowDidOrder(_ window: NSWindow, inFront: Bool) {
+    func windowDidOrder(_ window: NSWindow, inFront: Bool) {
+        if inFront { eventDidBringForward(window) }
         guard !keepsOrder, let id = controllers.first(where: { $0.window === window })?.state.id else { return }
         registry.apply { if inFront { $0.activate(id) } else { $0.moveToBack(id) }; return WindowRegistry.Changes() }
     }
 
+    /// The window actions without an explicit target act in: during an input event's dispatch the
+    /// window the event came from (`dispatching(eventFrom:_:)`), else the key window's, else the
+    /// last active one.
     var active: WindowController? {
+        if let origin = eventOriginWindow { return origin }
         if let key = services.keyWindowSource(), let controller = owner(of: key) { return controller }
         return lastActive ?? controllers.first
     }
@@ -170,7 +186,8 @@ final class WindowManager {
         if controllers.isEmpty, !LaunchSnapshotWindow(manager: self).show() {
             let id = UUID().uuidString.lowercased()
             launchWindowID = id
-            makeController(for: WindowRegistry.Window(id: id))
+            makeController(for: WindowRegistry.Window(id: id, frame: services.daemon.launchSnapshotWindows?.lastFrame?.rect,
+                                                      display: services.daemon.launchSnapshotWindows?.lastDisplay))
         }
         let store = services.daemon.store
         loadObservation = Task { [weak self] in
@@ -184,6 +201,12 @@ final class WindowManager {
     private func restore() async {
         guard !restored else { return }
         restored = true
+        restoring = true
+        defer {
+            restoring = false
+            closedDuringRestore = []
+            closedLaunchWindowID = nil
+        }
         registry.provisional = [:]
         DebugTimings.markLaunch("daemon_snapshot_loaded")
         var document = WindowStateDocument()
@@ -207,17 +230,22 @@ final class WindowManager {
                                             restoredAtMs: UInt64(max(0, Date().timeIntervalSince1970 * 1000)))
         }
         let adopted = adoptLaunchWindow(restoredRegistry, records: document.windows)
+        if adopted == nil { placeLaunchWindow(document) }
+        // The closed launch window stood for the saved window it would have become.
+        if closedLaunchWindowID != nil, let front = adoptableFront(restoredRegistry) { closedDuringRestore.insert(front) }
         for record in document.windows where states[record.id] == nil { states[record.id] = WindowState(record: record) }
         if !restoredRegistry.windows.isEmpty {
             registry.apply { registry in
                 registry = restoredRegistry
+                keepClosedDuringRestore(&registry)
                 return WindowRegistry.Changes()
             }
         }
         reconcileMembership()
         // Every remaining window closed (the open ones lost their workspaces while the app was
         // not running): the most recent one opens, so the app never starts with no window.
-        if !registry.value.windows.isEmpty, !registry.value.windows.contains(where: \.isOpen), let front = registry.value.recency.first {
+        if closedDuringRestore.isEmpty, !registry.value.windows.isEmpty, !registry.value.windows.contains(where: \.isOpen),
+           let front = registry.value.recency.first {
             registry.apply { $0.setRestored(front, open: true); return WindowRegistry.Changes() }
         }
         // Restored windows but the front one come back at their saved place, in any content arrival order.
@@ -241,7 +269,9 @@ final class WindowManager {
         registry.isLaunching = false
         fullScreenRestoreReady = true
         enterRestoredFullScreens()
-        FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // its New Tab page, not Home
+        // Its New Tab page or Home; not after the person closed a window meanwhile: revealing it
+        // opens a window again (the Home workspace shows before the restore finished).
+        if closedDuringRestore.isEmpty { FirstWorkspaceLaunch(manager: self).land(firstWorkspace) }
         // Classic cmux's session comes over once, after restore so the restored
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)
@@ -252,13 +282,8 @@ final class WindowManager {
     /// state, so relaunch shows it without opening a second window. With
     /// nothing saved it stays the only window and receives every workspace.
     private func adoptLaunchWindow(_ restored: WindowRegistry, records: [WindowRecord]) -> WindowController? {
-        // The frontmost saved window that can show a workspace now; one whose
-        // workspaces are gone or still connecting would leave the launch
-        // window on screen with nothing to show.
         guard let launchID = launchWindowID, let launch = controller(for: launchID),
-              let front = restored.recency.first(where: { id in
-                  restored.window(id).map { $0.isOpen && hasMirroredWorkspace($0) } == true
-              }),
+              let front = adoptableFront(restored),
               let record = records.first(where: { $0.id == front }) else { return nil }
         launch.state.adopt(record)
         launchWindowID = front
@@ -269,6 +294,28 @@ final class WindowManager {
             launch.window?.setFrame(WindowPlacementFallback.visible(frame, display: restored.window(front)?.display), display: true)
         }
         return launch
+    }
+
+    /// No saved window can show now (their workspaces ended, or the last window closed): the
+    /// launch window opens where the front window last was (#25568).
+    private func placeLaunchWindow(_ document: WindowStateDocument) {
+        guard services.environment.testWindow == nil, let launch = launchWindowID.flatMap(controller(for:)),
+              let frame = document.lastFrame?.rect else { return }
+        launch.window?.setFrame(WindowPlacementFallback.visible(frame, display: document.lastDisplay), display: true)
+    }
+
+    /// A window the person closed before the restore finished stays closed, even the last one: no
+    /// window open is the background mode, not a launch to recover. Applied in the registry step
+    /// itself, so no sync ever opens (and presents) it in between.
+    func keepClosedDuringRestore(_ registry: inout WindowRegistry) {
+        for id in closedDuringRestore where registry.window(id)?.isOpen == true { registry.setRestored(id, open: false) }
+    }
+
+    /// The frontmost saved window that can show a workspace now; one whose
+    /// workspaces are gone or still connecting would leave the launch
+    /// window on screen with nothing to show.
+    private func adoptableFront(_ restored: WindowRegistry) -> String? {
+        restored.recency.first { id in restored.window(id).map { $0.isOpen && hasMirroredWorkspace($0) } == true }
     }
 
     // MARK: Controllers
@@ -288,10 +335,14 @@ final class WindowManager {
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
         SidebarTabRowHandoff.install(on: controller, session: services.dragSession)
         controllers.append(controller)
+        // Its content goes in before it is ordered in (the launch snapshot's workspace, else the
+        // connecting state), so its first frame on screen draws it, never the backdrop alone; the
+        // controller's own observer would install it a main-actor hop later.
+        controller.showWorkspace(requested: state.workspaceID)
         // A window none of whose workspaces is mirrored yet stays off screen
         // until `contentDidAppear` (never an empty frame). The launch window
         // (no workspaces) shows the connecting state at once.
-        if hasMirroredWorkspace(window) || window.workspaceIDs.isEmpty {
+        if controller.content != nil || hasMirroredWorkspace(window) || window.workspaceIDs.isEmpty {
             present(controller)
         } else {
             awaitingContent[window.id] = false
@@ -370,7 +421,12 @@ final class WindowManager {
         controller.teardown()
         if programmaticCloses.remove(id) != nil || isTerminating { return }
         if id == launchWindowID {
-            // The unregistered launch window: nothing to hand over.
+            // The unregistered launch window: nothing to hand over. It often wears the saved front
+            // window's id, so the restore must not open that one again either.
+            if restoring || !restored {
+                closedDuringRestore.insert(id)
+                closedLaunchWindowID = id
+            }
             launchWindowID = nil
             states[id] = nil
             return

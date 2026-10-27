@@ -151,6 +151,38 @@ export function ChannelsCard() {
     <section className="group" data-card="channels">
       <h3 className="group-title">{state.title}</h3>
       <div className="row-help">{state.installed}</div>
+      {/* The app's acpmux daemon: its build, and whether it is up to date or restarting. */}
+      {state.daemon && (
+        <div className="rows" data-channel-daemon="">
+          <div className="row">
+            <div className="row-main">
+              <div className="row-label">
+                <div className="row-title">{state.daemon.title}</div>
+              </div>
+              <div className="row-control">
+                <span className="row-help selectable">{state.daemon.value}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Other machines that cannot update in place or whose update failed: one row, never a toast each. */}
+      {state.machines && state.machines.lines.length > 0 && (
+        <div className="rows" data-channel-machines="">
+          <div className="row">
+            <div className="row-main">
+              <div className="row-label">
+                <div className="row-title">{state.machines.title}</div>
+                {state.machines.lines.map((line) => (
+                  <div key={line} className="row-help selectable" data-channel-machine="">
+                    {line}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Only the picked channel's way back: a read for an earlier pick never offers its button. */}
       {state.switch && (shown === undefined || state.switch.ring === shown) && (
         <SwitchRow key={`${state.switch.ring}:${state.switch.build}`} way={state.switch} />

@@ -213,7 +213,7 @@
     "recreateRequired": {
       "title": "Recreate this machine",
       "message": "This machine was created before a Cloud update and can't be attached.",
-      "action": "Create a new machine, copy your files over with cmux vm pull and cmux vm push, then delete this one."
+      "action": "Create a new machine. Prepare an SCP endpoint with `cmux cloud prepare-scp --target machine:<id> --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"`, then copy your files using SCP before deleting this machine."
     },
     "guestUnresponsive": {
       "title": "Machine not responding",
@@ -223,7 +223,7 @@
     "inProgress": {
       "title": "Still in progress",
       "message": "The cloud provider has not finished this change yet. It may still complete.",
-      "action": "Check the machine's status with cmux vm ls or in the Machines list before you try again."
+      "action": "Check the machine's status with cmux cloud list-machines or in the Machines list before you try again."
     },
     "providerTimeout": {
       "title": "Cloud provider is slow",
@@ -238,7 +238,7 @@
     "stateConflict": {
       "title": "Machine is busy",
       "message": "This machine is starting, pausing, or not running, so it can't do this right now.",
-      "action": "Wait a moment and try again. Check the machine's status with cmux vm ls, and resume it first if it is paused."
+      "action": "Wait a moment and try again. Check the machine's status with cmux cloud list-machines, and resume it first if it is paused."
     },
     "networkRuleCapacity": {
       "title": "Network rules at capacity",
@@ -265,19 +265,19 @@
       "action": {
         "snapshot": "Do not retry. Work on this machine kind is kept on its persistent home volume.",
         "restore": "Do not retry. Work on this machine kind is kept on its persistent home volume.",
-        "fork": "Do not retry. Create a new VM with `cmux vm new`.",
-        "openPort": "Do not retry. Reach the service from inside the machine (`cmux vm exec`), or use a machine kind that can open ports.",
-        "default": "Do not retry. Run `cmux vm ls` to see your machines, or contact support if you believe this is wrong.",
+        "fork": "Do not retry. Create a new VM with `cmux cloud new-machine`.",
+        "openPort": "Do not retry. Reach the service from inside the machine (`cmux cloud exec --target machine:<id> --command <command>`), or use a machine kind that can open ports.",
+        "default": "Do not retry. Run `cmux cloud list-machines` to see your machines, or contact support if you believe this is wrong.",
         "sizing": "Omit `memoryMb` and retry.",
         "persistentHome": "Omit `persistentHome`/`perMachineHome` and retry.",
-        "pause": "Do not retry. Leave the machine running, or remove it with `cmux vm rm` when you are done with it.",
-        "resume": "Do not retry. Create a new VM with `cmux vm new`."
+        "pause": "Do not retry. Leave the machine running, or remove it with `cmux cloud kill-machine --target machine:<id> --confirm` when you are done with it.",
+        "resume": "Do not retry. Create a new VM with `cmux cloud new-machine`."
       }
     },
     "requiresPro": {
-      "title": "cmux Pro required",
-      "message": "Cloud VMs require a cmux Pro plan.",
-      "action": "Upgrade to cmux Pro at {upgradeUrl} to create Cloud VMs."
+      "title": "cmux {plan} required",
+      "message": "Cloud VMs require a cmux {plan} plan.",
+      "action": "Upgrade to cmux {plan} at {upgradeUrl} to create Cloud VMs."
     },
     "displayName": {
       "title": "Invalid machine name",
@@ -287,35 +287,35 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB machines need cmux {plan}. Your plan supports up to {max} GiB.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "The source machine’s RAM size could not be verified.",
-      "action": "cmux vm new --size 4g"
+      "action": "cmux cloud new-machine"
     },
     "memoryUnavailable": {
       "message": "This machine size is currently unavailable. Choose a size up to {max} GiB.",
-      "action": "cmux vm new --size {max}g"
+      "action": "cmux cloud new-machine"
     },
     "goLimit": {
       "savedMessage": "Go includes two saved VMs, including the running VM.",
-      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go includes one running VM at a time.",
-      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "Go has used its 40 VM-hours this month. Saved VMs remain available after the next billing period starts.",
-      "hoursAction": "cmux billing checkout --plan pro",
+      "hoursAction": "https://cmux.com/pricing",
       "shapeMessage": "Go supports 2 vCPU, 4 GiB RAM, and 16 GiB disk.",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
     },
     "planBudget": {
       "computeTitle": "{plan} compute allowance used",
       "computeMessage": "Your {plan} plan has used its {included} compute-hours for this billing period. A compute-hour is 1 vCPU with 2 GB of memory running for one hour. Your machines can start again on {resetDate}.",
       "computeAction": "Paused machines keep their files. Contact support if you need more compute before {resetDate}.",
-      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "{plan} disk allowance used",
       "storageMessage": "Your {plan} plan includes {included} GB of disk across all saved machines. Saved machines use {used} GB, and this request needs {requested} GB.",
-      "storageAction": "cmux vm ls\ncmux vm rm <id>",
-      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Not enough Cloud VM resources",
@@ -3699,6 +3699,18 @@
       "chordsRuleSingle": "Use a plain string for a one-step shortcut.",
       "chordsRuleArray": "Use a two-item array for a chord. The first item is the prefix stroke, the second is the key that follows it.",
       "chordsRuleSyntax": "Each item uses the same syntax as regular bindings, for example cmd+b, ctrl+b, shift+/, or ctrl+1.",
+      "presetsTitle": "Base keymap presets",
+      "presetsIntro": "If you are coming from another terminal, choose a base keymap from the Command Palette's Base Keymap… action. You can also run `cmux settings base-keymap --keymap iterm2` (or use cmux, terminal, or tmux).",
+      "presetCmuxLabel": "cmux (Default)",
+      "presetIterm2Label": "iTerm2",
+      "presetTerminalLabel": "Terminal.app",
+      "presetTmuxLabel": "Prefix chords (Ctrl-B)",
+      "presetCmux": "The built-in cmux shortcuts, with no preset overrides.",
+      "presetIterm2": "Uses ⌘1…9 for tabs, ⌥⌘1…9 for workspaces, ⇧⌘C for terminal copy mode, and ⌃⌘ arrow keys for pane resizing.",
+      "presetTerminal": "Uses ⌥⌘W to close other tabs and ⇧⌘I to rename a tab; the Feed action moves to ⌃⇧⌘I.",
+      "presetTmux": "Uses Ctrl-B prefix chords for tabs, workspaces, panes, navigation, zoom, and terminal copy mode.",
+      "presetsApply": "Selecting a preset in the app applies its shortcuts immediately and shows a toast with an Undo action when bindings change. A CLI run applies the preset without an Undo toast.",
+      "presetsPreserve": "Presets change only the shortcuts.bindings entries that some preset sets. Choosing a preset writes its overrides and removes overrides another preset wrote, so switching presets or back to cmux leaves nothing stale. Bindings no preset touches stay as they are, as does a hand-authored value that no preset uses.",
       "searchPlaceholder": "Search shortcuts...",
       "searchLabel": "Search keyboard shortcuts",
       "noResults": "No shortcuts found",
@@ -4278,6 +4290,18 @@
       "tui": "cmux TUI",
       "concepts": "Concepts",
       "base": "Base",
+      "nextSection": "cmux-next",
+      "nextGettingStarted": "Getting started",
+      "nextUpdates": "Install and update",
+      "nextHome": "Home and Chief",
+      "nextAgents": "Agents and subagents",
+      "nextWorkspaces": "Workspaces, panes, tabs",
+      "nextBrowser": "Browser",
+      "nextMarkdown": "Markdown and files",
+      "nextCloud": "Cloud machines",
+      "nextShortcuts": "Keyboard shortcuts",
+      "nextCli": "CLI and MCP reference",
+      "nextSettings": "Settings reference",
       "workspaceGroups": "Workspace Groups",
       "configuration": "Configuration",
       "sessionRestore": "Session Restore",
@@ -4494,10 +4518,10 @@
       "intro": "This page explains the life of a cmux Cloud machine: how to create it, what sizes you can choose, how plan limits apply, and how to pause, snapshot, fork, and delete it.",
       "createTitle": "Create a machine",
       "createApp": "In the app, use File › New Cloud Machine (⇧⌘Y), the plus-button menu, the command palette, or the plus button in the Cloud sidebar. The sheet asks for a size and an optional label.",
-      "createCli": "From the CLI, cmux vm new creates a machine and opens a workspace on it. Use --detach to create it without opening anything. If a create request is retried, cmux reuses the same request so you do not get two machines.",
+      "createCli": "Run new-machine on your Mac. --size accepts small, medium, large, or xlarge; --name accepts 1–64 letters, digits, dots, underscores, or hyphens, without a leading hyphen; the literal name true is reserved. --persistent turns idle auto-pause off. Use list-machines to get the machine_id and replace <id> in the examples below. If a create returns pending: true, check the list before creating another machine.",
       "createFailed": "If creation fails, the notification lets you retry, show the error, or copy it for a support request.",
       "sizesTitle": "Sizes",
-      "sizesDesc": "Each size sets memory, vCPU, and disk together. Pick a size in the create sheet or with --size. Pro and Team support 4g, 8g, and 16g (2, 4, and 8 vCPU). Max also unlocks 24g and 32g (12 and 16 vCPU), plus 64g (32 vCPU).",
+      "sizesDesc": "The table shows new-machine sizes. resize-machine accepts the same names, but its xlarge request uses 16 vCPUs with 24 GB of memory instead of 12 vCPUs. Your plan and the provider determine which sizes and operations are available; a refusal explains the current limit.",
       "sizeColumn": "Size",
       "memoryColumn": "Memory",
       "cpuColumn": "vCPU",
@@ -4522,9 +4546,9 @@
       "agentUpdatesToggle": "The New Machine sheet turns this on by default. To change it for an existing machine, right-click the machine and choose Keep Agents Up to Date, or run cmux vm agent-updates. cmux vm new keeps the image's versions unless you pass --agent-updates latest. Turning updates off keeps the versions already installed.",
       "agentUpdatesNetwork": "Updates use only github.com, api.github.com, objects.githubusercontent.com, and release-assets.githubusercontent.com. cmux allows these hosts in every network mode, including Allowlist and No internet, so a network policy never blocks updates.",
       "resizeTitle": "Resize",
-      "resizeDesc": "You can make a machine larger without data loss. Right-click the machine and choose Resize machine, or use cmux vm resize. Resize can only grow a machine. Disk grows in 4 GB steps up to 128 GB on Pro and Team, or 256 GB on Max (Go is limited to 16 GB). Memory grows up to 16 GB and CPU up to 8 vCPU on Pro, Team, and Founder's Edition, or up to 64 GB and 32 vCPU on Max. A larger machine uses more of your pool. Your plan sets the real maximum.",
+      "resizeDesc": "resize-machine changes the targeted machine to a named size. The provider and your plan enforce growth and resource limits. Check machine-status after the operation; if the response says pending: true, the resize is still running.",
       "pauseTitle": "Pause and resume",
-      "pauseDesc": "cmux vm pause stops the machine's compute. The disk, workspaces, and terminal history stay. Running processes stop. cmux vm resume starts the machine again. Opening a paused machine or running a command on it also starts it.",
+      "pauseDesc": "pause-machine pauses compute; resume-machine starts it again. Use set-idle-pause to choose off, 15, 30, 60, or 120 minutes of idle time. Idle means nothing is attached, running, or forwarded. New machines created with --persistent have idle auto-pause off.",
       "pauseIdle": "Machines do not pause by themselves when they are idle. A machine keeps running until you pause it or delete it.",
       "waitDesc": "cmux vm wait waits until a machine is ready. Add --wake to start a paused machine first. This is useful in scripts before the first command.",
       "snapshotsTitle": "Checkpoints, forks, and restore",
@@ -4532,9 +4556,9 @@
       "snapshotsUse": "Use a checkpoint before a risky change, and use a fork to try two approaches in parallel from the same starting point.",
       "snapshotsCapability": "Checkpoint and Fork appear only when the machine's provider supports them. If a command is refused, the machine does not support that operation.",
       "renameTitle": "Rename",
-      "renameDesc": "cmux vm rename sets a display label, up to 64 printable characters. The generated name stays the machine's ID. Use --clear to remove the label.",
+      "renameDesc": "rename-machine sets a display label; it does not change the machine ID. Pass --name explicitly in scripts. An empty name clears the label.",
       "statusTitle": "Status and stats",
-      "statusDesc": "cmux vm status shows a machine's state, size, and address. cmux vm stats shows CPU, memory, and disk use without waking a paused machine.",
+      "statusDesc": "list-machines returns machine IDs, targets, and statuses. machine-status reads the targeted machine’s state and resource use. If the list reports loaded: false or pending: true, it is not yet a complete inventory.",
       "deleteTitle": "Delete",
       "deleteDesc": "Deleting a machine permanently deletes the machine and everything on its disk. It also removes the machine's public URLs and revokes its model access. You cannot undo a delete.",
       "deleteCheckpoint": "Make a checkpoint first if you think you need the files later.",
@@ -4545,7 +4569,7 @@
       "title": "Cloud Workspaces and Agents",
       "metaTitle": "Cloud Workspaces and Agents",
       "metaDescription": "Run durable terminals and coding agents on cmux Cloud machines, with notifications, image paste, and layouts.",
-      "intro": "A Cloud workspace works like a local cmux workspace, but its terminals run on a cloud machine. This page covers durable terminals, running agents, notifications, and the tools that are installed on every machine.",
+      "intro": "A Cloud workspace runs its terminals on a Cloud machine. Use these commands from your Mac to open terminals, move an agent chat, and run short checks.",
       "durableTitle": "Durable terminals",
       "durableDesc": "Terminals live in the machine's daemon, not in your Mac. They keep running when you close a pane, quit cmux, lose Wi-Fi, or close your laptop. Open the machine again from any signed-in Mac and the terminal still has its output and its running process.",
       "durableReconnect": "If the connection drops, the pane shows Cloud session disconnected with a Reconnect button, and cmux retries on its own.",
@@ -4553,19 +4577,19 @@
       "closeVsRemove": "Closing a workspace keeps its terminals running as detached. Removing a workspace stops its terminals.",
       "agentsTitle": "Run coding agents",
       "agentsDesc": "Claude Code, Codex, OpenCode, and Pi are installed on every machine. Open a Cloud workspace and start the agent as you do locally. Agent hooks are already set up, so agent status and notifications reach your Mac.",
-      "agentCmdDesc": "cmux vm agent starts an agent on a machine from your Mac. With a prompt, it uses the agent's one-shot mode. Add --sync to upload the current directory first and --wait to wait for the result.",
+      "agentCmdDesc": "start-session starts an agent in the machine’s own acpmux and returns machine_id, session_id, and host. Choose the harness with --agent and a remote folder with --cwd. To move an existing chat from your Mac, use cloud move with its tab target; --machine chooses the destination. Agents need the person’s approval. Bring Back Local returns a moved chat to this Mac; only a person can run it.",
       "agentPromptDesc": "cmux vm prompt installs a cmux Cloud skill for your local agent and prints a prompt that teaches it to use Cloud machines.",
       "runTitle": "Run commands",
       "runDesc": "cmux vm run runs a command on a machine and returns its exit code. The first run from a directory picks a machine and remembers it for that directory for 14 days. Add --sync to upload the directory first and --pull to download a result.",
-      "execDesc": "cmux vm exec runs a short command without a terminal. It is for quick checks. Its timeout is 30 seconds by default and 5 minutes at most. Use cmux vm run, cmux vm agent, or a workspace terminal for long work.",
+      "execDesc": "cloud exec is for short checks. Pass the shell command as one --command value. The response contains exit_code, stdout, and stderr; the command stops after 25 seconds. Run builds, dev servers, and long agent tasks in a Cloud terminal instead.",
       "devTitle": "Start a dev server",
-      "devDesc": "cmux vm dev uploads a project, finds how to start it, and opens it in a workspace with the server and a browser. It detects package.json projects, Cargo, Go, Makefile dev targets, Django, uv, pyproject, requirements.txt, and static index.html sites. Use --dry-run to see the plan first.",
+      "devDesc": "Start your dev server in a Cloud terminal, then open its port in a browser with open-browser. machine-link returns the machine’s links; with --port it also returns links for that port. These commands do not upload your project or start the server for you.",
       "notificationsTitle": "Notifications",
       "notificationsDesc": "cmux notify inside a machine shows a notification on your Mac for that terminal. Agent hooks send notifications when an agent finishes, needs approval, asks a question, or fails. Titles are limited to 128 bytes and bodies to 1 KB, and bursts are rate limited.",
       "imagePasteTitle": "Paste images",
       "imagePasteDesc": "Press ⌘V with an image on the clipboard in a Cloud terminal. cmux uploads the image to the machine and pastes the remote path, so Claude Code and Codex can read it. PNG, JPEG, GIF, and WebP are supported, up to 20 MB each and 8 images at a time.",
-      "layoutsTitle": "Layouts and terminals from the CLI",
-      "layoutsDesc": "cmux vm workspace creates, opens, renames, closes, and removes workspaces on a machine. cmux vm terminal sends text, reads output, and waits for text or for exit. cmux vm tree shows the machine's workspaces and terminals. cmux vm layout export and apply use the same JSON as cmux new-workspace --layout.",
+      "layoutsTitle": "Workspaces and terminals from the CLI",
+      "layoutsDesc": "Run these commands on your Mac. Find the machine_id with list-machines and replace <id>. new-terminal-on-machine returns a workspace_id; use it with --workspace to add another terminal to that workspace. --focus shows the new terminal. ssh opens a terminal in the machine’s first workspace.",
       "imageTitle": "What is installed",
       "imageDesc": "Machines run Ubuntu 24.04. You work as the user cmux with passwordless sudo, not as root. Docker starts at boot.",
       "imageLanguages": "Languages and tools: Node.js LTS, Bun, Python 3.12, uv, Docker, git, the GitHub CLI, ripgrep, fd, fzf, jq, tmux, sqlite3, build tools, vim, nano, and rsync.",
@@ -4620,8 +4644,8 @@
     "cloudCli": {
       "title": "Cloud CLI Reference",
       "metaTitle": "cmux Cloud CLI Reference",
-      "metaDescription": "Reference for every cmux vm and cmux cloud command: lifecycle, workspaces, files, environment, domains, and VPN.",
-      "intro": "cmux vm and cmux cloud are the same command. The CLI talks to the running cmux app, which holds your sign-in. Add --json to any verb for machine-readable output. Every verb has a --help page.",
+      "metaDescription": "Current cmux cloud commands for machines, snapshots, workspaces, files, and diagnostics.",
+      "intro": "Run these commands on a Mac with cmux open and signed in. Use cmux cloud list-machines to find a machine_id, then replace <id> in --target machine:<id> with it. A target names the machine explicitly. Results can include pending: true while work continues; inspect the machine before repeating a create or snapshot.",
       "exitCodes": "Exit codes: 0 on success, 1 on error, and 2 for an unknown command. cmux vm run returns the remote exit code.",
       "authTitle": "Sign in",
       "authDesc": "Sign in, check your account, and choose a team.",
@@ -4630,13 +4654,13 @@
       "snapshotsTitle": "Checkpoints and forks",
       "snapshotsDesc": "These verbs work when the machine's provider supports them.",
       "openTitle": "Open",
-      "openDesc": "Open a machine, a workspace, a terminal, the desktop, or a port in cmux.",
+      "openDesc": "new-terminal-on-machine creates a workspace with a terminal; --workspace adds a terminal to an existing workspace. Use the workspace_id from the response. ssh opens a terminal in the first workspace. Add --focus to show it in the window. These commands resume a paused machine.",
       "runTitle": "Run commands and agents",
       "runDesc": "Run commands and agents on a machine from your Mac.",
       "workspacesTitle": "Workspaces and terminals",
       "workspacesDesc": "Control the workspaces and terminals that live on a machine.",
-      "filesTitle": "Files and environment",
-      "filesDesc": "Move files and secrets and set environment variables.",
+      "filesTitle": "Files and transfers",
+      "filesDesc": "File paths are absolute paths on the machine. prepare-scp takes the public key text and returns the host, port, user, host_key, and expiry for scp or sftp. Verify the returned host key before transferring files; never send your private key.",
       "domainsTitle": "Public URLs",
       "domainsDesc": "Publish machine ports and manage custom domains and access.",
       "vpnTitle": "VPN",
@@ -4669,7 +4693,7 @@
       "errUnavailable": "Cloud Machines are disabled or unavailable",
       "fixUnavailable": "Cloud Machines are off because the local Settings toggle is off or your administrator disabled Cloud. Turn on the toggle, or ask your administrator to allow Cloud.",
       "errSignIn": "Cloud VM access requires sign-in",
-      "fixSignIn": "Run cmux auth login, then try again. If your session was rejected, run cmux auth logout first.",
+      "fixSignIn": "Run cmux cloud sign-in on your Mac and finish signing in. If your session was rejected, run cmux cloud sign-out first. Then check cmux cloud list-machines.",
       "errPlan": "Cloud VMs require a paid plan",
       "fixPlan": "Free accounts cannot create machines. Upgrade on the pricing page.",
       "errSize": "A size needs a larger plan",
@@ -4682,10 +4706,10 @@
       "fixLocked": "Your paid plan ended and the machine is older than 7 days. Upgrade to reconnect. Your files are kept.",
       "errAgentMissing": "claude or codex: command not found",
       "fixAgentMissing": "The machine is still setting up. Wait a moment, or read /tmp/cmux/provision.log.",
-      "errExecTimeout": "cmux vm exec times out",
-      "fixExecTimeout": "exec is for short commands. Use cmux vm run, cmux vm agent, or a workspace terminal.",
+      "errExecTimeout": "A short command times out",
+      "fixExecTimeout": "cloud exec stops commands after 25 seconds. Open a Cloud terminal with cmux cloud new-terminal-on-machine --target machine:<id> --focus and run long work there.",
       "errSlowFirst": "The first command is slow",
-      "fixSlowFirst": "The machine was paused. Run cmux vm wait with --wake before your script.",
+      "fixSlowFirst": "If the machine is paused, run cmux cloud resume-machine --target machine:<id>, then check cmux cloud machine-status --target machine:<id> before retrying.",
       "errSnapshot": "Checkpoint or fork is refused",
       "fixSnapshot": "The machine's provider does not support that operation.",
       "errSsh": "cmux vm ssh fails",

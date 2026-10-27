@@ -9,9 +9,9 @@ the fix, and guard it on each version.
 
 - One DEV build per commit from the fleet (`cmux-ci build cmux`), run in
   disposable Tart VMs on aws-m4pro-6 (the fleet's Tart host) from the pinned
-  images in `scripts/cmux-next/os-smoke/images.json`: 14.8.7, 15.7.7, 26.6.2,
+  images in `scripts/fuzz/macos-matrix/images.json`: 14.8.7, 15.7.7, 26.6.2,
   4 vCPU each, one VM at a time under the host lock.
-- `scripts/cmux-next/os-smoke/stress-probe.py` (`OS_SMOKE_PROBE=stress-probe.py run.sh`):
+- The former Tart stress probe:
   - 10 rounds of Cmd-N, Cmd-T, Cmd-T, Cmd-D, Cmd-Shift-D through the real key
     path (`debug.new_tab bench_create`): key, first-visible and
     daemon-confirmed times; one `debug.new_terminal_trace` per round (time to
@@ -27,7 +27,7 @@ the fix, and guard it on each version.
   before macOS 26 the glass styles fall back to a WindowServer frost
   (`WindowBackdrop.glassFallbackBlurRadius`), the only OS-gated rendering path
   that touches terminals.
-- `scripts/cmux-next/os-smoke/stress-report.py` prints the tables below.
+- Its report helper printed the tables below.
 
 ## Before (feat-cmux-next ea0892a84de)
 
@@ -126,16 +126,12 @@ Before to after, on every version and both window configurations:
 
 ## Guard
 
-- `run.sh` runs the stress after the launch probe in every class `vm` smoke of
-  a DEV build (4 rounds, burst 20; a release build skips it). Proven on macOS 15 (2026-10-20): the fix build ran 12 processes for 45 tabs (`stress ok`), the base build 48 (`STRESS-FAIL`).
-  `stress-probe.py` fails (exit 2, run.sh's `stress` column `STRESS-FAIL`)
-  when the stress runs more than `STRESS_BUDGET_WEB_PROCS` (20) web content
-  processes, or the burst's longest main-thread stall exceeds
-  `STRESS_BUDGET_MAX_MS` (1500) or its summed stalls `STRESS_BUDGET_TOTAL_MS`
-  (6000). The process count is exact; the time budgets only catch a large
-  regression, because VM stall times swing about 2x with host load.
+- The former launch-and-stress gate ran after the launch probe in each Tart VM.
+  It is retained here as historical evidence only; it is no longer an active
+  cmux-next check.
 - The nightly `macos-matrix-fuzz.yml` workflow that failed on `STRESS-FAIL` was
-  retired with Tart (2026-10-21); run `scripts/fuzz/macos-matrix/vm.sh` on a Tart host.
+  retired with Tart (2026-10-21). The standalone fuzzer remains available at
+  `scripts/fuzz/macos-matrix/vm.sh`.
 
 ## Left for the owners
 

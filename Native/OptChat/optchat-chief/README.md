@@ -56,6 +56,56 @@ are steered the same way but never stop a turn. chief.stop also stops one: the r
 no tool call runs, then sends `session/cancel` every second until the turn
 ends, and the end posts nothing to the chat or any bridge.
 
+## Every person message gets a reply
+
+User 2026-10-21: "make every user message in the Chief DM get a reply,
+guaranteed." The reply ledger (`src/brain/reply_ledger.rs`,
+`HostState::awaiting`) holds each person message of the Chief conversation
+from the moment it is queued until the owner takes a post that answers it: a
+reply that names it (`answers`, `reply_to`), or any text the Chief posts once
+a turn has seen it (a `send`). The ledger is saved with the host state, so a
+host crash, a restart, or a cloud VM deleted mid-turn keeps it (a restarted
+host checks again after the longest wait, after its resume turn), and the mux
+ack of a cloud wake waits until the ledger is empty, so the queue delivers
+the wake again to the next host.
+
+Ways a message used to end with no reply, and what happens now:
+
+- The turn ends with `NO_REPLY`, or with `stop` and nothing sent: refused for
+  a person message of the Chief conversation (channels keep `NO_REPLY`).
+- The turn fails, times out, or is cut (acpmux lost, an upstream error past
+  `MAX_CUTS`): the failure text posts as before; when nothing posts, the
+  message waits for a retry.
+
+A turn an error a retry may clear ends is cut, not failed, and runs again on
+the resume note (`brain/turns.rs` `cut_kind`, issue 25577): the classes a
+subagent auto-resumes on (`auto_resume::classify_error`: 429 and rate
+limits, 500, 502, 503, 504, 529, overloaded) run again after
+`UPSTREAM_RESUME_BACKOFF` (15 s, 45 s, 120 s); a network error (DNS, a
+dropped connection, `fetch failed`, the Mac offline) waits until the model
+endpoint answers (`auto_resume::wait_online`, every 30 s, at most 6 h) and
+then runs again no sooner than that backoff. A person's message starts the
+turn at once. At most `MAX_CUTS` (3) cuts in a row; a usage limit is never
+cut. A cut turn's resume is saved with the host state, so a host that quits
+while it waits (Cmd+Q, an update) runs the task again when it starts. Tests:
+`tests/chief_turn_retry.rs`.
+- The owner refuses the reply post (any reject other than `agent_rate`,
+  which retries on its own): the message waits for a retry.
+- The host dies before the reply posts: the ledger survives the restart.
+
+A message left unanswered gets a check after 5 s, 30 s and 120 s
+(`REPLY_RETRY_WAITS`). When no turn runs, the check starts a retry turn on
+a `[no reply]` note that names the messages, says why, and forbids
+`NO_REPLY`. After `MAX_REPLY_TRIES` (3) retries the host posts a short
+failure note in the message's thread ("I could not answer your message ...
+Please send it again.") and logs a note so the next turn does not answer it
+again. Only the owner's stop (chief.stop) and a retraction close a message
+with no post.
+
+Home (cmux-next, `ChiefReplyWatchdog`) shows a notice in the local Chief
+conversation when the person's last message has had no reply for 2 minutes,
+from the conversation head alone, so it also covers a host that is down.
+
 ## Several Chiefs and channels
 
 One host is one Chief (`src/membership.rs`). Several Chiefs on one owner run
@@ -200,7 +250,10 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   (a record from before launches were saved takes its task from the spawn
   call in the log, and the floor of that moment).
 - A turn whose subagents are at work gets `Subagents at work now: a1, a3.`
-  after the view, before its new messages (never logged).
+  after the view, before its new messages (never logged), with a line that
+  their tasks are not done until each reports, so the Chief never reports a
+  task finished while its subagent still runs; its reply also carries those
+  messages as `answers_pending`.
 - `chief.stop` stops only the running turn; subagents at work and queued
   ones go on. It answers `{"stopped": bool}`. The Chief's own `stop` tool
   (`{"tool": "stop", "end_turn": true}` on the tools socket, or any call from
@@ -219,10 +272,15 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   `features.multi_agent = false`), so `chief spawn` is its only way to start
   a subagent, as `TURN_TOOLS` leaves a Claude turn no Task tool.
 
-`tell` to a running subagent is steered into its session (acpmux steer,
-as for Chief turns): the harness reads it between its tool calls and the
-run's report answers it. A session that cannot steer takes it as its next
-prompt, after the current turn.
+`tell` to a running subagent is steered into its session and sent now
+(acpmux steer with `steerNow`, 2026-10-26): acpmux stops the agent's current
+step, as the Send now button in its chat does, so it reads the message at
+once and its turn goes on; a running subagent or background shell is never
+stopped for it. The chat in the subagent's workspace is that same session,
+so the message shows there live as the Chief's (`optchat-tell:` prompt id).
+A peer's message and `queue: true` wait for the step. The run's report
+answers it. A session that cannot steer is interrupted and takes it as its
+next prompt (tell-interrupt-DESIGN.md).
 A subagent's first message carries no cache mark of ours, and all of a
 spawn's subagents start at once: Claude Code marks its two system blocks and
 the last two messages of every later request in a session, the API takes at

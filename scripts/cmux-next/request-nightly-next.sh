@@ -219,7 +219,19 @@ while read -r run_id run_sha; do
   if [[ "$run_sha" != "$sha" ]]; then
     git cat-file -e "$run_sha^{commit}" 2>/dev/null || continue
     git merge-base --is-ancestor "$lower" "$run_sha" 2>/dev/null || continue
-    run_key="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$run_sha" 2>/dev/null)" || continue
+    if run_key="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$run_sha" 2>/dev/null)"; then
+      :
+    else
+      key_rc=$?
+      # Exit 127 means the helper itself could not be launched. Treat that as
+      # an operational failure; skipping the candidate would let this job go
+      # green while never proving the Release compile it is meant to promote.
+      if (( key_rc == 127 )); then
+        echo "error: cannot compute the cmux-tui tree key for $run_sha (python3 or the key helper is unavailable)" >&2
+        exit 1
+      fi
+      continue
+    fi
     [[ "$run_key" == "$key" ]] || continue
   fi
   jobs="$(gh api --paginate --slurp "repos/$repo/actions/runs/$run_id/jobs?filter=latest&per_page=100")"

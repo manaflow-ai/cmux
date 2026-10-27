@@ -14,6 +14,9 @@ public nonisolated enum AcpmuxFailureCause: Equatable, Sendable {
     case noWebSocket
     /// The daemon this app started exited before it was ready.
     case exited
+    /// This home's daemon is alive but stopped answering, so the app restarted it
+    /// (``AcpmuxUnresponsiveWatch``).
+    case unresponsive
     /// Any other failure; the log has the details.
     case other
 
@@ -28,8 +31,9 @@ public nonisolated enum AcpmuxFailureCause: Equatable, Sendable {
             String(localized: "agentPane.error.cause.noWebSocket", defaultValue: "it reported no chat address", bundle: .module)
         case .exited:
             String(localized: "agentPane.error.cause.exited", defaultValue: "it stopped before it was ready", bundle: .module)
-        case .replacedBundle, .foreignHome, .peerRefused, .other:
-            // The first three are refusals: the pane says them as `daemonRefused`.
+        case .replacedBundle, .foreignHome, .peerRefused, .unresponsive, .other:
+            // The first three are refusals: the pane says them as `daemonRefused`. A restart of a
+            // daemon that stopped answering is only logged: the next daemon serves the chat.
             nil
         }
     }
@@ -42,6 +46,7 @@ public nonisolated enum AcpmuxFailureCause: Equatable, Sendable {
         case .peerRefused: "the socket's process did not pass the server peer check"
         case .noWebSocket: "the daemon reported no WebSocket"
         case .exited: "the daemon exited before it was ready"
+        case .unresponsive: "the daemon is alive but stopped answering; the app restarts it"
         case .other: "the daemon could not be reached"
         }
     }

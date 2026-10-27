@@ -1,7 +1,9 @@
-name: Familiar intent review warning
+name: Familiar intent review warning (advisory)
 
 # This is advisory. It runs from the trusted base copy so a pull request cannot
 # change the warning policy, and it never fails a check or requests changes.
+# Its GitHub API steps continue on error: an API error (the installation's rate
+# limit, 2026-10-26, 27 of 30 runs) is no red on the pull request.
 on:
   pull_request_target:
     branches: [feat-cmux-next]
@@ -30,6 +32,8 @@ jobs:
             scripts/ci/intent_familiar_warning.py
 
       - name: Read the pull-request patch
+        id: read
+        continue-on-error: true
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           FILES_JSON: ${{ runner.temp }}/intent-files.json
@@ -52,6 +56,7 @@ jobs:
 
       - name: Detect familiar intent changes
         id: detect
+        if: steps.read.outcome == 'success'
         env:
           FILES_JSON: ${{ runner.temp }}/intent-files.json
           BODY_FILE: ${{ runner.temp }}/intent-body.md
@@ -63,6 +68,8 @@ jobs:
             --output "$RESULT_JSON"
 
       - name: Warn CodeRabbit and cubic reviewers
+        if: steps.detect.outcome == 'success'
+        continue-on-error: true
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           RESULT_JSON: ${{ runner.temp }}/intent-result.json

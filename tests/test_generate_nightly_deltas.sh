@@ -87,7 +87,7 @@ EOF
 # and linked as the real tool does ("<app name><new>-<old>.delta").
 cat > "$TMP_DIR/tools/generate_appcast" <<'EOF'
 #!/usr/bin/env python3
-import pathlib, re, sys, urllib.parse
+import email.utils, pathlib, re, sys, urllib.parse
 args = sys.argv[1:]
 archives = pathlib.Path(args[-1])
 prefix = args[args.index("--download-url-prefix") + 1]
@@ -103,7 +103,9 @@ for old, _ in sorted(builds[:-1], reverse=True)[:maximum]:
 items = []
 for build, name in reversed(builds):
     extra = f"<sparkle:deltas>{deltas}</sparkle:deltas>" if build == new and deltas else ""
-    items.append(f"<item><title>{build}</title><sparkle:version>{build}</sparkle:version>"
+    # Like the real tool, date each item by its archive's modification time.
+    stamp = email.utils.formatdate((archives / name).stat().st_mtime)
+    items.append(f"<item><title>{build}</title><pubDate>{stamp}</pubDate><sparkle:version>{build}</sparkle:version>"
                  f"<sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>"
                  f'<enclosure url="{prefix}{name}" length="3" type="application/octet-stream" sparkle:edSignature="sig-{build}"/>'
                  f"{extra}</item>")
@@ -119,7 +121,7 @@ chmod +x "$TMP_DIR/bin"/* "$TMP_DIR/tools"/*
 
 printf 'fixture-dmg' > "$TMP_DIR/input/$PREFIX-arm64-$NEW.dmg"
 cat > "$TMP_DIR/input/appcast-arm64.xml" <<EOF
-<?xml version="1.0" encoding="utf-8"?><rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><title>cmux NEXT</title><item><sparkle:channel>cmux-next</sparkle:channel><sparkle:version>$NEW</sparkle:version><sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion><enclosure url="https://github.com/manaflow-ai/cmux/releases/download/nightly-next/$PREFIX-arm64-$NEW.dmg" length="11" type="application/octet-stream" sparkle:edSignature="sig"/><description>New: the fixture changelog</description></item></channel></rss>
+<?xml version="1.0" encoding="utf-8"?><rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><title>cmux NEXT</title><item><sparkle:channel>cmux-next</sparkle:channel><pubDate>Mon, 26 Oct 2026 19:36:56 +0000</pubDate><sparkle:version>$NEW</sparkle:version><sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion><enclosure url="https://github.com/manaflow-ai/cmux/releases/download/nightly-next/$PREFIX-arm64-$NEW.dmg" length="11" type="application/octet-stream" sparkle:edSignature="sig"/><description>New: the fixture changelog</description></item></channel></rss>
 EOF
 
 run_script() { # out-dir
@@ -175,10 +177,33 @@ for item in ET.parse(path).getroot().iter("item"):
     assert [c.text for c in item.findall(f"{S}channel")] == ["cmux-next"], "an item lacks the cmux-next channel"
 PY
 
+# Each item keeps the pubDate of its own first publish (2026-10-26: every item of the live feed
+# was dated the minute of the latest delta run): this build's from the full feed it was published
+# with, each earlier build's from its release asset upload time.
+python3 - "$TMP_DIR/out/appcast-arm64.xml" "$NEW" "$CMUX_TEST_RELEASE_JSON" "$PREFIX" <<'PY' || fail "the revised feed redated its items"
+import datetime, email.utils, json, re, sys
+import xml.etree.ElementTree as ET
+path, new, listing, prefix = sys.argv[1:]
+S = "{http://www.andymatuschak.org/xml-namespaces/sparkle}"
+uploaded = {}
+for asset in json.load(open(listing))["assets"]:
+    m = re.fullmatch(re.escape(prefix) + r"-arm64-(\d+)\.dmg", asset["name"])
+    if m:
+        moment = datetime.datetime.fromisoformat(asset["createdAt"].replace("Z", "+00:00"))
+        uploaded[m.group(1)] = email.utils.format_datetime(moment)
+dates = {item.findtext(f"{S}version"): item.findtext("pubDate") for item in ET.parse(path).getroot().iter("item")}
+assert dates[new] == "Mon, 26 Oct 2026 19:36:56 +0000", f"this build is dated {dates[new]}, not its first publish"
+earlier = {v: d for v, d in dates.items() if v != new}
+assert earlier, "the revised feed lists no earlier build"
+for version, date in earlier.items():
+    assert date == uploaded[version], f"build {version} is dated {date}, expected its upload time {uploaded[version]}"
+assert len(set(dates.values())) == len(dates), f"items share a pubDate: {dates}"
+PY
+
 # A track's first build has nothing to diff from: the full feed stays as is.
 printf '{"assets":[%s]}\n' "$(asset 1 "$PREFIX-arm64-$NEW.dmg" 0)" > "$TMP_DIR/release.json"
 run_script "$TMP_DIR/first"
 cmp -s "$TMP_DIR/input/appcast-arm64.xml" "$TMP_DIR/first/appcast-arm64.xml" || fail "a first build changed the full feed"
 [ -z "$(cd "$TMP_DIR/first" && ls ./*.delta 2>/dev/null)" ] || fail "a first build produced deltas"
 
-echo "PASS: nightly deltas come from the three newest earlier builds and a 24 h and a 72 h old one, signed, named per track, in the feed"
+echo "PASS: nightly deltas come from the three newest earlier builds and a 24 h and a 72 h old one, signed, named per track, in the feed, each item keeping its first-publish date"

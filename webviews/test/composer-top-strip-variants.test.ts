@@ -63,9 +63,9 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
     const style = getComputedStyle(top);
     const field = box.querySelector(".ProseMirror, textarea, [contenteditable]")!;
     const lead = box.querySelector(".acpmux-composer-inner .acpmux-composer-plus .acpmux-icon");
-    // A location icon's ink starts 1.5 px inside its box (ui/ghost.css); a queue's number at its box.
+    // A location icon's ink starts 1.5 px inside its box (ui/ghost.css); a queued prompt's text at its box.
     const icon = top.querySelector(".acpmux-location-icon");
-    const mark = top.querySelector(".acpmux-queued-mark");
+    const mark = top.querySelector(".acpmux-queued-clamp");
     const ink = icon ? icon.getBoundingClientRect().left + 1.5 : mark!.getBoundingClientRect().left;
     const shadows = style.boxShadow === "none" ? [] : style.boxShadow.split(/,(?![^(]*\))/);
     const cardBox = box.getBoundingClientRect();
@@ -223,10 +223,10 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
     const topBox = top.getBoundingClientRect();
     const field = box.querySelector(".ProseMirror, textarea, [contenteditable]")!;
     const lead = box.querySelector(".acpmux-composer-inner .acpmux-composer-plus .acpmux-icon");
-    // The folder icon's ink is its ghost bearing (1.5 px, ui/ghost.css) inside its box; a queue's
-    // number is its text, left-aligned.
+    // The folder icon's ink is its ghost bearing (1.5 px, ui/ghost.css) inside its box; a queued
+    // prompt's ink is its text, left-aligned.
     const icon = top.querySelector(".acpmux-location-icon");
-    const mark = top.querySelector(".acpmux-queued-mark");
+    const mark = top.querySelector(".acpmux-queued-clamp");
     let ink: number;
     if (icon) ink = icon.getBoundingClientRect().left + 1.5;
     else {

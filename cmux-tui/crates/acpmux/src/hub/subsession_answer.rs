@@ -184,6 +184,8 @@ impl Hub {
             };
             (option, harness_answers(question, answers))
         };
+        // Held until the answer is delivered: an MDM off push waits for it (`family_gate`).
+        let family_gate = self.family_gate.read().await;
         self.receiver_check(caller, target).await?;
         let control = if Self::web_turn(caller) || Self::web_turn(target) {
             Control::Web
@@ -202,6 +204,7 @@ impl Hub {
             control,
         )
         .await?;
+        drop(family_gate);
         Ok(json!({"answered": true, "sessionId": target.id, "permissionId": permission_id}))
     }
 }
@@ -255,7 +258,10 @@ mod tests {
                 {"optionId": "no", "name": "No", "kind": "reject_once"},
             ],
         });
-        super::super::questions::normalize(&mut request);
+        super::super::questions::normalize(
+            &mut request,
+            super::super::questions::PreviewFormat::Monospace,
+        );
         let (reply, rx) = oneshot::channel();
         let id = uuid::Uuid::now_v7().to_string();
         let entry = PendingPermission {

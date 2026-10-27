@@ -3,9 +3,10 @@ import CmuxNextSettings
 import CmuxNextUpdater
 import CmuxNextWebUpdates
 import Foundation
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextBridge
+import CmuxNextPages
 import CmuxNextSidebar
 import WebKit
 #endif
@@ -116,7 +117,40 @@ extension AppControl {
                     let selected = pane?.stripModel.selectedID?.rawValue
                     state["selectedPage"] = .string(selected.flatMap { services.pages.page(ofTab: $0)?.rawValue
                         ?? pane?.tab(StripTabID($0))?.page } ?? "")
+                    // The Updated card's page in window points from the top-left (debug.mouse's points).
+                    if let page = sidebar.debugUpdatedPageView, let pageWindow = page.window {
+                        let frame = page.convert(page.bounds, to: nil)
+                        let top = InputJournal.topLeftPoint(NSPoint(x: frame.minX, y: frame.maxY), in: pageWindow, relativeTo: pageWindow)
+                        state["updatedFrame"] = .array([top.x, top.y, frame.width, frame.height].map { .number(Double($0)) })
+                        // Page CSS px times this are view points.
+                        state["updatedZoom"] = .number((page as? PageWebView)?.debugPageZoom ?? 1)
+                    }
+                    if let close = sidebar.debugUpdatedCloseButton, let closeWindow = close.window {
+                        let frame = close.convert(close.bounds, to: nil)
+                        let top = InputJournal.topLeftPoint(NSPoint(x: frame.minX, y: frame.maxY), in: closeWindow, relativeTo: closeWindow)
+                        state["updatedCloseFrame"] = .array([top.x, top.y, frame.width, frame.height].map { .number(Double($0)) })
+                    }
                     return .value(.object(state))
+                case "hit":
+                    // Which view a click at `x`,`y` (window points from the top-left) reaches: the
+                    // window's own hit test, as a real click takes it (the Updated card's x proofs).
+                    guard let window = services.windows.active?.window, let root = window.contentView?.superview ?? window.contentView,
+                          let x = call.params["x"]?.doubleValue, let y = call.params["y"]?.doubleValue else {
+                        throw ControlError.invalidParams("debug.update_surfaces: hit needs x and y")
+                    }
+                    let height = window.contentView?.bounds.height ?? window.frame.height
+                    let hit = root.hitTest(root.convert(NSPoint(x: x, y: height - y), from: nil))
+                    var chain: [JSONValue] = []
+                    var view = hit
+                    while let current = view, chain.count < 14 {
+                        chain.append(.string(String(describing: type(of: current))))
+                        view = current.superview
+                    }
+                    let inPage = sidebar.debugUpdatedPageView.map { hit?.isDescendant(of: $0) ?? false } ?? false
+                    let onClose = sidebar.debugUpdatedCloseButton.map { hit?.isDescendant(of: $0) ?? false } ?? false
+                    let firstMouse = hit?.acceptsFirstMouse(for: nil) ?? false
+                    return .value(.object(["chain": .array(chain), "inUpdatedPage": .bool(inPage), "onUpdatedClose": .bool(onClose),
+                                           "acceptsFirstMouse": .bool(firstMouse)]))
                 case "dismiss-updated":
                     services.updater.whatsNew.dismissUpdated()
                     return .value(.null)
@@ -144,7 +178,7 @@ extension AppControl {
         #endif
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// The web views under `view` (an open popover's page is in its own window).
     private static func webViewCount(in view: NSView) -> Int {
         view.subviews.reduce(view is WKWebView ? 1 : 0) { $0 + webViewCount(in: $1) }

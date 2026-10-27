@@ -1,7 +1,8 @@
 import AppKit
 
 /// The Home split's chat column: the page's chat (`content`, filling the column) with the chat's
-/// compose button over its top-left while the list shows avatars only. The button is the content's
+/// compose button over its top-left at every list width, as in Messages (hidden only while the
+/// New Message page is on screen). The button is the content's
 /// sibling, so a conversation or the New Message page the page adds to `content` never covers it.
 final class HomeChatColumnView: NSView {
     let content: NSView
@@ -25,7 +26,7 @@ final class HomeChatColumnView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    /// Shows the compose button while the list beside the chat shows avatars only.
+    /// Shows the compose button (every list width; off while New Message is on screen).
     var showsCompose: Bool {
         get { !compose.isHidden }
         set {

@@ -28,6 +28,11 @@ cmux-ci run --class exclusive --measurement --label measure \
   `baseline/<chip>-macos<major>.json` by more than 15 % and the unit's floor
   (5 ms, 15 MB, 2 mW, 0.1 %, 2 wakeups/s). The nightly job
   (`.github/workflows/cmux-next-perf-bench.yml`) runs it.
+- The gate also fails with `PERF-BENCH-GATE INCOMPLETE` when an expected row or
+  browser cell is missing. The checked-in baseline defines expected rows, so a
+  newly emitted row becomes expected after it is recorded in a baseline. An
+  intentional unsupported surface may be listed as `"row|browser"` in an
+  `unsupported` array in either JSON document.
 
 Quick iteration for one area (about 10 minutes):
 `--arg=rounds=1 --arg=launches=1 --arg=idle=20 --arg=active=15 --arg=browsers=cmux-chromium,helium`.
@@ -62,6 +67,13 @@ Budgets start advisory where the base breaks them; tighten the limit and enforce
 holds it. The scenario's sizes and settle times are in `budgets.json`; the idle windows follow
 `--arg=idle=` (60 s). `xbench.py gate` skips the `budget-*` rows: budgets.json gates them. The
 nightly runs it with the other browsers (about 11 minutes a round on cmux20).
+
+Overhead rows (plans/cmux-next/speed-of-sound-DESIGN.md, floor 0 at idle): disk writes KB/s,
+Mach messages/s, syscalls/s and context switches/s over the idle windows, process and thread
+counts, and a `/usr/bin/sample` call tree of the hidden app's main thread (logged as `hidden main:`
+lines and kept in results.json), so a Release build's idle wakeups get a named owner. The heavy
+scenario, `--arg=budgets=scripts/perf-bench/budgets-heavy.json`, adds 150 workspaces and 20 hidden
+terminals and Chromium tabs, and the `budget-memory-per-workspace` row.
 
 ## Tab switch in a real window
 
@@ -111,8 +123,8 @@ Baselines: `baseline/apple-m6-macos27.json` and `baseline/apple-m4-pro-macos27.j
 `baseline/tab-switch-apple-m6-macos27.json` (the matrix's full report).
 
 A fleet ref must have a published cmux-tui tree for the Debug build. feat-cmux-next moves faster than
-the publisher, so pin the ref first: `git push origin SHA:refs/heads/cmux-tui-pin-<sha12>` and wait
-until `files.cmux.com/cmux-tui/tree/<key>/cmux-tui-aarch64-apple-darwin.sha256` answers 200
+the publisher; re-run after a trusted feat-cmux-next publication, then wait until
+`files.cmux.com/cmux-tui/tree/<key>/cmux-tui-aarch64-apple-darwin.sha256` answers 200
 (`pin-cmux-tui.sh key --rev SHA`).
 
 ## Method
