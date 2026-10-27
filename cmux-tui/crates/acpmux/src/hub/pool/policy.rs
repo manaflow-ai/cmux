@@ -386,3 +386,7 @@ impl<T> Pool<T> {
             .collect()
     }
 }
+
+#[cfg(test)]
+#[path = "policy_tests.rs"]
+mod tests;
