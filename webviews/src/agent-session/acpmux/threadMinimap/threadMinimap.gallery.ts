@@ -95,7 +95,10 @@ const cardRows = [
     13.8,
     { toolCount: 2 },
   ),
-  assistant("The files are ready; [PR #25794](https://github.com/manaflow-ai/cmux/pull/25794) carries the review.", 13.6),
+  assistant(
+    "The files are ready; [PR #25794](https://github.com/manaflow-ai/cmux/pull/25794) carries the review.",
+    13.6,
+  ),
   summary(13.4, { durationMs: 34_000, toolCount: 2 }),
   user("Use a long token and keep the card readable", 12),
   assistant("A very-long-token-without-spaces-stays-contained while the card keeps its useful context.", 11.8),

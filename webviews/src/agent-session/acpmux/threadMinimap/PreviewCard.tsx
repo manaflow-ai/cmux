@@ -1,5 +1,5 @@
-// The minimap's preview card beside the hovered or focused mark: the prompt on one line with its
-// bookmark, then the start of the reply. Both rails (ThreadMinimap.tsx, ScrollMap.tsx) draw it.
+// The minimap's preview card: a two-line prompt with its bookmark, recorded turn details and a
+// four-line reply. Both rails (ThreadMinimap.tsx, ScrollMap.tsx) draw it.
 //
 // The card draws in the transcript scroller's parent, not in the rail. The scroller masks its soft
 // edges (conversation.css), and a masked ancestor is the card's backdrop root: inside it the blur
@@ -11,6 +11,7 @@
 import React, { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n";
+import { Icon } from "../icons/Icon";
 import { forwardWheel } from "../wheelPassThrough";
 import { BookmarkIcon } from "./BookmarkIcon";
 import type { MinimapTurnMetadata, ReplyBlock } from "./model";
@@ -143,17 +144,19 @@ export const PreviewCard = React.forwardRef<
           </span>
           {metadata.durationMs !== undefined && (
             <span className="acpmux-minimap__meta-token" data-meta="duration">
-              {Math.max(0, Math.round(metadata.durationMs / 1000))}s
+              {t("duration.s", { n: Math.max(0, Math.round(metadata.durationMs / 1000)) })}
             </span>
           )}
-          {metadata.toolCount !== undefined && (
+          {metadata.toolCount !== undefined && metadata.toolCount > 0 && (
             <span className="acpmux-minimap__meta-token" data-meta="tools">
               {metadata.toolCount === 1 ? t("toolRun.used.one") : t("toolRun.used.other", { n: metadata.toolCount })}
             </span>
           )}
           {metadata.fileCount !== undefined && (
             <span className="acpmux-minimap__meta-token" data-meta="files">
-              {metadata.fileCount === 1 ? t("toolRun.edited.one") : t("toolRun.edited.other", { n: metadata.fileCount })}
+              {metadata.fileCount === 1
+                ? t("toolRun.edited.one")
+                : t("toolRun.edited.other", { n: metadata.fileCount })}
             </span>
           )}
           {metadata.links.map((href) => (
@@ -171,12 +174,10 @@ export const PreviewCard = React.forwardRef<
           ))}
         </div>
       )}
-      {metadata?.failure && (
+      {(metadata?.failure || metadata?.failed) && (
         <div className="acpmux-minimap__failure" data-failure="true">
-          <span className="acpmux-minimap__failure-icon" aria-hidden="true">
-            !
-          </span>
-          <span>{metadata.failure}</span>
+          <Icon name="status.error" size={14} className="acpmux-minimap__failure-icon" />
+          <span>{metadata.failure || t("turn.failed")}</span>
         </div>
       )}
       {reply.length > 0 && (

@@ -12,6 +12,7 @@ export type MinimapTurnMetadata = {
   toolCount?: number;
   fileCount?: number;
   links: string[];
+  failed?: boolean;
   failure?: string;
 };
 export type MinimapTurn = {
@@ -86,7 +87,7 @@ export const SETTLE_FRAMES = 45;
 /// The landing highlight on the prompt's bubble.
 export const HIGHLIGHT_MS = 1400;
 export const HIGHLIGHT_EASING = "cubic-bezier(0.23, 1, 0.32, 1)";
-/// Blocks of a reply the preview keeps (the card clamps to three lines).
+/// Blocks of a reply the preview keeps (the card clamps to four lines).
 const PREVIEW_BLOCKS = 4;
 const PREVIEW_CHARS = 360;
 const METADATA_TEXT_LIMIT = 1024;
@@ -226,6 +227,55 @@ export function jumpDuration(distance: number): number {
 /// chat's snapshot hashes and previews only the turns that changed.
 const turnsByPrompt = new WeakMap<AcpmuxRow, { turn: MinimapTurn; sessionId: string; reply?: AcpmuxRow }>();
 
+type CardState = { metadata: MinimapTurnMetadata; files: ReadonlySet<string> };
+// Contributions join during the existing row walk. An unchanged row and prefix reuse the whole
+// state, including its sets: a streamed reply never revisits the preceding tool items or links.
+const cardStates = new WeakMap<AcpmuxRow, { before?: CardState; state: CardState }>();
+const cardFiles = new WeakMap<AcpmuxRow, readonly string[]>();
+const noFiles: ReadonlySet<string> = new Set();
+
+function cardState(row: AcpmuxRow, before?: CardState): CardState {
+  const cached = cardStates.get(row);
+  if (cached && cached.before === before) return cached.state;
+  let state = before ?? { metadata: { at: row.at, links: [] }, files: noFiles };
+  let metadata = state.metadata;
+  let files = state.files;
+  // A link discovered in a still-streaming reply is not stable yet. Read only its bounded prefix
+  // once it finishes; prompts are immutable and the row cache reads their links once.
+  if (!before || (row.kind === "assistant" && !row.streaming)) {
+    const links = [...(row.text ?? "").slice(0, METADATA_TEXT_LIMIT).matchAll(PR_LINK)].map((match) => match[0]);
+    const added = links.filter((link) => !metadata.links.includes(link));
+    if (added.length) metadata = { ...metadata, links: [...metadata.links, ...new Set(added)] };
+  }
+  if (row.kind === "activity") {
+    let paths = cardFiles.get(row);
+    if (!paths) {
+      paths = (row.items ?? []).flatMap((item) => item.tool?.diffs?.map((diff) => diff.canonical ?? diff.path) ?? []);
+      cardFiles.set(row, paths);
+    }
+    if (paths.some((path) => !files.has(path))) {
+      files = new Set([...files, ...paths]);
+      metadata = { ...metadata, fileCount: files.size };
+    }
+  }
+  const failure = row.error || row.delivery?.error || row.delivery?.reason;
+  const failed =
+    row.failed ||
+    row.delivery?.state === "failed" ||
+    (row.kind === "turnSummary" && (row.status === "failed" || row.status === "error"));
+  if (row.kind === "turnSummary" || (!before && (failure || failed)))
+    metadata = {
+      ...metadata,
+      ...(row.durationMs !== undefined && { durationMs: row.durationMs }),
+      ...(row.toolCount !== undefined && { toolCount: row.toolCount }),
+      ...(failed && { failed: true }),
+      ...(failure && { failure }),
+    };
+  if (metadata !== state.metadata || files !== state.files) state = { metadata, files };
+  cardStates.set(row, { before, state });
+  return state;
+}
+
 /// What a turn's tick on the rail shows: its prompt, by key. A tick changes only when its prompt
 /// does, not when the reply it previews streams on.
 export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt">;
@@ -293,50 +343,20 @@ export function minimapTurns(
   let user: AcpmuxRow | undefined;
   let userIndex = 0;
   let reply: AcpmuxRow | undefined;
-  const filePaths = new Set<string>();
-  const links = new Set<string>();
-  let summary: AcpmuxRow | undefined;
-  const resetTurn = () => {
-    filePaths.clear();
-    links.clear();
-    summary = undefined;
-  };
-  const addLinks = (text: string | undefined) => {
-    if (!text) return;
-    for (const match of text.slice(0, METADATA_TEXT_LIMIT).matchAll(PR_LINK)) links.add(match[0]);
-  };
-  const metadata = (): MinimapTurnMetadata | undefined => {
-    if (!user) return undefined;
-    const failure =
-      summary?.error ||
-      user.error ||
-      user.delivery?.error ||
-      user.delivery?.reason ||
-      (summary?.status === "failed" || summary?.status === "error" ? "Turn failed" : undefined);
-    if (!summary && !filePaths.size && !links.size && !failure) return undefined;
-    return {
-      at: user.at,
-      ...(summary?.durationMs !== undefined && { durationMs: summary.durationMs }),
-      ...(summary?.toolCount !== undefined && { toolCount: summary.toolCount }),
-      ...(filePaths.size > 0 && { fileCount: filePaths.size }),
-      links: [...links],
-      ...(failure && { failure }),
-    };
-  };
+  let details: CardState | undefined;
   const close = () => {
     if (!user) return;
     const kept = turnsByPrompt.get(user);
     const same = kept && kept.sessionId === sessionId && kept.turn.index === userIndex;
-    const nextMetadata = metadata();
-    if (same && kept.reply === reply) {
-      kept.turn.metadata = nextMetadata;
-      tail.push(kept.turn);
-    }
-    else if (same && reply?.text && kept.reply?.text && samePreview(kept.turn.reply, replyPreview(reply.text))) {
+    const nextMetadata = details?.metadata;
+    const sameReply =
+      same &&
+      (kept.reply === reply ||
+        (reply?.text && kept.reply?.text && samePreview(kept.turn.reply, replyPreview(reply.text))));
+    if (sameReply && kept.turn.metadata === nextMetadata) {
       // A reply streamed on past its preview (replyPreview stops once the preview is full): the
       // turn is the same, so the list of turns can be too.
       kept.reply = reply;
-      kept.turn.metadata = nextMetadata;
       tail.push(kept.turn);
     } else {
       const turn: MinimapTurn = {
@@ -344,7 +364,7 @@ export function minimapTurns(
         id: user.id,
         key: turnKey(sessionId, user),
         prompt: (user.text ?? "").replace(/\s+/g, " ").trim(),
-        reply: reply?.text ? replyPreview(reply.text) : [],
+        reply: sameReply ? kept.turn.reply : reply?.text ? replyPreview(reply.text) : [],
         metadata: nextMetadata,
       };
       turnsByPrompt.set(user, { turn, sessionId, reply });
@@ -352,7 +372,7 @@ export function minimapTurns(
     }
     user = undefined;
     reply = undefined;
-    resetTurn();
+    details = undefined;
   };
   const start = keep < (reuse?.turns.length ?? 0) ? reuse!.turns[keep]!.index : 0;
   for (let index = reuse && keep > 0 ? start : 0; index < rows.length; index += 1) {
@@ -362,17 +382,13 @@ export function minimapTurns(
       close();
       user = row;
       userIndex = index;
-      resetTurn();
-      addLinks(row.text);
+      details = cardState(row);
     } else if (user) {
       if (!reply && row.kind === "assistant" && row.text) {
         reply = row;
-        addLinks(row.text);
+        details = cardState(row, details);
       }
-      if (row.kind === "activity")
-        for (const item of row.items ?? [])
-          for (const diff of item.tool?.diffs ?? []) filePaths.add(diff.canonical ?? diff.path);
-      if (row.kind === "turnSummary") summary = row;
+      if (row.kind === "activity" || row.kind === "turnSummary") details = cardState(row, details);
     }
   }
   close();
