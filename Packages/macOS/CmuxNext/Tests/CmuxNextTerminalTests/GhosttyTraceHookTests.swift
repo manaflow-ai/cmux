@@ -5,6 +5,7 @@ import CmuxNextMetrics
 @testable import CmuxNextTrace
 @testable import CmuxNextWakeups
 import Darwin
+import Dispatch
 import Testing
 
 /// The Ghostty trace hook (p09-observability-049): `ghostty.render` around a frame, `frame.gpu_done` at its GPU
@@ -73,7 +74,13 @@ struct GhosttyTraceHookTests {
             key = probe.makeSurfaceKey()
             // The surface's input goes nowhere: these tests read only the trace hook.
             let lane = TerminalInputLane(drain: TerminalInputDrain(queue: DispatchQueue(label: "GhosttyTraceHookTests.input", qos: .utility)) { _, _ in .next })
-            bridge = SurfaceBridge(input: TerminalInputSink(lane: lane, typingSurface: key), echoStage: echoStage)
+            bridge = SurfaceBridge(input: TerminalInputSink(lane: lane, typingSurface: key), echoStage: echoStage,
+                                   frameMarks: hook.recorder)
+        }
+
+        /// Calls the surface's `presented_cb` as the renderer does for frame `frameID`; `presentedTime` 0: not shown.
+        func present(frameID: UInt64, presentedTime: Double = 1) {
+            ghosttySurfacePresented(Unmanaged.passUnretained(bridge).toOpaque(), frameID, mach_absolute_time(), presentedTime)
         }
 
         /// Calls the installed hook as Ghostty does for this surface.
@@ -187,6 +194,41 @@ struct GhosttyTraceHookTests {
         #expect(stages.gate.isOpen)
 
         rig.call(.contentsHandoff, seq: 1)
+        #expect(stages.sink.events == [.echoParsed, .contentSubmitted])
+        #expect(!stages.gate.isOpen)
+    }
+
+    /// p03-rendering-081: with renderer-owned frames the renderer presents off main and reports each frame through
+    /// the surface's `presented_cb`: that is the probe's contents mark, with no trace hook set, and a presented frame
+    /// never waits for its GPU work. A frame that was not shown marks nothing.
+    @Test func thePresentedFrameMarksTheParsedPressWithoutWaitingForTheGPU() throws {
+        let heard = Heard()
+        let trace = RecordLog().runtime()
+        let probe = TypingLatencyProbe(path: nil, trace: trace, hopRecorder: { heard.hop($0, $1) })
+        probe.startFlows()
+        defer { probe.stopFlows() }
+        let rig = Rig(trace: trace, probe: probe, heard: heard)
+        let flow = try parsedPress(probe, on: rig.key)
+
+        rig.present(frameID: 1, presentedTime: 0)
+        #expect(!heard.has("app.frame.contents", flow), "a frame that was not shown shows no echo")
+        rig.present(frameID: 2)
+        #expect(heard.has("app.frame.contents", flow))
+        #expect(!rig.hook.isInstalled, "the presented frames need no trace hook")
+        probe.turnDidEnd()
+        #expect(probe.takePresentCommits() == [FramePresentEstimate.Commit(flow: flow, display: 7, awaitsGPU: false)])
+        #expect(heard.gpuFlows.isEmpty)
+    }
+
+    @Test func thePresentedFrameIsTheEchoStagesFrame() throws {
+        let stages = TerminalEchoStageTests.Rig()
+        let trace = TraceRuntime(role: .app)
+        let rig = Rig(trace: trace, probe: TypingLatencyProbe(path: nil, trace: trace), gate: stages.gate, echoStage: stages.stage)
+        try stages.key(at: 1_000)
+        stages.echo()
+        #expect(stages.gate.isOpen)
+
+        rig.present(frameID: 1)
         #expect(stages.sink.events == [.echoParsed, .contentSubmitted])
         #expect(!stages.gate.isOpen)
     }

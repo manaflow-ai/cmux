@@ -18,12 +18,17 @@
 //! {"id":1,"ok":true,"data":{"app":"cmux-tui","session":"main",...}}
 //! ```
 
+// std's Mutex, RwLock and Condvar wait untimed; cmux_threads::sync times
+// them (cmux-tui/clippy.toml, p02-threads.md task 227).
+#![cfg_attr(not(test), deny(clippy::disallowed_types))]
+
 #[cfg(test)]
 use crate::mux::DaemonHandoffRequest;
 #[cfg(test)]
 use crate::workspace_registry::TerminalLifecycle;
 #[cfg(test)]
 use base64::Engine;
+use cmux_threads::sync::Mutex;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::Write;
 #[cfg(test)]
@@ -33,7 +38,7 @@ use std::net::TcpListener;
 use std::net::{Shutdown, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -297,6 +302,8 @@ mod chief_control;
 mod chief_engine_mirror;
 /// `energy.set` and `energy.status` (p14-energy-033).
 pub(crate) mod energy_op;
+/// The app's Energy Saver rule for the daemon's own reading (p14-energy-137).
+pub(crate) mod energy_rule;
 pub(crate) use chief_engine_mirror::{
     engine_file as chief_engine_file, write as write_chief_engine_file,
 };
@@ -2329,6 +2336,9 @@ use worker_admission::{
     ServerSurfaceAdmissionError, ServerSurfaceBytesPermit,
 };
 
+// The frame variant of the attach writer; no transport serves it yet.
+#[cfg_attr(not(test), expect(dead_code, reason = "no transport serves attach-frames-v1 yet"))]
+mod attach_frames;
 mod render_service;
 use render_service::{
     BudgetedJsonWriter, BudgetedText, RenderService, json_error_to_io, write_base64_json_string,
@@ -2341,8 +2351,11 @@ mod message_writer;
 use message_writer::{MessageSink, MessageWriter, OutboundStream};
 
 mod request_watchdog;
+#[cfg(unix)]
+pub(crate) use request_watchdog::process_report_holder_hang;
 #[cfg(debug_assertions)]
 pub(crate) use request_watchdog::spawn_owner_hang_test;
+pub use request_watchdog::{EchoItem, EchoWatch};
 pub(crate) use request_watchdog::{
     FrameStage, RequestScope, RequestWatchdog, WatchKind, WatchedMethod, process_enter,
     process_exit,
@@ -2359,6 +2372,7 @@ use connection_scheduler::{
 };
 
 mod bounded_outbound;
+pub(crate) use bounded_outbound::bulk_frame_max_from_env;
 use bounded_outbound::{
     BoundedOutbound, ConnectionPermit, OutboundItem, QueuedSink, SinkControl,
     SynchronizedTcpStream, claim_connection, write_line_outbound_item,
@@ -2404,9 +2418,10 @@ mod disconnect;
 pub use disconnect::detach_control_client;
 pub use disconnect::detach_size_participant;
 use disconnect::{
-    complete_daemon_shutdown_after_ack, detach_actor, detach_own_view, detached_event_json,
-    disconnect_client, kick_client, own_view_detach_target, size_state_event_json,
-    size_state_for_client,
+    SizeStateReader, complete_daemon_shutdown_after_ack, detach_actor, detach_own_view,
+    detached_event_json, disconnect_client, kick_client, kick_terminal_views,
+    own_view_detach_target, size_state_event_json, size_state_for_client,
+    terminal_views_kick_target,
 };
 
 mod journal_filter;
@@ -2566,8 +2581,8 @@ use terminal_colors::terminal_colors_json;
 mod render_messages;
 use render_messages::{
     AttachWireShape, RenderClientState, VtStateMessage, browser_state_message,
-    render_state_message, send_browser_attach_update, styled_run_json, write_output_flow_json,
-    write_pending_sequence_json,
+    encode_browser_attach_update, render_state_message, send_encoded_browser_attach_update,
+    styled_run_json, write_output_flow_json, write_pending_sequence_json,
 };
 #[cfg(test)]
 use render_messages::{browser_frame_json, render_graphics_message};

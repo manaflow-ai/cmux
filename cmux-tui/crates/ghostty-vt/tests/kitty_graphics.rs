@@ -1031,3 +1031,34 @@ fn replay_keeps_anonymous_placements_separate_from_later_explicit_ids() {
     assert_eq!(source.kitty_graphics_snapshot().unwrap().placements.len(), 3);
     assert_eq!(mirror.kitty_graphics_snapshot().unwrap().placements.len(), 3);
 }
+
+/// Critical memory pressure clears both decoded pixel maps (p07-memory-073).
+/// The clear frees every copy, and the next frame and replay copy the same
+/// pixels again from libghostty's storage, so a shown placement still draws.
+#[test]
+fn kitty_pixel_maps_clear_and_rebuild_the_same_pixels() {
+    let mut source = terminal();
+    source.vt_write(&kitty("a=T,t=d,f=24,i=60,p=1,s=1,v=1,q=2", "/wAA"));
+    let mut render = RenderState::new().unwrap();
+    render.update(&mut source).unwrap();
+    let before = render.build_frame().unwrap();
+    assert_eq!(&*before.kitty_graphics.image(60).unwrap().data, &[255, 0, 0]);
+    assert!(render.kitty_pixel_cache_bytes() > 0);
+    let replay_before = source.vt_replay_bytes().unwrap();
+    assert!(source.kitty_replay_pixel_cache_bytes() > 0);
+
+    render.clear_kitty_graphics_cache();
+    source.clear_kitty_replay_pixel_cache();
+    assert_eq!(render.kitty_pixel_cache_bytes(), 0);
+    assert_eq!(source.kitty_replay_pixel_cache_bytes(), 0);
+
+    render.update(&mut source).unwrap();
+    let after = render.build_frame().unwrap();
+    assert_eq!(&*after.kitty_graphics.image(60).unwrap().data, &[255, 0, 0]);
+    assert_eq!(after.kitty_graphics.placements, before.kitty_graphics.placements);
+    let replay_after = source.vt_replay_bytes().unwrap();
+    assert_eq!(replay_after, replay_before);
+    let mut mirror = terminal();
+    mirror.vt_write(&replay_after);
+    assert_eq!(&*mirror.kitty_graphics_snapshot().unwrap().image(60).unwrap().data, &[255, 0, 0]);
+}

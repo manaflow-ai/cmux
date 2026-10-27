@@ -10,6 +10,9 @@ import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextWakeups
 import os
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Runs a quit (user decision 2026-09-30). `applicationShouldTerminate`
 /// hands every quit here: it takes the origin (`QuitOriginTracker`), reads
@@ -93,26 +96,33 @@ final class QuitCoordinator {
         logger.info("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public)")
         // [services]: the quit task pins the app's services until it ends (cx-6so P1b). The rest of the quit a person
         // (or the system) asked for, at user-blocking priority; it drains BackgroundWork itself, so shutdown lets it run on.
-        services.work.task(.userBlocking, shutdown: .continueOnShutdown) { @MainActor [self, services] in
-            // Unsaved documents come first (R96 quit hook). Answering that
-            // question is the quit's one dialog: the sessions are not asked
-            // about after it (#17501).
-            let askedUnsaved = origin == .interactive && !unsaved.unsaved().isEmpty
-            guard await resolveUnsaved(origin) else {
-                isQuitting = false
-                sender.reply(toApplicationShouldTerminate: false)
-                return
-            }
-            let facts = QuitPolicy.needsFacts(origin) && !askedUnsaved ? await QuitFactsReader.read(services) : .none
-            switch QuitPolicy.decide(origin, behavior: behavior, facts: facts, alreadyAsked: askedUnsaved) {
-            case .quit(let choice):
-                await complete(choice, remember: false, sender)
-            case .ask(let prompt):
-                ask(prompt, sender, activate: Self.shouldActivate(origin, isActive: NSApp.isActive,
-                                                                  noActivate: WindowPlacement.noActivate))
-            }
+        // The body is main-actor (decideQuit); the task captures only Sendable values.
+        services.work.task(.userBlocking, shutdown: .continueOnShutdown) { [self, services] in
+            await decideQuit(origin, behavior: behavior, sender)
+            withExtendedLifetime(services) {}
         }
         return .terminateLater
+    }
+
+    /// The rest of `shouldTerminate(_:)`'s quit: the unsaved step, then the policy's answer.
+    private func decideQuit(_ origin: QuitOrigin, behavior: QuitBehavior, _ sender: NSApplication) async {
+        // Unsaved documents come first (R96 quit hook). Answering that
+        // question is the quit's one dialog: the sessions are not asked
+        // about after it (#17501).
+        let askedUnsaved = origin == .interactive && !unsaved.unsaved().isEmpty
+        guard await resolveUnsaved(origin) else {
+            isQuitting = false
+            sender.reply(toApplicationShouldTerminate: false)
+            return
+        }
+        let facts = QuitPolicy.needsFacts(origin) && !askedUnsaved ? await QuitFactsReader.read(services) : .none
+        switch QuitPolicy.decide(origin, behavior: behavior, facts: facts, alreadyAsked: askedUnsaved) {
+        case .quit(let choice):
+            await complete(choice, remember: false, sender)
+        case .ask(let prompt):
+            ask(prompt, sender, activate: Self.shouldActivate(origin, isActive: NSApp.isActive,
+                                                              noActivate: WindowPlacement.noActivate))
+        }
     }
 
     /// The unsaved step for `origin` (`QuitUnsavedStep.resolve`).
@@ -141,8 +151,8 @@ final class QuitCoordinator {
                 sender.reply(toApplicationShouldTerminate: false)
             case .quit(let choice, let remember):
                 // The rest of the person's answer, as above: it drains BackgroundWork itself.
-                self.services.work.task(.userBlocking, shutdown: .continueOnShutdown) { @MainActor [services = self.services] in
-                    await self.complete(choice, remember: remember, sender)
+                self.services.work.task(.userBlocking, shutdown: .continueOnShutdown) { [self, services = self.services] in
+                    await complete(choice, remember: remember, sender)
                     withExtendedLifetime(services) {} // pins the app's services until the quit ends
                 }
             }
@@ -279,7 +289,7 @@ final class QuitCoordinator {
     private static func windowPictureShots(_ services: AppServices, terminals: [String: NSImage], agents: [String: NSImage],
                                            pages: [String: BrowserLaunchPictures.Picture], secureInput: Set<String>) -> [WindowPictureStore.Shot] {
         let input = services.themeStore.input, build = WindowPictureMeta.build(of: .main)
-        let theme = WindowPictureMeta.themeFingerprint(input: input, app: services.themeStore.appTheme)
+        let theme = WindowPictureMeta.themeFingerprint(input: input, app: services.themeStore.appTheme ?? services.themeStore.tokens.app)
         let background = WindowPictureStore.Color(red: input.background.red, green: input.background.green, blue: input.background.blue)
         return services.windows.controllers.compactMap { controller -> WindowPictureStore.Shot? in
             let state = controller.state, root = controller.root
@@ -325,7 +335,8 @@ final class QuitCoordinator {
 
     /// Shows "Some sessions did not end" and waits for the answer.
     private func confirm(_ failures: [EndSessionsFailure]) async -> QuitFailureAnswer {
-        await withCheckedContinuation { continuation in
+        // An alert dropped unanswered quits anyway, as a coordinator gone does (`confirmFailures`).
+        let chosen = try? await withOnceContinuation { (continuation: OnceContinuation<QuitFailureAnswer, OnceContinuationError>) in
             let alert = QuitFailureAlert(failures: failures) { [weak self] answer in
                 self?.failureAlert = nil
                 self?.logger.info("quit end failures answer=\(String(describing: answer), privacy: .public)")
@@ -334,6 +345,7 @@ final class QuitCoordinator {
             failureAlert = alert
             alert.present(in: sheetWindow())
         }
+        return chosen ?? .quitAnyway
     }
 
     /// The active shell window when it can carry a sheet.

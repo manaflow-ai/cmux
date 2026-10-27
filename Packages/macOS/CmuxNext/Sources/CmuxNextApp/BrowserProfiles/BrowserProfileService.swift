@@ -7,6 +7,9 @@ import CmuxNextWakeups
 import Foundation
 import Observation
 import os
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Browser profiles of this app install (plans/cmux-next/data-model.md 5):
 /// the records, which profile a new tab gets, and each tab's engine store.
@@ -82,7 +85,7 @@ final class BrowserProfileService {
     /// Waits until the file was read.
     func loaded() async {
         if isLoaded { return }
-        await withCheckedContinuation { done in loadRead.post { done.resume() } }
+        _ = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in loadRead.post { done.resume(returning: ()) } }
     }
 
     // MARK: Records

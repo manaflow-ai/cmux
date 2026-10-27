@@ -128,9 +128,9 @@ struct VisibilityGatedHostingViewTests {
 
         fixture.tab.set(.hidden)
         #expect(gate.isGated)
-        fixture.tab.setCaptured(true)
+        let capture = fixture.tab.captureVote(reason: "test capture", stayHidden: true)
         #expect(!gate.isGated, "a capture vote reads the live page")
-        fixture.tab.setCaptured(false)
+        capture.release()
         #expect(gate.isGated, "the vote released: out again")
     }
 

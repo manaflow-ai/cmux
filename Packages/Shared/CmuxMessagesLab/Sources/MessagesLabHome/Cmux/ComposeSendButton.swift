@@ -8,35 +8,42 @@ import AppKit
 ///
 /// Look (plans/cmux-next/send-button/gallery.html, design 1 "Graphite disc", Recommended): a
 /// 24 pt disc, near-black with a white arrow on a light theme, light gray with a dark arrow on a
-/// dark one; no accent colour. The view is the 28 pt hit target around the disc.
-final class ComposeSendButton: NSView {
+/// dark one; no accent colour. Its layer is the 28 pt hit target around the disc, drawn in the compose
+/// bar's one controls view (`ComposeChromeView`, p03-rendering-074), which hit-tests and tracks it.
+@MainActor
+final class ComposeSendButton {
     /// A click or VoiceOver press on an enabled, shown button.
     var onSend: () -> Void = {}
+    /// The view it is drawn in (p03-rendering-074: a layer of `ComposeChromeView`, no view of its own).
+    weak var owner: ComposeChromeView? { didSet { element.view = owner } }
 
+    /// The 28 pt hit target, in the owner's coordinates (y down).
+    let layer = CALayer()
     private let disc = CALayer()
     private let arrow = CAShapeLayer()
+    /// The button for VoiceOver and the accessibility API.
+    let element = ComposeChromeElement()
     private(set) var isShown = false
     private(set) var isEnabled = false
     private var isLight = false
     private var hovering = false
     private var pressing = false
-    private var tracking: NSTrackingArea?
 
-    /// The hit target (and the view's size).
+    /// The hit target (and the layer's size).
     static let target: CGFloat = ComposeSendSlot.target
     /// The visible disc.
     static let diameter: CGFloat = 24
     /// The scale and opacity the disc grows from and shrinks to.
     static let hiddenScale: CGFloat = 0.55
 
-    override init(frame: NSRect) {
-        super.init(frame: NSRect(origin: frame.origin, size: NSSize(width: Self.target, height: Self.target)))
-        wantsLayer = true
-        layer?.masksToBounds = false
+    init() {
         let none: [String: CAAction] = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull(),
-                                        "transform": NSNull(), "opacity": NSNull(), "strokeColor": NSNull(), "path": NSNull()]
+                                        "transform": NSNull(), "opacity": NSNull(), "strokeColor": NSNull(), "path": NSNull(),
+                                        "hidden": NSNull(), "contentsScale": NSNull()]
+        layer.actions = none
         disc.actions = none
         arrow.actions = none
+        layer.bounds = CGRect(x: 0, y: 0, width: Self.target, height: Self.target)
         let inset = (Self.target - Self.diameter) / 2
         disc.frame = CGRect(x: inset, y: inset, width: Self.diameter, height: Self.diameter)
         disc.cornerRadius = Self.diameter / 2
@@ -47,18 +54,39 @@ final class ComposeSendButton: NSView {
         arrow.lineJoin = .round
         arrow.path = Self.arrowPath(in: disc.bounds)
         disc.addSublayer(arrow)
-        layer?.addSublayer(disc)
+        layer.addSublayer(disc)
         disc.opacity = 0
         disc.transform = CATransform3DMakeScale(Self.hiddenScale, Self.hiddenScale, 1)
-        setAccessibilityIdentifier("cmux.home.composer.send")
-        setAccessibilityLabel(CmuxStrings.send)
-        setAccessibilityRole(.button)
-        toolTip = CmuxStrings.send
+        element.setAccessibilityIdentifier("cmux.home.composer.send")
+        element.setAccessibilityLabel(CmuxStrings.send)
+        element.setAccessibilityEnabled(false)
+        element.onPress = { [weak self] in self?.press() ?? false }
         applyColors()
     }
-    required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
+    /// The hit target in the owner's coordinates. A move changes the layer's position only (no
+    /// layout, no display); the owner's cursor, tool tip and hover rects follow.
+    var frame: CGRect {
+        get { layer.frame }
+        set {
+            guard newValue != layer.frame else { return }
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            layer.frame = newValue
+            CATransaction.commit()
+            element.frameInView = newValue
+            owner?.controlsChanged(visibility: false)
+        }
+    }
+    /// The visible disc in the owner's coordinates (the focus ring's shape).
+    var discFrame: CGRect {
+        let inset = (Self.target - Self.diameter) / 2
+        return frame.insetBy(dx: inset, dy: inset)
+    }
+
+    /// The window's scale: the arrow's shape rasterizes at it.
+    func rescale(_ s: CGFloat) {
+        for l in [layer, disc, arrow] where l.contentsScale != s { l.contentsScale = s }
+    }
 
     /// The up arrow, 12 pt, centred in the disc (flipped: y down).
     private static func arrowPath(in r: CGRect) -> CGPath {
@@ -78,12 +106,12 @@ final class ComposeSendButton: NSView {
     func set(shown: Bool, enabled: Bool, animated: Bool) {
         let enabledChanged = enabled != isEnabled
         isEnabled = enabled
-        setAccessibilityEnabled(enabled)
+        if enabledChanged { element.setAccessibilityEnabled(enabled) }
         if shown != isShown {
             isShown = shown
             if !shown { pressing = false; hovering = false }
-            NSAccessibility.post(element: self, notification: .layoutChanged)
             transition(animated: animated)
+            owner?.controlsChanged(visibility: true)
         }
         if enabledChanged { applyColors() }
     }
@@ -155,34 +183,21 @@ final class ComposeSendButton: NSView {
         CATransaction.commit()
     }
 
-    // MARK: Pointer
+    // MARK: Pointer (the owner tracks it: ComposeChromeView)
 
-    override func hitTest(_ point: NSPoint) -> NSView? { isShown ? super.hitTest(point) : nil }
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func resetCursorRects() { if isShown { addCursorRect(bounds, cursor: .arrow) } }
+    /// The pointer is over the button (its owner's hover area).
+    func setHovering(_ on: Bool) {
+        guard on != hovering else { return }
+        hovering = on
+        applyColors()
+    }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let t = tracking { removeTrackingArea(t) }
-        let t = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
-        addTrackingArea(t)
-        tracking = t
-    }
-    override func mouseEntered(with event: NSEvent) { hovering = true; applyColors() }
-    override func mouseExited(with event: NSEvent) { hovering = false; applyColors() }
-
-    override func mouseDown(with event: NSEvent) {
-        guard isShown else { return }
-        pressing = true; applyColors()
-    }
-    override func mouseDragged(with event: NSEvent) {
-        let inside = bounds.contains(convert(event.locationInWindow, from: nil))
-        if inside != pressing { pressing = inside; applyColors() }
-    }
-    override func mouseUp(with event: NSEvent) {
-        let inside = bounds.contains(convert(event.locationInWindow, from: nil))
-        pressing = false; applyColors()
-        if inside { press() }
+    /// A press is held on the button with the pointer over it.
+    func setPressing(_ on: Bool) {
+        let on = on && isShown
+        guard on != pressing else { return }
+        pressing = on
+        applyColors()
     }
 
     /// Sends when shown and enabled (a click, VoiceOver, the keyboard).
@@ -190,21 +205,5 @@ final class ComposeSendButton: NSView {
         guard isShown, isEnabled else { return false }
         onSend()
         return true
-    }
-
-    // MARK: Accessibility and keyboard
-
-    override func isAccessibilityElement() -> Bool { isShown }
-    override func accessibilityPerformPress() -> Bool { press() }
-
-    /// Full Keyboard Access: Tab reaches the button, Space or Return presses it; the focus ring is
-    /// the disc's circle.
-    override var acceptsFirstResponder: Bool { isShown && NSApp.isFullKeyboardAccessEnabled }
-    override var canBecomeKeyView: Bool { acceptsFirstResponder }
-    override var focusRingMaskBounds: NSRect { disc.frame }
-    override func drawFocusRingMask() { NSBezierPath(ovalIn: disc.frame).fill() }
-    override func keyDown(with event: NSEvent) {
-        if event.keyCode == 49 || event.keyCode == 36 || event.keyCode == 76 { press(); return }
-        super.keyDown(with: event)
     }
 }

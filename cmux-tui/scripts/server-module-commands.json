@@ -118,7 +118,7 @@
               "presence": "required"
             }
           },
-          "handler": "try_handle"
+          "handler": "handle"
         }
       },
       "authority": "local-admin"

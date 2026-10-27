@@ -1,4 +1,5 @@
 import CmuxNextIPC
+import CmuxNextTrace
 import Dispatch
 import Foundation
 
@@ -13,16 +14,36 @@ import Foundation
 /// serial queue drains them, input before control before bulk, call order within
 /// a priority. Only that queue's thread ever waits on the socket. Past `limit`
 /// queued bytes a write fails with ``FrameWriter/Failure/backlog(queued:)``.
+///
+/// Each drain step (one send) is one `daemon.write` hang scope of ``writeHangDeadline``; a write waiting in
+/// the FIFOs is in none. Chrome watches each IO-thread task the same way (base/threading/hang_watcher.h,
+/// `WatchHangsInScope` per task of `ThreadControllerWithMessagePumpImpl`).
 final class SocketWriter: Sendable {
+    /// One drain step's budget: a jank past it, a hang dump 2 s later. A step sends at most 64 KiB or one
+    /// bulk chunk, so a send stuck this long means the daemon stopped reading its socket.
+    static let writeHangDeadline: Duration = .seconds(2)
+
     private let writer: FrameWriter
+    /// Watches each drain step on the drain queue, never a write waiting its turn; nil watches nothing.
+    private let hangWatched: HangWatchedLane?
 
     /// - Parameter qos: The drain queue's class, chosen by the owner from what the connection
     ///   carries (``DaemonWireStats/Role/writerQoS``).
     /// - Parameter target: A serial queue the drain runs on (its target), nil for none. A terminal attach
     ///   passes its input lane's queue: a key written from that queue is sent to the socket on the same
     ///   thread, after the lane's turn, with no second thread hop.
-    init(fd: Int32, label: String, qos: DispatchQoS, target: DispatchQueue? = nil, limit: Int = FrameWriter.defaultLimit) {
-        writer = FrameWriter(sink: SocketFrameSink(fd: fd), label: label, qos: qos, target: target, limit: limit)
+    /// - Parameter hangs: Watches each drain step as the `daemon.write` lane; nil watches nothing.
+    init(fd: Int32, label: String, qos: DispatchQoS, target: DispatchQueue? = nil, limit: Int = FrameWriter.defaultLimit,
+         hangs: (any HangWatchScoping)? = nil) {
+        let watched = hangs.map { HangWatchedLane("daemon.write", deadline: Self.writeHangDeadline, on: $0) }
+        hangWatched = watched
+        let runStep = watched.map { lane -> FrameWriter.StepRunner in { step in lane.run(step) } }
+        writer = FrameWriter(sink: SocketFrameSink(fd: fd), label: label, qos: qos, target: target, limit: limit,
+                             runStep: runStep)
+    }
+
+    deinit {
+        hangWatched?.unregister()
     }
 
     /// Appends `bytes` at control priority, after everything written before at

@@ -2,6 +2,9 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextWakeups
 import os
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The quit's unsaved-changes step (R96 quit hook), before the terminals
 /// question. An interactive or explicit quit asks "Save changes before
@@ -77,25 +80,33 @@ enum QuitUnsavedStep {
         let progress = CmuxDialogSpec(title: QuitStrings.unsavedTitle,
                                       lines: participants.map { QuitStrings.unsavedSaving($0.quitTitle) },
                                       buttons: [.cancel(ConfirmationStrings.cancel)], identifier: "cmux.dialog.quitUnsavedSaving")
-        return await withCheckedContinuation { (continuation: CheckedContinuation<[QuitFlushOutcome]?, Never>) in
-            let race = SaveRace(continuation)
+        // A race dropped unanswered ends the wait abandoned: the quit stops, as on Cancel.
+        return try? await withOnceContinuation { (continuation: OnceContinuation<[QuitFlushOutcome]?, OnceContinuationError>) in
+            let race = SaveRace(continuation, participants: participants)
             race.dialogID = center.present(progress, in: scope) { _ in race.finish(nil) }
-            // The participants are main-actor documents, so the save's body stays on main.
-            work.task(.userBlocking) { @MainActor in
-                let outcomes = await registry.save(participants)
-                if race.finish(outcomes), let id = race.dialogID { center.dismiss(id) }
-            }
+            // The participants are main-actor documents, so the save's body stays on main. The task reaches
+            // them through the main-actor race, so it captures no non-Sendable value.
+            work.task(.userBlocking) { await race.save(with: registry, center: center) }
         }
     }
 
     /// The save against the person's Cancel: the first one answers.
     @MainActor
     final class SaveRace {
-        private var continuation: CheckedContinuation<[QuitFlushOutcome]?, Never>?
+        private var continuation: OnceContinuation<[QuitFlushOutcome]?, OnceContinuationError>?
         var dialogID: Int?
+        /// The documents the save writes.
+        let participants: [any QuitUnsavedParticipant]
 
-        init(_ continuation: CheckedContinuation<[QuitFlushOutcome]?, Never>) {
+        init(_ continuation: OnceContinuation<[QuitFlushOutcome]?, OnceContinuationError>, participants: [any QuitUnsavedParticipant]) {
             self.continuation = continuation
+            self.participants = participants
+        }
+
+        /// Saves the participants; when the save answered first, its progress dialog goes.
+        func save(with registry: QuitUnsavedRegistry, center: CmuxDialogCenter) async {
+            let outcomes = await registry.save(participants)
+            if finish(outcomes), let dialogID { center.dismiss(dialogID) }
         }
 
         /// True when this call answered (the other side came too late).

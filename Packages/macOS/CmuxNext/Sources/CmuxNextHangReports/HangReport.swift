@@ -67,6 +67,13 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         /// Whether a report in this schema carries ``HangReport/histograms``, ``HangReport/stability``,
         /// ``HangReport/blackbox`` and ``HangReport/launchSections`` (p09-observability-063).
         public var carriesFieldData: Bool { self == .v3 }
+        /// Whether a report in this schema has the hang watch's samples of other threads
+        /// (``HangSample/threadHang(_:durationMs:frames:)``: source `hangwatch`, kind `hang`, `"thread": {"name", "kind"}`;
+        /// p09-observability-068; the schema-3 decoder lists them: web/services/hangReports/wireSchema.ts `HangV3`).
+        public var carriesThreadHangs: Bool { self == .v3 }
+        /// Whether a report in this schema carries ``HangReport/featuresHash`` and ``HangReport/features``
+        /// (p12-perf-process-151; the schema-3 decoder lists them: web/services/hangReports/wireSchema.ts).
+        public var carriesFeatures: Bool { self == .v3 }
     }
 
     /// The wire schema a report is written in by default (``WireSchema/deployed``).
@@ -88,6 +95,41 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     public static let inputQueueingInterval = "main.input_queueing"
     /// The most active seconds one report names (31 days); a larger count is sent as this.
     public static let maxActiveSeconds = 31 * 86_400
+    /// The most non-default features one report names.
+    public static let maxFeatures = 64
+
+    /// A launch's features as the app passes them (`CmuxNextFeatures`' `FeatureFieldState`): the hash of
+    /// every feature's value and the features an input other than the channel default decided.
+    public struct FeatureState: Sendable, Equatable {
+        /// 16 lowercase hex digits.
+        public var hash: String
+        /// The features an override decided, sorted by name.
+        public var nonDefault: [FeatureEntry]
+
+        /// Makes the value from its parts.
+        public init(hash: String, nonDefault: [FeatureEntry]) {
+            self.hash = hash
+            self.nonDefault = nonDefault
+        }
+    }
+
+    /// One feature an override decided: its registry name, `on` or `off`, and the input that decided it
+    /// (`policy`, `env`, `local`, `remote` or `trial`). Names only.
+    public struct FeatureEntry: Codable, Sendable, Equatable {
+        /// The registry name (`schemas/features/features.d/<name>.json`).
+        public var name: String
+        /// `on` or `off`.
+        public var state: String
+        /// The input that decided it.
+        public var source: String
+
+        /// Makes the value from its parts.
+        public init(name: String, state: String, source: String) {
+            self.name = name
+            self.state = state
+            self.source = source
+        }
+    }
 
     /// The app that wrote the report.
     public struct App: Codable, Sendable, Equatable {
@@ -200,6 +242,13 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     public var blackbox: [BlackBoxEvent]?
     /// Earlier launches' histograms and stability counts, each under its own profile; schema 3 only.
     public var launchSections: [LaunchSection]?
+    /// The hash of every feature's value this launch (``FeatureState/hash``): the features arm the field
+    /// import groups by. Schema 3 only; nil, and so absent from the JSON, in schema 2, in an older report and
+    /// when the app passed none.
+    public var featuresHash: String?
+    /// The features an override decided this launch, sorted by name (at most ``maxFeatures``); present
+    /// with ``featuresHash``.
+    public var features: [FeatureEntry]?
 
     /// Makes the value from its parts.
     public init(reportId: String, installId: String, day: String, app: App, os: OS, hardware: HardwareClass,
@@ -244,6 +293,8 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         case activeSeconds = "active_seconds"
         case histograms, stability, blackbox
         case launchSections = "launch_sections"
+        case featuresHash = "features_hash"
+        case features
     }
 
     /// The wire encoder: sorted keys, so the same report always has the same bytes.

@@ -1,6 +1,9 @@
 public import AppKit
 public import CmuxNextCompat
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The app's last New Tab page frames (cx-ec99), one per pane size: a New Tab page that has not
 /// painted draws the one at its size, so Cmd-T never shows an empty pane. Each size keeps its own,
@@ -103,8 +106,11 @@ public final class AgentPaneNewTabFrame {
                 let takenAt = self.generation, before = self.shows(view.model)
                 guard self.capturesFrames, size != .zero, before.0, self.image(size: size, appearance: appearance) == nil else { return }
                 // One page frame first: an answer handed to the page before this is drawn by then.
-                await withCheckedContinuation { done in redraw.afterNextFrame { done.resume() } }
-                guard self.capturesFrames, view.window != nil, !view.isHiddenOrHasHiddenAncestor, view.isDescendant(of: host),
+                // A page that drops its frame callback releases `done` (AgentPageRedraw): abandoned, nothing to capture.
+                let framed: Void? = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in
+                    redraw.afterNextFrame { done.resume(returning: ()) }
+                }
+                guard framed != nil, self.capturesFrames, view.window != nil, !view.isHiddenOrHasHiddenAncestor, view.isDescendant(of: host),
                       host.bounds.size == size, let snapshot = await view.pageSnapshot(), snapshot.size == size, view.snapshotKeepsClearAreas,
                       takenAt == self.generation, self.shows(view.model) == before else { return }
                 self.store(snapshot, size: size, appearance: appearance, generation: takenAt)

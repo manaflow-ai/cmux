@@ -78,9 +78,32 @@ runner that launch is also validated again with the tag's pids
 scripts/perf-lab/stories.d/launch-cold.json, launch-cold-realistic.json,
 launch-warm-realistic.json, launch-after-reboot.json, and launch-warm.json.
 
+--corpus MANIFEST launches from a corpus launch story's saved session instead of a
+--profile (perf-corpus/launch-restore.json, task p12-perf-process-121; the story's
+module, scripts/perf-lab/corpus/launch_restore.py, says how). Seeding imports the
+story's layout snapshot in a fresh bench launch once per layout digest and reads its
+checkpoint digests (the state at quit); each launch gets the seeding's window (the bench
+size on the main display) and config, waits for the first live terminal frame and the
+live sidebar rows, then puts the window where seeding left it and reads the restored
+digests before it quits. Results are `corpus.<id>.<mode>.<mark>` in session
+`corpus:<id>` (story `<id>-<mode>`, or --story), plus
+`corpus.<id>.<mode>.checkpoint_mismatch_runs`: a launch that restored another state
+than the recorded checkpoint (else the state at quit) fails the bench (exit 1).
+--capture records the agreed digests in the manifest.
+Lab stories: launch-restore-cold.json and launch-restore-warm.json.
+
 Value marks (tasks 007, 108): `launch.temperature`, `launch.pageins_run_loop_start`,
 `launch.pageins_first_frame`, `launch.main_cpu_ms` and `launch.interrupted`
 arrive on the same pipe as `<name> <value>` (a number, true/false, or a name).
+So do p08-startup-068's `launch.first_frame_threads`, `launch.first_frame_runtime_threads`
+and `launch.first_frame_ghostty_threads` (Debug and bench builds: the threads right after the
+first frame, the native runtime threads among them, target 0, and libghostty's), and
+p08-startup-064's `launch.sidebar_rows_built` and `launch.sidebar_rows_visible`:
+the sidebar row views built before startup_complete against the rows its clip showed
+(sent right after `startup_complete`, so they need --startup-complete).
+`launch.views_built` (p08-startup-065: the pane content views made before
+startup_complete, sent just before it; == the visible panes; --startup-complete
+waits for it) arrives the same way.
 They are not times: no table row, gap or --order term. Task 007 can also send
 the temperature as the instant mark `launch.temperature.<name>`; it reads the
 same. Each run's line and the summary print them when the build sends them.
@@ -122,8 +145,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # The shared launch helper's socket paths and session check (bench_launch.py). Not its bench env: this bench times
 # the launch itself, with the agent pane's real handshake and the account's Chief, as a person's launch runs.
 from bench_launch import (  # noqa: E402
-    BUILD_CONFIG_KEY, PERF_LAB, BenchApp, RecordError, build_config, bundle_kind, features_snapshot, finder_limits,
-    info_plist, limits_line, load_by_path, require_gui_session, rpc_at, socket_candidates)
+    BUILD_CONFIG_KEY, PERF_LAB, BenchApp, LaunchError, RecordError, build_config, bundle_kind, features_snapshot,
+    finder_limits, info_plist, limits_line, load_by_path, require_gui_session, rpc_at, socket_candidates)
 
 perf_stats = load_by_path("perf_stats", os.path.join(PERF_LAB, "perf_stats.py"))
 perf_result = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
@@ -134,6 +157,7 @@ DERIVED = os.path.expanduser("~/Library/Developer/Xcode/DerivedData")
 PRODUCT_CONFIGS = ("Debug", "Release")
 FINAL_MARK = "first_terminal_frame"
 AGENT_MARK = "agent_pane.handshake_end"
+SIDEBAR_MARK = "sidebar_rows_shown"
 
 # Rows in launch order; a mark a build does not emit is left out.
 MARKS = [
@@ -182,6 +206,9 @@ MARKS = [
     ("launch.agent_page_warmup_not_needed", "agent page WebKit warm-up not needed (a page started WebKit)"),
     ("launch.agent_page_warmup_chromium", "agent page WebKit warm-up not made (agent pages open in Chromium)"),
     ("control.serving", "app control socket accepting (p08-startup-019)"),
+    # p08-startup-066: the daemon connect milestones (DaemonConnectMarks), once each per launch; connect_started
+    # lands in main(), before main.prestart (the table orders rows by time).
+    ("daemon.connect_started", "daemon connect started (prestart in main)"),
     ("daemon.connect_start", "first connect attempt"),
     ("daemon.status_start", "server status spawn"),
     ("daemon.status_end", "server status exit"),
@@ -189,13 +216,16 @@ MARKS = [
     ("daemon.login_env_end", "login env ready (cold)"),
     ("daemon.ensure_start", "server ensure spawn (cold)"),
     ("daemon.ensure_end", "daemon ready (cold)"),
+    ("daemon.spawned", "daemon spawned by the first connect (cold)"),
     ("daemon.endpoint_resolved", "endpoint resolved"),
     ("daemon.socket_connected", "control socket connected"),
     ("daemon.identify_end", "identify answered"),
     ("daemon.handshake_end", "handshake done (client info, subscribe)"),
+    ("daemon.identified", "daemon identified (first connect)"),
     ("daemon_connected", "connection published"),
     ("daemon.snapshot_start", "snapshot requested"),
     ("daemon.snapshot_end", "snapshot received"),
+    ("daemon.snapshot_received", "first snapshot received (prefetched)"),
     ("daemon.first_tree_applied", "first live tree applied"),
     ("daemon_snapshot_loaded", "windows restored from live tree"),
     ("first_terminal_surface_created", "first Ghostty surface"),
@@ -274,7 +304,27 @@ PAGEINS_RUN_LOOP = "launch.pageins_run_loop_start"
 PAGEINS = "launch.pageins_first_frame"
 MAIN_CPU = "launch.main_cpu_ms"
 INTERRUPTED = "launch.interrupted"
-VALUE_MARKS = (TEMPERATURE, PAGEINS_RUN_LOOP, PAGEINS, MAIN_CPU, INTERRUPTED)
+# p08-startup-064: the sidebar row views built before startup_complete, and the rows its clip showed then.
+SIDEBAR_ROWS_BUILT = "launch.sidebar_rows_built"
+SIDEBAR_ROWS_VISIBLE = "launch.sidebar_rows_visible"
+# The off-screen rows a launch may build (SidebarModel.LaunchRows.Report.slack).
+SIDEBAR_ROWS_SLACK = 2
+# How long a launch that completed waits for the sidebar's row counts, sent right after startup_complete.
+SIDEBAR_ROWS_WAIT_S = 0.5
+# The pane content views made before startup_complete (p08-startup-065, `launchVisiblePanesOnly`): == visible panes.
+# The app sends it just before startup_complete, so a --startup-complete run has it.
+VIEWS_BUILT = "launch.views_built"
+# p08-startup-068 (LaunchThreadCensus, Debug and bench builds): the process's threads right after the first frame,
+# the threads of a native runtime no first frame needs (iroh's tokio pool; target 0), and libghostty's threads.
+FIRST_FRAME_THREADS = "launch.first_frame_threads"
+FIRST_FRAME_RUNTIME_THREADS = "launch.first_frame_runtime_threads"
+FIRST_FRAME_GHOSTTY_THREADS = "launch.first_frame_ghostty_threads"
+THREAD_MARKS = (FIRST_FRAME_THREADS, FIRST_FRAME_RUNTIME_THREADS, FIRST_FRAME_GHOSTTY_THREADS)
+# How long a launch that reached its content waits for the thread counts, sent from a cpu lane after the committed
+# first frame (never at a missed reveal deadline); a build without them, or a launch that drew no frame, costs this.
+THREAD_MARKS_WAIT_S = 1.0
+VALUE_MARKS = (TEMPERATURE, PAGEINS_RUN_LOOP, PAGEINS, MAIN_CPU, INTERRUPTED, SIDEBAR_ROWS_BUILT, SIDEBAR_ROWS_VISIBLE,
+               VIEWS_BUILT, *THREAD_MARKS)
 # Percentiles printed after p50 (perf_stats.summary).
 PERCENTILES = (95, 99)
 
@@ -478,21 +528,27 @@ def stop(pids, timeout=10):
         wait_exit(pids, 5)
 
 
+def launch_environment(scratch, marks_fd, extra_env=None):
+    """The environment of one measured launch: an isolated launch on the last screen with the scratch cmux.json,
+    its marks on `marks_fd`; `extra_env` wins."""
+    return {
+        "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
+        "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
+        "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
+        "CMUX_NEXT_LAUNCH_MARKS_FD": str(marks_fd),
+        **({"CMUX_NEXT_HANG_THRESHOLD_MS": str(HANG_THRESHOLD_MS)} if HANG_THRESHOLD_MS else {}),
+        **(extra_env or {}),
+    }
+
+
 class Launch:
     """One app process whose launch marks arrive on a pipe."""
 
     def __init__(self, tag, scratch, extra_env=None):
         read_fd, write_fd = os.pipe()
-        env = {
-            "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-            "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
-            "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
-            "CMUX_NEXT_LAUNCH_MARKS_FD": str(write_fd),
-            **({"CMUX_NEXT_HANG_THRESHOLD_MS": str(HANG_THRESHOLD_MS)} if HANG_THRESHOLD_MS else {}),
-            **(extra_env or {}),
-        }
+        env = launch_environment(scratch, write_fd, extra_env)
         with finder_limits() as changed:  # the limits a Finder launch gets (bench_launch.py, Resource limits)
             self.process = subprocess.Popen([app_binary(tag)], env=env, stdout=subprocess.DEVNULL,
                                             stderr=subprocess.DEVNULL, start_new_session=True, pass_fds=(write_fd,))
@@ -538,6 +594,8 @@ SEED_FOCUS = "agent"
 SEED_CHAT_PANE = "last"
 # --hangs: main-thread stalls over this many ms are recorded with stacks (debug.hangs).
 HANG_THRESHOLD_MS = None
+# --corpus: the corpus launch story (launch_restore.Story) whose saved session every launch restores.
+CORPUS = None
 # --startup-complete: each launch also waits (within --timeout) for `startup_complete` and its reason.
 WAIT_STARTUP_COMPLETE = False
 # The --order terms (and LAUNCH_ORDER's in budget mode): each launch also waits (within --timeout)
@@ -711,6 +769,78 @@ def seeded_marker(tag):
     return os.path.join(state_directories(tag)[0], "bench-startup-realistic")
 
 
+def corpus_module():
+    """scripts/perf-lab/corpus/launch_restore.py: the corpus launch story's loader, seeding and checkpoint reads."""
+    return load_by_path("corpus_launch_restore", os.path.join(PERF_LAB, "corpus", "launch_restore.py"))
+
+
+def corpus_marker(tag):
+    return os.path.join(state_directories(tag)[0], "bench-startup-corpus.json")
+
+
+def corpus_seed(tag):
+    """What the tag's saved session was seeded from: {layout, focus, surfaces} (the layout digest and the state at
+    quit), or None."""
+    try:
+        with open(corpus_marker(tag)) as marker:
+            return json.load(marker)
+    except (OSError, ValueError):
+        return None
+
+
+def seed_corpus(tag, story):
+    """Empties the tag's state and seeds it with the story's layout (launch_restore.seed: a bench launch imports it
+    and quits keeping sessions), then stops the daemon: every mode starts from the saved session on disk, the cold
+    one with no daemon and the warm one through its own priming launch."""
+    reset_state(tag)
+    out = tempfile.mkdtemp(prefix=f"bench-startup-seed-{tag}-")
+    module = corpus_module()
+    try:
+        at_quit = module.seed(story, app_path(tag), out)
+    except (module.LaunchRestoreError, LaunchError) as error:
+        raise SystemExit(f"tag {tag}: seeding {story.id} failed ({error}); the seeding app's log is in {out}") from error
+    finally:
+        stop(tag_pids(tag))
+    seeded = {"layout": story.layout_sha, "focus": at_quit["focus"], "surfaces": at_quit["surfaces"]}
+    with open(corpus_marker(tag), "w") as marker:
+        json.dump(seeded, marker)
+    return seeded
+
+
+def corpus_launch():
+    """(cmux.json, extra env) of every launch of a corpus story: the seeding's window and config
+    (launch_restore.launch_config, launch_env), so each restored pane has its size at quit."""
+    module = corpus_module()
+    return module.launch_config(), module.launch_env()
+
+
+def app_read(tag):
+    """One control request (a method name and its params) to the tag's app, at the first socket that answers."""
+    def read(method, params=None):
+        reply = None
+        for path in socket_candidates(tag):
+            reply = rpc_at(path, method, params, timeout=10)
+            if not (isinstance(reply, dict) and reply.get("unreachable")):
+                return reply
+        return reply
+    return read
+
+
+def restored_checkpoint(tag, story, seeded):
+    """The measured launch's settled checkpoint digests and whether they are the story's: its recorded digests, else
+    the seeding's state at quit. None when the app did not answer the reads (check_checkpoints fails the run)."""
+    want = story.recorded or {"focus": seeded["focus"], "surfaces": seeded["surfaces"]}
+    module = corpus_module()
+    read = app_read(tag)
+    try:
+        module.place_window(read)  # the seeding's window frame: the panes' content sizes are part of the digest
+        got = module.settled_digests(read, want)
+    except module.LaunchRestoreError as error:
+        print(f"  {tag}: no restored checkpoint ({error})", file=sys.stderr)
+        return None
+    return {**got, "matches": got == want}
+
+
 def sudo_reason(done):
     """What sudo said when it refused (stderr, else stdout), or its exit status."""
     return (done.stderr or done.stdout or "").strip() or f"exit {done.returncode}"
@@ -765,16 +895,24 @@ def one_run(tag, mode, timeout, profile=None, purge_cold=False, purge_cache=purg
     """One measured launch's marks. `purge_cold` empties the file cache last before a --mode cold launch;
     `before_quit(tag)` runs in the measured app before it quits, whether or not it reached its first content."""
     scratch = tempfile.mkdtemp(prefix=f"bench-startup-{tag}-")
+    config, env = corpus_launch() if profile == "corpus" else ({}, None)
     with open(os.path.join(scratch, "cmux.json"), "w") as out:
-        out.write("{}\n")
+        out.write(json.dumps(config) + "\n")
     if app_pids(tag):
         raise SystemExit(f"tag {tag} has an app running; quit it first (this bench only stops what it starts)")
     # A first launch shows the agent New Tab page, not a terminal: other
     # profiles end at whichever content draws first.
     final = [FINAL_MARK, AGENT_MARK]
-    any_of = profile != "realistic"
+    any_of = profile not in ("realistic", "corpus")
+    seeded = None
     if profile == "empty":
         reset_state(tag)
+    elif profile == "corpus":
+        seeded = corpus_seed(tag)
+        if (seeded or {}).get("layout") != CORPUS.layout_sha:
+            seeded = seed_corpus(tag, CORPUS)
+        # A restored session shows a terminal: the launch ends at its first live frame and the live sidebar rows.
+        final = [FINAL_MARK, SIDEBAR_MARK]
     elif profile == "realistic" and seeded_focus(tag) != seed_layout():
         seed_realistic(tag, scratch, timeout)
     if profile == "realistic" and not seeded_agent(tag):
@@ -787,18 +925,18 @@ def one_run(tag, mode, timeout, profile=None, purge_cold=False, purge_cache=purg
             raise SystemExit(f"tag {tag}: daemon processes did not exit")
     elif mode == "restart":
         if not owner_pids(f"cmux-app-{tag}"):
-            prime = Launch(tag, scratch)
+            prime = Launch(tag, scratch, env)
             prime.wait_for([FINAL_MARK, AGENT_MARK], timeout, any_of=True)
             prime.quit()
         stop(owner_pids(f"cmux-app-{tag}"))
     elif not [p for p in tag_pids(tag) if p not in app_pids(tag)]:
-        prime = Launch(tag, scratch)
+        prime = Launch(tag, scratch, env)
         prime.wait_for([FINAL_MARK, AGENT_MARK], timeout, any_of=True)
         prime.quit()
     if mode == "cold" and purge_cold:
         # Last, after every stop and priming launch: nothing pages back in before the measured launch.
         purge_cache()
-    launch = Launch(tag, scratch)
+    launch = Launch(tag, scratch, env)
     try:
         started = time.monotonic()
         reached = launch.wait_for(final, timeout, any_of=any_of)
@@ -807,12 +945,22 @@ def one_run(tag, mode, timeout, profile=None, purge_cold=False, purge_cache=purg
         if reached and WAIT_STARTUP_COMPLETE:
             # Startup completes after the first content; the reason mark comes before it on the pipe.
             launch.wait_for(STARTUP_COMPLETE, max(0.0, timeout - (time.monotonic() - started)))
+            # The sidebar's row counts are sent in the same main turn, right after it (p08-startup-064); a build
+            # without them, or a launch with no window, costs SIDEBAR_ROWS_WAIT_S.
+            if STARTUP_COMPLETE in launch.marks:
+                launch.wait_for([SIDEBAR_ROWS_BUILT, SIDEBAR_ROWS_VISIBLE], SIDEBAR_ROWS_WAIT_S)
+        if reached:
+            # p08-startup-068: the census comes after the first frame, so a quit at the content mark can beat it.
+            launch.wait_for(list(THREAD_MARKS), THREAD_MARKS_WAIT_S)
         for term in ORDER_MARKS if reached else []:
             launch.wait_for(term_marks(term), max(0.0, timeout - (time.monotonic() - started)), any_of=True)
         if HANG_THRESHOLD_MS:
             launch.stalls = launch_stalls(tag)
         if before_quit:
             before_quit(tag)
+        checkpoint = restored_checkpoint(tag, CORPUS, seeded) if seeded and reached else None
+        if checkpoint is not None:
+            launch.marks["checkpoint"] = checkpoint
     finally:
         launch.quit()
     if not reached:
@@ -946,12 +1094,24 @@ def run_values(marks):
         shown.append(f"page-ins {marks[PAGEINS]:.0f}")
     if is_number(marks.get(MAIN_CPU)):
         shown.append(f"main cpu {marks[MAIN_CPU]:.0f} ms")
+    if is_number(marks.get(SIDEBAR_ROWS_BUILT)) and is_number(marks.get(SIDEBAR_ROWS_VISIBLE)):
+        shown.append(f"sidebar rows built {marks[SIDEBAR_ROWS_BUILT]:.0f} for {marks[SIDEBAR_ROWS_VISIBLE]:.0f} visible")
+    if is_number(marks.get(VIEWS_BUILT)):
+        shown.append(f"views built {marks[VIEWS_BUILT]:.0f}")
+    if any(mark in marks for mark in THREAD_MARKS):
+        total, runtime, ghostty = (count_or_missing(marks.get(mark)) for mark in THREAD_MARKS)
+        shown.append(f"threads at first frame {total} (runtime {runtime}, ghostty {ghostty})")
     reason = completion_reason(marks)
     if reason is not None:
         shown.append(f"startup complete {reason}")
     if interrupted(marks):
         shown.append("interrupted")
     return shown
+
+
+def count_or_missing(value):
+    """A count for a run's line, or `missing`: a count that did not arrive is never read as 0."""
+    return f"{value:.0f}" if is_number(value) else "missing"
 
 
 def main_span_summary(runs):
@@ -992,10 +1152,53 @@ def value_summary(runs, temperature=None):
             lines.append(f"  {mark}: {cells}  n {len(values)}")
         else:
             lines.append(f"  {mark}: missing in all {total} runs")
+    built = [run[VIEWS_BUILT] for run in runs if is_number(run.get(VIEWS_BUILT))]
+    if built:  # only a launchVisiblePanesOnly build sends it
+        cells = "  ".join(f"{column} {value:.0f}" for column, value in spread(built).items())
+        lines.append(f"  {VIEWS_BUILT}: {cells}  n {len(built)} (== the visible panes)")
+    lines += sidebar_rows_summary(runs)
+    lines += first_frame_threads_summary(runs)
     lines.append(completion_summary(runs))
     stopped = [str(index + 1) for index, run in enumerate(runs) if interrupted(run)]
     lines.append(f"  {INTERRUPTED}: " + (f"runs {', '.join(stopped)} ({len(stopped)} of {total})" if stopped
                                          else f"none of {total} runs"))
+    return lines
+
+
+def sidebar_rows_summary(runs):
+    """p08-startup-064: the sidebar row views built before startup_complete, as a spread, and the runs that built
+    more than the rows the clip showed plus SIDEBAR_ROWS_SLACK. No line when no run sent them (an older build)."""
+    pairs = [(run[SIDEBAR_ROWS_BUILT], run[SIDEBAR_ROWS_VISIBLE]) for run in runs
+             if is_number(run.get(SIDEBAR_ROWS_BUILT)) and is_number(run.get(SIDEBAR_ROWS_VISIBLE))]
+    if not pairs:
+        return []
+    cells = "  ".join(f"{column} {value:.0f}" for column, value in spread([built for built, _ in pairs]).items())
+    over = sum(built > visible + SIDEBAR_ROWS_SLACK for built, visible in pairs)
+    visible = perf_stats.pct([visible for _, visible in pairs], 0.5)
+    return [f"  {SIDEBAR_ROWS_BUILT}: {cells}  n {len(pairs)}; visible p50 {visible:.0f}; "
+            f"{over} of {len(pairs)} over visible + {SIDEBAR_ROWS_SLACK}"]
+
+
+def first_frame_threads_summary(runs):
+    """p08-startup-068: each first-frame thread count as a spread, the runs with a runtime thread at the first
+    frame (target none) and the runs that sent no runtime count, which never pass as none. No line when no run sent
+    any count (an older build, or a Release build without bench hooks)."""
+    if not any(mark in run for run in runs for mark in THREAD_MARKS):
+        return []
+    lines = []
+    for mark in THREAD_MARKS:
+        values = [run[mark] for run in runs if is_number(run.get(mark))]
+        if values:
+            cells = "  ".join(f"{column} {value:.0f}" for column, value in spread(values).items())
+            lines.append(f"  {mark}: {cells}  n {len(values)}")
+    measured = [(index + 1, run[FIRST_FRAME_RUNTIME_THREADS]) for index, run in enumerate(runs)
+                if is_number(run.get(FIRST_FRAME_RUNTIME_THREADS))]
+    runtime = [str(number) for number, value in measured if value > 0]
+    status = f"runs {', '.join(runtime)}" if runtime else "none"
+    lines.append(f"  runtime threads at first frame: {status} of {len(measured)} measured")
+    missing = [str(index + 1) for index, run in enumerate(runs) if not is_number(run.get(FIRST_FRAME_RUNTIME_THREADS))]
+    if missing:
+        lines.append(f"  {FIRST_FRAME_RUNTIME_THREADS}: missing in runs {', '.join(missing)} ({len(missing)} of {len(runs)})")
     return lines
 
 
@@ -1013,8 +1216,8 @@ def result_marks(profile):
     first content, and the perf cron's launch rows (launch-warm.json). The first content is the first live terminal
     frame where a terminal is restored (realistic); an empty profile's first launch shows the agent page instead,
     so its first content is FIRST_CONTENT, never a first_terminal_frame series that no run could fill."""
-    first = FINAL_MARK if profile == "realistic" else FIRST_CONTENT
-    return (TARGET_MARK, first, "did_finish_launching_end", "sidebar_rows_shown")
+    first = FINAL_MARK if profile in ("realistic", "corpus") else FIRST_CONTENT
+    return (TARGET_MARK, first, "did_finish_launching_end", SIDEBAR_MARK)
 
 
 def result_value(run, mark):
@@ -1026,19 +1229,28 @@ def result_value(run, mark):
     return run[mark] if is_number(run.get(mark)) else None
 
 
-def result_series(mode, runs, profile):
-    """`(metric, unit, samples)` of one tag's runs in one mode, as result-v1 names them. A cold run that the build
-    classified otherwise is no cold sample: launch.cold.not_cold_runs counts it."""
+def checkpoint_mismatches(runs):
+    """The runs (1-based) of a corpus launch story whose restored checkpoint is not the story's."""
+    return [index + 1 for index, run in enumerate(runs)
+            if isinstance(run.get("checkpoint"), dict) and not run["checkpoint"].get("matches")]
+
+
+def result_series(mode, runs, profile, root="launch"):
+    """`(metric, unit, samples)` of one tag's runs in one mode, as result-v1 names them (`<root>.<mode>.<mark>`; a
+    corpus launch story's root is `corpus.<id>`). A cold run that the build classified otherwise is no cold sample:
+    <root>.cold.not_cold_runs counts it. A corpus story also counts the runs that restored another state."""
     series = []
     if mode == "cold":
         kept = [run for run in runs if not classified_not_cold(run)]
-        series.append(("launch.cold.not_cold_runs", "count", [len(runs) - len(kept)]))
+        series.append((f"{root}.cold.not_cold_runs", "count", [len(runs) - len(kept)]))
         runs = kept
     for mark in result_marks(profile):
         values = [value for value in (result_value(run, mark) for run in runs) if value is not None]
         if values:
-            series.append((f"launch.{mode}.{mark}", "ms", values))
-        series.append((f"launch.{mode}.{mark}.missing_runs", "count", [len(runs) - len(values)]))
+            series.append((f"{root}.{mode}.{mark}", "ms", values))
+        series.append((f"{root}.{mode}.{mark}.missing_runs", "count", [len(runs) - len(values)]))
+    if profile == "corpus":
+        series.append((f"{root}.{mode}.checkpoint_mismatch_runs", "count", [len(checkpoint_mismatches(runs))]))
     return series
 
 
@@ -1046,6 +1258,8 @@ def default_story(mode, profile, after_reboot=False):
     """The lab story a run measures (scripts/perf-lab/stories.d/<story>.json)."""
     if after_reboot:
         return "launch-after-reboot"
+    if profile == "corpus":
+        return f"{CORPUS.id}-{mode}"
     return f"launch-{mode}" + ("-realistic" if profile == "realistic" else "")
 
 
@@ -1101,7 +1315,8 @@ class Recorder:
         story = self.story or default_story(mode, self.profile, self.after_reboot)
         app = self.app(tag)
         written = {}
-        for metric, unit, samples in result_series(mode, runs, self.profile):
+        root = CORPUS.metric_root if self.profile == "corpus" else "launch"
+        for metric, unit, samples in result_series(mode, runs, self.profile, root):
             try:
                 written[metric] = str(app.record(story, metric, unit, samples, better="lower", engine="none",
                                                  target_ref=target_of(mode, metric, self.profile)))
@@ -1201,6 +1416,12 @@ def parse_args(argv):
     parser.add_argument("--profile", choices=["empty", "realistic"],
                         help="empty: no saved state before each run; realistic: a seeded day's work "
                              "(default: whatever state the tag has)")
+    parser.add_argument("--corpus", metavar="MANIFEST",
+                        help="launch from a corpus launch story's saved session (perf-corpus/launch-restore.json) "
+                             "instead of a --profile; results in session corpus:<id>")
+    parser.add_argument("--capture", action="store_true",
+                        help="--corpus: record the restored checkpoint's digests in the manifest when the state at "
+                             "quit and every restored launch agree")
     parser.add_argument("--focus", choices=["agent", "terminal"], default="agent",
                         help="realistic: the focused pane at quit, the agent chat or a terminal beside it")
     parser.add_argument("--chat-pane", choices=["first", "last"], default="last",
@@ -1220,7 +1441,8 @@ def parse_args(argv):
                              "lacks one or has a MILESTONE_ORDER pair out of order")
     parser.add_argument("--startup-complete", action="store_true",
                         help="after the first content, keep each launch until startup_complete (within --timeout) "
-                             "and print its reason per run and as counts, the failsafe ones counted")
+                             "and print its reason per run and as counts, the failsafe ones counted, and "
+                             "launch.views_built (sent just before it)")
     parser.add_argument("--hangs", type=int, metavar="MS",
                         help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
     parser.add_argument("--purge", action="store_true",
@@ -1261,11 +1483,20 @@ def parse_args(argv):
         if args.purge or args.temperature:
             parser.error("--after-reboot needs no --purge or --temperature: the reboot emptied the file cache")
         args.mode = ["cold"]
+    if args.corpus:
+        if args.profile:
+            parser.error("--corpus is the launch's saved session: give it or a --profile, not both")
+        if args.after_reboot:
+            parser.error("--corpus has no after-reboot run: its seeding launches the app")
+        args.profile = "corpus"
+    elif args.capture:
+        parser.error("--capture records a corpus launch story's checkpoint: it needs --corpus")
     args.runs = args.runs or (1 if args.after_reboot else 5)
     args.purge_cold = args.purge or args.temperature == "cold"
     if args.out:
         if not args.profile:
-            parser.error("--out needs --profile empty or realistic: a result names the state it launched from")
+            parser.error("--out needs --profile empty or realistic, or --corpus: a result names the state it "
+                         "launched from")
         if "cold" in (args.mode or ["cold", "warm"]) and not (args.purge_cold or args.after_reboot):
             parser.error("--out with --mode cold needs --purge or --after-reboot: a launch that only stopped the "
                          "daemon reads the file cache, and result-v1 never reports it as cold")
@@ -1288,8 +1519,10 @@ def write_results(recorder, results):
 def main():
     args = parse_args(sys.argv[1:])
     require_gui_session("bench-startup")
-    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE, WAIT_STARTUP_COMPLETE, WAIT_MILESTONES
+    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE, WAIT_STARTUP_COMPLETE, WAIT_MILESTONES, CORPUS
     HANG_THRESHOLD_MS = args.hangs
+    if args.corpus:
+        CORPUS = load_corpus(args.corpus)  # before any launch: a manifest that is no launch story stops here
     orders = args.order + (LAUNCH_ORDER if args.budget else [])
     ORDER_MARKS.extend(dict.fromkeys(term for order in orders for term in parse_order(order)))
     WAIT_STARTUP_COMPLETE = args.startup_complete
@@ -1311,7 +1544,8 @@ def main():
         check_purge_right()
     if args.after_reboot:
         check_after_reboot(args.tag, args.profile)
-    recorder = Recorder(args.out, args.profile, args.session, args.story, args.build_config,
+    session = CORPUS.session if CORPUS else args.session
+    recorder = Recorder(args.out, args.profile, session, args.story, args.build_config,
                         args.after_reboot) if args.out else None
     if "daemon" in modes:
         modes.remove("daemon")
@@ -1367,10 +1601,56 @@ def main():
     over = check_budgets(results, args.budget) + check_orders(results, orders)
     if args.milestones:
         over += check_milestones(results)
+    if CORPUS:
+        over += check_checkpoints(results)
+        if args.capture and not over:
+            capture_checkpoint(results)
     for line in over:
         print(f"over budget: {line}", file=sys.stderr)
     if over:
         sys.exit(1)
+
+
+def load_corpus(path):
+    """The corpus launch story at `path` (launch_restore.load); refuses (exit 2) a manifest that is not one, or a
+    checkout without play.py, whose functions are the checkpoint digests."""
+    module = corpus_module()
+    try:
+        module.player()
+        return module.load(path)
+    except module.LaunchRestoreError as error:
+        raise Refused(f"--corpus refused: {error}") from error
+
+
+def check_checkpoints(results):
+    """A corpus launch story's runs that restored another state than the story's, and runs with no checkpoint read
+    (the launch did not draw): one line each."""
+    lines = []
+    for tag, modes in results.items():
+        for mode, runs in modes.items():
+            for index, run in enumerate(runs, 1):
+                got = run.get("checkpoint")
+                if not isinstance(got, dict):
+                    lines.append(f"{tag} {mode} run {index}: no restored checkpoint (the launch did not draw)")
+                elif not got.get("matches"):
+                    lines.append(f"{tag} {mode} run {index}: restored another state than {CORPUS.id}'s checkpoint "
+                                 f"(focus {got['focus'][:12]}, surfaces {got['surfaces'][:12]})")
+    return lines
+
+
+def capture_checkpoint(results):
+    """--capture: writes the restored digests into the manifest, once every run of every tag and mode agreed."""
+    states = {(run["checkpoint"]["focus"], run["checkpoint"]["surfaces"])
+              for modes in results.values() for runs in modes.values() for run in runs}
+    if len(states) != 1:
+        raise Refused(f"--capture refused: the runs restored {len(states)} different states")
+    (focus, surfaces), = states
+    module = corpus_module()
+    try:
+        path = module.capture(CORPUS, {"focus": focus, "surfaces": surfaces})
+    except module.LaunchRestoreError as error:
+        raise Refused(f"--capture refused: {error}") from error
+    print(f"captured {CORPUS.id}'s restored checkpoint in {path}: focus {focus[:12]}, surfaces {surfaces[:12]}")
 
 
 def check_budgets(results, budgets):

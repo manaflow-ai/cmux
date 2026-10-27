@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextSignposts
 import CmuxNextWakeups
 import IOSurface
@@ -407,11 +408,6 @@ final class CEFLayerHosting {
     /// Runs `block` on the main run loop at the end of this turn, after the
     /// caller's stack (Chromium's creation stack) returned.
     nonisolated static func atEndOfTurn(_ block: @escaping @MainActor @Sendable () -> Void) {
-        let main = CFRunLoopGetMain()
-        CFRunLoopPerformBlock(main, CFRunLoopMode.commonModes.rawValue) {
-            // main-proof: a CFRunLoopGetMain() block runs on the main thread
-            MainActor.assumeIsolated { block() }
-        }
-        CFRunLoopWakeUp(main)
+        MainRunLoopBlock.perform(block)
     }
 }

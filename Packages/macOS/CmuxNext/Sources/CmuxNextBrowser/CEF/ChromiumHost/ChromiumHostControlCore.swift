@@ -2,6 +2,8 @@
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 import CmuxNextCompat
 import Darwin
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
 
 /// The state of one ``ChromiumHostControlChannel``, shared by the channel,
 /// its reader thread and the main-thread drains it posts, so a channel
@@ -43,7 +45,7 @@ nonisolated final class ChromiumHostControlCore: Sendable {
         var readerDone = false
         var endDelivered = false
         var lastToken: UInt32 = 0
-        var replies: [UInt32: CheckedContinuation<Reply, Never>] = [:]
+        var replies: [UInt32: OnceContinuation<Reply, OnceContinuationError>] = [:]
         /// Tokens of posts whose ACK goes to the mirror on main.
         var acks: Set<UInt32> = []
         /// The mirror refused a frame: nothing read after it runs.
@@ -107,7 +109,7 @@ nonisolated final class ChromiumHostControlCore: Sendable {
 
     /// Sends `message` under a fresh token; `continuation` resumes with the
     /// reply (on the reader thread) or the end.
-    func request(_ message: ChromiumHostControlMessage, _ continuation: CheckedContinuation<Reply, Never>) {
+    func request(_ message: ChromiumHostControlMessage, _ continuation: OnceContinuation<Reply, OnceContinuationError>) {
         let shared = message.sharedFieldIndices()
         // Made before the lock, as in ChromiumHostControlChannel.send.
         guard let payloads = ChromiumHostSharedPayloads(message, sharing: shared) else {
@@ -240,7 +242,7 @@ nonisolated final class ChromiumHostControlCore: Sendable {
         }
         for received in fds { Darwin.close(received) }
         let (waiters, reason, postsDrain) = state.withLock {
-            state -> ([CheckedContinuation<Reply, Never>], ChromiumHostControlEnd, Bool) in
+            state -> ([OnceContinuation<Reply, OnceContinuationError>], ChromiumHostControlEnd, Bool) in
             Darwin.close(state.fd)
             state.fd = -1
             Darwin.close(state.wakeRead)

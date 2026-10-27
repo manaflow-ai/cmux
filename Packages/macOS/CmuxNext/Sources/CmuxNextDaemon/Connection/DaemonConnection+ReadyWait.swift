@@ -1,5 +1,8 @@
 import CmuxNextWakeups
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Waits for the connection to be ready again: the event that lets a request that found no connection, or lost
 /// it, be sent again (a keyed browser-tab create). `connectOnce` resumes the waits when a connection is admitted,
@@ -14,11 +17,15 @@ extension DaemonConnection {
         let key = readyWaitNext
         let timer = DemandTimer(owner: "DaemonConnection.readyWait", clock: clock)
         return await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                guard !Task.isCancelled else { return continuation.resume(returning: false) }
+            // A wait dropped unresumed is not ready, as one past its limit is.
+            (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: false)
+                    return
+                }
                 readyWaits[key] = (serial ?? 0, continuation, timer)
                 timer.schedule(after: limit) { [weak self] in await self?.endReadyWait(key) }
-            }
+            }) ?? false
         } onCancel: {
             // task-owner: one hop back to the actor to resume this cancelled wait's continuation
             Task { await self.endReadyWait(key) }

@@ -17,7 +17,8 @@
 //! Request threads (its clear-history workers, the WebSocket connection
 //! thread) start through [`spawn_request_thread`]: UserInitiated, blocking
 //! disallowed (p02-threads task 211); the pool's control workers run the
-//! same way.
+//! same way. A request task and a clear-history worker then rest at their
+//! connection's class (connection_qos.rs, task 224).
 //!
 //! Lock order: the scheduler's `state`, then the pool's. A pool task or
 //! fence callback takes `state` with no pool lock held.
@@ -42,17 +43,20 @@ use super::sequenced_pool::{Fenced, PostError, Sequence, SequencePriority};
 use super::stream_lanes::{StreamLanes, StreamOpenError, StreamPostError, crosses_stream_ok};
 use super::terminal_create;
 use crate::Mux;
+#[path = "connection_qos.rs"]
+pub(super) mod connection_qos;
 use crate::SurfaceId;
 use crate::event_cause::EventCause;
 use crate::stream_interrupt::InterruptSet;
 use crate::stream_interrupt::StreamInterrupt;
 use crate::thread_qos::ThreadType;
 use cmux_threads::ThreadQos;
+use cmux_threads::sync::Condvar;
+use cmux_threads::sync::Mutex;
+use connection_qos::{ConnectionClassCell, ConnectionThread, RestingClass};
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::Condvar;
-use std::sync::Mutex;
 use std::sync::Weak;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -63,8 +67,8 @@ use std::time::Instant;
 /// The QoS of the threads that run a connection's requests and write its
 /// replies and events: the person waits on them (Chromium's kDefault,
 /// base/threading/platform_thread_apple.mm), [`ThreadType::Interactive`].
-/// Task 224 moves automation connections to Utility once they name their
-/// client.
+/// An automation connection's request threads rest at Utility once it is
+/// classified (connection_qos.rs, task 224).
 pub(super) const REQUEST_THREAD_QOS: ThreadQos = ThreadType::Interactive.qos();
 
 /// Starts request thread `name` at [`REQUEST_THREAD_QOS`] with blocking
@@ -89,7 +93,7 @@ pub(super) struct PendingSurfaceRequest {
     /// When its line arrived and parsed: its request span starts there.
     pub(super) arrival: RequestArrival,
     /// The cause of the frame that queued it: its events keep that cause on
-    /// whichever thread runs it (the dispatcher, a clear-history worker or
+    /// whichever thread runs it (a control task, a clear-history worker or
     /// a creation commit on the terminal work pool).
     pub(super) cause: EventCause,
     /// The REQUEST frame it came in, if any: its reply is that frame's
@@ -189,6 +193,9 @@ pub(super) struct ConnectionSurfaceScheduler {
     pub(super) cancelled: ConnectionCancellation,
     pub(super) connection_permit: Mutex<Option<ConnectionPermit>>,
     pub(super) creations: terminal_create::ConnectionCreations,
+    /// The connection's client class, set by its registry record; its
+    /// request tasks and clear workers rest at it (connection_qos.rs).
+    pub(super) class: Arc<ConnectionClassCell>,
 }
 
 impl Default for ConnectionSurfaceScheduler {
@@ -221,7 +228,19 @@ impl ConnectionSurfaceScheduler {
             cancelled: ConnectionCancellation::default(),
             connection_permit: Mutex::new(connection_permit),
             creations: terminal_create::ConnectionCreations::default(),
+            class: Arc::default(),
         }
+    }
+
+    /// The scheduler of a connection whose client class is `class` (its
+    /// registry record's cell, `ClientRegistry::connection_class`).
+    pub(super) fn classed(mut self, class: Arc<ConnectionClassCell>) -> Self {
+        self.class = class;
+        self
+    }
+
+    fn resting_class(&self, mux: &Mux) -> RestingClass {
+        RestingClass::new(self.class.clone(), ConnectionThread::Request, mux.request_qos())
     }
 }
 
@@ -445,6 +464,10 @@ impl ConnectionSurfaceScheduler {
             self.close();
             return;
         }
+        // The task runs at its connection's class on the shared worker, and
+        // the class ends with the task (connection_qos.rs, task 224). Not a
+        // `RestingClass`: that asks the worker's registry row to stay there.
+        let _class = mux.request_qos().enter_class(self.class.get().qos(ConnectionThread::Request));
         if !run_dispatched_request(&self, &mux, client, pending, &writer) {
             self.close();
         }
@@ -714,6 +737,8 @@ fn run_clear_history(
         // Drop the mux-wide permit before `_active` wakes the next request
         // queued behind this surface barrier.
         let _worker_permit = worker_permit;
+        let mut resting = worker_scheduler.resting_class(&worker_mux);
+        resting.follow();
         // The request is handed over exactly once: here, or to the
         // spawn-failure path below.
         let Some(pending) = worker_pending.lock().recover_poison().take() else {

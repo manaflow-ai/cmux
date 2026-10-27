@@ -46,6 +46,7 @@ public final class ThemedTextField: NSTextField, ThemedTextInput {
         applyThemeColors()
     }
 
+    // visibility-walk-allow: the field's text, fill and placeholder colors; no layout, cheaper than a deferral
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyThemeColors()
@@ -115,6 +116,7 @@ public final class ThemedSecureTextField: NSSecureTextField, ThemedTextInput {
         applyThemeColors()
     }
 
+    // visibility-walk-allow: the field's text, fill and placeholder colors; no layout, cheaper than a deferral
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyThemeColors()

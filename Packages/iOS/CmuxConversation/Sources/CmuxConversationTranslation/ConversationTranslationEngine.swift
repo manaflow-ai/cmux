@@ -1,4 +1,6 @@
 #if canImport(Translation) && canImport(SwiftUI)
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import CmuxConversationCore
 import Foundation
 import SwiftUI
@@ -45,7 +47,7 @@ public final class ConversationTranslationEngine: ConversationTranslating {
 
     public func translate(_ texts: [String: String], from source: Locale.Language, to target: Locale.Language) async throws -> [String: String] {
         guard !texts.isEmpty else { return [:] }
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withOnceThrowingContinuation { (continuation: OnceContinuation<[String: String], any Error>) in
             driver.enqueue(TranslationDriver.Job(texts: texts, source: source, target: target, continuation: continuation))
         }
     }
@@ -58,7 +60,7 @@ final class TranslationDriver: ObservableObject {
         var texts: [String: String]
         var source: Locale.Language
         var target: Locale.Language
-        var continuation: CheckedContinuation<[String: String], any Error>
+        var continuation: OnceContinuation<[String: String], any Error>
     }
 
     @Published var configuration: TranslationSession.Configuration?

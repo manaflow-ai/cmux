@@ -153,6 +153,7 @@ final class ExtensionsMenuItemView: NSView {
         }
     }
 
+    // visibility-walk-allow: an invalidation only; AppKit draws a hidden view when it shows, which is the deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true

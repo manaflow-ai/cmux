@@ -3,6 +3,9 @@ public import CmuxNextSettings
 import CmuxNextDesign
 public import Foundation
 import AppKit
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import ObjectiveC
 public import WebKit
 
@@ -305,7 +308,7 @@ extension PageWebView {
         }
         guard let webView = webKitPieces?.view else { return false } // a Chromium page on its way drew nothing
         keepRenderingWhenCovered()
-        let image: NSImage? = await withCheckedContinuation { continuation in
+        let image: NSImage? = try? await withOnceContinuation { (continuation: OnceContinuation<NSImage?, OnceContinuationError>) in
             webView.takeSnapshot(with: nil) { image, _ in continuation.resume(returning: image) }
         }
         guard let image = image?.cgImage(forProposedRect: nil, context: nil, hints: nil),

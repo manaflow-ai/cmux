@@ -189,6 +189,7 @@ final class BrowserEntry {
     init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), history: (any BrowserHistoryStore)? = nil,
          mainWork: MainWorkScheduler, node: VisibilityNode?) {
         self.tab = tab
+        if let node { (tab as? any BrowserTabNodeAdopting)?.adoptNode(node) }
         chrome = BrowserChromeView(tab: tab, suggestionEngine: suggestionEngine, mainWork: mainWork, node: node)
         chrome.history = history
         // Shortcuts route through the action registry (browser* actions).

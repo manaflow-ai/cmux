@@ -125,14 +125,12 @@ final class LiveResizeWindows {
     }
 
     init(center: NotificationCenter = .default) {
-        let changes: [(Notification.Name, Bool)] = [
-            (NSWindow.willStartLiveResizeNotification, true),
-            (NSWindow.didEndLiveResizeNotification, false),
-            (NSWindow.willCloseNotification, false),
-        ]
-        for (name, resizing) in changes {
-            let closes = name == NSWindow.willCloseNotification
+        // (name, starts a resize, closes the window).
+        // raw-observer-allow: the sets need each notice's sender window; an AppEvents call carries none
+        let changes: [(Notification.Name, Bool, Bool)] = [(NSWindow.willStartLiveResizeNotification, true, false), (NSWindow.didEndLiveResizeNotification, false, false), (NSWindow.willCloseNotification, false, true)]
+        for (name, resizing, closes) in changes {
             // The token lives as long as the process: this object never goes away.
+            // raw-observer-allow: the app's one observer per name; the sets need each notice's sender window
             _ = center.addObserver(forName: name, object: nil, queue: nil) { [weak self] note in
                 guard let window = note.object as? NSWindow else { return }
                 let id = ObjectIdentifier(window)
@@ -142,12 +140,11 @@ final class LiveResizeWindows {
                 }
             }
         }
-        let transitions: [(Notification.Name, Bool)] = [
-            (NSWindow.willEnterFullScreenNotification, true), (NSWindow.didEnterFullScreenNotification, false),
-            (NSWindow.willExitFullScreenNotification, true), (NSWindow.didExitFullScreenNotification, false),
-        ]
+        // raw-observer-allow: the transition set needs each notice's sender window; an AppEvents call carries none
+        let transitions: [(Notification.Name, Bool)] = [(NSWindow.willEnterFullScreenNotification, true), (NSWindow.didEnterFullScreenNotification, false), (NSWindow.willExitFullScreenNotification, true), (NSWindow.didExitFullScreenNotification, false)]
         for (name, starts) in transitions {
             // The token lives as long as the process: this object never goes away.
+            // raw-observer-allow: the app's one observer per name; the set needs each notice's sender window
             _ = center.addObserver(forName: name, object: nil, queue: nil) { [weak self] note in
                 guard let window = note.object as? NSWindow else { return }
                 let id = ObjectIdentifier(window)

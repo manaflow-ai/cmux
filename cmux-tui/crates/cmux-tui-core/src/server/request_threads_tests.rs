@@ -114,6 +114,44 @@ fn the_control_sequence_runs_on_request_threads_that_record_their_blocking() {
     );
 }
 
+/// The line of a pool worker's wait for its next task in sequenced_pool.rs.
+fn idle_worker_wait_line() -> u32 {
+    let source = include_str!("sequenced_pool.rs");
+    let start = source.find("fn run_worker(").expect("run_worker");
+    let wait = start + source[start..].find(".wait(").expect("run_worker waits");
+    u32::try_from(source[..wait].lines().count()).expect("line")
+}
+
+/// A control worker waits for its next task while idle (Chromium's
+/// `WaitableEvent::declare_only_used_while_idle`; the connection holds no
+/// thread of its own since p05-ipc-073): on a request thread, a wait far
+/// over the 2 ms lock-wait budget records no site.
+#[test]
+fn an_idle_control_worker_waiting_for_its_next_task_records_no_site() {
+    const IDLE: Duration = Duration::from_millis(20);
+    let mux = crate::Mux::new_for_test("request-threads-idle", crate::SurfaceOptions::default());
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound, control: None });
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let mut list = Some(Request { id: Some(json!(1)), cmd: Command::ListWorkspaces });
+    assert_eq!(scheduler.dispatch(mux.clone(), client, &mut list, 0, writer), Some(true));
+    scheduler.finish_and_wait();
+    assert_declared("mux-seq-control", ThreadQos::UserInitiated);
+    let waiting_since = Instant::now();
+    std::thread::sleep(IDLE);
+    assert!(waiting_since.elapsed() >= IDLE);
+    let file = file!().replace("request_threads_tests.rs", "sequenced_pool.rs");
+    let line = idle_worker_wait_line();
+    assert_eq!(
+        cmux_threads::blocking::snapshot().site(&file, line).copied(),
+        None,
+        "{file}:{line}"
+    );
+    mux.shutdown();
+}
+
 /// A clear-history request runs on its own `mux-surface-control` worker at
 /// UserInitiated. Its path makes no checked blocking call (its waits are
 /// unchecked `Condvar` waits), so the test holds the terminal lock the worker

@@ -74,17 +74,4 @@ import Testing
         #expect(first.key != second.key)
         #expect(first.installID != second.installID)
     }
-
-    @Test func newlineOffsetsFindEveryNewlineFromTheOffset() {
-        let data = Data("a\nbc\n\nd".utf8)
-        let all = LineSplitter.newlineOffsets(in: data, from: 0)
-        #expect(all.offsets == [1, 4, 5])
-        #expect(all.searched == data.count)
-        let later = LineSplitter.newlineOffsets(in: data, from: 2)
-        #expect(later.offsets == [4, 5])
-        #expect(LineSplitter.newlineOffsets(in: data, from: data.count).offsets.isEmpty)
-        // A slice whose startIndex is not 0: offsets count from its start.
-        let slice = data.dropFirst(2)
-        #expect(LineSplitter.newlineOffsets(in: slice, from: 0).offsets == [2, 3])
-    }
 }

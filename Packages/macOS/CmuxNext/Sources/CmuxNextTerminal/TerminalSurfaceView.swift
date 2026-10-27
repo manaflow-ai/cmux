@@ -99,20 +99,23 @@ public final class TerminalSurfaceView: NSView {
         didSet { if (mirrorDemand > 0) != (oldValue > 0) { updateOcclusion() } }
     }
 
-    private(set) var lastOcclusionVisible: Bool?
+    var lastOcclusionVisible: Bool?
     /// When the paused surface lets its GPU memory go (``TerminalGPUResidencyGate``).
-    private(set) var gpu: TerminalGPUResidencyGate
+    var gpu: TerminalGPUResidencyGate
     /// Away, outside the keep-alive band: paused, the surface lets its GPU memory go.
     var releasesGPUWhilePaused = false {
         didSet { if releasesGPUWhilePaused != oldValue { updateOcclusion() } }
     }
-    private(set) var pause: SurfacePause? = .notInWindow // why it does not draw (nil: draws)
-    /// The presented frame made volatile while the surface does not draw (`holdPresentedFrame`).
-    private var volatileFrame: IOSurface?
+    var pause: SurfacePause? = .notInWindow // why it does not draw (nil: draws)
+    /// The presented frame kept volatile while the surface does not draw.
+    var heldFrame = TerminalHeldFrame()
     private var lastFocus: Bool?
     private var windowObservers: [any NSObjectProtocol] = []
+    /// Its window's occlusion family, while shown (TerminalSurfaceView+Occlusion.swift).
+    private var occlusionWatch: WindowOcclusionSubscription?
     private var appliedContentScale: NSSize?
-    private var appliedDisplayID: UInt32?
+    /// The display ID last given to the surface (`updateContentScale`); nil before it is first shown.
+    private(set) var appliedDisplayID: UInt32?
     var trackingArea: NSTrackingArea?
     var cursor: NSCursor = .iBeam
 
@@ -153,6 +156,8 @@ public final class TerminalSurfaceView: NSView {
     /// Where this view's pointer positions, buttons and scrolls go: its Ghostty surface, or a test's counter.
     // SAFETY: the sink holds this view's surface and goes with the view (GhosttyMouseSink).
     lazy var mouse: any TerminalMouseSink = unsafe GhosttyMouseSink(surface: surface)
+    // SAFETY: the frame source holds this view's surface and goes with the view (GhosttyFrameSource).
+    lazy var frameSource = unsafe GhosttyFrameSource(surface: surface, view: self)
 
     // MARK: Lifecycle
 
@@ -161,7 +166,7 @@ public final class TerminalSurfaceView: NSView {
          modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
          gpuResidency: (any TerminalGPUResidency)? = nil) {
         let echoStage = echoStages.makeStage() // before the surface: the trace hook may see its first frame
-        let bridge = SurfaceBridge(input: input, echoStage: echoStage)
+        let bridge = SurfaceBridge(input: input, echoStage: echoStage, frameMarks: echoStages.frameMarks)
         // SAFETY: balanced by the one release in `deinit` (`bridge`'s note).
         self.bridge = unsafe Unmanaged.passRetained(bridge)
         self.session = session
@@ -171,7 +176,7 @@ public final class TerminalSurfaceView: NSView {
         frameCoalescers = pointerFrames
         gpu = TerminalGPUResidencyGate(seam: gpuResidency)
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        bridge.view = self
+        bridge.target = self
         createSurface(mode: mode, echoStage: echoStage, contentsGate: echoStages.contentsGate)
     }
 
@@ -220,9 +225,7 @@ public final class TerminalSurfaceView: NSView {
         config.context = GHOSTTY_SURFACE_CONTEXT_WINDOW
         config.io_mode = mode
         // SAFETY: as above.
-        unsafe config.io_write_cb = ghosttyIOWrite
-        // SAFETY: as above.
-        unsafe config.io_write_userdata = userdata
+        unsafe SurfaceBridge.setCallbacks(in: &config, userdata: userdata)
         // SAFETY: as above; `app` is the runtime's live app (never freed).
         guard let surface = unsafe ghostty_surface_new(app, &config) else {
             GhosttyRuntime.logger.error("ghostty_surface_new failed")
@@ -320,7 +323,9 @@ public final class TerminalSurfaceView: NSView {
         let center = NotificationCenter.default
         for observer in windowObservers { center.removeObserver(observer) }
         windowObservers.removeAll()
+        occlusionWatch = nil
         guard observe, let window else { return }
+        occlusionWatch = watchOcclusionFamily(of: window)
         let names: [Notification.Name] = [
             NSWindow.didChangeOcclusionStateNotification,
             NSWindow.didBecomeKeyNotification,
@@ -353,10 +358,12 @@ public final class TerminalSurfaceView: NSView {
         }
     }
 
-    /// AppKit walks hidden views too; a hidden terminal applies the scale when shown.
+    /// AppKit walks hidden and parked views too; a terminal that is not shown applies the scale when
+    /// shown (`syncWindowState`). Each scale or display call is a message that wakes the surface's
+    /// renderer thread, which stays parked while the surface is paused and GPU-released.
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        guard !isHiddenOrHasHiddenAncestor else { return }
+        guard isShown else { return }
         updateContentScale()
         updateSurfaceSize()
     }
@@ -509,56 +516,6 @@ public final class TerminalSurfaceView: NSView {
         let size = unsafe ghostty_surface_size(surface)
         let backing = convertFromBacking(NSSize(width: Int(size.cell_width_px), height: Int(size.cell_height_px)))
         return CGSize(width: max(backing.width, 1), height: max(backing.height, 1))
-    }
-
-    // MARK: Occlusion
-
-    /// `ghostty_surface_set_occlusion` (ghostty.h:1442) per ``WindowDrawPolicy``. Paused surfaces
-    /// keep parsing output; Ghostty draws the current content on its `.visible` message. GPU memory
-    /// comes back before that draw and goes after a pause (``TerminalGPUResidencyGate``).
-    func updateOcclusion() {
-        guard let surface else { return }
-        pause = WindowDrawPolicy.inputs(for: self, suspended: isRenderingSuspended, forced: mirrorDemand > 0).pause
-        let releases = pause != nil && releasesGPUWhilePaused
-        gpu.acquire(releases: releases)?.setResident(true, of: self)
-        defer { gpu.release(releases: releases)?.setResident(false, of: self) }
-        guard (pause == nil) != lastOcclusionVisible else { return }
-        lastOcclusionVisible = pause == nil
-        holdPresentedFrame(volatile: pause != nil)
-        // SAFETY: the view's live surface (`surface`).
-        unsafe ghostty_surface_set_occlusion(surface, pause == nil)
-    }
-
-    /// A paused surface keeps the frame its layer shows, volatile until it shows again
-    /// (``TerminalFramePurgeability``): shown again, it is non-volatile before the next commit, and a
-    /// purged one leaves the layer empty until Ghostty's next frame, as before.
-    private func holdPresentedFrame(volatile: Bool) {
-        if volatile {
-            volatileFrame = presentedFrame
-            volatileFrame?.makeVolatile()
-        } else if let frame = volatileFrame {
-            volatileFrame = nil
-            // A frame in flight at the pause may have replaced it: that one is not volatile.
-            guard presentedFrame === frame else { return }
-            if !frame.reclaim() { layer?.contents = nil }
-        }
-    }
-
-    /// The presented frame for one reader (hover pictures): a paused surface's volatile frame is
-    /// made non-volatile for the read (nil when purged); ``endFrameRead(_:)`` makes it volatile again.
-    func beginFrameRead() -> IOSurface? {
-        guard let frame = presentedFrame else { return nil }
-        guard frame === volatileFrame else { return frame }
-        guard frame.reclaim() else {
-            volatileFrame = nil
-            layer?.contents = nil
-            return nil
-        }
-        return frame
-    }
-
-    func endFrameRead(_ frame: IOSurface) {
-        if frame === volatileFrame { frame.makeVolatile() }
     }
 
     // MARK: Focus

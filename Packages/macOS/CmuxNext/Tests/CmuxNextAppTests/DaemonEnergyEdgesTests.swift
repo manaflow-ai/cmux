@@ -34,28 +34,44 @@ import Testing
         MainWorkScheduler.testing(budget: MainFrameBudget()) { _ in nil }
     }
 
+    private static let on = DaemonEnergyValue(saver: true)
+    private static let off = DaemonEnergyValue(saver: false)
+    private static let heldOff = DaemonEnergyValue(saver: false, offForNow: true)
+
     @Test func edgesOnlyWhileConnected() {
-        var edges = DaemonEnergyEdges(saver: false)
+        var edges = DaemonEnergyEdges(Self.off)
         // Not connected: nothing to send, the value is kept for the next connection.
-        #expect(edges.observe(saver: true, connected: false) == nil)
+        #expect(edges.observe(Self.on, connected: false) == nil)
         // A connection is told the value once.
-        #expect(edges.connected(saver: true) == true)
-        #expect(edges.observe(saver: true, connected: true) == nil)
-        #expect(edges.observe(saver: false, connected: true) == false)
-        #expect(edges.observe(saver: false, connected: true) == nil)
-        #expect(edges.observe(saver: true, connected: true) == true)
+        #expect(edges.connected(Self.on) == Self.on)
+        #expect(edges.observe(Self.on, connected: true) == nil)
+        #expect(edges.observe(Self.off, connected: true) == Self.off)
+        #expect(edges.observe(Self.off, connected: true) == nil)
+        #expect(edges.observe(Self.on, connected: true) == Self.on)
+    }
+
+    /// "Turn Off for Now" is an edge of its own: the daemon keeps it after the app quits, so it is told
+    /// even when the saver was already off.
+    @Test func turnOffForNowIsAnEdge() {
+        var edges = DaemonEnergyEdges(Self.off)
+        #expect(edges.connected(Self.off) == Self.off)
+        #expect(edges.observe(Self.heldOff, connected: true) == Self.heldOff)
+        #expect(edges.observe(Self.heldOff, connected: true) == nil)
+        #expect(edges.observe(Self.off, connected: true) == Self.off, "the hold ended")
+        #expect(DaemonEnergyValue(EnergyPolicy(offForNow: true)) == Self.heldOff)
+        #expect(DaemonEnergyValue(EnergyPolicy(saverReason: .battery)) == Self.on)
     }
 
     @Test func everyConnectionIsToldOnce() {
-        var edges = DaemonEnergyEdges(saver: false)
-        #expect(edges.connected(saver: false) == false, "a new daemon may hold an earlier run's override")
-        #expect(edges.observe(saver: false, connected: true) == nil)
+        var edges = DaemonEnergyEdges(Self.off)
+        #expect(edges.connected(Self.off) == Self.off, "a new daemon may hold an earlier run's override")
+        #expect(edges.observe(Self.off, connected: true) == nil)
         // The daemon restarted: its new connection has been told nothing.
         edges.disconnected()
         #expect(edges.told == nil)
-        #expect(edges.observe(saver: true, connected: false) == nil, "nobody to tell while down")
-        #expect(edges.connected(saver: true) == true)
-        #expect(edges.told == true)
+        #expect(edges.observe(Self.on, connected: false) == nil, "nobody to tell while down")
+        #expect(edges.connected(Self.on) == Self.on)
+        #expect(edges.told == Self.on)
     }
 
     /// The follower's one meaning of connected is the store's: each `.connected` epoch (a restarted daemon
@@ -97,11 +113,24 @@ import Testing
         #expect(daemon.requests.count == 3, "\(daemon.requests)")
         #expect(daemon.requests.last == EnergySetRequest(saver: false, reason: nil))
 
+        // A daemon with `energy-v2` is told "Turn Off for Now" too.
+        store.apply(.disconnected(reason: "upgrade"))
+        let rule = DaemonIdentity(capabilities: [EnergySetRequest.capability, EnergySetRequest.ruleCapability],
+                                  pid: 3, generation: "rule")
+        _ = store.apply(.connected(rule, generationChanged: true))
+        await drainMainTurns()
+        await daemon.reach(4)
+        #expect(daemon.requests.last == EnergySetRequest(saver: false, reason: nil, offForNow: false))
+        source.update(EnergyPolicy(offForNow: true))
+        await drainMainTurns()
+        await daemon.reach(5)
+        #expect(daemon.requests.last == EnergySetRequest(saver: false, reason: nil, offForNow: true))
+
         // A daemon without `energy-v1` is skipped.
         store.apply(.disconnected(reason: "handoff"))
         _ = store.apply(.connected(DaemonIdentity(generation: "older"), generationChanged: true))
         await drainMainTurns()
-        #expect(daemon.requests.count == 3)
+        #expect(daemon.requests.count == 5)
         withExtendedLifetime(follow) {}
     }
 
@@ -113,7 +142,11 @@ import Testing
         let off = try line(EnergySetRequest(saver: false, reason: nil))
         #expect(off["saver"] as? Bool == false)
         #expect(off["reason"] == nil)
+        #expect(off["offForNow"] == nil, "a v1 daemon refuses unknown fields")
+        let held = try line(EnergySetRequest(saver: false, reason: nil, offForNow: true))
+        #expect(held["offForNow"] as? Bool == true)
         #expect(EnergySetRequest.requiredCapability == "energy-v1")
+        #expect(EnergySetRequest.ruleCapability == "energy-v2")
     }
 
     /// A Cloud machine's daemon does not follow this Mac's power; the local one starts with the policy
@@ -128,10 +161,10 @@ import Testing
 
         let local = DaemonService(mainWork: mainWork)
         local.follow(source, on: mainWork)
-        #expect(local.energyFollow?.edges == DaemonEnergyEdges(saver: true))
+        #expect(local.energyFollow?.edges == DaemonEnergyEdges(DaemonEnergyValue(saver: true)))
         #expect(source.observerCount == 1)
         source.update(.normal)
-        #expect(local.energyFollow?.edges.saver == false)
+        #expect(local.energyFollow?.edges.value.saver == false)
         #expect(local.energyFollow?.edges.told == nil, "not connected: nothing was sent")
     }
 

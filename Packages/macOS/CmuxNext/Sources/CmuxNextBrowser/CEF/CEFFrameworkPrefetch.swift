@@ -4,6 +4,9 @@ import Darwin
 import Foundation
 import ImageIO
 import LocalAuthentication
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Reads the Chromium framework's code and resources into the file cache on
 /// the library-load thread, before `CefInitialize` runs on the main thread.
@@ -91,7 +94,7 @@ nonisolated final class CEFFrameworkPrefetch: Sendable {
         var finished = false
         /// Shutdown dropped the idle read: the load that waits for it maps nothing.
         var droppedAtShutdown = false
-        var waiters: [CheckedContinuation<Bool, Never>] = []
+        var waiters: [OnceContinuation<Bool, OnceContinuationError>] = []
         var report: Report?
     }
 
@@ -212,7 +215,8 @@ nonisolated final class CEFFrameworkPrefetch: Sendable {
     /// Returns once ``post(_:on:)``'s read or a ``promote(on:)`` ended: true to map the framework, false when
     /// shutdown dropped the read (the app quits; nothing should map).
     func finished() async -> Bool {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+        // A waiter dropped unresumed (abandoned) maps, as a load with no prefetch does.
+        let map = try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             let now = state.withLock { state -> Bool? in
                 if state.finished { return !state.droppedAtShutdown }
                 state.waiters.append(continuation)
@@ -220,11 +224,12 @@ nonisolated final class CEFFrameworkPrefetch: Sendable {
             }
             if let now { continuation.resume(returning: now) }
         }
+        return map ?? true
     }
 
     /// Ends the reads and resumes every ``finished()`` waiter (outside the lock). The first end decides.
     private func finish(droppedAtShutdown: Bool = false) {
-        let (waiters, map) = state.withLock { state -> ([CheckedContinuation<Bool, Never>], Bool) in
+        let (waiters, map) = state.withLock { state -> ([OnceContinuation<Bool, OnceContinuationError>], Bool) in
             if !state.finished {
                 state.finished = true
                 state.droppedAtShutdown = droppedAtShutdown
