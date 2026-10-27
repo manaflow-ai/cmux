@@ -15,9 +15,11 @@ import CoreFoundation
 ///   person's input is pending or in dispatch (``MainJobGateSwitch/holdsMainWork``), in one FIFO.
 ///   After the input's frame commits (the main run loop's `beforeWaiting`, after Core Animation's
 ///   commit) the FIFO goes to the class queues in order, and ``MainFrameBudget`` runs each when its
-///   class may. One display refresh after the first was held, the FIFO goes even while input is
-///   still pending (the gate's starvation bound). While the FIFO is not empty, every new classed
-///   post of these classes appends to it, so none overtakes one held before it.
+///   class may. One display refresh after the first was held, a precise ``wakeUps`` deadline sends
+///   the FIFO on even while input is still pending and the run loop sleeps (the gate's starvation
+///   bound). While the FIFO is not empty, every post of these classes appends to it, classed or not
+///   (``post(_:owner:file:line:_:)``, ``postFromAnyThread(_:owner:file:line:_:)``, ``apply(_:owner:file:line:_:)``),
+///   so each class keeps one FIFO and none overtakes work held before it.
 /// - `idle` work goes to the ``IdleScheduler``.
 ///
 /// Chrome posts every UI-thread task to a queue of its type and runs input first
@@ -37,16 +39,19 @@ extension MainWorkScheduler {
         struct Entry {
             let workClass: BudgetedWorkClass
             let owner: MainTaskOwner
-            let post: MainTaskPost
+            let post: MainTaskPost?
             let body: @MainActor () -> Void
         }
 
         var entries: [Entry] = []
-        /// When the first entry was held (the budget's clock).
-        var since: UInt64 = 0
-        /// Releases the entries at the commit or the deadline; set while any is held.
-        var release: MainRunLoopObserver?
+        /// Releases the entries after the input's commit; set while any is held.
+        var commit: MainRunLoopObserver?
+        /// Cancels the one-refresh deadline; set while any is held.
+        var cancelDeadline: (@MainActor () -> Void)?
     }
+
+    /// Calls `fire` on the main thread `delay` from now, waking the run loop, and returns what cancels it.
+    typealias ClassedDeadlineArm = @MainActor (_ delay: Duration, _ fire: @escaping MainWakeUpQueue.Action) -> @MainActor () -> Void
 
     /// Classed work waits behind the input `gate` says is pending or in dispatch, while the gate is on.
     public func follow(_ gate: MainJobGateSwitch) {
@@ -76,7 +81,8 @@ extension MainWorkScheduler {
         let site = MainPostSite(file: file, line: line)
         let post = MainTaskPost(site: site, enqueueNanos: budget.nowNanos)
         if let budgeted = Self.budgeted(workClass) {
-            if !holdClassed(budgeted, owner: owner, post: post, body) { self.post(budgeted, owner: owner, post: post, body) }
+            guard !holdClassed(budgeted, owner: owner, post: post, followsGate: true, body) else { return }
+            enqueue(budgeted, owner: owner, post: post, body)
         } else if workClass == .idle {
             idle.post(owner: owner, site: site, maxDelay: nil, node: nil) { _ in body() }
         } else {
@@ -99,7 +105,7 @@ extension MainWorkScheduler {
         if workClass == .input { board.inputQueued() }
         MainRunLoopBlock.perform { [weak self] in
             if workClass == .input { board.inputDone() }
-            self?.deliver(workClass, owner: owner, site: site, enqueueNanos: enqueueNanos, body)
+            self?.deliver(workClass, owner: owner, site: site, enqueueNanos: enqueueNanos, inCallout: false, body)
         }
     }
 
@@ -107,13 +113,15 @@ extension MainWorkScheduler {
     /// ``MainNotificationObserver``): each callback is delivered as it comes, in its own callout.
     /// Input and frame callbacks run there, as a task of their class on the board; the others are
     /// held behind input and run there when nothing is held or queued ahead of them and their class
-    /// may run, else in a later turn or frame. Without the scheduler (released) a callback runs at once.
+    /// may run, else in a later turn or frame. A delivery runs only its own callback, never work
+    /// posted before it: the callout may be inside another task. Without the scheduler (released) a
+    /// callback runs at once.
     public nonisolated func callbackClass(_ workClass: MainWorkClass, owner: MainTaskOwner, file: StaticString = #fileID,
                                           line: UInt = #line) -> MainCallbackClass {
         let site = MainPostSite(file: file, line: line)
         return MainCallbackClass { [weak self] body in
             guard let self else { return body() }
-            self.deliver(workClass, owner: owner, site: site, enqueueNanos: nil, body)
+            self.deliver(workClass, owner: owner, site: site, enqueueNanos: nil, inCallout: true, body)
         }
     }
 
@@ -128,48 +136,72 @@ extension MainWorkScheduler {
 
     // MARK: Internals
 
-    /// A classed callback or an off-main post on the main thread, in its own turn.
+    /// A classed off-main post on the main thread, in its own run-loop turn (an arrival), or a classed
+    /// callback in a helper's callout (`inCallout`), which may be inside another task: there only
+    /// this callback runs, when its class queue is empty and its class may run, and otherwise it
+    /// queues for the next turn or frame.
     func deliver(_ workClass: MainWorkClass, owner: MainTaskOwner, site: MainPostSite, enqueueNanos: UInt64?,
-                 _ body: @escaping @MainActor () -> Void) {
-        let now = budget.nowNanos
+                 inCallout: Bool, _ body: @escaping @MainActor () -> Void) {
+        let post = MainTaskPost(site: site, enqueueNanos: enqueueNanos ?? budget.nowNanos)
         if let budgeted = Self.budgeted(workClass) {
-            let post = MainTaskPost(site: site, enqueueNanos: enqueueNanos ?? now)
-            if !holdClassed(budgeted, owner: owner, post: post, body) {
-                arrive(budgeted, owner: owner, site: site, enqueueNanos: enqueueNanos, body)
+            if holdClassed(budgeted, owner: owner, post: post, followsGate: true, body) { return }
+            guard inCallout else { return arrive(budgeted, owner: owner, post: post, body) }
+            if postedCount(budgeted) == 0, startup.admits(workClass), budget.mayRun(workClass) {
+                budget.run(workClass, owner: owner, posted: post) { body() }
+            } else {
+                enqueue(budgeted, owner: owner, post: post, body)
             }
         } else if workClass == .idle {
             idle.post(owner: owner, site: site, maxDelay: nil, node: nil) { _ in body() }
         } else {
-            Self.runUnbudgeted(workClass, owner: owner, post: MainTaskPost(site: site, enqueueNanos: enqueueNanos ?? now),
-                               budget: budget, body)
+            Self.runUnbudgeted(workClass, owner: owner, post: post, budget: budget, body)
         }
     }
 
-    /// Holds a budgeted task while the gate holds or anything is held already; false when it goes on.
-    private func holdClassed(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, post: MainTaskPost,
-                             _ body: @escaping @MainActor () -> Void) -> Bool {
-        guard !classedHold.entries.isEmpty || holdsClassedWork() else { return false }
-        if classedHold.entries.isEmpty {
-            classedHold.since = budget.nowNanos
-            classedHold.release = MainRunLoopObserver(activities: [.beforeTimers, .beforeWaiting], order: .max) { [weak self] activity in
-                self?.classedHoldStage(activity)
-            }
-        }
+    /// Holds a budgeted task behind work held before it, and with `followsGate` also while the gate
+    /// holds; false when it goes on. Every budgeted post and arrival asks first, classed or not, so
+    /// a class keeps one FIFO across the hold.
+    func holdClassed(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, post: MainTaskPost?, followsGate: Bool,
+                     _ body: @escaping @MainActor () -> Void) -> Bool {
+        guard !classedHold.entries.isEmpty || (followsGate && holdsClassedWork()) else { return false }
+        if classedHold.entries.isEmpty { armClassedRelease() }
         classedHold.entries.append(ClassedHold.Entry(workClass: workClass, owner: owner, post: post, body: body))
         return true
     }
 
-    /// A stage of the main run loop while classed work is held: after the pass's commit
-    /// (`beforeWaiting`) it goes once the gate no longer holds; at any stage, once one refresh passed
-    /// since the first was held. Tests call it for the run loop.
-    func classedHoldStage(_ activity: CFRunLoopActivity) {
+    /// The main run loop's `beforeWaiting` while classed work is held, after the pass's commit: the
+    /// held work goes once the gate no longer holds. Tests call it for the run loop.
+    func classedHoldCommitted() {
+        guard !holdsClassedWork() else { return }
+        releaseClassed()
+    }
+
+    /// Sends the held work to its class queues, oldest first: after the input's commit, or at the
+    /// one-refresh deadline though input is still pending.
+    func releaseClassed() {
         guard !classedHold.entries.isEmpty else { return }
-        let refreshNanos = UInt64(max(frames.refreshPeriod, 0) * 1_000_000_000)
-        let overdue = budget.nowNanos &- classedHold.since >= refreshNanos
-        guard overdue || (activity.contains(.beforeWaiting) && !holdsClassedWork()) else { return }
-        let entries = classedHold.entries
+        let hold = classedHold
         classedHold = ClassedHold()
-        for entry in entries { post(entry.workClass, owner: entry.owner, post: entry.post, entry.body) }
+        hold.cancelDeadline?()
+        for entry in hold.entries { enqueue(entry.workClass, owner: entry.owner, post: entry.post, entry.body) }
+    }
+
+    /// The first entry was held: watch for the commit, and arm the deadline one refresh from now.
+    /// The deadline's timer wakes the run loop, so the bound holds also while the run loop sleeps
+    /// with input still counted pending, or when this hold came inside a `beforeWaiting` callout.
+    private func armClassedRelease() {
+        classedHold.commit = MainRunLoopObserver(activities: .beforeWaiting, order: .max) { [weak self] _ in
+            self?.classedHoldCommitted()
+        }
+        let refresh = Duration.nanoseconds(Int64(max(frames.refreshPeriod, 0) * 1_000_000_000))
+        let fire: MainWakeUpQueue.Action = { [weak self] in self?.releaseClassed() }
+        if let arm = armClassedDeadline {
+            classedHold.cancelDeadline = arm(refresh, fire)
+            return
+        }
+        let wakeUps = wakeUps
+        let token = wakeUps.insert(owner: "MainWork.classedHold", after: refresh, policy: .precise, fire)
+        classedHold.cancelDeadline = { _ = wakeUps.cancel(token) }
     }
 
     /// Runs input or frame work now, as a task of its class.

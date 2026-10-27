@@ -5,8 +5,8 @@
 ///
 /// CmuxNextCompat has no scheduler, so the classed values come from CmuxNextWakeups
 /// (`MainWorkScheduler.callbackClass(_:owner:)`): input and frame callbacks run at once as tasks of
-/// their class, and visible, automation and background ones are posted, so they wait behind pending
-/// input (the `MainJobGate`) and the frame budget. Chrome posts every UI-thread task with its
+/// their class, and userBlocking, visible, automation and background ones wait behind pending input
+/// (the `MainJobGate`), work of their class queued before them and the frame budget. Chrome posts every UI-thread task with its
 /// queue's type the same way (`content/browser/scheduler/browser_task_queues.h`).
 ///
 /// ``immediate`` runs the callback in the callout itself, as before this type existed. It is the
@@ -25,7 +25,8 @@ public nonisolated struct MainCallbackClass: Sendable {
     /// A classed delivery.
     ///
     /// - Parameter deliver: Gets each callback on the main thread, inside the helper's callout, and
-    ///   runs it in its class: at once for input and frame work, else posted for a later turn.
+    ///   runs it in its class: at once for input and frame work, and for other work with nothing held
+    ///   or queued ahead of it that its class lets run; else held or queued for a later turn or frame.
     public init(deliver: @escaping @MainActor @Sendable (_ body: @escaping @MainActor () -> Void) -> Void) {
         self.deliver = deliver
     }

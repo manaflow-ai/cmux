@@ -66,7 +66,8 @@ public final class MainNotificationObserver {
                                            read: read, handler)
     }
 
-    /// Stops observing now (also happens when the observer is released).
+    /// Stops observing now, and drops the deliveries still waiting in the class: a held or queued
+    /// handler never runs after this (also happens when the observer is released).
     public func cancel() {
         observation.cancel()
     }

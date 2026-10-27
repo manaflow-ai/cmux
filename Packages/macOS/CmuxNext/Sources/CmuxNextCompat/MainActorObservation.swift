@@ -25,6 +25,9 @@ public import Foundation
 public final class MainActorObservation {
     private let center: NotificationCenter
     private let token: any NSObjectProtocol
+    /// Lives as long as the observation delivers: a handler that waits in its class runs only while
+    /// this lives, so ``cancel()`` and release also drop the deliveries not run yet.
+    private var alive: Alive?
 
     /// Observes `name` from `object` (nil: any sender) on `center`, delivering on the main actor.
     ///
@@ -43,7 +46,11 @@ public final class MainActorObservation {
         _ work: @escaping @MainActor () -> Void
     ) {
         self.center = center
-        let handler: @MainActor () -> Void = { workClass.run(work) }
+        let alive = Alive()
+        self.alive = alive
+        let handler: @MainActor () -> Void = { [weak alive] in
+            workClass.run { [weak alive] in if alive != nil { work() } }
+        }
         token = center.addObserver(forName: name, object: object, queue: .main) { _ in
             // main-proof: the observer is registered on the main queue (queue: .main).
             MainActor.assumeIsolated { handler() }
@@ -79,7 +86,11 @@ public final class MainActorObservation {
         _ work: @escaping @MainActor (Value) -> Void
     ) {
         self.center = center
-        let handler: @MainActor (Value) -> Void = { value in workClass.run { work(value) } }
+        let alive = Alive()
+        self.alive = alive
+        let handler: @MainActor (Value) -> Void = { [weak alive] value in
+            workClass.run { [weak alive] in if alive != nil { work(value) } }
+        }
         token = center.addObserver(forName: name, object: object, queue: .main) { note in
             // crash-allow: the center delivers on the main queue (queue: .main) and the notification is read only inside the assumeIsolated below, on this same delivery, so it never crosses actors.
             nonisolated(unsafe) let note = note
@@ -88,8 +99,10 @@ public final class MainActorObservation {
         }
     }
 
-    /// Stops observing now (also happens when the token is released).
+    /// Stops observing now, and drops the deliveries still waiting in their class (also happens
+    /// when the observation is released).
     public func cancel() {
+        alive = nil
         center.removeObserver(token)
     }
 
@@ -97,3 +110,6 @@ public final class MainActorObservation {
         center.removeObserver(token)
     }
 }
+
+/// The lifetime a waiting delivery checks (``MainActorObservation``).
+private final class Alive {}

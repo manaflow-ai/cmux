@@ -91,6 +91,8 @@ public final class MainWorkScheduler {
     /// Whether classed work that is not input or frame waits now: the app's ``MainJobGateSwitch``
     /// (``follow(_:)``); never without one. Tests set it.
     var holdsClassedWork: @MainActor () -> Bool = { false }
+    /// Arms the held classed work's one-refresh deadline; nil: a precise entry on ``wakeUps``. Tests set it.
+    var armClassedDeadline: ClassedDeadlineArm?
     /// Ticks the link while an input response is open (``MainFrameBudget/noteDiscreteInput(expectsFrame:)``
     /// asks for it), so the tick render that closes the response comes even while no budgeted
     /// client has work.
