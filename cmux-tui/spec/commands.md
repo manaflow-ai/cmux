@@ -9911,9 +9911,11 @@ Machine kind: receive and finish read this machine's kind at each call, as
 `agent_session.team_vm_blocked` on a team VM and
 `agent_session.host_unverified` on a Cloud VM without the caller's
 `vm_kind: "owner"` (its own `owner` record never counts) or on a daemon never
-told its kind. `cmux link agent move --vm-kind KIND` sends it to a daemon that
-serves it; to an older one it sends none and refuses any kind but `owner`
-before the chat freezes. A chat under peer control keeps its
+told its kind. `cmux link agent move --vm-kind KIND` (the caller says the
+target is a Cloud machine) sends it to a daemon that serves it; to an older
+one it sends none and refuses any kind but `owner` before the chat freezes,
+whatever that daemon advertises. Without the flag the caller says the target
+is not a Cloud machine. A chat under peer control keeps its
 permission policy and mode and runs its queue at once, so it lands only on
 a Mac, an SSH host or a personal (owner) Cloud VM; under web control
 acpmux also requires a policy and mode that ask.

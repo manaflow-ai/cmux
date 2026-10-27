@@ -234,8 +234,6 @@ struct Target {
     received_cwd: Option<String>,
     /// Serves `agent-transfer-vm-kind-v1` (else an older daemon).
     takes_vm_kind: bool,
-    /// An older daemon on a Cloud host (it serves `fs-v1`).
-    older_cloud: bool,
     /// The `vm_kind` of each receive and finish, in order.
     vm_kinds: Vec<Value>,
 }
@@ -250,10 +248,7 @@ impl Target {
         match cmd {
             "identify" if self.takes_vm_kind => Reply::Data(json!({"capabilities":
                 ["agent-transfer-v1", "agent-transfer-vm-kind-v1"]})),
-            "identify" if self.older_cloud => {
-                Reply::Data(json!({"capabilities": ["agent-transfer-v1", "fs-v1"]}))
-            }
-            // An older Mac or SSH host.
+            // An older daemon; it shows no sign of being a Cloud VM (a guest can hide any).
             "identify" => Reply::Data(json!({"capabilities": ["agent-transfer-v1"]})),
             "agent-transfer-receive" => self.receive(request),
             "agent-transfer-write" => self.write(&receive_id, request),
@@ -616,11 +611,12 @@ mod agent_move {
         assert_eq!(source.committed.as_deref(), Some("xfer_2"));
     }
 
-    /// `--vm-kind`: the Cloud API's answer goes to a target that takes it, on
-    /// the receive and the finish. An older Cloud target would trust its own
-    /// record, so any kind but `owner`, or none, is refused there before the
-    /// chat freezes, and `owner` moves without the param it would refuse. An
-    /// older target that is not a Cloud host (a Mac) needs no kind.
+    /// `--vm-kind`: the caller says the target is a Cloud machine, and the
+    /// Cloud API's answer goes to a target that takes it, on the receive and
+    /// the finish. An older target would trust its own record, so any kind but
+    /// `owner` is refused there before the chat freezes, whatever it
+    /// advertises, and `owner` moves without the param it would refuse.
+    /// Without the flag the caller says it is not a Cloud machine (a Mac).
     #[test]
     fn the_cloud_apis_kind_reaches_the_target_or_an_older_one_is_refused() {
         let world = World::new(Target { takes_vm_kind: true, ..Target::default() });
@@ -629,23 +625,24 @@ mod agent_move {
         let target = world.target.lock().unwrap();
         assert_eq!(target.vm_kinds, [json!("owner"), json!("owner")]);
 
-        for flags in [&["--vm-kind", "team"][..], &[]] {
-            let older = World::new(Target { older_cloud: true, ..Target::default() });
-            let (code, answer) = older.run_move_with(flags);
-            assert_eq!(code, 1, "{flags:?}");
+        for kind in ["team", "none"] {
+            let older = World::new(Target::default());
+            let (code, answer) = older.run_move_with(&["--vm-kind", kind]);
+            assert_eq!(code, 1, "{kind}");
             assert_eq!(answer["error_code"], json!("agent_session.host_unverified"), "{answer}");
             assert_eq!(answer["side"], json!("target"), "{answer}");
             assert_eq!(older.count("source:agent-transfer-begin"), 0, "the chat froze");
             assert_eq!(older.count("target:agent-transfer-receive"), 0);
         }
-        let older = World::new(Target { older_cloud: true, ..Target::default() });
+        let older = World::new(Target::default());
         let (code, answer) = older.run_move_with(&["--vm-kind", "owner"]);
         assert_eq!(code, 0, "{answer}");
         assert_eq!(older.target.lock().unwrap().vm_kinds, [Value::Null, Value::Null]);
 
         let mac = World::new(Target::default());
         let (code, answer) = mac.run_move();
-        assert_eq!(code, 0, "an older Mac target needs no kind: {answer}");
+        assert_eq!(code, 0, "a target the caller says is a Mac needs no kind: {answer}");
+        assert_eq!(mac.target.lock().unwrap().vm_kinds, [Value::Null, Value::Null]);
     }
 
     #[test]
