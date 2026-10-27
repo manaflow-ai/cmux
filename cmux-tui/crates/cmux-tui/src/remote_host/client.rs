@@ -119,21 +119,26 @@ pub(crate) fn dial(host: &str, port: u16) -> i32 {
         let code = reply["error_code"].as_str().unwrap_or("refused").to_owned();
         return dial_failed(&code, "the host refused the connection");
     }
-    let line = json!({"ok": true, "host": target.name, "address": target.addr.to_string(), "access": reply["access"]});
-    eprintln!("{line}");
-    let _ = io::stderr().flush();
-    if stream.set_read_timeout(None).is_err() || stream.set_write_timeout(None).is_err() {
-        return 1;
+    // Everything that can fail runs before the ok line: after it, the caller
+    // only reads the bridged protocol.
+    if let Err(e) = stream.set_read_timeout(None).and_then(|()| stream.set_write_timeout(None)) {
+        return dial_failed("internal", &format!("cannot clear the socket timeouts: {e}"));
     }
-    let Ok(mut tcp_write) = stream.try_clone() else { return 1 };
+    let mut tcp_write = match stream.try_clone() {
+        Ok(write) => write,
+        Err(e) => return dial_failed("internal", &format!("cannot share the connection: {e}")),
+    };
     let stdin = std::thread::Builder::new().name("rhost-stdin".into()).spawn(move || {
         let mut stdin = io::stdin().lock();
         let _ = io::copy(&mut stdin, &mut tcp_write);
         let _ = tcp_write.shutdown(Shutdown::Write);
     });
-    if stdin.is_err() {
-        return 1;
+    if let Err(e) = stdin {
+        return dial_failed("internal", &format!("cannot start the stdin bridge: {e}"));
     }
+    let line = json!({"ok": true, "host": target.name, "address": target.addr.to_string(), "access": reply["access"]});
+    eprintln!("{line}");
+    let _ = io::stderr().flush();
     let mut tcp_read = stream;
     let mut stdout = io::stdout().lock();
     let mut buf = [0u8; 64 * 1024];
@@ -180,19 +185,30 @@ pub(crate) fn candidates(status: &Status) -> Vec<Node> {
 /// whole list takes about one probe's time.
 pub(crate) fn probe_all(nodes: Vec<Node>, port: u16) -> Vec<Found> {
     let (tx, rx) = mpsc::channel();
-    let count = nodes.len();
+    // A probe thread that cannot start is a Found with the start error, so
+    // `--all` names the reason.
+    let mut found = Vec::new();
+    let mut started = 0;
     for node in nodes {
-        let tx = tx.clone();
-        let _ = std::thread::Builder::new().name("rhost-probe".into()).spawn(move || {
-            let Some(ip) = node.dial_ip() else { return };
-            let addr = SocketAddr::new(ip, port);
+        let Some(ip) = node.dial_ip() else { continue };
+        let addr = SocketAddr::new(ip, port);
+        let (tx, probed) = (tx.clone(), node.clone());
+        let thread = std::thread::Builder::new().name("rhost-probe".into()).spawn(move || {
             let reply = open(addr, Op::Probe, PROBE_CONNECT_BOUND, PROBE_REPLY_BOUND)
                 .map(|(_, reply)| reply);
-            let _ = tx.send(Found { node, addr, reply });
+            let _ = tx.send(Found { node: probed, addr, reply });
         });
+        match thread {
+            Ok(_) => started += 1,
+            Err(e) => found.push(Found {
+                node,
+                addr,
+                reply: Err(anyhow!(e).context("cannot start the probe")),
+            }),
+        }
     }
     drop(tx);
-    let mut found: Vec<Found> = rx.iter().take(count).collect();
+    found.extend(rx.iter().take(started));
     found.sort_by(|a, b| a.node.dns_name.cmp(&b.node.dns_name));
     found
 }

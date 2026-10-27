@@ -74,6 +74,32 @@ struct DeathWatch {
     ended: tokio::sync::watch::Sender<Watch>,
 }
 
+impl DeathWatch {
+    fn new(state: Watch) -> Self {
+        Self {
+            state: StdMutex::new(state),
+            changed: Condvar::new(),
+            ended: tokio::sync::watch::channel(state).0,
+        }
+    }
+
+    fn end(&self, end: Watch) {
+        *self.state.lock_or_recover() = end;
+        self.changed.notify_all();
+        self.ended.send_replace(end);
+    }
+}
+
+/// Starts a watch thread; the seam lets tests fail the start.
+type SpawnWatch = fn(std::thread::Builder, Box<dyn FnOnce() + Send>) -> std::io::Result<()>;
+
+fn spawn_watch(
+    thread: std::thread::Builder,
+    body: Box<dyn FnOnce() + Send>,
+) -> std::io::Result<()> {
+    thread.spawn(body).map(drop)
+}
+
 fn watches() -> &'static StdMutex<HashMap<PathBuf, Arc<DeathWatch>>> {
     static WATCHES: OnceLock<StdMutex<HashMap<PathBuf, Arc<DeathWatch>>>> = OnceLock::new();
     WATCHES.get_or_init(Default::default)
@@ -86,8 +112,10 @@ pub fn death_watches() -> usize {
 
 /// The one watch on a live lock file; None when the file is gone (the host
 /// is dead). Its thread takes a blocking lock, which returns when the host's
-/// descriptor closes at its death, then ends.
-fn watch(path: &Path) -> Option<Arc<DeathWatch>> {
+/// descriptor closes at its death, then ends. When the thread cannot start,
+/// the watch is already [`Watch::Failed`] (no proof either way) and is not
+/// shared, so a later wait tries again.
+fn watch(path: &Path, spawn: SpawnWatch) -> Option<Arc<DeathWatch>> {
     let mut map = watches().lock_or_recover();
     if let Some(w) = map.get(path) {
         return Some(w.clone());
@@ -97,25 +125,28 @@ fn watch(path: &Path) -> Option<Arc<DeathWatch>> {
         std::fs::OpenOptions::new().read(true).write(true).open(path)
     })
     .ok()?;
-    let w = Arc::new(DeathWatch {
-        state: StdMutex::new(Watch::Waiting),
-        changed: Condvar::new(),
-        ended: tokio::sync::watch::channel(Watch::Waiting).0,
-    });
+    let w = Arc::new(DeathWatch::new(Watch::Waiting));
     let (key, watch) = (path.to_owned(), w.clone());
     // The thread removes its entry under the lock `map` holds, so it cannot run before the insert below.
-    let waiter = std::thread::Builder::new().name("acpmux-hostwait".into());
-    waiter
-        .spawn(move || {
+    let thread = std::thread::Builder::new().name("acpmux-hostwait".into());
+    let started = spawn(
+        thread,
+        Box::new(move || {
             let end = take_death_lock(file);
             watches().lock_or_recover().remove(&key);
-            *watch.state.lock_or_recover() = end;
-            watch.changed.notify_all();
-            watch.ended.send_replace(end);
-        })
-        .ok()?;
-    map.insert(path.to_owned(), w.clone());
-    Some(w)
+            watch.end(end);
+        }),
+    );
+    match started {
+        Ok(()) => {
+            map.insert(path.to_owned(), w.clone());
+            Some(w)
+        }
+        Err(e) => {
+            tracing::warn!("cannot start the death watch on {}: {e}", path.display());
+            Some(Arc::new(DeathWatch::new(Watch::Failed)))
+        }
+    }
 }
 
 /// Block until the host's lock on `file` is free (the host died), then
@@ -152,7 +183,11 @@ fn take_death_lock(_file: std::fs::File) -> Watch {
 /// Whether this incarnation's host is dead within `budget`. Blocks up to
 /// `budget`: call it off the async runtime (or use [`wait_dead_async`]).
 pub fn wait_dead_within(dir: &Path, session_id: &str, start_nonce: &str, budget: Duration) -> bool {
-    let Some(w) = watch(&live_path(dir, session_id, start_nonce)) else { return true };
+    wait_dead_on(&live_path(dir, session_id, start_nonce), budget, spawn_watch)
+}
+
+fn wait_dead_on(path: &Path, budget: Duration, spawn: SpawnWatch) -> bool {
+    let Some(w) = watch(path, spawn) else { return true };
     let state = w.state.lock_or_recover();
     #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
     let (state, _) =
@@ -167,7 +202,11 @@ pub fn wait_dead_within(dir: &Path, session_id: &str, start_nonce: &str, budget:
 /// (false). It has no deadline and holds no runtime thread: race it with one
 /// ([`within_on`]). The shared watch thread ends only with the host.
 pub async fn dead(dir: &Path, session_id: &str, start_nonce: &str) -> bool {
-    let Some(w) = watch(&live_path(dir, session_id, start_nonce)) else { return true };
+    dead_on(&live_path(dir, session_id, start_nonce), spawn_watch).await
+}
+
+async fn dead_on(path: &Path, spawn: SpawnWatch) -> bool {
+    let Some(w) = watch(path, spawn) else { return true };
     let mut ended = w.ended.subscribe();
     let end = match ended.wait_for(|s| *s != Watch::Waiting).await {
         Ok(end) => *end,
@@ -186,4 +225,41 @@ pub async fn wait_dead_async(
     tokio::task::spawn_blocking(move || wait_dead_within(&dir, &session_id, &start_nonce, budget))
         .await
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn refuse(_: std::thread::Builder, _: Box<dyn FnOnce() + Send>) -> std::io::Result<()> {
+        Err(std::io::Error::from(std::io::ErrorKind::WouldBlock))
+    }
+
+    fn live_file(tag: &str) -> (PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("acpmux-wait-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = live_path(&dir, "s", "00ff");
+        std::fs::write(&path, b"").unwrap();
+        (dir, path)
+    }
+
+    /// A watch thread that cannot start proves nothing: the host is not dead.
+    #[test]
+    fn failed_start_is_not_death() {
+        let (dir, path) = live_file("refused");
+        assert!(!wait_dead_on(&path, Duration::from_secs(5), refuse));
+        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        assert!(!rt.block_on(dead_on(&path, refuse)));
+        assert!(!watches().lock_or_recover().contains_key(&path), "a failed watch is not shared");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A missing lock file is still proof of death.
+    #[test]
+    fn missing_file_is_death() {
+        let (dir, path) = live_file("gone");
+        std::fs::remove_file(&path).unwrap();
+        assert!(wait_dead_on(&path, Duration::from_secs(5), refuse));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }
