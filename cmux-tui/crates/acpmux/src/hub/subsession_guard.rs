@@ -470,16 +470,25 @@ impl Hub {
     }
 
     /// A message runs as the receiver's prompt: never in a session that asks less than its
-    /// sender, by its harness mode or its policy. One read of MDM's off, at entry, ranks both.
+    /// sender, by its harness mode or its policy.
     pub(super) async fn receiver_check(
         &self,
         caller: &Session,
         target: &Session,
     ) -> Result<(), RpcError> {
-        let off = self.off_latch();
+        self.receiver_check_under(caller, target, self.mdm_snapshot()).await
+    }
+
+    /// [`Self::receiver_check`] under MDM's bound as its operation read it (`MdmSnapshot`).
+    pub(super) async fn receiver_check_under(
+        &self,
+        caller: &Session,
+        target: &Session,
+        bound: super::full_access_bound::MdmSnapshot,
+    ) -> Result<(), RpcError> {
         let (cm, tm) = (caller.meta(), target.meta());
         if self.receiver_access(&tm, &cm).await > self.caller_access(&cm)
-            || self.policy_laxer(&tm, &cm, &off).await
+            || self.policy_laxer_under(&tm, &cm, bound).await
         {
             return Err(refusal(
                 "subsessions.receiver_asks_less",
@@ -498,16 +507,39 @@ impl Hub {
     /// forces full access off (`policy_for`), so comparisons and inheritance
     /// rank it as it answers.
     pub(super) async fn effective_policy(&self, m: &SessionMeta) -> PermissionPolicy {
-        self.effective_policy_under(m, &self.off_latch()).await
+        self.effective_policy_under(m, self.mdm_snapshot()).await
     }
 
-    /// `effective_policy` as the operation that took `off` sees MDM's off.
+    /// [`Self::effective_policy`] under MDM's bound as its operation read it (`MdmSnapshot`).
     async fn effective_policy_under(
         &self,
         m: &SessionMeta,
-        off: &super::full_access_bound::OffLatch,
+        bound: super::full_access_bound::MdmSnapshot,
     ) -> PermissionPolicy {
-        super::permissions::capped_policy(self.set_policy_of(m).await, off.off())
+        let policy = self.set_policy_of(m).await;
+        if super::full_access_bound::policy_is_full_access(policy) && bound.off {
+            return PermissionPolicy::Ask;
+        }
+        policy
+    }
+
+    /// Whether session `m` runs a laxer policy than `than`.
+    pub(super) async fn policy_laxer(&self, m: &SessionMeta, than: &SessionMeta) -> bool {
+        self.policy_laxer_under(m, than, self.mdm_snapshot()).await
+    }
+
+    /// [`Self::policy_laxer`], both ranked under one read of MDM's bound (review 86 of #23322).
+    async fn policy_laxer_under(
+        &self,
+        m: &SessionMeta,
+        than: &SessionMeta,
+        bound: super::full_access_bound::MdmSnapshot,
+    ) -> bool {
+        let (m, than) = (
+            self.effective_policy_under(m, bound).await,
+            self.effective_policy_under(than, bound).await,
+        );
+        policy_rank(m) > policy_rank(than)
     }
 
     /// The policy session `m` is set to run, before MDM's off caps it (`effective_policy`): its
@@ -519,18 +551,6 @@ impl Hub {
             Some(p) => p.parse().unwrap_or(PermissionPolicy::Ask),
             None => self.config.read().await.permission_policy,
         }
-    }
-
-    /// Whether session `m` runs a laxer policy than `than`, both ranked under one read of MDM's
-    /// off (`off`), so an unset between them cannot rank one side capped and the other not.
-    pub(super) async fn policy_laxer(
-        &self,
-        m: &SessionMeta,
-        than: &SessionMeta,
-        off: &super::full_access_bound::OffLatch,
-    ) -> bool {
-        policy_rank(self.effective_policy_under(m, off).await)
-            > policy_rank(self.effective_policy_under(than, off).await)
     }
 
     /// Whether session `m` is set to run a laxer policy than `than` (`set_policy_of`).
@@ -617,11 +637,11 @@ impl Hub {
         &self,
         session: &Session,
         provenance: Option<&Value>,
+        bound: super::full_access_bound::MdmSnapshot,
     ) -> Result<(), RpcError> {
         let Some(p) = provenance.filter(|p| is_family(Some(p))) else {
             return Ok(());
         };
-        let off = self.off_latch();
         let from = p.get("from").and_then(Value::as_str).unwrap_or_default();
         let sender = self.resolve(from).ok().filter(|s| s.id == from).ok_or_else(|| {
             refusal(
@@ -632,7 +652,7 @@ impl Hub {
         })?;
         let (sm, tm) = (sender.meta(), session.meta());
         if self.receiver_access(&tm, &sm).await > self.caller_access(&sm)
-            || self.policy_laxer(&tm, &sm, &off).await
+            || self.policy_laxer_under(&tm, &sm, bound).await
         {
             return Err(refusal(
                 "subsessions.receiver_asks_less",
