@@ -89,7 +89,7 @@ public actor DaemonConnection {
     public private(set) var endpoint: DaemonEndpoint?
     /// Quiet handoff (`DaemonConnection+QuietHandoff`): requests in flight and the requests held while
     /// a handoff runs, counted and parked without the actor; the running hold's limit timer.
-    nonisolated let handoffGate = QuietHandoffGate()
+    nonisolated let handoffGate: QuietHandoffGate
     var handoffHoldTimer: DemandTimer?
     /// Waits for a ready connection newer than `after` (`DaemonConnection+ReadyWait`), each with its limit.
     var readyWaits: [UInt64: (after: UInt64, continuation: OnceContinuation<Bool, OnceContinuationError>, timer: DemandTimer)] = [:]
@@ -108,6 +108,7 @@ public actor DaemonConnection {
         pacer = RetryPacer(configuration.retry)
         wake = configuration.retryWake ?? RetryWake(owner: "DaemonConnection.reconnect")
         healthy = DemandTimer(owner: "DaemonConnection.healthy", clock: clock)
+        handoffGate = QuietHandoffGate(observe: configuration.handoffWaits)
         // concurrency-allow: holds only events no consumer took yet (DaemonEventRoute); the store drains them at once into the bounded EventInbox
         let (events, continuation) = AsyncThrowingStream.makeStream(of: DaemonEventEnvelope.self, bufferingPolicy: .unbounded)
         let route = DaemonEventRoute(continuation)
@@ -164,18 +165,20 @@ public actor DaemonConnection {
     /// `DaemonError.timedOut` after `timeout` (default: the configured
     /// `requestTimeout`) instead of waiting forever.
     /// Runs on the caller's executor, never the connection's actor (`request(_:timeout:)`).
+    /// A terminal-starting request gets Ghostty's shell-integration arguments when the daemon that
+    /// carries it serves them, decided after the quiet-handoff gate (a request held through a handoff
+    /// goes to the next daemon).
     public nonisolated func request<R: DaemonRequest>(_ request: R) async throws -> R.Response {
         guard R.self is any TerminalSpawningRequest.Type else {
             return try await self.request(request, timeout: configuration.requestTimeout)
         }
-        var request = request
-        if admittedConnection?.identity.supports(DaemonCapability.terminalShellArgs.rawValue) == true,
-           let carrier = request as? any ShellIntegrationArgumentCarrying,
-           let integrated = carrier.addingShellIntegrationArguments() as? R {
-            request = integrated
-        }
         do {
-            return try await self.request(request, timeout: configuration.spawnTimeout)
+            return try await sendAdmitted(request, timeout: configuration.spawnTimeout) { request, identity in
+                guard identity.supports(DaemonCapability.terminalShellArgs.rawValue),
+                      let carrier = request as? any ShellIntegrationArgumentCarrying,
+                      let integrated = carrier.addingShellIntegrationArguments() as? R else { return request }
+                return integrated
+            }
         } catch DaemonError.timedOut(let what) {
             // cmux-tui keeps starting the terminal after the client gave up.
             throw DaemonError.terminalStartTimedOut(what)
@@ -185,10 +188,18 @@ public actor DaemonConnection {
     /// Runs on the caller's executor with no actor hop (p05-ipc-091): it reads the ready connection from
     /// its `Mutex` snapshot and passes the quiet-handoff gate with atomics only.
     public nonisolated func request<R: DaemonRequest>(_ request: R, timeout: Duration?) async throws -> R.Response {
+        try await sendAdmitted(request, timeout: timeout) { request, _ in request }
+    }
+
+    /// Passes the quiet-handoff gate, then sends `request` as `forDaemon` makes it for the identity of
+    /// the ready connection that carries it.
+    private nonisolated func sendAdmitted<R: DaemonRequest>(_ request: R, timeout: Duration?,
+                                                            forDaemon: (R, DaemonIdentity) -> R) async throws -> R.Response {
         await handoffGate.enter(passes: Self.passesHandoffHold)
         defer { handoffGate.leave() }
         guard let ready = admittedConnection else { throw DaemonError.notConnected }
         try R.requireServed(by: ready.identity)
+        let request = forDaemon(request, ready.identity)
         // Before the line goes out: the echo can arrive before the reply.
         DaemonCommandScope.recordEchoTransaction(of: request, in: mutationCauses)
         let response = try await Self.perform(request, on: ready.transport, timeout: timeout)

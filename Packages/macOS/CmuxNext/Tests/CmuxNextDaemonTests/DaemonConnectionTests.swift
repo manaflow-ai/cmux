@@ -1,4 +1,6 @@
 import CmuxNextCompat
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Dispatch
 import Foundation
 import Testing
@@ -69,6 +71,78 @@ import Testing
                 try await connection.request(SetSplitRatioRequest(split: 1, ratio: 0.5))
             }
             #expect(connection.handoffGate.requestsInFlight == 0)
+        } catch {
+            await connection.close()
+            throw error
+        }
+    }
+}
+
+/// A terminal started while an accepted handoff waits for the next daemon gets the shell integration of the
+/// daemon that carries it. The arguments are decided after the hold, from the ready connection the request
+/// goes out on; decided before it, the request saw no ready connection and went out without them.
+@Suite(.timeLimit(.minutes(1))) struct DaemonConnectionHandoffSpawnTests {
+    /// A daemon that serves `terminal-shell-args-v1`. Its first process exits on `set-split-ratio` (the
+    /// handoff's own request: the old daemon went away); the next process, the reconnect, answers
+    /// `create-terminal` with the `shell_args` it got in `lifecycle`.
+    private static let script = #"""
+    import json, os, sys
+    marker = sys.argv[1]
+    print('{"ok":true}', file=sys.stderr, flush=True)
+    for line in sys.stdin:
+        frame = json.loads(line)
+        data = {}
+        command = frame.get('cmd')
+        if command == 'identify':
+            data = {'app': 'cmux-tui', 'protocol': 12, 'generation': 'handoff-spawn-test', 'capabilities': ['terminal-shell-args-v1']}
+        elif command == 'set-split-ratio' and not os.path.exists(marker):
+            open(marker, 'w').close()
+            os._exit(0)
+        elif command == 'create-terminal':
+            data = {'terminal_id': 't1', 'key': 'w1', 'replayed': False,
+                    'lifecycle': '|'.join(frame.get('shell_args') or ['no shell args'])}
+        print(json.dumps({'id': frame.get('id'), 'ok': True, 'data': data}), flush=True)
+    """#
+
+    @Test func aTerminalHeldThroughAHandoffGetsTheNextDaemonsShellArguments() async throws {
+        // The hold limit and the reconnect wait on a clock that never moves: only `wake` reconnects.
+        let clock = ManualClock()
+        let marker = NSTemporaryDirectory() + "cmux-handoff-spawn-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: marker) }
+        let (reconnectParks, reconnectParked) = AsyncStream<Void>.makeStream()
+        let wake = RetryWake(owner: "DaemonConnectionHandoffSpawnTests", probe: RetryWakeProbe(parked: { _ in reconnectParked.yield() }))
+        let (gateWaits, gateWaited) = AsyncStream<QuietHandoffGate.Wait>.makeStream()
+        var configuration = DaemonConnectionConfiguration(
+            requiredCapabilities: [], retry: RetryPolicy(initial: .milliseconds(50), maximum: .seconds(1), timedRetries: 0),
+            retryWake: wake, terminalEnvironment: nil)
+        configuration.handoffWaits = { gateWaited.yield($0) }
+        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", Self.script, marker])
+        let connection = DaemonConnection(endpoint: .init(socketPath: "/tmp/cmux-handoff-spawn-\(UUID().uuidString).sock", bridge: bridge),
+                                          configuration: configuration, clock: clock)
+        do {
+            try await connection.start()
+            let accepted = await connection.quietHandoff { () async -> Bool in
+                _ = try? await connection.request(SetSplitRatioRequest(split: 1, ratio: 0.5))
+                return true
+            }
+            #expect(accepted)
+            // The old daemon is gone and the reconnect waits for `wake`: no ready connection while the hold runs.
+            var parks = reconnectParks.makeAsyncIterator()
+            _ = await parks.next()
+            #expect(connection.admittedConnection == nil)
+            #expect(connection.handoffGate.isHolding, "the accepted handoff's hold ended before the next daemon")
+
+            let env = ["SHELL": "/usr/bin/nu", "GHOSTTY_SHELL_INTEGRATION_XDG_DIR": "/tmp/cmux-handoff-spawn-xdg"]
+            let create = Task {
+                try await connection.request(CreateTerminalRequest(workspace: .key("w1"), env: env, mutation: nil))
+            }
+            var waits = gateWaits.makeAsyncIterator()
+            let parked = await waits.next()
+            #expect(parked == .request, "the create did not wait out the hold")
+            wake.fire()
+            let created = try await create.value
+            #expect(created.lifecycle == "--execute|use ghostty *", "the next daemon got the create without its shell arguments")
+            await connection.close()
         } catch {
             await connection.close()
             throw error
@@ -167,8 +241,9 @@ import Testing
         #expect(!gate.isHolding)
     }
 
-    /// Requests and handoffs at once from many tasks: no request is ever in flight while a handoff runs
-    /// after its quiet wait, and every request gets through.
+    /// Requests and handoffs at once from many tasks: no request is past ``QuietHandoffGate/enter(passes:)``
+    /// while a handoff runs after its quiet wait, and every request gets through. `admitted` counts only
+    /// requests that returned from `enter`; the gate's own count also has a request about to park again.
     @Test func noRequestRunsInsideAHandoff() async {
         let gate = QuietHandoffGate()
         let tally = Tally()
@@ -178,8 +253,10 @@ import Testing
                 group.addTask {
                     for _ in 0..<perWorker {
                         await gate.enter(passes: false)
+                        tally.admitted.wrappingAdd(1, ordering: .sequentiallyConsistent)
                         if tally.handoffRunning.load(ordering: .sequentiallyConsistent) { tally.violations.wrappingAdd(1, ordering: .relaxed) }
                         tally.served.wrappingAdd(1, ordering: .relaxed)
+                        tally.admitted.wrappingSubtract(1, ordering: .sequentiallyConsistent)
                         gate.leave()
                     }
                 }
@@ -188,7 +265,7 @@ import Testing
                 for _ in 0..<handoffs {
                     let hold = await gate.beginHandoff()
                     tally.handoffRunning.store(true, ordering: .sequentiallyConsistent)
-                    if gate.requestsInFlight != 0 { tally.violations.wrappingAdd(1, ordering: .relaxed) }
+                    if tally.admitted.load(ordering: .sequentiallyConsistent) != 0 { tally.violations.wrappingAdd(1, ordering: .relaxed) }
                     tally.handoffRunning.store(false, ordering: .sequentiallyConsistent)
                     gate.release(hold)
                     await Task.yield()
@@ -205,6 +282,8 @@ import Testing
 /// The stress test's shared counters (a task cannot capture an `Atomic` itself).
 private final class Tally: Sendable {
     let handoffRunning = Atomic<Bool>(false)
+    /// Requests between their return from `enter` and their `leave`.
+    let admitted = Atomic<Int>(0)
     let violations = Atomic<Int>(0)
     let served = Atomic<Int>(0)
 }
