@@ -26,6 +26,16 @@ test("an ordinary slash in a session name is preserved without peer metadata", (
   expect(sessionTitle({ sessionId: "local", name: "team/review" })).toBe("team/review");
 });
 
+test("qualified short names and blank candidates cannot replace the session headline with its host", () => {
+  const sender = { name: "recorded-sender" };
+  const entry = sessionEntry({ sessionId: "peer-review", name: "peer/canonical", peer: "peer" });
+  for (const shortName of ["peer/pr-row", "  peer/pr-row  "])
+    expect(resolveSenderIdentity(sender, { ...entry, shortName }).name).toBe("pr-row");
+  for (const shortName of ["", "   ", "peer/"])
+    expect(resolveSenderIdentity(sender, { ...entry, shortName }).name).toBe("canonical");
+  expect(resolveSenderIdentity(sender, { ...entry, name: " ", shortName: " " }).name).toBe("recorded-sender");
+});
+
 test("a body signature cannot replace the recorded sender's identity", () => {
   const message = incomingPrompt("From gcp-codex-lane-10. The review is ready.", {
     client: "acpmux-peer#fixture",
