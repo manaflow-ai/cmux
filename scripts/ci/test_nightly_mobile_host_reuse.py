@@ -73,8 +73,8 @@ class MobileReuseTests(unittest.TestCase):
         self.assertNotEqual(before, reuse.source_key("HEAD", "arm64"))
 
     def test_toolchain_change_misses_but_source_change_keeps_compiler_cache(self):
-        original = {"source": "a" * 64, "sdk": "26A123", "rustc": "1.95.0", "archs": "arm64"}
-        for field in ("sdk", "rustc", "archs"):
+        original = {"source": "a" * 64, "sdk": "26A123", "rustc": "1.95.0", "archs": "arm64", "macos": "26.1", "macos_build": "25B1"}
+        for field in ("sdk", "rustc", "archs", "macos", "macos_build"):
             changed = dict(original, **{field: "different"})
             self.assertNotEqual(reuse.identity_key(original), reuse.identity_key(changed))
             self.assertNotEqual(reuse.toolchain_key(original), reuse.toolchain_key(changed))

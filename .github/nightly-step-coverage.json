@@ -49,6 +49,9 @@
         "Build the cmux-next source archive": {"nightly_only": "zig fetches every Ghostty and ghostty-next package on the macOS helper runner (network, minutes); a new package without a pinned license shows only here. The collector and verifier run on fixtures in cmux-next-guards.yml:vt-link-graph:The nightly's Ghostty license checks pass on fixtures; cmux-next-source-archive.yml runs it for real on ghosttykit-pin/** pushes"},
         "libghostty-vt Zig packages are covered by the notices": {"pr": "cmux-next-guards.yml:vt-link-graph:The nightly's Ghostty license checks pass on fixtures", "note": "check_ghostty_vt_notices.py --license-manifest on fixture manifests; the real manifests come from the source archive"}},
       "build-nightly-app": {
+        "Restore the published iPhone host": {"plumbing": true},
+        "Publish the iPhone host for unchanged inputs": {"plumbing": true},
+        "Resolve the iPhone host build identity": {"plumbing": true},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Wait for API budget before the daemon attestation": {"plumbing": true},
         "Restore the original unsigned nightly inputs": {"pr": "ci-guards.yml:workflow-guard-tests:Validate unsigned nightly resume provenance and routing"},
@@ -100,6 +103,7 @@
         "Build the web bundles": {"pr": "cmux-next.yml:web-bundles:Build the web bundles for this source key"},
         "Generate the third-party notices": {"pr": "cmux-next-guards.yml:rust-notices-tree:Generate the Rust notices from this tree (as the nightly does)"}},
       "resolve-nightly-cmux-tui-client": {
+        "Source key of the iPhone host": {"plumbing": true},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Validate the saved unsigned nightly source": {"pr": "ci-guards.yml:workflow-guard-tests:Validate unsigned nightly resume provenance and routing"},
         "Resolve the original cmux-tui tree": {"plumbing": true},

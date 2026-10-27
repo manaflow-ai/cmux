@@ -72,6 +72,9 @@ def identity(source: str, architectures: str) -> dict:
         "rustc": run("rustc", f"+{channel}", "-Vv", cwd=rust_root),
         "cargo": run("cargo", f"+{channel}", "-V", cwd=rust_root),
         "xcode": run("xcodebuild", "-version"),
+        "macos": run("sw_vers", "-productVersion"),
+        "macos_build": run("sw_vers", "-buildVersion"),
+        "developer_dir": run("xcode-select", "-p"),
         "sdk": run("xcrun", "--sdk", "macosx", "--show-sdk-build-version"),
         "clang": run("xcrun", "clang", "--version"),
         "environment": {name: value for name, value in os.environ.items()
