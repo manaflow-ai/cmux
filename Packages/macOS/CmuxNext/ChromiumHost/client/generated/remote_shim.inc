@@ -223,7 +223,7 @@ inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 69;
 inline constexpr char kShimAbiID[] = "3d2665ab9a2b5d4af2307a8be3fdc726f719d2f53c41129d5dddb7ef1033a611";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "2ea032e0a173faeb501ca048023bcfe1a075b554f20c489219df2580e6ed4dca";
+inline constexpr char kWireID[] = "f628aaaf7de8bf53bf06cbeede36e5ae9eeb4337e0422fceaaa01c795d68f4df";
 // Exports the header does not declare yet (fork API symbols): the client sends one only to
 // a host whose HELLO lists its symbol.
 struct OptionalExport {
@@ -947,9 +947,8 @@ CMUX_SHIM_EXPORT int cmux_shim_ext_action_run(int arg_browser_id, const char* ar
   op_w.Str(arg_extension_id);
   op_w.I32(arg_x);
   op_w.I32(arg_width);
-  const uint32_t op_token = NextToken();
-  const bool op_sent = PostForReply(kOpExtActionRun, op_token, op_w);
-  return op_sent ? 1 : 0;
+  (void)Post(kOpExtActionRun, 0, op_w);
+  return 1;
 }
 
 CMUX_SHIM_EXPORT void cmux_shim_ext_action_hide_popup(int arg_browser_id, const char* arg_extension_id) {

@@ -60,7 +60,7 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).
     static let abiIdentity = "3d2665ab9a2b5d4af2307a8be3fdc726f719d2f53c41129d5dddb7ef1033a611"
     /// This generation's op ids, classes and wire types; both HELLOs carry it.
-    static let wireIdentity = "2ea032e0a173faeb501ca048023bcfe1a075b554f20c489219df2580e6ed4dca"
+    static let wireIdentity = "f628aaaf7de8bf53bf06cbeede36e5ae9eeb4337e0422fceaaa01c795d68f4df"
     /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).
     static let optionalOps: Set<ChromiumHostOp> = [
         .addDocumentScript, .addPageChannel, .tabEvaluate, .tabSetFrozen, .tabSendClick, .tabSetColorScheme,
@@ -258,7 +258,7 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.post, [.int32, .int32], []),
         Row(.post, [.int32, .string], [.int32]),
         Row(.mirror, [.int32, .int32], [.string]),
-        Row(.async, [.int32, .string, .int32, .int32], [.int32]),
+        Row(.post, [.int32, .string, .int32, .int32], [.int32]),
         Row(.post, [.int32, .string], []),
         Row(.post, [.int32, .string, .int32, .int32], []),
         Row(.local, [], []),
