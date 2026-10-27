@@ -55,6 +55,8 @@ import CmuxNextCompat
     /// Host-owned requests (for example the trust record after a native folder picker). They share
     /// the page send line so initialization and person proof always precede them.
     var pendingHost: [PendingHostSend] = []
+    var awaitingHost: [Int: PendingHostSend] = [:]
+    var personProofID: Int?
     var draining = false
     /// The user's gestures in this pane; a granting frame consumes one.
     public let gestures: AgentPaneUserGestures
@@ -287,9 +289,9 @@ import CmuxNextCompat
         Task { [weak self] in await self?.drain() }
     }
 
-    func submitHost(connection id: Int, frame: String) async -> AgentPaneTransportError? {
+    func submitHost(connection id: Int, requestID: Int, frame: String) async -> AgentPaneTransportError? {
         await withCheckedContinuation { continuation in
-            pendingHost.append(PendingHostSend(connection: id, frame: frame, reply: continuation))
+            pendingHost.append(PendingHostSend(connection: id, requestID: requestID, frame: frame, reply: continuation))
             guard !draining else { return }
             draining = true
             Task { [weak self] in await self?.drain() }
@@ -298,14 +300,32 @@ import CmuxNextCompat
 
     final class PendingHostSend {
         let connection: Int
+        let requestID: Int
         let frame: String
         let reply: CheckedContinuation<AgentPaneTransportError?, Never>
 
-        init(connection: Int, frame: String, reply: CheckedContinuation<AgentPaneTransportError?, Never>) {
+        init(connection: Int, requestID: Int, frame: String, reply: CheckedContinuation<AgentPaneTransportError?, Never>) {
             self.connection = connection
+            self.requestID = requestID
             self.frame = frame
             self.reply = reply
         }
+    }
+
+    func hostAnswered(_ id: Int) {
+        awaitingHost.removeValue(forKey: id)?.reply.resume(returning: nil)
+    }
+
+    func failHostRequests(connection id: Int) {
+        let waiting = awaitingHost.values.filter { $0.connection == id }
+        for host in waiting {
+            awaitingHost.removeValue(forKey: host.requestID)
+            requestIds?.cancel(host.requestID)
+            host.reply.resume(returning: .closed)
+        }
+        for host in pendingHost where host.connection == id { host.reply.resume(returning: .closed) }
+        pendingHost.removeAll { $0.connection == id }
+        if let personProofID { requestIds?.cancelAndNotify(personProofID) }
     }
 
     nonisolated enum Step: Sendable { case sent, refused(AgentPaneTransportError), stop(AgentPaneTransportError) }
@@ -357,7 +377,9 @@ import CmuxNextCompat
 
     /// Closes the connection if it is the current one.
     public func close(connection id: Int) {
-        guard id == current, let socket else { return }
+        guard id == current else { return }
+        failHostRequests(connection: id)
+        guard let socket else { return }
         socket.close(code: 1000, reason: "", error: nil)
         gestures.clearTickets(connection: id)
         localAppToken = nil
@@ -378,6 +400,7 @@ import CmuxNextCompat
         flushes += 1
         let event = AgentPaneTransportEvent(connection: current, frames: batch.frames, closed: batch.closed)
         if batch.closed != nil {
+            failHostRequests(connection: current)
             self.socket = nil
             gestures.clearTickets(connection: current)
             localAppToken = nil

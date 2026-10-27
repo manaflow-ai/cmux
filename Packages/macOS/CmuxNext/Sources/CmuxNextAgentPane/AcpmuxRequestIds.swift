@@ -69,6 +69,15 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         }
     }
 
+    /// Cancels a host-owned request and wakes its waiter (used when a socket closes before a reply).
+    func cancelAndNotify(_ id: Int) {
+        let handler = state.withLock { state -> (@Sendable () -> Void)? in
+            state.answered.removeValue(forKey: id)
+        }
+        handler?()
+        cancel(id)
+    }
+
     /// What the socket does with one daemon frame.
     nonisolated enum Inbound {
         /// To the page: the fresh serialization, the parsed frame (its id the page's) for the

@@ -145,20 +145,27 @@ extension AgentPaneTransport {
     /// main-actor state, the re-encode and the send. It stops at the first frame that needs the main
     /// actor (the gesture record, the sheets, the pane's sessions), which gets only small facts.
     func drain() async {
-        while true {
+        while !pending.isEmpty || !pendingHost.isEmpty {
             guard let entry = pending.first else {
-                guard let host = pendingHost.first else {
-                    draining = false
-                    return
-                }
-                guard host.connection == current, sentFirst, let socket else {
+                guard let host = pendingHost.first else { break }
+                guard host.connection == current, sentFirst, let socket, let ids = requestIds else {
                     pendingHost.removeFirst()
                     host.reply.resume(returning: .staleConnection)
                     continue
                 }
+                let requestID = host.requestID
+                ids.whenAnswered(requestID) { [weak self] in
+                    Task { @MainActor in self?.hostAnswered(requestID) }
+                }
                 let error = socket.send(host.frame)
                 pendingHost.removeFirst()
-                host.reply.resume(returning: error)
+                if let error {
+                    ids.cancel(requestID)
+                    host.reply.resume(returning: error)
+                } else {
+                    awaitingHost[host.requestID] = host
+                }
+                await Task.yield()
                 continue
             }
             guard !entry.frames.isEmpty else {
@@ -219,6 +226,7 @@ extension AgentPaneTransport {
             return
         }
         let id = ids.hostID()
+        personProofID = id
         let frame: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": "_acpmux/person_prove",
                                     "params": ["proof": proof]]
         guard let data = try? JSONSerialization.data(withJSONObject: frame), let text = String(data: data, encoding: .utf8) else { return }
@@ -230,6 +238,7 @@ extension AgentPaneTransport {
                 Self.logger.error("agent pane transport: person proof not sent: \(error.rawValue, privacy: .public)")
             }
         }
+        if personProofID == id { personProofID = nil }
     }
 
     /// The most frames one off-main pass takes (so a long line still yields between passes).

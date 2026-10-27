@@ -18,7 +18,7 @@ extension AgentPaneTransport {
         guard let data = try? JSONSerialization.data(withJSONObject: request, options: [.withoutEscapingSlashes]) else {
             return
         }
-        let error = await submitHost(connection: current, frame: String(decoding: data, as: UTF8.self))
+        let error = await submitHost(connection: current, requestID: id, frame: String(decoding: data, as: UTF8.self))
         if let error {
             Self.logger.error("agent pane automatic folder trust failed: \(error.rawValue, privacy: .public)")
         }
