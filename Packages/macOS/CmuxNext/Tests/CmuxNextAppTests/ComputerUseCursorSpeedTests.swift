@@ -14,7 +14,7 @@ struct ComputerUseCursorSpeedTests {
     }
 
     @Test func theHelperGlidesTheCursorInAShortFixedTime() throws {
-        let argv = ComputerUseHelperDaemon.arguments(socketPath: "/tmp/cua.sock", ownerPID: 42)
+        let argv = ComputerUseHelperDaemon.arguments(socketPath: "/tmp/cua.sock", ownerPID: 42, motion: true)
         let glide = try value(of: "--glide-ms", in: argv)
         // 0 is the helper's speed-based default: a long move then takes seconds.
         #expect(glide >= 50, "a glide under 50 ms is not visible, and 0 is the slow speed-based default")
@@ -22,9 +22,17 @@ struct ComputerUseCursorSpeedTests {
     }
 
     @Test func theHelperWaitsOnlyBrieflyAfterAClick() throws {
-        let argv = ComputerUseHelperDaemon.arguments(socketPath: "/tmp/cua.sock", ownerPID: 42)
+        let argv = ComputerUseHelperDaemon.arguments(socketPath: "/tmp/cua.sock", ownerPID: 42, motion: true)
         let dwell = try value(of: "--dwell-ms", in: argv)
         #expect(dwell >= 0)
         #expect(dwell <= 50, "the 80 ms default dwell is added to every click of a batch")
+    }
+
+    /// A helper whose manifest does not list `serve.motion` may not know the
+    /// flags and would exit at launch: it gets none and keeps its own motion.
+    @Test func aHelperWithoutTheMotionCapabilityGetsNoMotionFlags() {
+        let argv = ComputerUseHelperDaemon.arguments(socketPath: "/tmp/cua.sock", ownerPID: 42, motion: false)
+        #expect(!argv.contains("--glide-ms"), "\(argv)")
+        #expect(!argv.contains("--dwell-ms"), "\(argv)")
     }
 }

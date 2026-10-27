@@ -68,6 +68,8 @@ public final class ComputerUseHelperDaemon {
     @ObservationIgnored private let staging: ComputerUseHelperStaging
     @ObservationIgnored private let ownerPID: pid_t
     @ObservationIgnored private let published = Mutex<[String: String]>([:])
+    /// Gets the published endpoint each time it changes (the App pushes it to its acpmux).
+    @ObservationIgnored public var onEndpointChange: (@MainActor ([String: String]) -> Void)?
     /// The agent token of this app launch: every helper start serves it.
     /// Replaced only when a launched helper fails its running check.
     @ObservationIgnored private var launchAgentToken = ComputerUseHelperDaemon.makeToken()
@@ -335,7 +337,7 @@ public final class ComputerUseHelperDaemon {
     /// 3.6 s as the cursor crossed to the app's display, later clicks 0.2 to
     /// 0.9 s each. `--glide-ms` and `--dwell-ms` set the motion every new
     /// session cursor starts with.
-    public nonisolated static func arguments(socketPath: String, ownerPID: pid_t? = nil) -> [String] {
+    public nonisolated static func arguments(socketPath: String, ownerPID: pid_t? = nil, motion: Bool = false) -> [String] {
         ["serve", "--socket", socketPath, "--no-permissions-gate", "--cursor-shape", "cmux", "--idle-hide-ms", "10000",
          "--glide-ms", "150", "--dwell-ms", "30"]
             + (ownerPID.map { ["--owner-pid", String($0)] } ?? [])

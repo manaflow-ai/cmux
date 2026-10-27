@@ -211,11 +211,13 @@ struct ComputerUseHelperStagingTestsLaunch {
         defer { fixture.remove() }
         let launcher = RecordingHelperLauncher()
         let helper = fixture.daemon(launcher)
+        var pushed: [[String: String]] = []
+        helper.onEndpointChange = { pushed.append($0) }
         let published = helper.childEnvironment["CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN"]
         await helper.apply(enabled: true)
         #expect(launcher.launched == [fixture.destination])
         #expect(launcher.terminated == [321])
-        #expect(helper.state == .unavailable)
+        #expect(helper.state == .failed, "a check failure is not \"no signed helper\": Restart Helper applies")
         #expect(helper.configuration == nil)
         // The endpoint stays published from launch (ComputerUseEndpointTests),
         // but the agent token the swapped process got is no longer served.
@@ -223,6 +225,8 @@ struct ComputerUseHelperStagingTestsLaunch {
         #expect(leaked == published)
         let current = try #require(helper.childEnvironment["CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN"])
         #expect(current != leaked, "chats that start later get a new agent token")
+        // The running acpmux gets the new token now, not when a pane reconnects.
+        #expect(pushed == [helper.childEnvironment], "pushed: \(pushed.map { $0.keys.sorted() })")
     }
 
     @Test func aSwappedV2HelperGetsNoConfigurationOrEndpoint() async throws {
@@ -260,7 +264,63 @@ struct ComputerUseHelperStagingTestsLaunch {
         let helper = fixture.daemon(launcher)
         await helper.apply(enabled: true)
         #expect(launcher.launched.isEmpty)
-        #expect(helper.state == .unavailable)
+        #expect(helper.state == .failed)
+    }
+
+    /// `.unavailable` tells the agent "no signed helper in this build; do not
+    /// call computer use tools". Only a missing helper means that. A copy,
+    /// lock, launch or check failure is `.failed`: the setup offers Restart
+    /// Helper and the agent's call is not refused for the build.
+    @Test func onlyAMissingSignedHelperIsUnavailable() async throws {
+        let fixture = try StagingFixture()
+        defer { fixture.remove() }
+        let launcher = RecordingHelperLauncher()
+        let unsigned = fixture.daemon(launcher, signed: false)
+        await unsigned.apply(enabled: true)
+        #expect(unsigned.state == .unavailable)
+        #expect(launcher.launched.isEmpty)
+
+        // The launcher took no pid: the scope lock is held, or LaunchServices failed.
+        launcher.pid = nil
+        let notLaunched = fixture.daemon(launcher)
+        await notLaunched.apply(enabled: true)
+        #expect(launcher.launched == [fixture.destination])
+        #expect(notLaunched.state == .failed)
+    }
+
+    /// An older helper exits at launch on a flag it does not know, so the
+    /// cursor motion flags go only to a helper whose manifest lists
+    /// `serve.motion`, as `--owner-pid` goes only with `serve.owner-pid`.
+    @Test(arguments: [false, true])
+    func theMotionFlagsGoOnlyToAHelperThatListsThem(_ listed: Bool) async throws {
+        let fixture = try StagingFixture()
+        defer { fixture.remove() }
+        let capabilities = listed ? #"["serve.owner-pid","serve.motion"]"# : #"["serve.owner-pid"]"#
+        try fixture.writeManifest(#"{"capabilities":\#(capabilities)}"#)
+        let launcher = RecordingHelperLauncher()
+        let helper = fixture.daemon(launcher, manifestReader: CuaHelperManifestReader())
+        await helper.apply(enabled: true)
+        let argv = try #require(launcher.arguments.first)
+        #expect(argv.contains("--owner-pid"), "the manifest was not read: \(argv)")
+        #expect(argv.contains("--glide-ms") == listed, "\(argv)")
+        #expect(argv.contains("--dwell-ms") == listed, "\(argv)")
+    }
+
+    /// `~/Library/Application Support/cmux` made under umask 002 is 0775. The
+    /// group is the person's primary group, `staff` on macOS, which holds every
+    /// local user, so another user could swap the copy: it stays refused, but
+    /// as a failure with Restart Helper, not as a build without a helper.
+    @Test func aGroupWritableAncestorIsAFailureNotAMissingHelper() async throws {
+        let fixture = try StagingFixture()
+        defer { fixture.remove() }
+        let shared = fixture.root.appending(path: "Library/Application Support/cmux", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: shared, withIntermediateDirectories: true)
+        #expect(chmod(shared.path, 0o775) == 0)
+        let launcher = RecordingHelperLauncher()
+        let helper = fixture.daemon(launcher)
+        await helper.apply(enabled: true)
+        #expect(launcher.launched.isEmpty)
+        #expect(helper.state == .failed)
     }
 }
 
@@ -316,6 +376,13 @@ private struct StagingFixture {
         try Data("#!/bin/sh\n".utf8).write(to: contents.appending(path: "MacOS/cmux-cua"))
     }
 
+    /// Makes the source helper's executable answer `manifest` with `json`.
+    func writeManifest(_ json: String) throws {
+        let executable = source.appending(path: "Contents/MacOS/cmux-cua")
+        try Data("#!/bin/sh\nprintf '%s' '\(json)'\n".utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+    }
+
     func hash(of bundle: URL) throws -> String {
         String(decoding: try Data(contentsOf: bundle.appending(path: "Contents/hash")), as: UTF8.self)
     }
@@ -332,11 +399,13 @@ private struct StagingFixture {
     }
 
     @MainActor
-    func daemon(_ launcher: RecordingHelperLauncher) -> ComputerUseHelperDaemon {
+    func daemon(_ launcher: RecordingHelperLauncher, signed: Bool = true,
+                manifestReader: CuaHelperManifestReader = .shared) -> ComputerUseHelperDaemon {
         let source = source
-        return ComputerUseHelperDaemon(identity: CuaHelperIdentity(isSigned: { _ in true }),
+        return ComputerUseHelperDaemon(identity: CuaHelperIdentity(isSigned: { _ in signed }),
                                        candidates: { [source] },
                                        launcher: launcher,
+                                       manifestReader: manifestReader,
                                        staging: staging,
                                        socketPath: root.appending(path: "s/cua.sock").path,
                                        stateDirectory: root.appending(path: "state"))
@@ -357,15 +426,19 @@ private nonisolated final class CopyRecorder: @unchecked Sendable {
 @MainActor
 private final class RecordingHelperLauncher: ComputerUseHelperLaunching {
     var launched: [URL] = []
+    var arguments: [[String]] = []
     var environments: [[String: String]] = []
     var terminated: [pid_t] = []
     var onLaunch: (() throws -> Void)?
+    /// What a launch returns; nil as when the scope lock is held or LaunchServices fails.
+    var pid: pid_t? = 321
 
     func launch(_ app: URL, arguments: [String], environment: [String: String]) async -> pid_t? {
         launched.append(app)
+        self.arguments.append(arguments)
         environments.append(environment)
         do { try onLaunch?() } catch { Issue.record(error) }
-        return 321
+        return pid
     }
 
     func terminate(_ pid: pid_t) { terminated.append(pid) }

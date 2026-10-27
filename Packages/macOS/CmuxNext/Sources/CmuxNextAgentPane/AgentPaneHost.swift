@@ -166,6 +166,14 @@ public actor AcpmuxHost: AgentPaneHostProviding {
 
     /// Looks for acpmux (bundled, PATH, install directories) on the actor,
     /// off the main thread, at the first handshake that needs it.
+    init(resolve: @escaping @Sendable () -> AcpmuxEnvironment?, computerUse: @escaping @Sendable () -> [String: String],
+         enrollComputerUse: @escaping @Sendable (AcpmuxEnvironment) async -> Void) {
+        self.init(resolve: resolve, computerUse: computerUse)
+    }
+
+    /// Gives this app's running acpmux the current Computer Use endpoint.
+    public func computerUseChanged() async {}
+
     public init(resolve: @escaping @Sendable () -> AcpmuxEnvironment?,
                 computerUse: @escaping @Sendable () -> [String: String] = { [:] },
                 offersSessionTools: @escaping @Sendable () -> Bool = { AgentPaneSuggestedTasks.forNextDaemon.isOn },
