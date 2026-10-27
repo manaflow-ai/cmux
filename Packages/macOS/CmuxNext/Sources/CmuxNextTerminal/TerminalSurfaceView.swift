@@ -106,6 +106,8 @@ public final class TerminalSurfaceView: NSView {
     var releasesGPUWhilePaused = false {
         didSet { if releasesGPUWhilePaused != oldValue { updateOcclusion() } }
     }
+    /// Shown in a window that stays off screen, the surface lets its GPU memory go (``TerminalOffScreenRelease``).
+    var offScreenRelease: TerminalOffScreenRelease
     /// Why the surface does not draw (nil: draws). Only a surface that draws holds a vsync subscription.
     var pause: SurfacePause? = .notInWindow {
         didSet { if pause != oldValue { followVSync() } }
@@ -189,6 +191,7 @@ public final class TerminalSurfaceView: NSView {
         frameCoalescers = pointerFrames
         gpu = TerminalGPUResidencyGate(seam: gpuResidency)
         self.vsyncSource = vsyncSource
+        offScreenRelease = TerminalOffScreenRelease(deadline: gpuResidency?.makeOffScreenDeadline())
         windowWatch = TerminalWindowWatch(node: node)
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         addCursorUpdateArea()

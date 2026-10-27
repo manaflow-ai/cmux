@@ -60,9 +60,15 @@ extension AppServices {
         let pagesSpare = features.isEnabled(.pagesSpareWindow)
         // Before the first spare: its placeholder has no renderer where the fork can (p13-webui-019).
         cache.cef.setRendererlessSpareWindows(features.isEnabled(.rendererlessSpareWindow))
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let hostNoSpareWindow = features.isEnabled(.chromiumHostNoSpareWindow)  // the bench's no spare window arm (p01-process-086)
+        #else
+        let hostNoSpareWindow = false
+        #endif
         chromiumWarmup.start(defaultIsChromium: { preference.defaultEngine == .chromium },
                              pagesPending: { [weak cache] in cache?.hasPendingPages == true },
-                             pagesSpare: { pagesSpare && preference.defaultEngine == .chromium })
+                             pagesSpare: { pagesSpare && preference.defaultEngine == .chromium },
+                             placement: .init(backend: chromiumRuntime.source.backend, hostNoSpareWindow: hostNoSpareWindow))
         cache.onPagesSettled = { [weak chromiumWarmup] in chromiumWarmup?.pagesSettled() }
         if pagesSpare {
             // Pages follow the default engine: switched away from Chromium, the untaken pages spare
@@ -139,6 +145,8 @@ extension AppServices {
         chromiumRuntime.source.drawsHostChoosers = features.isEnabled(.chromiumHostChoosers) // p01-process-228
         // Host mode only: page file choosers in cmux's picker, the files sent as paths (p01-process-064).
         chromiumRuntime.source.hostFileDialogs = features.isEnabled(.chromiumHostFileDialogs) ? ChromiumFileDialogPanels(openPanel: openPanel) : nil
+        chromiumRuntime.source.handlesHostLocks = features.isEnabled(.chromiumHostLocks) // pointer and keyboard locks, p01-process-229
+        chromiumRuntime.source.appEvents = appEvents // the app's resign-active ends a page's pointer lock
         // Restored pages start Chromium by their origin, the visible one after the first frame (p08-startup-040).
         let launchOrder = features.isEnabled(.cefLaunchOrigin) ? launchStartup : nil
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source, launch: launchOrder,
