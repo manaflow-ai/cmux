@@ -8,8 +8,6 @@
 import { expect, test } from "bun:test";
 import { sessionPullRequests, sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import {
-  markPullRequestActivityVersion,
-  markPullRequestCommandVersion,
   markTranscriptSourceVersion,
   transcriptSourceRowKey,
   transcriptPullRequestKey,
