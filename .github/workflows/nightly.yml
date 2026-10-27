@@ -1869,6 +1869,50 @@ jobs:
         if: inputs.nightly_next_unsigned_run == ''
         run: scripts/ci/clear-dirs.sh remote-daemon-assets
 
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
+        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
+        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
+        if: inputs.nightly_next_unsigned_run == ''
+        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+
+      # The Embed CEF phase embeds the pinned Chromium engine
+      # (scripts/cmux-next/cef-manifest.json) from the ensure-cef cache. This
+      # step fills the cache from the private R2 bucket with the read-only key
+      # (the GitHub release with CMUX_CEF_READ_TOKEN is the fallback); only
+      # this step's background fetch gets the key, so the build step runs
+      # without it. With no readable source the app builds without the engine
+      # and reports the browser unavailable; "Report the embedded Chromium
+      # engine" flags that. The fetch (9-134 s, runs 40378565252, 40380339203)
+      # runs in the background beside the steps below, and "Finish fetching
+      # the Chromium engine" joins it right before the Release build. It fails
+      # where the serial step failed (a remote browser host digest mismatch,
+      # or an engine store that is not optional): the join exits with the
+      # fetch's status, before anything reads the cache.
+      - name: Fetch the Chromium engine
+        if: inputs.nightly_next_unsigned_run == ''
+        env:
+          CMUX_CEF_R2_ACCOUNT_ID: ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
+          CMUX_CEF_R2_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
+          CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
+          CMUX_CEF_R2_ENV_FILE: /dev/null
+          GH_TOKEN: ${{ secrets.CMUX_CEF_READ_TOKEN }}
+        # The x86_64 engine (a manifest "x86_64" object) lets a universal
+        # build embed both slices (embed-cef.sh); without it this prints
+        # nothing and the universal app keeps the arm64 engine.
+        # The remote browser host the Embed remote browser host phase puts in
+        # Contents/Helpers (phone browser tabs, arm64). From R2 with the same key;
+        # unavailable, the app builds without it (the phase warns). A digest
+        # mismatch fails the join. The tailnet store is not reachable from runners.
+        run: |
+          python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" chromium-engine -- \
+            bash -c 'set -e
+              scripts/cmux-next/ensure-cef.sh --optional
+              scripts/cmux-next/ensure-cef.sh --optional --arch x86_64
+              if [[ -x scripts/cmux-next/ensure-remote-browser-host.sh ]]; then
+                CMUX_RB_HOST_NO_STORE=1 scripts/cmux-next/ensure-remote-browser-host.sh --optional >/dev/null
+              fi'
+
       - name: Start Release DerivedData empty
         if: inputs.nightly_next_unsigned_run == ''
         run: |
@@ -2135,42 +2179,6 @@ jobs:
           go-version-file: daemon/remote/go.mod
           cache: false
 
-      - name: Wait through GitHub API rate limits in this job's gh calls
-        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
-        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
-        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
-        if: inputs.nightly_next_unsigned_run == ''
-        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
-
-      # The Embed CEF phase embeds the pinned Chromium engine
-      # (scripts/cmux-next/cef-manifest.json) from the ensure-cef cache. This
-      # step fills the cache from the private R2 bucket with the read-only key
-      # (the GitHub release with CMUX_CEF_READ_TOKEN is the fallback); only
-      # this step gets the key, so the build step runs without it. With no
-      # readable source the app builds without the engine and reports the
-      # browser unavailable; "Report the embedded Chromium engine" flags that.
-      - name: Fetch the Chromium engine
-        if: inputs.nightly_next_unsigned_run == ''
-        env:
-          CMUX_CEF_R2_ACCOUNT_ID: ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
-          CMUX_CEF_R2_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
-          CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
-          CMUX_CEF_R2_ENV_FILE: /dev/null
-          GH_TOKEN: ${{ secrets.CMUX_CEF_READ_TOKEN }}
-        # The x86_64 engine (a manifest "x86_64" object) lets a universal
-        # build embed both slices (embed-cef.sh); without it this prints
-        # nothing and the universal app keeps the arm64 engine.
-        run: |
-          scripts/cmux-next/ensure-cef.sh --optional
-          scripts/cmux-next/ensure-cef.sh --optional --arch x86_64
-          # The remote browser host the Embed remote browser host phase puts in
-          # Contents/Helpers (phone browser tabs, arm64). From R2 with the same key;
-          # unavailable, the app builds without it (the phase warns). A digest
-          # mismatch fails here. The tailnet store is not reachable from runners.
-          if [[ -x scripts/cmux-next/ensure-remote-browser-host.sh ]]; then
-            CMUX_RB_HOST_NO_STORE=1 scripts/cmux-next/ensure-remote-browser-host.sh --optional >/dev/null
-          fi
-
       # The cmux-next web bundles (agent pane, pages, Activity, palette ranker,
       # webviews app) are built from this commit's sources, never taken from a
       # committed copy (cx-vn5). build-nightly-linux-inputs builds them on Linux
@@ -2216,6 +2224,10 @@ jobs:
           fi
           [ "$status" = 3 ] || echo "::warning title=Linux web bundles::installing the Linux-built web bundles failed (status $status); building them here"
           scripts/cmux-next/build-web-bundles.sh --force
+
+      - name: Finish fetching the Chromium engine
+        if: inputs.nightly_next_unsigned_run == ''
+        run: python3 scripts/ci/background_build.py join --state "$RUNNER_TEMP/nightly-helper-builds" chromium-engine
 
       - name: Build nightly app (Release)
         if: inputs.nightly_next_unsigned_run == ''
@@ -2722,7 +2734,7 @@ jobs:
 
       # A failed or cancelled job leaves no background helper build running.
       - name: Stop the helper builds still running
-        if: always() && inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next'
+        if: always() && inputs.nightly_next_unsigned_run == ''
         run: python3 scripts/ci/background_build.py stop --state "$RUNNER_TEMP/nightly-helper-builds"
 
   # Runs beside build-nightly-app. Deepening the shallow clone to find the
@@ -3753,6 +3765,11 @@ jobs:
   # The Blacksmith macOS label the signing jobs take, read right before they queue
   # (scripts/ci/nightly_sign_runner.py): never empty, and its step never fails the job.
   # Two GITHUB_TOKEN reads a nightly run (the snapshot artifact's listing and download).
+  # It also offers the two verify jobs, which hold no secret and no environment, a free
+  # owned Mac (`owned`), as cmux-next-dev-daily.yml's `runner` job offers DEV's verify: the
+  # routing order is Linux, then owned Macs, then Blacksmith macOS last (Leo, 2026-10-24),
+  # and on 2026-10-26 nightly-next waited over an hour behind PR compiles on Blacksmith's
+  # macOS cap. The signing jobs, which hold the keys, stay on Blacksmith.
   pick-nightly-sign-runner:
     needs: [decide, prepare-nightly-variant]
     if: ${{ !cancelled() && needs.prepare-nightly-variant.result == 'success' }}
@@ -3761,13 +3778,19 @@ jobs:
     # prepare-nightly-variant does, so it never waits on a queue of its own before that fallback.
     continue-on-error: true
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    # Room for every step budget in turn (the Blacksmith pick 2, then the owned pick's token
+    # mints 1 + 1 and picker 2) plus checkout, so the job is never cut off before its outputs;
+    # the Blacksmith pick runs first so `runner` is set before the owned steps start.
+    timeout-minutes: 10
     permissions:
       # The queue janitor's pool snapshot (an artifact).
       actions: read
       contents: read
     outputs:
       runner: ${{ steps.sign-runner.outputs.runner }}
+      # An owned label (glaeda-...) with a machine free now, or empty: the verify jobs then
+      # take `runner`. Only attempt 1 reads it; a re-run verifies on Blacksmith.
+      owned: ${{ steps.owned.outputs.label }}
     steps:
       - name: Checkout publication tooling at the workflow commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -3788,6 +3811,65 @@ jobs:
           SNAPSHOT_TOKEN: ${{ github.token }}
           CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
         run: python3 .publish-tooling/scripts/ci/nightly_sign_runner.py
+
+      # As cmux-next-dev-daily.yml: idle owned runners read live with the routing App's own
+      # budget. Any failure leaves the token empty, and the pick below then finds no owned Mac.
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && github.event_name == 'push' && github.ref_name == 'nightly-next' && startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, 'glaeda-trusted-') && startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER, 'glaeda-runner-')
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Mint the routing token without the org permission
+        id: route-token-repo
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+
+      # An owned Mac only when one is free now (simple_pool_picker: idle runners less the
+      # queued jobs of the label family); anything else, a failure included, is empty.
+      # Only nightly-next push runs, the scope ci-owned-pool-rescue.yml watches (owned_pool_rescue.py
+      # nightly_target): a stuck owned verify there is cancelled and re-run on Blacksmith. RC, main
+      # and manual runs keep Blacksmith.
+      - name: Pick a free owned Mac for the verify jobs
+        id: owned
+        if: github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && github.event_name == 'push' && github.ref_name == 'nightly-next' && startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, 'glaeda-trusted-') && startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER, 'glaeda-runner-')
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+        run: |
+          set -uo pipefail
+          label="$(python3 .publish-tooling/scripts/ci/e2e_runner_pool.py \
+            --requested auto \
+            --order "$POOL_ORDER" \
+            --max-queued "$POOL_MAX_QUEUED" \
+            --owned "$POOL_OWNED" \
+            --owned-slots "$OWNED_SLOTS" \
+            --pr-xcode-app "$PR_XCODE_APP")" || label=""
+          case "$label" in
+            glaeda-*) echo "Verify jobs: $label (a re-run verifies on Blacksmith)" ;;
+            *) echo "No owned Mac free now (picker said '${label:-nothing}'); Blacksmith verifies."; label="" ;;
+          esac
+          echo "label=$label" >> "$GITHUB_OUTPUT"
 
   build-sign-notarize-nightly:
     # Production secrets: GitHub releases them only to protected refs (the
@@ -4700,7 +4782,7 @@ jobs:
     if: "!cancelled() && needs.build-sign-notarize-nightly.result == 'success' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -4709,7 +4791,8 @@ jobs:
     env:
       # Set only when the 6 h stapled-app fallback shipped the first DMG.
       STAPLED_APP_FALLBACK_ID: ${{ needs.build-sign-notarize-nightly.outputs.stapled_app_fallback_id }}
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      # An owned Mac has the PR lane's Xcode pin (as DEV's verify); Blacksmith the macOS 26 one.
+      CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned != '' && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       NIGHTLY_VARIANT: ${{ matrix.variant }}
       NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
@@ -4813,7 +4896,7 @@ jobs:
     if: "!cancelled() && needs.build-sign-notarize-nightly.result == 'success' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -4822,7 +4905,8 @@ jobs:
     env:
       # Set only when the 6 h stapled-app fallback shipped the first DMG.
       STAPLED_APP_FALLBACK_ID: ${{ needs.build-sign-notarize-nightly.outputs.stapled_app_fallback_id }}
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      # An owned Mac has the PR lane's Xcode pin (as DEV's verify); Blacksmith the macOS 26 one.
+      CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned != '' && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       NIGHTLY_VARIANT: ${{ matrix.variant }}
       SIGN_CHANNEL: ${{ needs.decide.outputs.sign_channel }}

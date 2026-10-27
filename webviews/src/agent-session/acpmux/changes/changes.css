@@ -6,8 +6,9 @@
 .acpmux-file-menu-item{display:flex;align-items:center;min-height:var(--ui-row-height);padding:4px var(--ui-row-padding-inline);border:0;border-radius:var(--ui-row-radius);background:none;color:inherit;font:inherit;text-align:left;white-space:nowrap}
 .acpmux-file-menu-item:hover,.acpmux-file-menu-item:focus-visible{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));outline:none}
 /* The scope pill is a menu button; its menu opens under it, from its left edge. */
-.acpmux-scope-menu{position:relative;display:inline-flex;min-width:0}
-button.acpmux-diff-scope{border:0;color:var(--agent-text);font:inherit}
+.acpmux-scope-menu{position:relative;display:inline-flex;min-width:0;max-width:100%}
+/* The pill never runs out of its box: it shrinks with it and the scope name ellipsizes. */
+button.acpmux-diff-scope{min-width:0;max-width:100%;overflow:hidden;border:0;color:var(--agent-text);font:inherit}
 button.acpmux-diff-scope:hover,button.acpmux-diff-scope[aria-expanded="true"]{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
 button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
 .acpmux-scope-chevron{margin-left:-4px;color:var(--agent-muted)}

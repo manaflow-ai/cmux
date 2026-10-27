@@ -176,6 +176,12 @@ struct PageFactory {
                 return path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
             }
         }
+        provider.themeOverrides = { GhosttyRuntime.shared.configDiagnosticsSnapshot?.colorOverrides ?? [] }
+        provider.openThemeOverride = { [weak services] override in
+            guard let services else { return false }
+            return services.linkOpener.openFile(URL(fileURLWithPath: override.file), from: services.windows.active?.focusedPane,
+                                                asText: true, at: FilePosition(line: override.line))
+        }
         provider.themeFiles = SettingsThemeFiles(
             folders: {
                 .init(resources: GhosttyRuntime.resourcesDirectory(), home: FileManager.default.homeDirectoryForCurrentUser,

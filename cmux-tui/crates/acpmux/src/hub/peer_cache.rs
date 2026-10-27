@@ -96,10 +96,23 @@ impl Hub {
         }
     }
 
+    /// `forget_peer_files` under the rows lock (`remove_peer` holds it itself).
+    #[cfg(test)]
     pub(super) fn forget_peer_cache(&self, peer: &str) {
+        let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        self.forget_peer_files(peer);
+    }
+
+    /// `forget_peer_cache` with the rows lock held by the caller (`remove_peer`).
+    pub(super) fn forget_peer_files(&self, peer: &str) {
         if let Some(path) = self.store.peer_cache_dir().and_then(|d| cache_path(&d, peer)) {
             let _ = std::fs::remove_file(path);
         }
+        // And its sessions' event snapshots (`peer_snapshot.rs`), under the rows lock once the
+        // peer has left the registry (`remove_peer`): a listing or capture of it that found it
+        // current (under this lock) has sent its op already and none after it does, so no
+        // listing that lets a page start a copy again comes after this.
+        self.peer_snapshots.forget_peer(peer);
     }
 
     /// The refusal for `PEER/name` when PEER is a peer that is down and

@@ -50,6 +50,8 @@ BUNDLE = "Bundle the OptChat Chief and the iPhone host"
 NOTICES_DOWNLOAD = "Download the third-party notices generated on Linux (cmux-next)"
 NOTICES = "Generate third-party notices (cmux-next)"
 STOP = "Stop the helper builds still running"
+CEF = "Fetch the Chromium engine"
+CEF_JOIN = "Finish fetching the Chromium engine"
 LINUX_JOB = "build-nightly-linux-inputs"
 
 
@@ -97,10 +99,69 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertLess(self.index(MOBILE), self.index(WEB_DOWNLOAD))
         self.assertLess(self.index("Fetch the Chromium engine"), self.index(WEB_DOWNLOAD))
         self.assertEqual(self.index(WEB_DOWNLOAD) + 1, self.index(WEB_BUILD))
-        self.assertEqual(self.index(WEB_BUILD) + 1, self.index(RELEASE))
+        self.assertEqual(self.index(WEB_BUILD) + 1, self.index(CEF_JOIN))
+        self.assertEqual(self.index(CEF_JOIN) + 1, self.index(RELEASE))
         run = self.step(WEB_BUILD)["run"]
         self.assertIn("nightly_linux_inputs.py install-web", run)
         self.assertIn("scripts/cmux-next/build-web-bundles.sh --force", run)
+
+    def test_the_engine_fetch_runs_in_the_background_and_is_joined_before_the_release_build(self):
+        # It starts before the other pre-build steps, and only it holds the engine keys.
+        self.assertLess(self.index(CEF), self.index("Start Release DerivedData empty"))
+        self.assertLess(self.index("Wait through GitHub API rate limits in this job's gh calls"), self.index(CEF))
+        fetch = self.step(CEF)
+        self.assertIn("inputs.nightly_next_unsigned_run == ''", fetch["if"])
+        run = fetch["run"]
+        self.assertIn('background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" chromium-engine --', run)
+        command = run[run.index("chromium-engine --"):]
+        for script in ("ensure-cef.sh --optional\n", "ensure-cef.sh --optional --arch x86_64",
+                       "ensure-remote-browser-host.sh --optional"):
+            self.assertIn(script, command)
+        self.assertIn("set -e", command)
+        join = self.step(CEF_JOIN)
+        self.assertEqual(join["if"], fetch["if"])
+        self.assertIn('background_build.py join --state "$RUNNER_TEMP/nightly-helper-builds" chromium-engine', join["run"])
+        for i, step in enumerate(self.app["steps"]):
+            if i != self.index(CEF):
+                self.assertNotIn("CMUX_CEF_R2", yaml.safe_dump(step.get("env", {})), step.get("name"))
+        # Every track starts it, so every track's cleanup stops it.
+        self.assertNotIn("track", self.step(STOP)["if"])
+        self.assertIn("always()", self.step(STOP)["if"])
+
+    def run_engine_fetch(self, failing):
+        """Run the fetch step's own command and its join on stub fetch scripts; return the join."""
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            (work / "scripts/cmux-next").mkdir(parents=True)
+            (work / "scripts/ci").mkdir(parents=True)
+            (work / "scripts/ci/background_build.py").write_bytes(BACKGROUND.read_bytes())
+            for script in ("ensure-cef.sh", "ensure-remote-browser-host.sh"):
+                stub = work / "scripts/cmux-next" / script
+                status = 1 if script == failing else 0
+                stub.write_text(f'#!/bin/bash\necho "{script} $*" >> "$RUNNER_TEMP/calls"\nexit {status}\n')
+                stub.chmod(0o755)
+            env = {**os.environ, "RUNNER_TEMP": str(work / "temp")}
+            (work / "temp").mkdir()
+            started = subprocess.run(["bash", "-e", "-c", self.step(CEF)["run"]], cwd=work, env=env,
+                                     capture_output=True, text=True)
+            self.assertEqual(started.returncode, 0, started.stderr)
+            join = subprocess.run(["bash", "-e", "-c", self.step(CEF_JOIN)["run"]], cwd=work, env=env,
+                                  capture_output=True, text=True, timeout=60)
+            calls = (work / "temp/calls").read_text().splitlines() if (work / "temp/calls").exists() else []
+            return join, calls
+
+    def test_the_engine_join_succeeds_after_every_fetch_ran(self):
+        join, calls = self.run_engine_fetch(failing=None)
+        self.assertEqual(join.returncode, 0, join.stdout + join.stderr)
+        self.assertEqual(calls, ["ensure-cef.sh --optional", "ensure-cef.sh --optional --arch x86_64",
+                                 "ensure-remote-browser-host.sh --optional"])
+
+    def test_a_failed_fetch_fails_the_join(self):
+        # ensure-cef.sh exits 1 only when the store is unusable; the host script on a digest mismatch.
+        for failing in ("ensure-cef.sh", "ensure-remote-browser-host.sh"):
+            with self.subTest(failing=failing):
+                join, _ = self.run_engine_fetch(failing=failing)
+                self.assertNotEqual(join.returncode, 0, join.stdout + join.stderr)
 
     def test_chief_and_iphone_host_build_in_the_background_and_xcodebuild_never_sees_them(self):
         for name, script, env in ((CHIEF, "build-optchat-chief.sh", "OPTCHAT_CHIEF"),
