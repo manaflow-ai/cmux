@@ -824,7 +824,8 @@ CASES = (
     Case("three-windows-two-displays", "three windows, one on the second display",
          before=three_windows_two_displays, after=frames_kept),
     Case("full-screen", "the window was full screen at the quit", picture="not-shown", before=full_screen),
-    Case("translucent", "a translucent window (backgroundOpacity 0.6)", config={"appearance": {"backgroundOpacity": 0.6}}),
+    Case("translucent", "a translucent window (backgroundOpacity 0.6): the picture shows whole over the live material",
+         config={"appearance": {"backgroundOpacity": 0.6}}, picture="shown"),
     Case("workspace-closed-while-closed", f"{SECOND_WORKSPACE} closed through the daemon while the app was closed "
          "(its saved picture lists it: the sidebar is cut out, the content shows)", picture="shown", stale=("sidebar",),
          between=close_second_workspace),

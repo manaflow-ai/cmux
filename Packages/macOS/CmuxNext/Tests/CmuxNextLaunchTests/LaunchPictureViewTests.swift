@@ -194,4 +194,48 @@ struct LaunchPictureViewTests {
         #expect(restored && phase.isBuilt)
         #expect(marks.all == ["launch_picture_shown", "launch_picture_removed"])
     }
+
+    /// A cut region shows no picture pixel, so no part of the picture fades over it: its held views fade in on their
+    /// own, as on today's path (p08-startup.md 3C). A region the picture still lies over shows at once under it.
+    @Test(.enabled("a window with no screen draws no frame") { await MainActor.run { !NSScreen.screens.isEmpty } },
+          .enabled("animation speed is off on this host") { await MainActor.run { Motion.speed != .off } })
+    func aCutRegionFadesInOnItsOwnAndACoveredOneShowsAtOnce() throws {
+        Motion.reduceMotionOverride = false
+        let enabled = DesignSettings.shared.animationsEnabled
+        DesignSettings.shared.animationsEnabled = true
+        defer {
+            Motion.reduceMotionOverride = nil
+            DesignSettings.shared.animationsEnabled = enabled
+        }
+        let phase = Self.phase(Marks())
+        let window = Self.window()
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+        // The sidebar's layout changed since the quit: its part of the picture is cut out.
+        phase.show(try Self.image(width: 1100, height: 720), scale: 1, cut: [CGRect(x: 0, y: 0, width: 240, height: 720)],
+                   covering: [.tabs, .pane], in: window, scope: ThemeScope(level: .room), present: { window.orderFrontRegardless() },
+                   startup: nil) {}
+        let surface = try #require(window.contentView)
+        let root = NSView(frame: surface.bounds)
+        let sidebar = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 720))
+        let content = NSView(frame: NSRect(x: 240, y: 0, width: 860, height: 720))
+        for view in [root, sidebar, content] { view.wantsLayer = true }
+        root.addSubview(sidebar)
+        root.addSubview(content)
+        surface.addSubview(root, positioned: .below, relativeTo: nil)
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        reveal.hold(sidebar, until: .sidebar)
+        reveal.hold(content, until: .pane)
+        _ = try #require(phase.adopt(root: root, reveal: reveal))
+        try #require(Motion.panes.duration(.fadeIn) > 0, "the panes' fades are off on this host")
+        CATransaction.flush()
+        try #require(sidebar.layer?.presentation() != nil && content.layer?.presentation() != nil, "the window drew no frame")
+        reveal.markReady(.sidebar)
+        reveal.markReady(.pane)
+        #expect(sidebar.alphaValue == 1 && content.alphaValue == 1)
+        #expect(sidebar.layer?.animation(forKey: "opacity") != nil, "the cut sidebar showed in one frame over the glass")
+        #expect(content.layer?.animation(forKey: "opacity") == nil, "the pane faded in under the picture's own fade")
+    }
 }

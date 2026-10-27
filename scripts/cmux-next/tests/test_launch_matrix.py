@@ -527,6 +527,24 @@ class RunCaseTests(unittest.TestCase):
         self.assertEqual(row["result"], lm.FAIL)
         self.assertIn(f"the first frame lists closed workspace {lm.SECOND_WORKSPACE!r}", row["problems"])
 
+    def test_translucent_needs_the_whole_picture_shown(self):
+        # The backdrop rule: a translucent window's theme fingerprint and layout match, so its picture shows uncut.
+        bench = FakeBench(self.folder)
+        bench.picture_marks = {lm.DECODED_MARK: 40.0, lm.SHOWN_MARK: 90.0, lm.REMOVED_MARK: 600.0}
+        row, _ = self.run_case("translucent", bench)
+        self.assertEqual(row["result"], lm.PASS, row["problems"])
+        refused = FakeBench(tempfile.mkdtemp())
+        refused.picture_marks = {lm.DECODED_MARK: 40.0, lm.MISMATCH_MARK: 80.0}
+        row, _ = self.run_case("translucent", refused)
+        self.assertEqual(row["result"], lm.FAIL)
+        self.assertIn("the saved picture did not show (refused: mismatch)", row["problems"])
+        cut = FakeBench(tempfile.mkdtemp())
+        cut.picture_marks = {lm.DECODED_MARK: 40.0, lm.STALE_PREFIX + "pane": 85.0, lm.SHOWN_MARK: 90.0,
+                             lm.REMOVED_MARK: 600.0}
+        row, _ = self.run_case("translucent", cut)
+        self.assertEqual(row["result"], lm.FAIL)
+        self.assertIn("the picture cut out pane; expected none", row["problems"])
+
     def test_a_launch_that_never_comes_up_fails_the_case_and_ends_the_tag(self):
         row, bench = self.run_case("crash-recovery", FakeBench(self.folder, fail_launch=1))
         self.assertEqual(row["result"], lm.FAIL)

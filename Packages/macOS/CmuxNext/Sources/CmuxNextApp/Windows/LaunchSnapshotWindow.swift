@@ -131,7 +131,7 @@ struct LaunchSnapshotWindow {
                                        mainWork: services.mainWork) { [weak state] in
             state.map { String(describing: ($0.workspaceID, $0.page, $0.sidebarHidden)) }
         }
-        phase.show(front.image, scale: shown.scale, cut: cut, in: shell, scope: scope, present: {
+        phase.show(front.image, scale: shown.scale, cut: cut, covering: shown.covered, in: shell, scope: scope, present: {
             guard manager.ordersWindowsIn else { return }
             services.background.windowWillAppear(activates: true)
             WindowActivation.show(shell, .present)

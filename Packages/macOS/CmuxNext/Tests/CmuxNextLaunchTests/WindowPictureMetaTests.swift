@@ -145,6 +145,17 @@ struct WindowPictureMetaTests {
         #expect(both.staleMarks == ["launch_picture_stale.pane", "launch_picture_stale.sidebar"])
     }
 
+    /// The picture lies over every launch region but the cut ones: a cut content area takes the tab strips with the
+    /// panes, so their views fade in on their own (``LaunchPicturePhase/adopt(root:reveal:)``).
+    @Test func aShownPictureCoversOnlyItsUncutRegions() throws {
+        let front = WindowPictureStore.FrontPicture(windowID: Self.meta().window, image: try Self.image(width: 2200, height: 1440),
+                                                    meta: Self.meta())
+        #expect(WindowPictureStore.ShownPicture(picture: front, stale: []).covered == [.sidebar, .tabs, .pane])
+        #expect(WindowPictureStore.ShownPicture(picture: front, stale: [.sidebar]).covered == [.tabs, .pane])
+        #expect(WindowPictureStore.ShownPicture(picture: front, stale: [.pane]).covered == [.sidebar])
+        #expect(WindowPictureStore.ShownPicture(picture: front, stale: [.sidebar, .pane]).covered.isEmpty)
+    }
+
     // MARK: Never stretched
 
     /// The picture layer shows the image at the picture's own scale, pinned to the top-left: a window taller or

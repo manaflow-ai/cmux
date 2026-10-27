@@ -17,7 +17,7 @@ public import CmuxNextWakeups
 /// The steps, each run once, in this order:
 /// 1. ``start(_:on:mainWork:then:)``: waits for the picture's read (a lane task; the reply is a posted main task)
 ///    at most ``wait`` (a `MainDeadline`). The main thread never waits.
-/// 2. The caller takes the picture and matches its meta; then ``show(_:scale:cut:in:scope:present:startup:build:)``, or
+/// 2. The caller takes the picture and matches its meta; then ``show(_:scale:cut:covering:in:scope:present:startup:build:)``, or
 ///    ``skip()`` for today's path (no picture, none in time, another window's, a mismatch).
 /// 3. ``adopt(root:reveal:)``: the controller was built in the window; the picture goes over its root and its
 ///    regions are handed out. ``buildFinished()`` once the live views behind it are built.
@@ -39,7 +39,7 @@ public final class LaunchPicturePhase {
     /// How long the picture may stay over the live window when a region never reports its first content.
     public static let bound: Duration = .seconds(2)
 
-    /// The window showing the picture, from ``show(_:scale:cut:in:scope:present:startup:build:)`` until the picture left.
+    /// The window showing the picture, from ``show(_:scale:cut:covering:in:scope:present:startup:build:)`` until the picture left.
     public private(set) weak var window: NSWindow?
     /// The picture on screen; nil before it shows and once it left.
     public private(set) var picture: LaunchPictureView?
@@ -56,6 +56,8 @@ public final class LaunchPicturePhase {
     private var builtWaiters: [@MainActor () -> Void] = []
     private var removedWaiters: [@MainActor () -> Void] = []
     private weak var reveal: LaunchReveal?
+    /// The launch regions the picture lies over once adopted: every region but the cut ones.
+    private var covering: Set<LaunchRegion> = Set(LaunchRegion.allCases)
 
     /// - Parameters:
     ///   - deadlines: The app's deadline scheduler: the wait and the bound are `MainDeadline`s on it.
@@ -98,12 +100,15 @@ public final class LaunchPicturePhase {
     ///   - scale: The picture's pixels per point as the quit drew it (``WindowPictureMeta/scale``); nil takes the
     ///     window's backing scale.
     ///   - cut: The parts of the picture that never show (``LaunchPictureView/cut``).
-    public func show(_ image: CGImage, scale: CGFloat? = nil, cut: [CGRect] = [], in window: NSWindow, scope: ThemeScope, present: () -> Void,
+    ///   - covering: The launch regions whose views lie under what still shows of the picture
+    ///     (``WindowPictureStore/ShownPicture/covered``): every region but the cut ones.
+    public func show(_ image: CGImage, scale: CGFloat? = nil, cut: [CGRect] = [], covering: Set<LaunchRegion> = Set(LaunchRegion.allCases),
+                     in window: NSWindow, scope: ThemeScope, present: () -> Void,
                      startup: StartupScheduler?, build: @escaping @MainActor @Sendable () -> Void) {
         guard picture == nil, !isBuilt else { return }
         let picture = LaunchPictureView(image: image, scale: scale ?? window.backingScaleFactor, cut: cut)
         window.install(kind: .main, content: WindowSurfaceView(content: picture), scope: scope)
-        (self.window, self.picture) = (window, picture)
+        (self.window, self.picture, self.covering) = (window, picture, covering)
         present()
         mark("launch_picture_shown")
         CATransaction.setMainCompletion { [weak self] in
@@ -125,15 +130,16 @@ public final class LaunchPicturePhase {
 
     /// The controller was built in the picture's window: the picture stays over `root` (its last subview) and leaves
     /// region by region through the returned regions (the caller adds a part per region), all of it at ``bound``.
-    /// Every launch region counts as covered while it shows (``LaunchReveal/coverBegan(_:)``): its views show at once
-    /// under it, so the picture's fade is the only one. Nil when no picture shows.
+    /// Each region the picture still lies over (the `covering` of ``show(_:scale:cut:covering:in:scope:present:startup:build:)``)
+    /// counts as covered while it shows (``LaunchReveal/coverBegan(_:)``): its views show at once under it, so the
+    /// picture's fade is the only one. A cut region's views fade in on their own. Nil when no picture shows.
     public func adopt(root: NSView, reveal: LaunchReveal) -> LaunchPictureRegions? {
         guard let picture, !isBuilt, regions == nil else { return nil }
         picture.frame = root.bounds
         picture.autoresizingMask = [.width, .height]
         root.addSubview(picture)
         self.reveal = reveal
-        reveal.coverBegan(Set(LaunchRegion.allCases))
+        reveal.coverBegan(covering)
         let regions = LaunchPictureRegions(picture: picture) { [weak self] in self?.remove() }
         self.regions = regions
         boundDeadline.schedule(after: Self.bound) { [weak self] in self?.expire() }
@@ -160,7 +166,7 @@ public final class LaunchPicturePhase {
         window = nil
         regions = nil
         boundDeadline.cancel()
-        reveal?.coverEnded(Set(LaunchRegion.allCases))
+        reveal?.coverEnded(covering)
         reveal = nil
         picture.removeFromSuperview()
         mark("launch_picture_removed")

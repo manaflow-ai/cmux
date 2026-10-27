@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesign
 public import Foundation
 
 /// The front window's saved picture (``WindowPictureStore``) as one layer: the launch's first frame is the window
@@ -148,4 +149,21 @@ extension WindowPictureStore.ShownPicture {
 
     /// The launch marks of the cut regions, `launch_picture_stale.<region>`, in a fixed order.
     public var staleMarks: [String] { stale.map { "launch_picture_stale.\($0.rawValue)" }.sorted() }
+
+    /// The launch regions the shown picture still lies over (``LaunchPicturePhase/show(_:scale:cut:covering:in:scope:present:startup:build:)``):
+    /// a cut region's views fade in on their own, as on today's path.
+    public var covered: Set<LaunchRegion> {
+        stale.reduce(into: Set(LaunchRegion.allCases)) { $0.subtract($1.launchRegions) }
+    }
+}
+
+extension WindowPictureMeta.Region.Kind {
+    /// The launch regions whose views lie under this part of the picture: the content area holds the tab strips
+    /// with the panes.
+    public var launchRegions: Set<LaunchRegion> {
+        switch self {
+        case .sidebar: [.sidebar]
+        case .pane: [.tabs, .pane]
+        }
+    }
 }
