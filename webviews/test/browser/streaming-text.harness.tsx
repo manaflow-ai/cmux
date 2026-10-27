@@ -391,6 +391,9 @@ function analyze(
       maxMs: round2(Math.max(0, ...longTasks.map((task) => task.ms))),
       totalMs: round2(longTasks.reduce((sum, task) => sum + task.ms, 0)),
       tasks: longTasks.slice(0, 20).map((task) => ({ t: at(task.t), ms: round2(task.ms) })),
+      duringStream: longTasks
+        .filter((task) => task.t < start + (deltas.at(-1)?.at ?? 0) && task.ms > 50)
+        .map((task) => ({ t: at(task.t), ms: round2(task.ms) })),
     },
     reveal: {
       // Drawn: the reply's textContent. A closing fence keeps its plain card under the highlighted one

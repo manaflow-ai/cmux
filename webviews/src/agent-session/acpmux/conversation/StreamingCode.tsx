@@ -49,15 +49,41 @@ export function PlainCode({ code, lang, open = false }: { code: string; lang: st
 /// How long the plain card waits for Pierre's lines before handing over anyway.
 const HANDOFF_LIMIT_MS = 1_000;
 
+type IdleWindow = Window & {
+  requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
+
+/// Syntax highlighting is decorative while a reply is arriving. Keep the plain card visible and
+/// start Pierre in idle time so its one-time parse cannot steal the frame in which the stream grows.
+/// The timeout is a bound, not a polling loop: a very busy page still gets the color handoff within
+/// 800 ms, and the cleanup cancels either kind of scheduled work when the card leaves the tree.
+function scheduleHighlight(callback: () => void): () => void {
+  const idle = window as IdleWindow;
+  if (idle.requestIdleCallback) {
+    const handle = idle.requestIdleCallback(callback, { timeout: 800 });
+    return () => idle.cancelIdleCallback?.(handle);
+  }
+  const handle = window.setTimeout(callback, 0);
+  return () => window.clearTimeout(handle);
+}
+
 /// A fence that closed while the reply streamed: highlighted once, then faded in over the plain card.
-export function CodeHandoff({ code, lang }: { code: string; lang: string }) {
+/// While the parent reply is still streaming, the plain card stays in place and the decorative
+/// highlighter waits until the reply settles before it enters an idle window.
+export function CodeHandoff({ code, lang, streaming = false }: { code: string; lang: string; streaming?: boolean }) {
   const [stage, setStage] = useState<"plain" | "fading" | "done">("plain");
+  const [highlightReady, setHighlightReady] = useState(!streaming);
   const ref = useRef<HTMLDivElement>(null);
   // A fence that closed while the chat was hidden (or as it shows again) hands over without the
   // fade: nobody watched it close (shared/pageReveal.ts).
   const [closedAway] = useState(() => !entranceAllowed());
+  useEffect(() => {
+    if (streaming || highlightReady) return;
+    return scheduleHighlight(() => setHighlightReady(true));
+  }, [highlightReady, streaming]);
   useLayoutEffect(() => {
-    if (stage !== "plain") return;
+    if (stage !== "plain" || !highlightReady) return;
     let frame = 0;
     const started = performance.now();
     const check = () => {
@@ -80,7 +106,7 @@ export function CodeHandoff({ code, lang }: { code: string; lang: string }) {
     };
     check();
     return () => cancelAnimationFrame(frame);
-  }, [stage, closedAway]);
+  }, [stage, closedAway, highlightReady]);
   // `ui.animationSpeed: off` removes CSS animations globally, so a card already fading never gets
   // its animationend event. Finish when the setting turns off mid-fade (the root's
   // data-agent-motion changes), so the plain card does not stay mounted under the highlighted one.
@@ -96,9 +122,11 @@ export function CodeHandoff({ code, lang }: { code: string; lang: string }) {
   return (
     <div ref={ref} className={`cv-code-handoff is-${stage}`}>
       {stage !== "done" && <PlainCode code={code} lang={lang} />}
-      <div className="cv-code-handoff__real" onAnimationEnd={() => setStage("done")}>
-        <CodeBlock code={code} lang={lang} />
-      </div>
+      {highlightReady && (
+        <div className="cv-code-handoff__real" onAnimationEnd={() => setStage("done")}>
+          <CodeBlock code={code} lang={lang} />
+        </div>
+      )}
     </div>
   );
 }

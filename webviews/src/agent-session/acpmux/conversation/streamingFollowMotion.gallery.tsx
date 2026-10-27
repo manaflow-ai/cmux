@@ -1,5 +1,5 @@
 // l10n-allow-file: deterministic motion fixture labels.
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { VirtualTranscript } from "../App";
@@ -9,11 +9,19 @@ import { turnView } from "./turns";
 const paragraph = (index: number) =>
   `Streaming paragraph ${index}: the lighthouse keeper checked the glass, crossed the gallery, and watched the tide return beneath the window.`;
 
-function StreamingFollowMotionGallery() {
+type MotionVariant = "steady-reveal" | "smooth-follow" | "subtle-fade";
+
+function StreamingFollowMotionGallery({ variant }: { variant: MotionVariant }) {
   const [count, setCount] = useState(0);
   const [streaming, setStreaming] = useState(false);
   const [done, setDone] = useState(false);
   const timer = useRef<number | undefined>(undefined);
+  useEffect(
+    () => () => {
+      if (timer.current !== undefined) window.clearInterval(timer.current);
+    },
+    [],
+  );
   const rows = useMemo(() => {
     const history: AcpmuxRow[] = Array.from({ length: 12 }, (_, index) => [
       { id: `history-user-${index}`, kind: "user", version: 1, at: index + 1, text: `Prompt ${index + 1}` },
@@ -43,7 +51,7 @@ function StreamingFollowMotionGallery() {
     }, 45);
   };
   return (
-    <div className="streaming-follow-motion-gallery">
+    <div className={`streaming-follow-motion-gallery streaming-follow-motion-gallery--${variant}`}>
       <button type="button" className="ui-button" data-testid="stream-follow-start" onClick={start}>
         Start deterministic stream
       </button>
@@ -90,7 +98,7 @@ const streamWhileScrolledUp: Play = async (ctx) => {
   if (moved > 1) throw new Error(`Scrolled-up transcript moved ${moved.toFixed(2)}px while streaming`);
 };
 
-export default componentEntry<Record<string, never>>({
+export default componentEntry<{ variant: MotionVariant }>({
   id: "agent-pane.streaming-follow-motion",
   title: "Streaming follow motion",
   area: "Agent pane",
@@ -108,9 +116,12 @@ export default componentEntry<Record<string, never>>({
       import("../styles.css"),
       import("../conversation/conversation.css"),
       import("../composerControls.css"),
+      import("./streamingFollowMotion.css"),
     ]),
   variants: {
-    stream: { props: {}, play: streamFollow },
-    "stream-scrolled-up": { props: {}, play: streamWhileScrolledUp },
+    "steady-reveal": { props: { variant: "steady-reveal" }, play: streamFollow },
+    "smooth-follow": { props: { variant: "smooth-follow" }, play: streamFollow },
+    "subtle-fade": { props: { variant: "subtle-fade" }, play: streamFollow },
+    "stream-scrolled-up": { props: { variant: "steady-reveal" }, play: streamWhileScrolledUp },
   },
 });
