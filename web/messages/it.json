@@ -524,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Riprendi il piano per modificarlo.",
           "granted": "Concesso da cmux. Non c'è nulla da modificare.",
+          "grantedNoCancel": "Concesso da cmux, quindi non c'è nulla da annullare.",
+          "paymentFailed": "Aggiorna il metodo di pagamento prima di cambiare piano.",
+          "foundersLifetime": "Founder's Edition include Pro a vita.",
           "adminOnly": "Solo gli amministratori del team possono modificare il piano."
         },
         "names": {
@@ -566,6 +569,7 @@
       "change": {
         "title": "Passare a {plan}?",
         "upgradeBody": "{plan} inizia ora. Oggi paghi {amount} per il resto di questo periodo di fatturazione. Dal {date} paghi {price} al mese.",
+        "upgradeBodyYearly": "{plan} inizia ora. Oggi paghi {amount} per il resto di questo periodo di fatturazione. Dal {date} paghi {price} all'anno.",
         "downgradeBody": "{plan} inizia ora. La parte non utilizzata del piano attuale, {credit}, viene accreditata sulle prossime fatture. La prossima fattura, il {date}, è di {amount}.",
         "confirm": "Passa a {plan}",
         "keep": "Mantieni il piano attuale",
@@ -578,6 +582,8 @@
         "title": "Annullare {plan}?",
         "body": "Mantieni {plan} fino al {date}. Dopo perderai:",
         "bodyNoDate": "Mantieni {plan} fino alla fine di questo periodo di fatturazione. Dopo perderai:",
+        "foundersBody": "Il tuo abbonamento {plan} termina il {date}. Dopo avrai Pro, che Founder's Edition include a vita.",
+        "foundersBodyNoDate": "Il tuo abbonamento {plan} termina alla fine di questo periodo di fatturazione. Dopo avrai Pro, che Founder's Edition include a vita.",
         "reasonLabel": "Perché annulli? (facoltativo)",
         "otherPlaceholder": "Raccontaci di più (facoltativo)",
         "confirm": "Annulla piano",
@@ -2175,6 +2181,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "Se attivo, un doppio clic su un divisore rende uguali le dimensioni dei pannelli nella sua riga o colonna. Le altre righe e colonne mantengono le proprie dimensioni.",
           "confirmQuit": "Controlla quando cmux chiede conferma prima di uscire. Le build DEV escono sempre immediatamente indipendentemente da questa impostazione. Il vecchio app.warnBeforeQuit è ancora accettato come fallback booleano.",
           "windowTitleTemplate": "Template opzionale per il titolo NSWindow. Se vuoto, conserva il comportamento predefinito esistente del titolo di cmux, incluso il fallback alla directory corrente. Segnaposto supportati: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Nome del display usato solo nelle build DEBUG quando si aprono nuove finestre. Un valore vuoto usa il valore predefinito del sistema.",
@@ -2252,12 +2259,20 @@
           "currentLineHighlight": "Colora la riga che contiene il cursore di testo quando non è selezionato nulla.",
           "tabWidth": "Quante colonne occupa una tabulazione. Le guide di rientro usano la stessa spaziatura."
         },
+        "actions": "Azioni riutilizzabili per la tavolozza dei comandi, le scorciatoie, i pulsanti della barra delle schede e il menu del pulsante più. Supporta builtin, command, agent, workspaceCommand, workspace, setting, settingPreset e text. Le azioni di testo incollano nel terminale attivo mantenendo le interruzioni di riga; submit: true preme Enter. Le azioni delle impostazioni richiedono una configurazione globale.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
               "enabled": "Quando è selezionato uno spazio di lavoro tmux remoto, «Nuovo spazio di lavoro» avvia una sessione tmux sull’host di quello spazio."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, l’agente Home: se viene mostrato e quale harness, modello e sforzo usa.",
+          "enabled": "Mostra la riga Home e i punti di accesso a Chief. Se false, la riga Home, la scorciatoia Apri Chief, la voce di menu e le voci della palette comandi vengono nascoste.",
+          "harness": "Harness dell’agente su cui gira Chief: claude (Claude Code) o codex (Codex).",
+          "model": "Modello passato all’harness. Lascia vuoto per usare il predefinito dell’harness.",
+          "effort": "Sforzo di ragionamento passato all’harness, ad esempio low, medium o high. Lascia vuoto per usare il predefinito dell’harness."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3437,6 +3452,7 @@
     "unsupportedParams": "Questo collegamento include parametri non supportati che cmux rifiuterà: {params}",
     "conflictingParams": "Questo collegamento include parametri che non possono essere utilizzati insieme: {params}",
     "invalidParams": "Questo collegamento include valori di parametri non validi: {params}",
+    "ignoredParams": "cmux ignora i parametri che non utilizza: {params}. La sessione si apre comunque.",
     "fixParams": "Correggi i parametri URL, quindi ricarica questa pagina.",
     "examplePrefix": "Vedi un",
     "exampleLink": "collegamento di esempio",
@@ -3460,6 +3476,16 @@
       "title": "Apri le regole in cmux",
       "intro": "Questa pagina apre le regole nell'area di lavoro cmux corrente.",
       "fallback": "cmux mostra prima le regole e chiede prima di incollarle nell'area di lavoro corrente. Se cmux non si apre, installa cmux e fai nuovamente clic su Apri in cmux."
+    },
+    "agent": {
+      "metaTitle": "Apri sessione agente in cmux",
+      "metaDescription": "Apri dal web un deeplink cmux a una sessione agente, con installazione alternativa se cmux non è disponibile.",
+      "title": "Apri sessione agente",
+      "intro": "Questo link apre la sessione dell'agente in cmux se questo Mac può già raggiungerla. Il link di per sé non concede alcun accesso.",
+      "fallback": "Se cmux non si apre, installa cmux e fai di nuovo clic su Apri in cmux. cmux apre la sessione solo se questo Mac può già raggiungerla.",
+      "nameLabel": "Nome: {value}",
+      "hostLabel": "Host: {value}",
+      "harnessLabel": "Harness: {value}"
     }
   },
   "download": {
@@ -5498,6 +5524,8 @@
     "errorInvalidCode": "Il codice non è valido. Controlla l'email e riprova.",
     "errorInvalidTotp": "Il codice a due fattori non è valido.",
     "errorSignUpNotAllowed": "Al momento non è possibile creare nuovi account.",
+    "errorEmailUnverified": "Questa email ha già un account, ma l'indirizzo non è ancora verificato. Accedi con il metodo che hai usato per registrarti, poi verifica la tua email per usare i codici di accesso.",
+    "useEmailPasswordInstead": "Accedi con email e password",
     "errorPasskey": "L'accesso con passkey non è stato completato. Riprova o usa un altro metodo.",
     "errorGeneric": "Si è verificato un errore. Riprova."
   },

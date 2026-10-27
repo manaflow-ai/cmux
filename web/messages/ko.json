@@ -524,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "변경하려면 먼저 요금제를 재개하세요.",
           "granted": "cmux에서 제공한 요금제입니다. 변경할 항목이 없습니다.",
+          "grantedNoCancel": "cmux에서 부여한 플랜이므로 취소할 항목이 없습니다.",
+          "paymentFailed": "플랜을 변경하기 전에 결제 수단을 업데이트하세요.",
+          "foundersLifetime": "Founder's Edition에는 Pro가 평생 포함됩니다.",
           "adminOnly": "팀 관리자만 요금제를 변경할 수 있습니다."
         },
         "names": {
@@ -566,6 +569,7 @@
       "change": {
         "title": "{plan}(으)로 전환할까요?",
         "upgradeBody": "{plan}이(가) 지금 시작됩니다. 이번 결제 기간의 남은 기간에 대해 오늘 {amount}을(를) 결제합니다. {date}부터는 매월 {price}을(를) 결제합니다.",
+        "upgradeBodyYearly": "{plan}이(가) 지금 시작됩니다. 이번 결제 기간의 남은 기간에 대해 오늘 {amount}을(를) 결제합니다. {date}부터는 매년 {price}을(를) 결제합니다.",
         "downgradeBody": "{plan}이(가) 지금 시작됩니다. 현재 요금제의 사용하지 않은 부분 {credit}은(는) 다음 청구서에 적립됩니다. {date}의 다음 청구 금액은 {amount}입니다.",
         "confirm": "{plan}(으)로 전환",
         "keep": "현재 요금제 유지",
@@ -578,6 +582,8 @@
         "title": "{plan}을(를) 해지할까요?",
         "body": "{date}까지 {plan}을(를) 사용할 수 있습니다. 그 후에는 다음을 사용할 수 없습니다:",
         "bodyNoDate": "이번 결제 기간이 끝날 때까지 {plan}을(를) 사용할 수 있습니다. 그 후에는 다음을 사용할 수 없습니다:",
+        "foundersBody": "{plan} 구독은 {date}에 종료됩니다. 이후에는 Founder's Edition에 평생 포함된 Pro를 이용합니다.",
+        "foundersBodyNoDate": "{plan} 구독은 이번 결제 기간이 끝날 때 종료됩니다. 이후에는 Founder's Edition에 평생 포함된 Pro를 이용합니다.",
         "reasonLabel": "해지하는 이유 (선택)",
         "otherPlaceholder": "자세히 알려 주세요 (선택)",
         "confirm": "요금제 해지",
@@ -2175,6 +2181,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "활성화하면 분할 구분선을 두 번 클릭할 때 해당 행이나 열의 창이 같은 크기로 조정됩니다. 다른 행과 열의 크기는 유지됩니다.",
           "confirmQuit": "cmux가 종료 전에 확인을 요청하는 시점을 제어합니다. DEV 빌드는 이 설정과 관계없이 항상 즉시 종료됩니다. 기존 app.warnBeforeQuit도 boolean 대체값으로 계속 허용됩니다.",
           "windowTitleTemplate": "선택적 NSWindow 제목 템플릿입니다. 비워 두면 현재 디렉터리 대체 동작을 포함해 cmux의 기존 기본 제목 동작을 유지합니다. 지원되는 자리표시자: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "새 창을 열 때 DEBUG 빌드에서만 사용하는 디스플레이 이름입니다. 빈 값은 시스템 기본값을 사용합니다.",
@@ -2252,12 +2259,20 @@
           "currentLineHighlight": "아무것도 선택하지 않았을 때 캐럿이 있는 줄에 색을 입힙니다.",
           "tabWidth": "탭 정지 하나가 차지하는 열 수입니다. 들여쓰기 가이드도 같은 간격을 사용합니다."
         },
+        "actions": "명령 팔레트, 단축키, 탭 표시줄 버튼, 더하기 버튼 메뉴에서 사용하는 재사용 가능한 동작입니다. builtin, command, agent, workspaceCommand, workspace, setting, settingPreset, text를 지원합니다. text 동작은 줄바꿈을 유지하여 포커스된 터미널에 붙여넣으며, submit: true는 Enter를 누릅니다. 설정 동작에는 전역 구성이 필요합니다.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
               "enabled": "원격 tmux 작업 공간을 선택하면 새 작업 공간이 해당 작업 공간의 호스트에서 tmux 세션을 시작합니다."
             }
           }
+        },
+        "chief": {
+          "description": "홈 에이전트 Chief: 표시 여부와 사용할 하네스, 모델, 추론 강도.",
+          "enabled": "홈 행과 Chief 진입점을 표시합니다. false이면 홈 행, Chief 열기 단축키, 메뉴 항목, 명령 팔레트 항목이 숨겨집니다.",
+          "harness": "Chief가 실행되는 에이전트 하네스: claude(Claude Code) 또는 codex(Codex).",
+          "model": "하네스에 전달할 모델. 비워 두면 하네스 기본값을 사용합니다.",
+          "effort": "하네스에 전달할 추론 강도(예: low, medium, high). 비워 두면 하네스 기본값을 사용합니다."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3434,6 +3449,7 @@
     "unsupportedParams": "이 링크에는 cmux에서 거부할 지원되지 않는 매개변수가 포함되어 있습니다: {params}",
     "conflictingParams": "이 링크에는 함께 사용할 수 없는 매개변수가 포함되어 있습니다: {params}",
     "invalidParams": "이 링크에는 잘못된 매개변수 값이 포함되어 있습니다: {params}",
+    "ignoredParams": "cmux는 사용하지 않는 매개변수를 무시합니다: {params}. 세션은 그대로 열립니다.",
     "fixParams": "URL 매개변수를 수정한 후 이 페이지를 새로고침하세요.",
     "examplePrefix": "참조",
     "exampleLink": "예시 링크",
@@ -3457,6 +3473,16 @@
       "title": "cmux에서 규칙 열기",
       "intro": "이 페이지는 현재 cmux 작업 공간의 규칙을 엽니다.",
       "fallback": "cmux는 규칙을 먼저 표시하고 이를 현재 작업 공간에 붙여넣기 전에 묻습니다. cmux가 열리지 않으면 cmux를 설치하고 cmux에서 열기를 다시 클릭합니다."
+    },
+    "agent": {
+      "metaTitle": "cmux에서 에이전트 세션 열기",
+      "metaDescription": "cmux를 사용할 수 없을 때 설치 안내와 함께 웹에서 cmux 에이전트 세션 딥링크를 엽니다.",
+      "title": "에이전트 세션 열기",
+      "intro": "이 Mac이 이미 해당 세션에 접근할 수 있으면 이 링크가 cmux에서 에이전트의 세션을 엽니다. 링크 자체는 어떤 접근 권한도 부여하지 않습니다.",
+      "fallback": "cmux가 열리지 않으면 cmux를 설치하고 cmux에서 열기를 다시 클릭하세요. cmux는 이 Mac이 이미 접근할 수 있는 세션만 엽니다.",
+      "nameLabel": "이름: {value}",
+      "hostLabel": "호스트: {value}",
+      "harnessLabel": "하네스: {value}"
     }
   },
   "download": {
@@ -5495,6 +5521,8 @@
     "errorInvalidCode": "유효하지 않은 코드입니다. 이메일을 확인하고 다시 시도하세요.",
     "errorInvalidTotp": "유효하지 않은 2단계 인증 코드입니다.",
     "errorSignUpNotAllowed": "지금은 새 계정을 만들 수 없습니다.",
+    "errorEmailUnverified": "이 이메일에는 이미 계정이 있지만 주소가 아직 인증되지 않았습니다. 가입할 때 사용한 방법으로 로그인한 다음 이메일을 인증하면 로그인 코드를 사용할 수 있습니다.",
+    "useEmailPasswordInstead": "이메일과 비밀번호로 로그인",
     "errorPasskey": "패스키 로그인이 완료되지 않았습니다. 다시 시도하거나 다른 방법을 사용하세요.",
     "errorGeneric": "문제가 발생했습니다. 다시 시도하세요."
   },

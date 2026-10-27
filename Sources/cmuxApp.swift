@@ -40,6 +40,8 @@ struct cmuxApp: App {
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
     @AppStorage(SettingCatalog().betaFeatures.remoteTmuxNewWorkspaceOnHost.userDefaultsKey)
     private var remoteTmuxNewWorkspaceOnHostEnabled = SettingCatalog().betaFeatures.remoteTmuxNewWorkspaceOnHost.defaultValue
+    @AppStorage(ChiefCatalogSection().enabled.userDefaultsKey)
+    private var chiefEnabled = ChiefCatalogSection().enabled.defaultValue
     @State private var aboutWindowController: AboutWindowController?
     @State private var browserFocusModeMenuRevision = 0
     @State private var browserAvailabilityMenuRevision = 0
@@ -232,7 +234,8 @@ struct cmuxApp: App {
         let tabManager = TabManager(
             workspaceCustomizationStore: workspaceCustomizationStore,
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
-            cloudWorkspaceSelection: cloudWorkspaceCoordinator.makeSelectionState()
+            cloudWorkspaceSelection: cloudWorkspaceCoordinator.makeSelectionState(),
+            sshClipboardWriteTrustStore: AppDelegate.shared?.sshClipboardWriteTrustStore
         )
         let historyMenuCoordinator = HistoryMenuCoordinator(
             closedItemHistoryStore: closedItemHistoryStore,
@@ -1320,6 +1323,12 @@ struct cmuxApp: App {
             splitCommandButton(title: String(localized: "menu.view.showNotifications", defaultValue: "Show Notifications"), shortcut: menuShortcut(for: .showNotifications)) {
                 showNotificationsPopover()
             }
+
+            if chiefEnabled {
+                splitCommandButton(title: String(localized: "menu.view.chief", defaultValue: "Chief"), shortcut: menuShortcut(for: .openChief)) {
+                    AppDelegate.shared?.openChiefHome(toggle: true, source: "menu.view.chief")
+                }
+            }
         }
     }
 
@@ -1499,22 +1508,6 @@ struct cmuxApp: App {
         manager.clearCustomTitle(tabId: workspace.id)
     }
 
-    private func moveSelectedWorkspaceToTop(in manager: TabManager) {
-        guard let workspace = manager.selectedWorkspace else { return }
-        manager.moveTabsToTop([workspace.id])
-        manager.selectWorkspace(workspace)
-    }
-
-    private func moveSelectedWorkspace(in manager: TabManager, toWindow windowId: UUID) {
-        guard let workspace = manager.selectedWorkspace else { return }
-        _ = AppDelegate.shared?.moveWorkspaceToWindow(workspaceId: workspace.id, windowId: windowId, focus: true)
-    }
-
-    private func moveSelectedWorkspaceToNewWindow(in manager: TabManager) {
-        guard let workspace = manager.selectedWorkspace else { return }
-        _ = AppDelegate.shared?.moveWorkspaceToNewWindow(workspaceId: workspace.id, focus: true)
-    }
-
     private func closeWorkspaceIds(
         _ workspaceIds: [UUID],
         in manager: TabManager,
@@ -1626,6 +1619,10 @@ struct cmuxApp: App {
             }
         }
         .disabled(workspace == nil)
+
+        if let workspace {
+            WorkspaceMergeIntoMenu(sourceWorkspaceId: workspace.id)
+        }
 
         Divider()
 

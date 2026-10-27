@@ -408,3 +408,423 @@ struct PaneFocusFindResponderTests {
         return false
     }
 }
+
+/// Regression coverage for Cmd+F routing into the plain-text file preview
+/// (https://github.com/manaflow-ai/cmux/issues/6050): the app-level find
+/// dispatch must reach a focused FilePreviewPanel in text mode instead of
+/// being silently swallowed, exactly like the Markdown branch that already
+/// sits next to it in TabManager.
+@MainActor
+@Suite("File preview text find routing", .serialized)
+struct FilePreviewTextFindRoutingTests {
+    /// Cmd+F must reach a focused plain-text file preview: the shortcut
+    /// reports handled, the native find bar shows, and the window-level find
+    /// visibility state reflects it.
+    @Test
+    func startSearchReachesFocusedTextFilePreview() throws {
+        let fileURL = try temporaryTextFile(contents: "find me in the preview\n")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        defer { workspace.teardownAllPanels() }
+        let firstPane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let panel = try #require(workspace.newFilePreviewSurface(
+            inPane: firstPane,
+            filePath: fileURL.path,
+            focus: true
+        ))
+        let window = makeWindow()
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+        let (scrollView, textView) = mountTextPreviewEditor(
+            for: panel,
+            in: window,
+            content: "find me in the preview\n"
+        )
+        window.makeKeyAndOrderFront(nil)
+        #expect(window.makeFirstResponder(textView))
+        #expect(workspace.focusedPanelId == panel.id)
+        #expect(manager.focusedTextFilePreviewPanel === panel)
+        #expect(!manager.isFindVisible)
+
+        #expect(
+            manager.startSearch(),
+            "Cmd+F must route to a focused plain-text file preview instead of being swallowed"
+        )
+        #expect(
+            scrollView.isFindBarVisible,
+            "Cmd+F must show the native find bar in the text preview"
+        )
+        #expect(
+            manager.isFindVisible,
+            "The window-level find visibility must track the text preview's real find bar state"
+        )
+
+        manager.hideFind()
+
+        #expect(!scrollView.isFindBarVisible)
+        #expect(!manager.isFindVisible)
+        #expect(
+            window.firstResponder === textView,
+            "Hiding the find bar must return keyboard focus to the text preview document"
+        )
+    }
+
+    /// Cmd+E (Use Selection for Find) must be enabled when the focused text
+    /// preview has a selection, matching the terminal affordance.
+    @Test
+    func selectionForFindIsAvailableForTextPreviewSelection() throws {
+        let fileURL = try temporaryTextFile(contents: "alpha beta gamma\n")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        defer { workspace.teardownAllPanels() }
+        let firstPane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let panel = try #require(workspace.newFilePreviewSurface(
+            inPane: firstPane,
+            filePath: fileURL.path,
+            focus: true
+        ))
+        let window = makeWindow()
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+        let (_, textView) = mountTextPreviewEditor(
+            for: panel,
+            in: window,
+            content: "alpha beta gamma\n"
+        )
+        window.makeKeyAndOrderFront(nil)
+        #expect(window.makeFirstResponder(textView))
+        #expect(manager.focusedTextFilePreviewPanel === panel)
+        #expect(!manager.canUseSelectionForFind)
+
+        textView.setSelectedRange(NSRange(location: 6, length: 4)) // "beta"
+
+        #expect(
+            manager.canUseSelectionForFind,
+            "Use Selection for Find must be enabled by a selection in the focused text preview"
+        )
+    }
+
+    /// Non-text previews (Quick Look, PDF, image, media) have no text find
+    /// surface; routing must fall through unchanged for them.
+    @Test
+    func findRoutingFallsThroughForNonTextFilePreview() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("bin")
+        try Data([0x00, 0x01, 0x00, 0x02]).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        defer { workspace.teardownAllPanels() }
+        let firstPane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let panel = try #require(workspace.newFilePreviewSurface(
+            inPane: firstPane,
+            filePath: fileURL.path,
+            focus: true
+        ))
+        try #require(panel.previewMode != .text)
+        #expect(manager.focusedTextFilePreviewPanel == nil)
+
+        #expect(
+            !manager.startSearch(),
+            "A non-text file preview must not claim the find shortcut"
+        )
+        #expect(!manager.canUseSelectionForFind)
+    }
+
+    private func temporaryTextFile(contents: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("txt")
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    /// Mounts the panel's text editor the way FilePreviewTextEditor does:
+    /// the find bar is hosted by the text view's enclosing scroll view, so
+    /// tests must build that container rather than a bare text view.
+    private func mountTextPreviewEditor(
+        for panel: FilePreviewPanel,
+        in window: NSWindow,
+        content: String
+    ) -> (scrollView: NSScrollView, textView: SavingTextView) {
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 480, height: 320))
+        scrollView.hasVerticalScroller = true
+        let textView = SavingTextView.makeFilePreviewTextView()
+        textView.frame = NSRect(x: 0, y: 0, width: 480, height: 320)
+        textView.string = content
+        textView.panel = panel
+        scrollView.documentView = textView
+        panel.attachTextView(textView)
+        window.contentView = scrollView
+        return (scrollView, textView)
+    }
+
+    private func makeWindow() -> NSWindow {
+        NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false
+        )
+    }
+}
+
+/// Behavior coverage for the FilePreviewPanel text-mode find bar itself:
+/// NSTextFinder show/hide, selection prefill, and focus hand-off. These run
+/// against a real NSScrollView container because the native find bar is
+/// hosted by the scroll view, not the text view.
+@MainActor
+@Suite("File preview text find bar", .serialized)
+struct FilePreviewTextFindBarTests {
+    @Test
+    func startFindShowsBarAndFocusesFindField() throws {
+        let panel = makeTextPreviewPanel()
+        defer { panel.close() }
+        let window = makeWindow()
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+        let (scrollView, textView) = mountTextPreviewEditor(
+            for: panel,
+            in: window,
+            content: "alpha beta gamma\n"
+        )
+        window.makeKeyAndOrderFront(nil)
+        #expect(window.makeFirstResponder(textView))
+        #expect(!panel.isTextFindBarVisible)
+
+        #expect(panel.startFind())
+
+        #expect(panel.isTextFindBarVisible)
+        #expect(scrollView.isFindBarVisible)
+        let barView = try #require(scrollView.findBarView)
+        let responder = try #require(window.firstResponder as? NSView)
+        #expect(
+            responder === barView || responder.isDescendant(of: barView),
+            "Showing the find bar must move keyboard focus into its search field"
+        )
+    }
+
+    @Test
+    func startFindPrefillsFreshBarFromSelection() throws {
+        let panel = makeTextPreviewPanel()
+        defer { panel.close() }
+        let window = makeWindow()
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+        let (scrollView, textView) = mountTextPreviewEditor(
+            for: panel,
+            in: window,
+            content: "alpha beta gamma\n"
+        )
+        window.makeKeyAndOrderFront(nil)
+        #expect(window.makeFirstResponder(textView))
+        textView.setSelectedRange(NSRange(location: 6, length: 4)) // "beta"
+
+        #expect(panel.startFind())
+
+        let barView = try #require(scrollView.findBarView)
+        #expect(
+            findSearchField(in: barView)?.stringValue == "beta",
+            "A fresh find bar must prefill its search field from the selection"
+        )
+    }
+
+    @Test
+    func findNextAndPreviousStepSelectionThroughMatches() throws {
+        let panel = makeTextPreviewPanel()
+        defer { panel.close() }
+        let window = makeWindow()
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+        let content = "needle first\nplain line\nneedle second\n"
+        let (_, textView) = mountTextPreviewEditor(for: panel, in: window, content: content)
+        window.makeKeyAndOrderFront(nil)
+        #expect(window.makeFirstResponder(textView))
+        textView.setSelectedRange(NSRange(location: 0, length: 6)) // first "needle"
+        #expect(panel.startFind())
+
+        panel.findNext()
+        let firstMatch = textView.selectedRange()
+        #expect((content as NSString).substring(with: firstMatch) == "needle")
+
+        panel.findNext()
+        let secondMatch = textView.selectedRange()
+        #expect((content as NSString).substring(with: secondMatch) == "needle")
+        #expect(
+            secondMatch.location != firstMatch.location,
+            "Find Next must advance the selection to another match"
+        )
+
+        panel.findPrevious()
+        let previousMatch = textView.selectedRange()
+        #expect((content as NSString).substring(with: previousMatch) == "needle")
+        #expect(
+            previousMatch.location == firstMatch.location,
+            "Find Previous must return the selection to the earlier match"
+        )
+    }
+
+    @Test
+    func hideFindHidesBarAndReturnsFocusToDocument() throws {
+        let panel = makeTextPreviewPanel()
+        defer { panel.close() }
+        let window = makeWindow()
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+        let (scrollView, textView) = mountTextPreviewEditor(
+            for: panel,
+            in: window,
+            content: "alpha beta gamma\n"
+        )
+        window.makeKeyAndOrderFront(nil)
+        #expect(panel.startFind())
+        let barView = try #require(scrollView.findBarView)
+        let findFieldResponder = try #require(window.firstResponder as? NSView)
+        #expect(findFieldResponder === barView || findFieldResponder.isDescendant(of: barView))
+
+        panel.hideFind()
+
+        #expect(!panel.isTextFindBarVisible)
+        #expect(!scrollView.isFindBarVisible)
+        #expect(
+            window.firstResponder === textView,
+            "Hiding the find bar must resign its search field and refocus the document"
+        )
+    }
+
+    @Test
+    func hideFindWithoutVisibleBarLeavesFocusUntouched() throws {
+        let panel = makeTextPreviewPanel()
+        defer { panel.close() }
+        let window = makeWindow()
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+        let (_, textView) = mountTextPreviewEditor(for: panel, in: window, content: "plain\n")
+        window.makeKeyAndOrderFront(nil)
+        #expect(window.makeFirstResponder(textView))
+
+        panel.hideFind()
+
+        #expect(window.firstResponder === textView)
+        #expect(!panel.isTextFindBarVisible)
+    }
+
+    @Test
+    func useSelectionForFindCapturesSelectionWithoutOpeningBar() throws {
+        let panel = makeTextPreviewPanel()
+        defer { panel.close() }
+        let window = makeWindow()
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+        let (scrollView, textView) = mountTextPreviewEditor(
+            for: panel,
+            in: window,
+            content: "alpha beta gamma\n"
+        )
+        window.makeKeyAndOrderFront(nil)
+        #expect(window.makeFirstResponder(textView))
+        #expect(!panel.canUseSelectionForFind)
+        #expect(!panel.useSelectionForFind())
+
+        textView.setSelectedRange(NSRange(location: 6, length: 4)) // "beta"
+        #expect(panel.canUseSelectionForFind)
+        #expect(panel.useSelectionForFind())
+        #expect(!panel.isTextFindBarVisible)
+
+        // Clearing the document selection must not lose the captured needle:
+        // the next find bar opens with the Cmd+E string, not the selection.
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        #expect(panel.startFind())
+        let barView = try #require(scrollView.findBarView)
+        #expect(findSearchField(in: barView)?.stringValue == "beta")
+    }
+
+    @Test
+    func nonTextPreviewDoesNotHandleFind() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("bin")
+        try Data([0x00, 0x01, 0x00, 0x02]).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            startFileWatcher: false,
+            modeResolver: { _ in .quickLook }
+        )
+        defer { panel.close() }
+        try #require(panel.previewMode != .text)
+
+        #expect(!panel.startFind())
+        #expect(!panel.useSelectionForFind())
+        #expect(!panel.canUseSelectionForFind)
+        #expect(!panel.isTextFindBarVisible)
+        panel.findNext()
+        panel.findPrevious()
+        panel.hideFind()
+    }
+
+    private func makeTextPreviewPanel() -> FilePreviewPanel {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("txt")
+        // The panel's find methods operate on the mounted text view; the file
+        // itself only needs to exist so mode resolution keeps `.text`.
+        try? Data("placeholder\n".utf8).write(to: fileURL)
+        return FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            startFileWatcher: false,
+            modeResolver: { _ in .text }
+        )
+    }
+
+    private func makeWindow() -> NSWindow {
+        NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false
+        )
+    }
+
+    private func mountTextPreviewEditor(
+        for panel: FilePreviewPanel,
+        in window: NSWindow,
+        content: String
+    ) -> (scrollView: NSScrollView, textView: SavingTextView) {
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 480, height: 320))
+        scrollView.hasVerticalScroller = true
+        let textView = SavingTextView.makeFilePreviewTextView()
+        textView.frame = NSRect(x: 0, y: 0, width: 480, height: 320)
+        textView.string = content
+        textView.panel = panel
+        scrollView.documentView = textView
+        panel.attachTextView(textView)
+        window.contentView = scrollView
+        return (scrollView, textView)
+    }
+
+    private func findSearchField(in view: NSView) -> NSSearchField? {
+        if let field = view as? NSSearchField { return field }
+        for subview in view.subviews {
+            if let field = findSearchField(in: subview) { return field }
+        }
+        return nil
+    }
+}

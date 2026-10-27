@@ -171,6 +171,7 @@ async function readPlanSnapshot(): Promise<AppPlanSnapshot> {
     billingManagement: status.billingManagement,
     billingSource: status.billingSource,
     cancelScheduled: status.cancelScheduled ?? false,
+    paymentPastDue: status.paymentPastDue ?? false,
     email: user.primaryEmail,
   };
 }

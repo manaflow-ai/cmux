@@ -75,7 +75,8 @@ enum CmuxEmbeddedConfigSchema {
     },
     "actions": {
       "title": "actions",
-      "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu. Each entry supports type \"builtin\", \"command\", \"agent\" (any CLI agent name, e.g. claude, codex, opencode, or a custom binary, with optional args), \"workspaceCommand\", \"workspace\" (inline workspace with name/cwd/color/env/setup/layout, plus optional restart), \"setting\" (change one setting in the global cmux.json: path plus exactly one of set, toggle: true, cycle, or unset: true), or \"settingPreset\" (apply a named entry from settingPresets). Setting actions only run when declared in the global ~/.config/cmux/cmux.json or a pack it references; with confirm: true they ask before saving. Inline workspace entries are auto-offered in the new-workspace plus-button menu; set newWorkspaceMenu true/false on any action to override. \"Save Workspace as Layout\" in the plus-button menu writes entries here.",
+      "descriptionKey": "schemaDescriptions.actions",
+      "description": "Reusable actions for the Command Palette, shortcuts, tab-bar buttons, and plus-button menu. Supports builtin, command, agent, workspaceCommand, workspace, setting, settingPreset, and text. Text actions paste into the focused terminal and preserve newlines; submit: true presses Enter. Setting actions require global configuration.",
       "type": "object",
       "additionalProperties": true
     },
@@ -828,6 +829,12 @@ enum CmuxEmbeddedConfigSchema {
           "default": false,
           "description": "When true, creating a split resizes the panes in that split's row or column to equal sizes. When false, a new split halves the pane it was created from."
         },
+        "equalizeSplitsOnDividerDoubleClick": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, double-clicking a split divider makes the panes in its row or column equal in size. Other rows and columns keep their sizes.",
+          "descriptionKey": "schemaDescriptions.app.equalizeSplitsOnDividerDoubleClick"
+        },
         "preferredEditor": {
           "type": "string",
           "default": "",
@@ -913,6 +920,11 @@ enum CmuxEmbeddedConfigSchema {
           "type": "boolean",
           "default": true,
           "description": "Show a confirmation before closing a workspace with a running process, or several workspaces at once. Pinned workspaces still ask when this is off."
+        },
+        "alwaysConfirmWorkspaceClose": {
+          "type": "boolean",
+          "default": false,
+          "description": "Ask before every workspace close, even when nothing in it is running. Overrides warnBeforeClosingWorkspace for workspace closes."
         },
         "warnBeforeClosingWindow": {
           "type": "boolean",
@@ -1877,6 +1889,13 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Lighten workspace colors in dark mode so they stay readable on a dark sidebar. false shows colors exactly as chosen. Applies to the solidFill indicator; leftRail always lightens its rail."
         },
+        "unselectedFillOpacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.7,
+          "description": "Opacity of the workspace color on rows that are not selected, with the solidFill indicator. 1 shows the full color. Multi-selected rows use half of this value."
+        },
         "notificationBadgeColor": {
           "$ref": "#/$defs/colorHexOrNull",
           "default": null,
@@ -2156,6 +2175,47 @@ enum CmuxEmbeddedConfigSchema {
           "type": "boolean",
           "default": true,
           "description": "Allow agents to message each other through cmux. When false, cmux agent message fails, nothing is stored, and messages already queued are marked failed instead of being delivered."
+        }
+      }
+    },
+    "chief": {
+      "x-cmux-scopes": ["global"],
+      "title": "chief",
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Chief, the Home agent: whether it is shown and which harness, model, and effort it uses.",
+      "descriptionKey": "schemaDescriptions.chief.description",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Home row and Chief entry points. When false, the Home row, the Open Chief shortcut, menu item, and command palette entries are hidden.",
+          "descriptionKey": "schemaDescriptions.chief.enabled"
+        },
+        "harness": {
+          "type": "string",
+          "enum": ["claude", "codex"],
+          "default": "claude",
+          "description": "Agent harness Chief runs on: claude (Claude Code) or codex (Codex).",
+          "descriptionKey": "schemaDescriptions.chief.harness"
+        },
+        "model": {
+          "type": "string",
+          "default": "",
+          "description": "Model passed to the harness. Leave empty to use the harness default.",
+          "descriptionKey": "schemaDescriptions.chief.model"
+        },
+        "effort": {
+          "type": "string",
+          "default": "",
+          "description": "Reasoning effort passed to the harness, such as low, medium, or high. Leave empty to use the harness default.",
+          "descriptionKey": "schemaDescriptions.chief.effort"
+        },
+        "dangerouslySkipPermissions": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow Chief's selected agent to bypass permission prompts and sandbox guardrails. Off by default.",
+          "descriptionKey": "schemaDescriptions.chief.dangerouslySkipPermissions"
         }
       }
     },
@@ -2538,6 +2598,7 @@ enum CmuxEmbeddedConfigSchema {
               "goToWorkspace",
               "commandPalette",
               "agentInbox",
+              "openChief",
               "commandPaletteNext",
               "commandPalettePrevious",
               "sendFeedback",

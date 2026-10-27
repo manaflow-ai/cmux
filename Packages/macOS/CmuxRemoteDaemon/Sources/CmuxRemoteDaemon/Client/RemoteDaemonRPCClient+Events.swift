@@ -40,29 +40,35 @@ extension RemoteDaemonRPCClient {
     }
 
     func receiveNextWebSocketMessageLocked() {
-        guard let task = webSocketTask, let delegate = webSocketDelegate else { return }
-        task.receive { [weak self] result in
+        guard let connection = webSocketConnection else { return }
+        connection.receiveMessage { [weak self] data, opcode, isComplete, error in
             guard let self else { return }
             self.stateQueue.async {
-                switch result {
-                case .success(let message):
-                    switch message {
-                    case .string(let text):
-                        self.consumeJSONPayload(Data(text.utf8))
-                    case .data(let data):
-                        self.consumeJSONPayload(data)
-                    @unknown default:
-                        break
-                    }
-                    if !self.isClosed {
-                        self.receiveNextWebSocketMessageLocked()
-                    }
-                case .failure(let error):
-                    if delegate.isClosed || self.isClosed {
+                if let error {
+                    if connection.isClosed || self.isClosed {
                         self.handleWebSocketTermination("daemon websocket closed")
                     } else {
                         self.handleWebSocketTermination("daemon websocket failed: \(error.localizedDescription)")
                     }
+                    return
+                }
+                if isComplete, data == nil, opcode == nil {
+                    self.handleWebSocketTermination("daemon websocket closed")
+                    return
+                }
+                switch opcode {
+                case .text:
+                    self.consumeJSONPayload(data ?? Data())
+                case .binary:
+                    self.consumeJSONPayload(data ?? Data())
+                case .close:
+                    self.handleWebSocketTermination("daemon websocket closed")
+                    return
+                default:
+                    break
+                }
+                if !self.isClosed {
+                    self.receiveNextWebSocketMessageLocked()
                 }
             }
         }
@@ -94,7 +100,7 @@ extension RemoteDaemonRPCClient {
     }
 
     func sendWebSocketKeepaliveLocked() {
-        guard !isClosed, let task = webSocketTask else {
+        guard !isClosed, let connection = webSocketConnection else {
             stopWebSocketKeepaliveLocked()
             return
         }
@@ -110,7 +116,7 @@ extension RemoteDaemonRPCClient {
         webSocketKeepaliveTimeoutWorkItem?.cancel()
         webSocketKeepaliveTimeoutWorkItem = timeoutWorkItem
         stateQueue.asyncAfter(deadline: .now() + Self.webSocketKeepaliveInterval, execute: timeoutWorkItem)
-        task.sendPing { [weak self] error in
+        connection.sendPing { [weak self] error in
             guard let self else { return }
             self.stateQueue.async {
                 guard !self.isClosed else { return }
@@ -340,19 +346,15 @@ extension RemoteDaemonRPCClient {
 
     func handleWebSocketTermination(_ detail: String) {
         let shouldNotify = !isClosed && shouldReportTermination
-        let capturedTask = webSocketTask
-        let capturedSession = webSocketSession
+        let capturedConnection = webSocketConnection
 
         isClosed = true
         stopWebSocketKeepaliveLocked()
-        webSocketTask = nil
-        webSocketSession = nil
-        webSocketDelegate = nil
+        webSocketConnection = nil
         streamSubscriptions.removeAll(keepingCapacity: false)
         failPTYSubscriptionsLocked(detail)
         signalPendingFailureLocked(detail)
-        capturedTask?.cancel(with: .normalClosure, reason: nil)
-        capturedSession?.invalidateAndCancel()
+        capturedConnection?.cancel()
 
         guard shouldNotify else { return }
         onUnexpectedTermination(detail)

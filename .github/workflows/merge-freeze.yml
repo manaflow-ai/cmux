@@ -1,0 +1,129 @@
+name: merge freeze
+
+# Freezes are open `merge-freeze` issues (docs/ci/merge-freeze.md). This shows them where people
+# look: a `merge freeze` check on each pull request that touches a frozen path, and an hourly job
+# that closes lapsed freezes with a comment so the open ones are the live ones.
+#
+# The check reflects the freezes when the pull request last changed. gh-merge-green reads the
+# same issues again at merge time, so a freeze opened later still stops the merge.
+#
+# pull_request_target so fork pull requests are checked too. Nothing from the pull request is
+# checked out or run: the checker comes from main and reads the file list and the pull request's
+# label events through the API.
+
+on:
+  pull_request_target:
+    branches: [main, feat-cmux-next]
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    # A draft cannot merge; it is checked when marked ready (ready_for_review
+    # above). Mergers read the freezes again at merge time either way.
+    if: github.event_name == 'pull_request_target' && !github.event.pull_request.draft
+    name: merge freeze
+    concurrency:
+      group: merge-freeze-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: pull_request_target with a read token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Checkout the checker from main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          persist-credentials: false
+          sparse-checkout: scripts/ci/merge_freeze.py
+          sparse-checkout-cone-mode: false
+      # The manaflow-glaeda-route App's token, so these reads draw on the App's own budget
+      # rather than the GITHUB_TOKEN budget every workflow shares (it ran out on 2026-10-21).
+      # A failed mint leaves GITHUB_TOKEN, which the checker also falls back to on a refusal.
+      - name: Mint the glaeda-route token
+        id: glaeda-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: read
+      - name: Check the pull request against open freezes
+        env:
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token || github.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+          # The event's count, so the pull request is not read again to check the file list.
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+        # Exit 3: GitHub's rate limit refused the read, and again two minutes later. That says
+        # nothing about this pull request, so it is a warning, not a red that holds it; the
+        # merge paths (gh-merge-green, next-autoland) read the freezes again and refuse until
+        # they can.
+        run: |
+          args=(check --repo "$REPO" --pr "$NUMBER" --base "$BASE" --rate-limit-retry 120)
+          if [ -n "$CHANGED_FILES" ]; then
+            args+=(--changed-files "$CHANGED_FILES")
+          fi
+          status=0
+          python3 scripts/ci/merge_freeze.py "${args[@]}" || status=$?
+          if [ "$status" -eq 3 ]; then
+            note="Could not check merge freezes: GitHub's rate limit refused the read twice. gh-merge-green and next-autoland read the freezes again before merging."
+            echo "::warning title=merge freeze not checked::$note"
+            printf '### merge freeze: not checked\n\n%s\n' "$note" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          exit "$status"
+
+  expire:
+    if: github.event_name != 'pull_request_target'
+    name: close lapsed freezes
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted issue-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/merge_freeze.py
+          sparse-checkout-cone-mode: false
+      # The manaflow-glaeda-route App's token, so these reads draw on the App's own budget
+      # rather than the GITHUB_TOKEN budget every workflow shares (it ran out on 2026-10-21).
+      # A failed mint leaves GITHUB_TOKEN, which the checker also falls back to on a refusal.
+      - name: Mint the glaeda-route token
+        id: glaeda-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-issues: write
+      - name: Close freezes past their deadline
+        env:
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token || github.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 scripts/ci/merge_freeze.py expire --repo "$REPO"
+          python3 scripts/ci/merge_freeze.py list --repo "$REPO" | tee -a "$GITHUB_STEP_SUMMARY"

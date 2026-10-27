@@ -15,14 +15,28 @@ public final class BrowserReplJSThread: @unchecked Sendable {
     /// Signalled once the thread's loop has ended.
     private let exited: DispatchSemaphore
 
+    /// The thread's stack: JavaScriptCore needs more than the 512 KiB
+    /// secondary-thread default for deeply nested runtime code. A session
+    /// reserves it in the process-wide ledger before it makes the thread
+    /// (``BrowserReplResource/threadStackBytes``).
+    public static let stackSize = 8 << 20
+
     /// Creates and starts the thread.
-    /// - Parameter name: Thread name shown in crash reports and samples.
-    public init(name: String) {
+    /// - Parameters:
+    ///   - name: Thread name shown in crash reports and samples.
+    ///   - onExit: Runs on the thread as the last thing it does, once its
+    ///     loop has ended and before ``waitUntilExited(timeout:)`` returns
+    ///     true: where a session gives back the stack it reserved, which is
+    ///     in use until then.
+    public init(name: String, onExit: @escaping @Sendable () -> Void = {}) {
         let box = RunLoopBox()
         let exited = DispatchSemaphore(value: 0)
         self.exited = exited
         thread = Thread {
-            defer { exited.signal() }
+            defer {
+                onExit()
+                exited.signal()
+            }
             box.set(CFRunLoopGetCurrent())
             // A port keeps `run(mode:before:)` from returning immediately
             // while no block is queued.
@@ -35,9 +49,7 @@ public final class BrowserReplJSThread: @unchecked Sendable {
             }
         }
         thread.name = name
-        // JavaScriptCore needs more than the 512 KiB secondary-thread default
-        // for deeply nested runtime code.
-        thread.stackSize = 8 << 20
+        thread.stackSize = Self.stackSize
         thread.qualityOfService = .userInitiated
         thread.start()
         box.started.wait()

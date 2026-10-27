@@ -140,6 +140,7 @@ import {
   OBSERVED_DESTROY_CLEANUP_METADATA_KEY,
   PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE,
   PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+  UNEXPECTED_WAKE_CLAIM_METADATA_KEY,
   VmRepository,
   vmRepositoryLiveShape,
   type BeginCreateResult,
@@ -162,6 +163,7 @@ import { measureVmEffect, type VmTimingSink } from "./timings";
 import { guestPromptInstallCommand, vmPromptIdentity } from "./guestPrompt";
 import { vmAgentUpdatesFromRow, type VmAgentUpdatesSetting } from "./agentUpdates";
 import { guestAgentUpdatesCommand } from "./guestAgentUpdates";
+import type { VmIdlePauseMinutes } from "./idlePause";
 
 export {
   homeVolumeNameForUser,
@@ -318,6 +320,21 @@ const FOREGROUND_PROVIDER_STATS_TIMEOUT = "2 seconds";
 export const PAUSE_STATE_PROBE_TIMEOUT_MS = 5_000;
 /** A provider pause is an out-of-band lifecycle operation; bound its foreground wait. */
 export const PAUSE_OPERATION_TIMEOUT_MS = 30_000;
+/**
+ * How long the status cron waits before pausing a machine it found running
+ * under a paused row. A personal machine's resume writes `running` only after
+ * the provider settles (about a minute at worst), so a wake still present after
+ * this wait had no resume behind it.
+ */
+const UNEXPECTED_WAKE_CONFIRM_MS = 120_000;
+/** Longer than one cron run, so an overlapping run cannot claim the same wake. */
+const UNEXPECTED_WAKE_CLAIM_TTL_MS = 5 * 60 * 1000;
+/**
+ * Woken machines one cron run re-pauses; the rest wait for the next run, ten
+ * minutes later. The 120 s confirmation plus two waves of ten at about 75 s
+ * each stays inside the route's 300 s `maxDuration`.
+ */
+export const UNEXPECTED_WAKE_REPAUSE_LIMIT = 20;
 const RESIZE_PENDING_RECOVERY_AFTER_MS = 15 * 60 * 1000;
 const RESIZE_UNCONFIRMED_RECOVERY_AFTER_MS = 30 * 60 * 1000;
 const PREVIEW_ENDPOINT_LEASE_TTL_MS = 12 * 60 * 60 * 1000;
@@ -338,6 +355,8 @@ export type VmProviderStatusReconcileResult = {
   readonly updated: number;
   readonly destroyed: number;
   readonly skipped: number;
+  /** Paused rows whose machine woke without a recorded resume and was paused again. */
+  readonly repaused: number;
   readonly skippedNoGetStatus: boolean;
 };
 
@@ -554,6 +573,8 @@ export function reconcileVmProviderStatuses(input: {
   readonly now?: () => number;
   /** Revokes coderouter tokens for machines the provider reports gone. */
   readonly modelPlane?: VmModelPlaneRevoker;
+  /** Wait before re-pausing a machine woken while paused; tests pass 0. */
+  readonly unexpectedWakeConfirmMs?: number;
 } = {}): Effect.Effect<VmProviderStatusReconcileResult, VmWorkflowError, VmRepository | VmProviderGateway> {
   return Effect.gen(function* () {
     const providers = yield* VmProviderGateway;
@@ -586,6 +607,7 @@ export function reconcileVmProviderStatuses(input: {
         updated: 0,
         destroyed: 0,
         skipped: 0,
+        repaused: 0,
         skippedNoGetStatus: true,
       };
     }
@@ -593,11 +615,15 @@ export function reconcileVmProviderStatuses(input: {
     const candidates = yield* repo.reconciliationCandidates({
       limit: boundedVmStatusReconcileLimit(input.limit),
     });
-    const outcomes = yield* Effect.forEach(
+    const firstPass = yield* Effect.forEach(
       candidates,
-      (vm) => reconcileObservedProviderStatus(repo, providers, getStatus, vm, "provider_status_cron", input.modelPlane),
+      (vm) => reconcileObservedProviderStatus(repo, providers, getStatus, vm, "provider_status_cron", input.modelPlane, true),
       { concurrency: 10 },
     );
+    const outcomes = yield* settleUnexpectedWakes(repo, providers, getStatus, candidates, firstPass, {
+      confirmMs: input.unexpectedWakeConfirmMs ?? UNEXPECTED_WAKE_CONFIRM_MS,
+      modelPlane: input.modelPlane,
+    });
     // Network heal moved here from the create path: re-create the members
     // rule of every owner network this batch touches if it went missing.
     const ensureNetwork = providers.ensureNetwork;
@@ -618,14 +644,7 @@ export function reconcileVmProviderStatuses(input: {
         { concurrency: 1, discard: true },
       );
     }
-    let updated = 0;
-    let destroyed = 0;
-    let skipped = 0;
-    for (const outcome of outcomes) {
-      if (outcome === "updated") updated += 1;
-      else if (outcome === "destroyed") destroyed += 1;
-      else if (outcome === "skipped") skipped += 1;
-    }
+    const tally = (kind: ProviderStatusReconcileOutcome) => outcomes.filter((outcome) => outcome === kind).length;
     if (
       input.teamDirectory && repo.listActiveTeamVmOwners && repo.findTunnelsByProviderTunnelIds &&
       providers.getNetwork && providers.listNetworkTunnelIds && providers.detachTunnelNetwork
@@ -637,9 +656,10 @@ export function reconcileVmProviderStatuses(input: {
     }
     return {
       checked: candidates.length,
-      updated,
-      destroyed,
-      skipped,
+      updated: tally("updated"),
+      destroyed: tally("destroyed"),
+      skipped: tally("skipped"),
+      repaused: tally("repaused"),
       skippedNoGetStatus: false,
     };
   });
@@ -1588,6 +1608,25 @@ export function setVmAgentUpdates(input: ExistingVmAccessInput & {
       yield* scheduleGuestAgentUpdates(providers, updated, input.agentUpdates, input.deferAfterResponse);
     }
     return vmEntryFromRow(updated);
+  });
+}
+
+/**
+ * Set a machine's idle auto-pause (services/vms/idlePause.ts). The route lets
+ * only a choice this server honours reach here. Anyone with access to the
+ * machine may set it, as with agent updates.
+ */
+export function setVmIdlePause(input: ExistingVmAccessInput & {
+  readonly minutes: VmIdlePauseMinutes;
+}): VmWorkflowProgram<{ readonly providerVmId: string; readonly idlePauseMinutes: VmIdlePauseMinutes }> {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const vm = yield* requireAccessibleUserVm(input);
+    if (!repo.setIdlePauseMinutes) {
+      return yield* Effect.fail(new VmDatabaseError({ operation: "setIdlePauseMinutes", cause: new Error("repository cannot store the idle pause") }));
+    }
+    yield* repo.setIdlePauseMinutes({ id: vm.id, minutes: input.minutes });
+    return { providerVmId: vm.providerVmId ?? input.providerVmId, idlePauseMinutes: input.minutes };
   });
 }
 
@@ -3491,7 +3530,7 @@ function applyObservedProviderStatus(
   });
 }
 
-type ProviderStatusReconcileOutcome = "updated" | "destroyed" | "unchanged" | "skipped";
+type ProviderStatusReconcileOutcome = "updated" | "destroyed" | "unchanged" | "skipped" | "repaused";
 
 function reconcileObservedProviderStatus(
   repo: VmRepositoryShape,
@@ -3500,7 +3539,9 @@ function reconcileObservedProviderStatus(
   vm: CloudVmRow,
   usageEventSource: VmDestroySource,
   modelPlane?: VmModelPlaneRevoker,
-): Effect.Effect<ProviderStatusReconcileOutcome, never> {
+  /** Return `unexpected_wake` for a paused row found running instead of relabelling it. */
+  holdUnexpectedWakes = false,
+): Effect.Effect<ProviderStatusReconcileOutcome | "unexpected_wake", never> {
   return Effect.gen(function* () {
     const providerVmId = vm.providerVmId;
     if (!providerVmId || isRetiredProviderRow(vm)) return "skipped" as const;
@@ -3514,6 +3555,7 @@ function reconcileObservedProviderStatus(
     if (!providerStatus || providerStatus === "creating") return "skipped" as const;
     const dbStatus = observedDbStatus(providerStatus);
     if (dbStatus === vm.status) return "unchanged" as const;
+    if (holdUnexpectedWakes && vm.status === "paused" && dbStatus === "running") return "unexpected_wake" as const;
     const didUpdate = yield* applyObservedProviderStatus(repo, providers, vm, {
       providerVmId,
       providerStatus,
@@ -3522,6 +3564,226 @@ function reconcileObservedProviderStatus(
     }).pipe(Effect.catchAll(() => Effect.succeed(false)));
     if (!didUpdate) return "skipped" as const;
     return dbStatus === "destroyed" ? "destroyed" as const : "updated" as const;
+  });
+}
+
+/**
+ * A paused row whose machine runs at the provider, with no resume recorded,
+ * was woken by traffic: a client heartbeat or a request to the machine wakes
+ * a paused Freestyle VM (cmux#21379). Wait out any resume still settling,
+ * then pause it again if the row is still paused and the machine still runs.
+ * A machine the provider will not pause is recorded as running, so it counts.
+ */
+function settleUnexpectedWakes(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  getStatus: NonNullable<VmProviderGatewayShape["getStatus"]>,
+  candidates: readonly CloudVmRow[],
+  firstPass: readonly (ProviderStatusReconcileOutcome | "unexpected_wake")[],
+  options: { readonly confirmMs: number; readonly modelPlane?: VmModelPlaneRevoker },
+): Effect.Effect<ProviderStatusReconcileOutcome[], never> {
+  return Effect.gen(function* () {
+    if (!firstPass.includes("unexpected_wake")) return firstPass as ProviderStatusReconcileOutcome[];
+    if (options.confirmMs > 0) yield* Effect.sleep(options.confirmMs);
+    // Wakes past the cap stay paused rows for the next run to find again. A
+    // row another run claimed is left to it without counting toward the cap.
+    const nowMs = Date.now();
+    let woken = 0;
+    return yield* Effect.forEach(
+      firstPass,
+      (outcome, index) => {
+        if (outcome !== "unexpected_wake") return Effect.succeed(outcome);
+        if (hasFreshRepauseClaim(candidates[index]!, nowMs)) return Effect.succeed("skipped" as const);
+        woken += 1;
+        return woken > UNEXPECTED_WAKE_REPAUSE_LIMIT
+          ? Effect.succeed("skipped" as const)
+          : repauseUnexpectedWake(repo, providers, getStatus, candidates[index]!, options.modelPlane);
+      },
+      { concurrency: 10 },
+    );
+  });
+}
+
+function repauseUnexpectedWake(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  getStatus: NonNullable<VmProviderGatewayShape["getStatus"]>,
+  vm: CloudVmRow,
+  modelPlane?: VmModelPlaneRevoker,
+): Effect.Effect<ProviderStatusReconcileOutcome, never> {
+  return Effect.gen(function* () {
+    const providerVmId = vm.providerVmId;
+    if (!providerVmId) return "skipped" as const;
+    // When the wake can't be confirmed, record what the first probe saw, as
+    // the cron did before re-pausing existed, so the machine still counts.
+    const relabel = (row: CloudVmRow) => recordWokenMachineRunning(repo, providers, row, providerVmId, modelPlane);
+    const before = yield* readWokenRow(repo, vm, providerVmId);
+    if (before._tag === "Left") return yield* relabel(vm);
+    // A resume, pause or destroy that landed meanwhile owns the row now.
+    const current = before.right;
+    if (current?.status !== "paused") return "skipped" as const;
+    const status = yield* getStatus(vm.provider, providerVmId).pipe(
+      Effect.timeout(PAUSE_STATE_PROBE_TIMEOUT_MS),
+      Effect.either,
+    );
+    if (status._tag === "Left") return yield* relabel(current);
+    if (status.right !== "running") return "skipped" as const;
+    // One cron at a time per machine: an overlapping run that loses the claim
+    // leaves the wake to the run that won it.
+    if (repo.claimUnexpectedWakeRepause) {
+      const claimed = yield* repo.claimUnexpectedWakeRepause({
+        id: current.id,
+        providerVmId,
+        ttlMs: UNEXPECTED_WAKE_CLAIM_TTL_MS,
+      }).pipe(Effect.either);
+      if (claimed._tag === "Left") return yield* relabel(current);
+      if (!claimed.right) return "skipped" as const;
+    }
+    const parked = yield* pauseWokenMachine(providers, current, providerVmId);
+    if (parked === "in_progress") return "skipped" as const;
+    if (parked === "running") return yield* relabel(current);
+    // A resume can land while the pause runs (a team resume writes `running`
+    // before it calls the provider); give that machine back.
+    const after = yield* readWokenRow(repo, current, providerVmId);
+    if (after._tag === "Right" && after.right?.status !== "paused") {
+      if (after.right?.status === "running") yield* resumeAfterLostRace(providers, current, providerVmId);
+      return "skipped" as const;
+    }
+    yield* Effect.logWarning("Cloud machine woke while paused; paused it again", { vmId: current.id, providerVmId });
+    yield* repo.recordUsageEvent({
+      userId: current.userId,
+      billingTeamId: current.billingTeamId,
+      billingPlanId: current.billingPlanId,
+      vmId: current.id,
+      eventType: "vm.paused",
+      provider: current.provider,
+      imageId: current.imageId,
+      metadata: { source: "unexpected_wake", automated: true },
+    }).pipe(Effect.catchAll(() => Effect.void));
+    return "repaused" as const;
+  });
+}
+
+function readWokenRow(repo: VmRepositoryShape, vm: CloudVmRow, providerVmId: string) {
+  return repo.findUserVm({
+    userId: vm.userId,
+    billingTeamId: vm.billingTeamId,
+    providerVmId,
+    provider: vm.provider,
+  }).pipe(Effect.either);
+}
+
+function recordWokenMachineRunning(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+  modelPlane?: VmModelPlaneRevoker,
+): Effect.Effect<ProviderStatusReconcileOutcome, never> {
+  return applyObservedProviderStatus(repo, providers, vm, {
+    providerVmId,
+    providerStatus: "running",
+    usageEventSource: "provider_status_cron",
+    modelPlane,
+  }).pipe(
+    Effect.map((recorded) => recorded ? "updated" as const : "skipped" as const),
+    Effect.catchAll(() => Effect.succeed("skipped" as const)),
+  );
+}
+
+/**
+ * Pause a woken machine. A pause that errors may still have landed, so read
+ * the raw pause state as `pauseVm` does instead of assuming it still runs:
+ * `paused` or powered off counts as parked, a transition is left for the next
+ * run, and anything else (including an unreadable state) is still running.
+ */
+function pauseWokenMachine(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<"parked" | "in_progress" | "running", never> {
+  return Effect.gen(function* () {
+    const pause = providers.pause;
+    if (!pause) return "running" as const;
+    const paused = yield* Effect.gen(function* () {
+      if (vm.billingPlanId === "go") yield* setRuntimeBudget(providers, vm, providerVmId, 0);
+      yield* pause(vm.provider, providerVmId);
+    }).pipe(Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS), Effect.either);
+    if (paused._tag === "Right") return "parked" as const;
+    const state = providers.getPauseState
+      ? yield* providers.getPauseState(vm.provider, providerVmId).pipe(
+        Effect.timeout(PAUSE_STATE_PROBE_TIMEOUT_MS),
+        Effect.catchAll(() => Effect.succeed(null)),
+      )
+      : null;
+    if (state === "paused" || state === "stopped") return "parked" as const;
+    if (state === "in_progress") return "in_progress" as const;
+    return "running" as const;
+  });
+}
+
+function resumeAfterLostRace(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<void, never> {
+  const resume = providers.resume;
+  if (!resume) return Effect.void;
+  return Effect.gen(function* () {
+    // The re-pause zeroed a Go machine's runtime budget; give it back first.
+    if (vm.billingPlanId === "go" && !(yield* restoreGoRuntimeBudget(providers, vm, providerVmId))) return;
+    yield* resume(vm.provider, providerVmId).pipe(
+      Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS),
+      Effect.tapError((cause) => Effect.logWarning("Could not resume a machine a re-pause raced", {
+        event: "cloud_vm.repause_race.resume_failed",
+        vmId: vm.id,
+        providerVmId,
+        cause,
+      })),
+      Effect.catchAll(() => Effect.void),
+    );
+  });
+}
+
+/** False when the Go allowance is used up, so the machine stays paused. */
+function restoreGoRuntimeBudget(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<boolean, never> {
+  return Effect.gen(function* () {
+    const usage = yield* Effect.tryPromise(() => getGoVmUsage(vm.userId)).pipe(Effect.either);
+    if (usage._tag === "Left") {
+      yield* Effect.logWarning("Could not read Go usage for a machine a re-pause raced", {
+        event: "cloud_vm.repause_race.go_usage_unreadable",
+        vmId: vm.id,
+        providerVmId,
+        cause: usage.left,
+      });
+      return true;
+    }
+    if (usage.right && usage.right.remainingSeconds <= 0) {
+      yield* Effect.logWarning("Left a raced Go machine paused: its allowance is used up", {
+        event: "cloud_vm.repause_race.go_allowance_exhausted",
+        vmId: vm.id,
+        providerVmId,
+      });
+      return false;
+    }
+    const remainingSeconds = usage.right?.remainingSeconds ?? null;
+    yield* Effect.gen(function* () {
+      yield* setRuntimeBudget(providers, vm, providerVmId, remainingSeconds);
+    }).pipe(
+      Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS),
+      Effect.tapError((cause) => Effect.logWarning("Could not restore the runtime budget of a machine a re-pause raced", {
+        event: "cloud_vm.repause_race.go_budget_failed",
+        vmId: vm.id,
+        providerVmId,
+        cause,
+      })),
+      Effect.catchAll(() => Effect.void),
+    );
+    return true;
   });
 }
 
@@ -3755,9 +4017,10 @@ function recordResumeUsageEvent(
 // Active-limit note: the control-plane-owned paused-row resume path is
 // limit-gated for billing teams by reservePausedResume before the provider
 // resume starts. Freestyle can still resume a VM outside the control plane
-// (for example from the provider console); those already-running observations
-// are reconciled durably here, and beginCreate re-counts provider-running VMs
-// before allocating another active slot.
+// (traffic to a paused machine wakes it, as does the provider console); the
+// status cron pauses those again (settleUnexpectedWakes) and records a
+// machine it cannot pause as running, and beginCreate re-counts
+// provider-running VMs before allocating another active slot.
 function preflightResumeIfSuspended(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
@@ -3868,6 +4131,7 @@ function preflightResumeIfSuspended(
         if (!recorded) {
           return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
         }
+        yield* resumeIfRepauseClaimed(repo, providers, vm, providerVmId);
       }
       return false;
     }
@@ -3890,6 +4154,35 @@ function preflightResumeIfSuspended(
     if (reserved) yield* recordResumeUsageEvent(repo, vm, resumeSource);
     return true;
   });
+}
+
+/**
+ * The status cron may be pausing this woken machine again. Its post-pause
+ * re-read gives the machine back when it sees `running`, but the write above
+ * can land after that read. While a claim is fresh, resume here too; resuming
+ * a running machine is a no-op. The row is re-read after the write so a claim
+ * taken while this open ran counts as well. The machine already ran and is
+ * recorded running, so this skips the budget check, and a failure must not
+ * pause it: `resumeUntilRunning` would, so this is a bare best-effort resume.
+ */
+function resumeIfRepauseClaimed(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<void, never> {
+  return Effect.gen(function* () {
+    const current = yield* readWokenRow(repo, vm, providerVmId);
+    const row = current._tag === "Right" && current.right ? current.right : vm;
+    if (!hasFreshRepauseClaim(row, Date.now())) return;
+    yield* resumeAfterLostRace(providers, row, providerVmId);
+  });
+}
+
+function hasFreshRepauseClaim(vm: CloudVmRow, nowMs: number): boolean {
+  const metadata = vm.providerMetadata as Record<string, unknown> | null;
+  const claimedAtMs = Number(metadata?.[UNEXPECTED_WAKE_CLAIM_METADATA_KEY]);
+  return Number.isFinite(claimedAtMs) && claimedAtMs >= nowMs - UNEXPECTED_WAKE_CLAIM_TTL_MS;
 }
 
 function withResumeOnSuspendedAfterFailure<A>(
@@ -5587,7 +5880,7 @@ function requireAccessibleUserVm(input: ExistingVmAccessInput) {
   });
 }
 
-function requireUserVm(input: ExistingVmAccessInput) {
+export function requireUserVm(input: ExistingVmAccessInput) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const vm = yield* repo.findUserVm({

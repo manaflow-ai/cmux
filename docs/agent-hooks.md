@@ -42,7 +42,7 @@ Inside tmux, these hooks report to the cmux workspace attached to the tmux sessi
 | Gemini | `gemini` | `~/.gemini/settings.json` | `gemini --resume <id>` | PreToolUse |
 | Kiro CLI | `kiro-cli` | `~/.kiro/agents/cmux.json` or `$KIRO_HOME/agents/cmux.json` | `kiro-cli chat --resume-id <id>` | preToolUse, postToolUse |
 | Rovo Dev | `acli` | `~/.rovodev/config.yml` | `acli rovodev run --restore <id>` | none |
-| Copilot | `copilot` | `~/.copilot/config.json` | `copilot --resume <id>` | PreToolUse |
+| Copilot | `copilot` | `~/.copilot/hooks/cmux.json` or `$COPILOT_HOME/hooks/cmux.json` | `copilot --resume <id>` | preToolUse |
 | CodeBuddy | `codebuddy` | `~/.codebuddy/settings.json` | `codebuddy --resume <id>` | PreToolUse |
 | Factory | `droid` | `~/.factory/settings.json` | `droid --resume <id>` | PreToolUse |
 | Qoder | `qodercli` | `~/.qoder/settings.json` | `qodercli --resume <id>` | PreToolUse |
@@ -209,7 +209,7 @@ notification bridge, rebinding, and hibernation integration for that process.
 | --- | --- | --- |
 | Codex | `CODEX_HOME` | `CMUX_CODEX_HOOKS_DISABLED=1` |
 | Grok | `GROK_HOME` | `CMUX_GROK_HOOKS_DISABLED=1` |
-| OpenCode | `OPENCODE_CONFIG_DIR` | `CMUX_OPENCODE_HOOKS_DISABLED=1` |
+| OpenCode | `OPENCODE_CONFIG_DIR`, then `XDG_CONFIG_HOME`; `OPENCODE_DB`, then `XDG_DATA_HOME`, for the sessions database. A restored session replays these, `OPENCODE_CONFIG` and `XDG_STATE_HOME` when they are absolute paths | `CMUX_OPENCODE_HOOKS_DISABLED=1` |
 | Pi | `PI_CODING_AGENT_DIR` | `CMUX_PI_HOOKS_DISABLED=1` |
 | OMP | `OMP_AGENT_DIR` for the full agent directory, then `PI_CODING_AGENT_DIR`; otherwise `PI_CONFIG_DIR` for the config root | `CMUX_OMP_HOOKS_DISABLED=1` |
 | Campfire | `CAMPFIRE_CODING_AGENT_DIR` | `CMUX_CAMPFIRE_HOOKS_DISABLED=1` |

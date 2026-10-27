@@ -71,7 +71,7 @@ pub(crate) fn pane_path() -> Option<String> {
     path_with_shim_first(&std::env::var_os("PATH").unwrap_or_default(), &dir)?.into_string().ok()
 }
 
-fn shim_directory() -> Option<PathBuf> {
+pub(crate) fn shim_directory() -> Option<PathBuf> {
     agent_hook_install::runtime_cmux_tui_data_home().map(|home| home.join("shims"))
 }
 
@@ -81,6 +81,11 @@ fn current_executable() -> anyhow::Result<PathBuf> {
 }
 
 fn prepare_hooks(args: &[OsString]) -> anyhow::Result<Option<Vec<OsString>>> {
+    // A tool command of a Codex session in the shared daemon has the
+    // daemon's inherited environment, which names some other terminal.
+    if cmux_tui_core::platform::descends_from_codex_app_server_daemon() {
+        return Ok(None);
+    }
     let Some((socket, Some(terminal))) = crate::hook_helper::session_route() else {
         return Ok(None);
     };

@@ -191,9 +191,16 @@ function launchEnvironment(cwdValue, baseEnvironment = process.env) {
 export function dispatchSessionHook(eventName, payload, spawnImpl = spawn, baseEnvironment = process.env) {
   if (baseEnvironment.CMUX_OPENCODE_HOOKS_DISABLED === "1" || !baseEnvironment.CMUX_SURFACE_ID) return false;
   const cmux = baseEnvironment.CMUX_OPENCODE_CMUX_BIN || "cmux";
+  const environment = launchEnvironment(payload.cwd, baseEnvironment);
+  // A child (sub-agent) session runs in the same OpenCode process as its parent
+  // and shares the parent's surface, so cmux's process-ancestry check cannot
+  // detect it. Tag it explicitly so cmux treats the event as a nested subagent:
+  // with `automation.suppressSubagentNotifications` on, the child's completion
+  // is dropped instead of alerting as a top-level finish.
+  if (payload.subagent === true) environment.CMUX_AGENT_MANAGED_SUBAGENT = "1";
   try {
     const child = spawnImpl(cmux, ["hooks", "enqueue", "opencode", eventName], {
-      env: launchEnvironment(payload.cwd, baseEnvironment),
+      env: environment,
       stdio: ["pipe", "ignore", "ignore"],
       detached: true,
     });
@@ -276,6 +283,9 @@ async function deliverEvent(ctx, feed, event, id, environment, turns) {
       event: event.type,
       hook_event_name: admittedHook === "stop-failure" ? "StopFailure" : admittedHook === "stop" ? "Stop" : event.type,
     };
+    // A session whose OpenCode root is a different session is a nested
+    // sub-agent; carry that so the hook dispatch is tagged as a subagent.
+    if (rootFor(ctx, id) !== id) payload.subagent = true;
     if (admittedHook === "stop-failure") {
       const error = failureMessage(event);
       if (error) payload.error = error;

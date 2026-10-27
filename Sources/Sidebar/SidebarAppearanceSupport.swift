@@ -1,6 +1,7 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxSidebar
 import Foundation
 import SwiftUI
 import CmuxSettings
@@ -196,6 +197,62 @@ func cmuxReadableForegroundNSColor(
         return preferredColor
     }
     return cmuxReadableForegroundNSColor(on: backgroundColor, opacity: preferredColor.alphaComponent)
+}
+
+/// Contrast an explicit status or log color needs against the selected row
+/// fill to keep its own hue: the WCAG 3:1 floor for color that carries
+/// meaning, so a status color the user chose survives selection.
+let sidebarStatusMinimumContrast: CGFloat = 3
+
+/// Keeps explicit status colors when readable on selection, otherwise uses
+/// the caller's selected-foreground fallback.
+func sidebarStatusPresentationNSColor(
+    explicit: NSColor?,
+    isActive: Bool,
+    selectedBackground: NSColor,
+    fallback: @autoclosure () -> NSColor
+) -> NSColor {
+    guard let explicit else { return fallback() }
+    guard isActive else { return explicit }
+
+    let foregroundForComparison = explicit.alphaComponent < 1
+        ? cmuxCompositedNSColor(explicit, over: selectedBackground)
+        : explicit
+    return cmuxContrastRatio(foreground: foregroundForComparison, background: selectedBackground)
+        >= sidebarStatusMinimumContrast
+        ? explicit
+        : fallback()
+}
+
+func sidebarLogPresentationNSColor(
+    level: SidebarLogLevel,
+    isActive: Bool,
+    colorScheme: ColorScheme,
+    accent: CmuxAccentColor,
+    selectedBackground: NSColor,
+    fallback: @autoclosure () -> NSColor
+) -> NSColor {
+    let resolver = SidebarAppearanceColorResolver()
+    let explicit: NSColor?
+    switch level {
+    case .info:
+        explicit = nil
+    case .progress:
+        explicit = accent.nsColor(for: colorScheme)
+    case .success:
+        explicit = resolver.resolvedColor(.systemGreen, for: colorScheme)
+    case .warning:
+        explicit = resolver.resolvedColor(.systemOrange, for: colorScheme)
+    case .error:
+        explicit = resolver.resolvedColor(.systemRed, for: colorScheme)
+    }
+
+    return sidebarStatusPresentationNSColor(
+        explicit: explicit,
+        isActive: isActive,
+        selectedBackground: selectedBackground,
+        fallback: fallback()
+    )
 }
 
 func cmuxCompositedNSColor(_ foreground: NSColor, over background: NSColor) -> NSColor {
@@ -455,6 +512,7 @@ func sidebarWorkspaceRowBackgroundStyle(
     sidebarSelectionColorHex: String?,
     subtleSelection: Bool = false,
     brightenInDarkMode: Bool = true,
+    unselectedFillOpacity: Double = 0.7,
     isEmphasized: Bool = true,
     increaseContrast: Bool = false,
     accent: CmuxAccentColor = CmuxAccentColor()
@@ -518,9 +576,11 @@ func sidebarWorkspaceRowBackgroundStyle(
             )
         }
         if let customBackground {
+            // `workspaceColors.unselectedFillOpacity`; multi-selected rows use half.
+            let fillOpacity = unselectedFillOpacity.isFinite ? min(max(unselectedFillOpacity, 0), 1) : 0.7
             return SidebarWorkspaceRowBackgroundStyle(
                 color: customBackground,
-                opacity: isMultiSelected ? 0.35 : 0.7
+                opacity: isMultiSelected ? fillOpacity / 2 : fillOpacity
             )
         }
         if isMultiSelected {

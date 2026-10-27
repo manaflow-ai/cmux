@@ -70,14 +70,30 @@ class ReleasePerArchStableTest(unittest.TestCase):
         self.assertIn("--start", start)
 
     def test_thin_dmgs_are_notarized_and_stapled_with_stable_entitlements(self):
-        body = steps().get("Notarize thin stable DMGs", "")
-        self.assertIn("CMUX_CHANNEL: stable", body)
-        self.assertIn("./scripts/ci/notarize-nightly-dmg.sh", body)
-        self.assertIn('"variants/$arch/cmux.app"', body)
-        self.assertIn('"cmux-macos-$arch.dmg"', body)
-        self.assertIn('cmux-computer-use-notarization-$arch.state', body)
-        self.assertLess(order("Notarize app"), order("Notarize thin stable DMGs"))
-        self.assertLess(order("Notarize thin stable DMGs"), order("Generate Sparkle appcast"))
+        # One step per variant: notarize-nightly-dmg.sh deletes the signing
+        # keychain after its DMG signature, so each variant imports it first.
+        for arch in ARCHS:
+            body = steps().get(f"Notarize thin {arch} stable DMG", "")
+            self.assertIn("CMUX_CHANNEL: stable", body)
+            self.assertIn(f"arch: {arch}", body)
+            self.assertIn("./scripts/ci/notarize-nightly-dmg.sh", body)
+            self.assertIn('"variants/$arch/cmux.app"', body)
+            self.assertIn('"cmux-macos-$arch.dmg"', body)
+            self.assertIn('cmux-computer-use-notarization-$arch.state', body)
+            imported = steps().get(f"Import signing cert for the {arch} DMG", "")
+            self.assertIn("./scripts/ci/signing-keychain.sh create", imported)
+            self.assertLess(order("Notarize app"), order(f"Import signing cert for the {arch} DMG"))
+            self.assertLess(order(f"Import signing cert for the {arch} DMG"), order(f"Notarize thin {arch} stable DMG"))
+            self.assertLess(order(f"Notarize thin {arch} stable DMG"), order("Generate Sparkle appcast"))
+            # The DMG around the stapled app: submitted without a wait, finished together.
+            self.assertIn(f'CMUX_STAPLED_DMG_HANDOFF_FILE="$RUNNER_TEMP/stapled-app-$arch.handoff"', body)
+            self.assertLess(order(f"Notarize thin {arch} stable DMG"), order("Finish the stapled-app thin DMGs"))
+        finish = steps()["Finish the stapled-app thin DMGs"]
+        self.assertIn("./scripts/ci/finish-stapled-app-dmgs.sh", finish)
+        for arch in ARCHS:
+            self.assertIn(f'"$RUNNER_TEMP/stapled-app-{arch}.handoff"', finish)
+        self.assertIn("CMUX_STAPLED_DMG_WAIT_TIMEOUT: 25m", finish)
+        self.assertLess(order("Finish the stapled-app thin DMGs"), order("Gate distribution with syspolicy_check"))
 
     def test_appcasts_are_generated_per_dmg_and_composed(self):
         body = steps()["Generate Sparkle appcast"]
@@ -136,7 +152,8 @@ class ReleasePerArchStableTest(unittest.TestCase):
         self.assertIn("sort -V", decide)
         self.assertIn("make_latest=", decide)
         publish = steps()["Publish verified release"]
-        self.assertIn("make_latest: ${{ steps.latest_release.outputs.make_latest }}", publish)
+        self.assertIn("MAKE_LATEST: ${{ steps.latest_release.outputs.make_latest }}", publish)
+        self.assertIn('--make-latest "$MAKE_LATEST"', publish)
         self.assertLess(order("Decide whether this release is latest"), order("Publish verified release"))
 
     def test_local_release_publishes_per_arch_feeds(self):

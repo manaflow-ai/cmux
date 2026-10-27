@@ -837,6 +837,9 @@
         "unavailable": {
           "cancelScheduled": "Resume your plan to change it.",
           "granted": "Granted by cmux. There is nothing to change.",
+          "grantedNoCancel": "Granted by cmux, so there is nothing to cancel.",
+          "paymentFailed": "Update your payment method before changing plans.",
+          "foundersLifetime": "Founder's Edition includes Pro for life.",
           "adminOnly": "Only team admins can change the plan."
         },
         "names": {
@@ -879,6 +882,7 @@
       "change": {
         "title": "Switch to {plan}?",
         "upgradeBody": "{plan} starts now. You pay {amount} today for the rest of this billing period. From {date}, you pay {price} per month.",
+        "upgradeBodyYearly": "{plan} starts now. You pay {amount} today for the rest of this billing period. From {date}, you pay {price} per year.",
         "downgradeBody": "{plan} starts now. The unused part of your current plan, {credit}, is credited to your next invoices. Your next invoice, on {date}, is {amount}.",
         "confirm": "Switch to {plan}",
         "keep": "Keep current plan",
@@ -891,6 +895,8 @@
         "title": "Cancel {plan}?",
         "body": "You keep {plan} until {date}. After that, you lose:",
         "bodyNoDate": "You keep {plan} until the end of this billing period. After that, you lose:",
+        "foundersBody": "Your {plan} subscription ends on {date}. After that, you have Pro, which Founder's Edition includes for life.",
+        "foundersBodyNoDate": "Your {plan} subscription ends at the end of this billing period. After that, you have Pro, which Founder's Edition includes for life.",
         "reasonLabel": "Why are you canceling? (optional)",
         "otherPlaceholder": "Tell us more (optional)",
         "confirm": "Cancel plan",
@@ -3423,6 +3429,7 @@
           "tabBarVisibility": "Decide when a pane draws its tab bar. \"always\" draws it even for a pane holding one tab; \"multiple-tabs\" hides it while a pane holds one tab and draws it once a second tab opens. Minimal mode (app.minimalMode) always draws it, because there the top pane's tab bar doubles as the window titlebar.",
           "forkConversationDefaultDestination": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination.",
           "globalFontMagnification": "Percentage zoom for everything cmux draws itself: terminal text, tab titles, sidebars, Settings, overlays, and window chrome. Web pages inside browser surfaces keep their own size.",
+          "equalizeSplitsOnDividerDoubleClick": "When true, double-clicking a split divider makes the panes in its row or column equal in size. Other rows and columns keep their sizes.",
           "paneResizeStepPixels": "Pixels moved per keypress when using pane-resize shortcuts. Accepts 1–200; defaults to 20. Changes apply immediately."
         },
         "terminal": {
@@ -3516,12 +3523,20 @@
           "soundOverrides": "Sparse per-agent and per-alert-type notification sound overrides. Missing cells use notifications.sound.",
           "soundOverride": "A notification sound override. `default` uses notifications.sound, `none` disables playback, and the remaining values select a built-in or custom sound."
         },
+        "actions": "Reusable actions for the Command Palette, shortcuts, tab-bar buttons, and plus-button menu. Supports builtin, command, agent, workspaceCommand, workspace, setting, settingPreset, and text. Text actions paste into the focused terminal and preserve newlines; submit: true presses Enter. Setting actions require global configuration.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
               "enabled": "With a remote tmux workspace selected, New Workspace starts a tmux session on that workspace’s host."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, the Home agent: whether it is shown and which harness, model, and effort it uses.",
+          "enabled": "Show the Home row and Chief entry points. When false, the Home row, the Open Chief shortcut, menu item, and command palette entries are hidden.",
+          "harness": "Agent harness Chief runs on: claude (Claude Code) or codex (Codex).",
+          "model": "Model passed to the harness. Leave empty to use the harness default.",
+          "effort": "Reasoning effort passed to the harness, such as low, medium, or high. Leave empty to use the harness default."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -4963,6 +4978,7 @@
     "unsupportedParams": "This link includes unsupported parameters cmux will reject: {params}",
     "conflictingParams": "This link includes parameters that cannot be used together: {params}",
     "invalidParams": "This link includes invalid parameter values: {params}",
+    "ignoredParams": "cmux ignores parameters it does not use: {params}. The session still opens.",
     "fixParams": "Fix the URL parameters, then reload this page.",
     "examplePrefix": "See an",
     "exampleLink": "example link",
@@ -4986,6 +5002,17 @@
       "title": "Open Rules in cmux",
       "intro": "This page opens rules in the current cmux workspace.",
       "fallback": "cmux shows the rules first and asks before pasting them into the current workspace. If cmux does not open, install cmux and click Open in cmux again."
+    },
+    "agent": {
+      "metaTitle": "Open agent session in cmux",
+      "metaDescription": "Open a cmux agent session deeplink from the web, with install fallback when cmux is not available.",
+      "title": "Open agent session",
+      "intro": "This link opens the agent's session in cmux if this Mac can already reach it. The link itself grants no access.",
+      "fallback": "If cmux does not open, install cmux and click Open in cmux again. cmux opens the session only if this Mac can already reach it.",
+      "nameLabel": "Name: {value}",
+      "hostLabel": "Host: {value}",
+      "harnessLabel": "Harness: {value}",
+      "reference": "This link names an agent session by a private reference, not by its machine or session. It does not open from this page; team members look the reference up with their own tools."
     }
   },
   "download": {
@@ -7381,6 +7408,8 @@
     "errorInvalidCode": "That code isn't valid. Check your email and try again.",
     "errorInvalidTotp": "That two-factor code isn't valid.",
     "errorSignUpNotAllowed": "New accounts can't be created right now.",
+    "errorEmailUnverified": "This email already has an account, but the address isn't verified yet. Sign in the way you signed up, then verify your email to use sign-in codes.",
+    "useEmailPasswordInstead": "Sign in with email & password",
     "errorPasskey": "Passkey sign-in didn't finish. Try again or use another method.",
     "errorGeneric": "Something went wrong. Try again."
   },

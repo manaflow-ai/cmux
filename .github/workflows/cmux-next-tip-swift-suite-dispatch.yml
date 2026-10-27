@@ -1,0 +1,67 @@
+name: cmux NEXT tip Swift suite dispatcher
+
+# A feat-cmux-next push skips the CmuxNext Swift suite (push CI is the app
+# build only), so a Swift suite red on the base stayed invisible: the
+# CmuxNextAppTests run had ended mid-way with status 0 for over a day
+# (2026-10-21). Every four hours this asks cmux-next.yml for one
+# tip_swift_suite run on the feat-cmux-next tip (only the Swift tier, every
+# target), unless that tip already has one running or finished with a
+# verdict. Its swift-test result is a base run for scripts/ci/base_red_excuse.py
+# and the base-red signal. Scheduled workflows run only from the default
+# branch, hence this file on main.
+on:
+  schedule:
+    - cron: "41 */4 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-tip-swift-suite-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      actions: write
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch the feat-cmux-next tip's Swift suite when it has none
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const source = 'feat-cmux-next';
+            const workflow = 'cmux-next.yml';
+            const { data: ref } = await github.rest.git.getRef({ owner, repo, ref: `heads/${source}` });
+            const sha = ref.object.sha;
+            const { data } = await github.rest.actions.listWorkflowRuns({
+              owner,
+              repo,
+              workflow_id: workflow,
+              event: 'workflow_dispatch',
+              branch: source,
+              per_page: 100,
+            });
+            // cmux-next.yml names the run after the commit it checked out.
+            const title = `cmux-next tip Swift suite · ${sha}`;
+            const covers = (run) => run.head_sha === sha &&
+              (run.name === title || run.display_title === title) &&
+              (['queued', 'requested', 'waiting', 'pending', 'in_progress'].includes(run.status) ||
+               (run.status === 'completed' && ['success', 'failure'].includes(run.conclusion)));
+            if (data.workflow_runs.some(covers)) {
+              core.notice(`The Swift suite already ran or runs on feat-cmux-next ${sha}`);
+              return;
+            }
+            await github.rest.actions.createWorkflowDispatch({
+              owner,
+              repo,
+              workflow_id: workflow,
+              // Fully qualified: a tag named feat-cmux-next must never be picked.
+              ref: `refs/heads/${source}`,
+              inputs: { tip_swift_suite: 'true' },
+            });
+            core.notice(`Requested the Swift suite on feat-cmux-next ${sha}`);

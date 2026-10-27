@@ -524,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Gjenoppta planen for å endre den.",
           "granted": "Tildelt av cmux. Det er ingenting å endre.",
+          "grantedNoCancel": "Tildelt av cmux, så det er ingenting å si opp.",
+          "paymentFailed": "Oppdater betalingsmåten før du bytter abonnement.",
+          "foundersLifetime": "Founder's Edition inkluderer Pro for livet.",
           "adminOnly": "Bare teamadministratorer kan endre planen."
         },
         "names": {
@@ -566,6 +569,7 @@
       "change": {
         "title": "Bytte til {plan}?",
         "upgradeBody": "{plan} starter nå. Du betaler {amount} i dag for resten av denne faktureringsperioden. Fra {date} betaler du {price} per måned.",
+        "upgradeBodyYearly": "{plan} starter nå. Du betaler {amount} i dag for resten av denne faktureringsperioden. Fra {date} betaler du {price} per år.",
         "downgradeBody": "{plan} starter nå. Den ubrukte delen av nåværende plan, {credit}, krediteres de neste fakturaene. Neste faktura, {date}, er på {amount}.",
         "confirm": "Bytt til {plan}",
         "keep": "Behold nåværende plan",
@@ -578,6 +582,8 @@
         "title": "Avslutte {plan}?",
         "body": "Du beholder {plan} til {date}. Etter det mister du:",
         "bodyNoDate": "Du beholder {plan} til slutten av denne faktureringsperioden. Etter det mister du:",
+        "foundersBody": "{plan}-abonnementet ditt avsluttes {date}. Etter det har du Pro, som Founder's Edition inkluderer for livet.",
+        "foundersBodyNoDate": "{plan}-abonnementet ditt avsluttes ved slutten av denne faktureringsperioden. Etter det har du Pro, som Founder's Edition inkluderer for livet.",
         "reasonLabel": "Hvorfor avslutter du? (valgfritt)",
         "otherPlaceholder": "Fortell oss mer (valgfritt)",
         "confirm": "Avslutt plan",
@@ -2175,6 +2181,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "Når dette er aktivert, gjør et dobbeltklikk på en skillelinje panelene i raden eller kolonnen like store. Andre rader og kolonner beholder størrelsene sine.",
           "confirmQuit": "Styrer når cmux ber om bekreftelse før avslutning. DEV-bygg avslutter alltid umiddelbart uansett denne innstillingen. Den eldre app.warnBeforeQuit godtas fortsatt som boolsk fallback.",
           "windowTitleTemplate": "Valgfri mal for NSWindow-tittelen. Tom verdi bevarer cmux sin eksisterende standardtittelatferd, inkludert fallback til gjeldende katalog. Støttede plassholdere: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Skjermnavn som bare brukes i DEBUG-bygg når nye vinduer åpnes. En tom verdi bruker systemstandarden.",
@@ -2252,12 +2259,20 @@
           "currentLineHighlight": "Farg raden der markøren står når ingenting er markert.",
           "tabWidth": "Hvor mange kolonner ett tabulatorstopp dekker. Innrykkslinjene bruker samme avstand."
         },
+        "actions": "Gjenbrukbare handlinger for kommandopaletten, snarveier, knapper på fanelinjen og menyen til plussknappen. Støtter builtin, command, agent, workspaceCommand, workspace, setting, settingPreset og text. Teksthandlinger limer inn i terminalen med fokus og bevarer linjeskift; submit: true trykker Enter. Innstillingshandlinger krever global konfigurasjon.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
               "enabled": "Når et eksternt tmux-arbeidsområde er valgt, starter «Nytt arbeidsområde» en tmux-økt på arbeidsområdets vert."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, Hjem-agenten: om den vises, og hvilken harness, modell og innsats den bruker.",
+          "enabled": "Vis Hjem-raden og Chief-innganger. Når false, skjules Hjem-raden, snarveien Åpne Chief, menyelementet og kommandopalettens oppføringer.",
+          "harness": "Agent-harness som Chief kjører på: claude (Claude Code) eller codex (Codex).",
+          "model": "Modell som sendes til harnessen. La stå tom for å bruke harnessens standard.",
+          "effort": "Resonneringsinnsats som sendes til harnessen, for eksempel low, medium eller high. La stå tom for å bruke harnessens standard."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3434,6 +3449,7 @@
     "unsupportedParams": "Denne koblingen inneholder parametere som ikke støttes cmux vil avvise: {params}",
     "conflictingParams": "Denne koblingen inneholder parametere som ikke kan brukes sammen: {params}",
     "invalidParams": "Denne koblingen inneholder ugyldige parameterverdier: {params}",
+    "ignoredParams": "cmux ignorerer parametere den ikke bruker: {params}. Økten åpnes likevel.",
     "fixParams": "Fiks URL-parametrene, og last deretter inn denne siden på nytt.",
     "examplePrefix": "Se en",
     "exampleLink": "eksempel lenke",
@@ -3457,6 +3473,16 @@
       "title": "Åpne regler i cmux",
       "intro": "Denne siden åpner regler i det gjeldende cmux-arbeidsområdet.",
       "fallback": "cmux viser reglene først og spør før de limes inn i gjeldende arbeidsområde. Hvis cmux ikke åpnes, installer cmux og klikk Åpne i cmux igjen."
+    },
+    "agent": {
+      "metaTitle": "Åpne agentøkt i cmux",
+      "metaDescription": "Åpne en cmux-dyplenke til en agentøkt fra nettet, med installasjonsalternativ når cmux ikke er tilgjengelig.",
+      "title": "Åpne agentøkt",
+      "intro": "Denne lenken åpner agentens økt i cmux hvis denne Macen allerede kan nå den. Lenken i seg selv gir ingen tilgang.",
+      "fallback": "Hvis cmux ikke åpnes, installer cmux og klikk på Åpne i cmux igjen. cmux åpner bare økten hvis denne Macen allerede kan nå den.",
+      "nameLabel": "Navn: {value}",
+      "hostLabel": "Vert: {value}",
+      "harnessLabel": "Harness: {value}"
     }
   },
   "download": {
@@ -5495,6 +5521,8 @@
     "errorInvalidCode": "Koden er ikke gyldig. Sjekk e-posten og prøv igjen.",
     "errorInvalidTotp": "Tofaktorkoden er ikke gyldig.",
     "errorSignUpNotAllowed": "Nye kontoer kan ikke opprettes akkurat nå.",
+    "errorEmailUnverified": "Denne e-postadressen har allerede en konto, men adressen er ikke bekreftet ennå. Logg inn slik du registrerte deg, og bekreft deretter e-postadressen din for å bruke innloggingskoder.",
+    "useEmailPasswordInstead": "Logg inn med e-post og passord",
     "errorPasskey": "Innlogging med passnøkkel ble ikke fullført. Prøv igjen eller bruk en annen metode.",
     "errorGeneric": "Noe gikk galt. Prøv igjen."
   },

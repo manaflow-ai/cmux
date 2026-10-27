@@ -5927,6 +5927,10 @@ impl Mux {
 
     fn publish_resource_event(&self) {
         self.publish_journal_event();
+        // A terminal's first cwd report can precede its registration, and its
+        // shell may then stay quiet. Each committed graph change is where such
+        // a terminal can join the graph, so publish whatever report waited.
+        self.publish_pending_terminal_directories();
     }
 
     fn publish_journal_event(&self) {

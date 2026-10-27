@@ -1,0 +1,242 @@
+import AppKit
+import CmuxNotifications
+import CmuxSidebar
+import CmuxWorkspaces
+@_spi(CmuxHostTransport) import CmuxExtensionKit
+import SwiftUI
+import Testing
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@Suite struct SidebarWorkspaceSnapshotTests {
+    @Test @MainActor
+    func extensionSnapshotCacheDoesNotInflateSequenceForIdenticalProviderContent() throws {
+        let workspaceID = UUID()
+        let initial = CmuxSidebarSnapshot(
+            sequence: 10,
+            selectedWorkspaceID: workspaceID,
+            workspaces: [CmuxSidebarWorkspace(id: workspaceID, title: "Pi")]
+        )
+        let cache = CMUXSidebarSnapshotCache()
+        _ = cache.replace(with: initial)
+        let unread = SidebarUnreadSnapshot(
+            totalUnreadCount: 1,
+            summaryByWorkspaceId: [
+                workspaceID: SidebarWorkspaceUnreadSummary(
+                    unreadCount: 1,
+                    latestNotificationText: "Done"
+                ),
+            ]
+        )
+        let patched = try #require(cache.applyUnread(unread))
+        let matchingProvider = CmuxSidebarSnapshot(
+            sequence: 10,
+            selectedWorkspaceID: workspaceID,
+            workspaces: [
+                CmuxSidebarWorkspace(
+                    id: workspaceID,
+                    title: "Pi",
+                    unreadCount: 1,
+                    latestNotification: "Done"
+                ),
+            ]
+        )
+
+        let firstPoll = cache.replace(with: matchingProvider)
+        let secondPoll = cache.replace(with: matchingProvider)
+
+        #expect(firstPoll.sequence == patched.sequence)
+        #expect(secondPoll.sequence == patched.sequence)
+
+        let changedProvider = CmuxSidebarSnapshot(
+            sequence: 10,
+            selectedWorkspaceID: workspaceID,
+            workspaces: [
+                CmuxSidebarWorkspace(
+                    id: workspaceID,
+                    title: "Pi renamed",
+                    unreadCount: 1,
+                    latestNotification: "Done"
+                ),
+            ]
+        )
+        let changedPoll = cache.replace(with: changedProvider)
+        #expect(changedPoll.sequence == patched.sequence + 1)
+        #expect(changedPoll.workspaces.first?.title == "Pi renamed")
+    }
+
+    static func snapshot(
+        presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey? = nil,
+        title: String = "workspace"
+    ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
+        SidebarWorkspaceSnapshotBuilder.Snapshot(
+            presentationKey: presentationKey ?? Self.presentationKey(),
+            title: title,
+            customDescription: nil,
+            isPinned: false,
+            isMuted: false,
+            customColorHex: nil,
+            hasManualCustomColor: false,
+            cloudWorkspaceLabel: nil,
+            remoteWorkspaceSidebarText: nil,
+            remoteConnectionStatusText: "Disconnected",
+            remoteStateHelpText: "",
+            showsRemoteReconnectAffordance: false,
+            copyableSidebarSSHError: nil,
+            latestConversationMessage: nil,
+            metadataEntries: [],
+            metadataBlocks: [],
+            latestLog: nil,
+            progress: nil,
+            activeCodingAgentCount: 0,
+            compactGitBranchSummaryText: nil,
+            compactDirectoryCandidates: [],
+            compactBranchDirectoryCandidates: [],
+            branchDirectoryLines: [],
+            branchLinesContainBranch: false,
+            pullRequestRows: [],
+            listeningPorts: [],
+            finderDirectoryPath: nil,
+            mediaActivity: BrowserMediaActivity(),
+            taskStatus: nil,
+            todoStatusMenuModel: nil,
+            hasManualTaskStatus: false,
+            checklistItems: [],
+            checklistCompletedCount: 0,
+            checklistTotalCount: 0,
+            checklistFirstUncheckedText: nil,
+            compactStatusGlyph: nil
+        )
+    }
+
+    static func presentationKey(
+        showsWorkspaceDescription: Bool = true,
+        usesVerticalBranchLayout: Bool = true,
+        showsGitBranch: Bool = true,
+        usesViewportAwarePath: Bool = false,
+        showsAgentActivity: Bool = true,
+        visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility = SidebarWorkspaceAuxiliaryDetailVisibility(
+            showsMetadata: true,
+            showsLog: true,
+            showsProgress: true,
+            showsBranchDirectory: true,
+            showsPullRequests: true,
+            showsPorts: true
+        ),
+        customColorHex: String? = nil
+    ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
+        SidebarWorkspaceSnapshotBuilder.PresentationKey(
+            showsWorkspaceDescription: showsWorkspaceDescription,
+            usesVerticalBranchLayout: usesVerticalBranchLayout,
+            showsGitBranch: showsGitBranch,
+            usesViewportAwarePath: usesViewportAwarePath,
+            showsAgentActivity: showsAgentActivity,
+            visibleAuxiliaryDetails: visibleAuxiliaryDetails,
+            customColorHex: customColorHex
+        )
+    }
+
+    /// The effective row color is part of the presentation key so the cached
+    /// sidebar snapshot is rebuilt when the color changes — e.g. toggling the
+    /// origin-colors flag or a mirror host resolving after the row first appears.
+    /// Without this, the row re-evaluates but renders the stale cached color.
+    @Test func presentationKeyDistinguishesEffectiveColor() {
+        let uncolored = Self.presentationKey(customColorHex: nil)
+        let tinted = Self.presentationKey(customColorHex: "#1565C0")
+        #expect(uncolored != tinted)
+        #expect(tinted == Self.presentationKey(customColorHex: "#1565C0"))
+        #expect(Self.presentationKey(customColorHex: "#922B21") != tinted)
+    }
+}
+
+@Suite struct SidebarSelectedWorkspaceScrollPolicyTests {
+    @Test func skipsScrollWhenSelectedWorkspaceIdIsNil() {
+        #expect(!SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+            selectedWorkspaceId: nil as String?,
+            oldWorkspaceIds: ["a"],
+            newWorkspaceIds: ["a"]
+        ))
+    }
+
+    @Test func requestsScrollWhenSelectedWorkspaceFirstAppears() {
+        #expect(SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+            selectedWorkspaceId: "b",
+            oldWorkspaceIds: ["a"],
+            newWorkspaceIds: ["a", "b"]
+        ))
+    }
+
+    @Test func requestsScrollWhenSelectedWorkspaceMovesToTop() {
+        #expect(SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+            selectedWorkspaceId: "c",
+            oldWorkspaceIds: ["a", "b", "c"],
+            newWorkspaceIds: ["c", "a", "b"]
+        ))
+    }
+
+    @Test func requestsScrollWhenAnotherReorderShiftsSelectedWorkspaceIndex() {
+        #expect(SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+            selectedWorkspaceId: "b",
+            oldWorkspaceIds: ["a", "b", "c"],
+            newWorkspaceIds: ["c", "a", "b"]
+        ))
+    }
+
+    @Test func skipsScrollWhenWorkspaceBeforeSelectedWorkspaceCloses() {
+        #expect(!SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(selectedWorkspaceId: "d", oldWorkspaceIds: ["a", "b", "c", "d"], newWorkspaceIds: ["a", "c", "d"]))
+    }
+    @Test func skipsScrollWhenReorderLeavesSelectedWorkspaceIndexUnchanged() {
+        #expect(!SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+            selectedWorkspaceId: "a",
+            oldWorkspaceIds: ["a", "b", "c"],
+            newWorkspaceIds: ["a", "c", "b"]
+        ))
+    }
+
+    @Test func skipsScrollWhenSelectedWorkspaceIsMissing() {
+        #expect(!SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+            selectedWorkspaceId: "b",
+            oldWorkspaceIds: ["a", "b"],
+            newWorkspaceIds: ["a", "c"]
+        ))
+    }
+
+    @Test func scrollTargetIsSelfWithoutGroup() {
+        let workspaceId = UUID()
+        #expect(SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
+            selectedWorkspaceId: workspaceId,
+            group: nil
+        ) == workspaceId)
+    }
+
+    @Test func scrollTargetIsSelfInExpandedGroup() {
+        let workspaceId = UUID()
+        #expect(SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
+            selectedWorkspaceId: workspaceId,
+            group: makeGroup(isCollapsed: false, anchorWorkspaceId: UUID())
+        ) == workspaceId)
+    }
+
+    @Test func scrollTargetIsGroupAnchorWhenGroupIsCollapsed() {
+        let anchorId = UUID()
+        #expect(SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
+            selectedWorkspaceId: UUID(),
+            group: makeGroup(isCollapsed: true, anchorWorkspaceId: anchorId)
+        ) == anchorId)
+    }
+
+    private func makeGroup(isCollapsed: Bool, anchorWorkspaceId: UUID) -> WorkspaceGroup {
+        WorkspaceGroup(
+            id: UUID(),
+            name: "group",
+            isCollapsed: isCollapsed,
+            isPinned: false,
+            anchorWorkspaceId: anchorWorkspaceId,
+            customColor: nil,
+            iconSymbol: nil
+        )
+    }
+}

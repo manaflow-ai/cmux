@@ -660,6 +660,64 @@ struct CloudWorkspaceLiveProjectionTests {
         #expect(closed.isEmpty && fixture.coordinator.failures.isEmpty)
     }
 
+    @Test("A Cloud browser drop preserves its source and exact destination tab when the pane registers early")
+    func browserDropKeepsSourceAndRemotePlacement() async throws {
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let sourceWorkspace = live.add()
+        let destinationWorkspace = live.add()
+        let catalog = SurfaceCatalog(live: live)
+        let provider = CloudPlacementTestProvider(machine: machine)
+        catalog.register(provider)
+
+        let remoteWorkspace = SurfaceRemoteWorkspace(id: "remote", name: "Cloud", index: 0, focused: true)
+        let remoteView = SurfaceRemoteView(
+            tabID: "tab-browser", workspace: remoteWorkspace, screenID: "screen", paneID: "pane",
+            index: 0, focused: true
+        )
+        let browser = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .browser, key: "browser-shared"),
+            title: "Docs", detail: "https://example.com/docs", lifecycle: .running, agent: nil,
+            remoteWorkspace: remoteWorkspace, remoteViews: [remoteView], port: nil,
+            url: "https://example.com/docs"
+        )
+        catalog.replaceResources([browser], on: machine, info: provider.info, from: provider)
+        let source = SurfaceProjection(
+            resource: browser.id, workspaceID: sourceWorkspace.id, panelID: UUID(),
+            remoteWorkspaceID: remoteWorkspace.id, remoteTabID: remoteView.tabID
+        )
+        catalog.record(source)
+
+        // `configureBrowser` records the remote resource before the provider returns its
+        // selected view. The catalog must merge that early record with the provider result.
+        let document = SurfaceCatalog.CloudBrowserDocument(
+            url: URL(string: "https://example.com/navigated")!, title: "Navigated",
+            remoteTabID: remoteView.tabID, revision: 1
+        )
+        provider.registerDuringMaterialization = { projection in
+            catalog.record(SurfaceProjection(
+                resource: browser.id, workspaceID: destinationWorkspace.id, panelID: projection.panelID
+            ))
+            catalog.cloudBrowserDocuments[browser.id, default: [:]][projection.panelID] = document
+        }
+        let opened = try await catalog.project(
+            browser.id,
+            into: .workspace(id: destinationWorkspace.id, placement: .split),
+            focus: false,
+            reuseExisting: false,
+            remoteView: remoteView
+        )
+
+        #expect(!opened.reused)
+        #expect(catalog.projection(forPanel: source.panelID) == source)
+        let destination = try #require(catalog.projection(forPanel: opened.projection.panelID))
+        #expect(destination.workspaceID == destinationWorkspace.id)
+        #expect(destination.remoteWorkspaceID == remoteWorkspace.id)
+        #expect(destination.remoteTabID == remoteView.tabID)
+        #expect(catalog.projections(of: browser.id).count == 2)
+        #expect(catalog.cloudBrowserDocuments[browser.id]?[destination.panelID]?.url == document.url)
+    }
+
     @Test("A restored Desktop or port record without provenance joins its bound workspace", arguments: [false, true])
     func restoredLocalPreviewJoinsBoundWorkspace(isPort: Bool) async throws {
         let fixture = boundWorkspaceFixture()

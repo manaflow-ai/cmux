@@ -142,7 +142,11 @@ public struct AgentRestorePlanner: Sendable {
             kind: kind,
             routedThroughSubrouter: routedClaudeResume != nil
         )
-        if hasProvenRoutedCodexLaunch(request, kind: kind) {
+        // The launch record alone decides whether Codex resumes through
+        // Subrouter. Routing values inherited by the restoring shell would
+        // otherwise steer a direct record's wrapper to another executable or
+        // mark the resumed process as routed for the next capture.
+        if kind == "codex", request.mode != .direct {
             for key in SubrouterCodexResumeRouting.restoreOwnedEnvironmentKeys {
                 environment.removeValue(forKey: key)
             }
@@ -510,16 +514,6 @@ public struct AgentRestorePlanner: Sendable {
         return selected
     }
 
-    private func hasProvenRoutedCodexLaunch(_ request: AgentRestoreRequest, kind: String) -> Bool {
-        guard kind == "codex", request.mode != .direct else { return false }
-        return SubrouterCodexResumeRouting().resumeArguments(
-            launcher: request.launchCommand?.launcher,
-            sessionID: "restore-environment-validation",
-            launchArguments: request.launchCommand?.arguments ?? [],
-            environment: request.launchCommand?.environment
-        ) != nil
-    }
-
     private func retargetPreparedWorkingDirectory(
         in arguments: [String],
         request: AgentRestoreRequest,
@@ -602,7 +596,8 @@ public struct AgentRestorePlanner: Sendable {
         }
 
         guard let first = arguments.first,
-              (first as NSString).lastPathComponent == restoreLaunch.executableName else {
+              (first as NSString).lastPathComponent == restoreLaunch.executableName
+                || ManagedAgentWrapperDescriptor.registered(kind: kind)?.matchesExecutable(first) == true else {
             return arguments
         }
 

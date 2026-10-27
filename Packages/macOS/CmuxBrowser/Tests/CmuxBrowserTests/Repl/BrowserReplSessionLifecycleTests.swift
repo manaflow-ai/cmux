@@ -35,7 +35,7 @@ struct BrowserReplSessionLifecycleTests {
     ) -> BrowserReplSession {
         BrowserReplSession(
             id: "lifecycle-\(UUID().uuidString)",
-            cwd: FileManager.default.temporaryDirectory.path,
+            cwd: browserReplTestWorkingDirectory,
             bundle: bundle ?? BrowserReplRuntimeBundle(
                 replScripts: [.init(name: "lifecycle.js", source: lifecycleRuntime)],
                 agentScripts: []
@@ -144,14 +144,14 @@ struct BrowserReplSessionLifecycleTests {
         defer { session.close() }
         let hung = await browserReplWithDeadline(seconds: 30) {
             await session.evaluate(
-                code: "function hello() { console.log('hello'); } globalThis.lateDone = new Promise((done) => setTimeout(() => { console.log('late from cell 1'); done(); }, 400)); await new Promise(() => {})",
+                code: "function hello() { console.log('hello'); } setTimeout(() => console.log('late from cell 1'), 400); await new Promise(() => {})",
                 timeout: .milliseconds(200)
             )
         }
         #expect(hung?.error?.contains("timed out") == true)
         let next = await browserReplWithDeadline(seconds: 30) {
-            // Cell 2 runs until cell 1's timer has printed.
-            await session.evaluate(code: "hello(); await lateDone; console.log('cell 2')", timeout: .seconds(10))
+            // Cell 2 outlasts cell 1's timer, whose output (if it ran) is dropped.
+            await session.evaluate(code: "hello(); await new Promise((r) => setTimeout(r, 800)); console.log('cell 2')", timeout: .seconds(10))
         }
         #expect(next?.error == nil)
         #expect(next?.lines.map(\.text) == ["hello", "cell 2"])
@@ -331,7 +331,7 @@ struct BrowserReplSessionWatchdogTests {
     ) throws -> BrowserReplSession {
         BrowserReplSession(
             id: "watchdog-\(UUID().uuidString)",
-            cwd: FileManager.default.temporaryDirectory.path,
+            cwd: browserReplTestWorkingDirectory,
             bundle: try browserReplRepositoryBundle(),
             driver: RecordingReplDriver(),
             sleeper: sleeper,
@@ -381,7 +381,9 @@ struct BrowserReplSessionWatchdogTests {
             await session.evaluate(code: "1 + 1", timeout: .seconds(30))
         }
         #expect(next?.error == nil, "\(String(describing: next?.error))")
-        #expect(next?.lines.map(\.text) == ["2"])
+        // The next cell says the callback was stopped, then prints its value.
+        #expect(next?.lines.map(\.text).last == "2")
+        #expect(next?.lines.first.map { $0.level == "error" && $0.text.contains("was stopped") } == true, "\(String(describing: next?.lines))")
     }
 
     /// The next cell is current as soon as it is submitted, but it runs only
@@ -410,7 +412,8 @@ struct BrowserReplSessionWatchdogTests {
 
         let result = await next
         #expect(result?.error == nil, "\(String(describing: result?.error))")
-        #expect(result?.lines.map(\.text) == ["2"])
+        #expect(result?.lines.map(\.text).last == "2")
+        #expect(result?.lines.first?.text.contains("was stopped") == true, "\(String(describing: result?.lines))")
     }
 
     @Test("close() ends the session's thread even when agent code loops in the timed-out cell's cleanup")

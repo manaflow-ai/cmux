@@ -55,6 +55,8 @@ extension BrowserPanel {
     /// provenance from this panel.
     func leaveCloudResourceForLocalNavigation() {
         pendingCloudRestoreURL = nil
+        // An ordinary local browser again: a blank page may focus its address bar.
+        opensLinkedContent = false
         if retainsCloudResourceForDuplication {
             SurfaceCatalog.shared.endProjections(panelID: id, reason: .replaced)
         }

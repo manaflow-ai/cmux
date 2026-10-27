@@ -105,6 +105,7 @@ enum KeyboardShortcutSettings {
         case goToWorkspace
         case commandPalette
         case agentInbox
+        case openChief
         case commandPaletteNext
         case commandPalettePrevious
         case sendFeedback
@@ -264,6 +265,7 @@ enum KeyboardShortcutSettings {
             case .goToWorkspace: return String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace…")
             case .commandPalette: return String(localized: "menu.file.commandPalette", defaultValue: "Command Palette…")
             case .agentInbox: return String(localized: "shortcut.agentInbox.label", defaultValue: "Show Agent Inbox")
+            case .openChief: return String(localized: "shortcut.openChief.label", defaultValue: "Open Chief")
             case .commandPaletteNext: return String(localized: "shortcut.commandPaletteNext.label", defaultValue: "Command Palette: Next")
             case .commandPalettePrevious: return String(localized: "shortcut.commandPalettePrevious.label", defaultValue: "Command Palette: Previous")
             case .sendFeedback: return String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback")
@@ -450,8 +452,9 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "q", command: true, shift: false, option: false, control: false)
             case .toggleSidebar:
                 return StoredShortcut(key: "b", command: true, shift: false, option: false, control: false)
+            // Unbound by default (added without a call; people bind it).
             case .focusSidebar:
-                return StoredShortcut(key: "e", command: true, shift: false, option: false, control: true)
+                return .unbound
             case .showWindowHints:
                 return StoredShortcut(key: "j", command: true, shift: false, option: false, control: false)
             case .newTab:
@@ -486,6 +489,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "p", command: true, shift: true, option: false, control: false)
             case .agentInbox:
                 return StoredShortcut(key: "i", command: true, shift: true, option: false, control: false)
+            case .openChief:
+                return StoredShortcut(key: "c", command: true, shift: true, option: false, control: false)
             case .commandPaletteNext:
                 return StoredShortcut(key: "n", command: false, shift: false, option: false, control: true)
             case .commandPalettePrevious:
@@ -586,7 +591,8 @@ enum KeyboardShortcutSettings {
             // now that ⌘[ / ⌘] reach global focus history.
             case .focusPreviousPane, .focusNextPane:
                 return .unbound
-            case .focusPaneByNumber: return StoredShortcut(key: "1", command: true, shift: false, option: false, control: true)
+            // Unbound by default (added without a call; people bind it).
+            case .focusPaneByNumber: return .unbound
             case .splitRight: return StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
             case .splitDown: return StoredShortcut(key: "d", command: true, shift: true, option: false, control: false)
             case .newPaneAutoLayout: return StoredShortcut(key: "n", command: true, shift: false, option: false, control: true)

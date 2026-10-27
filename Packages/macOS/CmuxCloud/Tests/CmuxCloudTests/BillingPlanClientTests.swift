@@ -33,6 +33,30 @@ struct BillingPlanClientTests {
         #expect(details.canManageBilling)
     }
 
+    // The Settings plan row names who bills the plan; App Store and granted
+    // plans must not read as a Stripe-managed subscription.
+    @Test("billing source decodes", arguments: [
+        ("\"billingSource\":\"apple\",", BillingSource.apple as BillingSource?),
+        ("\"billingSource\":\"stripe\",", BillingSource.stripe as BillingSource?),
+        ("\"billingSource\":\"none\",", BillingSource.unbilled as BillingSource?),
+        ("\"billingSource\":\"unknown\",", nil),
+        ("", nil),
+    ])
+    func billingSourceDecodes(field: String, expected: BillingSource?) async throws {
+        let client = BillingPlanClient(session: BillingPlanStubURLProtocol.session(body: """
+        {"authenticated":true,"planId":"pro","subscriptionPlanId":"pro",\(field)
+         "isPro":true,"billingManagement":"external","teamPlanId":"free","teamBillingManagement":"none"}
+        """))
+
+        let details = try await client.fetch(from: BillingPlanStubURLProtocol.url, accessToken: "token")
+        #expect(details.billingSource == expected)
+        let state = BillingPlanState.unknown.applyingSuccess(
+            for: "user-1", isPro: details.isPro, canManageBilling: details.canManageBilling,
+            tier: details.tier, billingSource: details.billingSource
+        )
+        #expect(state.billingSource == expected)
+    }
+
     // A Max subscriber is reported as planId "pro" for older clients. The
     // exact plan must survive decoding, or Max reads as Pro and the app
     // offers an upgrade the account already has.

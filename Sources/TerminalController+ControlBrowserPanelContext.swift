@@ -18,7 +18,11 @@ extension TerminalController: ControlBrowserPanelContext {
               let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
             return nil
         }
-        return tab.browserPanel(for: panelID)
+        // A tab a browser REPL session drives or typed a secret into is
+        // neither read, navigated nor reloaded by another socket client
+        // (``browserReplTabRefusalMessage(_:)``).
+        guard browserReplTabRefusalMessage(panelID) == nil else { return nil }
+        return tab.browserPanelForAutomation(panelID)
     }
 
     func controlBrowserPanelTabManagerAvailable() -> Bool {
@@ -115,6 +119,14 @@ extension TerminalController: ControlBrowserPanelContext {
     }
 
     func controlBrowserPanelIsWebViewFocused(panelID: UUID) -> ControlBrowserPanelWebViewFocusState {
+        // A read-only probe: a restore placeholder is a browser that is not
+        // focused, and is not materialized just to answer.
+        if let tabManager,
+           let tabId = tabManager.selectedTabId,
+           let tab = tabManager.tabs.first(where: { $0.id == tabId }),
+           tab.panels[panelID] is DeferredBrowserPanel {
+            return .focused(false)
+        }
         guard let panel = browserPanelV1Panel(panelID: panelID) else { return .panelNotFound }
         let webView = panel.webView
         guard let window = webView.window else { return .focused(false) }

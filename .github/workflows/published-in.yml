@@ -1,0 +1,66 @@
+name: Published in
+
+# After a stable release publishes, each PR in it gets a "Shipped in <tag>"
+# line, in one comment that nightly-next also writes
+# (scripts/ci/published_in_comments.py). The span runs from the previous
+# stable tag below this one, first-parent, so a backport tag lists only its own
+# PRs. This is its own workflow, not a release.yml job: a few hundred paced
+# comment writes must not hold the stable-appcast-publication concurrency
+# group that the next release tag waits on. The release's own token cannot
+# trigger `release: published`, so this follows the Release run instead.
+on:
+  workflow_run:
+    workflows: ["Release macOS app"]
+    types: [completed]
+
+env:
+  SOURCE_WORKFLOW_PATHS: .github/workflows/release.yml
+
+permissions: {}
+
+concurrency:
+  group: published-in-stable
+  cancel-in-progress: false
+
+jobs:
+  published-in:
+    if: github.repository == 'manaflow-ai/cmux' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && startsWith(github.event.workflow_run.head_branch, 'v')
+    permissions:
+      contents: read
+      pull-requests: write
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: pull-requests:write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    # Writes are paced under GitHub's hourly content limit (about 500): a
+    # 500-PR release takes about an hour. A refusal stops the run; a rerun
+    # skips the PRs already noted.
+    timeout-minutes: 120
+    steps:
+      - name: Checkout commit history
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          fetch-tags: true
+          filter: tree:0
+          sparse-checkout: scripts/ci
+      - name: Comment the release on its PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not a stable tag: $TAG"; exit 0; }
+          tagged="$(git rev-parse -q --verify "refs/tags/$TAG^{commit}" || true)"
+          [ "$tagged" = "$HEAD_SHA" ] || { echo "$TAG is at ${tagged:-nothing}, the release ran $HEAD_SHA; skipping"; exit 0; }
+          if ! gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json isDraft,isPrerelease \
+              -q 'select(.isDraft == false and .isPrerelease == false)' | grep -q .; then
+            echo "$TAG has no published stable release; skipping"
+            exit 0
+          fi
+          if ! previous="$(git describe --tags --abbrev=0 --match 'v[0-9]*' "$TAG^" 2>/dev/null)"; then
+            echo "No earlier stable tag below $TAG; nothing to comment."
+            exit 0
+          fi
+          python3 scripts/ci/published_in_comments.py --repo "$GITHUB_REPOSITORY" \
+            --since "$previous" --head "$HEAD_SHA" --name "$TAG" \
+            --url "https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"

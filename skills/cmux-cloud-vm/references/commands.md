@@ -1,6 +1,6 @@
 # cmux Cloud CLI reference
 
-This reference covers the cmux Cloud CLI in this source revision. `cmux cloud` is an alias for `cmux vm` (`cmux cloud ls` == `cmux vm self`). `tests/test_cloud_vm_skill_coverage.py` checks command coverage against the CLI source.
+This reference covers the cmux Cloud CLI in this source revision. `cmux cloud` is an alias for `cmux vm` (`cmux cloud ls` == `cmux vm ls`). `tests/test_cloud_vm_skill_coverage.py` checks command coverage against the CLI source.
 
 Find the needed section: [machines](#machines), [execution](#execution),
 [files](#files), [routing](#routing), [workspaces/terminals](#workspaces-and-terminals-the-machines-cmux-tui-session),
@@ -11,7 +11,7 @@ Installed `cmux vm <verb> --help` owns rollout availability; this reference docu
 
 ## Conventions
 
-- **Requires** the cmux app running on the Mac, a signed-in account (`cmux auth status`), and the WireGuard tunnel up (`cmux vpn up`) — machines live on a private per-user network with no public ports, so attach/exec/port verbs need it. Every verb talks to the app over its Unix socket (`CMUX_SOCKET_PATH` when set; the app's default socket otherwise) — the app, not the CLI, holds the cloud credentials. The guest `cmux self` and `cmux vm self` commands are the exception: they run inside a machine through its edge-injected credential.
+- **Requires** the cmux app running on the Mac, a signed-in account (`cmux auth status`), and the WireGuard tunnel up (`cmux vpn up`) — machines live on a private per-user network with no public ports, so attach/exec/port verbs need it. Every verb talks to the app over its Unix socket (`CMUX_SOCKET_PATH` when set; the app's default socket otherwise) — the app, not the CLI, holds the cloud credentials. The guest `cmux self` and `cmux vm ls` commands are the exception: they run inside a machine through its edge-injected credential.
 - **`--json`** is a global flag: it may appear before or after the subcommand and prints the socket payload (or the CLI's own summary object, noted per verb) instead of text. Parse JSON, never the human tables.
 - **`--help` / `-h`** works offline (no app needed). `cmux vm --help` is the overview; `cmux vm run --help`, `route`, `agent`, `push`, `pull`, `wait`, `open`, `tree`, `workspace`, `terminal`, `tui`, `prompt`, `base`, and `domains` print that verb's own options (`cmux vm terminal --help` covers close, send, read, and wait). `resize` is documented in the overview because its compact validation usage is emitted inline. Anything after `--` is never treated as a help flag (`cmux vm exec <id> -- --help` runs `--help` on the machine).
 - **Exit codes:** `0` success; `1` any error (socket missing, backend error, usage error, unknown `vm` verb); `2` missing or unknown top-level command. `cmux vm run` exits with the **remote command's exit code**; `cmux vm exec` prints `exit <n>` to stderr and exits `1` when the remote command fails; `cmux vm wait` and `cmux vm terminal wait` exit `1` on timeout (or a failed machine).
@@ -39,7 +39,7 @@ cmux vm ls --json                      # {vms: [{id, status, image, createdAt, f
 cmux vpn status                        # this build's WireGuard tunnel to its private machine network (machines open no public port): up, down, or up for another enrollment (stale)
 cmux vpn up                            # enroll this Mac and bring the tunnel up (sudo); a stale tunnel (rotated keys) is replaced. One tunnel per deployment (`cmux` for production, `cmux-staging`/`cmux-dev` for dev builds), so a dev build and the production app can both be up
 cmux vpn down                          # take this build's tunnel down (sudo)
-cmux self                              # INSIDE a machine: this machine's name, id, status, team (--json: {schema, machine, team, machines}); guest `cmux vm self` lists the team's machines with this one marked *
+cmux self                              # INSIDE a machine: this machine's name, id, status, team (--json: {schema, machine, team, machines}); guest `cmux vm ls` lists the team's machines with this one marked *
 cmux vm tree                           # the surface catalog: This Mac (terminals by workspace, browsers), then every machine → Workspaces, Ports, VNC Displays, Terminals
 cmux vm tree <id> --refresh            # one machine (`local` for This Mac), re-synced first
 cmux vm workspace new <id> [--name n]  # a new cmux-tui workspace on the machine (⌘N there), opened as a new local workspace
@@ -55,9 +55,10 @@ cmux vm terminal send <id> <term-id> [text] [--keys enter,ctrl+c,…]   # type i
 cmux vm terminal read <id> <term-id>   # the visible screen as text (--json: + rows, cols, cursor)
 cmux vm terminal wait <id> <term-id> --pattern <regex> [--timeout <s>]   # block until the screen matches (default 30 s); exit 1 on timeout
 cmux vm tree --json                    # {machines: [{id, local, name, status, link_state, …}], resources: [{id, machine, kind, key, title, detail, lifecycle, agent, remote_workspace, port, url, open, open_surface_ids}], projections: […]}
-cmux surface ls [--json]               # same catalog; `surface open <resource>` / `surface new-terminal --machine <m>` are the generic verbs
+cmux surface ls [--json]               # same catalog; `surface open <resource>` / `surface new-terminal --machine <m>` / `surface new-display --machine <m>` are the generic verbs
 cmux vm status <id>                    # provider, status, image
 cmux vm stats <id>                     # CPU/mem/disk now; sleeping machines stay asleep
+cmux vm clean <id>                     # dry-run: what disk cleanup would free (removes nothing); --apply removes it
 cmux vm resize <id> --disk 40G         # grow persistent disk in 4 GiB steps (never shrinks)
 cmux vm network <id>                   # outbound policy: mode, presets, domains, ranges, applied state
 cmux vm agent-updates <id>             # latest (updated on attach) or image (baked pins)
@@ -72,7 +73,7 @@ automation and the human output when teaching a person what to click or copy.
 
 ## Machines
 
-### `cmux vm self`
+### `cmux vm ls`
 
 ```bash
 cmux vm ls [--json]                    # alias: cmux vm list
@@ -151,6 +152,15 @@ cmux vm stats <id> [--json]            # alias: cmux vm top
 ```
 
 Socket `vm.stats`. CPU, memory, and disk right now; a sleeping machine reports `asleep` and is not woken. `--json`: `{id, state: awake|asleep, cpu_percent, cpus, memory_used_mb, memory_total_mb, disk_used_mb, disk_total_mb}`. The router uses this to pick the least-loaded pool machine.
+
+### `cmux vm clean`
+
+```bash
+cmux vm clean <id> [--json]            # dry-run: list what would be removed and how much space that frees
+cmux vm clean <id> --apply [--json]    # remove it
+```
+
+Socket `vm.hygiene {id, apply?}` calls `POST /api/vm/<id>/hygiene`, which runs the machine-hygiene script on the machine. Without `--apply` it is a dry-run that deletes nothing. It reclaims only what a rebuild or re-download brings back: build output of projects idle for 7 days (`node_modules`, `target`, `.next`, …), package caches when the disk is at least 85% full, agent logs older than 14 days, idle temp files, and records of deleted git worktrees. It never touches source, git data, `~/.ssh`, credentials or agent sessions, and skips anything in use. Only the machine's owner can run it. A paused machine answers `vm_not_running` and is not woken, and a second `--apply` while one runs answers `vm_hygiene_busy`. `--json`: `{id, version, mode: dry-run|apply, home, diskUsedPctBefore, diskUsedPctAfter, reclaimableKb, items: [{category, path, kb, action: would-delete|deleted|skipped, reason?}]}`.
 
 ### `cmux vm restart`
 
@@ -706,6 +716,14 @@ cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--
 
 Socket `surface.new_terminal {machine, command?, cwd?, name?, remote_workspace_id?, open?, workspace_id?}` → `{resource, terminal_id, machine, remote_workspace_id, workspace_id?, surface_id?}`: a terminal on the machine through its provider (cloud terminals land in the machine's cmux-tui session; `--remote-workspace` picks which; `local` is a new shell on This Mac), opened as a pane unless `--no-open`. Sidebar: Terminals / Workspaces › New Terminal; workspace row › New Terminal Here.
 
+### `cmux surface new-display`
+
+```bash
+cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]
+```
+
+Socket `surface.new_display {machine, open?, workspace_id?, focus?}` → the created display resource (`resource`, `id`, `machine`, `kind`, `title`, `url`, and related catalog fields), plus `workspace_id` / `surface_id` when opened. Creates a new VNC display on a cloud machine through the guest display helper. It opens the display in the selected workspace unless `--no-open`; `--focus` and `--no-focus` control whether that pane is focused. `local` is rejected because display creation is a cloud-machine operation. If the display is created but cannot be opened, the result has `projection_failed: true`, `open: false` and a `projection_error`; the exit status stays 0 and `cmux surface open <resource>` retries the open. A second creation on the same machine while one is running fails with code `busy`. The method is available on the local cmux socket and is intentionally not relayed through a remote machine.
+
 ## Checkpoints and forks
 
 Provider-dependent: `cmux vm ls --json` → `capabilities.snapshot` / `capabilities.fork` say whether a machine supports them; the sidebar hides the verbs on providers that cannot.
@@ -785,7 +803,7 @@ Every `cmux vm` verb requires a signed-in app.
 
 ### Plan meter and limits
 
-`cmux vm self` prints `N of M machines on the <plan> plan` when the plan carries a cap, or `N machines on the <plan> plan, no limit` when it does not — the cap is whatever the backend sends (`cmux vm ls --json` → `limits`: `maxActiveVms?`, `planId`, `memoryOptionsMb?`, `freeAccessExpiresAt` when a free window applies); plan tiers and their caps change on the pricing page, so read them from `limits`, never from memory. **Provisioning is gated to paid plans**: `vm new`, a first `vm base open`, `base reset`, `fork`, `restore`, and the router's provisioning path return the `vm_requires_pro` error (with the pricing link) on free or unknown plans. Report caps and gates — never delete machines to make room without asking. A parsed size not present in `memoryOptionsMb` resolves to the plan default; inspect the create result or `vm stats` rather than assuming the request was honored.
+`cmux vm ls` prints `N of M machines on the <plan> plan` when the plan carries a cap, or `N machines on the <plan> plan, no limit` when it does not — the cap is whatever the backend sends (`cmux vm ls --json` → `limits`: `maxActiveVms?`, `planId`, `memoryOptionsMb?`, `freeAccessExpiresAt` when a free window applies); plan tiers and their caps change on the pricing page, so read them from `limits`, never from memory. **Provisioning is gated to paid plans**: `vm new`, a first `vm base open`, `base reset`, `fork`, `restore`, and the router's provisioning path return the `vm_requires_pro` error (with the pricing link) on free or unknown plans. Report caps and gates — never delete machines to make room without asking. A parsed size not present in `memoryOptionsMb` resolves to the plan default; inspect the create result or `vm stats` rather than assuming the request was honored.
 
 ### `cmux ai-accounts`
 
@@ -813,6 +831,7 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | `vm.base_open`, `vm.base_reset` | `vm base open`, `vm base reset` |
 | `vm.status` | `vm status`, `vm handoff`, `vm wait` |
 | `vm.stats` | `vm stats`; the router's load scoring |
+| `vm.hygiene` | `vm clean`, `vm clean --apply` |
 | `vm.env_set` | `vm env set` |
 | `vm.file_put` | `vm push` |
 | `vm.pause`, `vm.resume`, `vm.restart` | `vm pause`, `vm resume`, `vm restart` |
@@ -846,7 +865,7 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | `vm.cloud_prompt`, `vm.cloud_agent_open` | `vm prompt`, `vm prompt --open` |
 | `vm.publication_list`, `vm.publication_create`, `vm.publication_verify`, `vm.publication_update`, `vm.publication_delete` | `cloud domains list`, `publish`, `access`, `rm`; `vm.publication_verify` is the app-side publication retry path |
 | `vm.domain_list`, `vm.domain_verify` | `cloud domains zones`, `cloud domains verify` |
-| `surface.catalog`, `surface.project`, `surface.new_terminal` | `vm tree` / `surface ls`, `surface open` / `vm open`, `surface new-terminal` / `vm agent` |
+| `surface.catalog`, `surface.project`, `surface.new_terminal`, `surface.new_display` | `vm tree` / `surface ls`, `surface open` / `vm open`, `surface new-terminal` / `vm agent`, `surface new-display` |
 
 The authenticated public-domain workflow is **shipped on this branch**: use
 `cmux cloud domains` for generated or custom HTTPS publications. `cmux vm open

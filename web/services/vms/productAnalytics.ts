@@ -105,7 +105,7 @@ const METADATA_PICKERS: Record<VmLedgerEventType, MetadataPicker> = {
     source: str(m.source) ?? "unknown",
   }),
   "vm.paused": (m) => ({
-    source: enumValue(m.source, ["user", "go_hours_limit"]) ?? "unknown",
+    source: enumValue(m.source, ["user", "go_hours_limit", "unexpected_wake"]) ?? "unknown",
     used_seconds: int(m.usedSeconds), automated: bool(m.automated),
   }),
   "vm.snapshot.created": (m) => ({

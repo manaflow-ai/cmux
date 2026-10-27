@@ -524,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Değiştirmek için planınızı sürdürün.",
           "granted": "cmux tarafından verildi. Değiştirilecek bir şey yok.",
+          "grantedNoCancel": "cmux tarafından verildi, bu yüzden iptal edilecek bir şey yok.",
+          "paymentFailed": "Planı değiştirmeden önce ödeme yönteminizi güncelleyin.",
+          "foundersLifetime": "Founder's Edition ömür boyu Pro içerir.",
           "adminOnly": "Planı yalnızca ekip yöneticileri değiştirebilir."
         },
         "names": {
@@ -566,6 +569,7 @@
       "change": {
         "title": "{plan} planına geçilsin mi?",
         "upgradeBody": "{plan} şimdi başlar. Bu fatura döneminin kalanı için bugün {amount} ödersiniz. {date} tarihinden itibaren aylık {price} ödersiniz.",
+        "upgradeBodyYearly": "{plan} şimdi başlar. Bu fatura döneminin kalanı için bugün {amount} ödersiniz. {date} tarihinden itibaren yıllık {price} ödersiniz.",
         "downgradeBody": "{plan} şimdi başlar. Mevcut planınızın kullanılmayan kısmı olan {credit}, sonraki faturalarınıza alacak olarak yansıtılır. {date} tarihindeki sonraki faturanız {amount}.",
         "confirm": "{plan} planına geç",
         "keep": "Mevcut planı koru",
@@ -578,6 +582,8 @@
         "title": "{plan} iptal edilsin mi?",
         "body": "{plan} planı {date} tarihine kadar sizde kalır. Sonrasında şunları kaybedersiniz:",
         "bodyNoDate": "{plan} planı bu fatura döneminin sonuna kadar sizde kalır. Sonrasında şunları kaybedersiniz:",
+        "foundersBody": "{plan} aboneliğiniz {date} tarihinde sona erer. Sonrasında Founder's Edition'ın ömür boyu içerdiği Pro'ya sahip olursunuz.",
+        "foundersBodyNoDate": "{plan} aboneliğiniz bu fatura döneminin sonunda sona erer. Sonrasında Founder's Edition'ın ömür boyu içerdiği Pro'ya sahip olursunuz.",
         "reasonLabel": "Neden iptal ediyorsunuz? (isteğe bağlı)",
         "otherPlaceholder": "Bize daha fazlasını anlatın (isteğe bağlı)",
         "confirm": "Planı iptal et",
@@ -2175,6 +2181,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "Etkinleştirildiğinde, bir bölme ayırıcısına çift tıklamak o satır veya sütundaki bölmeleri eşit boyuta getirir. Diğer satır ve sütunların boyutları korunur.",
           "confirmQuit": "cmux'un çıkmadan önce ne zaman onay isteyeceğini denetler. DEV derlemeleri bu ayardan bağımsız olarak her zaman hemen çıkar. Eski app.warnBeforeQuit boolean yedeği olarak kabul edilmeye devam eder.",
           "windowTitleTemplate": "İsteğe bağlı NSWindow başlık şablonu. Boş bırakılırsa geçerli dizin yedeği dahil cmux'un mevcut varsayılan başlık davranışı korunur. Desteklenen yer tutucular: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Yeni pencereler açılırken yalnızca DEBUG derlemelerinde kullanılan ekran adı. Boş değer sistem varsayılanını kullanır.",
@@ -2252,12 +2259,20 @@
           "currentLineHighlight": "Hiçbir şey seçili değilken metin imlecinin bulunduğu satırı renklendirir.",
           "tabWidth": "Bir sekme durağının kaç sütun kapladığı. Girinti kılavuzları da aynı aralığı kullanır."
         },
+        "actions": "Komut paleti, kısayollar, sekme çubuğu düğmeleri ve artı düğmesi menüsü için yeniden kullanılabilir eylemler. builtin, command, agent, workspaceCommand, workspace, setting, settingPreset ve text desteklenir. Metin eylemleri satır sonlarını koruyarak odaklanmış terminale yapıştırır; submit: true Enter tuşuna basar. Ayar eylemleri genel yapılandırma gerektirir.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
               "enabled": "Uzak bir tmux çalışma alanı seçildiğinde “Yeni çalışma alanı”, o çalışma alanının ana bilgisayarında bir tmux oturumu başlatır."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, Ana Sayfa aracısı: gösterilip gösterilmediği ve hangi altyapıyı, modeli ve çabayı kullandığı.",
+          "enabled": "Ana Sayfa satırını ve Chief giriş noktalarını gösterir. false olduğunda Ana Sayfa satırı, Chief'i Aç kısayolu, menü öğesi ve komut paleti girdileri gizlenir.",
+          "harness": "Chief'in çalıştığı aracı altyapısı: claude (Claude Code) veya codex (Codex).",
+          "model": "Altyapıya iletilen model. Altyapının varsayılanını kullanmak için boş bırakın.",
+          "effort": "Altyapıya iletilen akıl yürütme çabası; örneğin low, medium veya high. Altyapının varsayılanını kullanmak için boş bırakın."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3435,6 +3450,7 @@
     "unsupportedParams": "Bu bağlantı cmux'un reddedeceği desteklenmeyen parametreler içeriyor: {params}",
     "conflictingParams": "Bu bağlantı birlikte kullanılamayan parametreleri içerir: {params}",
     "invalidParams": "Bu bağlantı geçersiz parametre değerleri içeriyor: {params}",
+    "ignoredParams": "cmux kullanmadığı parametreleri yok sayar: {params}. Oturum yine de açılır.",
     "fixParams": "URL parametrelerini düzeltin ve ardından bu sayfayı yeniden yükleyin.",
     "examplePrefix": "Bir gör",
     "exampleLink": "örnek bağlantı",
@@ -3458,6 +3474,16 @@
       "title": "Kuralları cmux'ta açın",
       "intro": "Bu sayfa geçerli cmux çalışma alanındaki kuralları açar.",
       "fallback": "cmux önce kuralları gösterir ve bunları geçerli çalışma alanına yapıştırmadan önce sorar. cmux açılmazsa cmux'u yükleyin ve cmux'da aç'a tekrar tıklayın."
+    },
+    "agent": {
+      "metaTitle": "Ajan oturumunu cmux'ta aç",
+      "metaDescription": "cmux kullanılamadığında kurulum seçeneğiyle, bir ajan oturumuna giden cmux derin bağlantısını web'den açın.",
+      "title": "Ajan oturumunu aç",
+      "intro": "Bu Mac oturuma zaten erişebiliyorsa bu bağlantı ajanın oturumunu cmux'ta açar. Bağlantının kendisi hiçbir erişim izni vermez.",
+      "fallback": "cmux açılmazsa cmux'u yükleyin ve cmux'ta Aç'a yeniden tıklayın. cmux oturumu yalnızca bu Mac ona zaten erişebiliyorsa açar.",
+      "nameLabel": "Ad: {value}",
+      "hostLabel": "Ana makine: {value}",
+      "harnessLabel": "Çalıştırıcı: {value}"
     }
   },
   "download": {
@@ -5496,6 +5522,8 @@
     "errorInvalidCode": "Bu kod geçersiz. E-postanı kontrol edip tekrar dene.",
     "errorInvalidTotp": "Bu iki adımlı doğrulama kodu geçersiz.",
     "errorSignUpNotAllowed": "Şu anda yeni hesap oluşturulamıyor.",
+    "errorEmailUnverified": "Bu e-postanın zaten bir hesabı var, ancak adres henüz doğrulanmadı. Kaydolduğun yöntemle giriş yap, ardından giriş kodlarını kullanmak için e-postanı doğrula.",
+    "useEmailPasswordInstead": "E-posta ve şifreyle giriş yap",
     "errorPasskey": "Geçiş anahtarıyla giriş tamamlanmadı. Tekrar dene veya başka bir yöntem kullan.",
     "errorGeneric": "Bir sorun oluştu. Tekrar dene."
   },

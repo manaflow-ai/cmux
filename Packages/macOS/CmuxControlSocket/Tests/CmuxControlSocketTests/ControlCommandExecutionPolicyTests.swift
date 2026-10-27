@@ -81,6 +81,7 @@ struct ControlCommandExecutionPolicyTests {
             "browser.errors.list", "browser.state.save", "browser.state.load",
             "browser.addinitscript", "browser.addscript", "browser.addstyle",
             "browser.design_mode.set", "browser.design_mode.status",
+            "browser.geolocation.set", "browser.offline.set",
         ] {
             #expect(ControlCommandExecutionPolicy(forMethod: method).runsOnSocketWorker, "\(method)")
         }
@@ -90,6 +91,9 @@ struct ControlCommandExecutionPolicyTests {
             "agent.message.send", "agent.message.list", "agent.message.claim",
             "agent.message.ack",
             "agent.message.mark_read", "agent.message.poll", "agent.message.settings",
+            // Chief awaits its owner actor and the store's send; never inline on main.
+            "chief.open", "chief.send", "chief.status", "chief.conversations",
+            "chief.read", "chief.mark_read", "chief.stop", "chief.approve", "chief.answer", "chief.debug",
         ] {
             #expect(
                 ControlCommandExecutionPolicy(forMethod: method)
@@ -238,6 +242,7 @@ struct ControlCommandExecutionPolicyTests {
         // stall the lane move removes, and no in-process caller needs it.
         #expect(ControlCommandExecutionPolicy(forMethod: "surface.read_text") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "surface.input_state") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "surface.wait_text_change") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "surface.read_selection") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forV1Command: "read_screen") == .socketWorker(mainThreadCallable: false))
     }

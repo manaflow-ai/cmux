@@ -23,6 +23,30 @@ import Testing
         #expect(!model.actions.contains(.upgradeToPro))
     }
 
+    @Test func appStoreProSaysWhereBillingIsManaged() {
+        let model = ProUpgradeCardModel(
+            tier: .pro, isProActive: true, canManageBilling: false, isSignedIn: true, billingSource: .appStore
+        )
+        #expect(model.subtitle == "Your Pro subscription is active. Manage it through your subscription provider.")
+        #expect(!model.subtitle.contains("previous billing system"))
+        #expect(model.actions == [.upgradeToMax])
+    }
+
+    @Test func grantedProHasNoBillingLine() {
+        let model = ProUpgradeCardModel(
+            tier: .pro, isProActive: true, canManageBilling: false, isSignedIn: true, billingSource: .granted
+        )
+        #expect(model.subtitle == "Your Pro plan is active.")
+        #expect(model.actions == [.upgradeToMax])
+    }
+
+    @Test func stripeProKeepsTheStripeBillingLine() {
+        let model = ProUpgradeCardModel(
+            tier: .pro, isProActive: true, canManageBilling: true, isSignedIn: true, billingSource: .stripe
+        )
+        #expect(model.actions == [.upgradeToMax, .manageBilling])
+    }
+
     @Test func maxIsOfferedNoUpgrade() {
         let managed = ProUpgradeCardModel(tier: .max, isProActive: true, canManageBilling: true, isSignedIn: true)
         #expect(managed.actions == [.manageBilling])

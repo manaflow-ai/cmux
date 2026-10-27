@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import CmuxCloud
 import CmuxCloudBannerCore
 import CmuxProductAnalytics
@@ -561,6 +562,8 @@ final class CmuxMainThreadTurnProfiler {
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate, CmuxConfigStoreReloadEnvironment {
     nonisolated(unsafe) static var shared: AppDelegate?
     let cloudBannerDismissalStore: CloudBannerDismissalStore
+    /// Composition-root owner for the persisted per-SSH-machine clipboard-write policy.
+    let sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
     private(set) var devicesRegistry: DeviceSurfaceProviderRegistry?
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
     nonisolated let socketTransport = SocketTransport()
@@ -573,7 +576,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
     lazy var sshTuiWorkspaceCoordinator = SSHTuiWorkspaceCoordinator(
-        catalog: SurfaceCatalog.shared, clientURL: { CloudTuiClientPaths.clientURL() }, paths: CloudTuiClientPaths()
+        catalog: SurfaceCatalog.shared,
+        clientURL: { CloudTuiClientPaths.clientURL() },
+        paths: CloudTuiClientPaths(),
+        sshClipboardWriteTrustStore: sshClipboardWriteTrustStore
     )
     /// Owns every main-window registration, recovery, and close phase.
     let mainWindowLifecycleCoordinator = MainWindowLifecycleCoordinator()
@@ -1423,6 +1429,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var lastVisibleFrameFitTopologySignature: [MainWindowVisibleFrameTopologySignatureEntry]?
     var didObserveUnknownVisibleFrameFitTopology = false
     var didObserveUnknownDisplayConfiguration = false
+    /// Set by a CoreGraphics display reconfiguration, cleared once a reconcile
+    /// has a trusted signature. Lets reconcile tell a display flap that settled
+    /// on the same configuration apart from a Dock resize.
+    var didObserveDisplayReconfigurationSinceReconcile = false
     var visibleFrameFitTopologyRetryBudget = 0
     var screenChangeReconcileRetryBudget = 0
     var isScreenChangeCaptureSuppressed = false
@@ -1493,6 +1503,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     override init() {
         cloudBannerDismissalStore = CloudBannerDismissalStore(defaults: .standard)
+        sshClipboardWriteTrustStore = SSHClipboardWriteTrustStore(defaults: .standard)
         let fileManager = FileManager.default
         if let bundleIdentifier = Bundle.main.bundleIdentifier,
            !bundleIdentifier.isEmpty,
@@ -1682,6 +1693,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // menu mounts: it is lazy, and its consumers only observe its
         // notification, so nothing else would bring it up (#10866).
         BrowserAvailabilityMonitor.shared.activate()
+        startChiefIfEnabled()
         // Composition root for surfaces: this Mac's panes and every cloud machine's
         // cmux-tui session feed one catalog, and the sidebar, drag/drop, socket and CLI all
         // open through `SurfaceCatalog.project`.
@@ -2978,6 +2990,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             resolvedLineFormat = "osc8"
         case "url":
             resolvedLineFormat = "url"
+        case "reference":
+            resolvedLineFormat = "reference"
         default:
             resolvedLineFormat = "grid"
         }
@@ -3005,6 +3019,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             shellCommand = "clear\r\(mouseReportingCommand)for i in $(seq 1 48); do printf '\\033]8;;%s\\033\\\\%s\\033]8;;\\033\\\\\\n' '\(escapedURL)' '\(escapedDisplayToken)'; done\r"
         case "url":
             displayToken = "https://github.com"
+            let shellBlockLine = singleQuotedShellLiteral(displayToken)
+            shellCommand = "clear\r\(mouseReportingCommand)for i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
+        case "reference":
+            // A GitHub reference is not a path and not a URL ghostty matches,
+            // so the fixture prints the token on its own and lets cmux's own
+            // recognizer be the only thing that can act on it.
+            let rawReferenceToken = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_REFERENCE_TOKEN"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            displayToken = rawReferenceToken.isEmpty ? "#847" : rawReferenceToken
             let shellBlockLine = singleQuotedShellLiteral(displayToken)
             shellCommand = "clear\r\(mouseReportingCommand)for i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
         case "log":
@@ -4802,6 +4825,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     hasher.combine(0)
                 case .notifications:
                     hasher.combine(1)
+                case .home:
+                    hasher.combine(2)
                 }
 
                 if let window = liveRoute.window {
@@ -10678,7 +10703,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 ?? WorkspaceCustomizationStore(defaults: .standard),
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
             fileContentChangeCoordinator: self.tabManager?.fileContentChangeCoordinator,
-            cloudWorkspaceSelection: cloudWorkspaceCoordinator?.makeSelectionState()
+            cloudWorkspaceSelection: cloudWorkspaceCoordinator?.makeSelectionState(),
+            sshClipboardWriteTrustStore: sshClipboardWriteTrustStore
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {
@@ -14512,6 +14538,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             switch sidebarSelection {
             case .tabs: return "tabs"
             case .notifications: return "notifications"
+            case .home: return "home"
             }
         }()
         writeMultiWindowNotificationTestData([
@@ -15398,6 +15425,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            matchConfiguredShortcut(event: event, action: .agentInbox) {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
             requestAgentInbox(preferredWindow: targetWindow, source: "shortcut.agentInbox")
+            return true
+        }
+
+        // Open Chief: toggles Home, so the same keys return to the workspace.
+        // When chief.enabled is off the shortcut is not consumed, so the
+        // keystroke still reaches the focused surface.
+        if matchConfiguredShortcut(event: event, action: .openChief),
+           openChiefHome(
+               preferredWindow: preferredMainWindowContextForShortcutRouting(event: event)?.window,
+               toggle: true,
+               source: "shortcut.openChief"
+           ) {
             return true
         }
 
@@ -17087,6 +17126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return nil
         }
+        leaveChiefHome(in: tabManager)
 
         let preferredProfileID =
             tabManager?.focusedBrowserPanel?.profileID
@@ -17580,6 +17620,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
         let terminalContext = focusedTerminalShortcutContext(preferredWindow: targetWindow)
         _ = synchronizeActiveMainWindowContext(preferredWindow: targetWindow)
+        leaveChiefHome(in: terminalContext?.tabManager ?? tabManager)
 
         let directionLabel: String
         switch direction {
@@ -18393,7 +18434,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 onExecuted?()
                 return true
             }
-        case .command, .agent, .workspaceCommand, .workspace, .setting:
+        case .command, .text, .agent, .workspaceCommand, .workspace, .setting:
             guard let cmuxConfigStore = context.cmuxConfigStore else {
                 return false
             }
@@ -19662,8 +19703,10 @@ private extension NSApplication {
         // WebKit sends a key no page handled back through here, to the key
         // window. For a key browser automation typed into a tab that is the
         // user's window: its terminal would get the text and its menus the
-        // Command shortcuts. The page already received the key.
-        if event.isResentBrowserAutomationKeyEvent { return }
+        // Command shortcuts. The page already received the key. Dropping it
+        // also tells `cmux browser press` and the REPL that no page handled
+        // it, so they run its Edit menu command on the web view.
+        if event.dropResentBrowserAutomationKeyEvent() { return }
 #if DEBUG
         let typingTimingStart = event.type == .keyDown ? CmuxTypingTiming.start() : nil
         let phaseTotalStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0

@@ -145,6 +145,54 @@ describe("Stripe catalog provisioning", () => {
     expect(portalArgs).toContain("business_profile[headline]=cmux");
   });
 
+  // Every listed price is also a choice for any subscriber in the portal.
+  // Yearly subscribers switch in the dashboard (which keeps their interval),
+  // so Pro yearly would only let a monthly subscriber, Max included, move onto
+  // it. The release-gated Go plan and grandfathered prices stay out too.
+  test("never lists Pro yearly, Go or a grandfathered price in the plan-switch portal", async () => {
+    const result = await runProvision("test", "valid");
+
+    expect(result.exitCode).toBe(0);
+    const portalCreate = result.calls.find(
+      (call) =>
+        call.args.includes("https://api.stripe.com/v1/billing_portal/configurations") &&
+        call.args.includes("POST"),
+    );
+    const portalArgs = portalCreate!.args.join("\n");
+    expect(portalArgs).not.toContain("price_pro_year_480");
+    expect(portalArgs).not.toContain("prod_go");
+    expect(portalArgs).not.toContain("price_go_month_10");
+    // Every listed price is also a choice in the portal; a grandfathered
+    // price must never be offered as a switch target.
+    expect(portalArgs).not.toContain("=price_pro_month\n");
+    expect(portalArgs).not.toContain("price_pro_year_legacy");
+    expect(portalArgs).not.toMatch(/=price_pro_year(\n|$)/);
+  });
+
+  test("keeps the code's portal-switchable price list in sync with the script", async () => {
+    const { PORTAL_SWITCHABLE_LOOKUP_KEYS } = await import("../services/billing/plans");
+    const script = readFileSync(provisionScript, "utf8");
+    const portalStep = script.slice(script.indexOf("ensure_personal_plan_switch_portal() {"));
+    const listed = [...portalStep.matchAll(/price_id_for_lookup_key "([^"]+)"/g)].map((match) => match[1]).sort();
+    expect(listed).toEqual([...PORTAL_SWITCHABLE_LOOKUP_KEYS].sort());
+  });
+
+  test("provisions the plan-switch portal without copied profile fields", async () => {
+    const result = await runProvision("test", "empty-profile");
+
+    expect(result.exitCode).toBe(0);
+    const portalCreate = result.calls.find(
+      (call) =>
+        call.args.includes("https://api.stripe.com/v1/billing_portal/configurations") &&
+        call.args.includes("POST"),
+    );
+    expect(portalCreate).toBeDefined();
+    const portalArgs = portalCreate!.args.join("\n");
+    expect(portalArgs).not.toContain("business_profile[headline]");
+    expect(portalArgs).not.toContain("business_profile[privacy_policy_url]");
+    expect(portalArgs).not.toContain("business_profile[terms_of_service_url]");
+  });
+
   test("updates an existing plan switch portal configuration instead of creating a second", async () => {
     const result = await runProvision("test", "portal-switch-exists");
 
@@ -537,7 +585,9 @@ if (url.endsWith("/prices") && !isPost) {
       data: [{
         id: "bpc_default",
         is_default: true,
-        business_profile: { headline: "cmux", privacy_policy_url: "https://cmux.com/privacy" },
+        business_profile: scenario === "empty-profile"
+          ? {}
+          : { headline: "cmux", privacy_policy_url: "https://cmux.com/privacy" },
       }],
       has_more: false,
     });

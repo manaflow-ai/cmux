@@ -837,6 +837,9 @@
         "unavailable": {
           "cancelScheduled": "変更するには、まずプランを再開してください。",
           "granted": "cmux から付与されたプランです。変更できる項目はありません。",
+          "grantedNoCancel": "cmux から付与されたプランのため、解約するものはありません。",
+          "paymentFailed": "プランを変更する前に、お支払い方法を更新してください。",
+          "foundersLifetime": "Founder's Edition には Pro が永久に含まれます。",
           "adminOnly": "プランを変更できるのはチーム管理者だけです。"
         },
         "names": {
@@ -879,6 +882,7 @@
       "change": {
         "title": "{plan} に切り替えますか？",
         "upgradeBody": "{plan} はすぐに開始します。今回の請求期間の残り分として、本日 {amount} をお支払いいただきます。{date} からは月額 {price} です。",
+        "upgradeBodyYearly": "{plan} はすぐに開始します。今回の請求期間の残り分として、本日 {amount} をお支払いいただきます。{date} からは年額 {price} です。",
         "downgradeBody": "{plan} はすぐに開始します。現在のプランの未使用分 {credit} は、次回以降の請求に充当されます。{date} の次回請求額は {amount} です。",
         "confirm": "{plan} に切り替え",
         "keep": "現在のプランを続ける",
@@ -891,6 +895,8 @@
         "title": "{plan} を解約しますか？",
         "body": "{date} まで {plan} を利用できます。その後、次の機能が使えなくなります:",
         "bodyNoDate": "今回の請求期間の終了まで {plan} を利用できます。その後、次の機能が使えなくなります:",
+        "foundersBody": "{plan} のサブスクリプションは {date} に終了します。その後は Founder's Edition に永久に含まれる Pro をご利用いただけます。",
+        "foundersBodyNoDate": "{plan} のサブスクリプションはこの請求期間の終了時に終了します。その後は Founder's Edition に永久に含まれる Pro をご利用いただけます。",
         "reasonLabel": "解約の理由（任意）",
         "otherPlaceholder": "詳しく教えてください（任意）",
         "confirm": "プランを解約",
@@ -3346,6 +3352,7 @@
           "tabBarVisibility": "ペインがタブバーを描画するタイミングを決めます。\"always\" はタブが 1 つだけのペインでも描画し、\"multiple-tabs\" はペインのタブが 1 つの間は隠し、2 つ目のタブが開かれた時点で描画します。ミニマルモード (app.minimalMode) では常に描画されます。最上部のペインのタブバーがウインドウのタイトルバーを兼ねているためです。",
           "forkConversationDefaultDestination": "タブのコンテキストメニューにある主要な「会話をフォーク」操作のデフォルトのフォーク先です。サブメニューには引き続きすべてのフォーク先が表示されます。",
           "globalFontMagnification": "cmux が自前で描画するすべての要素（ターミナルのテキスト、タブのタイトル、サイドバー、設定、オーバーレイ、ウィンドウの枠）の表示倍率をパーセントで指定します。ブラウザサーフェス内の Web ページは独自のサイズを保ちます。",
+          "equalizeSplitsOnDividerDoubleClick": "有効にすると、区切り線をダブルクリックしたときに、その行または列のペインが同じサイズになります。他の行や列のサイズは変わりません。",
           "paneResizeStepPixels": "ペインのリサイズショートカットを1回押すごとに移動するピクセル数。範囲は 1～200、既定値は 20 です。変更はすぐに適用されます。"
         },
         "terminal": {
@@ -3439,12 +3446,20 @@
           "soundOverrides": "エージェントとアラート種別ごとの通知サウンド上書きです。空のセルは notifications.sound を使用します。",
           "soundOverride": "通知サウンドの上書きです。default は notifications.sound を使用し、none は再生を無効にします。それ以外の値では組み込みまたはカスタムサウンドを選択します。"
         },
+        "actions": "コマンドパレット、ショートカット、タブバーのボタン、プラスボタンのメニューで使う再利用可能なアクションです。builtin、command、agent、workspaceCommand、workspace、setting、settingPreset、text に対応しています。text アクションはフォーカス中のターミナルに改行を保持して貼り付け、submit: true を指定すると Enter を押します。設定アクションにはグローバル設定が必要です。",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
               "enabled": "リモート tmux ワークスペースを選択している場合、「新規ワークスペース」はそのワークスペースのホストで tmux セッションを開始します。"
             }
           }
+        },
+        "chief": {
+          "description": "ホームエージェントのChief：表示するかどうかと、使用するハーネス、モデル、エフォート。",
+          "enabled": "ホーム行とChiefの入口を表示します。falseにすると、ホーム行、Chiefを開くショートカット、メニュー項目、コマンドパレットの項目が非表示になります。",
+          "harness": "Chiefが動作するエージェントハーネス：claude（Claude Code）またはcodex（Codex）。",
+          "model": "ハーネスに渡すモデル。空欄にするとハーネスの既定値を使用します。",
+          "effort": "ハーネスに渡す推論エフォート（low、medium、highなど）。空欄にするとハーネスの既定値を使用します。"
         }
       },
       "exampleMarkdownFontSize": "新しく開く Markdown ビューアの本文フォントサイズ（ポイント単位）。",
@@ -4946,6 +4961,7 @@
     "unsupportedParams": "このリンクには、cmux が拒否するサポートされていないパラメータが含まれています: {params}",
     "conflictingParams": "このリンクには、一緒に使用できないパラメータが含まれています: {params}",
     "invalidParams": "このリンクには無効なパラメータ値が含まれています: {params}",
+    "ignoredParams": "cmux は使用しないパラメータを無視します: {params}。セッションはそのまま開きます。",
     "fixParams": "URL パラメータを修正して、このページを再読み込みします。",
     "examplePrefix": "を参照してください。",
     "exampleLink": "リンク例",
@@ -4969,6 +4985,16 @@
       "title": "cmux のオープンルール",
       "intro": "このページでは、現在の cmux ワークスペースのルールが開きます。",
       "fallback": "cmux は最初にルールを表示し、現在のワークスペースに貼り付ける前に質問します。 cmux が開かない場合は、cmux をインストールし、もう一度 cmux で開くをクリックします。"
+    },
+    "agent": {
+      "metaTitle": "cmux でエージェントセッションを開く",
+      "metaDescription": "cmux が使用できない場合はインストールの案内を表示して、Web から cmux のエージェントセッションのディープリンクを開きます。",
+      "title": "エージェントセッションを開く",
+      "intro": "この Mac がすでにアクセスできる場合、このリンクは cmux でエージェントのセッションを開きます。リンク自体はアクセス権を付与しません。",
+      "fallback": "cmux が開かない場合は、cmux をインストールし、もう一度 cmux で開くをクリックします。cmux は、この Mac がすでにアクセスできるセッションのみを開きます。",
+      "nameLabel": "名前: {value}",
+      "hostLabel": "ホスト: {value}",
+      "harnessLabel": "ハーネス: {value}"
     }
   },
   "download": {
@@ -7291,6 +7317,8 @@
     "errorInvalidCode": "このコードは無効です。メールを確認してもう一度お試しください。",
     "errorInvalidTotp": "この 2 要素認証コードは無効です。",
     "errorSignUpNotAllowed": "現在、新しいアカウントは作成できません。",
+    "errorEmailUnverified": "このメールアドレスにはすでにアカウントがありますが、アドレスがまだ確認されていません。登録したときの方法でサインインしてから、メールアドレスを確認するとサインインコードを使えるようになります。",
+    "useEmailPasswordInstead": "メールとパスワードでサインイン",
     "errorPasskey": "パスキーでのサインインが完了しませんでした。もう一度試すか、別の方法を使用してください。",
     "errorGeneric": "問題が発生しました。もう一度お試しください。"
   },

@@ -368,8 +368,9 @@ with:
   `agents[j].status` uses `needs_input`. They are separate values from separate
   sources and are not interchangeable.
 
-  Present when the workspace has them (use `if let` / ternary): `description`,
-  `color` (hex), `branch` + `dirty` (Bool) from git, `pr`
+  Present when the workspace has them (use `if let` / ternary): `emoji` (the
+  leading emoji grapheme from the display title), `description`, `color` (hex),
+  `branch` + `dirty` (Bool) from git, `pr`
   (`{ number, label, url, status: open|merged|closed, stale, branch }`, the
   workspace's first pull request in sidebar display order) + `prs` (array of
   the same shape with every pull request cmux knows for the workspace),

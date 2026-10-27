@@ -49,4 +49,6 @@ public struct SurfaceKind: RawRepresentable, Hashable, Sendable {
     public static let accountSignIn = SurfaceKind(rawValue: "accountSignIn")
     /// A transient Cloud VPN setup pane.
     public static let cloudVPNSetup = SurfaceKind(rawValue: "cloudVPNSetup")
+    /// A Chief conversation pane.
+    public static let chief = SurfaceKind(rawValue: "chief")
 }

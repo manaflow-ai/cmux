@@ -412,6 +412,40 @@ extension CmuxSettingsFileStore {
         }
     }
 
+    /// `chief.*`: the Home agent switch, engine selection and permission mode.
+    func parseChiefSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        let keys = ChiefCatalogSection()
+        if let value = jsonBool(section["enabled"]) {
+            snapshot.managedUserDefaults[keys.enabled.userDefaultsKey] = .bool(value)
+        } else if section.keys.contains("enabled") {
+            logInvalid("chief.enabled", sourcePath: sourcePath)
+        }
+        if let raw = jsonString(section["harness"]), let harness = ChiefHarnessSetting(rawValue: raw) {
+            snapshot.managedUserDefaults[keys.harness.userDefaultsKey] = .string(harness.rawValue)
+        } else if section.keys.contains("harness") {
+            logInvalid("chief.harness", sourcePath: sourcePath)
+        }
+        for (jsonKey, key) in [("model", keys.model), ("effort", keys.effort)] {
+            if let value = jsonString(section[jsonKey]) {
+                snapshot.managedUserDefaults[key.userDefaultsKey] = .string(
+                    value.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            } else if section.keys.contains(jsonKey) {
+                logInvalid("chief.\(jsonKey)", sourcePath: sourcePath)
+            }
+        }
+        applyBooleanSettings(
+            ChiefSettingsFileMapping.booleanSettings,
+            from: section,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+    }
+
     func parseSidebarWorkspaceTodosBeta(
         _ beta: [String: Any],
         sourcePath: String,

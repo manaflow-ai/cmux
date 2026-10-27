@@ -42,6 +42,7 @@ import {
 } from "./snapshotRequests";
 import { storedAgentUpdates, type VmAgentUpdatesSetting } from "./agentUpdates";
 import { VM_RESOURCE_USAGE_KEY, VM_RESOURCE_USAGE_MIN_INTERVAL_MS, type VmResourceUsage } from "./resourceUsage";
+import { VM_IDLE_PAUSE_MINUTES_KEY, type VmIdlePauseMinutes } from "./idlePause";
 import {
   VmCreateDisabledError,
   VmCreateInProgressError,
@@ -112,6 +113,8 @@ export type VmResizeReservation = {
 export type CloudVmStatus = CloudVmRow["status"];
 export type CloudVmSessionStatus = CloudVmSessionRow["status"];
 export const OBSERVED_DESTROY_CLEANUP_METADATA_KEY = "cmuxObservedDestroyCleanup";
+/** When a status cron last claimed this paused row to re-pause an unexpected wake (ms). */
+export const UNEXPECTED_WAKE_CLAIM_METADATA_KEY = "unexpectedWakeClaimAtMs";
 /**
  * Keep every partial-index predicate value literal. PostgreSQL generic prepared
  * plans cannot prove that a bound status parameter implies the partial index.
@@ -387,6 +390,11 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
   readonly setAgentUpdates?: (input: {
     readonly id: string;
     readonly agentUpdates: VmAgentUpdatesSetting;
+  }) => Effect.Effect<void, VmDatabaseError>;
+  /** Store the machine's idle auto-pause choice in minutes (0 is Off; services/vms/idlePause.ts). */
+  readonly setIdlePauseMinutes?: (input: {
+    readonly id: string;
+    readonly minutes: VmIdlePauseMinutes;
   }) => Effect.Effect<void, VmDatabaseError>;
   /** Atomically coalesce advisory samples; false also covers a replaced VM. */
   readonly recordResourceUsage?: (input: {
@@ -684,6 +692,17 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
     readonly usageEvent?: VmUsageEventInput;
     /** Durable external cleanup work inserted atomically with a terminal status. */
     readonly cleanup?: VmObservedDestroyCleanup;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
+  /**
+   * Claim a paused row for a re-pause after an unexpected wake. True only for
+   * the one caller that finds the row still paused and unclaimed within
+   * `ttlMs`, so overlapping status crons pause and record a wake once. The
+   * claim time is the database's clock, so callers' clocks cannot disagree.
+   */
+  readonly claimUnexpectedWakeRepause?: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly ttlMs: number;
   }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly setDisplayName: (input: {
     readonly id: string;
@@ -1308,7 +1327,8 @@ function providerMetadataPatchForPersistence(
       key !== CREATE_CLEANUP_ATTEMPT_KEY &&
       key !== CREATE_CLEANUP_NEXT_ATTEMPT_AT_KEY &&
       key !== CREATE_CLEANUP_LEASE_ID_KEY &&
-      key !== CREATE_CLEANUP_LEASE_EXPIRES_AT_KEY,
+      key !== CREATE_CLEANUP_LEASE_EXPIRES_AT_KEY &&
+      key !== VM_IDLE_PAUSE_MINUTES_KEY,
     ),
   );
 }
@@ -1927,6 +1947,16 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       await db
         .update(cloudVms)
         .set({ agentUpdates: storedAgentUpdates(input.agentUpdates), updatedAt: new Date() })
+        .where(eq(cloudVms.id, input.id));
+    }),
+  setIdlePauseMinutes: (input) =>
+    dbEffect("setIdlePauseMinutes", async () => {
+      await cloudDb()
+        .update(cloudVms)
+        .set({
+          providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify({ [VM_IDLE_PAUSE_MINUTES_KEY]: input.minutes })}::jsonb`,
+          updatedAt: new Date(),
+        })
         .where(eq(cloudVms.id, input.id));
     }),
   mergeProviderMetadata: (input) =>
@@ -3824,6 +3854,30 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         }
         return true;
       });
+    }),
+
+  claimUnexpectedWakeRepause: (input) =>
+    dbEffect("claimUnexpectedWakeRepause", async () => {
+      const nowMs = sql`(extract(epoch from now()) * 1000)::bigint`;
+      const claimed = await cloudDb()
+        .update(cloudVms)
+        .set({
+          providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+            || jsonb_build_object(${UNEXPECTED_WAKE_CLAIM_METADATA_KEY}::text, ${nowMs})`,
+          // Reconciliation reads oldest `updatedAt` first; moving a claimed row
+          // to the back lets a capped run reach the wakes it left behind.
+          updatedAt: sql`greatest(${cloudVms.updatedAt} + interval '1 millisecond', now())`,
+        })
+        .where(
+          and(
+            eq(cloudVms.id, input.id),
+            eq(cloudVms.providerVmId, input.providerVmId),
+            eq(cloudVms.status, "paused"),
+            sql`coalesce((${cloudVms.providerMetadata}->>${UNEXPECTED_WAKE_CLAIM_METADATA_KEY}::text)::bigint, 0) < ${nowMs} - ${input.ttlMs}::bigint`,
+          ),
+        )
+        .returning({ id: cloudVms.id });
+      return claimed.length > 0;
     }),
 
   setDisplayName: (input) =>

@@ -8,6 +8,11 @@ private let userClipboardWriteDispatchKey: pthread_key_t = {
 
 extension GhosttySurfaceCallbackContext {
     /// Marks a synchronous copy dispatch as a user-approved clipboard write.
+    ///
+    /// Remote and manual mirror surfaces reject automatic OSC 52 writes, but
+    /// a copy action initiated by the user must still reach the Mac clipboard.
+    /// The marker is visible only to the matching runtime callback's call
+    /// stack, so it cannot authorize later or unrelated remote output.
     public func withUserInitiatedClipboardWriteIntent<Result>(
         _ body: () throws -> Result
     ) rethrows -> Result {

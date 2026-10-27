@@ -524,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Nastavite plan da biste ga promijenili.",
           "granted": "Dodijelio cmux. Nema šta da se mijenja.",
+          "grantedNoCancel": "Dodijelio cmux, pa nema ničega za otkazivanje.",
+          "paymentFailed": "Ažurirajte način plaćanja prije promjene plana.",
+          "foundersLifetime": "Founder's Edition uključuje Pro doživotno.",
           "adminOnly": "Samo administratori tima mogu promijeniti plan."
         },
         "names": {
@@ -566,6 +569,7 @@
       "change": {
         "title": "Preći na {plan}?",
         "upgradeBody": "{plan} počinje odmah. Danas plaćate {amount} za ostatak ovog obračunskog perioda. Od {date} plaćate {price} mjesečno.",
+        "upgradeBodyYearly": "{plan} počinje odmah. Danas plaćate {amount} za ostatak ovog obračunskog perioda. Od {date} plaćate {price} godišnje.",
         "downgradeBody": "{plan} počinje odmah. Neiskorišteni dio trenutnog plana, {credit}, uračunava se u sljedeće fakture. Sljedeća faktura, {date}, iznosi {amount}.",
         "confirm": "Pređi na {plan}",
         "keep": "Zadrži trenutni plan",
@@ -578,6 +582,8 @@
         "title": "Otkazati {plan}?",
         "body": "{plan} zadržavate do {date}. Nakon toga gubite:",
         "bodyNoDate": "{plan} zadržavate do kraja ovog obračunskog perioda. Nakon toga gubite:",
+        "foundersBody": "Vaša {plan} pretplata ističe {date}. Nakon toga imate Pro, koji Founder's Edition uključuje doživotno.",
+        "foundersBodyNoDate": "Vaša {plan} pretplata ističe na kraju ovog obračunskog perioda. Nakon toga imate Pro, koji Founder's Edition uključuje doživotno.",
         "reasonLabel": "Zašto otkazujete? (opcionalno)",
         "otherPlaceholder": "Recite nam više (opcionalno)",
         "confirm": "Otkaži plan",
@@ -2175,6 +2181,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "Kada je uključeno, dvostruki klik na razdjelnik izjednačava veličine panela u njegovom redu ili koloni. Ostali redovi i kolone zadržavaju svoje veličine.",
           "confirmQuit": "Određuje kada cmux traži potvrdu prije izlaska. DEV verzije se uvijek odmah zatvaraju bez obzira na ovu postavku. Naslijeđeni app.warnBeforeQuit se i dalje prihvata kao boolean rezervna opcija.",
           "windowTitleTemplate": "Opcionalni predložak za NSWindow naslov. Prazno zadržava postojeće zadano ponašanje naslova u cmux-u, uključujući rezervu na trenutni direktorij. Podržani rezervisani izrazi: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Naziv ekrana koji se koristi samo u DEBUG izdanjima pri otvaranju novih prozora. Prazna vrijednost koristi zadanu vrijednost sistema.",
@@ -2252,12 +2259,20 @@
           "currentLineHighlight": "Obojite red u kojem se nalazi kursor dok ništa nije označeno.",
           "tabWidth": "Koliko kolona obuhvata jedan tabulatorski korak. Vodilice uvlačenja koriste isti razmak."
         },
+        "actions": "Višekratne radnje za paletu komandi, prečice, dugmad na traci kartica i meni dugmeta plus. Podržava builtin, command, agent, workspaceCommand, workspace, setting, settingPreset i text. Tekstualne radnje lijepe tekst u fokusirani terminal i čuvaju prijelome redova; submit: true pritiska Enter. Radnje postavki zahtijevaju globalnu konfiguraciju.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
               "enabled": "Kada je izabran udaljeni tmux radni prostor, „Novi radni prostor“ pokreće tmux sesiju na hostu tog radnog prostora."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, agent početne stranice: da li se prikazuje i koji harness, model i napor koristi.",
+          "enabled": "Prikazuje red Početna i ulazne tačke za Chief. Kada je false, skriveni su red Početna, prečica Otvori Chief, stavka menija i unosi palete komandi.",
+          "harness": "Harness agenta na kojem radi Chief: claude (Claude Code) ili codex (Codex).",
+          "model": "Model koji se prosljeđuje harnessu. Ostavite prazno za zadanu vrijednost harnessa.",
+          "effort": "Napor rezonovanja koji se prosljeđuje harnessu, npr. low, medium ili high. Ostavite prazno za zadanu vrijednost harnessa."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3437,6 +3452,7 @@
     "unsupportedParams": "Ovaj link uključuje nepodržane parametre cmux će odbiti: {params}",
     "conflictingParams": "Ova veza uključuje parametre koji se ne mogu koristiti zajedno: {params}",
     "invalidParams": "Ova veza uključuje nevažeće vrijednosti parametara: {params}",
+    "ignoredParams": "cmux ignoriše parametre koje ne koristi: {params}. Sesija se ipak otvara.",
     "fixParams": "Popravite URL parametre, a zatim ponovo učitajte ovu stranicu.",
     "examplePrefix": "Vidi an",
     "exampleLink": "primjer linka",
@@ -3460,6 +3476,16 @@
       "title": "Otvorite pravila u cmux",
       "intro": "Ova stranica otvara pravila u trenutnom cmux radnom prostoru.",
       "fallback": "cmux prvo prikazuje pravila i pita prije nego što ih zalijepi u trenutni radni prostor. Ako se cmux ne otvori, instalirajte cmux i ponovo kliknite Otvori u cmux."
+    },
+    "agent": {
+      "metaTitle": "Otvori sesiju agenta u cmuxu",
+      "metaDescription": "Otvorite cmux deeplink do sesije agenta s weba, uz opciju instalacije kada cmux nije dostupan.",
+      "title": "Otvori sesiju agenta",
+      "intro": "Ovaj link otvara sesiju agenta u cmuxu ako ovaj Mac već može pristupiti toj sesiji. Sam link ne daje nikakav pristup.",
+      "fallback": "Ako se cmux ne otvori, instalirajte cmux i ponovo kliknite Otvori u cmuxu. cmux otvara sesiju samo ako joj ovaj Mac već može pristupiti.",
+      "nameLabel": "Naziv: {value}",
+      "hostLabel": "Host: {value}",
+      "harnessLabel": "Okruženje: {value}"
     }
   },
   "download": {
@@ -5498,6 +5524,8 @@
     "errorInvalidCode": "Taj kod nije ispravan. Provjeri e-mail i pokušaj ponovo.",
     "errorInvalidTotp": "Taj kod za dvofaktorsku provjeru nije ispravan.",
     "errorSignUpNotAllowed": "Novi računi se trenutno ne mogu napraviti.",
+    "errorEmailUnverified": "Ovaj e-mail već ima račun, ali adresa još nije potvrđena. Prijavi se na isti način kao pri registraciji, a zatim potvrdi e-mail kako bi se mogli koristiti kodovi za prijavu.",
+    "useEmailPasswordInstead": "Prijavi se e-mailom i lozinkom",
     "errorPasskey": "Prijava pristupnim ključem nije završena. Pokušaj ponovo ili koristi drugi način.",
     "errorGeneric": "Nešto nije u redu. Pokušaj ponovo."
   },

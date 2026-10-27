@@ -6,6 +6,7 @@ import {
   bigint,
   boolean,
   check,
+  date,
   foreignKey,
   index,
   integer,
@@ -78,6 +79,123 @@ export const cloudVmNotificationDeliveryStatus = pgEnum("cloud_vm_notification_d
   "read",
   "dismissed",
 ]);
+
+/** Durable team-owned Runs. Session and provider credentials never enter these rows. */
+export const runStatus = pgEnum("run_status", [
+  "queued",
+  "running",
+  "succeeded",
+  "failed",
+  "cancelled",
+]);
+
+export const runAttemptStatus = pgEnum("run_attempt_status", [
+  "queued",
+  "running",
+  "succeeded",
+  "failed",
+  "cancelled",
+]);
+
+export const runEventKind = pgEnum("run_event_kind", [
+  "run.created",
+  "attempt.queued",
+  "attempt.started",
+  "attempt.succeeded",
+  "attempt.failed",
+  "attempt.cancelled",
+  "run.cancelled",
+]);
+
+export const runs = pgTable("runs", {
+  ownerTeamId: text("owner_team_id"),
+  spec: jsonb("spec").$type<Record<string, unknown>>(),
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: text("user_id").notNull(),
+  billingTeamId: text("billing_team_id"),
+  idempotencyKey: text("idempotency_key"),
+  requestDigest: text("request_digest").notNull(),
+  source: jsonb("source").$type<Record<string, unknown>>().notNull(),
+  recipe: text("recipe").notNull(),
+  provider: text("provider").notNull().default("cloud-vm"),
+  desiredAttempts: integer("desired_attempts").notNull().default(1),
+  status: runStatus("status").notNull().default("queued"),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("runs_user_idempotency_key_unique")
+    .on(table.userId, table.idempotencyKey)
+    .where(sql`${table.ownerTeamId} is null and ${table.idempotencyKey} is not null`),
+  index("runs_user_created_idx").on(table.userId, table.createdAt, table.id),
+  uniqueIndex("runs_owner_idempotency_unique").on(table.ownerTeamId, table.idempotencyKey).where(sql`${table.ownerTeamId} is not null and ${table.idempotencyKey} is not null`),
+]);
+
+export const runAttempts = pgTable("run_attempts", {
+  leaseId: uuid("lease_id"),
+  leaseUntil: timestamp("lease_until", { withTimezone: true }),
+  workerId: text("worker_id"),
+  cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
+  checkpoint: jsonb("checkpoint").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  cleanupState: text("cleanup_state").notNull().default("pending"),
+  retainedUntil: timestamp("retained_until", { withTimezone: true }),
+  promotedAt: timestamp("promoted_at", { withTimezone: true }),
+  runtimeId: uuid("runtime_id"),
+  id: uuid("id").defaultRandom().primaryKey(),
+  runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+  ordinal: integer("ordinal").notNull(),
+  variant: jsonb("variant").$type<Record<string, unknown>>().notNull(),
+  status: runAttemptStatus("status").notNull().default("queued"),
+  providerVmId: text("provider_vm_id"),
+  result: jsonb("result").$type<Record<string, unknown>>(),
+  error: text("error"),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("run_attempts_run_ordinal_unique").on(table.runId, table.ordinal),
+  index("run_attempts_run_status_idx").on(table.runId, table.status),
+]);
+
+export const runEvents = pgTable("run_events", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+  attemptId: uuid("attempt_id").references(() => runAttempts.id, { onDelete: "cascade" }),
+  sequence: integer("sequence").notNull(),
+  kind: runEventKind("kind").notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("run_events_run_sequence_unique").on(table.runId, table.sequence),
+  index("run_events_run_cursor_idx").on(table.runId, table.sequence, table.id),
+]);
+
+
+/** Receipt artifacts are immutable JSON, never arbitrary external URLs. */
+export const runArtifacts = pgTable("run_artifacts", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+  attemptId: uuid("attempt_id").notNull().references(() => runAttempts.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  digest: text("digest").notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("run_artifacts_attempt_name_unique").on(table.attemptId, table.name)]);
+
+export const runAttachTickets = pgTable("run_attach_tickets", {
+  digest: text("digest").primaryKey(),
+  runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+  attemptId: uuid("attempt_id").notNull().references(() => runAttempts.id, { onDelete: "cascade" }),
+  ownerTeamId: text("owner_team_id").notNull(),
+  userId: text("user_id").notNull(),
+  providerVmId: text("provider_vm_id").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  redeemedAt: timestamp("redeemed_at", { withTimezone: true }),
+});
+
 
 /** Teams own pools; a VM is assigned one pool from its own team. */
 export const coderouterPools = pgTable("coderouter_pools", {
@@ -2809,4 +2927,31 @@ export const appleNotifications = pgTable("apple_notifications", {
   index("apple_notifications_pending_idx")
     .on(table.receivedAt)
     .where(sql`${table.processedAt} is null`),
+]);
+
+/**
+ * Opt-in hang reports from cmux NEXT Nightly (schema 2, see
+ * `app/api/hang-reports`). Anonymous: `install_id` is a random per-Mac UUID
+ * the client rotates every 30 days. No IP address, account or user agent is
+ * stored. `received_day` is the server's UTC day and carries the per-install
+ * daily cap. Rows are deleted after 90 days by `/api/cron/hang-reports-retention`.
+ */
+export const hangReports = pgTable("hang_reports", {
+  reportId: uuid("report_id").primaryKey(),
+  installId: uuid("install_id").notNull(),
+  receivedDay: date("received_day", { mode: "string" }).notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  appVersion: text("app_version"),
+  appBuild: text("app_build"),
+  channel: text("channel"),
+  osVersion: text("os_version"),
+  arch: text("arch"),
+  chip: text("chip"),
+  cores: integer("cores"),
+  memoryGb: integer("memory_gb"),
+  counts: jsonb("counts").$type<Record<string, string>>(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+}, (table) => [
+  index("hang_reports_install_day_idx").on(table.installId, table.receivedDay),
+  index("hang_reports_received_at_idx").on(table.receivedAt),
 ]);

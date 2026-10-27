@@ -34,6 +34,18 @@ SPCTL_TOOL="${CMUX_SPCTL_TOOL:-spctl}"
 SYSPOLICY_TOOL="${CMUX_SYSPOLICY_TOOL:-syspolicy_check}"
 SMOKE_TOOL="${CMUX_SMOKE_TOOL:-$ROOT_DIR/scripts/smoke-launch-macos-app.sh}"
 VERIFY_METADATA_TOOL="${CMUX_VERIFY_METADATA_TOOL:-$ROOT_DIR/scripts/verify-app-bundle-channel-metadata.sh}"
+# CMUX_DEFER_LAUNCH_SMOKES=true: skip the launch smokes here. The caller runs
+# them in a separate job that holds no secrets (scripts/ci/smoke-dmg.sh on the
+# final DMG), so no bundle code runs in a job that signs, notarizes or publishes.
+DEFER_LAUNCH_SMOKES="${CMUX_DEFER_LAUNCH_SMOKES:-false}"
+launch_smokes() {
+  if [ "$DEFER_LAUNCH_SMOKES" = true ]; then
+    echo "Launch smokes for $1 run in the secret-free verify job"
+    return 0
+  fi
+  CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$1"
+  CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$1"
+}
 VERIFY_LICENSES_TOOL="${CMUX_VERIFY_LICENSES_TOOL:-$ROOT_DIR/scripts/verify-app-bundle-licenses.sh}"
 NOTARY_WAIT_TIMEOUT="${CMUX_NOTARY_WAIT_TIMEOUT:-60m}"
 NOTARY_LOG_TIMEOUT_SECONDS="${CMUX_NOTARY_LOG_TIMEOUT_SECONDS:-300}"
@@ -102,6 +114,15 @@ RECORDED_DMG="$(state_value dmg_path)"
 RECORDED_SHA256="$(state_value dmg_sha256)"
 RECORDED_IMMUTABLE="$(state_value immutable_path)"
 RECORDED_CHANNEL="$(state_value channel)"
+# stapled_app=true: this DMG is the one around the stapled app
+# (resume-stapled-app-notarization.sh); the app inside must have its ticket.
+STATE_STAPLED_APP="$(state_value stapled_app)"
+# CMUX_RESUME_APP_ONLY=true: staple and check the app, then stop; this DMG is
+# not changed (resume-stapled-app-notarization.sh builds the DMG that ships).
+RESUME_APP_ONLY="${CMUX_RESUME_APP_ONLY:-false}"
+# CMUX_SKIP_HELPER_RECHECK=true: the caller checked this same app's Computer
+# Use helper earlier in the job (the stapled-app DMG continuation).
+SKIP_HELPER_RECHECK="${CMUX_SKIP_HELPER_RECHECK:-false}"
 CHANNEL="${CMUX_CHANNEL:-${RECORDED_CHANNEL:-nightly}}"
 if [ -z "$SUBMISSION_ID" ] || [ -z "$RECORDED_DMG" ] || [ -z "$RECORDED_SHA256" ] || [ -z "$RECORDED_IMMUTABLE" ] || [ -z "$RECORDED_CHANNEL" ]; then
   echo "Incomplete notarization state: $STATE_FILE" >&2
@@ -161,8 +182,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# stapler writes the ticket to Contents/CodeResources with the process umask.
+# The shipped app must be readable by every user, so its ticket is 0644.
+staple_app() {
+  "$XCRUN_TOOL" stapler staple "$1"
+  [ ! -e "$1/Contents/CodeResources" ] || chmod 0644 "$1/Contents/CodeResources"
+}
+
 verify_computer_use_helper() {
   local helper_path="$APP_PATH/Contents/Library/cmux Computer Use.app"
+  if [ "$SKIP_HELPER_RECHECK" = true ]; then
+    echo "The Computer Use helper of this app was checked earlier in this job"
+    return 0
+  fi
   local standalone_helper="$TMP_DIR/cmux Computer Use.app"
   if [ ! -d "$helper_path/Contents" ]; then
     echo "Recovered app is missing the Computer Use helper: $helper_path" >&2
@@ -237,33 +269,48 @@ set -e
 WAIT_STATUS="$(extract_notary_value "$WAIT_OUTPUT" status || true)"
 LOG_STATUS="$(extract_notary_value "$LOG_OUTPUT" status || true)"
 
-umask 077
-{
-  printf '%s\n' '--- original timed-out notarytool evidence ---'
-  cat "$EVIDENCE_FILE"
-  printf '\n--- notarytool wait for submission %s ---\n' "$SUBMISSION_ID"
-  cat "$WAIT_OUTPUT"
-  printf '\n--- notarytool log for submission %s ---\n' "$SUBMISSION_ID"
-  cat "$LOG_OUTPUT"
-} > "$NOTARY_OUTPUT_FILE"
+# Only the evidence file is private; the app stapled below must not inherit 077.
+(
+  umask 077
+  {
+    printf '%s\n' '--- original timed-out notarytool evidence ---'
+    cat "$EVIDENCE_FILE"
+    printf '\n--- notarytool wait for submission %s ---\n' "$SUBMISSION_ID"
+    cat "$WAIT_OUTPUT"
+    printf '\n--- notarytool log for submission %s ---\n' "$SUBMISSION_ID"
+    cat "$LOG_OUTPUT"
+  } > "$NOTARY_OUTPUT_FILE"
+)
 
 if [ "$WAIT_EXIT" -ne 0 ] || [ "$WAIT_STATUS" != "Accepted" ] || [ "$LOG_EXIT" -ne 0 ] || [ "$LOG_STATUS" != "Accepted" ]; then
   cat "$NOTARY_OUTPUT_FILE" >&2
   echo "Notarization submission $SUBMISSION_ID is not proven Accepted (wait: ${WAIT_STATUS:-unknown}, log: ${LOG_STATUS:-unknown}); refusing to staple or publish" >&2
+  # 75: Apple did not answer Accepted (still queued, or refused). The
+  # stapled-app continuation counts its 6 h fallback only on this code.
+  if [ "$WAIT_STATUS" != "Accepted" ]; then
+    exit 75
+  fi
   exit 1
 fi
 
 "$CODESIGN_TOOL" --verify --verbose=2 "$DMG_RELEASE"
 verify_computer_use_helper
-"$XCRUN_TOOL" stapler staple "$APP_PATH"
+staple_app "$APP_PATH"
 "$XCRUN_TOOL" stapler validate "$APP_PATH"
 "$SPCTL_TOOL" -a -vv --type execute "$APP_PATH"
-CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP_PATH"
-CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP_PATH"
+# Apple is done with this artifact; the app below must not find the key.
+notary_auth_forget "$NOTARY_DIR"
+launch_smokes "$APP_PATH"
 "$VERIFY_METADATA_TOOL" "$APP_PATH" "$CHANNEL"
 "$VERIFY_LICENSES_TOOL" "$APP_PATH"
 "$SYSPOLICY_TOOL" distribution "$APP_PATH"
 
+if [ "$RESUME_APP_ONLY" = true ]; then
+  # The first DMG keeps its submitted bytes: it travels for the 6 h fallback
+  # (which staples it) and still matches its state if the job stops here.
+  echo "Accepted submission $SUBMISSION_ID: the app is stapled; the DMG around the stapled app comes next"
+  exit 0
+fi
 "$XCRUN_TOOL" stapler staple "$DMG_RELEASE"
 "$XCRUN_TOOL" stapler validate "$DMG_RELEASE"
 MOUNT_DIR="$(mktemp -d "$TMP_DIR/mount.XXXXXX")"
@@ -273,9 +320,11 @@ if [ -z "$MOUNTED_APP" ]; then
   echo "No app found in mounted recovered DMG" >&2
   exit 1
 fi
+if [ "$STATE_STAPLED_APP" = true ]; then
+  "$XCRUN_TOOL" stapler validate "$MOUNTED_APP"
+fi
 "$SPCTL_TOOL" -a -vv --type execute "$MOUNTED_APP"
-CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$MOUNTED_APP"
-CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$MOUNTED_APP"
+launch_smokes "$MOUNTED_APP"
 "$VERIFY_METADATA_TOOL" "$MOUNTED_APP" "$CHANNEL"
 "$VERIFY_LICENSES_TOOL" "$MOUNTED_APP"
 "$HDIUTIL_TOOL" detach "$MOUNT_DIR" || "$HDIUTIL_TOOL" detach -force "$MOUNT_DIR"

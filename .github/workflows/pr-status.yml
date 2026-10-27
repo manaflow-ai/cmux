@@ -1,0 +1,53 @@
+name: PR status line
+
+# Writes one line of a pull request's status comment (scripts/ci/pr_status.py) for a job
+# that runs off GitHub: bead-autoclose.py (the bead it created) and hq's pr-preview (the
+# preview link). Those jobs hold a person's token, so a comment they post shows as that
+# person; a dispatch shows only in Actions, and the line lands as github-actions.
+# Inputs are a pull request number and one validated value: `field` refuses anything that
+# is not a bead id or a commit SHA, so a dispatch cannot put free text on a pull request.
+# GitHub dispatches only a workflow on the default branch, so callers run it on main; the
+# same file and script are on feat-cmux-next.
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        required: true
+      bead:
+        description: Bead id (cx-...) to show on the pull request
+        required: false
+        default: ""
+      preview:
+        description: Head SHA whose visual preview is in the private review feed
+        required: false
+        default: ""
+
+permissions: {}
+
+jobs:
+  line:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: write token; one comment edit, so the smallest trusted runner
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout the status script
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/pr_status.py
+          sparse-checkout-cone-mode: false
+
+      - name: Write the line
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ inputs.pr }}
+          BEAD: ${{ inputs.bead }}
+          PREVIEW: ${{ inputs.preview }}
+        run: |
+          set -euo pipefail
+          [[ "$PR" =~ ^[0-9]+$ ]] || { echo "::error::pr must be a number"; exit 2; }
+          python3 scripts/ci/pr_status.py field --repo "$REPO" --pr "$PR" --bead "$BEAD" --preview "$PREVIEW"

@@ -211,7 +211,10 @@ function PricingContent({
   const canManageBilling = snapshot.billingManagement === "stripe";
   // The current plan's one action: Resume while a cancellation is scheduled,
   // otherwise the billing portal.
-  const currentPlanAction = (plan: string) => snapshot.cancelScheduled ? (
+  const currentPlanAction = (plan: string) => !canManageBilling ? (
+    // A granted plan has no billing to manage.
+    <DisabledButton>{t("currentPlan")}</DisabledButton>
+  ) : snapshot.cancelScheduled ? (
     <ResumePlanButton>{t("resumePlan", { plan })}</ResumePlanButton>
   ) : (
     <SecondaryLink href="/api/billing/portal">{t("manageBilling")}</SecondaryLink>
@@ -251,15 +254,13 @@ function PricingContent({
     TEAM_CHECKOUT_URL,
     attribution,
   );
-  // Max has the same monthly/yearly choices as Pro. A Pro subscriber is sent
-  // to the portal switch flow, so Stripe owns the interval selector there.
-  const maxPortalSwitch = snapshot.authenticated && snapshot.isPro && !isMax;
-  const maxCheckoutHref = withCheckoutAttribution(
-    maxPortalSwitch
-      ? "/api/billing/portal?flow=switch_plan&plan=max"
-      : MAX_CHECKOUT_URL,
-    attribution,
-  );
+  // The checkout endpoint decides whether this is a new purchase or a switch
+  // of an existing subscription. Pro access alone does not mean a Stripe
+  // customer exists (an operator grant has none), so the CTA never links the
+  // portal switch directly.
+  const maxCheckoutHref = withCheckoutAttribution(MAX_CHECKOUT_URL, attribution);
+  // A failed payment is fixed in the portal before any plan switch.
+  const maxNeedsPaymentFix = snapshot.isPro && !isMax && snapshot.paymentPastDue === true;
   const proCheckoutHref = withCheckoutInterval(proCheckoutURL, "month");
   const proAnnualLabelSet = {
     billingPeriod: t("billingPeriod"),
@@ -369,7 +370,7 @@ function PricingContent({
         name={t("pro.name")}
         surface="public_pricing"
         monthlyOnly={isGo}
-        initialInterval={query.interval === "month" ? "month" : "year"}
+        initialInterval={query.interval === "year" ? "year" : "month"}
         labels={proAnnualLabelSet}
         checkoutHrefs={proCheckoutHrefs}
         requiresSignIn={!pending && !snapshot.authenticated}
@@ -397,8 +398,8 @@ function PricingContent({
         plan="max"
         pricing={MAX_PRICING_USD}
         surface="public_pricing"
-        monthlyOnly={maxPortalSwitch}
-        initialInterval={query.interval === "month" ? "month" : "year"}
+        monthlyOnly={false}
+        initialInterval={query.interval === "year" ? "year" : "month"}
         labels={proAnnualLabelSet}
         checkoutHrefs={{
           month: withCheckoutInterval(maxCheckoutHref, "month"),
@@ -411,7 +412,7 @@ function PricingContent({
         }
         action={appStoreAction ? appStoreAction() : isMax ? (
           <div className="space-y-2">{currentPlanAction(t("max.name"))}</div>
-        ) : canManageBilling && !snapshot.isPro ? (
+        ) : canManageBilling && (!snapshot.isPro || maxNeedsPaymentFix) ? (
           <SecondaryLink href="/api/billing/portal">
             {t("manageBilling")}
           </SecondaryLink>
@@ -641,6 +642,8 @@ type PlanSnapshot = {
   billingSource?: PersonalBillingSource;
   /** The Stripe subscription ends at period end; pricing offers Resume. */
   cancelScheduled?: boolean;
+  /** The Stripe subscription has a failed payment to fix before a switch. */
+  paymentPastDue?: boolean;
 };
 
 /**
@@ -689,5 +692,6 @@ async function readPlanSnapshot(): Promise<PlanSnapshot> {
     billingManagement: status.billingManagement,
     billingSource: status.billingSource,
     cancelScheduled: status.cancelScheduled ?? false,
+    paymentPastDue: status.paymentPastDue ?? false,
   };
 }

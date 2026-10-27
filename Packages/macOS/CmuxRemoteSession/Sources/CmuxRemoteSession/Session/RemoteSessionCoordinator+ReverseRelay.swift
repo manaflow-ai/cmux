@@ -469,7 +469,7 @@ extension RemoteSessionCoordinator {
         relayPort: Int?,
         status64FallbackScript: String? = nil
     ) -> Bool {
-        let command = "sh -c \(script.shellSingleQuoted)"
+        let command = RemotePOSIXShellCommand(script: script).commandLine
         do {
             let result = try sshExec(
                 arguments: sshCommonArguments(batchMode: true) + ["--", configuration.destination, command],

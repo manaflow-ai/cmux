@@ -88,6 +88,7 @@ def main() -> int:
         ("remove", "npm:@termdraw/pi", "--local"),
         ("uninstall", "npm:@termdraw/pi", "--local"),
         ("update", "--extensions"),
+        ("update", "--extension", "npm:@termdraw/pi"),
         ("list", "--help"),
         ("config", "--local"),
         ("auth", "check", "--help"),
@@ -108,6 +109,7 @@ def main() -> int:
         ("hello",),
         ("--print", "update"),
         ("--model", "provider/model", "hello"),
+        ("--", "--no-extensions"),
     )
     for args in interactive_args:
         with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-prompt-") as directory:
@@ -142,6 +144,12 @@ def main() -> int:
         if "-e" in disabled["args"] or disabled["extension_exists"]:
             raise AssertionError(f"Pi hooks disabled still injected extension: {disabled}")
 
+    with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-no-extensions-") as directory:
+        root = Path(directory)
+        opted_out = run_case(root, args=("--print", "hello", "--no-extensions"))
+        if opted_out["args"] != ["--print", "hello", "--no-extensions"] or opted_out["extension_exists"]:
+            raise AssertionError(f"Pi --no-extensions was overridden by cmux injection: {opted_out}")
+
     with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-missing-") as directory:
         root = Path(directory)
         shim_dir = root / "shim-bin"
@@ -166,7 +174,7 @@ def main() -> int:
                 f"status={result.returncode} stderr={result.stderr!r}"
             )
 
-    print("PASS: Pi wrapper injects one bundled extension and honors global/disabled cases")
+    print("PASS: Pi wrapper injects one bundled extension and honors global/disabled/opt-out cases")
     return 0
 
 

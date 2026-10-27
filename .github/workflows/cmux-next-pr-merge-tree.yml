@@ -1,125 +1,23 @@
-name: cmux-next PR merge tree
+name: cmux-next PR merge tree (disabled)
 
-# Starts the cmux-tui tree publish for a same-repository feat-cmux-next pull
-# request's merge commit (scripts/ci/publish_pr_merge_tree.py), so cmux-next's
-# same-tree checks find the merge tree instead of failing with "no cmux-tui
-# artifacts run can publish tree <key>". The pull request's own run cannot start
-# it: its token gets 403 creating the cmux-tui-pin-<sha12> ref (55 same-tree
-# reds on 33 pull requests, 2026-10-10/11), and so would any GITHUB_TOKEN: a
-# ref at a feat-cmux-next commit needs the workflows permission (#19166).
-# GitHub runs pull_request_target only from the default branch, so this lives
-# on main.
-#
-# TOKEN: the pin is created with the FFI release App (manaflow-cmux-ffi-release,
-# contents and workflows write). Its key is in the `cmux-tui-merge-tree`
-# environment, used by this job alone (deployment policy: main), and the
-# minted token is for this repository only. The App's ref is a push, which
-# starts cmux-tui-artifacts.yml (push: "**"); GITHUB_TOKEN only dispatches a
-# pin that already existed (the App has no actions permission).
-#
-# It runs none of the pull request's code: it checks out main, reads the merge
-# commit from the API and points cmux-tui-pin-<sha12> at it. That run is the
-# one a push of that branch starts, which a same-repository author can already
-# start by hand (pin-cmux-tui.sh --help on feat-cmux-next). Fork pull requests
-# start nothing.
+# Security shutdown (Daybreak round 3, 2026-10-20): the former
+# pull_request_target job created a real cmux-tui-pin-* branch at an untrusted
+# pull-request merge commit. GitHub then loaded that commit's workflows as a
+# push, giving pull-request-controlled scripts OIDC and access to the
+# artifact-publication path. A replacement must build in a credential-free PR
+# job and publish the exact artifact from default-branch workflow_run controls.
 on:
-  pull_request_target:
-    branches: [feat-cmux-next]
-    types: [opened, reopened, synchronize]
-    # The cmux-tui tree inputs: feat-cmux-next's cmux-tui-artifacts.yml
-    # pull_request_target filter (scripts/cmux-next/cmux-tui-tree-inputs.txt).
-    # A pull request that changes none of them keeps the base's tree.
-    paths:
-      - "cmux-tui/**"
-      - "ghostty"
-      - "ghostty-next"
-      - "scripts/cmux-next/build-layout-reducer-ffi.sh"
-      - "scripts/ci/cmux-tui-darwin-builder"
-      - "scripts/ci/macos-cross.sh"
-      - "scripts/ci/macos_stubs.py"
-      - "scripts/ci/macho_weaken.py"
-      - "scripts/ci/macos-stubs/**"
-      - "first-party-apps/cloud/server/**"
-      - "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json"
-      - "backend/catalog/cloud-operations.json"
-      - "backend/packages/home-core/conformance/conversation-cases.json"
-      - "backend/packages/home-core/conformance/conversation-import-cases.json"
-      - "backend/packages/home-core/conformance/conversation-search-cases.json"
-      - "mux/packages/brain/conformance/chief-cases.json"
-      - "plans/cmux-next/action-surfaces.json"
-      - "schemas/chief-home/vectors.json"
-      - "schemas/agent-url-policy/vectors.json"
-      - "schemas/chief-cmux-target/vectors.json"
-      - "schemas/automation-input/vectors.json"
-      - "schemas/automation-lease/vectors.json"
-      - "schemas/ghostty-shell-features/vectors.json"
-      - "schemas/link-token/keyset-vectors.json"
-      - "schemas/remote-tab/client.json"
-      - "schemas/remote-tab/cookie-sync.json"
-      - "schemas/remote-tab/input-mapping.json"
-      - "schemas/remote-tab/menu-token.json"
-      - "schemas/remote-tab/messages.json"
-      - "schemas/remote-tab/scroll-writer.json"
-      - "schemas/remote-tab/session.json"
-      - "schemas/terminal-sizing/fixtures.json"
-      - "schemas/settings/settings-schema.json"
-      - "scripts/cmux-next/cmux-tui.pin"
-      - "skills/cmux-browser/SKILL.md"
-      - "skills/cmux-browser/references/authentication.md"
-      - "skills/cmux-browser/references/commands.md"
-      - "skills/cmux-browser/references/proxy-support.md"
-      - "skills/cmux-browser/references/session-management.md"
-      - "skills/cmux-browser/references/snapshot-refs.md"
-      - "skills/cmux-browser/references/surface-discovery.md"
-      - "skills/cmux-browser/references/video-recording.md"
-      - "skills/cmux-browser/templates/authenticated-session.sh"
-      - "skills/cmux-browser/templates/capture-workflow.sh"
-      - "skills/cmux-browser/templates/form-automation.sh"
-      - "skills/cmux-cua/SKILL.md"
+  workflow_dispatch:
 
 permissions: {}
 
-concurrency:
-  group: cmux-next-pr-merge-tree-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 jobs:
-  publish:
-    name: publish the merge tree
-    if: github.repository == 'manaflow-ai/cmux' && github.event.pull_request.head.repo.full_name == github.repository
-    # pull_request_target with a write token: a GitHub-hosted runner only.
-    runs-on: ubuntu-24.04 # github-hosted-required: pull_request_target write token
-    timeout-minutes: 5
-    environment: cmux-tui-merge-tree
-    permissions:
-      actions: write
-      contents: read
-      pull-requests: read
+  disabled:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 1
+    permissions: {}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          persist-credentials: false
-          sparse-checkout: scripts/ci/publish_pr_merge_tree.py
-          sparse-checkout-cone-mode: false
-
-      - name: Mint the release App token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ secrets.CMUX_TUI_MERGE_TREE_APP_ID }}
-          private-key: ${{ secrets.CMUX_TUI_MERGE_TREE_APP_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-          permission-contents: write
-          permission-workflows: write
-
-      - name: Publish the merge tree
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CMUX_PR_TREE_PIN_TOKEN: ${{ steps.app-token.outputs.token }}
-          PR: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      - name: Refuse the unsafe merge-tree publication path
         run: |
-          set -euo pipefail
-          python3 scripts/ci/publish_pr_merge_tree.py "$PR" "$HEAD_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "::error title=cmux-tui merge tree publisher disabled::Pin refs are refused. This tree has no artifact yet; land the reviewed change, then re-run after a trusted feat-cmux-next publication. A fleet build can bundle its own daemon without publishing it."
+          exit 1

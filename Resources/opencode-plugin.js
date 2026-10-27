@@ -1111,7 +1111,7 @@ const isTUIProcessServerContext = (ctx) =>
   Boolean(ctx && typeof ctx === "object" && ctx.client && ctx.serverUrl && ctx.directory);
 
 export default {
-  id: "cmux.server",
+  id: "cmux.feed",
   async server(ctx) {
     if (!isTUIProcessServerContext(ctx)) return {};
     // cmux-feed.js and plugins/cmux/index.js both load this source, and every

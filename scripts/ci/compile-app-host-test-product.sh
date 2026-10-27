@@ -268,16 +268,18 @@ build() {
   if [ "${CMUX_CI_DISABLE_EXPLICIT_MODULES:-}" = 1 ]; then
     cache_setting+=(SWIFT_ENABLE_EXPLICIT_MODULES=NO)
   fi
-  # Before Xcode 26.6 the app target has the same defect: under the cache the
-  # driver rewrites cmux_DEV-*-ChainedBridgingHeader.h and the bridging PCH
-  # (identical bytes, newer mtime) on every build, so a body-only edit to one
-  # file recompiled all ~5,200 files, 448-495 s on the macOS 15 pool (Xcode
-  # 26.3). With the cache off for `cmux` the same edit compiled 2 tasks in 41 s
-  # (#14351, run 36086596738). On Xcode 26.6 the app compiles incrementally
-  # with the cache on (1 task, run 36081880621), so it keeps the cache there.
-  if xcode_older_than 26 6; then
-    cache_setting+=(CMUX_CI_COMPILATION_CACHE_cmux=NO)
-  fi
+  # The app target has the same defect: under the cache the driver rewrites
+  # cmux_DEV-*-ChainedBridgingHeader.h and the bridging PCH (identical bytes,
+  # newer mtime) on every build, so a body-only edit to one file recompiled
+  # all ~5,200 files, 448-495 s on the macOS 15 pool (Xcode 26.3). With the
+  # cache off for `cmux` the same edit compiled 2 tasks in 41 s (#14351, run
+  # 36086596738). Xcode 26.6 kept the cache for the app after one incremental
+  # run (36081880621), but admission on 26.6 recompiles every app file from a
+  # restored DerivedData whatever the distance to the seed: 1 hit of 2,735
+  # cacheable tasks with 56 changed inputs (run 38232844046), 1 of 2,713 (run
+  # 38318336606) and 76 of 2,856 (run 38201033789), 2,711-2,844 SwiftCompile
+  # tasks each. So the app builds without the cache on every Xcode.
+  cache_setting+=(CMUX_CI_COMPILATION_CACHE_cmux=NO)
   if [ "${CMUX_CI_DISABLE_COMPILATION_CACHE:-}" = 1 ]; then
     cache_setting+=(COMPILATION_CACHE_ENABLE_CACHING=NO)
   fi

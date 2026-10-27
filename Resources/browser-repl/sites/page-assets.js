@@ -8,7 +8,13 @@
   const { URL } = root.CmuxBrowserRepl.core;
   const KINDS = ["image", "font", "stylesheet", "video", "script", "other"];
 
-  function inventory(arg) {
+  // Runs in the page world through a handle of the document's root element
+  // (roots[0]): handles resolve only in the document that issued them, so a
+  // new document fails the call as stale before this runs. It returns the
+  // origin of the document it read, from the same script turn as the asset
+  // URLs, so list() can tell which document they came from.
+  function inventory(roots, arg) {
+    if (!roots[0] || roots[0].ownerDocument !== document || !roots[0].isConnected) return { moved: true };
     const found = new Map();
     const kindOf = (url, hint) => {
       if (hint) return hint;
@@ -82,7 +88,12 @@
       const markup = s.outerHTML;
       return { name: String(label).trim().slice(0, 60), markup: markup.length > arg.maxSvgChars ? markup.slice(0, arg.maxSvgChars) + "<!-- truncated -->" : markup };
     });
-    return { pageUrl: location.href, assets: [...found.values()], inlineSvgs };
+    return { pageUrl: location.href, origin: location.origin, assets: [...found.values()], inlineSvgs };
+  }
+
+  // Whether the document the root `roots[0]` was taken from still shows.
+  function sameDocument(roots) {
+    return !!roots[0] && roots[0].ownerDocument === document && roots[0].isConnected;
   }
 
   const EXT = { "image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp", "image/avif": ".avif", "image/svg+xml": ".svg", "image/x-icon": ".ico", "image/vnd.microsoft.icon": ".ico", "font/woff2": ".woff2", "font/woff": ".woff", "font/ttf": ".ttf", "font/otf": ".otf", "text/css": ".css", "video/mp4": ".mp4", "video/webm": ".webm", "text/javascript": ".js", "application/javascript": ".js" };
@@ -91,30 +102,75 @@
     "pageAssets",
     (t) => {
       const inventories = new Map();
+      // The tab each inventory was listed in, and that tab's origin as the
+      // browser reported it then (page.url(), never the page's own answer
+      // or the returned inventory, which page data or agent code can
+      // change): bundle() fetches through that tab, with cookies only for
+      // that origin.
+      const listedIn = new Map();
+      const listedOrigin = new Map();
+      const originOf = (href) => {
+        try {
+          const o = new URL(href).origin;
+          return /^https?:\/\//.test(o) ? o : null;
+        } catch (e) {
+          return null;
+        }
+      };
       let n = 0;
       return {
         // { id, pageUrl, assets: [{ id, kind, name, url, sources }], inlineSvgs: [{ id, name, markup }], summary }.
         // Load the state that matters first (scroll, open menus); list() sees what is loaded now.
         async list(page, options = {}) {
           const p = page || t.currentPage();
-          const raw = await p.evaluate(inventory, { maxElements: options.maxElements || 5000, maxSvgs: options.maxSvgs || 200, maxSvgChars: options.maxSvgChars || 20000 });
+          // The inventory, the browser's URL for the tab and a second check
+          // that the same document still shows, in that order, through one
+          // handle of the document's root: a navigation that lands between
+          // them fails the list as stale, so an asset an earlier document
+          // named never looks like one of the next document's origin.
+          const moved = () => new S.SiteError("stale", "pageAssets.list: the tab loaded a new document while its assets were listed; call pageAssets.list() again once it has loaded");
+          const root = await p.$("html");
+          if (!root) throw moved();
+          const inDocument = (fn, arg) =>
+            root.evaluateAll(fn, arg).catch((e) => {
+              if (e && e.code === "stale") throw moved();
+              throw e;
+            });
+          const raw = await inDocument(inventory, { maxElements: options.maxElements || 5000, maxSvgs: options.maxSvgs || 200, maxSvgChars: options.maxSvgChars || 20000 });
+          if (!raw || raw.moved) throw moved();
+          const nativeUrl = p.url();
+          if (!(await inDocument(sameDocument))) throw moved();
+          // The document's own origin (read with its assets) and the
+          // browser's must agree before any asset gets cookies: two web
+          // origins that differ mean the URL read is from another document,
+          // and anything else (an opaque or inherited origin) binds no
+          // origin, so bundle() sends no cookies.
+          const nativeOrigin = originOf(nativeUrl);
+          const documentOrigin = originOf(raw.origin);
+          if (nativeOrigin && documentOrigin && nativeOrigin !== documentOrigin) throw moved();
           const id = `inv-${++n}`;
           const assets = raw.assets.map((a, i) => ({ id: `a${i + 1}`, ...a }));
           const inlineSvgs = raw.inlineSvgs.map((s, i) => ({ id: `svg${i + 1}`, ...s }));
           const byKind = {};
           for (const a of assets) byKind[a.kind] = (byKind[a.kind] || 0) + 1;
-          const inv = { id, pageUrl: raw.pageUrl, assets, inlineSvgs, summary: { byKind, inlineSvgCount: inlineSvgs.length, totalCount: assets.length } };
+          const inv = { id, pageUrl: nativeUrl, assets, inlineSvgs, summary: { byKind, inlineSvgCount: inlineSvgs.length, totalCount: assets.length } };
           inventories.set(id, inv);
+          listedIn.set(id, p);
+          listedOrigin.set(id, nativeOrigin && nativeOrigin === documentOrigin ? nativeOrigin : null);
           return inv;
         },
-        // Downloads assets of a list() inventory into a directory (cookies
-        // only for assets on the page's own origin, none cross-origin):
+        // Downloads assets of a list() inventory into a directory through
+        // the tab it was listed in (its cookies, only for assets on the
+        // page's own origin, none cross-origin; none for an inventory list()
+        // did not make in this session; a closed tab fails):
         // { directoryPath, manifestPath, assets: [{ id, kind, name, url, path, contentType }], failures, summary }.
         // { kinds } or { assetIds } narrow it (default: images, fonts, stylesheets, video); inline SVGs are written with images.
         async bundle(inv, options = {}) {
           const started = t.now();
           const inventory_ = typeof inv === "string" ? inventories.get(inv) : inv && inv.id ? inventories.get(inv.id) || inv : null;
           if (!inventory_) throw new S.SiteError("invalid", `pageAssets.bundle: expected an inventory from pageAssets.list() or its id, got ${JSON.stringify(inv)}`);
+          const listed = inventories.get(inventory_.id) === inventory_ ? listedIn.get(inventory_.id) : null;
+          if (listed && listed.isClosed()) throw new S.SiteError("stale", `pageAssets.bundle: the tab inventory ${inventory_.id} was listed in was closed; call pageAssets.list() on the page again`);
           const kinds = options.kinds || ["image", "font", "stylesheet", "video"];
           for (const k of kinds) if (!KINDS.includes(k)) throw new S.SiteError("invalid", `pageAssets.bundle: kinds: expected ${KINDS.join(", ")}, got ${JSON.stringify(k)}`);
           const pick = options.assetIds ? inventory_.assets.filter((a) => options.assetIds.includes(a.id)) : inventory_.assets.filter((a) => kinds.includes(a.kind));
@@ -131,17 +187,20 @@
           const assets = [];
           const failures = [];
           // An inventory's URLs come from the page, so a cross-origin asset is
-          // fetched with no cookies. An asset on the page's own origin uses
-          // "same-origin": cookies go to that origin (while the current tab is
-          // on it) and to no redirect hop elsewhere. The native fetch checks
-          // the domain policy on the URL and every redirect hop.
-          let pageOrigin = null;
-          try {
-            pageOrigin = new URL(inventory_.pageUrl).origin;
-          } catch (e) {}
+          // fetched with no cookies. An asset on the origin the browser
+          // showed in the inventory's tab when list() ran uses "same-origin"
+          // through that tab: its cookies go to that origin, whichever tab is
+          // current, and to no redirect hop elsewhere (the native fetch drops
+          // them once a redirect leaves the origin). The inventory's pageUrl
+          // and assets are plain data that agent code can change, so neither
+          // picks the origin. An inventory list() did not make here (a copy)
+          // has no tab and sends no cookies. The native fetch checks the
+          // domain policy on the URL and every redirect hop.
+          const pageOrigin = listed ? listedOrigin.get(inventory_.id) : null;
+          const fetchAsset = listed && pageOrigin ? t.fetchFrom(listed, pageOrigin) : t.fetch;
           const credentialsFor = (url) => {
             try {
-              return pageOrigin && pageOrigin !== "null" && new URL(url).origin === pageOrigin ? "same-origin" : "omit";
+              return listed && pageOrigin && pageOrigin !== "null" && new URL(url).origin === pageOrigin ? "same-origin" : "omit";
             } catch (e) {
               return "omit";
             }
@@ -156,7 +215,7 @@
                 type = m[1] || null;
                 bytes = m[2] ? t.Buffer.from(m[3], "base64") : t.Buffer.from(decodeURIComponent(m[3]), "utf8");
               } else {
-                const r = await t.fetch(a.url, { credentials: credentialsFor(a.url) });
+                const r = await fetchAsset(a.url, { credentials: credentialsFor(a.url) });
                 if (!r.ok) throw new Error(`HTTP ${r.status}`);
                 type = (r.headers.get("content-type") || "").split(";")[0] || null;
                 bytes = t.Buffer.from(await r.arrayBuffer());

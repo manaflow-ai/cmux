@@ -35,6 +35,11 @@ extension Array where Element == CuratedSettingEntry {
                 anchorPath: "automation.agentAutoResume"
             ),
             .init(section: .automation, id: "agent-messages", title: String(localized: "settings.automation.agentMessages", defaultValue: "Agent Messages", bundle: .module), paths: ["agentMessages.enabled"], synonyms: "Agent Messages agentMessages.enabled agent message inbox communication mute disable off send deliver"),
+            .init(section: .automation, id: "chief", title: String(localized: "settings.automation.chief", defaultValue: "Chief", bundle: .module), paths: ["chief.enabled"], synonyms: "Chief chief.enabled home agent assistant imessage messages hide show disable off"),
+            .init(section: .automation, id: "chief-harness", title: String(localized: "settings.automation.chief.harness", defaultValue: "Chief Harness", bundle: .module), paths: ["chief.harness"], synonyms: "Chief Harness chief.harness home agent claude code codex provider"),
+            .init(section: .automation, id: "chief-model", title: String(localized: "settings.automation.chief.model", defaultValue: "Chief Model", bundle: .module), paths: ["chief.model"], synonyms: "Chief Model chief.model home agent model opus sonnet gpt"),
+            .init(section: .automation, id: "chief-effort", title: String(localized: "settings.automation.chief.effort", defaultValue: "Chief Effort", bundle: .module), paths: ["chief.effort"], synonyms: "Chief Effort chief.effort home agent reasoning effort thinking low medium high"),
+            .init(section: .automation, id: "chief-dangerous-permissions", title: String(localized: "settings.automation.chief.dangerousPermissions", defaultValue: "Skip permission prompts", bundle: .module), paths: ["chief.dangerouslySkipPermissions"], synonyms: "Skip permission prompts chief.dangerouslySkipPermissions bypass approval cards dangerous full access yolo"),
             .init(section: .automation, id: "canonical-agent-scratch", title: String(localized: "settings.automation.canonicalAgentScratch", defaultValue: "Canonical Agent Scratch"), synonyms: "Canonical Agent Scratch automation.canonicalAgentScratch agent artifacts temporary files cleanup retention claude codex opencode storage"),
             .init(section: .automation, id: "cursor", title: String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"), synonyms: "Cursor Integration automation.cursorIntegration cursor ide agent hooks notifications"),
             .init(section: .automation, id: "gemini", title: String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"), synonyms: "Gemini CLI Integration automation.geminiIntegration gemini cli google agent hooks notifications"),
@@ -71,12 +76,8 @@ extension Array where Element == CuratedSettingEntry {
                 title: String(localized: "settings.app.focusHistoryIncludesPanesAndTabs", defaultValue: "Include Panes and Tabs in Focus History"),
                 synonyms: "app.focusHistoryIncludesPanesAndTabs focus history back forward panes tabs workspaces only navigation"
             ),
-            .init(
-                section: .app,
-                id: "equalize-splits-on-create",
-                title: String(localized: "settings.app.equalizeSplitsOnCreate", defaultValue: "Equalize Splits on Create"),
-                synonyms: "app.equalizeSplitsOnCreate equalize balance distribute even equal split pane size new split"
-            ),
+            .equalizeSplitsOnCreate,
+            .equalizeSplitsOnDividerDoubleClick,
             .init(section: .app, id: "file-drops", title: String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"), synonyms: "File Drops drag drop files finder path text terminal editor split preview shift"),
             .init(section: .app, id: "preferred-editor", title: String(localized: "settings.app.preferredEditor", defaultValue: "Open Files With"), synonyms: "Open Files With app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor"),
             .init(section: .app, id: "supported-file-previews", title: String(localized: "settings.app.openSupportedFilesInCmux", defaultValue: "Open Supported Files in cmux"), synonyms: "Open Supported Files in cmux app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"),
@@ -123,6 +124,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(userFacing: catalog.app.warnBeforeClosingAgentSession),
             .init(section: .app, id: "warn-before-closing-tab-x-button", title: String(localized: "settings.app.warnBeforeClosingTabXButton", defaultValue: "Warn Before Tab Close Button"), synonyms: "Warn Before Tab Close Button app.warnBeforeClosingTabXButton x button close tab confirmation terminal surface"),
             .init(userFacing: catalog.app.warnBeforeClosingWorkspace),
+            .init(userFacing: catalog.app.alwaysConfirmWorkspaceClose),
             .init(userFacing: catalog.app.warnBeforeClosingWindow),
             .init(userFacing: catalog.app.hideTabCloseButton),
             .init(userFacing: catalog.app.renameSelectsExistingName),
@@ -574,6 +576,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .workspaceColors, id: "indicator", title: String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"), synonyms: "Workspace Color Indicator workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
             .init(section: .workspaceColors, id: "subtle-selection", title: String(localized: "settings.workspaceColors.subtleSelection", defaultValue: "Subtle Selection Highlight"), synonyms: "Subtle Selection Highlight workspaceColors.subtleSelection subtle calm quiet selection highlight tint hairline edge selected workspace accent"),
             .init(section: .workspaceColors, id: "brighten-dark-mode", title: String(localized: "settings.workspaceColors.brightenInDarkMode", defaultValue: "Brighten Colors in Dark Mode"), synonyms: "Brighten Colors in Dark Mode workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color"),
+            .init(section: .workspaceColors, id: "unselected-fill-opacity", title: String(localized: "settings.workspaceColors.unselectedFillOpacity", defaultValue: "Unselected Fill Opacity"), synonyms: "Unselected Fill Opacity workspaceColors.unselectedFillOpacity opacity transparency alpha solid fill unselected inactive workspace row color dull faded strength"),
             .init(section: .workspaceColors, id: "selection", title: String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"), synonyms: "Selection Highlight workspaceColors.selectionColor selected workspace color highlight background active tab"),
             .init(section: .workspaceColors, id: "badge", title: String(localized: "settings.workspaceColors.notificationBadgeColor", defaultValue: "Notification Badge"), synonyms: "Notification Badge workspaceColors.notificationBadgeColor unread notification badge color dot count"),
             .init(

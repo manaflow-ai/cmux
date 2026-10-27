@@ -145,6 +145,17 @@ extension MobileHostService {
             // narrow this read model would make it less capable than a tokenless
             // persisted pairing from the same authenticated account.
             return nil
+        case "chief.status", "chief.conversations", "chief.read":
+            // Chief's list and transcript are account-wide reads. The
+            // same-account mobile admission remains authoritative, just as it
+            // is for the notification and workstream feeds.
+            return nil
+        case "chief.open", "chief.send", "chief.mark_read", "chief.stop", "chief.approve", "chief.answer", "chief.debug":
+            // Opening Chief changes app selection, and the remaining methods
+            // control a Mac-owned agent. A workspace-scoped ticket cannot
+            // prove authority for those Mac-wide mutations; require a
+            // Mac-wide ticket while preserving the account gate above.
+            return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)
         case "mobile.events.subscribe":
             // Subscription payloads are revision-only invalidations. The
             // request already passed connection/account authorization, and the

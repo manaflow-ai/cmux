@@ -23,7 +23,10 @@ struct PiCompactedFeedEventExpander {
         )
     }
 
-    func acknowledgedBatchRequest(from rawObject: [String: Any]) -> (line: String, eventCount: Int)? {
+    /// The acknowledged `feed.push` batch for the compacted terminal events in
+    /// `rawObject`, as a request object for the caller to encode, or nil when
+    /// there is nothing to send.
+    func acknowledgedBatchRequest(from rawObject: [String: Any]) -> (request: [String: Any], eventCount: Int)? {
         let events = events(from: rawObject)
         guard let firstRequestId = events.first?["_opencode_request_id"] as? String else { return nil }
         let request: [String: Any] = [
@@ -34,10 +37,8 @@ struct PiCompactedFeedEventExpander {
                 "wait_timeout_seconds": 0,
             ],
         ]
-        guard let data = try? JSONSerialization.data(withJSONObject: request),
-              let line = String(data: data, encoding: .utf8)
-        else { return nil }
-        return (line, events.count)
+        guard JSONSerialization.isValidJSONObject(request) else { return nil }
+        return (request, events.count)
     }
 
     private func events(from rawObject: [String: Any]) -> [[String: Any]] {

@@ -128,6 +128,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "agent.message.ack",
         "agent.message.mark_read",
         "agent.message.poll", "agent.message.settings",
+        // Chief: owner-actor reads and writes, the store's send, and at most
+        // one main-actor hop for app state (`TerminalController+Chief`).
+        // `chief.approve`, `chief.answer` and `chief.debug` answer only in DEBUG builds.
+        "chief.open", "chief.send", "chief.status", "chief.conversations",
+        "chief.read", "chief.mark_read", "chief.stop", "chief.approve", "chief.answer", "chief.debug",
         "browser.download.list", "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",
@@ -199,6 +204,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // export in one short `v2MainSync` hop (`cmux send` asks it before
         // typing). App-side for the same reason as `surface.read_text`.
         "surface.input_state",
+        // `surface.wait_text_change` parks until the terminal prints, then
+        // rereads it through the `surface.read_text` worker body. Waiting on
+        // the main actor would freeze the app for the whole timeout.
+        "surface.wait_text_change",
         // Selection providers own AppKit/WebKit state on the main actor, then
         // return one immutable snapshot for response shaping on this worker.
         // The async bridge must never be entered inline by a main-thread caller.
@@ -209,6 +218,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "current.list",
         "surface.project",
         "surface.new_terminal",
+        "surface.new_display",
         // SSH-session attach resolves ownership and reads the remote PTY
         // registry before any surface mutation; keep the bounded remote query
         // off the main actor.
@@ -346,6 +356,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.addinitscript",
         "browser.addscript",
         "browser.addstyle", "browser.design_mode.set", "browser.design_mode.status",
+        // Offline mode compiles a content rule list before replying.
+        "browser.geolocation.set", "browser.offline.set",
         // The v2 surface-telemetry twins of the v1 report family. Parse and
         // response encoding run on the worker; each body crosses to the main
         // actor exactly once (the resolution + write + ref minting hop), so

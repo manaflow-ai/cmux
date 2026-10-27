@@ -26,6 +26,98 @@ private final class PortalBindLayoutCountingView: NSView {
 @MainActor
 @Suite(.serialized)
 struct GhosttyTerminalViewVisibilityPolicyTests {
+    @Test func cloudPaneReconciliationFinishesPendingContainerLayout() async throws {
+        let workspace = TerminalPortalTestWorkspace()
+        workspace.workspace.cloudVMBinding = WorkspaceCloudVMBinding(
+            vmID: "geometry-test-machine", isBase: false, remoteWorkspaceID: "ws_geometry"
+        )
+        defer { workspace.tearDown() }
+        let surface = TerminalSurface(
+            tabId: workspace.id, context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil, ioMode: .manualMirror
+        )
+        var reportedBackingSize: CGSize?
+        surface.onManualSizeApplied = { sample in
+            reportedBackingSize = CGSize(width: sample.surfaceWidthPx, height: sample.surfaceHeightPx)
+        }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let container = PortalBindLayoutCountingView(frame: NSRect(x: 0, y: 0, width: 800, height: 500))
+        window.contentView = container
+        // Materialization can expose a valid but provisional small pane before
+        // the workspace's pending layout has received the final content bounds.
+        var anchor = NSView(frame: NSRect(x: 0, y: 0, width: 180, height: 120))
+        container.addSubview(anchor)
+        window.orderFront(nil)
+        window.displayIfNeeded()
+        defer {
+            TerminalWindowPortalRegistry.detach(hostedView: surface.hostedView)
+            surface.releaseHostedSurfaceForTesting()
+            window.close()
+        }
+        TerminalWindowPortalRegistry.bind(
+            hostedView: surface.hostedView, to: anchor, visibleInUI: true,
+            expectedSurfaceId: surface.id, expectedGeneration: surface.portalBindingGeneration()
+        )
+        surface.hostedView.setVisibleInUI(true)
+        let portal = try #require(TerminalWindowPortalRegistry.portalsByWindowId[ObjectIdentifier(window)])
+        await waitForLiveSurface(surface)
+        await flushPortalReconciliationPasses()
+
+        // Each event may invalidate layout before it changes a measured frame.
+        // The second rect represents the available center with a sidebar open;
+        // the final rect is one pane of a split, which must stay that size.
+        for (index, target) in [
+            NSRect(x: 0, y: 0, width: 800, height: 500),
+            NSRect(x: 0, y: 0, width: 560, height: 500),
+            NSRect(x: 0, y: 0, width: 700, height: 440),
+            NSRect(x: 0, y: 0, width: 280, height: 440),
+        ].enumerated() {
+            if index == 1 {
+                // A workspace switch retires the portal view, then rebinds it.
+                surface.hostedView.setVisibleInUI(false)
+                TerminalWindowPortalRegistry.hideHostedView(surface.hostedView)
+            } else if index == 2 {
+                // Reconnect/reprojection may replace the representable anchor.
+                let replacement = NSView(frame: anchor.frame)
+                anchor.removeFromSuperview()
+                container.addSubview(replacement)
+                anchor = replacement
+            }
+            if index == 1 || index == 2 {
+                TerminalWindowPortalRegistry.bind(
+                    hostedView: surface.hostedView, to: anchor, visibleInUI: true,
+                    expectedSurfaceId: surface.id, expectedGeneration: surface.portalBindingGeneration()
+                )
+                surface.hostedView.setVisibleInUI(true)
+            }
+            portal.synchronizeAllEntriesFromExternalGeometryChange()
+            portal.synchronizeAllEntriesFromExternalGeometryChange()
+            let previousGeometry = surface.committedPaneGeometry
+            container.nextLayout = { anchor.frame = target }
+            container.needsLayout = true
+            container.resetLayoutCount()
+
+            portal.synchronizeAllEntriesFromExternalGeometryChange()
+
+            #expect(container.layoutCount > 0, "Unchanged frames cannot cancel a pending workspace layout")
+            #expect(container.nextLayout == nil)
+            #expect(anchor.frame == target)
+            #expect(surface.hostedView.frame == portal.expectedHostedFrameInHost(for: anchor))
+            #expect(surface.hostedView.frame.size == target.size)
+            #expect(surface.committedPaneGeometry == previousGeometry,
+                "A pass that changes the hierarchy must wait for settlement before reporting a remote PTY size")
+            await flushPortalReconciliationPasses()
+            let committed = try #require(surface.committedPaneGeometry)
+            #expect(committed.size == surface.hostedView.surfaceView.frame.size)
+            #expect(reportedBackingSize == committed.backingSize,
+                "Cloud's remote-size callback must receive the settled viewport")
+        }
+    }
+
     @Test func staleRepresentableCannotOverwriteCurrentHostAttentionColor() {
         let workspace = TerminalPortalTestWorkspace()
         defer { workspace.tearDown() }

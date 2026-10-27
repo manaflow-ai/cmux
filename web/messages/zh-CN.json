@@ -524,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "请先恢复套餐再进行更改。",
           "granted": "由 cmux 授予，没有可更改的内容。",
+          "grantedNoCancel": "由 cmux 授予，因此无需取消。",
+          "paymentFailed": "更改方案前，请先更新付款方式。",
+          "foundersLifetime": "Founder's Edition 永久包含 Pro。",
           "adminOnly": "只有团队管理员可以更改套餐。"
         },
         "names": {
@@ -566,6 +569,7 @@
       "change": {
         "title": "切换到 {plan}？",
         "upgradeBody": "{plan} 立即生效。今天为本计费周期的剩余时间支付 {amount}。从 {date} 起，每月支付 {price}。",
+        "upgradeBodyYearly": "{plan} 立即生效。今天为本计费周期的剩余时间支付 {amount}。从 {date} 起，每年支付 {price}。",
         "downgradeBody": "{plan} 立即生效。当前套餐未使用的部分 {credit} 将抵扣后续账单。{date} 的下一张账单为 {amount}。",
         "confirm": "切换到 {plan}",
         "keep": "保留当前套餐",
@@ -578,6 +582,8 @@
         "title": "取消 {plan}？",
         "body": "你可以使用 {plan} 到 {date}。之后你将失去：",
         "bodyNoDate": "你可以使用 {plan} 到本计费周期结束。之后你将失去：",
+        "foundersBody": "你的 {plan} 订阅将于 {date} 结束。之后你将使用 Founder's Edition 永久包含的 Pro。",
+        "foundersBodyNoDate": "你的 {plan} 订阅将在本计费周期结束时结束。之后你将使用 Founder's Edition 永久包含的 Pro。",
         "reasonLabel": "为什么取消？（可选）",
         "otherPlaceholder": "告诉我们更多（可选）",
         "confirm": "取消套餐",
@@ -2175,6 +2181,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "启用后，双击窗格分隔线会将其所在行或列的窗格调整为相同大小。其他行和列保持原有大小。",
           "confirmQuit": "控制 cmux 在退出前何时请求确认。无论此设置如何，DEV 构建都会立即退出。旧的 app.warnBeforeQuit 仍作为布尔回退值接受。",
           "windowTitleTemplate": "可选的 NSWindow 标题模板。留空会保留 cmux 现有的默认标题行为，包括回退到当前目录。支持的占位符：'{windowId}'、'{windowToken}'、'{activeWorkspace}'、'{activeDirectory}'、'{defaultTitle}'、'{appName}'。",
           "devWindowDisplay": "仅在 DEBUG 构建中打开新窗口时使用的显示器名称。空值使用系统默认设置。",
@@ -2252,12 +2259,20 @@
           "currentLineHighlight": "在没有选中内容时，为光标所在的行着色。",
           "tabWidth": "一个制表位占用的列数。缩进参考线使用相同的间距。"
         },
+        "actions": "供命令面板、快捷键、标签栏按钮和加号按钮菜单使用的可复用操作。支持 builtin、command、agent、workspaceCommand、workspace、setting、settingPreset 和 text。text 操作会向当前聚焦的终端粘贴文本并保留换行；submit: true 会按下 Enter。设置操作需要全局配置。",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
               "enabled": "选择远程 tmux 工作区后，“新建工作区”会在该工作区的主机上启动 tmux 会话。"
             }
           }
+        },
+        "chief": {
+          "description": "Chief（主页代理）：是否显示，以及使用的运行框架、模型和推理强度。",
+          "enabled": "显示主页行和 Chief 入口。设为 false 时，将隐藏主页行、打开 Chief 快捷键、菜单项和命令面板条目。",
+          "harness": "Chief 使用的代理运行框架：claude（Claude Code）或 codex（Codex）。",
+          "model": "传递给运行框架的模型。留空则使用运行框架的默认值。",
+          "effort": "传递给运行框架的推理强度，例如 low、medium 或 high。留空则使用运行框架的默认值。"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3437,6 +3452,7 @@
     "unsupportedParams": "此链接包含 cmux 将拒绝的不受支持的参数：{params}",
     "conflictingParams": "此链接包含不能一起使用的参数：{params}",
     "invalidParams": "此链接包含无效参数值：{params}",
+    "ignoredParams": "cmux 会忽略它不使用的参数：{params}。会话仍会打开。",
     "fixParams": "修复 URL 参数，然后重新加载此页面。",
     "examplePrefix": "参见",
     "exampleLink": "示例链接",
@@ -3460,6 +3476,16 @@
       "title": "在 cmux 中打开规则",
       "intro": "此页面打开当前 cmux 工作区中的规则。",
       "fallback": "cmux 首先显示规则并在将它们粘贴到当前工作区之前进行询问。如果 cmux 未打开，请安装 cmux 并再次单击“在 cmux 中打开”。"
+    },
+    "agent": {
+      "metaTitle": "在 cmux 中打开代理会话",
+      "metaDescription": "从网页打开 cmux 代理会话深层链接，cmux 不可用时提供安装引导。",
+      "title": "打开代理会话",
+      "intro": "如果这台 Mac 已能访问该会话，此链接会在 cmux 中打开代理的会话。链接本身不授予任何访问权限。",
+      "fallback": "如果 cmux 没有打开，请安装 cmux，然后再次点击“在 cmux 中打开”。只有当这台 Mac 已能访问该会话时，cmux 才会打开它。",
+      "nameLabel": "名称：{value}",
+      "hostLabel": "主机：{value}",
+      "harnessLabel": "工具：{value}"
     }
   },
   "download": {
@@ -5498,6 +5524,8 @@
     "errorInvalidCode": "验证码无效。请检查邮箱后重试。",
     "errorInvalidTotp": "双重验证码无效。",
     "errorSignUpNotAllowed": "目前无法创建新账号。",
+    "errorEmailUnverified": "此邮箱已有账号，但地址尚未验证。请使用注册时的方式登录，然后验证邮箱，即可使用登录验证码。",
+    "useEmailPasswordInstead": "使用邮箱和密码登录",
     "errorPasskey": "通行密钥登录未完成。请重试或改用其他方式。",
     "errorGeneric": "出了点问题，请重试。"
   },

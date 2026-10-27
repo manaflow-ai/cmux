@@ -90,6 +90,22 @@ extension TerminalController {
         let windowId = v2ResolveWindowId(tabManager: tabManager)
         let focus = v2FocusAllowed(requested: requestedFocus)
 
+        // A browser REPL session's tab is not closed, moved to another
+        // workspace or reloaded by another socket client
+        // (``browserReplTabRefusalMessage(_:)``); bulk closes skip it.
+        switch action {
+        case "move_to_new_workspace", "detach_to_workspace", "detach_to_new_workspace", "reload", "reload_tab":
+            if let message = browserReplTabRefusalMessage(panelId) {
+                return .bridged(.err(
+                    code: "denied",
+                    message: message,
+                    data: .object(["surface_id": .string(panelId.uuidString), "reason": .string("browser_repl_tab")])
+                ))
+            }
+        default:
+            break
+        }
+
         func finish(_ extras: ControlTabActionResolution.Extras) -> ControlTabActionResolution {
             .completed(ControlTabActionResolution.Outcome(
                 workspaceID: workspace.id,
@@ -117,6 +133,7 @@ extension TerminalController {
             let activeSurfaceIDs = tabIds.compactMap { tabId -> UUID? in
                 guard let targetPanelID = workspace.panelIdFromSurfaceId(tabId),
                       !workspace.isPanelPinned(targetPanelID),
+                      browserReplTabRefusalMessage(targetPanelID) == nil,
                       workspace.panelNeedsConfirmClose(panelId: targetPanelID) else { return nil }
                 return targetPanelID
             }
@@ -131,6 +148,7 @@ extension TerminalController {
                     skippedPinned += 1
                     continue
                 }
+                if browserReplTabRefusalMessage(panelId) != nil { continue }
                 if workspace.panels.count <= 1 {
                     break
                 }
@@ -202,14 +220,14 @@ extension TerminalController {
             }
 
         case "reload", "reload_tab":
-            guard let browserPanel = workspace.browserPanel(for: panelId) else {
+            guard let browserPanel = workspace.browserPanelForAutomation(panelId) else {
                 return .reloadNotBrowser
             }
             browserPanel.reload(dialogOwner: .automation)
             return finish(.none)
 
         case "duplicate", "duplicate_tab":
-            guard let browserPanel = workspace.browserPanel(for: panelId) else {
+            guard let browserPanel = workspace.browserPanelForAutomation(panelId) else {
                 return .duplicateNotBrowser
             }
             guard BrowserAvailabilitySettings.isEnabled() else {

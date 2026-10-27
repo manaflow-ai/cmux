@@ -20,6 +20,7 @@ import Observation
 final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     let coordinator: AuthCoordinator
     private let browserSignIn: HostBrowserSignInFlow
+    private let billingPlanClient: BillingPlanClient
     private(set) var billingPlanState = BillingPlanState.unknown
     var isProActive: Bool { billingPlanState.isPro }
     /// The signed-in account's tier, or nil while it is unknown.
@@ -32,6 +33,15 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// and actions from ``planTier``. Menus gate on ``upgradeOffer`` instead.
     var isProUpgradeAvailable: Bool { true }
     var canManageBilling: Bool { billingPlanState.canManageBilling }
+    /// Who bills the signed-in account's personal plan, or nil while unknown.
+    var planBillingSource: AccountPlanBillingSource? {
+        guard hasLoadedBillingPlan, let source = billingPlanState.billingSource else { return nil }
+        switch source {
+        case .stripe: return .stripe
+        case .apple: return .appStore
+        case .unbilled: return .granted
+        }
+    }
     /// The account whose plan is known, or nil while the plan is unknown.
     var billingPlanIdentityID: String? { billingPlanState.accountID }
     /// The most recent plan request. Only it may write, so an older request
@@ -68,10 +78,12 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     init(
         coordinator: AuthCoordinator,
         browserSignIn: HostBrowserSignInFlow,
+        billingPlanClient: BillingPlanClient = BillingPlanClient(),
         analytics: ProductAnalytics = .app
     ) {
         self.coordinator = coordinator
         self.browserSignIn = browserSignIn
+        self.billingPlanClient = billingPlanClient
         self.analytics = analytics
         startCoordinatorObservation()
         syncAnalytics()
@@ -118,6 +130,15 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 
     var signInIsSlow: Bool {
         browserSignIn.signInIsSlow
+    }
+
+    // A rate-limited callback is still retrying; the failure is not final.
+    var signInFailureTitle: String? {
+        isRetryingAfterRateLimit ? nil : lastSignInFailure?.title
+    }
+
+    var signInFailureRecovery: String? {
+        isRetryingAfterRateLimit ? nil : lastSignInFailure?.recovery
     }
 
     var isCompletingSignIn: Bool {
@@ -185,7 +206,14 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 
     /// Completes an external hosted Stack callback through the shared attempt.
     func handleCallbackURL(_ url: URL, delivery: AuthCallbackDelivery) async -> Bool {
-        await browserSignIn.handleCallbackURL(url, delivery: delivery)
+        let signedIn = await browserSignIn.handleCallbackURL(url, delivery: delivery)
+        guard signedIn else { return false }
+
+        // Checkout returns through the same callback as sign-in. Refresh the
+        // entitlement before the sidebar, Settings, and Cloud gates render so
+        // a newly-paid account does not keep showing the Free state.
+        await refreshBillingPlan()
+        return true
     }
 
     func openSignInInDefaultBrowser() {
@@ -298,7 +326,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         let tokens = try? await coordinator.currentTokens()
 
         do {
-            let details = try await BillingPlanClient().fetch(
+            let details = try await billingPlanClient.fetch(
                 from: AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan"),
                 accessToken: tokens?.accessToken,
                 refreshToken: tokens?.refreshToken
@@ -308,7 +336,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
                 for: identityID,
                 isPro: details.isPro,
                 canManageBilling: details.canManageBilling,
-                tier: details.tier
+                tier: details.tier,
+                billingSource: details.billingSource
             )
             analytics.notePlan(accountID: identityID, isPaid: details.isPro)
             return true

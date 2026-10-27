@@ -147,6 +147,10 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     var pendingPaneSeedDeadlineIDs: [Int: UUID] = [:]
     /// Panes whose expired delivery needs one fresh full seed after a later ready frame.
     var deferredFullPaneReseeds: Set<Int> = []
+    /// Surface progress may launch one deferred full seed before the first
+    /// rendered frame. Coalesce later timeout/callback cycles until the grid is
+    /// ready so an unrenderable pane cannot start captures indefinitely.
+    var deferredFullPaneReseedAttemptsBeforeGrid: Set<Int> = []
     /// Pane-local frame demand stays retained until this pane renders or leaves.
     var paneSeedFrameDemandReleases: [Int: () -> Void] = [:]
     var paneSeedFrameObserverTokens: [Int: NSObjectProtocol] = [:]

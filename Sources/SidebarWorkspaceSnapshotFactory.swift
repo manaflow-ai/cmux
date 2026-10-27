@@ -93,7 +93,8 @@ struct SidebarWorkspaceSnapshotFactory {
                   settings.branchDirectory.branchLayout == .inline else {
                 return []
             }
-            return cloud?.directoryCandidates ?? (hasCloudProjection ? [] : compactDirectoryCandidatesList(orderedPanelIds: orderedPanelIds))
+            let candidates = cloud?.directoryCandidates ?? (hasCloudProjection ? [] : compactDirectoryCandidatesList(orderedPanelIds: orderedPanelIds))
+            return Self.droppingTitleEcho(candidates, title: workspace.title)
         }()
         let compactBranchDirectoryCandidates = compactBranchDirectoryCandidatesList(
             gitSummary: compactGitBranchSummaryText,
@@ -106,7 +107,13 @@ struct SidebarWorkspaceSnapshotFactory {
             }
             if let cloud { return [.init(branch: nil, directoryCandidates: cloud.directoryCandidates)] }
             if hasCloudProjection { return [] }
-            return verticalBranchDirectoryLines(orderedPanelIds: orderedPanelIds)
+            // A lone directory line that only repeats the title ("~" under "~") says nothing.
+            let lines = verticalBranchDirectoryLines(orderedPanelIds: orderedPanelIds)
+            if lines.count == 1, let line = lines.first, line.branch == nil,
+               Self.droppingTitleEcho(line.directoryCandidates, title: workspace.title).isEmpty {
+                return []
+            }
+            return lines
         }()
         let pullRequestRows: [SidebarWorkspaceSnapshotBuilder.PullRequestDisplay] = {
             guard showsPullRequestRows else { return [] }
@@ -356,6 +363,14 @@ struct SidebarWorkspaceSnapshotFactory {
             locale: .current,
             target
         )
+    }
+
+    /// No directory subtitle when its only text is the title itself (a workspace titled by its
+    /// shell's `~` shows "~" once, not "~" over "~").
+    static func droppingTitleEcho(_ candidates: [String], title: String) -> [String] {
+        let shown = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !shown.isEmpty, !candidates.isEmpty, candidates.allSatisfy({ $0 == shown }) else { return candidates }
+        return []
     }
 
     private func compactBranchDirectoryCandidatesList(

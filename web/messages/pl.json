@@ -524,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Wznów plan, aby go zmienić.",
           "granted": "Przyznany przez cmux. Nie ma czego zmieniać.",
+          "grantedNoCancel": "Przyznany przez cmux, więc nie ma czego anulować.",
+          "paymentFailed": "Zaktualizuj metodę płatności przed zmianą planu.",
+          "foundersLifetime": "Founder's Edition obejmuje Pro dożywotnio.",
           "adminOnly": "Tylko administratorzy zespołu mogą zmienić plan."
         },
         "names": {
@@ -566,6 +569,7 @@
       "change": {
         "title": "Zmienić na {plan}?",
         "upgradeBody": "{plan} zaczyna działać teraz. Dziś płacisz {amount} za resztę tego okresu rozliczeniowego. Od {date} płacisz {price} miesięcznie.",
+        "upgradeBodyYearly": "{plan} zaczyna działać teraz. Dziś płacisz {amount} za resztę tego okresu rozliczeniowego. Od {date} płacisz {price} rocznie.",
         "downgradeBody": "{plan} zaczyna działać teraz. Niewykorzystana część obecnego planu, {credit}, zostanie zaliczona na poczet kolejnych faktur. Następna faktura, {date}, wyniesie {amount}.",
         "confirm": "Zmień na {plan}",
         "keep": "Zachowaj obecny plan",
@@ -578,6 +582,8 @@
         "title": "Anulować {plan}?",
         "body": "Zachowujesz {plan} do {date}. Potem tracisz:",
         "bodyNoDate": "Zachowujesz {plan} do końca tego okresu rozliczeniowego. Potem tracisz:",
+        "foundersBody": "Twoja subskrypcja {plan} kończy się {date}. Potem masz Pro, które Founder's Edition obejmuje dożywotnio.",
+        "foundersBodyNoDate": "Twoja subskrypcja {plan} kończy się z końcem tego okresu rozliczeniowego. Potem masz Pro, które Founder's Edition obejmuje dożywotnio.",
         "reasonLabel": "Dlaczego anulujesz? (opcjonalnie)",
         "otherPlaceholder": "Powiedz nam więcej (opcjonalnie)",
         "confirm": "Anuluj plan",
@@ -2176,6 +2182,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "Po włączeniu dwukrotne kliknięcie separatora wyrównuje rozmiary paneli w jego wierszu lub kolumnie. Pozostałe wiersze i kolumny zachowują swoje rozmiary.",
           "confirmQuit": "Określa, kiedy cmux prosi o potwierdzenie przed zamknięciem. Buildy DEV zawsze zamykają się natychmiast niezależnie od tego ustawienia. Starsze app.warnBeforeQuit jest nadal akceptowane jako zapasowa wartość logiczna.",
           "windowTitleTemplate": "Opcjonalny szablon tytułu NSWindow. Pusta wartość zachowuje istniejące domyślne zachowanie tytułu cmux, w tym fallback do bieżącego katalogu. Obsługiwane symbole zastępcze: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Nazwa ekranu używana tylko w kompilacjach DEBUG podczas otwierania nowych okien. Pusta wartość używa ustawienia domyślnego systemu.",
@@ -2253,12 +2260,20 @@
           "currentLineHighlight": "Podświetla kolorem wiersz z kursorem tekstowym, gdy nic nie jest zaznaczone.",
           "tabWidth": "Liczba kolumn, jaką obejmuje jeden tabulator. Linie wcięć używają tego samego odstępu."
         },
+        "actions": "Akcje wielokrotnego użytku dla palety poleceń, skrótów, przycisków paska kart i menu przycisku plus. Obsługuje builtin, command, agent, workspaceCommand, workspace, setting, settingPreset i text. Akcje tekstowe wklejają do aktywnego terminala i zachowują podziały wierszy; submit: true naciska Enter. Akcje ustawień wymagają konfiguracji globalnej.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
               "enabled": "Gdy wybrano zdalny obszar roboczy tmux, „Nowy obszar roboczy” uruchamia sesję tmux na hoście tego obszaru."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, agent ekranu głównego: czy jest widoczny oraz jakiej uprzęży, modelu i wysiłku używa.",
+          "enabled": "Pokazuje wiersz Strona główna i punkty wejścia do Chief. Gdy false, ukryte są wiersz Strona główna, skrót Otwórz Chief, pozycja menu i wpisy palety poleceń.",
+          "harness": "Uprząż agenta, na której działa Chief: claude (Claude Code) lub codex (Codex).",
+          "model": "Model przekazywany do uprzęży. Pozostaw puste, aby użyć domyślnego.",
+          "effort": "Wysiłek rozumowania przekazywany do uprzęży, np. low, medium lub high. Pozostaw puste, aby użyć domyślnego."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3437,6 +3452,7 @@
     "unsupportedParams": "Ten link zawiera nieobsługiwane parametry, które cmux odrzuci: {params}",
     "conflictingParams": "Ten link zawiera parametry, których nie można używać razem: {params}",
     "invalidParams": "Ten link zawiera nieprawidłowe wartości parametrów: {params}",
+    "ignoredParams": "cmux ignoruje parametry, których nie używa: {params}. Sesja i tak zostanie otwarta.",
     "fixParams": "Popraw parametry adresu URL, a następnie załaduj ponownie tę stronę.",
     "examplePrefix": "Zobacz",
     "exampleLink": "przykładowy link",
@@ -3460,6 +3476,16 @@
       "title": "Otwórz reguły w cmux",
       "intro": "Ta strona otwiera reguły w bieżącym obszarze roboczym cmux.",
       "fallback": "cmux najpierw pokazuje reguły i pyta przed wklejeniem ich do bieżącego obszaru roboczego. Jeśli cmux się nie otworzy, zainstaluj cmux i ponownie kliknij Otwórz w cmux."
+    },
+    "agent": {
+      "metaTitle": "Otwórz sesję agenta w cmux",
+      "metaDescription": "Otwórz z poziomu przeglądarki deeplink cmux do sesji agenta, z opcją instalacji, gdy cmux jest niedostępny.",
+      "title": "Otwórz sesję agenta",
+      "intro": "Ten link otwiera sesję agenta w cmux, jeśli ten Mac ma już do niej dostęp. Sam link nie przyznaje żadnego dostępu.",
+      "fallback": "Jeśli cmux się nie otworzy, zainstaluj cmux i ponownie kliknij Otwórz w cmux. cmux otworzy sesję tylko wtedy, gdy ten Mac ma już do niej dostęp.",
+      "nameLabel": "Nazwa: {value}",
+      "hostLabel": "Host: {value}",
+      "harnessLabel": "Środowisko: {value}"
     }
   },
   "download": {
@@ -5498,6 +5524,8 @@
     "errorInvalidCode": "Ten kod jest nieprawidłowy. Sprawdź pocztę i spróbuj ponownie.",
     "errorInvalidTotp": "Ten kod uwierzytelniania dwuskładnikowego jest nieprawidłowy.",
     "errorSignUpNotAllowed": "Obecnie nie można tworzyć nowych kont.",
+    "errorEmailUnverified": "Ten adres e-mail ma już konto, ale nie został jeszcze zweryfikowany. Zaloguj się tak samo jak przy rejestracji, a następnie zweryfikuj e-mail, aby korzystać z kodów logowania.",
+    "useEmailPasswordInstead": "Zaloguj się e-mailem i hasłem",
     "errorPasskey": "Logowanie kluczem dostępu nie zostało ukończone. Spróbuj ponownie lub użyj innej metody.",
     "errorGeneric": "Coś poszło nie tak. Spróbuj ponownie."
   },

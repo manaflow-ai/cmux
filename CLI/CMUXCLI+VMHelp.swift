@@ -17,6 +17,7 @@ extension CMUXCLI {
         case "resize": return vmResizeUsage
         case "network": return vmNetworkUsage
         case "agent-updates": return vmAgentUpdatesUsage
+        case "clean": return vmCleanUsage
         case "run": return vmRunUsage
         case "route": return vmRouteUsage
         case "agent": return vmAgentUsage
@@ -228,6 +229,87 @@ extension CMUXCLI {
         and returns the provider-confirmed resources.
         Add --json for the structured result.
         """)
+    }
+
+    static let vmCleanUsage = """
+    Usage:
+      cmux vm clean <id>           List what cleanup would remove and how much space that frees.
+                                   Removes nothing.
+      cmux vm clean <id> --apply   Remove it.
+
+    Cleanup removes only what a rebuild or re-download brings back: build output of
+    projects idle for 7 days (node_modules, target, .next, ...), package caches when the
+    disk is at least 85% full, agent logs older than 14 days, idle temp files, and records
+    of deleted git worktrees. It never touches source, git data, ~/.ssh, credentials or
+    agent sessions, skips anything in use, and never wakes a paused machine.
+    Only the machine's owner can run it. Add --json for the full report.
+    """
+
+    /// `cmux vm clean`: `vm.hygiene` without `apply` is the dry-run; `--apply` removes.
+    func runVMCleanCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
+        if rest.contains("--help") || rest.contains("-h") {
+            print(Self.vmCleanUsage)
+            return
+        }
+        let json = jsonOutput || rest.contains("--json")
+        let apply = rest.contains("--apply")
+        let args = rest.filter { $0 != "--json" && $0 != "--apply" }
+        guard args.count == 1, let vmId = args.first, !vmId.hasPrefix("-") else {
+            throw CLIError(message: Self.vmCleanUsage)
+        }
+        var params: [String: Any] = ["id": vmId]
+        if apply { params["apply"] = true }
+        let response = try client.sendV2(method: "vm.hygiene", params: params, responseTimeout: 300)
+        if json {
+            print(jsonString(response))
+            return
+        }
+        print(Self.formatVMCleanReport(response, vmId: vmId))
+    }
+
+    /// The human summary of a `vm.hygiene` report: what was (or would be) removed,
+    /// largest first, and how many items were kept.
+    static func formatVMCleanReport(_ response: [String: Any], vmId: String) -> String {
+        let applied = (response["mode"] as? String) == "apply"
+        let items = (response["items"] as? [[String: Any]]) ?? []
+        func kilobytes(_ item: [String: Any]) -> Int64 { (item["kb"] as? NSNumber)?.int64Value ?? 0 }
+        func size(_ kb: Int64) -> String { ByteCountFormatter.string(fromByteCount: kb * 1024, countStyle: .file) }
+        let removedAction = applied ? "deleted" : "would-delete"
+        let removed = items.filter { ($0["action"] as? String) == removedAction }
+            .sorted { kilobytes($0) > kilobytes($1) }
+        let skipped = items.filter { ($0["action"] as? String) == "skipped" }
+        let total = removed.reduce(Int64(0)) { $0 + kilobytes($1) }
+        var lines: [String] = []
+        if applied {
+            var head = "Removed \(size(total)) from \(vmId)"
+            if let before = response["diskUsedPctBefore"] as? NSNumber,
+               let after = response["diskUsedPctAfter"] as? NSNumber {
+                head += " (disk \(before.intValue)% -> \(after.intValue)%)"
+            }
+            lines.append(head + ".")
+        } else if removed.isEmpty {
+            lines.append("Nothing to clean on \(vmId).")
+        } else {
+            lines.append("\(size(total)) can be freed on \(vmId). Nothing was removed.")
+        }
+        let shown = 15
+        for item in removed.prefix(shown) {
+            let amount = size(kilobytes(item))
+            let pad = String(repeating: " ", count: max(1, 10 - amount.count))
+            let category = item["category"] as? String ?? ""
+            let path = item["path"] as? String ?? ""
+            lines.append("  \(amount)\(pad)\(category)  \(path)")
+        }
+        if removed.count > shown {
+            lines.append("  ... and \(removed.count - shown) more (--json lists them all)")
+        }
+        if !skipped.isEmpty {
+            lines.append("Kept \(skipped.count) item(s) that are in use, protected or not needed yet (--json shows why).")
+        }
+        if !applied && !removed.isEmpty {
+            lines.append("Run `cmux vm clean \(vmId) --apply` to remove them.")
+        }
+        return lines.joined(separator: "\n")
     }
 
     /// Execute the CLI's one-machine resource resize contract after validating every argument.

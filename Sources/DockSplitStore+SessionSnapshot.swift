@@ -62,6 +62,7 @@ extension DockSplitStore {
                     observation: restorableAgentIndex?.entryForStablePanel(
                         workspaceId: observationWorkspaceId,
                         panelId: panelId,
+                        stableSurfaceId: panels[panelId]?.stableSurfaceId,
                         processIdentityProvider: currentAgentProcessIdentity,
                         processPresenceProvider: agentProcessPresence,
                         revalidateProcessEvidence: false
@@ -170,6 +171,7 @@ extension DockSplitStore {
             observation: restorableAgentIndex?.entryForStablePanel(
                 workspaceId: observationWorkspaceId,
                 panelId: panelId,
+                stableSurfaceId: panels[panelId]?.stableSurfaceId,
                 processIdentityProvider: {
                     guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
                     return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -256,6 +258,7 @@ extension DockSplitStore {
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
         let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
+        let chiefSnapshot: SessionChiefPanelSnapshot?
         switch panel.panelType {
         case .terminal:
             guard let terminal = panel as? TerminalPanel else { return nil }
@@ -383,10 +386,12 @@ extension DockSplitStore {
                         terminal: terminal,
                         isRemoteTerminal: transfer?.isRemoteTerminal == true
                     )
-                    : nil
+                    : nil,
+                restoreRecovery: terminal.restoreRecovery.sessionSnapshot
             )
             browserSnapshot = nil
             filePreviewSnapshot = nil
+            chiefSnapshot = nil
         case .browser:
             terminalSnapshot = nil
             if let browser = panel as? BrowserPanel {
@@ -415,6 +420,7 @@ extension DockSplitStore {
                 return nil
             }
             filePreviewSnapshot = nil
+            chiefSnapshot = nil
         case .filePreview:
             guard let filePreview = panel as? FilePreviewPanel,
                   filePreview.cloudPreviewLease == nil,
@@ -423,6 +429,15 @@ extension DockSplitStore {
             browserSnapshot = nil
             filePreviewSnapshot = SessionFilePreviewPanelSnapshot(
                 filePath: filePreview.filePath
+            )
+            chiefSnapshot = nil
+        case .chief:
+            guard let chiefPanel = panel as? ChiefPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            filePreviewSnapshot = nil
+            chiefSnapshot = SessionChiefPanelSnapshot(
+                conversationID: chiefPanel.conversationID?.rawValue
             )
         default:
             return nil
@@ -446,7 +461,8 @@ extension DockSplitStore {
             browser: browserSnapshot,
             markdown: nil,
             filePreview: filePreviewSnapshot,
-            rightSidebarTool: nil
+            rightSidebarTool: nil,
+            chief: chiefSnapshot
         )
     }
 

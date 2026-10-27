@@ -1,7 +1,7 @@
 {
  "meta": {
   "backend": "cmux-dev",
-  "recordedAt": "2026-09-30T14:00:32.903Z"
+  "recordedAt": "2026-10-06T00:30:48.638Z"
  },
  "cases": {
   "page.goto.basic": {
@@ -3067,15 +3067,20 @@
   },
   "edge.sessions-same-tab": {
    "value": {
-    "bSaw": "Count 1",
-    "aSaw": "Count 1",
+    "listedAsOther": true,
+    "refused": true,
     "concurrent": true,
-    "after": "Count 2",
-    "closedForB": {
-     "error": "Target page, context or browser has been closed"
-    }
+    "after": "Count 2"
    },
-   "ms": 504
+   "ms": 1056
+  },
+  "edge.trusted-paste": {
+   "value": {
+    "paste": "untrusted",
+    "committed": "",
+    "copied": "ab"
+   },
+   "ms": 570
   }
  }
 }

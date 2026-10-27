@@ -74,7 +74,7 @@ public enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             switch error {
             case .timedOut, .requestTimedOut: return .timeout
             case .inputTooLarge: return .resourceLimit
-            case .clientMissing, .spawnFailed, .exited: return .process
+            case .clientMissing, .spawnFailed, .exited, .exitedBeforeSocket: return .process
             case .failureMessage: return .network
             }
         }

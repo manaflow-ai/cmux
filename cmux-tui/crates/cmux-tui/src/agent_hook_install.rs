@@ -1947,7 +1947,7 @@ fn codex_contextual_hook_command(
     launcher: &Path,
 ) -> String {
     format!(
-        "CMUX_TUI_SOCKET={} CMUX_TUI_TERMINAL_ID={} {} {HOOK_MODE_ARG} codex {} 2>/dev/null||:;echo {{}};#{COMMAND_MARKER}",
+        "CMUX_TUI_HOOK_ROUTE=launch CMUX_TUI_SOCKET={} CMUX_TUI_TERMINAL_ID={} {} {HOOK_MODE_ARG} codex {} 2>/dev/null||:;echo {{}};#{COMMAND_MARKER}",
         shell_quote(&socket.to_string_lossy()),
         shell_quote(terminal),
         shell_quote(&launcher.to_string_lossy()),
@@ -2005,7 +2005,7 @@ fn codex_session_hook_settings_with_context(
         ));
         let mut entry = toml_edit::InlineTable::new();
         entry.insert("trusted_hash", hash.into());
-        state.insert(&format!("/<session-flags>/config.toml:{label}:0:0"), entry.into());
+        state.insert(format!("/<session-flags>/config.toml:{label}:0:0"), entry.into());
     }
     settings.push(format!("hooks.state={state}"));
     Ok(settings)

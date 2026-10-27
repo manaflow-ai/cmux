@@ -61,6 +61,8 @@ jobs:
     timeout-minutes: 5
     outputs:
       macos: ${{ steps.detect.outputs.macos }}
+      # The last green head a merge-only head was routed from; empty otherwise.
+      delta_base_sha: ${{ steps.delta.outputs.base_sha }}
       cli: ${{ steps.detect.outputs.cli }}
       claude_wrapper: ${{ steps.standalone.outputs.claude_wrapper }}
       browser: ${{ steps.standalone.outputs.browser }}
@@ -1025,12 +1027,27 @@ jobs:
           retention-days: 7
           overwrite: true
 
+      # Reads go through the manaflow-glaeda-route App's own budget, not the GITHUB_TOKEN
+      # budget every workflow shares (it ran out on 2026-10-25 and the nightly publish
+      # failed). No key (a fork) or a failed mint leaves it empty: GITHUB_TOKEN reads.
+      - name: Mint the glaeda read token
+        id: admitted-read-token
+        if: ${{ (steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && (steps.suite.outputs.unit_suite != 'true' || steps.suite.outputs.unit_canary == 'true') && steps.unchanged_inputs.outputs.compile_admitted != 'true') && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
+          permission-pull-requests: read
+
       - name: Look for an earlier run that compiled these inputs
         id: admitted
         continue-on-error: true
         if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && (steps.suite.outputs.unit_suite != 'true' || steps.suite.outputs.unit_canary == 'true') && steps.unchanged_inputs.outputs.compile_admitted != 'true' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.admitted-read-token.outputs.token || github.token }}
           BRANCH: ${{ github.head_ref }}
           FINGERPRINT: ${{ steps.inputs.outputs.fingerprint }}
         run: |
@@ -1174,6 +1191,9 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # HEAD^1 is the diff base lint-feature-flags uses to fail an expired
+          # reviewBy only on the change that edits that flag.
+          fetch-depth: 2
 
       - name: Run the contributor static preflight
         # The recipe is read-only and each check owns its temporary state, so
@@ -1657,10 +1677,12 @@ jobs:
     # the ZIP to the default-branch publisher. That publisher writes the
     # private R2 object and keeps one short-lived signed link on the PR while
     # the fleet controller is tailnet-only.
+    # A head that only merged main is routed from its last green head, so its
+    # macOS area reads false; the label still asks for a build of this head.
     # <!-- cmux:dogfood-build -->
     name: "Dogfood build #${{ github.event.pull_request.number }}"
     needs: [changes, static-preflight]
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'feat-cmux-next' && contains(github.event.pull_request.labels.*.name, 'dev-build') && github.event.action != 'unlabeled' && (github.event.action != 'labeled' || github.event.label.name == 'dev-build') && github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && needs.changes.outputs.macos != 'false' }}
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'feat-cmux-next' && contains(github.event.pull_request.labels.*.name, 'dev-build') && github.event.action != 'unlabeled' && (github.event.action != 'labeled' || github.event.label.name == 'dev-build') && github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.macos != 'false' || needs.changes.outputs.delta_base_sha != '') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     # This job is intentionally outside ci-status, so a build or publication
@@ -1742,6 +1764,35 @@ jobs:
     # required check every pull request waits on.
     timeout-minutes: 5
     steps:
+      # An absent signal must never read green. The steps below allow a
+      # `skipped` need, which is right only when that job's routing turned it
+      # off. This asks each skipped job's own `if:` whether it was selected,
+      # with the same needs, variables, inputs and event fields that decided
+      # it, and fails when a selected job never ran (scripts/ci/gate_verdict.py;
+      # tests/test_ci_gate_absent_signal.py walks the needs graph).
+      - name: Check out the gate verdict
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/gate_verdict.py
+            .github/workflows/ci.yml
+          sparse-checkout-cone-mode: false
+
+      - name: Every selected job reported
+        env:
+          GATE_NEEDS: ${{ toJSON(needs) }}
+          GATE_VARS: ${{ toJSON(vars) }}
+          GATE_INPUTS: ${{ toJSON(inputs) }}
+          GATE_GITHUB: >-
+            {"event_name": ${{ toJSON(github.event_name) }},
+            "repository": ${{ toJSON(github.repository) }},
+            "repository_owner": ${{ toJSON(github.repository_owner) }},
+            "run_attempt": ${{ toJSON(github.run_attempt) }},
+            "triggering_actor": ${{ toJSON(github.triggering_actor) }},
+            "event": {"pull_request": {"head": {"repo": {"full_name": ${{ toJSON(github.event.pull_request.head.repo.full_name) }}}}}}}
+        run: python3 scripts/ci/gate_verdict.py --workflow .github/workflows/ci.yml --gate ci-status
+
       - name: Check platform workflow routing
         env:
           PLATFORM_NEEDS: ${{ toJSON(needs) }}

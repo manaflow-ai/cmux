@@ -76,6 +76,7 @@ extension CmuxSettingsFileStore {
                     "paneResizeStepPixels": SettingCatalog().app.paneResizeStepPixels.defaultValue,
                     "focusHistoryIncludesPanesAndTabs": SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue,
                     "equalizeSplitsOnCreate": SettingCatalog().app.equalizeSplitsOnCreate.defaultValue,
+                    "equalizeSplitsOnDividerDoubleClick": SettingCatalog().app.equalizeSplitsOnDividerDoubleClick.defaultValue,
                     "preferredEditor": "",
                     "defaultWorkspacePath": AppCatalogSection().defaultWorkspacePath.defaultValue,
                     "openSupportedFilesInCmux": AppCatalogSection().openSupportedFilesInCmux.defaultValue,
@@ -88,6 +89,7 @@ extension CmuxSettingsFileStore {
                     "warnBeforeClosingTabXButton": AppCatalogSection().warnBeforeClosingTabXButton.defaultValue,
                     "warnBeforeClosingAgentSession": AppCatalogSection().warnBeforeClosingAgentSession.defaultValue,
                     "warnBeforeClosingWorkspace": AppCatalogSection().warnBeforeClosingWorkspace.defaultValue,
+                    "alwaysConfirmWorkspaceClose": AppCatalogSection().alwaysConfirmWorkspaceClose.defaultValue,
                     "warnBeforeClosingWindow": AppCatalogSection().warnBeforeClosingWindow.defaultValue,
                     "hideTabCloseButton": AppCatalogSection().hideTabCloseButton.defaultValue,
                     "tabBarVisibility": AppCatalogSection().tabBarVisibility.defaultValue.rawValue,
@@ -191,6 +193,7 @@ extension CmuxSettingsFileStore {
                     "selectionColor": NSNull(),
                     "subtleSelection": SettingCatalog().workspaceColors.subtleSelection.defaultValue,
                     "brightenInDarkMode": SettingCatalog().workspaceColors.brightenInDarkMode.defaultValue,
+                    "unselectedFillOpacity": SettingCatalog().workspaceColors.unselectedFillOpacity.defaultValue,
                     "notificationBadgeColor": NSNull(),
                     "colors": Dictionary(
                         uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) }
@@ -223,6 +226,15 @@ extension CmuxSettingsFileStore {
                     "kiroNotificationLevel": IntegrationsCatalogSection().kiroNotificationLevel.defaultValue,
                     "portBase": AutomationSettings.defaultPortBase,
                     "portRange": AutomationSettings.defaultPortRange,
+                ],
+            ],
+            [
+                "chief": [
+                    "enabled": ChiefCatalogSection().enabled.defaultValue,
+                    "harness": ChiefCatalogSection().harness.defaultValue,
+                    "model": ChiefCatalogSection().model.defaultValue,
+                    "effort": ChiefCatalogSection().effort.defaultValue,
+                    "dangerouslySkipPermissions": ChiefCatalogSection().dangerouslySkipPermissions.defaultValue,
                 ],
             ],
             [

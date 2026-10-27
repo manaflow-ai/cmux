@@ -8,6 +8,7 @@ import Foundation
 @MainActor
 extension TabManager {
     func createSplitOutcome(direction: SplitDirection) -> TerminalPanelCreationOutcome {
+        AppDelegate.shared?.leaveChiefHome(in: self)
         guard let selectedTabId,
               let workspace = tabs.first(where: { $0.id == selectedTabId }),
               let panelID = workspace.focusedPanelId else { return .failed }

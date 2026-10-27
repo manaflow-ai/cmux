@@ -39,10 +39,12 @@ General app preferences from Settings > App.
 | `app.paneResizeStepPixels` | integer | `20` | Pixels moved per keypress when using pane-resize shortcuts. |
 | `app.focusHistoryIncludesPanesAndTabs` | boolean | `false` | When true, Back and Forward include focus changes between panes and tabs. When false, they navigate between workspaces only. |
 | `app.equalizeSplitsOnCreate` | boolean | `false` | When true, creating a split resizes the panes in that split's row or column to equal sizes. When false, a new split halves the pane it was created from. |
+| `app.equalizeSplitsOnDividerDoubleClick` | boolean | `true` | When true, double-clicking a split divider makes the panes in its row or column equal in size. Other rows and columns keep their sizes. |
 | `app.globalFontMagnification` | integer | `100` | Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded. |
 | `app.confirmQuit` | `"always"` or `"dirty-only"` or `"never"` | `"always"` | Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback. |
 | `app.warnBeforeClosingTabXButton` | boolean | `false` | Show a confirmation before closing a tab with the tab close button. |
 | `app.warnBeforeClosingWorkspace` | boolean | `true` | Show a confirmation before closing a workspace with a running process, or several workspaces at once. Pinned workspaces still ask when this is off. |
+| `app.alwaysConfirmWorkspaceClose` | boolean | `false` | Ask before every workspace close, even when nothing in it is running. Overrides warnBeforeClosingWorkspace for workspace closes. |
 | `app.warnBeforeClosingWindow` | boolean | `true` | Show a confirmation before closing a window with a running process, or all of a window's workspaces at once. |
 | `app.hideTabCloseButton` | boolean | `false` | Hide tab close buttons in the pane tab bar. |
 | `app.tabBarVisibility` | `"always"` or `"multiple-tabs"` | `"always"` | Control when each pane's surface tab bar is shown. `"always"` shows it even when the pane has a single tab; `"multiple-tabs"` hides the bar until the pane has two or more tabs. Minimal mode (app.minimalMode) always shows it, because there the top tab bar is the titlebar row. |
@@ -168,6 +170,7 @@ Workspace tab and badge colors from Settings > Workspace Colors.
 | `workspaceColors.selectionColor` | colorHexOrNull | `null` | Override the selected workspace background color. |
 | `workspaceColors.subtleSelection` | boolean | `false` | Show the selected workspace as a faint accent tint with a thin edge instead of a solid fill. |
 | `workspaceColors.brightenInDarkMode` | boolean | `true` | Lighten workspace colors in dark mode. `false` shows colors exactly as chosen (`solidFill` only). |
+| `workspaceColors.unselectedFillOpacity` | number (0–1) | `0.7` | Opacity of the workspace color on rows that are not selected (`solidFill` only). `1` shows the full color. |
 | `workspaceColors.notificationBadgeColor` | colorHexOrNull | `null` | Override the unread notification badge color. |
 | `workspaceColors.colors` | object | `{"Red": "#C0392B", "Crimson": "#922B21", "Orange": "#A04000", "Amber": "#7D6608", "Olive": "#4A5C18", "Green": "#196F3D", "Teal": "#006B6B", "Aqua": "#0E6B8C", "Blue": "#1565C0", "Navy": "#1A5276", "Indigo": "#283593", "Purple": "#6A1B9A", "Magenta": "#AD1457", "Rose": "#880E4F", "Brown": "#7B3F00", "Charcoal": "#3E4B5E"}` | Full named workspace color palette. Include built-in entries you want to keep, remove keys to remove colors, and add more named entries to extend the picker. |
 | `workspaceColors.paletteOverrides` | object | `{}` | Legacy workspace color overrides for built-in palette names. Prefer workspaceColors.colors for new configs. |
@@ -218,6 +221,18 @@ Agent-to-agent messages sent with `cmux agent message`. Per-agent and per-worksp
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `agentMessages.enabled` | boolean | `true` | Allow agents to message each other through cmux. When false, `cmux agent message` fails, nothing is stored, and messages already queued are marked failed instead of being delivered. |
+
+## chief
+
+Chief, the Home agent: whether it is shown and which harness, model, and effort it uses.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `chief.enabled` | boolean | `true` | Show the Home row and Chief entry points. When false, the Home row, the Open Chief shortcut, menu item, and command palette entries are hidden. |
+| `chief.harness` | `"claude"` or `"codex"` | `"claude"` | Agent harness Chief runs on: `claude` (Claude Code) or `codex` (Codex). |
+| `chief.model` | string | `""` | Model passed to the harness. Leave empty to use the harness default. |
+| `chief.effort` | string | `""` | Reasoning effort passed to the harness, such as `low`, `medium`, or `high`. Leave empty to use the harness default. |
+| `chief.dangerouslySkipPermissions` | boolean | `false` | Allow Chief's selected agent to bypass permission prompts and sandbox guardrails. Off by default. |
 
 ## browser
 

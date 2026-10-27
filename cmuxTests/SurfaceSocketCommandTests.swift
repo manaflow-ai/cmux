@@ -80,8 +80,106 @@ struct SurfaceSocketCommandTests {
         let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
         let error = try Self.error(object)
         #expect(error["code"] as? String == "vm_tui_daemon_unavailable")
-        #expect((error["message"] as? String)?.contains("cmux-tui daemon") == true)
+        #expect((error["message"] as? String)?.contains("cmux-tui") == false)
+        #expect(error["message"] as? String == Self.daemonUnavailableMessage)
+    }
+
+    @Test func workspaceDaemonFailureUsesWorkspaceRecoveryCopy() async throws {
+        let response = await Task.detached {
+            TerminalController.shared.v2VmCall(
+                id: "tui-daemon-workspace",
+                timeoutSeconds: 5,
+                daemonUnavailableMessage: Self.workspaceDaemonUnavailableMessage
+            ) {
+                throw CloudMachineLink.LinkError.timedOut
+            }
+        }.value
+        let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
+        let error = try Self.error(object)
+        #expect(error["code"] as? String == "vm_tui_daemon_unavailable")
+        #expect(error["message"] as? String == Self.workspaceDaemonUnavailableMessage)
         #expect((error["message"] as? String)?.contains("cmux vm workspace new") == true)
+    }
+
+    @Test func otherDaemonLinkFailuresUseTheSameStableCategory() async throws {
+        let response = await Task.detached {
+            TerminalController.shared.v2VmCall(id: "tui-daemon-timeout", timeoutSeconds: 5) {
+                throw CloudMachineLink.LinkError.timedOut
+            }
+        }.value
+        let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
+        let error = try Self.error(object)
+        #expect(error["code"] as? String == "vm_tui_daemon_unavailable")
+        #expect(error["message"] as? String == Self.daemonUnavailableMessage)
+    }
+
+    @Test func unrelatedLinkFailuresDoNotUseDaemonCategory() async throws {
+        let response = await Task.detached {
+            TerminalController.shared.v2VmCall(id: "tui-client-error", timeoutSeconds: 5) {
+                throw CloudMachineLink.LinkError.failureMessage("The remote workspace is unavailable; refresh and retry.")
+            }
+        }.value
+        let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
+        let error = try Self.error(object)
+        #expect(error["code"] as? String == "vm_error")
+        #expect(error["message"] as? String == Self.requestFailedMessage)
+    }
+
+    @Test func daemonRejectionDoesNotUseDaemonUnavailableCategory() async throws {
+        let response = await Task.detached {
+            TerminalController.shared.v2VmCall(
+                id: "tui-daemon-rejection",
+                timeoutSeconds: 5,
+                daemonUnavailableMessage: Self.workspaceDaemonUnavailableMessage
+            ) {
+                throw CloudMachineLink.LinkError.exited(status: 1, output: #"{"code":"selector.not_found"}"#)
+            }
+        }.value
+        let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
+        let error = try Self.error(object)
+        #expect(error["code"] as? String == "vm_error")
+        #expect(error["message"] as? String == Self.requestFailedMessage)
+    }
+
+    @Test func clientExitBeforeSocketDoesNotUseDaemonCategory() async throws {
+        let response = await Task.detached {
+            TerminalController.shared.v2VmCall(id: "tui-client-exit", timeoutSeconds: 5) {
+                throw CloudMachineLink.LinkError.exitedBeforeSocket(status: 2, output: "cmux-tui: unknown flag --carrier")
+            }
+        }.value
+        let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
+        let error = try Self.error(object)
+        #expect(error["code"] as? String == "vm_error")
+        #expect(error["message"] as? String == Self.requestFailedMessage)
+    }
+
+    @Test func providerErrorCopyKeepsDetailsWithoutInternalProductNames() {
+        let daemonFailure = CmuxTuiSurfaceProvider.ProviderError.terminalNotCreated(
+            "cmux-tui rejected the request: retry the workspace"
+        )
+        #expect(daemonFailure.localizedDescription.contains(String(localized: "cloud.service.name", defaultValue: "Cloud service")))
+        #expect(daemonFailure.localizedDescription.contains("retry the workspace"))
+
+        let providerFailures: [CmuxTuiSurfaceProvider.ProviderError] = [
+            .noWorkspaceOnMachine("machine"),
+            daemonFailure,
+            .invalidSnapshot("machine"),
+            .snapshotOnly("machine"),
+            .hubUnavailable,
+        ]
+        for failure in providerFailures {
+            #expect(!failure.localizedDescription.contains("cmux-tui"))
+        }
+
+        let nonDaemonFailure = CmuxTuiSurfaceProvider.ProviderError.remoteWorkspaceNotFound("workspace-id")
+        #expect(nonDaemonFailure.localizedDescription == String(
+            format: String(
+                localized: "cloudTree.error.remoteWorkspaceNotFound",
+                defaultValue: "Remote workspace %@ is no longer available. Refresh and retry."
+            ),
+            "workspace-id"
+        ))
+        #expect(!nonDaemonFailure.localizedDescription.contains("cmux-tui"))
     }
 
     @Test func tunnelFailureKeepsTheSafeReasonAndDiagnosticReference() async throws {
@@ -102,7 +200,7 @@ struct SurfaceSocketCommandTests {
     }
 
     /// A cloud provider whose daemon is a notebook: every verb records what it was asked.
-    private final class FakeCloudProvider: SurfaceProvider {
+    final class FakeCloudProvider: SurfaceProvider {
         let machine: SurfaceMachineID
         var info: SurfaceMachineInfo
         unowned let catalog: SurfaceCatalog
@@ -175,7 +273,7 @@ struct SurfaceSocketCommandTests {
 
     /// One registered fake machine with two workspaces: `ws_a` holds `term_a1` and
     /// `term_a2` (plus a daemon browser); `ws_b` holds `term_b`; `ws_empty` holds nothing.
-    private struct Fixture {
+    struct Fixture {
         let machineID: String
         let machine: SurfaceMachineID
         let provider: FakeCloudProvider
@@ -244,7 +342,7 @@ struct SurfaceSocketCommandTests {
         }
     }
 
-    private static func withFixture(device: Bool = false, _ body: (Fixture) async throws -> Void) async throws {
+    static func withFixture(device: Bool = false, _ body: (Fixture) async throws -> Void) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
             let betaKey = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
@@ -275,7 +373,7 @@ struct SurfaceSocketCommandTests {
     /// Sends one request the way a socket client does: off the main thread (the
     /// surface/vm verbs run on the socket-worker lane and park it while the catalog
     /// works on the main actor).
-    private nonisolated static func call(_ method: String, _ params: [String: Any]) async throws -> [String: Any] {
+    nonisolated static func call(_ method: String, _ params: [String: Any]) async throws -> [String: Any] {
         let request: [String: Any] = ["jsonrpc": "2.0", "id": UUID().uuidString, "method": method, "params": params]
         let line = String(decoding: try JSONSerialization.data(withJSONObject: request), as: UTF8.self)
         return try await withCheckedThrowingContinuation { continuation in
@@ -291,12 +389,27 @@ struct SurfaceSocketCommandTests {
         }
     }
 
-    private static func ok(_ response: [String: Any]) throws -> [String: Any] {
+    static func ok(_ response: [String: Any]) throws -> [String: Any] {
         #expect(response["ok"] as? Bool == true, "expected success, got \(response)")
         return try #require(response["result"] as? [String: Any])
     }
 
-    private static func error(_ response: [String: Any]) throws -> [String: Any] {
+    private static let daemonUnavailableMessage = String(
+        localized: "socket.cloudVM.daemonUnavailable",
+        defaultValue: "The Cloud VM connection is unavailable. Wake the machine or retry the command."
+    )
+
+    private static let requestFailedMessage = String(
+        localized: "socket.cloudVM.requestFailed",
+        defaultValue: "The Cloud VM request failed. Retry, or check the machine's status with `cmux vm ls`."
+    )
+
+    private static let workspaceDaemonUnavailableMessage = String(
+        localized: "socket.cloudVM.tuiDaemonUnavailable",
+        defaultValue: "Could not create a workspace on this Cloud VM. Wake the machine or retry `cmux vm workspace new`."
+    )
+
+    static func error(_ response: [String: Any]) throws -> [String: Any] {
         #expect(response["ok"] as? Bool == false, "expected an error, got \(response)")
         return try #require(response["error"] as? [String: Any])
     }

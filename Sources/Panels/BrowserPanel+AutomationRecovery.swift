@@ -102,9 +102,12 @@ extension BrowserPanel {
         ]
     }
 
+    /// - Parameter fileReadAccessURL: For a file URL, the directory to grant
+    ///   the page read access to (a browser REPL session's pinned root).
     func beginAutomationNavigation(
         to targetURL: URL,
-        recordTypedNavigation: Bool
+        recordTypedNavigation: Bool,
+        fileReadAccessURL: URL? = nil
     ) -> BrowserAutomationNavigationTicket {
         takeBrowserDialogOwnership(.automation)
         let ticket = automationNavigationCoordinator.begin(
@@ -116,6 +119,7 @@ extension BrowserPanel {
         navigate(
             to: targetURL,
             recordTypedNavigation: recordTypedNavigation,
+            fileReadAccessURL: fileReadAccessURL,
             onNavigationStarted: { [weak self] navigation in
                 self?.automationNavigationCoordinator.didStart(
                     ticket,
@@ -183,6 +187,17 @@ extension BrowserPanel {
         browserAutomationUserScripts.removeAll()
         browserAutomationInitScriptCount = 0
         browserAutomationStyleScriptCount = 0
+        browserEmulation.reset()
+    }
+
+    /// Applies a change to the automation emulation of the current web view
+    /// and every web view that later replaces it.
+    /// - Returns: The overrides now in effect.
+    @discardableResult
+    func updateBrowserEmulation(
+        _ change: (inout BrowserEmulationOverrides) -> Void
+    ) async throws -> BrowserEmulationOverrides {
+        try await browserEmulation.update(on: { self.webView }, change)
     }
 
     func makeReplacementWebView(
@@ -212,6 +227,7 @@ extension BrowserPanel {
         for userScript in browserAutomationUserScripts {
             replacement.configuration.userContentController.addUserScript(userScript)
         }
+        browserEmulation.install(on: replacement)
         if cloudAccess.model?.usesBrowserProxy == true, let host = cloudAccess.model?.target.host {
             replacement.configuration.userContentController.addUserScript(WKUserScript(
                 source: RemoteLoopbackRuntimeBridge.scriptSource(

@@ -64,6 +64,7 @@ esac
 # shellcheck source=lib/gatekeeper-assessment.sh
 source "$ROOT_DIR/scripts/ci/lib/gatekeeper-assessment.sh"
 SIGN_BUNDLE_TOOL="${CMUX_SIGN_BUNDLE_TOOL:-$ROOT_DIR/scripts/sign-cmux-bundle.sh}"
+SIGNING_KEYCHAIN_TOOL="${CMUX_SIGNING_KEYCHAIN_TOOL:-$ROOT_DIR/scripts/ci/signing-keychain.sh}"
 HELPER_ENTITLEMENTS="${CMUX_HELPER_ENTITLEMENTS:-$ROOT_DIR/cmux-helper.entitlements}"
 HELPER_PATH="$APP_PATH/Contents/Library/cmux Computer Use.app"
 
@@ -131,6 +132,7 @@ start_submission() {
   # Give the helper its final Developer ID signature before upload. Later host
   # signing must use all-except-computer-use so this exact CDHash survives until
   # finish staples the ticket and re-seals only the outer app.
+  "$SIGNING_KEYCHAIN_TOOL" unlock
   "$CODESIGN_TOOL" \
     --force \
     --options runtime \
@@ -343,6 +345,9 @@ PYSTATE
   cat "$TMP_DIR/notary-log.json"
   verify_ticket_contents_cover_slices "$TMP_DIR/notary-log.json" "$HELPER_PATH"
   "$XCRUN_TOOL" stapler staple "$HELPER_PATH"
+  # The ticket is written with this script's 077 umask; the shipped helper
+  # must be readable by every user.
+  [ ! -e "$HELPER_PATH/Contents/CodeResources" ] || chmod 0644 "$HELPER_PATH/Contents/CodeResources"
   "$XCRUN_TOOL" stapler validate "$HELPER_PATH"
   verify_stapled_ticket_covers_slices "$HELPER_PATH"
   "$CODESIGN_TOOL" --verify --strict --verbose=2 "$HELPER_PATH"
@@ -366,8 +371,14 @@ PYSTATE
 
   # Stapling the nested app changes the host's resource seal. Re-sign only the
   # outer app: re-signing nested code here would discard the helper's ticket.
-  CMUX_SIGN_MODE=main-only \
-    "$SIGN_BUNDLE_TOOL" "$APP_PATH" "$APP_ENTITLEMENTS" "$SIGNING_IDENTITY"
+  # This script's state writers set umask 077; the re-signed host seal must be
+  # readable by every user.
+  (
+    umask 022
+    CMUX_SIGN_MODE=main-only \
+      "$SIGN_BUNDLE_TOOL" "$APP_PATH" "$APP_ENTITLEMENTS" "$SIGNING_IDENTITY"
+  )
+  [ ! -e "$APP_PATH/Contents/_CodeSignature/CodeResources" ] || chmod 0644 "$APP_PATH/Contents/_CodeSignature/CodeResources"
   "$CODESIGN_TOOL" --verify --deep --strict --verbose=2 "$APP_PATH"
   "$XCRUN_TOOL" stapler validate "$HELPER_PATH"
   verify_stapled_ticket_covers_slices "$HELPER_PATH"
