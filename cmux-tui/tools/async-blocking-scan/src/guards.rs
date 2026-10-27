@@ -5,7 +5,12 @@
 //! Temporaries follow Rust's drop scopes: a `match`, `if let`, `while let` or
 //! `for` head keeps its temporaries for the whole construct; a plain `if` or
 //! `while` condition, a block and a match arm end theirs.
+//!
+//! A lock call handed directly to another call (`timeout(d, m.lock())`,
+//! `join!(a.lock(), b.lock())`) is a future the callee awaits, so its lock is
+//! an async one (tokio's): the same reading as an `async_twin` method.
 
+use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
 use syn::{Block, Expr, Pat, Stmt};
 
@@ -20,18 +25,23 @@ pub struct GuardHit {
     /// The binding, or `None` for a temporary.
     pub guard: Option<String>,
     pub snippet: String,
+    /// The first line of the statement that takes the lock, where an allow
+    /// comment for it goes.
+    pub stmt_line: usize,
 }
 
 struct LiveGuard {
     name: String,
     lock: Pos,
     snippet: String,
+    stmt_line: usize,
 }
 
 pub fn guards_over_await(cfg: &Config, block: &Block) -> Vec<GuardHit> {
     let mut hits = Vec::new();
     let mut live: Vec<LiveGuard> = Vec::new();
     for stmt in &block.stmts {
+        let stmt_line = pos_of(stmt.span()).0;
         let awaits = await_points(cfg, stmt);
         live.retain(|guard| {
             let dropped_at = drop_point(stmt, &guard.name);
@@ -42,6 +52,7 @@ pub fn guards_over_await(cfg: &Config, block: &Block) -> Vec<GuardHit> {
                     awaited_at: *at,
                     guard: Some(guard.name.clone()),
                     snippet: guard.snippet.clone(),
+                    stmt_line: guard.stmt_line,
                 });
                 return false;
             }
@@ -51,7 +62,13 @@ pub fn guards_over_await(cfg: &Config, block: &Block) -> Vec<GuardHit> {
         if new_guard.is_none() {
             for (lock, text) in temporary_locks(cfg, stmt) {
                 if let Some(at) = awaits.iter().find(|a| **a > lock) {
-                    hits.push(GuardHit { lock, awaited_at: *at, guard: None, snippet: text });
+                    hits.push(GuardHit {
+                        lock,
+                        awaited_at: *at,
+                        guard: None,
+                        snippet: text,
+                        stmt_line,
+                    });
                 }
             }
         }
@@ -73,7 +90,7 @@ fn guard_binding(cfg: &Config, stmt: &Stmt) -> Option<LiveGuard> {
     };
     let init = local.init.as_ref()?;
     let lock = guard_call(cfg, &init.expr)?;
-    Some(LiveGuard { name, lock, snippet: snippet(&init.expr) })
+    Some(LiveGuard { name, lock, snippet: snippet(&init.expr), stmt_line: pos_of(stmt.span()).0 })
 }
 
 /// The position of the unawaited lock call an expression reduces to through
@@ -161,7 +178,7 @@ impl<'ast> Visit<'ast> for DropFinder<'_> {
 
 /// Unawaited lock calls whose temporary guard lives to the end of the statement.
 fn temporary_locks(cfg: &Config, stmt: &Stmt) -> Vec<(Pos, String)> {
-    let mut finder = TempLocks { cfg, awaited: Vec::new(), locks: Vec::new() };
+    let mut finder = TempLocks { cfg, awaited: Vec::new(), futures: Vec::new(), locks: Vec::new() };
     match stmt {
         Stmt::Local(local) => {
             if let Some(init) = &local.init {
@@ -177,10 +194,20 @@ fn temporary_locks(cfg: &Config, stmt: &Stmt) -> Vec<(Pos, String)> {
 struct TempLocks<'c> {
     cfg: &'c Config,
     awaited: Vec<Pos>,
+    /// Method calls passed directly as a call's argument: futures.
+    futures: Vec<Pos>,
     locks: Vec<(Pos, String)>,
 }
 
 impl TempLocks<'_> {
+    fn mark_futures<'a>(&mut self, args: impl Iterator<Item = &'a Expr>) {
+        for arg in args {
+            if let Expr::MethodCall(m) = strip_parens(arg) {
+                self.futures.push(pos_of(m.method.span()));
+            }
+        }
+    }
+
     /// An `if`/`while` head: only `let` scrutinees keep their temporaries.
     fn visit_head(&mut self, cond: &Expr) {
         match strip_parens(cond) {
@@ -202,13 +229,20 @@ impl<'ast> Visit<'ast> for TempLocks<'_> {
         visit::visit_expr_await(self, e);
     }
 
+    fn visit_expr_call(&mut self, e: &'ast syn::ExprCall) {
+        self.mark_futures(e.args.iter());
+        visit::visit_expr_call(self, e);
+    }
+
     fn visit_expr_method_call(&mut self, e: &'ast syn::ExprMethodCall) {
         let at = pos_of(e.method.span());
         if self.cfg.is_guard_method(&e.method.to_string(), e.args.len())
             && !self.awaited.contains(&at)
+            && !self.futures.contains(&at)
         {
             self.locks.push((at, snippet(e)));
         }
+        self.mark_futures(e.args.iter());
         visit::visit_expr_method_call(self, e);
     }
 

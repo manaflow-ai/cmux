@@ -94,12 +94,23 @@ methods = [
     { name = "block_on", args = 1, always = true },
 ]
 # A closure handed to these runs where blocking is allowed.
+# cmux_blocking and cmux_threads are the wrappers the plan prescribes for a
+# Q11 fix (p10-stability.md); their closures run on a blocking-allowed thread
+# or under a compensated block_in_place.
 offload_functions = [
     "tokio::task::spawn_blocking",
     "tokio::task::block_in_place",
     "std::thread::spawn",
     "cmux_threads::spawn",
+    "cmux_threads::spawn::spawn",
+    "cmux_threads::spawn_with_stack",
+    "cmux_threads::spawn::spawn_with_stack",
     "cmux_threads::allow_blocking",
+    "cmux_threads::blocking::allow_blocking",
+    "cmux_threads::scoped_blocking_call",
+    "cmux_threads::blocking::scoped_blocking_call",
+    "cmux_blocking::spawn_blocking",
+    "cmux_blocking::scoped_blocking_call",
     "rayon::spawn",
 ]
 offload_methods = ["spawn_blocking", "block_in_place"]
@@ -120,9 +131,16 @@ task_functions = [
     "tokio::task::spawn",
     "tokio::task::spawn_local",
     "tokio::task::spawn_blocking",
+    "cmux_blocking::spawn_blocking",
 ]
 # Every thread start outside a supervisor.
-thread_functions = ["std::thread::spawn", "cmux_threads::spawn"]
+thread_functions = [
+    "std::thread::spawn",
+    "cmux_threads::spawn",
+    "cmux_threads::spawn::spawn",
+    "cmux_threads::spawn_with_stack",
+    "cmux_threads::spawn::spawn_with_stack",
+]
 # Calls whose arguments are supervised (cmux_panic_log::supervise_*).
 supervisor_prefixes = ["cmux_panic_log::supervise"]
 

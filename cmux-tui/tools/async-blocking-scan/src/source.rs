@@ -108,8 +108,12 @@ fn git(root: &Path, args: &[&str]) -> Result<Vec<u8>, SourceError> {
 fn read_git(root: &Path, rev: &str) -> Result<Files, SourceError> {
     let prefix =
         String::from_utf8_lossy(&git(root, &["rev-parse", "--show-prefix"])?).trim().to_string();
-    let listing =
-        git(root, &["ls-tree", "-r", "-z", "--name-only", "--full-tree", rev, "--", &prefix])?;
+    // At the top level the prefix is empty, and git refuses an empty pathspec.
+    let mut ls_tree = vec!["ls-tree", "-r", "-z", "--name-only", "--full-tree", rev];
+    if !prefix.is_empty() {
+        ls_tree.extend(["--", prefix.as_str()]);
+    }
+    let listing = git(root, &ls_tree)?;
     let names: Vec<String> = listing
         .split(|b| *b == 0)
         .filter(|n| !n.is_empty())

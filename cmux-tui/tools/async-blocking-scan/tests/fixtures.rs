@@ -452,6 +452,163 @@ fn diff_reports_only_findings_new_since_the_base() -> TestResult {
 }
 
 #[test]
+fn diff_works_when_the_root_is_the_git_top_level() -> TestResult {
+    let fx = Fixture::new()?;
+    fx.krate("top", "pub fn old() { tokio::spawn(async {}); }\n")?;
+    let root = fx.root();
+    git(&root, &["init", "-q"])?;
+    git(&root, &["add", "-A"])?;
+    git(&root, &["commit", "-q", "-m", "base"])?;
+    fx.krate(
+        "top",
+        "pub fn old() { tokio::spawn(async {}); }\npub fn new() { tokio::spawn(async {}); }\n",
+    )?;
+    let out = scan(&[root], &[], Some("HEAD"))?;
+    assert_eq!(out.base_findings, Some(1));
+    assert_eq!(hits(out.reported()), [("dropped-handle".to_string(), "new".to_string())]);
+    Ok(())
+}
+
+#[test]
+fn cmux_blocking_wrappers_offload_and_count_as_spawns() -> TestResult {
+    let fx = Fixture::new()?;
+    fx.krate(
+        "wrapped",
+        r#"
+use std::path::PathBuf;
+use cmux_threads::blocking;
+
+pub async fn spawn_blocking(p: PathBuf) -> Vec<u8> {
+    cmux_blocking::spawn_blocking(move || std::fs::read(&p).unwrap()).await.unwrap()
+}
+pub async fn scoped(p: PathBuf) -> Vec<u8> {
+    cmux_blocking::scoped_blocking_call("read", kind(), || std::fs::read(&p).unwrap())
+}
+pub async fn threads_scoped(p: PathBuf) -> Vec<u8> {
+    cmux_threads::scoped_blocking_call(kind(), || std::fs::read(&p).unwrap())
+}
+pub async fn threads_blocking_module(p: PathBuf) -> Vec<u8> {
+    blocking::scoped_blocking_call(kind(), || std::fs::read(&p).unwrap())
+}
+pub async fn with_stack() {
+    let _h = cmux_threads::spawn_with_stack("n", q(), 1, || {
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    });
+}
+pub async fn dropped_wrapper() { cmux_blocking::spawn_blocking(|| {}); }
+fn kind() {}
+fn q() {}
+"#,
+    )?;
+    let blocking = scan(&[fx.root()], &[Kind::Blocking], None)?;
+    assert!(blocking.head.findings.is_empty(), "{:#?}", blocking.head.findings);
+    let spawn = scan(&[fx.root()], &[Kind::Spawn], None)?;
+    assert_eq!(
+        hits(&spawn.head.findings),
+        [
+            ("thread".to_string(), "with_stack".to_string()),
+            ("dropped-handle".to_string(), "dropped_wrapper".to_string()),
+        ],
+        "{:#?}",
+        spawn.head.findings
+    );
+    Ok(())
+}
+
+#[test]
+fn handles_bound_through_ok_and_some_patterns_are_followed() -> TestResult {
+    let fx = Fixture::new()?;
+    fx.krate(
+        "handles",
+        r#"
+use tokio::runtime::Handle;
+
+pub fn let_else() {
+    let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
+    rt.spawn(async {});
+}
+pub fn if_let() {
+    if let Ok(rt) = Handle::try_current() {
+        rt.spawn(async {});
+    }
+}
+pub fn while_let() {
+    while let Ok(rt) = Handle::try_current() {
+        rt.spawn(async {});
+    }
+}
+pub fn kept() -> Option<tokio::task::JoinHandle<()>> {
+    let Ok(rt) = Handle::try_current() else { return None };
+    Some(rt.spawn(async {}))
+}
+"#,
+    )?;
+    let out = scan(&[fx.root()], &[Kind::Spawn], None)?;
+    assert_eq!(
+        functions(&out.head.findings),
+        set(&["let_else", "if_let", "while_let"]),
+        "{:#?}",
+        out.head.findings
+    );
+    Ok(())
+}
+
+#[test]
+fn lock_futures_and_multi_line_guard_allow_comments() -> TestResult {
+    let fx = Fixture::new()?;
+    fx.krate(
+        "guards",
+        r#"
+use std::sync::Mutex;
+
+async fn tick() {}
+
+pub struct S { state: Mutex<u8> }
+
+pub async fn timeout_lock(m: &tokio::sync::Mutex<u8>, d: std::time::Duration) {
+    let Ok(g) = tokio::time::timeout(d, m.lock()).await else { return };
+    tick().await;
+    let _ = *g;
+}
+pub async fn joined(a: &tokio::sync::Mutex<u8>, b: &tokio::sync::Mutex<u8>) {
+    let (_x, _y) = tokio::join!(a.lock(), b.lock());
+    tick().await;
+}
+impl S {
+    pub async fn multi_line(&self) {
+        // blocking-allow: the fixture's multi-line guard
+        let g = self
+            .state
+            .lock()
+            .unwrap();
+        tick().await;
+        let _ = *g;
+    }
+    pub async fn nested_under_outer_allow(&self, on: bool) {
+        // blocking-allow: covers only the if statement's own line
+        if on {
+            let g = self.state.lock().unwrap();
+            tick().await;
+            let _ = *g;
+        }
+    }
+}
+"#,
+    )?;
+    let out = scan(&[fx.root()], &[Kind::Blocking], None)?;
+    assert_eq!(
+        hits(&out.head.findings),
+        [("lock-over-await".to_string(), "S::nested_under_outer_allow".to_string())],
+        "{:#?}",
+        out.head.findings
+    );
+    let exempt: Vec<_> =
+        out.head.exempt.iter().map(|f| (f.function.as_str(), f.exempt.as_deref())).collect();
+    assert_eq!(exempt, [("S::multi_line", Some("the fixture's multi-line guard"))]);
+    Ok(())
+}
+
+#[test]
 fn the_binary_prints_json_with_queue_counts() -> TestResult {
     let fx = Fixture::new()?;
     fx.krate(

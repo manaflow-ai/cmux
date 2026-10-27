@@ -138,8 +138,21 @@ impl<'c, 'ast> Scanner<'c, 'ast> {
     }
 
     fn report(&mut self, kind: Kind, rule: &str, pos: Pos, message: String, snippet: String) {
-        let function = self.scope.join("::");
         let stmt_line = self.stmt_lines.last().copied().unwrap_or(pos.0);
+        self.report_in(stmt_line, kind, rule, pos, message, snippet);
+    }
+
+    /// A finding whose allow comment goes above `stmt_line`.
+    fn report_in(
+        &mut self,
+        stmt_line: usize,
+        kind: Kind,
+        rule: &str,
+        pos: Pos,
+        message: String,
+        snippet: String,
+    ) {
+        let function = self.scope.join("::");
         self.findings.push(Finding {
             kind,
             rule: rule.to_string(),
@@ -214,19 +227,34 @@ impl<'c, 'ast> Scanner<'c, 'ast> {
         }
     }
 
+    fn bind_name(&mut self, name: &syn::Ident, init: &Expr) {
+        let ty = self.type_of(init);
+        if let Some(locals) = self.locals.last_mut() {
+            match ty {
+                Some(ty) => locals.insert(name.to_string(), ty),
+                None => locals.remove(&name.to_string()),
+            };
+        }
+    }
+
     fn bind_local(&mut self, pat: &Pat, init: &Expr) {
         let pat = match pat {
             Pat::Type(t) => &*t.pat,
             other => other,
         };
         match pat {
-            Pat::Ident(p) => {
-                let ty = self.type_of(init);
-                if let Some(locals) = self.locals.last_mut() {
-                    match ty {
-                        Some(ty) => locals.insert(p.ident.to_string(), ty),
-                        None => locals.remove(&p.ident.to_string()),
-                    };
+            Pat::Ident(p) => self.bind_name(&p.ident, init),
+            // `let Ok(rt) = Handle::try_current() else { .. }`, `if let Some(x) = ..`:
+            // the one binding holds the followed value.
+            Pat::TupleStruct(t)
+                if t.elems.len() == 1
+                    && t.path
+                        .segments
+                        .last()
+                        .is_some_and(|s| s.ident == "Ok" || s.ident == "Some") =>
+            {
+                if let Some(Pat::Ident(p)) = t.elems.first() {
+                    self.bind_name(&p.ident, init);
                 }
             }
             Pat::Tuple(t) => {
@@ -398,7 +426,8 @@ impl<'c, 'ast> Scanner<'c, 'ast> {
                 "std lock {held} is held across the await at line {}: release it first or use an async lock",
                 hit.awaited_at.0
             );
-            self.report(Kind::Blocking, "lock-over-await", hit.lock, message, hit.snippet);
+            let rule = "lock-over-await";
+            self.report_in(hit.stmt_line, Kind::Blocking, rule, hit.lock, message, hit.snippet);
         }
     }
 
@@ -515,6 +544,8 @@ impl<'ast> Visit<'ast> for Scanner<'_, 'ast> {
             self.check_child(spawn, arm_names(std::iter::once(&*e.pat)), snippet(&e.expr));
         }
         visit::visit_expr_let(self, e);
+        // The `if let` / `while let` body, visited next, sees the binding.
+        self.bind_local(&e.pat, &e.expr);
     }
 
     fn visit_block(&mut self, block: &'ast Block) {
