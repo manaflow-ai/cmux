@@ -1272,7 +1272,8 @@ class SupersededDeliveryTests(unittest.TestCase):
         other_workflow = {**nightly_run("ccb74c4d", 20), "workflow_id": 1, "path": ".github/workflows/ci.yml"}
         older = nightly_run("0ldhead0", 90)
         no_status = {**nightly_run("ccb74c4d", 20), "status": None}
-        for others in ([no_status], [], [same_head], [cancelled], [failed], [fork], [dispatched], [other_branch], [other_workflow],
+        rerun = {**nightly_run("ccb74c4d", 20), "run_attempt": 2}
+        for others in ([no_status], [rerun], [], [same_head], [cancelled], [failed], [fork], [dispatched], [other_branch], [other_workflow],
                        [older]):
             with self.subTest(others=others):
                 ok, why = self.judge(old, gate_jobs(60), [old, *others])

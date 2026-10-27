@@ -154,6 +154,8 @@ def newer_head_runs(run: Mapping[str, Any], runs: Iterable[Mapping[str, Any]]) -
             continue
         if _head_repo(other) != repo or other.get("event") != run.get("event"):
             continue
+        if other.get("run_attempt") != 1:  # a re-run's jobs are only its latest attempt's; missing is unread
+            continue
         if not is_delivery_run(other.get("path"), other.get("name"), other.get("display_title")):
             continue
         status = other.get("status")
