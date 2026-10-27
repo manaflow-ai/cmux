@@ -67,6 +67,15 @@ class Expressions(unittest.TestCase):
         self.assertEqual(self.bad("needs.p.outputs.label || vars.CI_IOS_INTERNAL_RUNNER || 'x'"),
                          ["CI_IOS_INTERNAL_RUNNER"])
         self.assertEqual(self.bad("vars.CI_IOS_INTERNAL_RUNNER != '' && 'blacksmith-6vcpu-macos-26' || 'x'"), [])
+        # Only a positive test of the output, as its own term, is a pick (review round 1).
+        for guard in ("!needs.p.outputs.ok", "(needs.p.outputs.ok || 'x')", "!(needs.p.outputs.ok)",
+                      "contains('needs.p.outputs.ok', 'x')", "needs.p.outputs.ok != '' || true",
+                      "fromJSON(needs.p.outputs.list)[0]"):
+            self.assertEqual(self.bad(f"{guard} && vars.CI_IOS_INTERNAL_RUNNER || 'pool'"),
+                             ["CI_IOS_INTERNAL_RUNNER"], guard)
+        for guard in ("needs.p.outputs.ok", "needs.p.outputs.trusted != 'false'", "needs.p.outputs.dedicated != ''",
+                      "needs.p.outputs.attempt == format('{0}', github.run_attempt)"):
+            self.assertEqual(self.bad(f"{guard} && vars.CI_IOS_INTERNAL_RUNNER || 'pool'"), [], guard)
         # Nested: the group's own literal is the fallback.
         self.assertEqual(self.bad("a && (needs.p.outputs.ok && vars.CI_IOS_INTERNAL_RUNNER || 'x')"), [])
 
@@ -77,6 +86,16 @@ class Expressions(unittest.TestCase):
         for value in ("", "glaeda-trusted-next-nightly", "glaeda-std-xcode-26.6", "blacksmith-6vcpu-macos-26",
                       "1", '{"probe": ""}', "glaeda-ios-internal-next-pool"):
             self.assertFalse(check.single_host(value), value)
+
+
+class Inputs(unittest.TestCase):
+    def test_a_malformed_line_is_named_by_number_not_text(self) -> None:
+        with self.assertRaises(ValueError) as caught:
+            check.parse_values("A=1\nsecret-looking text\n")
+        self.assertIn("line 2", str(caught.exception))
+        self.assertNotIn("secret", str(caught.exception))
+        with self.assertRaises(ValueError):
+            check.parse_values("A=1\nA=2\n")
 
 
 class ThisTree(unittest.TestCase):

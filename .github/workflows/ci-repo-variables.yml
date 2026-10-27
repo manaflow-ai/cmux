@@ -141,14 +141,23 @@ jobs:
           for branch in $ROUTE_BRANCHES; do
             dir="$RUNNER_TEMP/runs-on-values/$branch"
             mkdir -p "$dir"
-            if [ "$branch" = "${GITHUB_REF_NAME}" ]; then
+            if [ "refs/heads/$branch" = "$GITHUB_REF" ]; then
               cp -R .github/workflows/. "$dir/"
-            elif ! git ls-remote --exit-code --heads origin "refs/heads/$branch" >/dev/null; then
-              # A retired branch runs nothing; drop it from ROUTE_BRANCHES.
+              trees+=("$branch=$dir")
+              continue
+            fi
+            # Exit 2 is "no such ref" (a retired branch runs nothing: drop it from ROUTE_BRANCHES);
+            # any other failure fails the step, so a branch is never skipped silently.
+            status=0
+            git ls-remote --exit-code --heads origin "refs/heads/$branch" >/dev/null || status=$?
+            if [ "$status" = 2 ]; then
               echo "::notice title=runs-on value::$branch does not exist; nothing to check there"
               continue
+            elif [ "$status" != 0 ]; then
+              echo "::error title=runs-on value::could not read $branch from origin (git ls-remote exit $status)"
+              exit 1
             else
-              git fetch --quiet --no-tags --depth=1 origin "refs/heads/$branch:refs/remotes/origin/$branch"
+              git fetch --quiet --no-tags --depth=1 origin "+refs/heads/$branch:refs/remotes/origin/$branch"
               git archive "refs/remotes/origin/$branch" .github/workflows | tar -x -C "$dir" --strip-components=2
             fi
             trees+=("$branch=$dir")
