@@ -11,7 +11,7 @@ import {
 } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
 import type { SectionLoader } from "./lazySections";
-import { ensureSection, routeSection } from "./sectionQueries";
+import { ensureSection, routeSection, shownRouteSection } from "./sectionQueries";
 import type { SettingsStore } from "./store";
 
 /** What every route's loader reads from: the page's query cache, its store and its section code. */
@@ -75,7 +75,8 @@ export function createSettingsRouter(
       // search text and the workspace are not.
       loaderDeps: ({ search }) => ({ focus: (search as SettingsSearch).focus }),
       loader: async ({ context, params, deps }) => {
-        const section = routeSection((params as { section?: string }).section, deps.focus);
+        const routed = routeSection((params as { section?: string }).section, deps.focus);
+        const section = await shownRouteSection(context.queryClient, routed);
         await Promise.all([context.sections.load(section), ensureSection(context.queryClient, context.store, section)]);
       },
       component: options.section,

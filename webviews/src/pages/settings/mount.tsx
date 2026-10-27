@@ -6,7 +6,7 @@ import { SettingsPage } from "./components/SettingsPage";
 import { createSectionLoader, type SectionLoader } from "./lazySections";
 import type { SettingsClient } from "./ops";
 import { parseLocation } from "./router";
-import { ensureSection } from "./sectionQueries";
+import { ensureSection, shownRouteSection } from "./sectionQueries";
 import { SettingsStore } from "./store";
 import { setLocale, t } from "./strings";
 import { holdPaintUntil } from "../shared/paintGate";
@@ -33,12 +33,13 @@ export async function mountSettingsPage(
   const started = store.start();
   // The host shows the page once its first screen is in: the user's values (no control drawn
   // disabled with its default), the host's lists (no card added after the first frame), and the
-  // code and reads of the section the route opens on (its route's loader draws nothing before
-  // them). The route is read when the host claims the page, which may route it first. The other
+  // code and reads of the section the route opens on, as this build shows it (its route's loader
+  // draws nothing before them). The route is read when the host claims the page, which may route it first. The other
   // sections' code loads after that, while the page is idle (lazySections.ts).
-  const opening = () => {
-    const section = parseLocation(location.hash.replace(/^#/, "") || "/").section;
-    return Promise.all([sections.load(section), ensureSection(store.queryClient, store, section)]);
+  const opening = async () => {
+    const routed = parseLocation(location.hash.replace(/^#/, "") || "/").section;
+    const section = await shownRouteSection(store.queryClient, routed);
+    await Promise.all([sections.load(section), ensureSection(store.queryClient, store, section)]);
   };
   const firstScreen = () => Promise.all([started, opening()]).finally(() => sections.loadRestWhenIdle());
   holdPaintUntil(firstScreen, parked());
