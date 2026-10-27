@@ -24,6 +24,10 @@ export default componentEntry<ComponentProps<typeof SandboxRunView>>({
       note: "The message, then a turning spinner while the throwaway VM runs it.",
       props: { run: { task, state: "running" } },
     },
+    "running-unchecked": {
+      note: "A running run whose newest read didn't answer: it stays shown, says so, and offers Check again.",
+      props: { run: { task, state: "running" }, unread: true, onCheckAgain: () => undefined },
+    },
     succeeded: {
       note: "The receipt: the reply first, then status and exit, time with boot, the VM-time cost, artifacts and VM destroyed.",
       props: {
