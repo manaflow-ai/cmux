@@ -656,13 +656,28 @@ class PathRoutingStructure(unittest.TestCase):
                 self.assertLess(names.index("Install the restored web bundles"), names.index("Build the web bundles"))
 
     def test_swift_test_leaves_the_layout_reducer_to_the_linux_fast_tier(self):
-        """fast-tier-cargo runs the sidebar layout reducer's cargo tests on Linux."""
+        """fast-tier-cargo runs the sidebar layout reducer's cargo tests on Linux for
+        every feat-cmux-next pull request and push; swift test keeps them for the
+        events of its own fast-tier-cargo does not take (a dispatch, a main push)."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
-        swift_runs = " ".join(step.get("run", "") for step in jobs["swift-test"]["steps"])
-        self.assertNotIn("cmux-layout-reducer", swift_runs)
         registry = json.loads((ROOT / "scripts" / "cmux-next" / "fast-tier.json").read_text(encoding="utf-8"))
         reducer = [e for e in registry["entries"] if e.get("package") == "cmux-layout-reducer"]
         self.assertEqual([e["kind"] for e in reducer], ["cargo"])
+        cargo_if = " ".join(jobs["fast-tier-cargo"]["if"].split())
+        self.assertIn("(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next')", cargo_if)
+        self.assertIn("(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')", cargo_if)
+        self.assertNotIn("workflow_dispatch", cargo_if)
+        reducer_steps = [step for step in jobs["swift-test"]["steps"]
+                         if "sidebar layout reducer" in step.get("name", "")]
+        self.assertEqual(len(reducer_steps), 3)
+        for step in reducer_steps:
+            self.assertIn("!(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next')",
+                          step["if"], step["name"])
+        test = next(step for step in reducer_steps if step["name"] == "Test sidebar layout reducer")
+        self.assertIn("cargo test -p cmux-layout-reducer", test["run"])
+        # swift test runs on pull requests and dispatches, never a feat-cmux-next push.
+        self.assertIn("!(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')",
+                      jobs["swift-test"]["if"])
 
     def test_package_jobs_wait_for_single_web_bundle_producer(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]

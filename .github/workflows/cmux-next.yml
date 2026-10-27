@@ -2898,7 +2898,21 @@ jobs:
 
       # The sidebar layout reducer's cargo tests run in fast-tier-cargo on Linux
       # (fast-tier.json "sidebar layout reducer") on every feat-cmux-next pull
-      # request and push, so this Mac job no longer runs them (2026-10-26).
+      # request and push, so this Mac job runs them only on the events of its own
+      # that fast-tier-cargo does not take: a dispatch or a main push (2026-10-26).
+      - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
+        if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') && steps.reuse.outputs.hit != 'true' }}
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install Rust targets (sidebar layout reducer)
+        if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') && steps.reuse.outputs.hit != 'true' }}
+        working-directory: cmux-tui
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Test sidebar layout reducer
+        if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') && steps.reuse.outputs.hit != 'true' }}
+        working-directory: cmux-tui
+        run: cargo test -p cmux-layout-reducer --locked
 
       # macOS-only script behavior tests (PlistBuddy, plutil, lipo): the "Bundle
       # server helper" phase writes the server helper and agent plists without
