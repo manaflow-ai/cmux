@@ -9,7 +9,8 @@ import Testing
 #endif
 
 /// What the session priority coordinator keeps about a pane between the agent index's views of
-/// it: a restarted pane until the index shows its resumed Claude.
+/// it: a restarted pane until the index shows its resumed Claude, and background work its
+/// Claude's last turn end reported.
 ///
 /// `#expect` captures its operands, so each mutating call's result is bound first.
 struct SessionPriorityPaneTrackingTests {
@@ -115,5 +116,74 @@ struct SessionPriorityPaneTrackingTests {
         let restarting = state.isRestarting(panelId: pane)
 
         #expect(!restarting)
+    }
+
+    // MARK: - Background work from the last turn end (E2E F3)
+
+    /// A turn that ended with background work holds the pane until its next turn starts, also
+    /// when a later hook (a `SubagentStop`) moved the sidebar lifecycle back to running.
+    @Test
+    func turnEndWithPendingWorkHoldsUntilTheNextTurnStarts() {
+        var state = SessionPriorityCoordinatorState()
+        state.noteTurnEnded(panelId: pane, nowMs: 1_000, pendingWork: true)
+        let pending = state.hasPendingBackgroundWork(panelId: pane)
+
+        state.noteTurnStarted(panelId: pane)
+        let afterTurnStart = state.hasPendingBackgroundWork(panelId: pane)
+
+        #expect(pending)
+        #expect(!afterTurnStart)
+        #expect(state.lastTurnEndedAtMs[pane] == 1_000)
+    }
+
+    /// The idle prompt carries the last turn end's flag: while it still reports work the hold
+    /// stays; without it, or at a turn end without it, the hold ends.
+    @Test
+    func turnEndOrIdlePromptWithoutPendingWorkEndsIt() {
+        var state = SessionPriorityCoordinatorState()
+        state.noteTurnEnded(panelId: pane, nowMs: 1_000, pendingWork: true)
+        state.noteTurnEnded(panelId: pane, nowMs: 61_000, pendingWork: true)
+        let stillPending = state.hasPendingBackgroundWork(panelId: pane)
+
+        state.noteTurnEnded(panelId: pane, nowMs: 62_000, pendingWork: false)
+        let afterIdle = state.hasPendingBackgroundWork(panelId: pane)
+
+        #expect(stillPending)
+        #expect(!afterIdle)
+    }
+
+    @Test
+    func sessionEndEndsIt() {
+        var state = SessionPriorityCoordinatorState()
+        state.noteTurnEnded(panelId: pane, nowMs: 1_000, pendingWork: true)
+
+        state.noteSessionEnded(panelId: pane)
+        let pending = state.hasPendingBackgroundWork(panelId: pane)
+
+        #expect(!pending)
+    }
+
+    /// Kept while off, like the turn end itself, so turning the feature on while the work runs
+    /// still holds the pane.
+    @Test
+    func pendingWorkOutlivesTurningTheFeatureOff() {
+        var state = SessionPriorityCoordinatorState()
+        state.noteTurnEnded(panelId: pane, nowMs: 1_000, pendingWork: true)
+
+        _ = state.disable()
+        let pending = state.hasPendingBackgroundWork(panelId: pane)
+
+        #expect(pending)
+    }
+
+    @Test
+    func closedPaneForgetsIt() {
+        var state = SessionPriorityCoordinatorState()
+        state.noteTurnEnded(panelId: pane, nowMs: 1_000, pendingWork: true)
+
+        state.retainPanes([])
+        let pending = state.hasPendingBackgroundWork(panelId: pane)
+
+        #expect(!pending)
     }
 }

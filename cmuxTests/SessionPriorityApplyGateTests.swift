@@ -70,6 +70,17 @@ struct SessionPriorityApplyGateTests {
         #expect(SessionPriorityApplyGate.evaluate(facts) == .hold(.backgroundWork))
     }
 
+    /// A `SubagentStop` after the turn's `Stop` moves the sidebar lifecycle back to running while
+    /// the background work still runs: the hold names the work, not a response.
+    @Test
+    func backgroundWorkOutranksARunningTurn() {
+        var facts = clearFacts()
+        facts.responseRunning = true
+        facts.backgroundWorkPending = true
+
+        #expect(SessionPriorityApplyGate.evaluate(facts) == .hold(.backgroundWork))
+    }
+
     /// The pane the user is looking at keeps its Claude: their next keystrokes would land in
     /// the fresh shell.
     @Test
@@ -167,10 +178,10 @@ struct SessionPriorityApplyGateTests {
         facts.workspaceMarkedManual = false
         #expect(SessionPriorityApplyGate.evaluate(facts) == .hold(.targetChanged))
         facts.targetIsCurrent = true
-        #expect(SessionPriorityApplyGate.evaluate(facts) == .hold(.responding))
-        facts.responseRunning = false
         #expect(SessionPriorityApplyGate.evaluate(facts) == .hold(.backgroundWork))
         facts.backgroundWorkPending = false
+        #expect(SessionPriorityApplyGate.evaluate(facts) == .hold(.responding))
+        facts.responseRunning = false
         #expect(SessionPriorityApplyGate.evaluate(facts) == .hold(.recentInput))
         facts.receivedInputRecently = false
         #expect(SessionPriorityApplyGate.evaluate(facts) == .hold(.focused))
