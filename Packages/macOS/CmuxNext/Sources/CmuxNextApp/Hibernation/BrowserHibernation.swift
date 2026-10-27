@@ -536,7 +536,9 @@ final class BrowserHibernation {
         var candidate = HibernationPlanner.Candidate(
             key: key, hiddenFor: hiddenFor, host: tab.state.url?.host(), isPinned: isPinned(key),
             hasDevTools: (tab as? any BrowserDevToolsHosting)?.devTools.isOpen ?? false, isCapturing: capturing,
-            canRestore: (tab as? any BrowserHibernationSource)?.supportsHibernation ?? false,
+            // A page whose renderer ended shows the crash notice until the person reloads it: a
+            // discard would drop the notice and its restore would load the page by itself.
+            canRestore: tab.state.processExit == nil && ((tab as? any BrowserHibernationSource)?.supportsHibernation ?? false),
             showsFormSubmission: (tab as? any BrowserHibernationSource)?.showsFormSubmission ?? false
         )
         candidate.recentFocusCount = recentFocusCount(key, now: now)
@@ -599,6 +601,9 @@ final class BrowserHibernation {
                 return
             case .keep(let reason) where exemption == nil:
                 self.exemptions[key] = reason
+                // The probe thawed the page and the replans meanwhile skipped it: plan again so it
+                // freezes (none of these reasons makes it due again).
+                self.replan()
                 return
             case .keep, .go:
                 break
@@ -608,7 +613,8 @@ final class BrowserHibernation {
                 self.probeKeptAt[key] = .now
                 return
             }
-            guard let state = source.hibernationState() else {
+            // Its renderer ended while the probe ran: it keeps the crash notice.
+            guard tab.state.processExit == nil, let state = source.hibernationState() else {
                 self.exemptions[key] = .unsupported
                 return
             }

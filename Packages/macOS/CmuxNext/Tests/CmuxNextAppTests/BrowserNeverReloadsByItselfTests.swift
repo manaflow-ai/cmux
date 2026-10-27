@@ -99,4 +99,19 @@ import Testing
         #expect(try await shown.evaluate("window.mark", world: .page, gesture: .agent) == .string("still here"), "the page lost its state")
         rig.services.cache.withdraw(key, by: rig.pane)
     }
+
+    /// A page whose content process ended keeps its crash notice: even with a timeout set and
+    /// under critical pressure it is never discarded (its restore would load it by itself).
+    @Test func aCrashedHiddenPageIsNeverDiscarded() async throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        let page = try await rig.page("crashed", body: "<p>gone</p>")
+        page.webViewWebContentProcessDidTerminate(page.webView)
+        try #require(page.state.processExit != nil)
+        let key = try await rig.hide(page)
+        try await rig.until("the page was kept") { rig.exemption(key) != nil }
+        #expect(rig.exemption(key) == .unsupported)
+        #expect(!rig.isHibernated(key), "a crashed page was discarded")
+        #expect(rig.services.cache.browsers[key]?.tab === page)
+    }
 }
