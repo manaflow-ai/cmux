@@ -28,6 +28,8 @@ nonisolated final class RunMarkerFile: Sendable {
 
     let url: URL
     let signalURL: URL
+    /// The launch's `run.launch` (`LaunchSafeMode.Beacon`), removed with `run.json` at close; nil keeps none.
+    let beaconURL: URL?
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.run-marker", qos: .utility)
     private let writer: Writer
     private let state = Mutex(State())
@@ -52,9 +54,10 @@ nonisolated final class RunMarkerFile: Sendable {
         var writes = 0
     }
 
-    init(url: URL, signalURL: URL, writer: @escaping Writer = RunMarkerFile.replaceAtomically) {
+    init(url: URL, signalURL: URL, beaconURL: URL? = nil, writer: @escaping Writer = RunMarkerFile.replaceAtomically) {
         self.url = url
         self.signalURL = signalURL
+        self.beaconURL = beaconURL
         self.writer = writer
     }
 
@@ -107,7 +110,7 @@ nonisolated final class RunMarkerFile: Sendable {
         }) ?? false
     }
 
-    /// Removes `run.json` and `run.signal` after any write in progress, and
+    /// Removes `run.json`, `run.signal` and `run.launch` after any write in progress, and
     /// writes nothing more (a normal quit). Called at exit: it waits for at
     /// most one in-flight write of about 100 bytes without fsync.
     func close() {
@@ -123,6 +126,7 @@ nonisolated final class RunMarkerFile: Sendable {
                 // SAFETY: unlink reads the NUL-terminated copy of each path Swift makes for the call.
                 unsafe unlink(url.path)
                 unsafe unlink(signalURL.path)
+                if let beaconURL { unsafe unlink(beaconURL.path) }
             }
         }
     }

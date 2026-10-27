@@ -163,7 +163,9 @@ final class AppRunMarker {
     /// this run live and installs the fatal-signal handlers. No file call on the main thread.
     init(launch: Launch) {
         directory = launch.directory
-        file = RunMarkerFile(url: launch.directory.appending(path: "run.json"), signalURL: launch.directory.appending(path: "run.signal"))
+        // A normal quit removes `run.launch` with `run.json`: left alone it would read as a launch that ended before its marker.
+        file = RunMarkerFile(url: launch.directory.appending(path: "run.json"), signalURL: launch.directory.appending(path: "run.signal"),
+                             beaconURL: launch.directory.appending(path: Self.beaconName))
         (previousExit, recovery, previousCrashKeys) = (launch.previousExit, launch.recovery, launch.previousCrashKeys)
         previousRun = launch.previous
         previousUnreported = launch.previousUnreported
@@ -301,10 +303,8 @@ final class AppRunMarker {
         // First: it waits for the writer's queue, which runs the launch's takeover that names the exception file.
         file.close()
         UncaughtExceptionRecorder.uninstall()
-        // SAFETY: unlink reads the NUL-terminated copy of each path Swift makes for the call.
+        // SAFETY: unlink reads the NUL-terminated copy of the path Swift makes for the call.
         unsafe unlink(exceptionFile.path)
-        // With no `run.json`, a `run.launch` left would read as a launch that ended before its marker.
-        unsafe unlink(directory.appending(path: Self.beaconName).path)
     }
 
     /// Hands the marker (about 200 bytes) to the background writer, which encodes it there (``encode(_:)``).
@@ -414,7 +414,7 @@ extension AppRunMarker {
         let markerURL = directory.appending(path: "run.json"), signalURL = directory.appending(path: "run.signal")
         // Before this run's files are opened: the decision reads the previous run's marker and writes `run.launch`.
         let safeMode = (gate ?? LaunchSafeMode.Gate(decide: {
-            launchSafeMode(directory: directory, now: now, bootSession: bootSession, processStart: processStart)
+            AppRunMarker.launchSafeMode(directory: directory, now: now, bootSession: bootSession, processStart: processStart)
         })).safeMode
         let previous = readPrevious(marker: markerURL, signal: signalURL, exception: directory.appending(path: "run.exception"))
         let previousKeys = readCrashKeys(directory.appending(path: "run.crashkeys"))
@@ -458,7 +458,7 @@ extension AppRunMarker {
                                            incompleteLaunches: safeMode.incompleteLaunches)
         do {
             try FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true)
-            try beacon.write(to: beaconURL)
+            try beacon.store(at: beaconURL)
         } catch {
             Logger(subsystem: "com.cmuxterm.app.next", category: "crash").error("launch record not written: \(String(describing: error), privacy: .public)")
         }

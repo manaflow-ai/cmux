@@ -103,14 +103,14 @@ struct LaunchSafeModeTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let beacon = directory.appending(path: AppRunMarker.beaconName)
         try LaunchSafeMode.Beacon(pid: getpid() &+ 1, processStart: 7, launched: Date(), bootSession: Self.thisBoot,
-                                  incompleteLaunches: 1).write(to: beacon)
+                                  incompleteLaunches: 1).store(at: beacon)
         let mode = AppRunMarker.launchSafeMode(directory: directory, bootSession: Self.thisBoot, processStart: 8)
         #expect(mode.reason == .crashStreak, "the launch that ended before its marker was not counted")
         #expect(LaunchSafeMode.Beacon.read(beacon)?.isProcess(pid: getpid(), processStart: 8) == true)
         #expect(AppRunMarker.launchSafeMode(directory: directory, bootSession: Self.thisBoot, processStart: 8) == mode,
                 "a second ask of the same launch counted it again")
         try LaunchSafeMode.Beacon(pid: getpid() &+ 1, processStart: 7, launched: Date(), bootSession: Self.earlierBoot,
-                                  incompleteLaunches: 1).write(to: beacon)
+                                  incompleteLaunches: 1).store(at: beacon)
         #expect(AppRunMarker.launchSafeMode(directory: directory, bootSession: Self.thisBoot, processStart: 9).incompleteLaunches == 1,
                 "a machine restart added to the streak")
     }
@@ -163,7 +163,7 @@ struct LaunchSafeModeTests {
 }
 
 /// Strings recorded from any thread (the gate's marks and decisions, a reader's files).
-private final class Marks: Sendable {
+private nonisolated final class Marks: Sendable {
     private let state = Mutex<[String]>([])
     func add(_ value: String) { state.withLock { $0.append(value) } }
     var all: [String] { state.withLock { $0 } }
@@ -185,7 +185,7 @@ enum SafeModeChild {
     static func launch() async {
         let directory = CrashChild.directory("safe-mode", parent: getppid())
         let gate = LaunchSafeMode.Gate(decide: { AppRunMarker.launchSafeMode(directory: directory) })
-        let reader = LaunchFileReader(read: { _, _ in decodeSavedPicture() }).gated { gate.safeMode.readsLaunchCaches }
+        let reader = LaunchFileReader(read: { _, _ in SafeModeChild.decodeSavedPicture() }).gated { gate.safeMode.readsLaunchCaches }
         let work = BackgroundWork(label: "test.safe-mode")
         _ = try? await work.run(.userBlocking, mayBlock: .files) { reader.data(at: directory.appending(path: "saved"), maximumBytes: 64) }
         guard gate.decision?.reason == .crashStreak else { exit(3) }

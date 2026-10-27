@@ -102,7 +102,7 @@ public nonisolated struct LaunchSafeMode: Equatable, Sendable {
         }
 
         /// Writes the record to `url` atomically. Blocking: on a launch lane.
-        public func write(to url: URL) throws {
+        public func store(at url: URL) throws {
             try JSONEncoder().encode(self).blockingWrite(to: url, options: .atomic)
         }
     }
