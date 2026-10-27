@@ -149,7 +149,7 @@ impl Mux {
                             runtime.is_none(),
                             "provider bootstrap cannot override its CDP runtime"
                         );
-                        let mut retry_delay = Duration::from_millis(250);
+                        let mut backoff = provider_attach_backoff();
                         loop {
                             let canceled = || {
                                 thread_surface.is_dead()
@@ -198,7 +198,7 @@ impl Mux {
                                     if browser
                                         .prepare_provider_lease_replacement(current_lease.as_ref())
                                     {
-                                        retry_delay = Duration::from_millis(250);
+                                        backoff.reset();
                                         continue;
                                     }
                                     return Ok(());
@@ -226,12 +226,10 @@ impl Mux {
                                     if !providers.wait_for_revision_change(
                                         lease.revision,
                                         canceled,
-                                        retry_delay,
+                                        backoff.next_delay(),
                                     ) {
                                         anyhow::bail!("browser provider wait was canceled");
                                     }
-                                    retry_delay =
-                                        retry_delay.saturating_mul(2).min(Duration::from_secs(2));
                                 }
                                 Err(error) => return Err(error),
                             }
@@ -306,5 +304,46 @@ impl Mux {
         let tab_id = identity.tab_id.clone();
         let url = surface.browser_url().unwrap_or_else(|| "about:blank".to_string());
         self.start_browser_bootstrap(surface, BrowserBootstrap::Provider { tab_id, url }, None);
+    }
+}
+
+const PROVIDER_ATTACH_RETRY_DELAY: Duration = Duration::from_millis(250);
+const PROVIDER_ATTACH_RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
+
+/// Spaces the CDP attach retries of a provider tab whose target is published
+/// but does not attach. A registration change wakes the wait at once, so the
+/// backoff only bounds retries against an unchanged, failing provider.
+fn provider_attach_backoff() -> crate::backoff::Backoff {
+    crate::backoff::Backoff::new(PROVIDER_ATTACH_RETRY_DELAY, PROVIDER_ATTACH_RETRY_MAX_DELAY)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repeated_attach_failures_space_retries_out_to_the_cap() {
+        let mut backoff = provider_attach_backoff();
+        let delays: Vec<Duration> = (0..12).map(|_| backoff.next_delay()).collect();
+        assert!(delays[0] <= Duration::from_millis(300), "first retry {:?}", delays[0]);
+        for pair in delays.windows(2).take(6) {
+            assert!(pair[1] > pair[0], "retry spacing must grow: {delays:?}");
+        }
+        assert!(
+            delays[7] > Duration::from_secs(2),
+            "a failing provider must not be retried every 2 s forever: {delays:?}"
+        );
+        assert!(delays.iter().all(|delay| *delay <= PROVIDER_ATTACH_RETRY_MAX_DELAY));
+        assert!(delays[11] >= PROVIDER_ATTACH_RETRY_MAX_DELAY.mul_f64(0.8));
+    }
+
+    #[test]
+    fn a_lease_replacement_restarts_the_spacing() {
+        let mut backoff = provider_attach_backoff();
+        for _ in 0..8 {
+            backoff.next_delay();
+        }
+        backoff.reset();
+        assert!(backoff.next_delay() <= Duration::from_millis(300));
     }
 }
