@@ -279,6 +279,13 @@ fn read_watch(
                 }
                 if method == "_acpmux/session_changed" {
                     pushed.insert(session.to_owned());
+                    // Its page will not count now: what it posted before a daemon start
+                    // was seen or answered when the push finds it needing nobody.
+                    if !chats.contains_key(session)
+                        && Chat::of(&params["session"]).is_some_and(|chat| chat.needs_nobody())
+                    {
+                        mux.read_agent_chat_notices(session);
+                    }
                 }
             }
             if method == "_acpmux/session_changed" {
