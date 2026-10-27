@@ -39,8 +39,10 @@ statically, so a reordered step fails in review and not on a release day:
    2026-10-24), never a reused machine. Its runs-on names either a literal
    ephemeral label or one of EPHEMERAL_RUNNER_VARIABLES, whose fallback literal
    is ephemeral too. A test cannot read a variable's live value, so
-   cmux-next-guards.yml's ci-guard-group checks it on every feat-cmux-next pull
-   request and push: pointing one of those variables at an owned mini fails it.
+   cmux-next-guards.yml's signing-runner-variables job (on a literal Blacksmith
+   runner) checks it on every feat-cmux-next pull request and push: pointing one
+   of those variables at an owned mini turns it red. It detects; it does not stop
+   a signing job that starts before it.
 
 Not covered by rule 6: other environments and credentials (artifacts,
 package registries, CI cache, Sentry, Cloudflare, Vercel, CEF R2) and a job
@@ -124,8 +126,13 @@ SIGNING_SECRET_REFERENCE = re.compile(r"secrets\.(APPLE_|ASC_API_|IOS_|SPARKLE_|
 # only together with that check.
 EPHEMERAL_RUNNER_VARIABLES = ("LINUX_RUNNER", "MACOS_RUNNER_26")
 EPHEMERAL_LABEL = re.compile(r"^(blacksmith-|ubuntu-)[a-z0-9.-]+$")
-RUNNER_VARIABLE = re.compile(r"vars\.([A-Za-z0-9_]+)(?:\s*\|\|\s*'([^']*)')?")
-LIVE_VALUE_CHECK = (".github/workflows/cmux-next-guards.yml", "ci-guard-group")
+# vars.NAME or vars['NAME'] / vars["NAME"], with the literal it falls back to.
+RUNNER_VARIABLE = re.compile(
+    r"vars(?:\.([A-Za-z0-9_]+)|\[\s*['\"]([A-Za-z0-9_]+)['\"]\s*\])(?:\s*\|\|\s*'([^']*)')?"
+)
+ANY_VARS = re.compile(r"\bvars\b")
+LIVE_VALUE_CHECK = (".github/workflows/cmux-next-guards.yml", "signing-runner-variables")
+LIVE_VALUE_RUNNER = "blacksmith-2vcpu-ubuntu-2404"
 
 
 def commands(run: str) -> list[str]:
@@ -188,7 +195,14 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
                         "set CMUX_DEFER_LAUNCH_SMOKES: \"true\" and smoke in a job without secrets"
                     )
     if SIGNING_SECRET_REFERENCE.search(json.dumps(job)):
-        for variable, fallback in RUNNER_VARIABLE.findall(str(job.get("runs-on", ""))):
+        runs_on = str(job.get("runs-on", ""))
+        if len(ANY_VARS.findall(runs_on)) != len(RUNNER_VARIABLE.findall(runs_on)):
+            failures.append(
+                f"{name}: holds a signing secret and reads a repository variable in runs-on in a form this "
+                "guard cannot check; write vars.NAME"
+            )
+        for dotted, bracketed, fallback in RUNNER_VARIABLE.findall(runs_on):
+            variable = dotted or bracketed
             if variable not in EPHEMERAL_RUNNER_VARIABLES:
                 failures.append(
                     f"{name}: holds a signing secret but picks its runner from vars.{variable}; use a literal "
@@ -319,7 +333,12 @@ def check_live_runner_variables(failures: list[str]) -> None:
     """Rule 7's live half: a guard job fails when an ephemeral-only variable holds another label."""
     path, job_name = LIVE_VALUE_CHECK
     document = yaml.safe_load((ROOT / path).read_text(encoding="utf-8")) or {}
-    steps = ((document.get("jobs") or {}).get(job_name) or {}).get("steps") or []
+    job = (document.get("jobs") or {}).get(job_name) or {}
+    # The check's own runner must not come from the variables it checks: a variable
+    # pointed at a missing label would leave it queued instead of red.
+    if ANY_VARS.search(str(job.get("runs-on", ""))) or LIVE_VALUE_RUNNER not in str(job.get("runs-on", "")):
+        failures.append(f"{path} {job_name}: runs on the literal {LIVE_VALUE_RUNNER}, never a repository variable")
+    steps = job.get("steps") or []
     for step in steps:
         env = {str(k): str(v) for k, v in ((step or {}).get("env") or {}).items()}
         run = str((step or {}).get("run", ""))
