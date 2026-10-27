@@ -97,12 +97,16 @@ enum AgentBesidePlacement {
                 // did not dock.
                 let step = (try? await withOnceContinuation { (docking: OnceContinuation<DockStep, OnceContinuationError>) in
                     end.post(owner: "AgentBesidePlacement.dockChat") {
-                        guard let content = lone.workspace else { return docking.resume(returning: .noContent) }
+                        guard let content = lone.workspace else {
+                            docking.resume(returning: .noContent)
+                            return
+                        }
                         content.layoutModel.handOffContent(of: lone.layoutPaneID)
                         TabMoves.toNewDockColumn(chat, anchor: anchor, edge: .left, role: .agentChat, services: services) { docked in
                             guard docked else {
                                 content.layoutModel.cancelContentHandoff()
-                                return docking.resume(returning: .notDocked)
+                                docking.resume(returning: .notDocked)
+                                return
                             }
                             // Keyboard focus stays in the chat, now in its dock; a person's click focuses the tab.
                             // Not when the person acted since the run began: their focus stays where they put it.
@@ -154,11 +158,15 @@ enum AgentBesidePlacement {
                     // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051), once
                     if services.locateTab(tab.id).map({ $0.1 !== anchor }) == true {
                         if let clicked { focus(surface, returningTo: from, awayFrom: away, in: clicked, generation: intent, services: services) }
-                        return moving.resume(returning: .moved(tab.id))
+                        moving.resume(returning: .moved(tab.id))
+                        return
                     }
                     let after = newColumn(beside: anchor, in: store)
                     TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services) { moved in
-                        guard moved else { return moving.resume(returning: .notMoved) }
+                        guard moved else {
+                            moving.resume(returning: .notMoved)
+                            return
+                        }
                         if let clicked { focus(surface, returningTo: from, awayFrom: away, in: clicked, generation: intent, services: services) }
                         moving.resume(returning: .moved(tab.id))
                     }

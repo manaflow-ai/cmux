@@ -1,3 +1,4 @@
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextCodeRouter
 import CmuxNextSettings
@@ -50,11 +51,18 @@ enum AccountsHandlers {
                 throw ActionFailure(message: AccountsAppStrings.unknownAccount(""))
             }
             let model = services.accounts.model
-            registry.trackWork(owner: "AccountsHandlers.remove", on: services.mainWork) { () -> String? in
-                guard let account = await model.linkedAccount(id: id) else { return AccountsAppStrings.unknownAccount(id) }
-                return await model.performRemove(account)
+            registry.trackWork(owner: "AccountsHandlers.remove", on: services.mainWork) { () -> RemoveStep in
+                guard let account = await model.linkedAccount(id: id) else { return .unknownAccount }
+                return .removed(await model.performRemove(account))
             } then: { result in
-                (try? result.get()).flatMap { $0 }.map { ActionWorkFailure($0) }
+                switch result {
+                case .success(.unknownAccount):
+                    return ActionWorkFailure(AccountsAppStrings.unknownAccount(id))
+                case .success(.removed(let failure)):
+                    return failure.map { ActionWorkFailure($0) }
+                case .failure(let error):
+                    return ActionWorkFailure(String(describing: error))
+                }
             }
         })
     }
@@ -65,6 +73,14 @@ enum AccountsHandlers {
         case needsPaste
         /// The connect ran; its failure, or nil.
         case connected(String?)
+    }
+
+    /// How `accounts.remove` ended before its last step on main.
+    private nonisolated enum RemoveStep: Sendable {
+        /// CodeRouter lists no account with the asked ID.
+        case unknownAccount
+        /// The remove ran; its failure, or nil.
+        case removed(String?)
     }
 
     /// Detects the accounts again (the CLI may run before the screen ever opened), then connects `provider`
