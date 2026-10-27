@@ -316,7 +316,7 @@ fn ssh_config_targets_from_path(config: &Path, ssh_root: &Path, home: &Path) -> 
     };
     discovery.visit(config, 0);
     let mut names = HostNames { ssh_root, home, read: 0, chain: Vec::new(), names: HashMap::new() };
-    names.read(config, &mut Vec::new());
+    names.read(config, &mut None, None);
     let mut host_names = names.names;
     discovery
         .hosts
@@ -380,8 +380,9 @@ impl SshConfigDiscovery<'_> {
 }
 
 /// Each concrete alias's first `HostName`, read the way ssh reads it: an
-/// `Include` where it stands, inside the `Host` block around it, which a
-/// `Host` line in the included file ends only for the rest of that file.
+/// `Include` where it stands, and only for the hosts of the `Host` block
+/// around it (a `Host` line in the included file narrows that, for the rest
+/// of that file).
 struct HostNames<'a> {
     ssh_root: &'a Path,
     home: &'a Path,
@@ -395,8 +396,10 @@ struct HostNames<'a> {
 
 impl HostNames<'_> {
     /// `block`: the concrete aliases of the `Host` block being read (none in
-    /// a `Match` block, or one whose names are all patterns).
-    fn read(&mut self, path: &Path, block: &mut Vec<String>) {
+    /// a `Match` block, or one whose names are all patterns; `None` before
+    /// the first `Host` line, where a line holds for every host). `gate`: the
+    /// hosts an enclosing `Include` holds for (`None`: every host).
+    fn read(&mut self, path: &Path, block: &mut Option<Vec<String>>, gate: Option<&[String]>) {
         if self.chain.len() > SSH_CONFIG_MAX_DEPTH || self.read >= SSH_CONFIG_MAX_FILES {
             return;
         }
@@ -410,28 +413,34 @@ impl HostNames<'_> {
         for (keyword, values) in contents.lines().filter_map(ssh_config_line) {
             match keyword.as_str() {
                 "host" => {
-                    block.clear();
-                    block.extend(
+                    *block = Some(
                         values
                             .into_iter()
                             .filter(|h| is_concrete_ssh_host(h))
-                            .map(|h| h.to_ascii_lowercase()),
+                            .map(|h| h.to_ascii_lowercase())
+                            .filter(|h| gate.is_none_or(|g| g.contains(h)))
+                            .collect(),
                     );
                 }
-                "match" => block.clear(),
+                "match" => *block = Some(Vec::new()),
                 "hostname" => {
-                    let Some(name) = values.into_iter().next() else { continue };
-                    for alias in block.iter() {
+                    let (Some(name), Some(aliases)) = (values.into_iter().next(), block.as_ref())
+                    else {
+                        continue;
+                    };
+                    for alias in aliases {
                         self.names
                             .entry(alias.clone())
                             .or_insert_with(|| name.replace("%h", alias));
                     }
                 }
                 "include" => {
+                    // The included lines hold for the block's hosts only.
+                    let inner_gate = block.clone().or_else(|| gate.map(<[String]>::to_vec));
                     for pattern in values {
                         for included in expand_ssh_include(&pattern, self.ssh_root, self.home) {
                             let mut inner = block.clone();
-                            self.read(&included, &mut inner);
+                            self.read(&included, &mut inner, inner_gate.as_deref());
                         }
                     }
                 }
@@ -458,17 +467,26 @@ fn expand_ssh_include(pattern: &str, ssh_root: &Path, home: &Path) -> Vec<PathBu
     paths.filter_map(Result::ok).take(SSH_CONFIG_MAX_FILES).collect()
 }
 
-/// A config line's lowercased keyword and its values (`Keyword=value` too).
+/// A config line's lowercased keyword and its values. The keyword may end
+/// in `=`, with or without spaces around it (`HostName=x`, `HostName = x`,
+/// `HostName =x`), as ssh reads it.
 fn ssh_config_line(line: &str) -> Option<(String, Vec<String>)> {
-    let mut words = ssh_config_words(line);
-    let first = words.first_mut()?;
-    let mut inline_value = None;
-    if let Some((keyword, value)) = first.split_once('=') {
-        inline_value = (!value.is_empty()).then(|| value.to_string());
-        *first = keyword.to_string();
-    }
-    let keyword = first.to_ascii_lowercase();
-    Some((keyword, inline_value.into_iter().chain(words.into_iter().skip(1)).collect()))
+    let mut words = ssh_config_words(line).into_iter();
+    let first = words.next()?;
+    let (keyword, mut values) = match first.split_once('=') {
+        Some((keyword, value)) => (keyword.to_owned(), vec![value.to_owned()]),
+        None => {
+            // `Keyword = value` or `Keyword =value`.
+            let mut values: Vec<String> = Vec::new();
+            if let Some(next) = words.next() {
+                values.push(next.strip_prefix('=').map(str::to_owned).unwrap_or(next));
+            }
+            (first, values)
+        }
+    };
+    values.extend(words);
+    values.retain(|v| !v.is_empty());
+    Some((keyword.to_ascii_lowercase(), values))
 }
 
 fn is_concrete_ssh_host(host: &str) -> bool {
