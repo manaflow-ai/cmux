@@ -95,7 +95,7 @@ import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
-import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
+import { composerDraft, DRAFT_SETTLE_MS, notifyDraftActionsChanged, settleDraftWithin } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import {
   createPaneQueryClient,
@@ -7590,7 +7590,10 @@ function AcpmuxPane() {
           // lets go and handed back with the next page's handshake (`wake`).
           // The transcript's place: an anchor, at its latest message, or left out when unknown
           // (never in view, or a subagent's view open) so the chat's kept anchor stands.
+          // A quit asks this (an update's relaunch too): the typed draft reaches the host first, waited
+          // on at most DRAFT_SETTLE_MS so the host's one-second ask still gets the chips and the place.
           "pane.wakeState": async () => {
+            await settleDraftWithin(composerHandle.current, DRAFT_SETTLE_MS);
             const anchor = transcriptAnchor.current?.();
             return {
               ...composerHandle.current?.wakeState(),

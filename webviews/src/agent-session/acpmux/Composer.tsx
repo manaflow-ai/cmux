@@ -58,6 +58,7 @@ import {
   readDurableDraft,
   readPersistedDraft,
   seededText,
+  settlePendingDraftWrites,
   useDraftActionsVersion,
   writePersistedDraft,
 } from "./composerDraft";
@@ -185,6 +186,9 @@ export type ComposerHandle = {
   /// What it holds that acpmux's draft does not, for a page about to let go (`pane.wakeState`):
   /// file chips and shell mode's unrun command. Shell runs and move chips stay with their page.
   wakeState(): ComposerWake;
+  /// Sends the typed text now and resolves once the host holds it: acpmux's draft for a chat with
+  /// a session, `chat.unsentDraft` (its 300 ms throttle flushed) for a new chat. Asked before a quit.
+  settleDraft(): Promise<void>;
   /// Puts back what a released page's composer held (the handshake's `wake`).
   wake(state: ComposerWake): void;
 };
@@ -646,6 +650,10 @@ export function Composer({
         shell: shellRef.current.shell,
         shellText: shellRef.current.shellText,
       }),
+      settleDraft() {
+        unsentDraft.current?.flush();
+        return settlePendingDraftWrites();
+      },
       wake(state) {
         const back = state.attachments ?? [];
         if (back.length)

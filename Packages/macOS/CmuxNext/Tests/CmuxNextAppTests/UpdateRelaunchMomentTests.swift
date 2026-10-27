@@ -1,0 +1,118 @@
+import AppKit
+@testable import CmuxNextUpdater
+import CmuxNextWakeupsTestSupport
+import Testing
+
+/// An automatic install never relaunches while a modal or sheet is up, a menu is open, or text is
+/// mid-composition, and installs at the first moment none holds (Leo, 2026-10-26: "if the nightly is
+/// post, I just want it. Just give it to me. Don't wait. Like, stop waiting."). Nothing else holds it.
+@MainActor @Suite(.serialized) struct UpdateRelaunchMomentTests {
+    /// The moment the hold reads, set by the test.
+    @MainActor private final class Moment {
+        var now = UpdateRelaunchMoment()
+    }
+
+    @Test func eachInterruptionHoldsAndNothingElseDoes() {
+        #expect(UpdateRelaunchMoment().interruption == nil)
+        #expect(UpdateRelaunchMoment(modal: true).interruption != nil)
+        #expect(UpdateRelaunchMoment(sheet: true).interruption != nil)
+        #expect(UpdateRelaunchMoment(tracking: true).interruption != nil)
+        #expect(UpdateRelaunchMoment(composing: true).interruption != nil)
+    }
+
+    @Test func aClearMomentInstallsAtOnce() {
+        let moment = Moment()
+        let hold = UpdateRelaunchMomentHold(moment: { moment.now }, center: NotificationCenter(), clock: ManualClock())
+        var installs = 0
+        #expect(!hold.hold { installs += 1 })
+        #expect(!hold.isHolding)
+        #expect(installs == 0) // the caller installs
+    }
+
+    @Test func aSheetHoldsUntilItEnds() {
+        let center = NotificationCenter()
+        let moment = Moment()
+        moment.now.sheet = true
+        let hold = UpdateRelaunchMomentHold(moment: { moment.now }, center: center, clock: ManualClock())
+        var installs = 0
+        #expect(hold.hold { installs += 1 })
+
+        center.post(name: NSApplication.didUpdateNotification, object: nil)
+        #expect(installs == 0)
+
+        moment.now.sheet = false
+        center.post(name: NSWindow.didEndSheetNotification, object: nil)
+        #expect(installs == 1)
+        #expect(!hold.isHolding)
+
+        // Its observers are gone: a later event installs nothing again.
+        center.post(name: NSWindow.didEndSheetNotification, object: nil)
+        #expect(installs == 1)
+    }
+
+    @Test func compositionThatEndsWithoutAnEventIsCaughtWithinASecond() async throws {
+        let clock = ManualClock()
+        let moment = Moment()
+        moment.now.composing = true
+        let hold = UpdateRelaunchMomentHold(moment: { moment.now }, center: NotificationCenter(), clock: clock)
+        var installs = 0
+        #expect(hold.hold { installs += 1 })
+
+        try await clock.waitForSleeper()
+        clock.advance(by: UpdateRelaunchMomentHold.recheckInterval)
+        try await clock.waitForSleeper() // still composing: it looks again a second later
+        #expect(installs == 0)
+
+        moment.now.composing = false
+        clock.advance(by: UpdateRelaunchMomentHold.recheckInterval)
+        for _ in 0..<1_000 where installs == 0 { await Task.yield() }
+        #expect(installs == 1)
+        #expect(!hold.isHolding)
+    }
+
+    @Test func aMenuOrModalHoldsThroughEventsAndCancelRunsNothing() {
+        let center = NotificationCenter()
+        let moment = Moment()
+        moment.now.tracking = true
+        moment.now.modal = true
+        let hold = UpdateRelaunchMomentHold(moment: { moment.now }, center: center, clock: ManualClock())
+        var installs = 0
+        #expect(hold.hold { installs += 1 })
+
+        moment.now.tracking = false
+        center.post(name: NSMenu.didEndTrackingNotification, object: nil)
+        #expect(installs == 0) // the modal still holds
+
+        hold.cancel()
+        moment.now.modal = false
+        center.post(name: NSApplication.didUpdateNotification, object: nil)
+        #expect(installs == 0)
+    }
+
+    @Test func aNewerHoldReplacesTheOlder() {
+        let center = NotificationCenter()
+        let moment = Moment()
+        moment.now.sheet = true
+        let hold = UpdateRelaunchMomentHold(moment: { moment.now }, center: center, clock: ManualClock())
+        var first = 0, second = 0
+        #expect(hold.hold { first += 1 })
+        #expect(hold.hold { second += 1 })
+
+        moment.now.sheet = false
+        center.post(name: NSWindow.didEndSheetNotification, object: nil)
+        #expect(first == 0)
+        #expect(second == 1)
+    }
+
+    @Test func theUpdaterHoldsAnAutomaticInstallOnlyWhileTheMomentIsBusy() {
+        let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.relaunch-moment", shortVersion: "1.0.0",
+                                           build: "100", minimumSystemVersion: nil,
+                                           infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
+        let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false },
+                                     defaults: UserDefaults(suiteName: "UpdateRelaunchMomentTests.\(UUID().uuidString)")!,
+                                     enableSparkle: false, recordsUpdates: false)
+        // The test runner has no modal, sheet, menu or composition up: the install starts now.
+        #expect(!updater.updaterDefersAutomaticInstall(until: {}))
+        #expect(!updater.relaunchMomentHold.isHolding)
+    }
+}

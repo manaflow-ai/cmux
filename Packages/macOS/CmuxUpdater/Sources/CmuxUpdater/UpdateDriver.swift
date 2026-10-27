@@ -42,6 +42,9 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// The update a background check accepted, and its held install once it is ready.
     var backgroundItem: SUAppcastItem?
     var stagedInstall: (() -> Void)?
+    /// Bumped each time an update is staged, so a host's late release of an automatic install
+    /// (``UpdateActionDelegate/updaterDefersAutomaticInstall(until:)``) only installs that update.
+    var stagedGeneration: UInt64 = 0
     /// Cancels the held installer (Skip on the ready prompt: no skipped version is recorded).
     var stagedCancel: (() -> Void)?
     var installsWhenStaged = false

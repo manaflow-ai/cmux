@@ -34,6 +34,13 @@ extension UpdaterService: UpdateActionDelegate {
         log.append("relaunch stays behind \(front.bundleID ?? "the frontmost app") (automatic install)")
     }
 
+    /// An automatic install never relaunches while a modal or sheet is up, a menu is open, or text
+    /// is mid-composition; it starts at the first moment none holds (``UpdateRelaunchMomentHold``).
+    /// A click installs at once, as before.
+    public func updaterDefersAutomaticInstall(until ready: @escaping @MainActor () -> Void) -> Bool {
+        relaunchMomentHold.hold(ready)
+    }
+
     /// Reads the executable's live blocker provider before Sparkle relaunches.
     public func updaterRelaunchBlockers() -> UpdateRelaunchBlockers {
         relaunchBlockers()
