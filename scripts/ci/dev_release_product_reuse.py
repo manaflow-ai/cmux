@@ -56,7 +56,8 @@ CANDIDATES = 3
 MAX_JSON_BYTES = 8 * 1024**2
 # The jobs that produce the app (cmux-next-dev-daily.yml SOURCE_APP_PRODUCER_JOBS): the one that
 # recorded a product must have finished successfully, or its record is not taken.
-PRODUCER_JOBS = ("cmux NEXT DEV Release compile", "cmux app scheme compile (Debug)")
+PRODUCER_JOBS = ("cmux NEXT DEV Release compile", "cmux app scheme compile (Debug)",
+                 "cmux NEXT DEV Release compile (landing)")
 
 
 @dataclass(frozen=True)

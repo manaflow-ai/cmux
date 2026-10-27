@@ -158,3 +158,42 @@
 output.pairing-body {
   display: block;
 }
+
+.pairing-section-title {
+  margin: 12px 0 6px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: 600;
+  color: var(--page-text-3);
+}
+
+.pairing-requests {
+  margin-bottom: 12px;
+}
+
+.pairing-request {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--page-separator);
+}
+
+.pairing-footer .pairing-row-title {
+  margin: 0;
+  color: var(--page-text);
+}
+
+.pairing-phone-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pairing-phone {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+}
+
+.pairing-row-subtitle {
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
