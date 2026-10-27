@@ -81,6 +81,11 @@ pub const HANDOFF_WHEN_IDLE: &str = "handed off between turns for an update";
 /// stops anyway and the next host adopts the turn session.
 pub(crate) const HANDOFF_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 
+/// How long a host whose binary was replaced waits for no turn to run: it
+/// still works, so only a turn that never ends brings the cut.
+pub(crate) const BINARY_REPLACED_WAIT: std::time::Duration =
+    std::time::Duration::from_secs(24 * 60 * 60);
+
 pub enum Input {
     Daemon(Box<DaemonEvent>),
     Agents(Box<AgentEvent>),
@@ -393,6 +398,9 @@ pub enum Input {
     /// SIGUSR1 to the host: an update replaced the app, so the brain stops
     /// once no turn runs ([`HANDOFF_WHEN_IDLE`]); the app then hands acpmux
     /// off and starts the next host.
+    /// The host's binary was replaced on disk (an app update): hand off once
+    /// no turn runs (`update_watch`).
+    BinaryReplaced,
     HandoffWhenIdle,
     /// chief.stop: stops the running turn as a newer message does;
     /// answers `{"stopped": bool}`.
@@ -1456,6 +1464,16 @@ impl Brain {
                 // The Chief goes away: its idle cloud VMs pause now.
                 self.cloud_shutdown();
                 self.fatal = Some(format!("{STOP_REQUESTED} (signal {signal})"));
+            }
+            Input::BinaryReplaced => {
+                if self.handoff_at.is_none() {
+                    (self.log)(
+                        "this host's binary was replaced (an update): stopping once no turn runs",
+                    );
+                    // No cut of a running turn: an outdated host still works.
+                    self.handoff_at = Some(Instant::now() + BINARY_REPLACED_WAIT);
+                }
+                self.handoff_if_idle();
             }
             Input::HandoffWhenIdle => {
                 if self.handoff_at.is_none() {
