@@ -238,6 +238,22 @@ describe("POST /api/hang-reports schema 3", () => {
     expect(payload.catalog_version).toBe(2);
   });
 
+  test("accepts the features hash and the non-default features", async () => {
+    const report = fixture();
+    report.features_hash = "363b2a8f1f789985";
+    report.features = [{ name: "hangReportsSchema3", state: "on", source: "env" }, { name: "vsyncHub", state: "off", source: "remote" }];
+    const payload = await expectStored(report);
+    expect(payload.features_hash).toBe("363b2a8f1f789985");
+    expect(payload.features).toEqual(report.features);
+  });
+
+  test("accepts the main thread's blocking site counts by hashed site id", async () => {
+    const report = fixture();
+    report.blocking_sites = [{ site: "9f86d081884c7d65", kind: "file-io", count: 12, total_ms: 34 }];
+    const payload = await expectStored(report);
+    expect(payload.blocking_sites).toEqual(report.blocking_sites);
+  });
+
   test("answers 400 for a bad shape", async () => {
     const cases: Array<(report: Mutable) => void> = [
       (report) => { report.histograms[0]!.name = "Key.Frame.View"; },
@@ -284,6 +300,17 @@ describe("POST /api/hang-reports schema 3", () => {
       (report) => { report.launch_sections.push({ ...report.launch_sections[0]! }); },
       (report) => { report.sections = []; },
       (report) => { report.catalog_version = 0; },
+      (report) => { report.features_hash = "363B2A8F1F789985"; },
+      (report) => { report.features_hash = "363b2a8f"; },
+      (report) => { report.features = [{ name: "/Users/alice", state: "on", source: "env" }]; },
+      (report) => { report.features = [{ name: "vsyncHub", state: "enabled", source: "env" }]; },
+      (report) => { report.features = [{ name: "vsyncHub", state: "on", source: "default" }]; },
+      (report) => { report.features = [{ name: "vsyncHub", state: "on", source: "env", owner: "PL-test" }]; },
+      (report) => { report.blocking_sites = [{ site: "Sources/App.swift", kind: "file-io", count: 1, total_ms: 0 }]; },
+      (report) => { report.blocking_sites = [{ site: "9F86D081884C7D65", kind: "file-io", count: 1, total_ms: 0 }]; },
+      (report) => { report.blocking_sites = [{ site: "9f86d081884c7d65", kind: "file-io", count: 0, total_ms: 0 }]; },
+      (report) => { report.blocking_sites = [{ site: "9f86d081884c7d65", kind: "File IO", count: 1, total_ms: 0 }]; },
+      (report) => { report.blocking_sites = [{ site: "9f86d081884c7d65", kind: "file-io", count: 1, total_ms: 0, location: "x" }]; },
       (report) => { report.extra = true; },
       (report) => { (report.launches as Record<string, unknown>).launchFirstFrame = [{ temperature: "hot", count: 1, buckets: [] }]; },
     ];
@@ -340,6 +367,8 @@ describe("POST /api/hang-reports schema 3", () => {
       (report) => { report.hangs[0]!.task = { class: "visible", owner: "SidebarRows" }; },
       (report) => { Object.assign(report.hangs[0]!, { source: "hangwatch", kind: "hang", thread: { name: "daemon-reader", kind: "io" } }); },
       (report) => { report.intervals[0]!.category = "main"; },
+      (report) => { report.features_hash = "363b2a8f1f789985"; },
+      (report) => { report.features = [{ name: "vsyncHub", state: "on", source: "env" }]; },
     ];
     for (const [index, mutate] of mutations.entries()) {
       const report = { ...JSON.parse(schema2), reportId: crypto.randomUUID() };

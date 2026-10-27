@@ -25,6 +25,9 @@ public nonisolated struct BrowserLoadError: Error, Hashable, Sendable {
     /// none, so its tabs show cmux's pages; so does an agent-driven
     /// Chromium tab for a certificate error.
     public var engineShowsPage = false
+    /// Loading again can succeed, so the error page offers Try Again. False for a failure no reload
+    /// can change (an app page whose files are missing from the bundle): the page shows no button.
+    public var retryable = true
 
     public init(domain: String, code: Int, message: String, failingURL: URL? = nil) {
         self.domain = domain

@@ -59,6 +59,14 @@ enum DebugCEF {
         object["windows"] = windows(services.cache.cef.windowReport)
         // Host mode with feature chromiumHostWidgets (p01-process-066): null without a widget host.
         object["host_widgets"] = services.cache.cef.hostWidgets.map { .array($0.map(hostWidget)) } ?? .null
+        object["host_popup_menus"] = .bool(services.cache.cef.drawsHostPopupMenus) // p01-process-060
+        // Host mode with feature chromiumHostSuggestions (p01-process-061): null while the host draws none in cmux.
+        object["host_suggestions"] = services.cache.cef.hostSuggestions.map { .array($0.map(hostSuggestion)) } ?? .null
+        // Host mode with feature chromiumHostFileDialogs (p01-process-064): the page file choosers cmux answered.
+        object["host_file_dialogs"] = services.cache.cef.hostFileDialogs.map { report in
+            .object(["asked": .number(Double(report.asked)), "answered": .number(Double(report.answered)),
+                     "waiting": .number(Double(report.waiting))])
+        } ?? .null
         object["host_resize"] = services.cache.cef.hostResizeCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
         // Swipes over Chromium pages (p01-process-234): a hosted page on a host that acks wheels probes nothing.
         let swipe = services.cache.cef.swipeStats
@@ -164,6 +172,12 @@ enum DebugCEF {
                  "context_id": .number(Double(widget.contextID)), "shown": .bool(widget.shown), "frame": rect(widget.screenFrame)])
     }
 
+    private static func hostSuggestion(_ list: CEFHostSuggestionReport) -> JSONValue {
+        .object(["browser": .number(Double(list.browser)), "token": .number(Double(list.token)), "kinds": .array(list.kinds.map { .string($0) }),
+                 "types": .array(list.types.map { .number(Double($0)) }), "highlighted": list.highlighted.map { .number(Double($0)) } ?? .null,
+                 "frame": list.screenFrame.map(rect) ?? .null, "field": list.field.map(rect) ?? .null])
+    }
+
     private static func rect(_ rect: CGRect) -> JSONValue {
         .array([rect.minX, rect.minY, rect.width, rect.height].map { .number(Double($0)) })
     }
@@ -227,9 +241,9 @@ enum DebugCEF {
             "geometry_skips": .number(Double(stats.geometrySkips)),
             "page_window_widget_shows": .number(Double(stats.pageWindowWidgetShows)),
             // Keyed by the fork's widget kind (CEFNativeWidget raw value): "2" autofill, "5" print preview.
-            "page_window_widget_shows_by_kind": .object(Dictionary(uniqueKeysWithValues: stats.pageWindowWidgetShowsByKind.map {
+            "page_window_widget_shows_by_kind": .object(Dictionary(stats.pageWindowWidgetShowsByKind.map {
                 (String($0.key), JSONValue.number(Double($0.value)))
-            })),
+            }, uniquingKeysWith: { first, _ in first })),
         ])
     }
 

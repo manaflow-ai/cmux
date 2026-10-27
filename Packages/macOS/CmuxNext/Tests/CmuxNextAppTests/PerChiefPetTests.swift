@@ -4,6 +4,7 @@ import AppKit
 @testable import CmuxNextChiefPetWiring
 import CmuxNextDesign
 import CmuxNextFloating
+import CmuxNextWakeups
 @testable import CmuxNextHome
 @testable import CmuxNextHomeEngine
 @testable import CmuxNextSettings
@@ -78,7 +79,8 @@ import Testing
             rows.onMascot = { redraws.count += 1 }
             // HomeHostView's order: the rows are installed and show the default Chief's character,
             // then the conversation's Chief is known.
-            rows.install(in: view, addRow: { view.addAppearanceRow($0, control: $1) }, open: { false })
+            rows.install(in: view, node: shownNode(), mainWork: linklessMainWork(), addRow: { view.addAppearanceRow($0, control: $1) },
+                         open: { false })
             let popover = Popover(view: view, rows: rows, redraws: redraws)
             await until { redraws.count > 0 }
             rows.chief = chief

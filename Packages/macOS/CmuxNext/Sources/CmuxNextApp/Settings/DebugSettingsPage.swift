@@ -103,9 +103,14 @@ final class DebugSettingsPageProvider: PageProvider {
         listeners[id] = onEvent
         watch()
         if hangWatch == nil, let changes = hangs?.changes() { // subscribed now: no later change is missed
-            // task-owner: one change event per hang file change; the last listener leaving (the page closed) cancels it
-            hangWatch = Task { @MainActor [weak self] in
-                for await _ in changes { if let self { emit() } else { return } } // gone: the stream ends
+            let work = work
+            // task-owner: one change event per hang file change; the last listener leaving (the page closed) cancels it.
+            // The stream is read off main; each change is one posted `visible` task (the page shows the list).
+            hangWatch = Task { @concurrent [weak self] in
+                for await _ in changes {
+                    guard self != nil else { return } // gone: the stream ends
+                    work.postFromAnyThread(.visible, owner: "DebugSettingsPage.hangs") { [weak self] in self?.emit() }
+                }
             }
         }
         // Each event carries the whole page state (``emit()``): the newest replaces the rest.

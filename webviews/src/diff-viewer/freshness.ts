@@ -5,18 +5,26 @@
 // Coming back to the viewer refreshes it when nothing would be lost; while the reader is in it, an
 // inline notice offers Refresh, since a refresh starts the diff from the top.
 //
-// The compare is a page poll (pages/shared/pagePoll.ts, p13-webui-069): a hidden, frozen or parked
-// viewer arms no timer and reads nothing, and its show is the one check of coming back.
+// The host has no push for a changed work tree, so a shown viewer compares on each minute of the
+// page's one clock (ui/pageClock.ts), and once each time the reader comes back (the page shows
+// again, or its window takes focus). A hidden viewer runs no timer (p14-energy-062a), as Chrome
+// stops a hidden page's timers (third_party/blink/renderer/platform/scheduler/main_thread/page_scheduler_impl.cc).
 import { useEffect, useRef, useState } from "react";
 import { useSyncedRef } from "./useSyncedRef";
 import type { DiffSource } from "../diff/generated/protocol";
 import type { PageClient } from "../pages/shared/pageClient";
-import { pageIsActive, pageLifecycleFor } from "../pages/shared/pageLifecycle";
-import { type PagePollSeams, startPagePoll } from "../pages/shared/pagePoll";
+import { type PageLifecycle, pageLifecycleFor } from "../pages/shared/pageLifecycle";
+import { type ClockGranularity, type PageClock, pageClockFor } from "../ui/pageClock";
 
 export const DIFF_FINGERPRINT_OP = "cmux.diff.git.fingerprint";
-/** How often a visible viewer compares, in ms. */
-export const FRESHNESS_INTERVAL = 4000;
+/** How often a shown viewer compares: on each minute of the page's clock. */
+export const FRESHNESS_GRANULARITY: ClockGranularity = "minute";
+
+/** The page the viewer runs in; a test passes a fake lifecycle and a clock on fake timers. */
+export interface DiffFreshnessPage {
+  lifecycle?: PageLifecycle;
+  clock?: PageClock;
+}
 
 /** Reads the fingerprint of the diff `shown` compares; undefined where the host can't say. */
 export function diffFingerprintReader(
@@ -51,26 +59,32 @@ export function useDiffFreshness(
   generation: number,
   canRefresh: () => boolean,
   refresh: () => void,
-  seams: PagePollSeams = {},
+  page: DiffFreshnessPage = {},
 ): boolean {
   const [stale, setStale] = useState<number>();
   const baseline = useRef<string | undefined>(undefined);
   const latest = useSyncedRef({ canRefresh, refresh });
-  const { lifecycle = pageLifecycleFor(), timers } = seams;
+  const lifecycle = page.lifecycle ?? pageLifecycleFor();
+  const clock = page.clock ?? pageClockFor(lifecycle);
   useEffect(() => {
     baseline.current = undefined;
     if (!read) return;
     let current = true;
     let busy = false;
-    const check = async (returning: boolean) => {
-      if (busy || !pageIsActive(lifecycle)) return;
+    // True from a hide until the show: on show the page's clock and the lifecycle both call, in
+    // either order, and whichever checks first checks as a return.
+    let returning = false;
+    const check = async (back: boolean) => {
+      if (busy || lifecycle.state() !== "active") return;
       busy = true;
+      const comingBack = back || returning;
+      returning = false;
       try {
         const now = await read();
         if (!current || now === undefined) return;
         if (baseline.current === undefined) baseline.current = now;
         else if (now !== baseline.current) {
-          if (returning && latest.current.canRefresh()) latest.current.refresh();
+          if (comingBack && latest.current.canRefresh()) latest.current.refresh();
           else setStale(generation);
         }
       } catch {
@@ -79,15 +93,23 @@ export function useDiffFreshness(
         busy = false;
       }
     };
-    const stop = startPagePoll(({ resumed }) => check(resumed), FRESHNESS_INTERVAL, { lifecycle, timers });
-    // The window taking focus back is coming back too (a pane focused again in a shown tab).
+    void check(false);
+    const stopClock = clock.subscribe(FRESHNESS_GRANULARITY, () => void check(false));
+    const stopLifecycle = lifecycle.observe((state) => {
+      if (state !== "active") returning = true;
+      else {
+        void check(true);
+        returning = false;
+      }
+    });
     const back = () => void check(true);
     window.addEventListener("focus", back);
     return () => {
       current = false;
-      stop();
+      stopClock();
+      stopLifecycle();
       window.removeEventListener("focus", back);
     };
-  }, [read, generation, latest, lifecycle, timers]);
+  }, [read, generation, latest, lifecycle, clock]);
   return stale === generation;
 }

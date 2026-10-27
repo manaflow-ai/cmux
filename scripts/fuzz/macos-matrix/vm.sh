@@ -3,12 +3,16 @@
 # the seeded UI fuzz, or the replay of a saved repro. Run it ON a Tart host, never on a laptop.
 # Agents start it on the fleet with os-matrix.sh (a cmux-ci step of class vm).
 #
-# Usage: vm.sh [--majors 14,15,26,27] [--suite smoke|fuzz|repro|exec|chaos] [--seed N] [--steps N] [--minutes N]
+# Usage: vm.sh [--majors 14,15,26,27] [--suite smoke|threads|fuzz|repro|exec|chaos] [--seed N] [--steps N] [--minutes N]
 #              [--repro NAME | --replay STEPS.jsonl | --probe NAME | --faults A,B] [--diag NAME]
 #              [--work DIR] [--results FILE] [--keep-vm] BUILD
 #   BUILD      a cmux-next .app, a .zip with one, or a .dmg (a shipped nightly).
 #   --suite    smoke: smoke.py (launch, window, terminal echo, split, Chromium and WebKit tabs,
-#              Settings, quit; needs a DEV build). chaos: chaos.py (needs a DEV build), one fault
+#              Settings, quit; needs a DEV build). threads: threads.py (needs a DEV build), the smoke's
+#              launch, then the blocking detector's context per kind of thread (debug.pool_context:
+#              a Task.detached and a DispatchQueue.global seam call are pool, lane items are lane),
+#              a running item's raise and debug.threads (chrome-parity p02-threads RUN-10).
+#              chaos: chaos.py (needs a DEV build), one fault
 #              at a time during a typing and split tour (SIGKILL of the daemon, acpmux, a terminal
 #              host, the holder, Chromium's renderer, GPU and utility processes and WebContent;
 #              critical memory pressure; the network off; relaunches under `ulimit -n 256` and with
@@ -66,17 +70,17 @@ while [[ $# -gt 0 ]]; do
     --results) RESULTS=$2; shift 2 ;;
     --keep-vm) KEEP_VM=1; shift ;;
     --diag) DIAG=$2; shift 2 ;;
-    -h|--help) sed -n '2,48p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,52p' "$0"; exit 0 ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *) BUILD=$1; shift ;;
   esac
 done
-[[ -n "${BUILD:-}" && -e "$BUILD" ]] || { echo "usage: vm.sh [--majors 14,15,26] [--suite smoke|fuzz|repro|exec|chaos] BUILD" >&2; exit 2; }
+[[ -n "${BUILD:-}" && -e "$BUILD" ]] || { echo "usage: vm.sh [--majors 14,15,26] [--suite smoke|threads|fuzz|repro|exec|chaos] BUILD" >&2; exit 2; }
 [[ -z "$PROBE" || "$SUITE" == exec ]] || { echo "--probe needs --suite exec" >&2; exit 2; }
 [[ -z "$FAULTS" || "$SUITE" == chaos && "$FAULTS" =~ ^[a-z-]+(,[a-z-]+)*$ ]] || {
   echo "--faults needs --suite chaos and names like daemon,holder (see chaos.py)" >&2; exit 2; }
 case "$SUITE" in
-  smoke|fuzz|chaos) [[ -z "$REPRO" ]] || { echo "--repro needs --suite repro" >&2; exit 2; } ;;
+  smoke|threads|fuzz|chaos) [[ -z "$REPRO" ]] || { echo "--repro needs --suite repro" >&2; exit 2; } ;;
   exec)
     # NAME is a plain name (no separator, no ..), probes/ is a real folder of this runner and
     # probes/NAME.swift a regular file in it, not a link: the source is the reviewed one.
@@ -87,7 +91,7 @@ case "$SUITE" in
     [[ "$REPRO" =~ ^[a-z0-9][a-z0-9-]{0,63}$ && -f "$HERE/repros/$REPRO.jsonl" ]] || {
       echo "--suite repro needs --repro NAME of a file in $HERE/repros (without .jsonl)" >&2; exit 2; }
     REPLAY="$HERE/repros/$REPRO.jsonl" ;;
-  *) echo "--suite must be smoke, fuzz, repro, exec or chaos" >&2; exit 2 ;;
+  *) echo "--suite must be smoke, threads, fuzz, repro, exec or chaos" >&2; exit 2 ;;
 esac
 # A diag's guest work, from diag.py: a bundle id suffix, a host dylib, bundle paths to remove.
 DIAG_SUFFIX="" DIAG_HOST_DYLIB="" DIAG_REMOVE=()
@@ -173,9 +177,9 @@ print(next((i.get("host_os_min", "") for i in json.load(open(sys.argv[1]))["imag
     exec_probe "$ip" "$out" "$app"
     return 0
   fi
-  if [[ "$SUITE" == smoke ]]; then
-    python3 -I "$HERE/smoke.py" "${common[@]}" >"$out/smoke.log" 2>&1 || echo "smoke exit $?" >"$out/failure"
-    grep -E '^(SMOKE|[a-z_]+ +(ok|FAIL)) ' "$out/smoke.log" | cut -c1-400 >&2 || true
+  if [[ "$SUITE" == smoke || "$SUITE" == threads ]]; then
+    python3 -I "$HERE/$SUITE.py" "${common[@]}" >"$out/$SUITE.log" 2>&1 || echo "$SUITE exit $?" >"$out/failure"
+    grep -E '^(SMOKE|THREADS|[a-z_]+ +(ok|FAIL)) ' "$out/$SUITE.log" | cut -c1-400 >&2 || true
     return 0
   fi
   if [[ "$SUITE" == chaos ]]; then
@@ -378,11 +382,11 @@ for m in majors:
         verdict = s.get("verdict", "NO-VERDICT") if s else "NO-VERDICT"
         line = "%-4s %-8s exec  %-10s probe=%s exit=%s %s" % (
             m, s.get("os", "?"), verdict, s.get("probe", "-"), s.get("exit_code", "-"), fail)
-    elif suite == "smoke":
+    elif suite in ("smoke", "threads"):
         s = load("result.json")
         verdict = "NO-VERDICT" if not s else ("PASS" if s.get("ok") and not fail else "FAIL")
-        line = "%-4s %-8s smoke %-10s failed=%s crashes=%s hang_reports=%s faults=%s %s" % (
-            m, s.get("os", "?"), verdict, ",".join(s.get("failed_steps", [])) or "-",
+        line = "%-4s %-8s %-5s %-10s failed=%s crashes=%s hang_reports=%s faults=%s %s" % (
+            m, s.get("os", "?"), suite, verdict, ",".join(s.get("failed_steps", [])) or "-",
             s.get("crashes", "-"), s.get("hang_reports", "-"), s.get("faults", "-"), fail)
     elif suite == "chaos":
         # One row per fault (ok, FAIL or skip). A skipped fault (the guest could not inject it) is no

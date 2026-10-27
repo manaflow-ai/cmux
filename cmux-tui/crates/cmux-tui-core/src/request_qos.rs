@@ -56,6 +56,12 @@ pub(crate) struct RequestQos {
 }
 
 impl RequestQos {
+    /// Whether the feature is on: requests and connection threads
+    /// (server/connection_qos.rs) change class.
+    pub(crate) const fn enabled(self) -> bool {
+        self.enabled
+    }
+
     /// Makes `cause` this thread's cause and, with the feature on, its class
     /// ([`EventCause::request_qos`]) until the scope drops.
     pub(crate) fn enter(self, cause: EventCause) -> CauseScope {

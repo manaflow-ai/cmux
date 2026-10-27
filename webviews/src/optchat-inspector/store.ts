@@ -1,21 +1,27 @@
 // A small read cache over the inspector API for useSyncExternalStore: one entry per URL, fetched
-// on first read, optionally refreshed on an interval while something is subscribed. No effects:
-// the subscription itself starts and stops the refresh timer. The refresh is a page poll
-// (pages/shared/pagePoll.ts, p13-webui-069): a hidden inspector arms no timer and reads nothing,
-// and reads once when it shows again.
+// on first read, optionally refreshed while something is subscribed. No effects: the subscription
+// itself starts and stops the refresh.
+//
+// The inspector's API has no push, so a refresh rides the page's one minute clock (ui/pageClock.ts)
+// at 60 s or longer: it wakes on the aligned minute only while the page shows, and reads once on show
+// when a refresh fell due while hidden. A hidden inspector runs no timer (p14-energy-062a), as
+// Chrome stops a hidden page's timers (third_party/blink/renderer/platform/scheduler/main_thread/page_scheduler_impl.cc).
 
-import { type PagePollSeams, startPagePoll } from "../pages/shared/pagePoll";
+import { type PageClock, clockPeriodMs, pageClockFor } from "../ui/pageClock";
 
 export type Entry<T> = { data?: T; error?: string; loading: boolean };
 
 type Slot = {
   entry: Entry<unknown>;
   listeners: Set<() => void>;
-  /** Stops the refresh poll; set while a subscriber asked for one. */
+  /** Stops the refresh; set while a subscriber asked for one. */
   stopRefresh?: () => void;
   /** When the last listener left (0 while subscribed): idle slots are evicted oldest first. */
   idleSince: number;
 };
+
+/** The shortest refresh: one aligned minute wake, the page's poll floor (p14-energy-062a). */
+export const MIN_REFRESH_MS = clockPeriodMs("minute");
 
 /** Idle answers kept for a quick return (a turn's prompt can be 100 KB or more). */
 const KEEP_IDLE = 24;
@@ -61,9 +67,13 @@ export const defaultFetcher: Fetcher = httpFetcher;
 
 export class ApiStore {
   private slots = new Map<string, Slot>();
+  /**
+   * @param clock The page's clock; the current document's by default, made on the first refresh.
+   *   A test passes one on a fake lifecycle and fake timers.
+   */
   constructor(
     private fetcher: Fetcher = defaultFetcher,
-    private seams: PagePollSeams = {},
+    private clock?: PageClock,
   ) {}
 
   private slot(url: string): Slot {
@@ -95,14 +105,20 @@ export class ApiStore {
     for (const l of s.listeners) l();
   }
 
-  /** Subscribes to `url`; `every` ms refreshes it while subscribed. Returns the unsubscribe. */
+  /**
+   * Subscribes to `url`; `every` ms (at least `MIN_REFRESH_MS`) refreshes it while subscribed and the
+   * page shows. A refresh that starts on an answer already held reads it again at once, so a view
+   * that asks for live data never shows one older than its start. Returns the unsubscribe.
+   */
   subscribe(url: string, listener: () => void, every?: number): () => void {
+    const held = this.slots.has(url);
     const s = this.slot(url);
     s.listeners.add(listener);
     s.idleSince = 0;
-    // The slot read when it was made: the poll waits one period first.
-    if (every && !s.stopRefresh)
-      s.stopRefresh = startPagePoll(() => this.load(url), every, { ...this.seams, immediate: false });
+    if (every && !s.stopRefresh) {
+      s.stopRefresh = this.refreshEvery(url, Math.max(every, MIN_REFRESH_MS));
+      if (held) void this.load(url);
+    }
     return () => {
       s.listeners.delete(listener);
       if (s.listeners.size === 0) {
@@ -112,6 +128,23 @@ export class ApiStore {
         this.evict();
       }
     };
+  }
+
+  /**
+   * Reads `url` again on the first minute tick of the page's clock at least `every` ms after the
+   * last read it started. The clock ticks only while the page shows, and once on show when a tick
+   * was missed, which reads what fell due while hidden.
+   */
+  private refreshEvery(url: string, every: number): () => void {
+    this.clock ??= pageClockFor();
+    const clock = this.clock;
+    let due = clock.now() + every;
+    return clock.subscribe("minute", () => {
+      const now = clock.now();
+      if (now < due) return;
+      due = now + every;
+      void this.load(url);
+    });
   }
 
   /** Drops the oldest idle answers beyond `KEEP_IDLE`. */

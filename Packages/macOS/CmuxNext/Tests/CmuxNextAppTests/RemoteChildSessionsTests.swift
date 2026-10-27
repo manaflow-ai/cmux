@@ -33,6 +33,12 @@ import Testing
         func children() async throws -> Data { RemoteAcpmuxWire.json(["sessions": listed]) }
     }
 
+    /// Main run loop passes, where the wire's posted tasks arrive, until `done` or 5 s.
+    private static func spinMainRunLoop(until done: () -> Bool) {
+        let end = Date(timeIntervalSinceNow: 5)
+        while !done(), Date() < end { _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
+    }
+
     /// The reply of the wire's `_acpmux/watch`.
     private static func watch(_ wire: RemoteAcpmuxWire) async throws -> [String: Any] {
         let (frames, continuation) = AsyncStream.makeStream(of: String.self)
@@ -58,8 +64,8 @@ import Testing
         let ids = (reply["sessions"] as? [[String: Any]])?.compactMap { $0["sessionId"] as? String }
         #expect(ids == ["vm-chat", "vm-child", "vm-spawned", "vm-grandchild"])
         #expect(reply["tabSessionId"] as? String == "vm-chat")
-        // The note lands on the main actor after the reply.
-        for _ in 0..<50 where RemoteAgentSessionLinks.shared.parents["vm-grandchild"] == nil { await Task.yield() }
+        // The note lands after the reply, in one automation task the main run loop runs.
+        Self.spinMainRunLoop { RemoteAgentSessionLinks.shared.parents["vm-grandchild"] != nil }
         let links = RemoteAgentSessionLinks.shared
         #expect(links.parents["vm-child"] == "vm-chat")
         #expect(links.parents["vm-spawned"] == "vm-chat")

@@ -34,10 +34,10 @@ final class TabContentCache {
     /// `terminalPointerFrames`); nil: each pointer event reaches Ghostty at once.
     let terminalPointerFrames: FrameInputCoalescers?
     let mainWork: MainWorkScheduler
-    var terminals: [String: TerminalEntry] = [:]
+    var terminals: [String: TerminalEntry] = [:] { didSet { pageRequests.services?.crashKeys?.noteTerminals(terminals.count) } }
     var browsers: [String: BrowserEntry] = [:] {
         didSet {
-            guard browsers.count != oldValue.count else { return }
+            pageRequests.services?.crashKeys?.noteBrowsers(in: browsers.values.lazy.map { $0.tab }); guard browsers.count != oldValue.count else { return }
             pageRequests.media.tabsChanged()
             if browsers.count < oldValue.count { tabRenderers.keep(only: Set(browsers.keys)) }
         }
@@ -202,14 +202,19 @@ final class TabContentCache {
     ///   - terminalModifiers: The terminals' one modifier watch on the app's input tap; tests without a tap pass none.
     ///   - terminalPointerFrames: The windows' pointer coalescers while `terminalPointerFrames` is on; nil otherwise.
     ///   - mainWork: The app's main-thread scheduler, for every terminal session it makes.
+    ///   - deadlines: The app's one `MainDeadline` placer on `mainWork` (`AppServices.mainDeadlines`), for its WebKit tabs.
+    ///   - appEvents: The app's one ``AppEvents`` (`AppServices.appEvents`), for its WebKit tabs' app-wide notices.
     ///   - imageCaches: The picture stores' full sizes: this Mac's budget shares with `memoryImageCaches` on, the
     ///     fixed sizes from before it otherwise (the default, which tests get).
     ///   - gpuResidency: The app's GPU memory release (``gpuResidency``); tests get none.
+    ///   - webKitProcessReuse: Same-site WebKit tab processes above the renderer limit (`webKitSameSiteProcesses`);
+    ///     nil, the default, gives every WebKit tab its own process.
     init(daemon: DaemonService, chromium: ChromiumEngineSlot, fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
          resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil,
-         terminalPointerFrames: FrameInputCoalescers? = nil, mainWork: MainWorkScheduler,
-         imageCaches: ImageCacheShares = .legacy, gpuResidency: (any TerminalGPUResidency)? = nil) {
+         terminalPointerFrames: FrameInputCoalescers? = nil, mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler,
+         appEvents: AppEvents, imageCaches: ImageCacheShares = .legacy, gpuResidency: (any TerminalGPUResidency)? = nil,
+         webKitProcessReuse: WebKitProcessReuse? = nil) {
         self.imageCaches = imageCaches
         previews = PreviewImageCache(fullCapacityBytes: imageCaches.previewBytes, contents: .rebuildable)
         internalPagePictures = PreviewImageCache(fullCapacityBytes: imageCaches.internalPagePictureBytes, contents: .onlyCopy)
@@ -218,7 +223,8 @@ final class TabContentCache {
         self.terminalPointerFrames = terminalPointerFrames
         self.gpuResidency = gpuResidency
         normalWarmCapacity = SubsystemBudget.forThisMac(gpuResidentAvailable: gpuResidency != nil).warmTerminalSurfaces
-        webKit = WebKitEngine(fileInput: fileInput, stores: chromium.stores, energy: mainWork.energy, waitDeadlines: chromium.waitDeadlines)
+        webKit = WebKitEngine(fileInput: fileInput, stores: chromium.stores, energy: mainWork.energy, waitDeadlines: chromium.waitDeadlines,
+                              deadlines: deadlines, appEvents: appEvents, processReuse: webKitProcessReuse)
         self.afterFrame = afterFrame
         browserTabs = BrowserTabService(daemon: daemon, chromium: chromium, mainWork: mainWork)
         wireNotices()

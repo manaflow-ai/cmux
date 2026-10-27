@@ -80,7 +80,7 @@ public struct FuzzText: Sendable {
         let end = Self.lineEnds[rng.below(3)]
         var out = marker + Self.fenceLanguages[rng.below(Self.fenceLanguages.count)] + end
         for _ in 0..<rng.below(6) {
-            out += String(repeating: " ", count: rng.below(9)) + Self.words[rng.below(Self.words.count)]
+            out += String(repeating: " ", count: max(0, rng.below(9))) + Self.words[rng.below(Self.words.count)]
             out += rng.oneIn(3) ? Self.unicodeTokens[rng.below(Self.unicodeTokens.count)] : " = 1;"
             out += end
         }
@@ -174,7 +174,8 @@ public struct FuzzText: Sendable {
         var scalars = Array(text.unicodeScalars)
         switch rng.below(5) {
         case 0:
-            scalars.removeLast(min(scalars.count, rng.below(65)))
+            let cut = min(scalars.count, rng.below(65))
+            scalars.removeLast(cut)
             scalars += Array(Self.markdownTokens[rng.below(Self.markdownTokens.count)].unicodeScalars)
         case 1:
             let at = rng.int(in: 0...scalars.count)

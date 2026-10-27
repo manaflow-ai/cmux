@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// The page's JSON (CmuxNextSettings) and the daemon's wire JSON (CmuxNextDaemon) are two types.
@@ -31,11 +32,13 @@ final class IconPickerPrefsStore {
     func load() {
         guard !loaded, let services else { return }
         loaded = true
+        let mainWork = services.mainWork
         services.daemon.send("icon-picker-prefs-load") { [weak self] connection in
             let stored = try await connection.frontendProjection(subject: Self.subject)
             let revision = stored.projectionRevision
             let theirs: PageJSON? = stored.schemaVersion == Self.schemaVersion ? Self.page(stored.projection) : nil
-            await MainActor.run {
+            // `visible`: the open picker shows the recents it brings.
+            await mainWork.apply(.visible, owner: "IconPickerPrefsStore.load") { [weak self] () -> Void in
                 guard let self else { return }
                 self.revision = revision
                 if let theirs, theirs != .null { self.document = IconPickerPrefs.merge(theirs, self.document) }
@@ -47,18 +50,21 @@ final class IconPickerPrefsStore {
         document = next
         let revision = revision
         guard let services, let wire = Self.wire(next) else { return }
+        let mainWork = services.mainWork
         services.daemon.send("icon-picker-prefs-save") { [weak self] connection in
             do {
                 let stored = try await connection.putFrontendProjection(subject: Self.subject, schemaVersion: Self.schemaVersion,
                                                                         projection: wire, expectedRevision: revision)
-                await MainActor.run { self?.revision = stored.projectionRevision }
+                // `background`: only the next save reads the revision.
+                await mainWork.apply(.background, owner: "IconPickerPrefsStore.saved") { [weak self] () -> Void in self?.revision = stored.projectionRevision }
             } catch DaemonError.command(_, let message, _, _, _) where message.contains("revision conflict") {
                 let current = try await connection.frontendProjection(subject: Self.subject)
                 let merged = IconPickerPrefs.merge(Self.page(current.projection) ?? .null, next)
                 guard let mergedWire = Self.wire(merged) else { return }
                 let stored = try await connection.putFrontendProjection(subject: Self.subject, schemaVersion: Self.schemaVersion,
                                                                         projection: mergedWire, expectedRevision: current.projectionRevision)
-                await MainActor.run {
+                // `visible`: the picker's recents become the merged ones.
+                await mainWork.apply(.visible, owner: "IconPickerPrefsStore.merged") { [weak self] () -> Void in
                     self?.document = merged
                     self?.revision = stored.projectionRevision
                 }

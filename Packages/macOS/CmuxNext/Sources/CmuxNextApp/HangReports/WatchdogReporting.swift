@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextHangReports
 import CmuxNextTrace
@@ -13,8 +14,8 @@ import CmuxNextWakeups
 /// running after 2 s to crash reporting with its stack and to a file per hang; each finished lag
 /// spike of 250 ms and up to crash reporting (rate-limited); and both to opt-in hang reports
 /// (``HangReportsController``), whose sink does nothing while they are off, as each committed key's `key.frame`
-/// time (`AppServices.inputFrameSignposts`); with the main thread's phase
-/// (`main_thread_phase`, `cef_pump`). The blocking detector's new call sites go to ``BlockingReportSink``.
+/// time (`AppServices.inputFrameSignposts`); with the main thread's phase (`main_thread_phase`, `cef_pump`)
+/// and `hang.cef` in the CEF pump. The blocking detector's new call sites go to ``BlockingReportSink``.
 @MainActor
 enum WatchdogReporting {
     /// Wires `watchdog` and returns this launch's hang report controller (held by `AppProcessRoot`).
@@ -32,7 +33,11 @@ enum WatchdogReporting {
             work: services.work, mainWork: services.mainWork,
             metricsFolder: TraceBlackBoxFileSteps.appDirectory(bundleID: Bundle.main.bundleIdentifier),
             daemonPID: { [weak services] in services?.daemon.identity?.pid },
-            wireSchema: .written(serverAcceptsSchema3: services.features.isEnabled(.hangReportsSchema3)))
+            wireSchema: .written(serverAcceptsSchema3: services.features.isEnabled(.hangReportsSchema3)),
+            features: { [features = FeatureFlagsPage.report(services.features, tunables: TunableStore.shared)] in
+                HangReport.FeatureState(features.fieldState)
+            },
+            blockingSites: { [blocking = services.blocking] in blocking.mainThreadRead })
         let collector = hangReports.collector
         // The drain queue is a hang-watched lane for the process's life (Compat cannot see the watch). Set before
         // the sink: both are drain-queue jobs in call order, so the replay below runs inside the watch.
@@ -44,9 +49,9 @@ enum WatchdogReporting {
         services.blocking.install(sink: BlockingReportSink(collector: collector, nonFatal: .init(
             consented: { reporter.isStarted },
             send: { reporter.captureNonFatal($0.message, type: $0.type, fingerprint: $0.fingerprint, tags: $0.tags, extra: $0.extra) })))
+        // Replaces the crash-reporting-only sink set before Sentry started (WatchdogHangSinks), adding hang reports.
         watchdog.onHang = { hang in
-            reporter.reportHang(duration: hang.duration, addresses: hang.addresses, otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) },
-                                phase: hang.phase, attribution: .init(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass, location: hang.attribution.location, turnNanos: hang.attribution.turnNanos))
+            WatchdogHangSinks.send(hang, to: reporter)
             collector?.noteHang(durationNanos: Self.nanos(hang.duration), addresses: hang.addresses, task: HangSample.MainTask(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass))
         }
         // A watched thread still in its hang-watch scope 2 s past its budget (p09-observability-068): a crash report
@@ -59,6 +64,17 @@ enum WatchdogReporting {
         }
         // ~/Library/Logs/<bundle id>/hangs, listed in Debug Settings > Hangs.
         watchdog.episodes = HangFileTunables.recorder(bundleID: Bundle.main.bundleIdentifier)
+        // A hang the app does not survive (p09-observability-110): the previous run's record goes out now. This run's is
+        // kept on disk while each hang lasts by the sink set before Sentry started (WatchdogHangSinks).
+        let bundleID = services.environment.launch.bundleID, markerFolder = AppRunMarker.standardDirectory(bundleID: bundleID)
+        let fatalHangReports = services.features.isEnabled(.fatalHangReports)
+        if let marker = services.crashRecovery.marker {
+            // With the kill switch off, an earlier run's record is still cleared, and nothing is sent.
+            reporter.reportPreviousFatalHang(in: markerFolder, run: marker.previousUnreported.map { (pid: $0.pid, launched: $0.launched) },
+                                             enabled: fatalHangReports, traceDirectory: TraceBlackBoxFileSteps.appDirectory(bundleID: bundleID),
+                                             hangReportsOptIn: UserDefaults.standard.object(forKey: HangReportsController.consentKey) is Date,
+                                             work: services.work)
+        }
         let lagSpikes = LagSpikeReporter(reporter: reporter)
         lagSpikes.setContextProvider {
             // The watchdog's run-loop observer on the main run loop reads it; never off main.
@@ -70,7 +86,7 @@ enum WatchdogReporting {
             }
         }
         watchdog.onStall = { record in
-            lagSpikes.noteStall(duration: record.duration, cpu: record.cpu, addresses: record.addresses, phase: record.details["phase"]?.stringValue)
+            lagSpikes.noteStall(duration: record.duration, cpu: record.cpu, addresses: record.addresses, phase: record.details["phase"]?.stringValue, cef: record.details["cef"]?.boolValue == true)
             collector?.noteStall(durationNanos: Self.nanos(record.duration), cpuNanos: Self.nanos(record.cpu), addresses: record.addresses)
         }
         // A slow key frame takes the black box (one compare, then one atomic load while reports are off).

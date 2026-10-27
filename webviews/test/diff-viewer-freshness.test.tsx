@@ -1,10 +1,10 @@
 // The diff viewer notices an agent's edit (cx-9ce.34, dogfood run hq #1893): it kept the old diff
 // until the tab was reopened. It compares the host's fingerprint of its scope's diff with the one
 // it loaded: coming back to the viewer after an edit refreshes it, unless a comment draft or the
-// commit form would be lost, and then it says the files changed.
+// commit form would be lost, and then it says the files changed. It compares on the page's minute
+// clock while shown and runs no timer while hidden (p14-energy-062a).
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
-import { FakeLifecycleDocument, FakePollClock } from "./support/pagePollFakes";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -44,7 +44,7 @@ Object.assign(scope, replacements);
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { diffFingerprintReader, useDiffFreshness } = await import("../src/diff-viewer/freshness");
-const { PageLifecycle } = await import("../src/pages/shared/pageLifecycle");
+const { fakePage } = await import("./support/fakePageClock");
 
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
@@ -73,12 +73,14 @@ function Viewer({
   read,
   canRefresh,
   refresh,
+  clockPage,
 }: {
   read: () => Promise<string | undefined>;
   canRefresh: boolean;
   refresh: () => void;
+  clockPage?: ReturnType<typeof fakePage>;
 }) {
-  const stale = useDiffFreshness(read, 0, () => canRefresh, refresh);
+  const stale = useDiffFreshness(read, 0, () => canRefresh, refresh, clockPage);
   return <output>{stale ? "stale" : "fresh"}</output>;
 }
 const shown = () => dom.window.document.querySelector("output")?.textContent;
@@ -123,58 +125,52 @@ test("with a draft or the commit form open it says the files changed instead", a
   expect(shown()).toBe("stale");
 });
 
-// p13-webui-069 (MQ4b): the compare is a page poll. A hidden, frozen or parked viewer arms no timer
-// and asks the host nothing; its show is the one check of coming back.
-function PolledViewer({
-  read,
-  refresh,
-  seams,
-}: {
-  read: () => Promise<string | undefined>;
-  refresh: () => void;
-  seams: { lifecycle: InstanceType<typeof PageLifecycle>; timers: FakePollClock };
-}) {
-  const stale = useDiffFreshness(read, 0, () => true, refresh, seams);
-  return <output>{stale ? "stale" : "fresh"}</output>;
-}
-
-test("a hidden viewer makes 0 host reads in 60 s and arms no timer; its show checks once", async () => {
-  onDisk = "a";
-  const doc = new FakeLifecycleDocument();
-  const seams = { lifecycle: new PageLifecycle(doc), timers: new FakePollClock(settle) };
+test("a shown viewer compares each minute; a hidden one runs no timer and compares once on show", async () => {
+  const clockPage = fakePage(1_000_000_020_000); // on a minute boundary
+  let fingerprint = "a";
+  let reads = 0;
+  const read = async () => {
+    reads += 1;
+    return fingerprint;
+  };
   let refreshed = 0;
-  const read = diffFingerprintReader(page as never, OPS, { kind: "unstaged", repoRoot: "/r" })!;
-  await act(async () => root.render(<PolledViewer read={read} refresh={() => (refreshed += 1)} seams={seams} />));
+  await act(async () => root.render(<></>));
+  await act(async () =>
+    root.render(<Viewer read={read} canRefresh refresh={() => (refreshed += 1)} clockPage={clockPage} />),
+  );
   await settle();
-  const loaded = calls.length;
-  await seams.timers.advance(8000);
-  expect(calls.length).toBe(loaded + 2); // one read a period while shown
+  expect(reads).toBe(1);
+  expect(shown()).toBe("fresh");
+  expect(clockPage.timers.live).toBe(1);
 
-  await act(async () => doc.hide());
-  expect(seams.timers.armed).toBe(0);
-  onDisk = "b";
-  const hidden = calls.length;
-  await seams.timers.advance(60_000);
-  expect(calls.length).toBe(hidden);
-
-  await act(async () => doc.show());
+  await act(async () => clockPage.timers.advance(59_000));
+  expect(reads).toBe(1);
+  await act(async () => clockPage.timers.advance(1_000));
   await settle();
-  expect(calls.length).toBe(hidden + 1);
+  expect(reads).toBe(2);
+
+  await act(async () => clockPage.doc.hide());
+  expect(clockPage.timers.live).toBe(0);
+  fingerprint = "b";
+  await act(async () => clockPage.timers.advance(10 * 60_000));
+  expect(reads).toBe(2);
+  expect(clockPage.timers.live).toBe(0);
+
+  // Coming back after an edit refreshes, with one read however many minutes passed.
+  await act(async () => clockPage.doc.show());
+  await settle();
+  expect(reads).toBe(3);
   expect(refreshed).toBe(1);
-  expect(seams.timers.armed).toBe(1);
-});
+  expect(clockPage.timers.live).toBe(1);
 
-test("a viewer parked in the pool reads nothing until the host claims it", async () => {
-  onDisk = "a";
-  const seams = { lifecycle: new PageLifecycle(new FakeLifecycleDocument(), true), timers: new FakePollClock(settle) };
-  const read = diffFingerprintReader(page as never, OPS, { kind: "unstaged", repoRoot: "/r" })!;
-  const before = calls.length;
-  await act(async () => root.render(<PolledViewer read={read} refresh={() => {}} seams={seams} />));
-  await seams.timers.advance(60_000);
-  dom.window.dispatchEvent(new dom.window.Event("focus"));
+  // A change found while the reader stays in the viewer shows the notice; it never refreshes.
+  fingerprint = "c";
+  await act(async () => clockPage.timers.advance(60_000));
   await settle();
-  expect(calls.length).toBe(before);
-  await act(async () => seams.lifecycle.claimed());
-  await settle();
-  expect(calls.length).toBe(before + 1);
+  expect(reads).toBe(4);
+  expect(refreshed).toBe(1);
+  expect(shown()).toBe("stale");
+
+  await act(async () => root.render(<></>));
+  expect(clockPage.timers.live).toBe(0);
 });

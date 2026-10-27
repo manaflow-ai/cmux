@@ -58,6 +58,34 @@ import Testing
         #expect(f.ran.names == ["Updater.start"], "the released work ran once")
     }
 
+    /// p08-startup-068: work that measures the frame waits for a committed frame, not for a missed deadline.
+    @Test func whenFirstFrameCommittedWaitsForTheRealFrameNotAMissedOne() {
+        let f = StartupFixture()
+        f.startup.whenFirstFrameCommitted { [ran = f.ran] in ran.names.append("Census.early") }
+        f.startup.finishRegistration()
+        f.startup.firstFrameMissed(nil)
+        f.hand.drain()
+        #expect(f.ran.names.isEmpty, "a reveal-deadline release is not the frame")
+        f.startup.firstFrameCommitted()
+        f.startup.firstFrameCommitted()
+        #expect(f.ran.names == ["Census.early"], "once, at the late frame")
+        f.startup.whenFirstFrameCommitted { [ran = f.ran] in ran.names.append("Census.late") }
+        #expect(f.ran.names == ["Census.early", "Census.late"], "after the frame: at once")
+    }
+
+    @Test func whenFirstFrameCommittedNeverRunsForALaunchWithNoFrameOrAfterQuit() {
+        let f = StartupFixture()
+        f.startup.whenFirstFrameCommitted { [ran = f.ran] in ran.names.append("Census") }
+        f.startup.finishRegistration()
+        f.startup.firstFrameMissed(.noWindow)
+        f.hand.drain()
+        #expect(f.ran.names.isEmpty, "a windowless launch drew no frame")
+        f.startup.beginQuit()
+        f.startup.firstFrameCommitted()
+        f.startup.whenFirstFrameCommitted { [ran = f.ran] in ran.names.append("Census.afterQuit") }
+        #expect(f.ran.names.isEmpty)
+    }
+
     @Test func aFirstFrameThatWillNeverComeEndsWithItsReason() {
         let f = StartupFixture()
         f.startup.finishRegistration()
