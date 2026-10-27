@@ -73,7 +73,7 @@ impl Postgres<'_> {
 
     pub fn registry(&self) -> Result<Vec<RegistryEntry>> {
         let path = self.registry_path();
-        match std::fs::read(&path) {
+        match cmux_blocking::fs::read(&path) {
             Ok(bytes) => serde_json::from_slice(&bytes)
                 .map_err(|e| Error::internal(format!("{}: {e}", path.display()))),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
@@ -197,7 +197,7 @@ impl Postgres<'_> {
             let st =
                 self.plan().app_role_sql(app, &limits, verifier.as_deref()).map_err(pg_error)?;
             self.psql(&st.database, &st.sql)?;
-        } else if needs && !pgpass_path.is_file() {
+        } else if needs && !cmux_blocking::fs::metadata(&pgpass_path).is_ok_and(|m| m.is_file()) {
             let (verifier, path) = self.new_secret(app)?;
             let st = self.plan().set_password_sql(app, &verifier).map_err(pg_error)?;
             self.psql(&st.database, &st.sql)?;

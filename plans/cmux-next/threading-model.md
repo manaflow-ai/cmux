@@ -93,7 +93,7 @@ LocalAuthentication, AX, window lists, Launch Services and `NSWorkspace`, Servic
 `sysctl`/`proc`), SQLite, ImageIO and image decodes, size-gated CPU work, and C library calls that read files
 inside (`blockingFFI`: libghostty's config build, which runs on the files lane through `GhosttyConfigLoading`
 and is applied on main once, p02-threads-129). The kinds are `BlockingKind`:
-file-io, fs-metadata, socket-read, socket-write, sync-wait, ipc-reply, process-spawn, process-wait,
+file-io, fs-metadata, socket-read, socket-write, sync-wait, ipc-reply, xpc-reply, process-spawn, process-wait,
 process-reap, lock-wait, system-call, system-query, sqlite, sleep, cpu-intensive, wrong-lane, ffi and
 priority-inversion (the main thread awaits a BackgroundWork item stated below `.userBlocking` while input work runs
 on the main task board; record only). The GPU wait inside Ghostty's `drawFrame` on main is not a config load: it

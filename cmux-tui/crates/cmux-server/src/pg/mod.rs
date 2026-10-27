@@ -11,7 +11,6 @@ mod apps;
 mod backup;
 pub mod port;
 
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use cmux_server_core::access::{access_policy, socket_dir_check};
@@ -96,7 +95,7 @@ fn resolve_bin(layout: &Layout, opts: &PgOptions) -> Result<PathBuf> {
             },
         )?,
     };
-    if !pg_bin.join("initdb").is_file() {
+    if !cmux_blocking::fs::metadata(pg_bin.join("initdb")).is_ok_and(|m| m.is_file()) {
         return Err(Error::not_found(format!("{} has no initdb", pg_bin.display())));
     }
     Ok(pg_bin)
@@ -203,7 +202,7 @@ impl<'a> Postgres<'a> {
     }
 
     pub fn initialized(&self) -> bool {
-        self.data_dir().join("PG_VERSION").is_file()
+        cmux_blocking::fs::metadata(self.data_dir().join("PG_VERSION")).is_ok_and(|m| m.is_file())
     }
 
     /// `pg_ctl status`: exit 0 when a postmaster runs on the data directory.
@@ -286,7 +285,9 @@ impl<'a> Postgres<'a> {
 
     fn init(&self) -> Result<()> {
         let data = self.data_dir();
-        if data.exists() && fs::read_dir(&data).ctx(data.display())?.next().is_some() {
+        if cmux_blocking::fs::metadata(&data).is_ok()
+            && cmux_blocking::fs::read_dir(&data).ctx(data.display())?.next().is_some()
+        {
             return Err(Error::rejected(format!(
                 "{} is not empty and holds no cluster; refusing",
                 data.display()
@@ -308,7 +309,7 @@ impl<'a> Postgres<'a> {
         let cmd = Cmd::new(&argv[0]).args(&argv[1..]);
         let result = self.runner.check(&cmd);
         if let Some(pwfile) = &pwfile {
-            let _ = fs::remove_file(pwfile);
+            let _ = cmux_blocking::fs::remove_file(pwfile);
         }
         result.map(|_| ())
     }
@@ -318,7 +319,7 @@ impl<'a> Postgres<'a> {
     pub fn write_config(&self, apps: &[AppDb]) -> Result<bool> {
         let data = self.data_dir();
         let main = data.join("postgresql.conf");
-        let text = fs::read_to_string(&main).ctx(main.display())?;
+        let text = cmux_blocking::fs::read_to_string(&main).ctx(main.display())?;
         let mut changed = false;
         if !text.lines().any(|l| l.trim() == CONF_INCLUDE_LINE) {
             let mut next = text;
