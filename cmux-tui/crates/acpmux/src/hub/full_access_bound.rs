@@ -1449,6 +1449,23 @@ mod tests {
         );
     }
 
+    /// Review 3 of #26057: under MDM's off, `child_for`'s fast path does not hand out an agent
+    /// whose reattached host's replay is not all in the log (`ChildAgent::replay_pending`), though
+    /// what the chat holds of it asks: the start judges it, as the off's teardown does.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_replaying_agent_is_not_handed_out_under_mdm_off() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        let first = hub.child_for(&chat).await.expect("an agent");
+        hub.apply_full_access_push(Some(false)).await;
+        crate::agent::TEST_REPLAYING.store(first.generation, Ordering::SeqCst);
+        let next = hub.child_for(&chat).await;
+        crate::agent::TEST_REPLAYING.store(0, Ordering::SeqCst);
+        assert!(
+            next.as_ref().map_or(true, |next| next.generation != first.generation),
+            "an agent whose replay is not all in the log was handed out under MDM's off"
+        );
+    }
+
     /// Review 2 of #26034: under MDM's off, an agent whose end is pending is not handed out by
     /// `child_for`'s fast path, though what it reports no longer says full access: the start
     /// ends it first.

@@ -74,6 +74,11 @@ pub enum Inbound {
     ReplayDone { agent: u64 },
 }
 
+/// Tests only: the agent generation `ChildAgent::replay_pending` reports as replaying.
+#[cfg(test)]
+pub(crate) static TEST_REPLAYING: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
 /// Logs one wire message. The `u64` is the agent host entry it logs, when
 /// the agent runs under a host (`hostSeq` on the record).
 /// Returns whether the record reached the store; an agent host entry is
@@ -1501,6 +1506,10 @@ impl ChildAgent {
 
     /// Whether a reattached host's replay is not all in the session log yet (`reattach`).
     pub fn replay_pending(&self) -> bool {
+        #[cfg(test)]
+        if TEST_REPLAYING.load(Ordering::SeqCst) == self.generation {
+            return true;
+        }
         self.hosted
             .as_ref()
             .is_some_and(|h| *h.logged.borrow() < h.replay_to.load(Ordering::SeqCst))

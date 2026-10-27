@@ -2938,6 +2938,96 @@ async fn a_mode_a_left_host_replays_is_judged_before_its_agent_is_reached_under_
     );
 }
 
+/// Review 3 of #26057: a left host's replay runs to what it numbered before it handled the new
+/// daemon's `Resume`, not to its hello's last entry. Its harness moves into full access between
+/// the two (the debug seam `ACPMUX_TEST_BEFORE_RESUME_FILE`, which also delivers that entry
+/// late): under MDM's off the adoption judges it, so the agent ends and is never adopted. A guard:
+/// base's adoption asks the host a question after `Resume` (`note_host_kind`), whose answer comes
+/// behind that entry.
+#[tokio::test]
+async fn a_report_a_host_numbers_after_its_hello_is_judged_before_adoption_under_mdm_off() {
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let (mut daemon, mut rpc) = proven_daemon("mdmresume", fake, &[]).await;
+    let session = new_session(&daemon).await;
+    let first = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    rpc.call("session/prompt", first).await;
+    rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    let armed = daemon.home.join("before-resume");
+    let fired = daemon.home.join("before-resume.fired");
+    let text = format!("set-mode-on-file: {} full-access", fired.display());
+    let later = json!({"sessionId": session, "prompt": [{"type": "text", "text": text}]});
+    rpc.call("session/prompt", later).await;
+    daemon.sigterm();
+    drop(rpc);
+    assert!(alive(harness_pid), "SIGTERM ended the agent");
+    record_mdm_off(&daemon);
+    std::fs::write(&armed, "arm").unwrap();
+    daemon.env.push(("ACPMUX_TEST_BEFORE_RESUME_FILE".to_owned(), armed.display().to_string()));
+    daemon.start();
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(15)),
+        "the full-access agent the host numbered after its hello ran on under the managed off"
+    );
+    assert!(fired.exists(), "the adoption never reached the seam");
+    let adopted = daemon.events(&session).iter().any(|e| e["kind"] == "host_adopted");
+    assert!(
+        !adopted,
+        "the host was adopted before the report it numbered after its hello was judged"
+    );
+}
+
+/// Review 3 of #26057: a reattached host's replay runs to what it numbered before it handled the
+/// new link's `Resume`, not to its hello's last entry. Its link broke (an entry could not be
+/// logged, `ACPMUX_TEST_UNLOGGED_ONCE`); as the next request reattaches it, its harness moves into
+/// full access after the host's hello and before `Resume` (`ACPMUX_TEST_BEFORE_RESUME_FILE`, which
+/// also delivers that entry late). Under MDM's off that report is judged before the request
+/// reaches the agent: the request is never written to that host.
+#[tokio::test]
+async fn a_report_a_reattached_host_numbers_after_its_hello_is_judged_under_mdm_off() {
+    let env = [("ACPMUX_TEST_UNLOGGED_ONCE", "\"currentModeId\":\"strict\"")];
+    let mut daemon = Daemon::with_env("mdmrelinkresume", "ask", &env);
+    daemon.sigterm();
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let config =
+        json!({"harnesses": {"fake": fake}, "defaultHarness": "fake", "permissionPolicy": "ask"});
+    std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
+    let armed = daemon.home.join("before-resume");
+    let fired = daemon.home.join("before-resume.fired");
+    daemon.env.push(("ACPMUX_TEST_BEFORE_RESUME_FILE".to_owned(), armed.display().to_string()));
+    daemon.start();
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    let text = format!("set-mode-on-file: {} full-access", fired.display());
+    let waits = json!({"sessionId": session, "prompt": [{"type": "text", "text": text}]});
+    rpc.call("session/prompt", waits).await;
+    let breaks = json!({"sessionId": session,
+                        "prompt": [{"type": "text", "text": "set-mode-after: 300 strict"}]});
+    rpc.call("session/prompt", breaks).await;
+    // The harness moves into strict; that entry is not logged and the link breaks.
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    std::fs::write(&armed, "arm").unwrap();
+    let ask = json!({"sessionId": session, "prompt": [{"type": "text", "text": "whoami"}]});
+    rpc.reply("session/prompt", ask).await;
+    assert!(fired.exists(), "the reattach never reached the seam");
+    // The whoami prompt reaches only an agent started after the reattached one ended.
+    let events = daemon.events(&session);
+    let whoami = events.iter().position(|e| {
+        e["dir"] == "out" && e["kind"] == "session/prompt" && e.to_string().contains("whoami")
+    });
+    let breaks_at = events
+        .iter()
+        .position(|e| e["kind"] == "session/prompt" && e.to_string().contains("300 strict"))
+        .expect("the prompt that broke the link");
+    let restarted = events.iter().rposition(|e| e["kind"] == "host_started");
+    assert!(
+        whoami.is_none_or(|w| restarted.is_some_and(|r| r > breaks_at && r < w)),
+        "a prompt reached the reattached host before the full-access report it numbered after its hello was judged"
+    );
+}
+
 /// Review 61 of #23322: under MDM's off, a host whose replay did not complete (the debug seam
 /// `ACPMUX_TEST_REPLAY_INCOMPLETE`) may hold a full-access report the log does not have yet: it is
 /// ended, never adopted and handed out.
