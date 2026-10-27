@@ -4295,7 +4295,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.updates",
@@ -31250,8 +31250,11 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "moderate",
-      "default_label" : null,
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.neverDiscard",
+        "text" : "Never Discard"
+      },
       "group" : {
         "key" : "settings.group.memory",
         "text" : "Memory"
@@ -31265,7 +31268,9 @@
       "keywords" : [
         "memory saver",
         "sleep",
-        "discard"
+        "discard",
+        "freeze",
+        "reload"
       ],
       "kind" : "choice_or_number",
       "page_hidden" : false,

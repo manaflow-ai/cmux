@@ -326,6 +326,10 @@ path = "tests/test_ci_next_macos_cascade.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_no_github_hosted_macos.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pull_request_caches_are_read_only.py"
 lane = "linux-guard"
 
@@ -455,6 +459,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_github_release_publication.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_publish_release_assets_callers.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1059,6 +1067,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_r2_cache_prune.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_git_mirror_bundle.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1803,6 +1815,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_ring.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_dev_ring.py"
 lane = "linux-guard"
 
 [[test]]
