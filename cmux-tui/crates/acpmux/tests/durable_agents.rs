@@ -3440,6 +3440,68 @@ async fn a_link_that_breaks_while_its_agent_starts_under_mdm_off_ends_it() {
     }
 }
 
+/// Review 3 of #26059: a link that breaks while its agent starts, with MDM unset (the `initialize`
+/// answer could not be logged), leaves the start waiting under the spawn lock on an answer its
+/// stopped reader never reads. An off pushed then fails that wait and ends the agent, at once.
+#[tokio::test]
+async fn an_off_pushed_after_a_link_broke_while_its_agent_started_ends_it() {
+    let env = [("ACPMUX_TEST_UNLOGGED_ONCE", "agentCapabilities")];
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let (daemon, mut rpc) = proven_daemon("mdmbreakthenoff", fake, &env).await;
+    let mut starts = daemon.rpc().await;
+    prove(&mut starts).await;
+    let new = json!({"cwd": daemon.home, "mcpServers": []});
+    let created = tokio::spawn(async move { starts.reply("session/new", new).await });
+    // The break is handled while MDM is unset.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    let answered = tokio::time::timeout(Duration::from_secs(20), created).await;
+    assert!(answered.is_ok(), "the start whose link broke waited on after MDM's off");
+    for entry in std::fs::read_dir(daemon.home.join("hosts")).into_iter().flatten().flatten() {
+        let Ok(bytes) = std::fs::read(entry.path()) else { continue };
+        let Ok(record) = serde_json::from_slice::<Value>(&bytes) else { continue };
+        let Some(pid) = record["harness_pid"].as_i64() else { continue };
+        assert!(
+            gone_within(pid, Duration::from_secs(10)),
+            "the agent whose link broke while it started ran on under the managed off"
+        );
+    }
+}
+
+/// Review 3 of #26059: the reader of a lost link that is held after it stopped
+/// (`ACPMUX_TEST_READER_STOP_HOLD_MS`) while the next request reattaches the host marks nothing on
+/// the link that replaced it: an off pushed later leaves the reattached agent, which this daemon
+/// hears, running.
+#[tokio::test]
+async fn a_held_reader_of_a_lost_link_leaves_the_reattached_link_heard() {
+    let env = [("ACPMUX_TEST_READER_STOP_HOLD_MS", "3000")];
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let (daemon, mut rpc) = proven_daemon("mdmheldreader", fake, &env).await;
+    let session = new_session(&daemon).await;
+    rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
+    let record: acpmux::agent_host::HostRecord =
+        serde_json::from_value(daemon.host_record(&session)).unwrap();
+    let harness_pid = record.harness_pid.expect("harness pid") as i64;
+    match acpmux::agent_host::link::connect(record, 0).await.expect("take over") {
+        acpmux::agent_host::link::Connect::Ready(link, _) => drop(link),
+        _ => panic!("the host refused a same-build owner"),
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    // The next request reattaches the host while the old reader is held.
+    let hello = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hello"}]});
+    let answered = rpc.reply("session/prompt", hello.clone()).await;
+    assert_eq!(answered["result"]["stopReason"], "end_turn", "{answered}");
+    // Past the hold: the old reader went on.
+    tokio::time::sleep(Duration::from_millis(3500)).await;
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    tokio::time::sleep(Duration::from_millis(2000)).await;
+    assert!(alive(harness_pid), "an off ended the reattached agent the old reader marked unheard");
+    let answered = rpc.reply("session/prompt", hello).await;
+    assert_eq!(answered["result"]["stopReason"], "end_turn", "{answered}");
+}
+
 /// Review 1 of #26059: with MDM unset, a link whose acknowledgement failed while its socket still
 /// looks open (`ACPMUX_TEST_ACK_FAILS_ONCE`) goes as before: its agent still counts as alive, so
 /// the chat it answered is not marked disconnected, and its host runs on.

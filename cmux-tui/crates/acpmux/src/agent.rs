@@ -1734,6 +1734,8 @@ impl ChildAgent {
             if hosted.detached.load(Ordering::SeqCst) || !Arc::ptr_eq(&hosted.link(), &link) {
                 return;
             }
+            #[cfg(debug_assertions)]
+            reader_stop_hold().await;
             // The host died or another owner took it, or an acknowledgement failed: the link is
             // not heard from here, before anything is told.
             hosted.stopped.store(true, Ordering::SeqCst);
@@ -1924,6 +1926,18 @@ async fn end_still_running(procs: Vec<crate::agent_host::tree::Started>) {
     let _ =
         tokio::task::spawn_blocking(move || crate::agent_host::tree::kill_still_running(&procs))
             .await;
+}
+
+/// Debug builds only: `ACPMUX_TEST_READER_STOP_HOLD_MS` holds a host link's reader once it stopped,
+/// before it marks the link stopped, as a busy runtime does, so the daemon's integration tests
+/// can reattach the link meanwhile. Bounded; release builds have no seam.
+#[cfg(debug_assertions)]
+async fn reader_stop_hold() {
+    if let Some(ms) =
+        std::env::var("ACPMUX_TEST_READER_STOP_HOLD_MS").ok().and_then(|v| v.parse::<u64>().ok())
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000))).await;
+    }
 }
 
 /// Debug builds only: `ACPMUX_TEST_ACK_FAILS_ONCE=TEXT` fails the acknowledgement of the first
