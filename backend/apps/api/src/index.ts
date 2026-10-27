@@ -53,7 +53,7 @@ import { BILLING_LEVELS_PATH, BILLING_SYNC_PATH, handleBillingLevels, handleBill
 import { BILLING_TEAM_MODE_PATH, handleBillingTeamMode } from "./billing-team-mode.ts"
 import { CREDITS_ADMIN_PATH, handleCreditsAdmin } from "./credits-admin.ts"
 import { CREDITS_PATH, CREDITS_WEBHOOK_PATH, handleCredits, handleCreditsWebhook } from "./credits-routes.ts"
-import { handleUpstashChiefJob, UPSTASH_WORKFLOW_PATH } from "./chief-brain-cc/jobs-upstash.ts"
+import { CHIEF_JOB_HOOK, handleChiefJobHook, handleUpstashChiefJob, UPSTASH_WORKFLOW_PATH } from "./chief-brain-cc/jobs-upstash.ts"
 import { handlePlanCheckout, PLAN_PATH } from "./plan-checkout.ts"
 import { HOME_HEALTH_CRON, runHomeHealth, sentryFetch } from "./home-health.ts"
 export { AutomationRunWorkflow } from "./automation-workflow.ts"
@@ -276,6 +276,8 @@ export default {
     if (url.pathname === STACK_WEBHOOK_PATH) return handleStackWebhook(request, env)
     const hook = url.pathname.match(/^\/v1\/hooks\/automation\/([^/]+)\/([^/]+)$/)
     if (hook) return handleAutomationHook(request, env, hook[1]!, hook[2]!)
+    const chiefHook = url.pathname.match(CHIEF_JOB_HOOK)
+    if (chiefHook) return handleChiefJobHook(request, env, chiefHook[1]!, chiefHook[2]!)
     if (url.pathname === "/v1/sso/discover") return handleSsoDiscover(request, env)
     // cmux server pairing: no account on the server side; each route verifies its own proof.
     if (url.pathname === "/v1/pair/begin") return handlePairBegin(request, env)

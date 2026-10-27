@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import { canonicalJson, LEDGER_RETENTION_MS, type OwnerFrame, type Principal, type RejectFrame } from "@cmux/ownership"
 import { cloudOpByName, PENDING_CONNECTION_TTL_MS, type Connection, type IntegrationProvider } from "@cmux/protocol"
+import { chiefJobsEvent } from "./chief-brain-cc/jobs-upstash.ts"
 import { connectionsDomain, expiredForgets, githubRepoAllowed, lockNoticePending, lockOf, mayUse, pendingExpiries, policyOf, providerAllowed, type ConnectionsState } from "./domains/connections.ts"
 import { decodeParams } from "./domains/common.ts"
 import type { Env } from "./env.ts"
@@ -412,7 +413,9 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       alias: async (op, alias, owner, connection) => void (await this.index(alias)[op](owner, connection)),
       deliver: async (c, m) => {
         const scheduler = this.env.SCHEDULER_DO.get(this.env.SCHEDULER_DO.idFromName(c.owner))
-        await scheduler.deliverEvent(c.owner, { connection: c.id, sharing: c.sharing, created_by: c.created_by, provider: "gmail", event: "mail.message.received", delivery_id: m.message_id, payload: { connection: c.id, ...m } })
+        const ev = { connection: c.id, sharing: c.sharing, created_by: c.created_by, provider: "gmail", event: "mail.message.received", delivery_id: m.message_id, payload: { connection: c.id, ...m } }
+        await scheduler.deliverEvent(c.owner, ev)
+        await chiefJobsEvent(this.env, c.owner, ev)
       },
       background: (work) => {
         this.scheduleAlarm()
@@ -532,7 +535,10 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail: "the GitHub App was uninstalled" }, `status:${c.id}:uninstalled:${event.delivery_id}`)
     }
     const scheduler = this.env.SCHEDULER_DO.get(this.env.SCHEDULER_DO.idFromName(entity))
-    const r = (await scheduler.deliverEvent(entity, { connection: c.id, sharing: c.sharing, created_by: c.created_by, ...event })) as { runs: number }
-    return { status: "forwarded", runs: r.runs }
+    const ev = { connection: c.id, sharing: c.sharing, created_by: c.created_by, ...event }
+    const r = (await scheduler.deliverEvent(entity, ev)) as { runs: number }
+    // Chief jobs on the Upstash engine take the same events (CI failed, a PR opened); never fails the ingest.
+    const chief = await chiefJobsEvent(this.env, entity, ev)
+    return { status: "forwarded", runs: r.runs + chief }
   }
 }

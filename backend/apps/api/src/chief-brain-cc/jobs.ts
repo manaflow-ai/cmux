@@ -4,7 +4,7 @@ import type { ChiefBrainDO } from "../chief-brain/brain-do.ts"
 import { personalTeamIdFor } from "../domains/user.ts"
 import type { Env } from "../env.ts"
 import { planLink, PRICING_URL } from "../plan-checkout.ts"
-import { upstashAuto, upstashConfig } from "./jobs-upstash.ts"
+import { EVENT_PROVIDERS, type JobView, type LegacyJobs, upstashAuto, upstashConfig } from "./jobs-upstash.ts"
 
 /**
  * A Chief's scheduled and triggered jobs (plans/cmux-next/chief-automations-DESIGN.md). Lawrence,
@@ -17,7 +17,9 @@ import { upstashAuto, upstashConfig } from "./jobs-upstash.ts"
  * Chief's own timer does (wake.ts). The Chief does the work in that turn and posts the result there.
  *
  * The Chief manages its jobs with `chief-auto` in its turn machine (POST 127.0.0.1:4018/vm
- * {action: auto_create|auto_list|auto_rm|auto_run}); it reaches only jobs of its own conversation.
+ * {action: auto_create|auto_list|auto_rm|auto_run|auto_pause|auto_resume|auto_hook}); it reaches only jobs
+ * of its own conversation. With CHIEF_JOBS_ENGINE=upstash new jobs run on Upstash Workflow (jobs-upstash.ts)
+ * and can also start on a provider event (CI failed on GitHub); jobs made before stay here and keep working.
  *
  * Upsell: without a paid plan an owner has FREE_CHIEF_JOBS jobs. The next create answers
  * `automation.plan.required` with the plan that lifts it and a Stripe Checkout link (plan-checkout.ts,
@@ -128,13 +130,27 @@ export const ownerPaid = async (env: Env, owner: string): Promise<"paid" | "free
   }
 }
 
-const view = (a: Automation) => ({
+const view = (a: Automation): JobView => ({
   id: a.id,
   name: a.name,
   enabled: a.enabled,
-  triggers: a.triggers.map((t) => t.spec),
+  triggers: a.triggers.map((t) => t.spec as unknown as Record<string, unknown>),
   next_run_at: a.next_run_at,
   prompt: a.body.type === "chief" ? a.body.prompt : undefined
+})
+
+/** The SchedulerDO's Chief jobs: rm, run, pause and resume one of this Chief's jobs in `conversation`. */
+const legacyJobs = (env: Env, p: Principal, conversation: string): LegacyJobs => ({
+  list: async (c) => (await ownJobs(env, p, c)).map(view),
+  act: async (action, id) => {
+    const job = (await ownJobs(env, p, conversation)).find((a) => a.id === id.slice(0, 40))
+    if (!job) return { status: 404, json: { error: `no job ${id || "(no id)"} of yours in this chat (chief-auto ls)` } }
+    const [op, params] =
+      action === "auto_rm" ? ["automation.delete", { automation: job.id }] : action === "auto_run" ? ["automation.run", { automation: job.id }] : ["automation.update", { automation: job.id, enabled: action === "auto_resume" }]
+    const r = await mutate(env, p, op, params, `chief-auto:${action}:${job.id}:${crypto.randomUUID()}`)
+    if (!r.ok) return { status: 400, json: { error: `${r.code}: ${r.message}`, code: r.code } }
+    return { status: 200, json: action === "auto_rm" ? { removed: job.id } : action === "auto_run" ? { run: r.value } : { job: view(r.value as Automation) } }
+  }
 })
 
 const str = (v: unknown, max: number) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null)
@@ -153,22 +169,18 @@ export const autoCall = async (b: ChiefBrainDO, conversation: string, raw: unkno
     const prompt = str(req.prompt, PROMPT_MAX)
     if (req.action === "auto_create" && (!name || !prompt)) return { status: 400, json: { error: "a job needs a name and a prompt (what to do on each run)" } }
     const create = req.action === "auto_create" ? { name: name!, prompt: prompt!, when: str(req.when, 120), tz: str(req.tz, 64) ?? "UTC" } : null
-    return upstashAuto(upstash, p, conversation, String(req.action ?? ""), req, create, (count) => planGate(env, p, cfg.owner!, count))
+    return upstashAuto(env, upstash, p, conversation, String(req.action ?? ""), req, create, (count) => planGate(env, p, cfg.owner!, count), legacyJobs(env, p, conversation))
   }
   if (req.action === "auto_list") return { status: 200, json: { jobs: (await ownJobs(env, p, conversation)).map(view) } }
-  if (req.action === "auto_rm" || req.action === "auto_run") {
-    const id = str(req.automation, 40)
-    const job = id ? (await ownJobs(env, p, conversation)).find((a) => a.id === id) : undefined
-    if (!job) return { status: 404, json: { error: `no job ${id ?? "(no id)"} of yours in this chat (chief-auto ls)` } }
-    const r = await mutate(env, p, req.action === "auto_rm" ? "automation.delete" : "automation.run", { automation: job.id }, `chief-auto:${req.action}:${job.id}:${crypto.randomUUID()}`)
-    return r.ok ? { status: 200, json: req.action === "auto_rm" ? { removed: job.id } : { run: r.value } } : fail(400, r)
-  }
-  if (req.action !== "auto_create") return { status: 400, json: { error: "action must be auto_create, auto_list, auto_rm or auto_run" } }
+  if (req.action === "auto_rm" || req.action === "auto_run" || req.action === "auto_pause" || req.action === "auto_resume") return legacyJobs(env, p, conversation).act(req.action, str(req.automation, 40) ?? "")
+  if (req.action === "auto_hook") return { status: 400, json: { error: "webhook jobs show their URL when made (chief-auto add); this engine has no auto_hook" } }
+  if (req.action !== "auto_create") return { status: 400, json: { error: "action must be auto_create, auto_list, auto_rm, auto_run, auto_pause or auto_resume" } }
   const name = str(req.name, 80)
   const prompt = str(req.prompt, PROMPT_MAX)
   if (!name || !prompt) return { status: 400, json: { error: "a job needs a name and a prompt (what to do on each run)" } }
   const when = str(req.when, 120)
   const tz = str(req.tz, 64) ?? "UTC"
+  if (when && (EVENT_PROVIDERS as ReadonlyArray<string>).includes(when.split(/\s+/)[0]!)) return { status: 400, json: { error: "event jobs (a GitHub, Linear, Slack or Gmail event) are not on in this deployment yet; offer a schedule instead", code: "trigger.invalid" } }
   const triggers: Array<Record<string, unknown>> = [{ type: "manual" }]
   if (when === "webhook") triggers.unshift({ type: "webhook" })
   else if (when && when !== "manual") triggers.unshift({ type: "cron", expr: when, tz })
@@ -208,10 +220,14 @@ export const AUTO_CLIENT = `#!/bin/sh
 # chief-auto: your scheduled and triggered jobs (apps/api/src/chief-brain-cc/jobs.ts). Each run puts
 # "[job ID] PROMPT" in this chat as your own note and starts a turn in the cloud, with the person's
 # computers asleep too: do the job then and post the result here.
-#   chief-auto add NAME WHEN "PROMPT"   WHEN: a 5-field cron like "0 9 * * 1-5", webhook, or manual
-#                                        (--tz Area/City before NAME for cron; default UTC)
-#   chief-auto ls
+#   chief-auto add [--tz Area/City] NAME WHEN "PROMPT"
+#     WHEN: a 5-field cron like "0 9 * * 1-5" (in --tz, default UTC), webhook, manual, or an event of the
+#     person's connections: "PROVIDER EVENT [PATH=VALUE ...]" (PROVIDER github, linear, slack or gmail), e.g.
+#     "github workflow_run.completed workflow_run.conclusion=failure repository.full_name=OWNER/REPO" (CI failed)
+#   chief-auto ls                        each job, its next run and its last run
 #   chief-auto run ID                    run it now
+#   chief-auto pause ID | resume ID
+#   chief-auto hook ID                   a webhook job's URL and signing secret
 #   chief-auto rm ID
 # A 402 answer with code automation.plan.required carries "checkout": send the person that link in
 # one line (what the plan adds, its price); nothing is charged until they pay on that page.
@@ -223,10 +239,10 @@ call() {
   printf '%s\\n' "$body"
   [ "$code" = 200 ] || exit 1
 }
-usage() { echo 'usage: chief-auto add [--tz TZ] NAME WHEN "PROMPT" | ls | run ID | rm ID' >&2; exit 2; }
+usage() { echo 'usage: chief-auto add [--tz TZ] NAME WHEN "PROMPT" | ls | run ID | pause ID | resume ID | hook ID | rm ID' >&2; exit 2; }
 case "\${1:-ls}" in
   ls) printf '{"action":"auto_list"}' | call ;;
-  run|rm)
+  run|rm|pause|resume|hook)
     [ $# -eq 2 ] || usage
     node -e 'process.stdout.write(JSON.stringify({action:process.argv[1],automation:process.argv[2]}))' "auto_$1" "$2" | call ;;
   add)
