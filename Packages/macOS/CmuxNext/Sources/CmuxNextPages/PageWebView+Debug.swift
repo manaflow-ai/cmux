@@ -175,9 +175,9 @@ extension PageWebView {
         return .object(hovered)
     }
 
-    /// Scrolls the first rendered element matching `selector` (one with a layout box: a match under
-    /// `display: none` is skipped) into view at `block` (`start`, `center`, `end` or `nearest`), at
-    /// once (`behavior: instant`), scrolling every scroller that holds it, so a capture can show
+    /// Scrolls the first drawn element matching `selector` (a layout box, and neither it nor an
+    /// ancestor hidden or fully transparent: a match under `display: none` is skipped) into view at
+    /// `block` (`start`, `center`, `end` or `nearest`), at once (`behavior: instant`), scrolling every scroller that holds it, so a capture can show
     /// content below the fold (Settings > Accounts' lower cards) with no wheel or key event, which a
     /// capture slot's never-active window does not get. `{scrolled: true, top, height, viewport}` in
     /// CSS pixels when the element's box is in the viewport after the scroll (`top` is its top in the
@@ -187,14 +187,31 @@ extension PageWebView {
         let script = """
         const all = [...document.querySelectorAll(selector)];
         if (!all.length) { return JSON.stringify({ reason: 'no match' }); }
-        const el = all.find((e) => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden');
+        // Drawn: a layout box, and neither it nor an ancestor hidden or fully transparent.
+        const drawn = (e) => {
+          if (!e.getClientRects().length) { return false; }
+          for (let a = e; a && a.nodeType === 1; a = a.parentElement) {
+            const cs = getComputedStyle(a);
+            if (cs.visibility === 'hidden' || Number(cs.opacity) === 0) { return false; }
+          }
+          return true;
+        };
+        const el = all.find(drawn);
         if (!el) { return JSON.stringify({ reason: 'not rendered' }); }
         el.scrollIntoView({ block, inline: 'nearest', behavior: 'instant' });
         const r = el.getBoundingClientRect();
-        // The middle of the part of its box inside the viewport must hit the element (a sticky header
-        // over its top edge is fine; a clipping scroller or a sheet over all of it is not).
-        const top = Math.max(r.top, 0), bottom = Math.min(r.bottom, window.innerHeight);
-        const left = Math.max(r.left, 0), right = Math.min(r.right, window.innerWidth);
+        // The part of its box that shows: inside the viewport and every clipping ancestor (a nested
+        // scroller). Its middle must hit the element, so a sheet over all of it fails; a sticky
+        // header over its top edge does not. (An overlay with pointer-events: none is not seen.)
+        let top = Math.max(r.top, 0), bottom = Math.min(r.bottom, window.innerHeight);
+        let left = Math.max(r.left, 0), right = Math.min(r.right, window.innerWidth);
+        for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+          const cs = getComputedStyle(a);
+          if (cs.overflowX === 'visible' && cs.overflowY === 'visible') { continue; }
+          const c = a.getBoundingClientRect();
+          top = Math.max(top, c.top); bottom = Math.min(bottom, c.bottom);
+          left = Math.max(left, c.left); right = Math.min(right, c.right);
+        }
         const shown = bottom > top && right > left
           && el.contains(document.elementFromPoint((left + right) / 2, (top + bottom) / 2));
         if (!shown) { return JSON.stringify({ reason: 'not in view' }); }
