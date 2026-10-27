@@ -712,6 +712,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/file_put_status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/file_put_data",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/dispatch",
       "params": true,
       "result": true

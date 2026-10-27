@@ -160,6 +160,12 @@
       "title" : "Needs You",
       "type" : "boolean"
     },
+    "agentPane.scrollToBottomOnSend" : {
+      "default" : true,
+      "description" : "When off, sending while you are reading up keeps your place and shows new messages below.",
+      "title" : "Scroll to Bottom When I Send",
+      "type" : "boolean"
+    },
     "agentPane.showContextUsage" : {
       "default" : true,
       "description" : "The ring beside the model that fills as the chat uses its context window.",
@@ -3663,6 +3669,12 @@
       ],
       "title" : "Hide Bands Until Hover",
       "type" : "string"
+    },
+    "sidebar.noFade" : {
+      "default" : false,
+      "description" : "The sidebar's edges stop fading and the whole list shows. It also hides the bottom profile and search bar. Off, the edges fade and the bar shows.",
+      "title" : "Show Whole Sidebar Without Fade",
+      "type" : "boolean"
     },
     "sidebar.nowPlaying.enabled" : {
       "default" : false,

@@ -194,7 +194,7 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_macos_xcode_selection.py
 
-      - name: Validate the CEF shim C++ tests run on Linux
+      - name: Validate the CEF shim C++ tests run without a Mac
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_cmux_next_shim_cpp_linux.py
 
@@ -202,7 +202,7 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_xcode_pin_audit.py
 
-      - name: Validate the bash 3.2 parse job runs on Linux
+      - name: Validate the bash 3.2 parse job runs without a Mac
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_bash32_linux_job.py
 
@@ -643,7 +643,7 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cargo_affected.py
 
-      - name: Validate Linux SwiftPM rolling cache keys
+      - name: Validate the portable SwiftPM rolling cache keys
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_swift_packages_linux_cache.py
 
@@ -941,9 +941,9 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_tui_routes_avoid_nightly_label.py
 
-      - name: Validate pin pushes run the cmux_next_ daemon tests on Linux
+      - name: Validate the cmux_next_ daemon-tests gate and its marker
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_cmux_tui_daemon_tests_linux.py
+        run: python3 tests/test_cmux_tui_daemon_tests_gate.py
 
       - name: Validate the tui publish dispatch budget
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1320,7 +1320,7 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_media_auto_tour.py
 
-      - name: Validate webview-only changes tour on Linux, not a Mac
+      - name: Validate webview-only changes tour without a Mac
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: |
           python3 tests/test_cmux_next_media_path_map.py
@@ -1466,7 +1466,7 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_ring.py
 
-      - name: Validate the old feed's Linux publication and appcast writer
+      - name: Validate the old feed's publication and appcast writer
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_legacy_publish_linux.py
 
@@ -1489,6 +1489,10 @@ jobs:
       - name: Validate the nightly-next arm64-only track
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_arm64_only.py
+
+      - name: Validate the nightly Ghostty CLI helper cache key
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_ghostty_helper_cache.py
 
       - name: Validate the nightly web bundles build before the Release build
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1539,6 +1543,7 @@ jobs:
           python3 tests/test_nightly_next_promotion_queue.py
           python3 tests/test_ci_nightly_push_throttle.py
           python3 tests/test_ci_nightly_off_blacksmith.py
+          python3 tests/test_ci_nightly_no_hosted_mac.py
           python3 tests/test_ci_runs_on_fallback.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
 
@@ -1604,7 +1609,7 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fork_runner_routing.py
 
-      - name: Validate Linux compile jobs run on the 16 or 32 vCPU size
+      - name: Validate compile jobs run on the 16 or 32 vCPU size
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_linux_compile_runners.py
 
