@@ -337,6 +337,7 @@ artifacts_runs_state() {
 import json, sys
 try:
     runs = json.loads(sys.stdin.read())["workflow_runs"]
+    assert isinstance(runs, list) and all(isinstance(r, dict) for r in runs)
 except Exception:
     print("unknown"); sys.exit(0)
 if not runs:
@@ -399,7 +400,11 @@ active_publisher_for_key() {
   local key="$1" body candidate depth=()
   body="$(github_api GET "actions/workflows/cmux-tui-artifacts.yml/runs?per_page=50" 2>/dev/null)" || {
     echo "note: could not list cmux-tui artifacts runs (rate limit or network): a same-tree run is unknown" >&2; echo unknown; return 0; }
-  python3 -c 'import json, sys; json.loads(sys.stdin.read())["workflow_runs"]' <<<"$body" 2>/dev/null || {
+  python3 -c '
+import json, sys
+runs = json.loads(sys.stdin.read())["workflow_runs"]
+assert isinstance(runs, list) and all(isinstance(r, dict) and isinstance(r.get("status"), str) for r in runs)
+' <<<"$body" 2>/dev/null || {
     echo "note: the cmux-tui artifacts runs list is unreadable: a same-tree run is unknown" >&2; echo unknown; return 0; }
   # Depth 1 only in a shallow checkout: in a full clone --depth writes
   # .git/shallow and truncates history for every worktree sharing it.

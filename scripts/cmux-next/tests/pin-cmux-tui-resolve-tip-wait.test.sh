@@ -130,6 +130,13 @@ resolve GITHUB_WORKFLOW_REF="$NIGHTLY_REF"
 [[ "$status" == 0 ]] && grep -qx "source_commit=$tip" <<<"$out" || fail "unreadable runs list: must wait, not fail fast"
 grep -q "a same-tree run is unknown" <<<"$err" || fail "unreadable runs list: say the run is unknown"
 (( took >= 300 && took < 600 )) || fail "unreadable runs list: expected to stop waiting once the tree published"
+# A structurally wrong body (no list of runs) is unknown too, not an empty list.
+for body in '{"workflow_runs": null}' '{"workflow_runs": [1]}' '{}'; do
+  reset; runs "$tip" completed success; echo "$body" > "$api/all.json"
+  fake_clock_at 300 "'$TMP/publish' '$owner'"
+  resolve GITHUB_WORKFLOW_REF="$NIGHTLY_REF"
+  [[ "$status" == 0 ]] && grep -q "a same-tree run is unknown" <<<"$err" || fail "malformed runs list $body: must be unknown and wait"
+done
 
 # 3. No run exists: it fails at once with what to dispatch (no actions: write, no dispatch).
 reset; runs "$tip" ""
