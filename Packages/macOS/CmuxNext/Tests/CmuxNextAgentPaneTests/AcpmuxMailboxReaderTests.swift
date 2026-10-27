@@ -1,5 +1,6 @@
 @testable import CmuxNextAgentPane
 import CmuxNextCompat
+import CmuxNextWakeups
 @testable import CmuxNextDaemon
 import Foundation
 import Testing
@@ -236,7 +237,8 @@ import Testing
         let reader = AcpmuxMailboxReader(socketPath: "/nonexistent/acpmux.sock", wake: wake, clock: StoppedClock(),
                                          policy: .firstConnect) { _ in await mailbox.wait() }
         let (pages, delivered) = AsyncStream<AcpmuxMailboxPage>.makeStream()
-        let subscription = AcpmuxMailboxSubscription()
+        let subscription = AcpmuxMailboxSubscription(mainWork: MainWorkScheduler(budget: MainFrameBudget()), workClass: .automation,
+                                                     owner: "AcpmuxMailboxReaderTests")
         let run = subscription.start(reader) { delivered.yield($0) }
         var asked = mailbox.asked.makeAsyncIterator()
         var received = pages.makeAsyncIterator()
