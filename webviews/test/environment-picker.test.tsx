@@ -699,18 +699,23 @@ test("previews on: every machine the daemon lists, grouped; the ones not connect
   expect(sectionHeads).toEqual([t("composer.thisMac"), t("composer.envMine"), t("composer.envFleet")]);
   const greyed = shown.filter((row) => row.querySelector('.acpmux-env-row[data-ready="false"]'));
   expect(greyed.map((row) => [row.querySelector(".acpmux-menu-label")?.textContent, row.querySelector(".acpmux-env-state")?.textContent])).toEqual([
-    ["gpu-box", t("newTab.widgets.offline")],
+    ["gpu-box", t("composer.envNotConnected")],
     ["agent-vm-3", t("header.reconnecting")],
     ["agent-vm-4", t("header.reconnecting")],
     ["agent-vm-5", t("header.reconnecting")],
     ["agent-vm-6", t("rail.connectorPending")],
   ]);
-  // A greyed machine is no pick.
-  expect(greyed.every((row) => row.hasAttribute("data-disabled") || row.getAttribute("aria-disabled") === "true")).toBe(
-    true,
-  );
+  // A greyed machine stays in its place, in its section, and is no pick: the list stays open.
+  expect(shown.map((row) => row.querySelector(".acpmux-menu-label")?.textContent).slice(1, 5)).toEqual([
+    "build-mini-2",
+    "desk-mac",
+    "home-linux",
+    "gpu-box",
+  ]);
+  expect(greyed.every((row) => row.querySelector('[aria-disabled="true"]'))).toBe(true);
   await act(async () => greyed[1]!.click());
   expect(computers).toEqual([]);
+  expect(doc().querySelector(".acpmux-env-popover")).not.toBeNull();
   // A connected one is: the new chat moves there.
   const target = shown.find((row) => row.querySelector(".acpmux-menu-label")?.textContent === "ci-vm-10")!;
   await act(async () => target.click());
@@ -746,9 +751,10 @@ test("previews off: the plain Computer menu lists the same machines, in the same
   ).toEqual([t("composer.thisMac"), t("composer.envMine"), t("composer.envFleet")]);
   const offline = items[4]!;
   expect(offline.querySelector(".acpmux-location-name")!.getAttribute("data-ready")).toBe("false");
-  expect(offline.querySelector(".acpmux-menu-description")?.textContent).toBe(t("newTab.widgets.offline"));
+  expect(offline.querySelector(".acpmux-menu-description")?.textContent).toBe(t("composer.envNotConnected"));
   await act(async () => offline.click());
   expect(computers).toEqual([]);
+  expect(doc().querySelector(".acpmux-location-menu")).not.toBeNull();
   await act(async () => items[2]!.click());
   expect(computers).toEqual(["desk-mac"]);
 });
@@ -759,13 +765,17 @@ test("an open machine list reads the machines again until it closes", async () =
   const { props } = await daemonProps();
   const realSetInterval = globalThis.setInterval;
   const realClearInterval = globalThis.clearInterval;
-  const timers = new Map<number, () => void>();
-  let next = 0;
-  globalThis.setInterval = ((callback: () => void) => {
-    timers.set(++next, callback);
-    return next;
+  // Only the machine list's own timer (its period) is counted; anything else runs as it would.
+  const timers = new Map<unknown, () => void>();
+  globalThis.setInterval = ((callback: () => void, ms?: number, ...rest: unknown[]) => {
+    const id = realSetInterval(callback, ms, ...rest);
+    if (ms === MACHINES_REFRESH_MS) timers.set(id, callback);
+    return id;
   }) as unknown as typeof setInterval;
-  globalThis.clearInterval = ((id: number) => void timers.delete(id)) as unknown as typeof clearInterval;
+  globalThis.clearInterval = ((id: Parameters<typeof clearInterval>[0]) => {
+    timers.delete(id);
+    realClearInterval(id);
+  }) as unknown as typeof clearInterval;
   try {
     await mount(true, props);
     await openPicker();

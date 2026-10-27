@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Popover } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
-import { translate as t } from "./i18n";
+import { translate as t, type StringKey } from "./i18n";
 import {
   type ConnectKind,
   type Environment,
@@ -22,23 +22,22 @@ import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { machineColor } from "./machineColor";
 
 /// The sections (environments.ts `environmentSections`): This Mac, My machines, Cloud and VMs.
-export const SECTION_LABELS: Record<EnvironmentSection, string> = {
+export const SECTION_LABELS: Record<EnvironmentSection, StringKey> = {
   local: "composer.thisMac",
   mine: "composer.envMine",
   fleet: "composer.envFleet",
 };
 /// A machine's kind, which the search also matches ("ssh", "cloud").
-const KIND_LABELS: Record<EnvironmentKind, string> = {
+const KIND_LABELS: Record<EnvironmentKind, StringKey> = {
   local: "composer.envLocal",
   ssh: "composer.envSSH",
   cloud: "composer.cloud",
 };
 /// A machine a chat cannot start on yet, in words: its link state as acpmux says it.
-const STATE_LABELS: Record<string, string> = {
+const STATE_LABELS: Record<string, StringKey> = {
   connecting: "rail.connectorPending",
   degraded: "rail.connectorPending",
   reconnecting: "header.reconnecting",
-  offline: "newTab.widgets.offline",
 };
 export function environmentStateLabel(environment: Machine): string {
   return t(STATE_LABELS[environment.state ?? ""] ?? "composer.envNotConnected");
@@ -302,14 +301,15 @@ export function EnvironmentPicker({
   const autoHighlighted = useRef<string | undefined>(undefined);
   const submit = (value: string) => {
     const action = actions.find((candidate) => candidate.value === value);
+    // A machine still connecting or down is listed, greyed, in its place, but is no pick: the list
+    // stays open.
+    const machine = positions.get(value)?.environment;
+    if (machine && !environmentReady(machine)) return;
     close();
     if (action) action.run();
     else if (value === currentRow) focusPrompt();
     else if (value.startsWith(SAVED)) saved?.onPick(value.slice(SAVED.length));
-    else {
-      const environment = positions.get(value)?.environment;
-      if (environment && environmentReady(environment)) onPick(value);
-    }
+    else if (machine) onPick(value);
   };
   const row = (value: string) => {
     const action = actions.find((candidate) => candidate.value === value);
@@ -379,6 +379,7 @@ export function EnvironmentPicker({
         data-first-section={sectionStart && index === 0 && savedShown.length === 0 ? "" : undefined}
         data-current={environment.id === currentRow ? "" : undefined}
         data-ready={ready ? undefined : "false"}
+        aria-disabled={ready ? undefined : true}
       >
         <EnvironmentIcon kind={environment.kind} name={environment.label} />
         <span className="acpmux-menu-text acpmux-location-name">
@@ -455,10 +456,6 @@ export function EnvironmentPicker({
           listClassName="acpmux-location-folders"
           itemClassName="acpmux-menu-item"
           renderItem={row}
-          isItemDisabled={(value) => {
-            const environment = positions.get(value)?.environment;
-            return environment !== undefined && !environmentReady(environment);
-          }}
           autoHighlight
           inline
         />

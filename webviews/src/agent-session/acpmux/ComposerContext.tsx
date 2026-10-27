@@ -683,7 +683,6 @@ function LocationPicker({
             if (option?.disabled) return;
             if (option || (allowPath && /^(?:\/|~\/)/.test(id))) pick(id);
           }}
-          isItemDisabled={(id) => options.find((option) => option.id === id)?.disabled === true}
           onCancel={() => changeOpen(false)}
           cancelOnBlur={false}
           autoHighlight={kind === "computer" ? "always" : false}
@@ -716,6 +715,7 @@ function LocationPicker({
                 data-section={section}
                 data-first-section={section && index === 0 ? "" : undefined}
                 data-ready={folder?.disabled ? "false" : undefined}
+                aria-disabled={folder?.disabled ? true : undefined}
               >
                 <span className="acpmux-menu-label">{folder?.label ?? path}</span>
                 {!allowPath && folder?.detail && <span className="acpmux-menu-description">{folder.detail}</span>}
