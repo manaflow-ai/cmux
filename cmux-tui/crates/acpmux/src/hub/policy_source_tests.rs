@@ -1,7 +1,7 @@
 use super::{CLEARED, SET, VM_HOST, could_be_vm_host, settle_grant, settle_imported_grant};
 use crate::config::PermissionPolicy;
 use crate::hub::Hub;
-use crate::store::{EventRecord, META_SCHEMA, SessionMeta, SessionStatus};
+use crate::store::{EventRecord, META_SCHEMA, SessionMeta};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -129,26 +129,39 @@ fn only_an_approve_all_with_no_source_is_settled() {
     }
 }
 
-/// A chat from another machine: nothing it was taken from is here to tell.
+/// A chat from another machine: nothing it was taken from is here to tell, nor what set an older
+/// daemon's approve-all; a vmHost grant was for that machine's VM.
 #[test]
-fn an_imported_grant_is_kept_only_from_a_chat_its_machine_started() {
-    for (extra, remote, policy) in [
-        (json!({}), true, "ask"),
-        (handoff_tag(), false, "ask"),
-        (json!({"parentId": LOCAL}), false, "ask"),
-        (json!({"lineage": {"parent": LOCAL, "root": LOCAL, "depth": 1}}), false, "ask"),
-        (json!({"subsession": {"startedBy": LOCAL, "shortName": "t", "depth": 1}}), false, "ask"),
-        (json!({}), false, "approve-all"),
+fn an_imported_approve_all_is_kept_only_when_a_daemon_says_its_owner_set_it() {
+    for (extra, remote) in [
+        (json!({}), true),
+        (handoff_tag(), false),
+        (json!({"parentId": LOCAL}), false),
+        (json!({"lineage": {"parent": LOCAL, "root": LOCAL, "depth": 1}}), false),
+        (json!({"subsession": {"startedBy": LOCAL, "shortName": "t", "depth": 1}}), false),
+        (json!({}), false),
     ] {
         let mut meta = legacy_with(AMBIGUOUS, remote, Some("approve-all"), extra.clone());
         assert!(settle_imported_grant(&mut meta), "{extra}");
-        assert_eq!(meta.permission_policy.as_deref(), Some(policy), "{extra} remote {remote}");
-        // The import makes it remote-origin: what it decided holds at the next load or move.
+        assert_eq!(meta.permission_policy.as_deref(), Some("ask"), "{extra} remote {remote}");
+        // What it decided holds at the next load or move.
         meta.remote_origin = true;
         let decided = meta.clone();
         assert!(!settle_grant(&mut meta, true) && !settle_imported_grant(&mut meta));
         assert_eq!(meta, decided);
     }
+    let mut vm = legacy(AMBIGUOUS, true, Some("approve-all"));
+    vm.policy_source = Some(VM_HOST.into());
+    assert!(settle_imported_grant(&mut vm));
+    assert_eq!(
+        (vm.permission_policy.as_deref(), vm.policy_source.as_deref()),
+        (Some("ask"), Some(CLEARED))
+    );
+    let mut set = legacy(AMBIGUOUS, true, Some("approve-all"));
+    set.policy_source = Some(SET.into());
+    let before = set.clone();
+    assert!(!settle_imported_grant(&mut set));
+    assert_eq!(set, before, "the owner's grant moves with it");
 }
 
 #[test]
@@ -266,76 +279,27 @@ async fn a_second_run_changes_nothing() {
     }
 }
 
-/// A hub whose `cc` harness is a stand-in Claude Code (its modes, `bypassPermissions` among
-/// them) run with `env`, and one approve-all chat on it whose agent runs.
-async fn live_chat(env: &[&str]) -> (Arc<Hub>, Arc<super::Session>) {
-    use crate::config::{Config, StoreMode};
-    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-    let mut argv = vec!["/usr/bin/env", "FAKE_PICKER=1", "FAKE_PICKER_MODES=claude"];
-    argv.extend(env);
-    argv.extend(["python3", fake]);
-    let cfg =
-        json!({"harnesses": {"cc": {"argv": argv, "family": "claude"}}, "defaultHarness": "cc"});
-    let mut cfg: Config = serde_json::from_value(cfg).unwrap();
-    cfg.store.mode = StoreMode::Memory;
-    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
-    let hub = Hub::new(cfg, store);
-    let req = super::NewRequest {
-        cwd: Some(std::env::temp_dir()),
-        policy: Some(PermissionPolicy::ApproveAll),
-        ..Default::default()
-    };
-    let s = hub.new_session(req).await.unwrap();
-    hub.child_for(&s).await.unwrap();
-    (hub, s)
-}
-
-/// What the migration leaves on a chat an older daemon gave approve-all, whose agent survived
-/// in `bypassPermissions`.
-fn cleared_in_bypass(hub: &Hub, s: &super::Session) {
-    let bypass = super::web_control::ModeWrite::CurrentMode(json!("bypassPermissions"));
-    hub.write_mode_state(s, [bypass]);
-    let mut m = s.meta.lock().unwrap();
-    m.permission_policy = Some("ask".into());
-    m.policy_source = Some(CLEARED.into());
-}
-
-fn mode(s: &super::Session) -> Option<String> {
-    crate::web_modes::mode_of(&s.meta())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_cleared_chats_live_agent_moves_to_an_asking_mode() {
-    let (hub, s) = live_chat(&[]).await;
-    cleared_in_bypass(&hub, &s);
-    assert_eq!(hub.hold_cleared_grants().await, 0, "it moved");
-    assert_eq!(mode(&s).as_deref(), Some("default"));
-    assert!(s.child.lock().await.is_some(), "its agent runs on");
-    let _ = hub.kill(&s, true).await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_cleared_chats_agent_that_does_not_move_is_stopped() {
-    // It answers its start's mode change, then none (`FAKE_SET_MODE_SILENT_FILE`).
-    let silent = std::env::temp_dir().join(format!("acpmux-ps-silent-{}", uuid::Uuid::now_v7()));
-    let gate = format!("FAKE_SET_MODE_SILENT_FILE={}", silent.display());
-    let (hub, s) = live_chat(&[gate.as_str()]).await;
-    std::fs::write(&silent, "").unwrap();
-    cleared_in_bypass(&hub, &s);
-    assert_eq!(hub.hold_cleared_grants().await, 1, "it never answered its mode change");
-    assert!(s.child.lock().await.is_none(), "its agent was stopped");
-    assert_eq!(mode(&s).as_deref(), Some("default"), "its next start asks");
-    assert_ne!(s.status(), SessionStatus::Closed, "the chat stays open");
-    let _ = hub.kill(&s, true).await;
-    let _ = std::fs::remove_file(&silent);
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_cleared_closed_chat_with_no_agent_saves_its_asking_mode_and_stays_closed() {
-    let (hub, s) = live_chat(&[]).await;
-    hub.kill(&s, false).await.unwrap();
-    cleared_in_bypass(&hub, &s);
-    assert_eq!(hub.hold_cleared_grants().await, 0);
-    assert_eq!(mode(&s).as_deref(), Some("default"));
-    assert_eq!(s.status(), SessionStatus::Closed);
+/// A machine whose daemon could have given vmHost's approve-all (`could_have_had_vm_host`): a
+/// chat with no link back may have inherited it (an agent in a handoff target started it with no
+/// parent), so every approve-all with no source asks. A Mac never gave it.
+#[tokio::test]
+async fn every_approve_all_with_no_source_asks_on_a_machine_that_could_have_had_vm_host() {
+    for configured in [true, false] {
+        let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+        legacy_store(dir.path());
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Local;
+        cfg.vm_host = Some(configured);
+        let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, dir.path()).unwrap());
+        let local = if cfg!(target_os = "macos") {
+            PermissionPolicy::ApproveAll
+        } else {
+            PermissionPolicy::Ask
+        };
+        assert_eq!(
+            policies(&hub, [LOCAL, FORK_OF_LOCAL, VM_HOST_ERA]),
+            [(LOCAL, local), (FORK_OF_LOCAL, local), (VM_HOST_ERA, PermissionPolicy::Ask)],
+            "vmHost {configured}"
+        );
+    }
 }

@@ -6,6 +6,8 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+#[path = "durable_agents/grant_cleared.rs"]
+mod grant_cleared;
 #[path = "durable_agents/queue_edit_parts.rs"]
 mod queue_edit_parts;
 #[path = "durable_agents/queue_restore.rs"]
@@ -892,10 +894,9 @@ async fn gated_turn(daemon: &Daemon) -> (String, Value, Rpc) {
     (session, host, client)
 }
 
-/// "Quit Everything" in the app (plans/cmux-next/quit-persistence.md 4.3):
-/// `_acpmux/shutdown {endAgents: true}` ends every hosted agent and its host,
-/// records the turn in progress as cancelled, and the next daemon adopts
-/// nothing.
+/// "Quit Everything" in the app (plans/cmux-next/quit-persistence.md 4.3): `_acpmux/shutdown
+/// {endAgents: true}` ends every hosted agent and its host, records the turn in progress as
+/// cancelled, and the next daemon adopts nothing.
 #[tokio::test]
 async fn shutdown_with_end_agents_ends_hosted_agents_and_records_the_cancelled_turn() {
     let mut daemon = Daemon::new("endq", "approve-all");
@@ -953,10 +954,9 @@ fn cli_shutdown(daemon: &Daemon, extra: &[&str]) -> std::process::Output {
         .expect("run acpmux daemon shutdown")
 }
 
-/// `acpmux daemon shutdown --end-agents` does what its help says: it stops
-/// the daemon and every agent process, hosted agents and their hosts
-/// included. On cmux-lawrence (2026-10-06) it reported success against the
-/// brain's acpmux and left the "rollback-throwaway" session's agent host
+/// `acpmux daemon shutdown --end-agents` does what its help says: it stops the daemon and every
+/// agent process, hosted agents and their hosts included. On cmux-lawrence (2026-10-06) it reported
+/// success against the brain's acpmux and left the "rollback-throwaway" session's agent host
 /// running.
 #[tokio::test]
 async fn the_cli_shutdown_with_end_agents_ends_every_agent_and_its_host() {

@@ -7,8 +7,9 @@
 //! nobody asking for it. #26227 made `Hub::vm_host` false, so no new session gets it, but a
 //! session that got it kept that saved policy: it respawns inside the sandbox and still approves
 //! everything. Chats taken from it kept it too: a fork, a sub-session and a side chat stay
-//! remote-origin, but a handoff asked for on this machine's socket, and a chat an agent started
-//! (its policy inherited from its starter, `start_mode.rs`), are local.
+//! remote-origin, but a handoff asked for on this machine's socket is local, and a chat an agent
+//! started inherits its starter's policy (`lifecycle.rs`) with no link back when it asked for
+//! no parent.
 //!
 //! The store kept no record of who set a policy. Its log is no proof either: the vmHost path and
 //! an owner's own `_acpmux/set_policy` write the same `policy` record, and an older peer could
@@ -17,19 +18,31 @@
 //! approve-all inside a team VM can't be undone."
 //!
 //! So the rule ([`settle_grant`]): an approve-all with no `policySource` asks
-//! (`policySource: cleared`) when it could be vmHost's: the chat was started by a remote
-//! connection, it is a handoff target (its tag or a handoff record), or it was taken from another
-//! chat (`parentId`, `subsession`, `lineage`) that could have it or is not here to tell. Any other
-//! is a chat this machine started for its person: it is kept, as `policySource: set`.
+//! (`policySource: cleared`) when it could be vmHost's:
+//! - every one, on a machine whose daemon could have given it ([`Hub::could_have_had_vm_host`]:
+//!   not a Mac, and its config names `vmHost` or cmux created it as a VM): there a chat with no
+//!   link back can still have inherited it;
+//! - every one a chat imported from another machine carries (`transfer.rs` `import_into`, and
+//!   the guarded receive in `transfer_guard.rs`), and a `vmHost` one too: that machine's VM was
+//!   its sandbox, this one is not;
+//! - elsewhere, one a remote connection started, a handoff target's (its tag or a handoff
+//!   record), or one taken from another chat (`parentId`, `subsession`, `lineage`) that could
+//!   have it or is not here to tell.
 //!
-//! When: as the session list loads (`Hub::load_from_store`), before any permission request is
-//! answered, and as a chat is imported (`transfer.rs` `import_into`, and the guarded receive in
-//! `transfer_guard.rs`, before either changes its origin, links or tags; a chat from another
-//! machine has no parent here to tell). Every policy this daemon writes says who set it ([`SET`],
-//! [`VM_HOST`]), and the rule settles every approve-all it reads, so it never matches twice: an
-//! approve-all the owner sets after the upgrade is never cleared. A cleared chat whose agent
-//! survived the restart in a mode that never asks is moved to its policy's mode before any
-//! prompt reaches it, and its agent is stopped when that fails ([`Hub::hold_cleared_grants`]).
+//! Any other is kept, as `policySource: set`. The rule runs as the session list loads
+//! (`Hub::load_from_store`), before any permission request is answered, and as a chat is
+//! imported. Every policy this daemon writes says who set it ([`SET`], [`VM_HOST`]), and the
+//! rule settles every approve-all it reads, so it never matches twice: an approve-all the owner
+//! sets after the upgrade is never cleared. A cleared chat also loses the mode acpmux set
+//! (`mode_set_by_cmux`), which approved by itself in a mode that never asks.
+//!
+//! A cleared chat whose agent host survived the restart ([`CLEARED_HOST`]) may run in a mode
+//! that never asks, or hold requests the old grant would answer: that host is ended before this
+//! daemon reaches it, and is never adopted ([`Hub::end_cleared_host`], from `hosts.rs`
+//! `adopt_one`). The chat goes idle; its next start asks, in its policy's mode
+//! (`hold_policy_mode`, and OpenCode's ask config at spawn). A host that does not end is not
+//! adopted and the chat is refused until it does (`reach_or_start`). Once it ended, the chat is
+//! [`CLEARED`]; a daemon that died before that ends it at its next start.
 
 use super::*;
 use std::collections::{HashMap, HashSet};
@@ -44,6 +57,8 @@ pub(super) const SET: &str = "set";
 pub(super) const VM_HOST: &str = "vmHost";
 /// `policySource`: an older daemon's approve-all, turned back to ask ([`settle_grant`]).
 pub(super) const CLEARED: &str = "cleared";
+/// `policySource`: [`CLEARED`], with the agent host that ran under the grant still to end.
+pub(super) const CLEARED_HOST: &str = "clearedHost";
 
 /// Settles an approve-all an older daemon saved with no source: ask when it `could_be_vm_host`,
 /// else kept as [`SET`]. Returns whether it changed `meta`.
@@ -56,6 +71,7 @@ pub(super) fn settle_grant(meta: &mut SessionMeta, could_be_vm_host: bool) -> bo
     let source = if could_be_vm_host {
         tracing::warn!(session = %meta.id, "an older daemon's approve-all that could be vmHost's is now ask");
         meta.permission_policy = Some(PermissionPolicy::Ask.to_string());
+        meta.mode_set_by_cmux = None;
         CLEARED
     } else {
         SET
@@ -73,12 +89,13 @@ fn taken_from(meta: &SessionMeta) -> impl Iterator<Item = &str> {
 }
 
 /// [`settle_grant`] for a chat imported from another machine, before the import changes it:
-/// none of the chats it was taken from is here to tell.
+/// none of the chats it was taken from is here to tell, nor what set an approve-all of an older
+/// daemon; and a vmHost grant was for that machine's VM.
 pub(super) fn settle_imported_grant(meta: &mut SessionMeta) -> bool {
-    let could_be = meta.remote_origin
-        || meta.tags.contains_key(super::handoff::TARGET_TAG)
-        || taken_from(meta).next().is_some();
-    settle_grant(meta, could_be)
+    if meta.policy_source.as_deref() == Some(VM_HOST) {
+        meta.policy_source = None;
+    }
+    settle_grant(meta, true)
 }
 
 /// The ids among `metas` whose approve-all could be vmHost's (module docs). A chat taken from
@@ -140,76 +157,58 @@ impl Hub {
         self.follow_policy(session).await;
     }
 
-    /// [`settle_grant`] on every session the store lists, each saved when it changed.
+    /// Whether this machine's daemon could have given vmHost's approve-all (module docs): never
+    /// on a Mac; elsewhere when its config names `vmHost` (a `false` may have followed a `true`)
+    /// or cmux created it as a VM (on by default there). A config this cannot read could.
+    fn could_have_had_vm_host(&self) -> bool {
+        let configured = self.config.try_read().map_or(true, |c| c.vm_host.is_some());
+        !cfg!(target_os = "macos") && (configured || self.cmux_vm())
+    }
+
+    /// [`settle_grant`] on every session the store lists, each saved when it changed. A cleared
+    /// chat whose agent host may run (or when the host records cannot be read) is
+    /// [`CLEARED_HOST`].
     pub(super) fn settle_legacy_grants(&self, metas: &mut [SessionMeta]) {
         if !metas.iter().any(|m| m.policy_source.is_none() && m.permission_policy.is_some()) {
             return;
         }
+        let everyone = self.could_have_had_vm_host();
         let could_be = could_be_vm_host(metas, &self.handoffs.target_ids());
+        let hosted = Self::read_live_host_sessions();
         for meta in metas.iter_mut() {
-            if settle_grant(meta, could_be.contains(&meta.id))
-                && let Err(e) = self.store.save(meta)
+            if !settle_grant(meta, everyone || could_be.contains(&meta.id)) {
+                continue;
+            }
+            if meta.policy_source.as_deref() == Some(CLEARED)
+                && hosted.as_ref().is_none_or(|h| h.contains(&meta.id))
             {
+                meta.policy_source = Some(CLEARED_HOST.to_owned());
+            }
+            if let Err(e) = self.store.save(meta) {
                 tracing::warn!(session = %meta.id, "save the settled grant failed: {e}");
             }
         }
     }
 
-    /// Every chat whose grant was cleared and that is in a mode wider than its policy's (an agent
-    /// that survived the restart, or a saved mode): its turn is cancelled and it moves to its
-    /// policy's mode. A running agent that does not move in [`HOLD_WAIT`], or one this daemon did
-    /// not reach, is stopped; a chat with no agent saves its policy's mode for its next start. At
-    /// daemon start, after adoption and before any prompt to an adopted chat (`daemon.rs`).
-    /// Returns how many agents it stopped.
-    pub(crate) async fn hold_cleared_grants(self: &Arc<Self>) -> usize {
-        let default = self.config.read().await.permission_policy;
-        let mut stopped = 0;
-        for s in self.sessions() {
-            if s.meta().policy_source.as_deref() != Some(CLEARED) || !wider_than_policy(&s, default)
-            {
-                continue;
-            }
-            if s.turn().is_some()
-                && let Err(e) = self.cancel(&s).await
-            {
-                tracing::warn!(session = %s.id, "the turn was not cancelled: {}", e.message);
-            }
-            let alive = match s.child.lock().await.clone() {
-                Some(child) => child.is_alive().await,
-                None => false,
-            };
-            if alive && tokio::time::timeout(HOLD_WAIT, self.follow_policy(&s)).await.is_err() {
-                tracing::warn!(session = %s.id, "a cleared grant's agent did not change its mode in time");
-            }
-            if (alive || Self::host_record_live(&s.id)) && wider_than_policy(&s, default) {
-                tracing::warn!(session = %s.id, "a cleared grant's agent stays in a mode that does not ask: stopped");
-                self.append(&s, "mux", "grant_cleared", json!({"stopped": true}));
-                self.stop_full_access_agent(&s).await;
-                stopped += 1;
-            }
-            // No agent runs it now: its policy's mode is saved for the next start.
-            if wider_than_policy(&s, default) {
-                self.follow_policy(&s).await;
-            }
+    /// A [`CLEARED_HOST`] chat's agent host is ended, never adopted (module docs). Called where a
+    /// host would be adopted, under the chat's spawn lock (`hosts.rs`). Returns whether the chat
+    /// was one: its host has then ended, or is marked unadoptable.
+    pub(super) async fn end_cleared_host(&self, session: &Arc<Session>) -> bool {
+        if session.meta().policy_source.as_deref() != Some(CLEARED_HOST) {
+            return false;
         }
-        stopped
+        self.end_unadopted_host(session).await;
+        if Self::host_record_gone(&session.id) {
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).policy_source =
+                Some(CLEARED.to_owned());
+            self.append(session, "mux", "grant_cleared", json!({"hostEnded": true}));
+            self.save_meta(session);
+        } else {
+            tracing::warn!(session = %session.id, "the agent host of a cleared grant did not end; it is not adopted");
+            self.mark_unadoptable(session, json!({"reason": "grant_cleared"}));
+        }
+        true
     }
-}
-
-/// How long [`Hub::hold_cleared_grants`] waits for a running agent to change its mode.
-const HOLD_WAIT: std::time::Duration =
-    std::time::Duration::from_secs(if cfg!(test) { 1 } else { 10 });
-
-/// Whether `session` runs in a mode that does not ask while its narrower policy has one that
-/// does (`policy_mode.rs`).
-fn wider_than_policy(session: &Session, default: PermissionPolicy) -> bool {
-    let meta = session.meta();
-    let Some(policy) = super::policy_mode::narrow_policy(&meta, default) else { return false };
-    let family = crate::web_modes::family_of(&meta);
-    let offered = super::start_mode::offered_ids(&meta);
-    super::policy_mode::policy_mode(policy, &family, &offered).is_some()
-        && crate::web_modes::mode_of(&meta)
-            .is_some_and(|mode| !super::start_mode::asks(&mode, &family))
 }
 
 #[cfg(test)]

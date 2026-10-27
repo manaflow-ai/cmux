@@ -210,8 +210,7 @@ impl Hub {
             return Err(e.with_data(json!({"reason": "cwd_missing", "cwd": meta.cwd})));
         }
         meta.status = SessionStatus::Idle;
-        // An older daemon's approve-all that could be vmHost's asks (`policy_source.rs`), judged
-        // before a family, which lives on one daemon, makes a moved-in sub-session a root here.
+        // An approve-all an older daemon or a vmHost machine gave asks here (`policy_source.rs`).
         super::policy_source::settle_imported_grant(&mut meta);
         meta.subsession = None;
         meta.lineage = None;

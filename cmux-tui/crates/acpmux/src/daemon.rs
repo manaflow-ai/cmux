@@ -492,14 +492,14 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             {
                 tokio::time::sleep(Duration::from_millis(ms.min(10_000))).await;
             }
-            // Agents that outlived the previous daemon come back first: their chats' logs (tails,
-            // queues), then adoption; every other chat's log after it (`hub/log_load.rs`).
+            // Agents that outlived the previous daemon come back first: their chats' logs
+            // (tails, queues), then adoption. Every other chat's log is read in the background
+            // after it, or first by a request for that chat (`hub/log_load.rs`).
             {
                 let _adopted = crate::hub::AdoptionReady(&hub.adoption_ready);
                 hub.load_live_logs_async().await;
                 hub.adopt_agent_hosts().await;
                 hub.settle_unadopted().await;
-                hub.hold_cleared_grants().await;
             }
             {
                 let hub = hub.clone();

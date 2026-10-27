@@ -77,7 +77,7 @@ impl Hub {
     }
 
     /// `live_host_sessions`, or `None` when the host records cannot be read.
-    fn read_live_host_sessions() -> Option<std::collections::HashSet<String>> {
+    pub(super) fn read_live_host_sessions() -> Option<std::collections::HashSet<String>> {
         let dir = agent_host::hosts_dir();
         let (good, bad) = agent_host::load_records(&dir).ok()?;
         let mut live: std::collections::HashSet<String> = good
@@ -106,15 +106,13 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
     ) -> Option<Arc<ChildAgent>> {
-        // A reader that stopped in this process: reconnect only. This process
-        // still holds the open requests, prompts and turn; recovery would
-        // handle them a second time.
+        // A reader that stopped in this process: reconnect only. This process still holds the open
+        // requests, prompts and turn; recovery would handle them a second time.
         let current = session.child.lock().await.clone();
-        // The link closed. Either the harness exited and its host is
-        // finishing (wait, bounded, for the host's lock to drop, then let the
-        // caller start a fresh agent), or the link alone was lost while the
-        // host lives on (another owner took it over and left): reconnect to
-        // it like a broken link, so the session is never locked.
+        // The link closed. Either the harness exited and its host is finishing (wait, bounded, for
+        // the host's lock to drop, then let the caller start a fresh agent), or the link alone was
+        // lost while the host lives on (another owner took it over and left): reconnect to it like
+        // a broken link, so the session is never locked.
         if let Some(child) =
             current.as_ref().filter(|c| c.host_record().is_some() && !c.is_broken())
             && let Some(record) = child.host_record()
@@ -183,9 +181,8 @@ impl Hub {
         Self::read_live_host_sessions().is_some_and(|live| !live.contains(session_id))
     }
 
-    /// Reattach every running agent host. Called once at daemon start,
-    /// before agents may spawn; a prompt to a kept session may still adopt
-    /// its host first (`readopt`).
+    /// Reattach every running agent host. Called once at daemon start, before agents may spawn; a
+    /// prompt to a kept session may still adopt its host first (`readopt`).
     pub async fn adopt_agent_hosts(self: &Arc<Self>) {
         // MDM's off (start-mode.json, loaded with the hub), read once for this adoption (#23322).
         let off = self.full_access_managed_off();
@@ -220,10 +217,9 @@ impl Hub {
                 }
                 continue;
             };
-            // This runs after the ready line, so a prompt can reach the host
-            // first (`ensure_child` -> `readopt`, under the spawn lock). One
-            // adoption per host: a second link would replace the first
-            // child, and the requests open on it would be lost.
+            // This runs after the ready line, so a prompt can reach the host first (`ensure_child`
+            // -> `readopt`, under the spawn lock). One adoption per host: a second link would
+            // replace the first child, and the requests open on it would be lost.
             let _spawning = session.spawn_lock.lock().await;
             if let Some(child) = session.child.lock().await.as_ref()
                 && child.is_alive().await
@@ -246,8 +242,9 @@ impl Hub {
                 // too when its chat runs in full access (`end_unadopted_host`: its nonce proves it).
                 let ended = {
                     let _spawning = session.spawn_lock.lock().await;
-                    self.end_if_runs_full_access(&session, off).await
-                        != FullAccessEnd::NotInFullAccess
+                    self.end_cleared_host(&session).await
+                        || self.end_if_runs_full_access(&session, off).await
+                            != FullAccessEnd::NotInFullAccess
                 };
                 if ended && Self::host_record_gone(&session.id) {
                     continue;
@@ -291,7 +288,7 @@ impl Hub {
         self.sessions.lock().unwrap().get(id).cloned()
     }
 
-    fn mark_unadoptable(&self, session: &Arc<Session>, detail: Value) {
+    pub(super) fn mark_unadoptable(&self, session: &Arc<Session>, detail: Value) {
         self.append(session, "mux", "host_unadoptable", detail);
         self.set_status(session, SessionStatus::Disconnected);
         self.save_meta(session);
@@ -302,6 +299,10 @@ impl Hub {
         session: &Arc<Session>,
         record: agent_host::HostRecord,
     ) -> anyhow::Result<()> {
+        // An older daemon's approve-all, cleared: its host is ended, never adopted.
+        if self.end_cleared_host(session).await {
+            return Ok(());
+        }
         if session.meta().remote_origin
             && !self.remote_host_env_current(session, &record.incarnation)
         {
@@ -394,9 +395,8 @@ impl Hub {
         // on this lock until its recovered request has been admitted.
         let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
         let mut work = self.open_work(session, incarnation);
-        // Requests after the resume point were replayed into the live
-        // inbound loop and are handled there; only earlier ones were the
-        // previous daemon's to answer.
+        // Requests after the resume point were replayed into the live inbound loop and are handled
+        // there; only earlier ones were the previous daemon's to answer.
         work.requests.retain(|(_, _, _, h)| h.is_none_or(|h| h <= resume_after));
         for (id, kind, _, _) in &work.requests {
             if kind == method::SESSION_REQUEST_PERMISSION {
