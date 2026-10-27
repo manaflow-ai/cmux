@@ -2426,6 +2426,7 @@
                             "muted",
                             "audible",
                             "crashed",
+                            "unresponsive",
                             "hibernated"
                           ],
                           "properties": {
@@ -2466,7 +2467,7 @@
                               "enum": ["webkit", "cef", null]
                             },
                             "loadState": {
-                              "description": "BrowserLoadPhase of the live page; unloaded when the tab has no engine page now (none made yet, or a hibernated or not-yet-started stand-in, as Chrome gives a discarded tab TabNetworkState::kNone); canGoBack, canGoForward, audible and crashed are then false",
+                              "description": "BrowserLoadPhase of the live page; unloaded when the tab has no engine page now (none made yet, or a hibernated or not-yet-started stand-in, as Chrome gives a discarded tab TabNetworkState::kNone); canGoBack, canGoForward, audible, crashed and unresponsive are then false",
                               "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/tabs/*/loadState"},
                               "type": "string",
                               "enum": ["unloaded", "idle", "provisional", "committed", "finished", "failed"]
@@ -2504,6 +2505,11 @@
                             "crashed": {
                               "description": "the page's content process ended (the sad tab)",
                               "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/tabs/*/crashed"},
+                              "type": "boolean"
+                            },
+                            "unresponsive": {
+                              "description": "the page's content process stopped answering input and the tab shows Page unresponsive (BrowserTabState.isUnresponsive; Chrome's hung renderer, WebContentsDelegate::RendererUnresponsive); false when the tab has no engine page or its process ended",
+                              "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/tabs/*/unresponsive"},
                               "type": "boolean"
                             },
                             "hibernated": {

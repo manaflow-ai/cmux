@@ -10,7 +10,7 @@ import Testing
 struct OracleTabsFacetTests {
     static let schemaKeys: Set<String> = [
         "tab", "kind", "page", "pinned", "engine", "url", "title", "loadState", "loading", "canGoBack", "canGoForward",
-        "zoom", "muted", "audible", "crashed", "hibernated",
+        "zoom", "muted", "audible", "crashed", "unresponsive", "hibernated",
     ]
 
     private func keys(_ value: OracleValue) -> Set<String> {

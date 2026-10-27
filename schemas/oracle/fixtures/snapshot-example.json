@@ -544,6 +544,7 @@
               "muted": false,
               "audible": false,
               "crashed": false,
+              "unresponsive": false,
               "hibernated": false
             }
           ]

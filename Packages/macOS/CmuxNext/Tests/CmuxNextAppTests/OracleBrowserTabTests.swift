@@ -56,6 +56,23 @@ import Testing
         }
     }
 
+    /// The chromium-renderer-hang journey's error state (p15-oracle-223): a hung page is unresponsive until it
+    /// answers, and its renderer's end makes it crashed and no longer unresponsive.
+    @Test func aHungPageIsUnresponsiveUntilItAnswersOrEnds() throws {
+        for kind in BrowserEngineKind.allCases {
+            let page = try page(kind)
+            #expect(!OracleTabsFacet.Tab.browser(id: "tab_1", pinned: false, page: page, record: .init(), hibernated: false).unresponsive)
+            page.simulate(.unresponsiveChanged(true))
+            let hung = OracleTabsFacet.Tab.browser(id: "tab_1", pinned: false, page: page, record: .init(), hibernated: false)
+            #expect(hung.unresponsive, "\(kind)")
+            #expect(hung.value["unresponsive"] == true, "\(kind)")
+            page.simulate(.processExited(BrowserProcessExit(reason: .crashed)))
+            let ended = OracleTabsFacet.Tab.browser(id: "tab_1", pinned: false, page: page, record: .init(), hibernated: false)
+            #expect(!ended.unresponsive, "\(kind)")
+            #expect(ended.crashed, "\(kind)")
+        }
+    }
+
     @Test func aTabWithNoPageReadsItsRecord() {
         let record = OracleTabsFacet.Tab.Record(url: "https://example.com/", title: "Saved", zoom: 1.5, engine: "cef")
         let tab = OracleTabsFacet.Tab.browser(id: "tab_2", pinned: false, page: nil, record: record, hibernated: false)

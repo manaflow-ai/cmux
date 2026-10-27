@@ -294,6 +294,10 @@
           "maxItems": 32,
           "items": {"$ref": "#/$defs/keystroke"},
           "description": "Keystrokes sent in order through the real key path, one turn each."
+        },
+        "keyWindow": {
+          "enum": ["palette", "page"],
+          "description": "The window that is key for these keystrokes, as when a person types in it: the open command palette's panel, or the Chromium page window of the focused pane (an agent chat or a web page). Absent: the step window's own shell window, whose first responder gets them (a terminal, an address bar)."
         }
       }
     },

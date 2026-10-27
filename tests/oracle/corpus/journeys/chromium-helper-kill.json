@@ -1,0 +1,232 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "chromium-helper-kill",
+  "suite": "journeys",
+  "title": "SIGKILL the Chromium Host (F2: Chromium's browser process in the helper app): the app stays, the tab shows the crash page while the host restarts and comes back on its page",
+  "priority": "P1",
+  "surface": "cmux-next-native",
+  "source": {
+    "repo": "manaflow-ai/cmux",
+    "ref": "$RUN",
+    "artifact": "$RUN"
+  },
+  "environment": {
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    }
+  },
+  "fixture": {
+    "seed": "chromium-helper-kill-v1",
+    "network": "offline",
+    "clock": "fixed",
+    "agent": "mock",
+    "web": true
+  },
+  "preconditions": [
+    "private scratch config (driver_app: bench config, ui.animations.enabled false)",
+    "tagged bench build",
+    "no unrelated app instance",
+    "a fresh saved session: one workspace, one terminal tab",
+    "the loopback web fixture (webfixture.py) serves tests/oracle/fixtures/web as $WEB",
+    "Chromium is the default browser engine (browser.defaultEngine unset)",
+    "the helper arm of the cef-helper-host switch (feature cefHelperHost): Chromium's browser process runs in the Chromium Host app; NeverFix.d/journeys.txt skips the case on the old arm"
+  ],
+  "requires": [
+    "actions",
+    "gui",
+    "chromium",
+    "restart"
+  ],
+  "switches": [
+    "cef-helper-host"
+  ],
+  "platforms": [
+    "mac"
+  ],
+  "allow_crashes": [
+    {
+      "kind": "browser",
+      "reason": "kill-host SIGKILLs the Chromium Host on purpose: it holds Chromium's browser process",
+      "steps": [
+        "kill-host"
+      ],
+      "max": 1
+    }
+  ],
+  "steps": [
+    {
+      "id": "open-page",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "openBrowser.chromium",
+        "params": {
+          "url": "$WEB/load.html"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/tab_count",
+        "predicate": "changed",
+        "maxMs": 10000
+      },
+      "checkpoint": [
+        "before"
+      ],
+      "note": "a script run files the Chromium tab at the end of the pane and marks it agent-driven. Only `before`: until its page reports a title, the tab's title is its URL, which holds the fixture's port"
+    },
+    {
+      "id": "show-page",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "selectSurfaceByNumber",
+        "params": {
+          "index": 9
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/tabs/panes/0/tabs/0/loadState",
+        "equals": "finished",
+        "maxMs": 15000
+      },
+      "settleMaxMs": 15000,
+      "note": "Select Tab 9 shows the last tab, the page, so Chromium makes its browser; the wait is for its finished load, which comes after its title"
+    },
+    {
+      "id": "before-child-exit",
+      "op": "snapshot",
+      "args": {
+        "facets": [
+          "topology",
+          "layout",
+          "sidebar",
+          "windows",
+          "terminals",
+          "notifications",
+          "settings"
+        ]
+      },
+      "note": "the facets outside the browser before the child exit; after-child-exit must equal them"
+    },
+    {
+      "id": "kill-host",
+      "op": "kill",
+      "target": {
+        "window": "current",
+        "process": "browser"
+      },
+      "args": {
+        "signal": "KILL"
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "ending a child process runs no registry action"
+      },
+      "waitFor": {
+        "pointer": "/crashes/counts/browser",
+        "predicate": "changed",
+        "maxMs": 15000
+      },
+      "checkpoint": [
+        "before"
+      ],
+      "settleMaxMs": 15000,
+      "note": "SIGKILL the host: the supervisor reads the exit with its signal (waitid WNOWAIT), clears every page's context and restarts the host (plans/cmux-next/cef-helper-app-DESIGN.md, Crash). Chrome has no such restart: its browser process is the app. Only `before`: host-back takes the settled checkpoint once the page is back"
+    },
+    {
+      "id": "host-back",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/tabs/panes/0/tabs/0/loadState",
+        "equals": "finished",
+        "maxMs": 20000
+      },
+      "settleMaxMs": 20000,
+      "note": "the retry is the supervisor's: the new host reloads each page from its saved navigation state (cmux_shim_tab_navigation_state, tab_restore_navigation), so the tab loads again"
+    },
+    {
+      "id": "host-back-location",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/tabs/panes/0/tabs/0/url",
+        "equals": "$WEB/load.html",
+        "maxMs": 5000
+      },
+      "note": "the restored tab is on the page it showed when the host ended"
+    },
+    {
+      "id": "not-crashed",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/tabs/panes/0/tabs/0/crashed",
+        "equals": false,
+        "maxMs": 5000
+      },
+      "note": "the restored page has a live renderer of the new host"
+    },
+    {
+      "id": "after-child-exit",
+      "op": "snapshot",
+      "args": {
+        "facets": [
+          "topology",
+          "layout",
+          "sidebar",
+          "windows",
+          "terminals",
+          "notifications",
+          "settings"
+        ]
+      },
+      "note": "equal to before-child-exit: a Chromium child exit changes no workspace, pane, window, terminal, notification or setting"
+    },
+    {
+      "id": "final",
+      "op": "snapshot",
+      "args": {
+        "facets": [
+          "topology",
+          "focus",
+          "layout",
+          "tabs",
+          "overlays",
+          "history",
+          "crashes",
+          "liveObjects",
+          "invariants"
+        ]
+      }
+    }
+  ],
+  "invariants": [
+    "the app pid does not change (driver_app fails the case when it does): a Chromium child exit never ends the app (content/public/test/browser_test_utils.h CrashTab)",
+    "after-child-exit equals before-child-exit: no workspace, pane, window, terminal, notification or setting changes with the child exit",
+    "no step calls a crash method of the app: each exit comes from a Chromium debug URL or a kill of the child, so Release gets no new crash entry point",
+    "kill-host raises crashes.counts.browser by exactly one and no other kind (I17: allow_crashes browser, max 1): the host's own children end with it, and no live host reports them",
+    "the tab shows the crash page while the host restarts, and the supervisor's retry brings it back on the same url, loaded and not crashed (ChromiumHostRestartPolicy: a first exit restarts the host)"
+  ],
+  "teardown": [
+    "quit the tagged app the run started and its tag's daemons (TagTeardown)",
+    "verify its debug socket is gone"
+  ],
+  "untested": [
+    "pointer entrypoints (no pointer op in case-v1): the sad tab's Reload button",
+    "the page's own content and pixels after the exit: no facet reads a page's DOM or its frames",
+    "the in-process arm: there Chromium's browser process is the app, which a kill step cannot target (case-v1 crashKind); NeverFix skips the case",
+    "a second host exit within 60 s, which leaves the host ended and the pages on Reload (ChromiumHostRestartPolicy)"
+  ]
+}

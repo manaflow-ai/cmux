@@ -1,0 +1,5 @@
+# journeys expectations (format: scripts/cmux-next/oracle/expectations.py).
+# Chromium drops every renderer hang in a cmux tab: CEF's own DevTools controller attaches to each tab, so
+# WebContentsImpl::ShouldIgnoreUnresponsiveRenderer sees a debugger and never reports the hang
+# (plans/cmux-next/browser-isolation.md, renderer hang row). Remove this line with the CEF fork fix.
+p15-oracle-223 [ mac ] journeys/chromium-renderer-hang/hang-reported [ Timeout ]

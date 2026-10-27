@@ -1,0 +1,5 @@
+# journeys cases that never run on one configuration (format: scripts/cmux-next/oracle/expectations.py).
+# The helper kill journey SIGKILLs the Chromium Host, which exists only on the helper arm of the cef-helper-host
+# switch. On the old arm Chromium's browser process is the app itself, which no kill step may target.
+# A run without --switch is [ old ] (oracle.py expectation_arm).
+p15-oracle-223 [ old ] journeys/chromium-helper-kill [ Skip ]
