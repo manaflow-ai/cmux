@@ -26,8 +26,10 @@ const RUN_CALL: u64 = 1 << 20;
 fn scripted_app_host() {
     use std::os::fd::FromRawFd;
     use std::os::unix::net::UnixStream;
-    // SAFETY: fstat only inspects descriptor 3.
+    // SAFETY: libc::stat is plain integers, so all-zero bytes are a valid value.
     let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: fstat only inspects descriptor 3 and writes into the exclusively
+    // borrowed `stat`.
     if unsafe { libc::fstat(3, &mut stat) } != 0 || (stat.st_mode & libc::S_IFMT) != libc::S_IFSOCK
     {
         return;

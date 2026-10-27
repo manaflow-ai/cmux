@@ -238,6 +238,7 @@ final class RemoteTerminalService {
               let text = entry.session.surfaceView.viewportText(), !text.isEmpty,
               let tab = home.store.tab(id: tabID), let connection = home.connection else { return nil }
         let surface = tab.surface
+        entry.session.applyWaitingActions() // a title still waiting for its frame is the one to save
         let title = entry.session.model.title
         placeholders[tabID]?.setSnapshot(text)
         // The write needs nothing from the main thread.

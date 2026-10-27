@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 
 /// What a screen view keeps while it shows a canvas (ScreenContentView+Canvas):
 /// the canvas from the model, the camera on its springs, and a pointer drag.
@@ -18,6 +19,9 @@ struct ScreenCanvasState {
     var modelCamera: CanvasCamera?
     var camera = CanvasCameraMotion()
     var drag: Drag?
+    /// The drag's moves on its window's coalescer, from mouse-down to mouse-up (feature
+    /// `pointerFrameDrags`); nil: each drag event moves at once.
+    var dragFrames: PointerFrameConsumer?
 
     /// Handle band width on screen, at every zoom.
     static let handleThickness: CGFloat = 8

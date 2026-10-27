@@ -102,7 +102,7 @@ final class ComposeInlineAttachmentView: NSView {
 
     /// One type icon per mime type for the life of the process: each file pill asked the workspace
     /// again on the main thread (a Launch Services lookup) while the field laid out its text.
-    private static var icons: [String: NSImage] = [:]
+    private static var icons: [String: NSImage] = [:] // memory: fixed at most 64 mime types, the workspace's shared icons
     static func icon(forMimeType mime: String) -> NSImage {
         if let cached = icons[mime] { return cached }
         let image = NSWorkspace.shared.icon(for: UTType(mimeType: mime) ?? .data)

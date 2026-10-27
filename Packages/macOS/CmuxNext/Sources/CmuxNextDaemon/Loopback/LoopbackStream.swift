@@ -53,6 +53,7 @@ public final class LoopbackStream: Sendable {
         // Bounded by `receiveWindow`: the daemon never sends past it, and
         // `deliver` ends the stream if it does.
         // concurrency-allow: bounded by the credit window (see deliver)
+        // memory: bounded-by receiveWindow (the credit window, 256 KiB): deliver ends the stream past it
         (events, continuation) = AsyncStream.makeStream(of: LoopbackStreamEvent.self, bufferingPolicy: .unbounded)
     }
 

@@ -1,4 +1,4 @@
-import CmuxNextDesign
+import CmuxNextDesignTokens
 import Foundation
 
 /// `appearance.appTheme` in cmux.json: the theme cmux's own surfaces (pages today, the native

@@ -964,6 +964,21 @@ impl ConversationHost {
         self.store_holder.lock_mutex(STORE_LOCK_NAME, site, &self.store)
     }
 
+    /// Frees the open store's unused SQLite page cache under the store lock
+    /// (`mux/sqlite_trim.rs`); a store not opened yet holds none.
+    #[track_caller]
+    pub(crate) fn release_memory(&self) -> rusqlite::Result<()> {
+        let store = self.lock_store_for_sqlite().unwrap_or_else(std::sync::PoisonError::into_inner);
+        store.as_ref().map_or(Ok(()), |store| store.connection.release_memory())
+    }
+
+    /// Runs `operation` on the open store's connection under the store lock.
+    #[cfg(test)]
+    pub(crate) fn with_connection<T>(&self, operation: impl FnOnce(&Connection) -> T) -> Option<T> {
+        let store = self.lock_store_for_sqlite().unwrap_or_else(std::sync::PoisonError::into_inner);
+        Some(operation(&store.as_ref()?.connection))
+    }
+
     /// The store lock for work that runs no SQL and no file I/O: in-memory
     /// upload state. Work that removes files under it hands them out and
     /// removes them after the release (`ClosedUploads`).

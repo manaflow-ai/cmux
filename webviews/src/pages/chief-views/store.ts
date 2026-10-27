@@ -50,6 +50,20 @@ export type ViewDefaults = readonly { id: string; defaultOn: boolean }[];
 
 export const LAYOUT_KEY = "cmux.chiefViews.layout";
 
+/** The page name its saved state carries (pageState.ts). */
+export const CHIEF_VIEWS_PAGE = "chief-views";
+
+/** What the page keeps across a discard: whether the gallery is open. The layout is in localStorage. */
+export interface ChiefViewsInputs {
+  catalog: boolean;
+}
+
+/** The valid fields of the inputs a discarded document saved; the rest keep their defaults. */
+export function restoredChiefViewsInputs(state: unknown): Partial<ChiefViewsInputs> {
+  const catalog = (state as { catalog?: unknown } | null | undefined)?.catalog;
+  return typeof catalog === "boolean" ? { catalog } : {};
+}
+
 function readLayout(views: ViewDefaults): Layout | undefined {
   try {
     const text = globalThis.localStorage?.getItem(LAYOUT_KEY);
@@ -111,6 +125,11 @@ export class ChiefViewsStore {
       catalog: initial.catalog ?? layout.enabled.length === 0,
       offline: client === null,
     };
+  }
+
+  /** What the page keeps when it hides (pageState.ts `keep`); `restoredChiefViewsInputs` reads it back. */
+  pageInputs(): ChiefViewsInputs {
+    return { catalog: this.snapshot.catalog };
   }
 
   subscribe = (listener: () => void) => {

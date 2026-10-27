@@ -2,7 +2,7 @@
   "$schema": "../features.schema.json",
   "name": "hiddenPollPause",
   "owner": "Performance Lead",
-  "description": "The GitHub feed poll and the web-updates check book no next run while no cmux window shows, and run once when a window shows again if one came due.",
+  "description": "The GitHub feed poll and the web-updates check book no next run while no cmux window shows, and run once when a window shows again if one came due. Daemon heartbeats ask nothing while no window shows (a bridged daemon after 60 s of silence) and ask once when a window shows or the app activates.",
   "defaults": { "dev": false, "nightly": false, "release": false },
   "kind": "perfPath",
   "expires": "2026-12-20",

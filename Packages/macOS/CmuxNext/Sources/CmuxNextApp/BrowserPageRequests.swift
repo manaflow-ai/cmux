@@ -27,7 +27,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
         didSet {
             nowPlaying.follow(services)
             sidebarNowPlaying.follow(sessions: { [weak self] in self?.services.map { s in s.cache.pageRequests.media.sessions(in: s.cache).map { NowPlayingSession(tab: $0.entry.tab.id, media: $0.media) } } ?? [] },
-                                     tab: { [weak self] id in self?.services?.cache.browsers.values.first { $0.tab.id == id }?.tab })
+                                     tab: { [weak self] id in self?.services?.cache.browsers.values.first { $0.tab.id == id }?.tab },
+                                     deadlines: services?.mainDeadlines)
             sidebarNowPlaying.allowsPictureInPicture = { [weak self] in PictureInPictureHandlers.isEnabled(self?.services) }
             // A popup panel's page gets the same rows, acting for its opener's tab.
             services?.popups.hitItems = { [weak self] target, openerKey in self?.hitItems(for: target, tab: openerKey) ?? [] }
@@ -76,6 +77,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
     let titleAttention = BrowserTitleAttention()
     /// Closed tabs' histories, for Reopen Closed Tab.
     let closedHistories = ClosedBrowserHistories()
+    /// The panes zoomed for a hosted page's HTML fullscreen (task p01-process-229).
+    let fullscreenZoom = BrowserFullscreenPaneZoom()
     /// Pages created by an engine for a daemon tab that is still being
     /// created, by the new tab's surface. `TabContentCache` takes them.
     private var adoptions: [SurfaceID: any BrowserTab] = [:]
@@ -108,6 +111,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
         // A popup panel's page: the panel handles it (window.close closes
         // the panel), except links it opens in tabs (its opener's pane).
         if let services, services.popups.handle(page, intent) { return }
+        // A fullscreen exit gives back the zoomed pane even when the page's tab is gone (it closed).
+        if case .contentFullscreen(false) = intent { return fullscreenZoom.ended(ObjectIdentifier(page)) }
         if case .close = intent, let services, services.cache.key(of: page) == nil {
             // Not installed yet: its daemon tab is still being created.
             return pageClosedBeforeAdoption(page)
@@ -211,6 +216,13 @@ final class BrowserPageRequests: BrowserTabDelegate {
             services.designMode.receive(message, from: page)
         case .protectedMediaUnavailable(let media):
             reopenInWebKit(page, for: media, tab: openerTab, pane: pane)
+        case .contentFullscreen(true):
+            let daemon = services.machines.daemon(forTab: openerTab)
+            fullscreenZoom.began(ObjectIdentifier(page), pane: pane.handle, in: daemon.store) { handle, on in
+                daemon.send("zoom-pane") { _ = try await $0.zoomPane(handle, mode: on ? .on : .off) }
+            }
+        case .contentFullscreen(false):
+            break // ended before the tab lookup
         case .unhandledEscape, .resizePopup:
             break
         case .takeFocus:
