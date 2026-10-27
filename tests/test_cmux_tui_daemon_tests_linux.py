@@ -20,7 +20,10 @@ never keeps an artifacts run in progress.
 
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -129,6 +132,41 @@ class DaemonTestsLinuxTests(unittest.TestCase):
                 label = route(runs_on, context)
                 expected = "blacksmith-6vcpu-macos-15" if context["github.repository_owner"] == "manaflow-ai" else "macos-26"
                 self.assertEqual(label, expected, (daemon, context))
+
+    def test_a_run_waiting_on_the_marker_path_skips_the_tests_once_the_tree_is_marked(self) -> None:
+        # A marker-path run pending in its key's concurrency group ran the
+        # tests again after the run ahead of it wrote the marker.
+        daemon = jobs()["cmux-next-daemon-tests"]
+        ids = [s.get("id") for s in daemon["steps"]]
+        self.assertLess(ids.index("current"), ids.index("marked"))
+        self.assertLess(ids.index("marked"), ids.index("key"))
+        marked = daemon["steps"][ids.index("marked")]
+        condition = flat(marked["if"])
+        for part in ("steps.current.outputs.stale != 'true'", "github.event_name == 'push'",
+                     "github.ref != 'refs/heads/main'",
+                     "(needs.tree-preflight.outputs.tree_ready == 'true' || needs.tree-owner-wait.outputs.unmarked == 'true')"):
+            self.assertIn(part, condition)
+        # The key output stays set, so publish-tree-tested and the request still run.
+        self.assertNotIn("steps.marked", str(daemon["steps"][ids.index("key")].get("if")))
+        for later in daemon["steps"][ids.index("key") + 1:]:
+            self.assertIn("steps.marked.outputs.marked != 'true'", str(later.get("if")), later.get("name"))
+
+        key, legacy = "a" * 40, "b" * 40
+        for marked_keys, want in (({key, legacy}, True), ({key}, False), ({legacy}, False), (set(), False)):
+            with tempfile.TemporaryDirectory() as tmp:
+                curl = Path(tmp) / "curl"
+                curl.write_text("#!/usr/bin/env bash\n"
+                                "for arg; do url=$arg; done\n"
+                                + "".join(f'[[ "$url" == */tree/{k}/daemon-tests.json\\?* ]] && exit 0\n'
+                                          for k in sorted(marked_keys))
+                                + "exit 22\n", encoding="utf-8")
+                curl.chmod(0o755)
+                output = Path(tmp) / "output"
+                output.touch()
+                env = dict(os.environ, PATH=f"{tmp}:{os.environ['PATH']}", KEY=key, LEGACY_KEY=legacy,
+                           RUN_ID="1", GITHUB_RUN_ATTEMPT="1", GITHUB_OUTPUT=str(output))
+                subprocess.run(["bash", "-c", marked["run"]], env=env, check=True, capture_output=True)
+                self.assertEqual("marked=true" in output.read_text(encoding="utf-8"), want, marked_keys)
 
 if __name__ == "__main__":
     unittest.main()
