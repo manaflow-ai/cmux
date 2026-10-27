@@ -1288,8 +1288,8 @@ class SameTreeIsAnEvent(unittest.TestCase):
 
 
 class FastTierBuildsLibghosttyVt(unittest.TestCase):
-    """The fast tier's cargo entries run on Linux (fast-tier-cargo), its Swift and
-    script entries on the Mac (fast-tier): one registry, split by fast-tier.py --kind."""
+    """Cargo and script entries run on Blacksmith; Swift entries run on Mac.
+    One registry is split by fast-tier.py --kind."""
 
     def jobs(self) -> dict:
         return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -1334,7 +1334,7 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         for name in ("fast-tier", "fast-tier-cargo"):
             argv = self.tier_run(jobs[name]).split()
             kinds[name] = {argv[i + 1] for i, arg in enumerate(argv) if arg == "--kind"}
-        self.assertEqual(kinds, {"fast-tier": {"swift", "script"}, "fast-tier-cargo": {"cargo"}})
+        self.assertEqual(kinds, {"fast-tier": {"swift"}, "fast-tier-cargo": {"cargo", "script"}})
         registry = json.loads((ROOT / "scripts/cmux-next/fast-tier.json").read_text(encoding="utf-8"))
         self.assertLessEqual({entry["kind"] for entry in registry["entries"]}, kinds["fast-tier"] | kinds["fast-tier-cargo"])
 
@@ -1775,7 +1775,8 @@ class FastTierStartsWarm(unittest.TestCase):
         record = index_of(steps, lambda s: "e2e_warm_derived_data.py record" in s.get("run", ""))
         tier = index_of(steps, lambda s: "scripts/cmux-next/fast-tier.py" in s.get("run", ""))
         self.assertLess(record, tier)
-        self.assertIn("--kind swift --kind script", steps[tier]["run"], "the seed builds what the Mac fast tier builds")
+        self.assertIn("--kind swift", steps[tier]["run"], "the seed builds what the Mac fast tier builds")
+        self.assertNotIn("--kind script", steps[tier]["run"], "portable entries run with cargo")
         self.assertNotIn("setup-cmux-tui-rust", yaml.safe_dump(build), "nothing restores a Mac cargo seed")
         self.assertLess(tier, steps.index(saves[0]))
         self.assertIn(FAST_CACHE_MANIFEST, steps[record]["run"])

@@ -2511,8 +2511,8 @@ jobs:
   # whatever paths changed, without the gui token. Target: under 5 minutes
   # with the build. A fail-then-pass entry is FLAKY and fails the job: it is
   # never retried silently (fast-tier.py's flake policy). The registry is split
-  # by kind: this Mac job builds and runs the Swift (and script) entries, and
-  # fast-tier-cargo runs the cargo entries on Linux beside it, so the Mac no
+  # by kind: this Mac job builds and runs the Swift entries, and
+  # fast-tier-cargo runs the cargo and script entries beside it, so the Mac no
   # longer builds cmux-tui (297-422 s) after CmuxNext.
   # A pull request the router sends to no Mac tier (only web or CI files, which
   # no fast-tier entry builds or reads) starts no Mac fast tier: its result is
@@ -2693,7 +2693,7 @@ jobs:
           CMUX_FAST_SWIFT_CACHE_KEY: ${{ steps.fast-cache-key.outputs.swift-key }}
           CMUX_FAST_SWIFT_CACHE_HIT: ${{ steps.fast-cache-restore.outputs.cache-hit }}
           CMUX_FAST_CACHE_MATCHED_KEY: ${{ steps.fast-cache-restore.outputs.cache-matched-key }}
-        run: python3 -I scripts/cmux-next/fast-tier.py --kind swift --kind script --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
+        run: python3 -I scripts/cmux-next/fast-tier.py --kind swift --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
 
       - name: Upload fast-tier timing receipt
         if: ${{ (always()) && steps.reuse.outputs.hit != 'true' }}
@@ -2725,9 +2725,9 @@ jobs:
           retention-days: 14
           overwrite: true
 
-  # The fast tier's cargo entries (fast-tier.py --kind cargo): cmux-tui-core and the
-  # layout reducer, built and run on a Linux runner beside the Mac job, so the
-  # Mac builds only Swift. Same gating, flake policy and quarantine list as
+  # The fast tier's cargo and portable script entries: cmux-tui-core, the
+  # layout reducer and performance completeness, run beside the Mac job, so
+  # the Mac runs only Swift. Same gating, flake policy and quarantine list as
   # fast-tier; its own check name, receipt and concurrency group.
   fast-tier-cargo:
     needs: [push-head-preflight]
@@ -2821,11 +2821,11 @@ jobs:
           shared-key: cmux-next-fast-tier-cargo
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
-      - name: Run the fast tier (cargo entries)
+      - name: Run the fast tier (cargo and script entries)
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         env:
           CMUX_FAST_CARGO_CACHE_HIT: ${{ steps.cargo-cache.outputs.cache-hit }}
-        run: python3 -I scripts/cmux-next/fast-tier.py --kind cargo --receipt "$RUNNER_TEMP/cmux-next-fast-tier-cargo.json"
+        run: python3 -I scripts/cmux-next/fast-tier.py --kind cargo --kind script --receipt "$RUNNER_TEMP/cmux-next-fast-tier-cargo.json"
 
       - name: Upload fast-tier timing receipt
         if: ${{ (always()) && steps.reuse.outputs.hit != 'true' }}

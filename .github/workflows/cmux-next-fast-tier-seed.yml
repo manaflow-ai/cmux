@@ -135,7 +135,7 @@ jobs:
       - name: Run the fast tier
         id: tier
         continue-on-error: true
-        run: python3 -I scripts/cmux-next/fast-tier.py --kind swift --kind script --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
+        run: python3 -I scripts/cmux-next/fast-tier.py --kind swift --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
 
       - name: Check that every build passed
         id: built

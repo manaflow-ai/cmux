@@ -1869,8 +1869,6 @@ jobs:
     permissions:
       contents: write
       actions: read
-      attestations: write
-      id-token: write
     needs: [decide, resolve-nightly-cmux-tui-client, pick-nightly-build-runner]
     # One build slot per run: a newer nightly-next push builds alongside an
     # older one and never replaces it while it waits. A shared warm slot
@@ -2384,15 +2382,6 @@ jobs:
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
 
-      - name: Set up Go for the SSH daemon assets
-        if: inputs.nightly_next_unsigned_run == ''
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          # The exact Go of the shipped cmuxd-remote (its go.mod `toolchain` line);
-          # build_remote_daemon_release_assets.sh refuses any other.
-          go-version-file: daemon/remote/go.mod
-          cache: false
-
       # The cmux-next web bundles (agent pane, pages, Activity, palette ranker,
       # webviews app) are built from this commit's sources, never taken from a
       # committed copy (cx-vn5). build-nightly-inputs builds them on Linux
@@ -2752,7 +2741,7 @@ jobs:
           rm -f "$app/Contents/Resources/bin/cmux-cua" "$app/Contents/Resources/bin/cmux-cua-LICENSE.md"
           ./scripts/ci/verify-computer-use-helper.sh layout "$app"
 
-      - name: Build immutable SSH daemon assets once for every app variant
+      - name: Resolve immutable SSH daemon metadata
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
         id: remote_daemon
         run: |
@@ -2773,66 +2762,8 @@ jobs:
             done
             python3 scripts/ci/nightly_version.py check-build --build "$build" "${feeds[@]}"
           fi
-          ./scripts/build_remote_daemon_release_assets.sh \
-            --version "$version" --release-tag "${{ needs.decide.outputs.release_tag }}" \
-            --repo "$GITHUB_REPOSITORY" --asset-suffix "$build" --output-dir remote-daemon-assets
           echo "build=$build" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      # The provenance is for people who run `gh attestation verify` on a
-      # daemon asset; no nightly step reads it. Persisting it spends the
-      # repository's shared installation API budget, and when that budget was
-      # spent (Oct 25-26: runs 40237461954, 40243891601, 40244721101,
-      # 40249486409, 40268415260, 40279850697 all ended "Failed to persist
-      # attestation: API rate limit exceeded for installation") a finished
-      # build was thrown away. So: try, wait once for the budget to reset
-      # (bounded), try again, and on a second refusal ship with a warning.
-      # Persisting the attestation spends the shared budget: wait (bounded, logged) for 200 calls
-      # to be left before trying, so a nearly spent hour does not use up the retry below.
-      - name: Wait for API budget before the daemon attestation
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --reserve 200; fi
-
-      - name: Attest immutable SSH daemon assets
-        id: attest_daemon
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
-        continue-on-error: true
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-        with:
-          subject-path: remote-daemon-assets/cmuxd-remote-*
-
-      - name: Wait for the API budget before retrying the daemon attestation
-        if: steps.attest_daemon.outcome == 'failure'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        # One bounded wait, not a poll, and only while fewer than 200 calls are left (an attestation
-        # that failed for another reason is retried at once). It shares the pre-step's ledger, so the
-        # two wait at most an hour together; timeout-minutes leaves room for it.
-        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --reserve 200; fi
-
-      - name: Retry the daemon attestation
-        id: attest_daemon_retry
-        if: steps.attest_daemon.outcome == 'failure'
-        continue-on-error: true
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-        with:
-          subject-path: remote-daemon-assets/cmuxd-remote-*
-
-      - name: Report a missing daemon attestation
-        if: steps.attest_daemon.outcome == 'failure' && steps.attest_daemon_retry.outcome == 'failure'
-        run: |
-          echo "::warning title=SSH daemon assets shipped without provenance::actions/attest-build-provenance failed twice (usually the installation API rate limit). The nightly continues; gh attestation verify will find no attestation for this build's cmuxd-remote assets."
-
-      - name: Upload SSH daemon assets
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cmux-nightly-remote-daemon
-          path: remote-daemon-assets/cmuxd-remote-*
-          if-no-files-found: error
-          retention-days: 14
 
       - name: Strip unsigned nightly app before transfer
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
@@ -3020,6 +2951,127 @@ jobs:
         if: always() && inputs.nightly_next_unsigned_run == ''
         run: python3 scripts/ci/background_build.py stop --state "$RUNNER_TEMP/nightly-helper-builds"
 
+  build-nightly-remote-daemon:
+    # Pure Go (CGO_ENABLED=0), manifests and uploads do not need the app builder.
+    # Resume already retained these exact assets in build-nightly-app.
+    needs: [decide, resolve-nightly-cmux-tui-client, build-nightly-app]
+    if: needs.decide.outputs.build_only != 'true'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - name: Keep the resumed daemon assets
+        if: inputs.nightly_next_unsigned_run != ''
+        run: echo "The original run's daemon assets were retained by the unsigned resume."
+
+      - name: Checkout build ref
+        if: inputs.nightly_next_unsigned_run == ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          submodules: false
+
+      - name: Set up Go for the SSH daemon assets
+        if: inputs.nightly_next_unsigned_run == ''
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          # The exact Go of the shipped cmuxd-remote (its go.mod `toolchain` line);
+          # build_remote_daemon_release_assets.sh refuses any other.
+          go-version-file: daemon/remote/go.mod
+          cache: false
+
+      - name: Build immutable SSH daemon assets once for every app variant
+        if: inputs.nightly_next_unsigned_run == ''
+        env:
+          VERSION: ${{ needs.build-nightly-app.outputs.daemon_version }}
+          BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+          RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          ./scripts/build_remote_daemon_release_assets.sh \
+            --version "$VERSION" --release-tag "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" --asset-suffix "$BUILD" --output-dir remote-daemon-assets
+
+      - name: Upload SSH daemon assets
+        if: inputs.nightly_next_unsigned_run == ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-remote-daemon
+          path: remote-daemon-assets/cmuxd-remote-*
+          if-no-files-found: error
+          retention-days: 14
+
+  attest-nightly-remote-daemon:
+    # Provenance is advisory, as it was inside the app job. No publishing job
+    # needs this job: a quota wait must neither occupy a Mac nor delay the feed.
+    needs: [build-nightly-remote-daemon]
+    if: inputs.nightly_next_unsigned_run == ''
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+    timeout-minutes: 75
+    steps:
+      - name: Checkout attestation controls
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          sparse-checkout: scripts/ci
+
+      - name: Download SSH daemon assets
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-nightly-remote-daemon
+          path: remote-daemon-assets
+
+      # The provenance is for people who run `gh attestation verify` on a
+      # daemon asset; no nightly step reads it. Persisting it spends the
+      # repository's shared installation API budget, and when that budget was
+      # spent (Oct 25-26: runs 40237461954, 40243891601, 40244721101,
+      # 40249486409, 40268415260, 40279850697 all ended "Failed to persist
+      # attestation: API rate limit exceeded for installation") a finished
+      # build was thrown away. So: try, wait once for the budget to reset
+      # (bounded), try again, and on a second refusal ship with a warning.
+      # Persisting the attestation spends the shared budget: wait (bounded, logged) for 200 calls
+      # to be left before trying, so a nearly spent hour does not use up the retry below.
+      - name: Wait for API budget before the daemon attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --reserve 200; fi
+
+      - name: Attest immutable SSH daemon assets
+        id: attest_daemon
+        continue-on-error: true
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: remote-daemon-assets/cmuxd-remote-*
+
+      - name: Wait for the API budget before retrying the daemon attestation
+        if: steps.attest_daemon.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # One bounded wait, not a poll, and only while fewer than 200 calls are left (an attestation
+        # that failed for another reason is retried at once). It shares the pre-step's ledger, so the
+        # two wait at most an hour together; timeout-minutes leaves room for it.
+        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --reserve 200; fi
+
+      - name: Retry the daemon attestation
+        id: attest_daemon_retry
+        if: steps.attest_daemon.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: remote-daemon-assets/cmuxd-remote-*
+
+      - name: Report a missing daemon attestation
+        if: steps.attest_daemon.outcome == 'failure' && steps.attest_daemon_retry.outcome == 'failure'
+        run: |
+          echo "::warning title=SSH daemon assets shipped without provenance::actions/attest-build-provenance failed twice (usually the installation API rate limit). The nightly continues; gh attestation verify will find no attestation for this build's cmuxd-remote assets."
+
   # Runs beside build-nightly-app. Deepening the shallow clone to find the
   # newest published cmux-tui commit took 1.5 to 11 minutes after the Xcode
   # compile (runs 36044415287, 36051668491); here it overlaps the compile.
@@ -3182,7 +3234,7 @@ jobs:
     # theme picker regression and the sidecar handshake run on the signed app
     # in verify-signed-nightly. build-sign-notarize-nightly signs exactly the
     # app it uploads and runs no bundle code itself (#21024).
-    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client]
+    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-nightly-remote-daemon, resolve-nightly-cmux-tui-client]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     # actions:read lets the parallel artifact download resolve the blob URL.
     permissions:
@@ -3612,7 +3664,7 @@ jobs:
 
 
   prepare-nightly-variant-fallback:
-    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant-primary]
+    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-nightly-remote-daemon, resolve-nightly-cmux-tui-client, prepare-nightly-variant-primary]
     # This job must not be skipped when the primary succeeds: GitHub skips every job whose
     # needs chain holds a skipped job unless its `if` calls a status function, so a skipped
     # fallback skipped signing and publishing (runs 40154003204 and 40155340212 built an app
@@ -8199,7 +8251,7 @@ jobs:
   # published build whose notes jobs did not both succeed is reported too
   # (run 37526646874 published with its notes job cancelled and no alarm).
   report-nightly-failure:
-    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-signed-nightly, verify-final-dmg-nightly, verify-recovered-nightly-next, publish-nightly, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
+    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-nightly-remote-daemon, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-signed-nightly, verify-final-dmg-nightly, verify-recovered-nightly-next, publish-nightly, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
     if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.notary_test != 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.tag_status == 'stale' || needs.publish-nightly.outputs.refusal_reason != '' || (needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
