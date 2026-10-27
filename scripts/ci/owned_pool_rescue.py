@@ -1722,6 +1722,13 @@ class GitHub:
         self.request("POST", f"/actions/runs/{run_id}/rerun", before_retry=self._still_finished(run_id, next_attempt))
         self.request_ui_tests(run_id, next_attempt)
 
+    def rerun_job(self, run_id: int, job_id: int, next_attempt: int) -> None:
+        """Re-run one job of a finished run and every job that needs it (one attempt more).
+
+        The run is read again right before the send (and any re-send): the reads that chose this job may have
+        waited out a rate limit while another watch re-ran the run."""
+        self.request("POST", f"/actions/jobs/{job_id}/rerun", before_send=self._still_finished(run_id, next_attempt))
+
     def rerun_failed(self, run_id: int, next_attempt: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/rerun-failed-jobs",
                      before_retry=self._still_finished(run_id, next_attempt))
@@ -2394,6 +2401,119 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
     return ""
 
 
+# nightly.yml's runner picker for build-nightly-app and the Ghostty helper (feat-cmux-next). A re-run of
+# failed jobs keeps a finished picker's outputs, and the build reads its owned pick only when that pick
+# was made for the run's own attempt, so the re-run takes attempt 1's Blacksmith label: on 2026-10-27
+# runs 40549487427, 40550551073 and 40550711613 (attempt 1's build refused at "Set up runner" on the
+# dedicated builder, whose runner then went offline) re-ran onto blacksmith-6vcpu-macos-26, a label the
+# picker had already reported as stalled. Re-running the picker job instead (GitHub re-runs a job and every
+# job that needs it) makes the picker choose again: an idle owned Mac, else a moving Blacksmith label.
+NIGHTLY_BUILD_PICKER = "pick-nightly-build-runner"
+
+
+def repick_job(workflow_text: str, jobs: Sequence[Mapping[str, Any]]) -> tuple[int | None, str]:
+    """(the id of this attempt's NIGHTLY_BUILD_PICKER job, when re-running it and the jobs that need it
+    re-runs everything a re-run of failed jobs would and nothing that could break, or None, why).
+
+    `jobs` is the attempt's whole job list, the jobs a re-run kept from earlier attempts included (the picker
+    is one after a re-run of failed jobs). Every failed, timed-out or cancelled job in it must need the
+    picker, directly or through others, so nothing a re-run of failed jobs would retry is left out (GitHub
+    re-runs the picked job and its dependents only). A finished job that needs the picker but no failed job
+    is re-run only by this (a re-run of failed jobs re-runs whatever needs a failed job already): unless it
+    was skipped (it uploaded nothing), each of its artifact uploads must set `overwrite: true`, or its
+    second upload of the same name could fail. Names map to workflow jobs as in downstream_of_refusals()."""
+    try:
+        document = owned_pool_sources._load(workflow_text)
+    except Exception as error:  # noqa: BLE001 - an unreadable file keeps the re-run of failed jobs
+        return None, f"the workflow file could not be read ({type(error).__name__})"
+    spec = {str(key): job for key, job in (document.get("jobs") or {}).items() if isinstance(job, Mapping)}
+    if NIGHTLY_BUILD_PICKER not in spec:
+        return None, f"the workflow has no {NIGHTLY_BUILD_PICKER} job"
+    needs: dict[str, set[str]] = {}
+    for key, job in spec.items():
+        wanted = job.get("needs") or []
+        needs[key] = {str(item) for item in ([wanted] if isinstance(wanted, str) else wanted)} & set(spec)
+    below: dict[str, set[str]] = {}
+
+    def descendants(key: str) -> set[str]:
+        if key not in below:
+            below[key] = set()  # never loop on a cycle
+            found: set[str] = set()
+            for child, parents in needs.items():
+                if key in parents:
+                    found |= {child} | descendants(child)
+            below[key] = found
+        return below[key]
+
+    patterns = {key: _job_name_pattern(key, job) for key, job in spec.items()}
+
+    def keys(job: Mapping[str, Any]) -> set[str]:
+        name = str(job.get("name") or "")
+        return {key for key, pattern in patterns.items() if pattern.fullmatch(name)}
+
+    current = list(jobs)
+    pickers = [job for job in current if keys(job) == {NIGHTLY_BUILD_PICKER}]
+    if len(pickers) != 1 or not pickers[0].get("id"):
+        return None, f"this attempt has no single {NIGHTLY_BUILD_PICKER} job"
+    picker = pickers[0]
+    if picker.get("status") != "completed":
+        return None, f"{NIGHTLY_BUILD_PICKER} has not finished"
+    under = descendants(NIGHTLY_BUILD_PICKER)
+    failed = [job for job in current if job is not picker and job.get("status") == "completed"
+              and job.get("conclusion") in ("failure", "timed_out", "cancelled")]
+    if not failed:
+        return None, "no job of this attempt failed"
+    failed_keys: set[str] = set()
+    for job in failed:
+        found = keys(job)
+        if not found or not found <= under:
+            return None, f"{job.get('name') or job.get('id')} does not need {NIGHTLY_BUILD_PICKER}"
+        failed_keys |= found
+    retried = failed_keys.union(*(descendants(key) for key in failed_keys))
+    for job in current:
+        found = keys(job)
+        if job is picker or not found or not found <= under or found <= retried or job.get("conclusion") == "skipped":
+            continue
+        for key in found:
+            for step in spec[key].get("steps") or []:
+                if not isinstance(step, Mapping) or "actions/upload-artifact@" not in str(step.get("uses") or ""):
+                    continue
+                if str((step.get("with") or {}).get("overwrite", "")).strip().lower() != "true":
+                    return None, (f"{job.get('name') or key} would upload "
+                                  f"{(step.get('with') or {}).get('name') or 'an artifact'} again without overwrite")
+    return int(picker["id"]), f"every failed job of this attempt needs {NIGHTLY_BUILD_PICKER}"
+
+
+def rerun_failed_or_repick(api: GitHub, target: Target, sleep: Callable[[float], None],
+                           log: Callable[[str], None]) -> str:
+    """Re-run a finished attempt's failed jobs; for attempt 1 of a nightly-next run, re-run its build picker
+    and the jobs that need it instead when repick_job() allows (once: attempt 2's re-run keeps attempt 2's
+    fresh pick, whose Blacksmith label it then takes)."""
+    if target.nightly and target.push_branch == "nightly-next" and target.attempt == 1:
+        try:
+            jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+            text = read(lambda: api.workflow_file(NIGHTLY_WORKFLOW_PATH, target.head_sha), sleep, log)
+        except READ_ERRORS as error:
+            jobs, text = [], None
+            log(f"could not read the run for a fresh runner pick ({error}); re-running its failed jobs")
+        if text:
+            picker, why = repick_job(text, jobs)
+            if picker is not None:
+                try:
+                    api.rerun_job(target.run_id, picker, target.attempt + 1)
+                except urllib.error.HTTPError as error:
+                    # Refused (GitHub declines a job it cannot re-run): the failed jobs, as before. If the job
+                    # re-run did start, the run is no longer finished and this re-run is refused in turn.
+                    log(f"the re-run of {NIGHTLY_BUILD_PICKER} was refused ({error.code}); re-running the failed jobs")
+                    api.rerun_failed(target.run_id, target.attempt + 1)
+                    return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
+                return (f"re-ran {NIGHTLY_BUILD_PICKER} of run {target.run_id} and every job that needs it ({why}), "
+                        f"so attempt {target.attempt + 1} picks its runner fresh")
+            log(f"no fresh runner pick: {why}")
+    api.rerun_failed(target.run_id, target.attempt + 1)
+    return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
+
+
 # Looks nightly_cancel()'s guard makes for a jobs read no rate-limit wait made stale.
 NIGHTLY_GUARD_TRIES = 3
 # A run read slower than this (a token mint, a slow API) leaves the jobs read before it stale too.
@@ -2530,8 +2650,7 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         if e2e_build_unfinished(api, target, sleep, log):
             api.rerun(target.run_id, target.attempt + 1)
             return f"re-ran every job of run {target.run_id}, so its sibling wait runs again; {next_attempt(target)}"
-        api.rerun_failed(target.run_id, target.attempt + 1)
-        return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
+        return rerun_failed_or_repick(api, target, sleep, log)
     if target.path == CMUX_NEXT_WORKFLOW_PATH:
         # Only cmux-next.yml places jobs on the freshness slot (macos-placement's fresh_runner).
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
@@ -2580,8 +2699,7 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         if e2e_build_unfinished(api, target, sleep, log):
             api.rerun(target.run_id, target.attempt + 1)
             return f"re-ran every job of run {target.run_id}, so its sibling wait runs again; {next_attempt(target)}"
-        api.rerun_failed(target.run_id, target.attempt + 1)
-        return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
+        return rerun_failed_or_repick(api, target, sleep, log)
     api.rerun(target.run_id, target.attempt + 1)
     if target.attempt + 1 <= LAST_OWNED_ATTEMPT and not target.e2e:
         return (f"re-ran run {target.run_id}; attempt {target.attempt + 1} picks again, the owned machines "
