@@ -2,7 +2,7 @@
 // footer under an answer. Markup and metrics from reference prototype (messages.tsx,
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
 import { FindReveal, isRevealRow } from "./chatFind";
-import { useContext, useMemo, useState, type ReactNode } from "react";
+import { useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { copyText } from "./clipboard";
 import { MessageCard } from "./MessageCard";
@@ -277,7 +277,11 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // draws no Continue, so its footer is empty or not as it would be without one.
   const [resuming, setResuming] = useState(false);
   const [resumeError, setResumeError] = useState<string>();
+  useEffect(() => {
+    if (!resume) setResumeError(undefined);
+  }, [resume]);
   const continueTurn = () => {
+    if (!resume) return;
     setResumeError(undefined);
     setResuming(true);
     void resume()
@@ -322,7 +326,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             <ArrowRight size={ROW_ICON} aria-hidden="true" />
           </button>
         )}
-        {resumeError && (
+        {resumeError && resumable && (
           <span className="cv-turn-resume-error" role="alert">
             {t("notice.resumeFailedReason", { reason: resumeError })}
             <button type="button" className="cv-turn-resume-error__retry" onClick={continueTurn} disabled={resuming}>
