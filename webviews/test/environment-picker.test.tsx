@@ -308,7 +308,8 @@ test("the search field filters by name and section, keeping each machine's short
   await type("cloud");
   const shown = machineRows();
   expect(shown.map((row) => rowText(row))).toEqual(["build-cloud⌥⌘3", `cloud-1${t("composer.envNotConnected")}`]);
-  expect(newRows()).toHaveLength(4);
+  // The search narrows the machines; every action row stays.
+  expect(newRows()).toHaveLength(5);
 });
 
 test("⌥⌘2 in the composer picks the second environment and its folder there", async () => {
