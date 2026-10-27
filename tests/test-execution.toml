@@ -1750,6 +1750,10 @@ path = "tests/test_nightly_build_runner.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_git_fetch_retry.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_sign_admit.py"
 lane = "linux-guard"
 

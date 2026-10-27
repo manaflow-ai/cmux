@@ -2022,15 +2022,23 @@ jobs:
           if git rev-parse -q --verify HEAD >/dev/null; then
             git update-ref refs/remotes/origin/nightly-warm-base HEAD
           fi
+          # Each try has its own limit and git's low-speed abort, and a failed try's partial pack
+          # and locks are removed before the next (scripts/ci/git_fetch_retry.py). Run 40466772597
+          # hung here for 62 min, then died with "early EOF". Measured on owned minis (25 runs,
+          # 2026-10-26/27): 0-6 s warm, 194 s at most cold, so 600 s per try, 3 tries.
           started=$SECONDS
-          git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"
+          python3 scripts/ci/git_fetch_retry.py --tries 3 --timeout 600 -- \
+            git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"
           echo "fetched $BUILD_SHA in $((SECONDS - started)) s"
           git -c core.hooksPath=/dev/null checkout -q --force --detach "$BUILD_SHA"
           git update-ref refs/remotes/origin/nightly-warm-base "$BUILD_SHA"
           git clean -ffdxq -e /cmux-tui/target/ -e /Native/OptChat/optchat-chief/target/ -e /cmux-next-ios/rust/target/
           git reset -q --hard "$BUILD_SHA"
           git submodule sync -q --recursive
-          git -c protocol.version=2 -c core.hooksPath=/dev/null submodule update --init --force --depth=1 --recursive
+          started=$SECONDS
+          python3 scripts/ci/git_fetch_retry.py --tries 3 --timeout 600 -- \
+            git -c protocol.version=2 -c core.hooksPath=/dev/null submodule update --init --force --depth=1 --recursive
+          echo "updated submodules in $((SECONDS - started)) s"
           # A hosted runner starts with clean submodules; drop what earlier runs left.
           git submodule foreach -q --recursive 'git clean -ffdxq && git reset -q --hard'
           git submodule foreach -q --recursive git config --local gc.auto 0
