@@ -1,0 +1,20 @@
+{
+  "id": "power",
+  "tier": "T1",
+  "description": "Power in four windows, light session (bench_power.py): typing letters into the terminal in view at a person's pace (typing), one static Chromium tab in view and idle (tab1), the same with every window hidden (tab1-hidden) and a page that scrolls itself (scroll). Each window is settled, then measured: powermetrics' package, CPU and GPU power once a second (pool.json's privileged command, decision D3), and the energy and wakeups of the app and every process it owns. A host without the powermetrics right refuses with sudo's reason and writes nothing.",
+  "command": ["scripts/cmux-next/bench_power.py", "--scenarios", "typing,tab1,tab1-hidden,scroll", "--powermetrics",
+              "require", "--story", "power"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "power\\.(typing|tab1|tab1-hidden|scroll)\\.(package_mw|cpu_mw|gpu_mw)", "unit": "mW", "better": "lower"},
+    {"name": "power\\.(typing|tab1|tab1-hidden|scroll)\\.processes_mw", "unit": "mW", "better": "lower"},
+    {"name": "power\\.(typing|tab1|tab1-hidden|scroll)\\.wakeups_per_s", "unit": "per_s", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 660,
+  "needs": ["debug:debug.key", "privilege:powermetrics"],
+  "owner": "Performance Lead",
+  "component": "Energy>Power"
+}

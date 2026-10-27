@@ -3,6 +3,7 @@
 
     bundle-size.py report APP [--dmg DMG] [--compressed] [--json OUT]
     bundle-size.py check  APP --budget BUDGET.json --variant arm64 [--dmg DMG]
+    bundle-size.py story  --app APP --out DIR [--tag TAG] [--build-config bench]
 
 `report` prints the bundle by component: bytes on disk (file sizes, symlinks
 not followed, so the CEF framework's top-level links count once) and, with
@@ -17,12 +18,22 @@ not followed, so the CEF framework's top-level links count once) and, with
 The budget is a ratchet: when a cut lands, lower its caps to the new size
 plus a little headroom, so the size never grows back unnoticed. See
 plans/cmux-next/bundle-size-DESIGN.md.
+
+`story` is the perf lab's builder story bundle-size
+(scripts/perf-lab/stories.d/bundle-size.json): the size of each bench build
+as cmux-perf-result/v1 in DIR, bundle.app_bytes and
+bundle.cef_framework_bytes, with the report attached (bundle-size.json). The
+build is the bundle's own (CMUXCommit, CMUXBuildConfiguration) and the host
+is the builder's (chip and memory, no display). Exit 2 when the bundle cannot
+be described truthfully; nothing is written then.
 """
 
 from __future__ import annotations
 
 import argparse
 import fnmatch
+import hashlib
+import importlib.util
 import json
 import lzma
 import os
@@ -30,6 +41,13 @@ import sys
 from pathlib import Path
 
 MIB = 1024 * 1024
+HERE = Path(__file__).resolve().parent
+PERF_LAB = HERE.parent / "perf-lab"
+STORY = "bundle-size"
+CEF_FRAMEWORK = "Contents/Frameworks/Chromium Embedded Framework.framework"
+# result-v1 build.measure_version of the story: bump it when what it measures, or how, changes.
+STORY_MEASURE_VERSION = 1
+REPORT_FILE = "bundle-size.json"
 
 # Components the report lists on their own; everything else in a listed
 # parent folder is grouped under that parent. Paths are relative to the .app.
@@ -169,9 +187,86 @@ def print_report(r: dict) -> None:
         print(f"  {row['bytes'] / MIB:8.1f} MiB{xz}  {row['component']}")
 
 
+class StoryError(RuntimeError):
+    """The story cannot describe this bundle truthfully (no CEF framework, no build sha or config, no host)."""
+
+
+def _load(name: str, path: Path):
+    """The module at `path`, once per process: `python3 -I` puts no script folder on sys.path."""
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module  # before exec: a dataclass resolves its module through sys.modules
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        del sys.modules[name]
+        raise
+    return module
+
+
+def story_series(app: Path) -> tuple[dict, list[tuple[str, int]]]:
+    """(the report, [(metric, bytes)]) of a bench build: the whole app and its CEF framework."""
+    out = report(app, None, compressed=False)
+    cef = next((row["bytes"] for row in out["components"] if row["component"] == CEF_FRAMEWORK), None)
+    if cef is None:
+        raise StoryError(f"{app.name} has no {CEF_FRAMEWORK}: not a cmux-next bench build")
+    return out, [("bundle.app_bytes", out["app_bytes"]), ("bundle.cef_framework_bytes", cef)]
+
+
+def write_story(app: Path, out_dir: Path, build, host, run=None, session: str = "light") -> Path:
+    """The report into OUT_DIR, then one result-v1 file of the story's metrics naming its digest. `build`, `host`
+    and `run` are perf_result values (the CLI reads them from the bundle and this builder); returns the file."""
+    perf_result = _load("perf_result", PERF_LAB / "perf_result.py")
+    document, series = story_series(app)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    data = (json.dumps(document, indent=1, sort_keys=True) + "\n").encode("utf-8")
+    temporary = out_dir / f".{REPORT_FILE}.tmp"
+    temporary.write_bytes(data)
+    os.replace(temporary, out_dir / REPORT_FILE)
+    attachment = perf_result.Attachment(digest=f"sha256:{hashlib.sha256(data).hexdigest()}", kind=STORY)
+    run = run or perf_result.Run.start()
+    results = [perf_result.Result(story=STORY, metric=metric, unit="bytes", better="lower", samples=[size],
+                                  build=build, host=host, engine="none", session=session, run=run,
+                                  attachments=[attachment])
+               for metric, size in series]
+    return perf_result.write_ndjson(out_dir, results, repo_root=HERE.parent.parent)
+
+
+def story_main(a, environ=os.environ) -> int:
+    """`story`: the bundle's build (bench_launch.build_sha and build_config, the runner's PERF_LAB_CONFIG or
+    --build-config stated) and the builder's host block (incremental_build.host_block: chip and memory decide a
+    build, a display does not)."""
+    bench_launch = _load("bench_launch", HERE / "bench_launch.py")
+    builder = _load("perf_lab_incremental_build", PERF_LAB / "stories" / "incremental_build.py")
+    perf_result = _load("perf_result", PERF_LAB / "perf_result.py")
+    app = a.app.resolve()
+    try:
+        if a.tag and a.tag != bench_launch.tag_of(str(app)):
+            raise StoryError(f"--tag {a.tag} is not the tag of {app.name}")
+        stated = a.build_config or environ.get("PERF_LAB_CONFIG") or None
+        build = perf_result.Build(sha=bench_launch.build_sha(str(app), environ),
+                                  config=bench_launch.build_config(str(app), bench_launch.main_binary(str(app)), stated),
+                                  measure_version=STORY_MEASURE_VERSION)
+        host = perf_result.Host.from_dict(builder.host_block(builder.read_host_facts()).to_dict())
+        path = write_story(app, a.out, build, host, session=environ.get("PERF_LAB_SESSION") or "light")
+    except (StoryError, bench_launch.RecordError, builder.StoryError, perf_result.ResultError) as error:
+        print(f"bundle-size: story refused: {error}", file=sys.stderr)
+        return 2
+    print(f"bundle-size: {app.name}: wrote {path}")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("story", help="the perf lab's builder story: result-v1 sizes of a bench build")
+    s.add_argument("--app", type=Path, required=True)
+    s.add_argument("--out", type=Path, required=True)
+    s.add_argument("--tag", help="the lab runner's tag of --app (checked against the bundle's name)")
+    s.add_argument("--build-config", choices=("bench", "bench-checks", "release", "debug"),
+                   help="the config of a bench-hooks bundle that does not stamp it")
     r = sub.add_parser("report")
     r.add_argument("app", type=Path)
     r.add_argument("--dmg", type=Path)
@@ -183,6 +278,8 @@ def main(argv: list[str]) -> int:
     c.add_argument("--variant", required=True)
     c.add_argument("--dmg", type=Path)
     a = ap.parse_args(argv)
+    if a.cmd == "story":
+        return story_main(a)
     if a.cmd == "report":
         out = report(a.app, a.dmg, a.compressed)
         print_report(out)
