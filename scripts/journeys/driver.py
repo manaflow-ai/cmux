@@ -56,6 +56,8 @@ REQUIRED_KINDS = ("app", "daemon", "frame")
 KIND = {"daemon_line": "daemon", "daemon_contains": "daemon", "daemon_prompt": "daemon",
         "app_text_line": "app", "app_text_contains": "app", "app_prompt": "app", "app_pane": "app",
         "process_present": "process", "process_gone": "process", "frame_text": "frame"}
+# Conditions an extension module adds (ext_*.py beside this file, load_extensions): name -> fn(journey, want, cache).
+EXT_CONDITIONS = {}
 
 
 def now():
@@ -193,7 +195,9 @@ class App:
         path = Path(path)
         if path.exists():
             path.unlink()
-        self.rpc("debug.window_snapshot", {"kind": "main", "path": str(path)}, timeout=SNAPSHOT_TIMEOUT)
+        # The journey's window (a main window id) when a step chose one, else the main window.
+        target = {"window": self.snapshot_window} if getattr(self, "snapshot_window", None) else {"kind": "main"}
+        self.rpc("debug.window_snapshot", dict(target, path=str(path)), timeout=SNAPSHOT_TIMEOUT)
         if not path.is_file() or path.stat().st_size == 0:
             raise StepError("debug.window_snapshot wrote no image")
         return path
@@ -278,6 +282,10 @@ class Journey:
         self.marks, self.binds = {}, {}
         self.term = self.pane = self.host_pid = None
         self.steps, self.evidence, self.checks = [], [], 0
+        # The window keys go to (a main window id; None: debug.key's default, the first window), and
+        # the window frames are read from (None: the main window); each journey starts with both defaults.
+        self.key_window = None
+        app.snapshot_window = None
 
     def sub(self, value):
         if isinstance(value, str):
@@ -292,6 +300,8 @@ class Journey:
 
     def step_new_terminal(self, step):
         before = {p.get("terminal_id") for p in self.app.panes() if p.get("terminal_id")}
+        # A second new_terminal in one journey (a second window) finds its own terminal, not the first's.
+        self.term = self.pane = self.host_pid = None
         reply = self.app.rpc("action.run", {"action": "newTab", "args": {"name": self.sub(step.get("name", self.id)), "focus": True}})
         end = now() + float(step.get("timeout", 20))
         while now() < end:
@@ -381,7 +391,10 @@ class Journey:
         return {"reply": self.app.rpc(step["method"], self.sub(step.get("params") or {}))}
 
     def key(self, key, modifiers):
-        return self.app.rpc("debug.key", {"key": key, "modifiers": modifiers})
+        params = {"key": key, "modifiers": modifiers}
+        if self.key_window:
+            params["window"] = self.key_window
+        return self.app.rpc("debug.key", params)
 
     def need_term(self):
         if not self.term:
@@ -399,8 +412,8 @@ class Journey:
         within = step.get("within")
         timeout_at = t0 + float(step.get("timeout", 10))
         state = [{"cond": c, "name": next(iter(c)), "ok": False, "at": None, "detail": None} for c in conds]
-        live = [s for s in state if s["name"] != "frame_text"]
-        frames = [s for s in state if s["name"] == "frame_text"]
+        live = [s for s in state if KIND.get(s["name"]) != "frame"]
+        frames = [s for s in state if KIND.get(s["name"]) == "frame"]
         ticks = 0
         while True:
             ticks += 1
@@ -423,7 +436,7 @@ class Journey:
             while not s["ok"]:
                 time.sleep(0.25)
                 tries += 1
-                ok, detail = self.evaluate("frame_text", s["cond"]["frame_text"], {})
+                ok, detail = self.evaluate(s["name"], s["cond"][s["name"]], {})
                 s["detail"] = dict(detail, tries=tries) if isinstance(detail, dict) else detail
                 if ok:
                     s["ok"], s["at"] = True, now()
@@ -432,7 +445,7 @@ class Journey:
         failed = []
         for s in state:
             elapsed = None if s["at"] is None else round((s["at"] - t0) * 1000)
-            limit = None if within is None or s["name"] == "frame_text" else round(float(within) * 1000)
+            limit = None if within is None or KIND.get(s["name"]) == "frame" else round(float(within) * 1000)
             passed = s["ok"] and (limit is None or elapsed <= limit)
             row = {"kind": KIND.get(s["name"], "other"), "check": s["name"], "want": s["cond"][s["name"]],
                    "pass": passed, "elapsed_ms": elapsed, "within_ms": limit, "detail": s["detail"],
@@ -449,6 +462,8 @@ class Journey:
     def evaluate(self, name, want, cache):
         """(holds, detail) of one condition; `cache` keeps one read of each source per poll."""
         try:
+            if name in EXT_CONDITIONS:
+                return EXT_CONDITIONS[name](self, want, cache)
             if name.startswith("daemon_"):
                 if "screen" not in cache:
                     cache["screen"] = self.app.screen(self.need_term())
@@ -538,6 +553,16 @@ class Journey:
         except (StepError, OSError, ValueError, subprocess.TimeoutExpired) as error:
             status, reason = "fail", f"step {len(self.steps)} ({self.steps[-1]['do'] if self.steps else '?'}): {error}"
         finally:
+            # `finally` steps put the app back for the next journey (leave full screen, close a second
+            # window), whatever happened; their errors are recorded and never change the status.
+            for step in self.spec.get("finally") or []:
+                record = {"do": step["do"], "title": step.get("title", ""), "finally": True}
+                try:
+                    record["result"] = getattr(self, "step_" + step["do"])(step)
+                    record["ok"] = True
+                except Exception as error:  # noqa: BLE001 (clean-up: record any error, keep going)
+                    record["ok"], record["error"] = False, str(error)[-300:]
+                self.steps.append(record)
             frames.stopped.set()
             frames.join(timeout=SNAPSHOT_TIMEOUT)
         if status == "pass":
@@ -567,6 +592,27 @@ class Journey:
         if done.returncode == 0:
             shutil.rmtree(self.out / "frames")
         return len(list(clip.glob("frame-*.png")))
+
+
+def load_extensions(module):
+    """Step and condition groups beside this file (`ext_*.py`): each has `install(driver)`, `STEPS`
+    ({name: fn(journey, step)}, played as `do: name`) and `CONDITIONS` ({name: (evidence kind, fn(journey,
+    want, cache) -> (holds, detail))}). They must not import this file (it runs as __main__ on the mini)."""
+    import importlib
+    for path in sorted(Path(os.path.dirname(os.path.abspath(__file__))).glob("ext_*.py")):
+        ext = importlib.import_module(path.stem)
+        ext.install(module)
+        for name, fn in getattr(ext, "STEPS", {}).items():
+            if hasattr(Journey, "step_" + name):
+                raise SystemExit(f"driver: {path.name} redefines step {name!r}")
+            setattr(Journey, "step_" + name, fn)
+        for name, (kind, fn) in getattr(ext, "CONDITIONS", {}).items():
+            if name in KIND:
+                raise SystemExit(f"driver: {path.name} redefines condition {name!r}")
+            KIND[name], EXT_CONDITIONS[name] = kind, fn
+
+
+load_extensions(sys.modules[__name__])
 
 
 def main(argv=None):

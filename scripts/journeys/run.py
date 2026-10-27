@@ -214,6 +214,8 @@ def kit_tar(specs):
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w") as tar:
         tar.add(HERE / "driver.py", arcname="driver.py")
+        for ext in sorted(HERE.glob("ext_*.py")):  # step and condition groups the driver loads
+            tar.add(ext, arcname=ext.name)
         tar.add(BUILD_NAMES, arcname="build_names.py")
         tar.add(OCR_SOURCE, arcname="ocr.swift")
         data = json.dumps([{k: v for k, v in s.items() if not k.startswith("_")} for s in specs]).encode()
