@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextCloud
 import CmuxNextDaemon
@@ -122,9 +123,11 @@ extension AgentTabStore {
         tabs.relaunchWake = services.relaunchWake
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
         let home = ChiefHome.resolve(tag: services.environment.tag)
-        let chief = ChiefHomeAcpmux(home: home, local: tabs.host) { [weak services] in
+        let chief = ChiefHomeAcpmux(home: home, local: tabs.host, ensureHost: { [weak services] in
             await MainActor.run { _ = services?.home.brain.ensure(asked: false) }
-        }
+        }, startHost: { [weak services] in
+            await MainActor.run { services?.home.brain.ensureForChat() ?? false }
+        })
         (tabs.chiefHost, tabs.chiefPaneHost) = (chief.host, chief.paneHost)
         // A subagent tab made under another Chief home of this Mac attaches there (#25262).
         tabs.chiefHomes = ChiefHomeDirectory(parents: ChiefHomeDirectory.homeParents(of: home), work: services.work,
@@ -282,9 +285,15 @@ extension AgentTabStore {
                 // the page's first send, never when the tab opens.
                 guard started else { return nil }
                 guard daemon.supports(DaemonCapability.agentSessionStart.rawValue) else { return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine)) }
+                // A Cloud machine (the app's own record, never the guest's) starts a chat only on
+                // the Cloud API's owner answer on the link the start goes over, checked as it is
+                // sent, through any daemon (an app-server link has none: no owner word).
+                let cloudLink: CloudMachineLink?? = services.machines.session(daemon.machineID).map(\.link)
+                let ownerLink = cloudLink.map { link -> AgentSessionAttachClient.OwnerLink in { await link?.ownerLink } }
                 host.start = { [weak tabs] cwd, harness, personKey in
                     guard let tabs else { throw CancellationError() }
-                    return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, personKey: personKey, endpoint: endpoint)
+                    return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, personKey: personKey,
+                                                          ownerLink: ownerLink, endpoint: endpoint)
                 }
             }
             // cx-0q7o: the app's own ssh exec to that machine restarts its acpmux with a key.

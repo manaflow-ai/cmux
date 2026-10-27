@@ -112,6 +112,7 @@ impl Hub {
                     effort: None,
                     adopt: None,
                     remote: meta.remote_origin,
+                    vm_boundary: meta.vm_boundary,
                     env: Default::default(),
                     // The side chat works in its chat's workspace (agent_displays.rs).
                     workspace_id: meta.workspace_id.clone(),

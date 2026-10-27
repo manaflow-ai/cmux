@@ -319,16 +319,15 @@ impl Hub {
             {
                 continue;
             }
-            // MDM forces full access off (start-mode.json, loaded with the hub): a host left
-            // running in it is ended, never adopted (#23322). One whose end failed is not adopted
-            // either (review 51).
-            match self.end_if_runs_full_access(&session, off.off()).await {
-                FullAccessEnd::NotInFullAccess => {}
-                FullAccessEnd::Ended => continue,
-                FullAccessEnd::StillRunning => {
+            // MDM forces full access off (start-mode.json, loaded with the hub), or the chat's grant
+            // was cleared (`policy_source.rs`): its host is ended, never adopted (#23322). One whose
+            // end failed is not adopted either (review 51), and may still write a line the previous
+            // daemon handed it: held until it is proven gone (`hold_unresolved`).
+            if self.ends_before_adoption(&session, off.off()).await {
+                if !Self::host_record_gone(&session.id) {
                     self.hold_unresolved(Some(&session.id)).await;
-                    continue;
                 }
+                continue;
             }
             if let Err(e) = self.adopt_one(&session, record, &off).await {
                 tracing::warn!(session = %session.id, "agent host adoption failed: {e:#}");
@@ -340,12 +339,11 @@ impl Hub {
                 self.hold_unresolved(Some(&unreadable.session_id)).await;
             }
             if let Some(session) = self.session_by_id(&unreadable.session_id) {
-                // MDM forces full access off (#23322): a live host this build cannot adopt ends
-                // too when its chat runs in full access (`end_unadopted_host`: its nonce proves it).
+                // MDM forces full access off (#23322), or a cleared grant: a live host this build
+                // cannot adopt ends too (`end_unadopted_host`: its nonce proves it).
                 let ended = {
                     let _spawning = session.spawn_lock.lock().await;
-                    self.end_if_runs_full_access(&session, off.off()).await
-                        != FullAccessEnd::NotInFullAccess
+                    self.ends_before_adoption(&session, off.off()).await
                 };
                 if ended && Self::host_record_gone(&session.id) {
                     continue;
@@ -389,7 +387,7 @@ impl Hub {
         self.sessions.lock().unwrap().get(id).cloned()
     }
 
-    fn mark_unadoptable(&self, session: &Arc<Session>, detail: Value) {
+    pub(super) fn mark_unadoptable(&self, session: &Arc<Session>, detail: Value) {
         self.append(session, "mux", "host_unadoptable", detail);
         self.set_status(session, SessionStatus::Disconnected);
         self.save_meta(session);
