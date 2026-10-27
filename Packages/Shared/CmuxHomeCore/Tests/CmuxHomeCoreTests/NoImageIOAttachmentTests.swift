@@ -65,6 +65,11 @@ import Testing
     @Test func theTypeTableMatchesApplesAnswers() throws {
         #expect(UTType(filenameExtension: "JPG")?.identifier == "public.jpeg")
         #expect(UTType(mimeType: "audio/mp4")?.preferredFilenameExtension == "m4a")
+        // Apple finds a type by any of its MIME types; a fetched attachment's file extension depends on it.
+        #expect(UTType(mimeType: "audio/x-m4a")?.preferredFilenameExtension == "m4a")
+        #expect(UTType(mimeType: "audio/wav")?.preferredFilenameExtension == "wav")
+        #expect(UTType(mimeType: "audio/x-wav")?.preferredFilenameExtension == "wav")
+        #expect(UTType(mimeType: "audio/wav")?.preferredMIMEType == "audio/vnd.wave")
         #expect(UTType("public.plain-text")?.preferredMIMEType == "text/plain")
         #expect(UTType.svg.conforms(to: .image) && UTType.svg.conforms(to: .data))
         #expect(!UTType.plainText.conforms(to: .image))
