@@ -1338,10 +1338,18 @@ class BlacksmithStall(unittest.TestCase):
 
     def test_the_dev_daily_retry_label_comes_from_its_workflow(self):
         self.assertEqual(rescue.retry_labels(DEV_WORKFLOW), {BLACKSMITH})
-        # A workflow whose runs-on names no Blacksmith macOS label takes the pickers' fallback.
-        self.assertEqual(rescue.retry_labels("jobs:\n  a:\n    runs-on: ${{ needs.x.outputs.retry }}\n"),
-                         {rescue.simple_pool_picker.BLACKSMITH[1]})
-        self.assertEqual(rescue.retry_labels(None), {rescue.simple_pool_picker.BLACKSMITH[1]})
+        every = set(rescue.simple_pool_picker.BLACKSMITH)
+        # A workflow that names no picker label, calls a reusable workflow or cannot be read may go anywhere.
+        self.assertEqual(rescue.retry_labels("jobs:\n  a:\n    runs-on: ${{ needs.x.outputs.retry }}\n"), every)
+        self.assertEqual(rescue.retry_labels(None), every)
+        self.assertEqual(rescue.retry_labels(
+            "jobs:\n  a:\n    uses: ./.github/workflows/x.yml\n    with:\n      r: blacksmith-6vcpu-macos-26\n"), every)
+        # A matrix entry or a reusable workflow's input counts, not only runs-on lines.
+        self.assertIn("blacksmith-6vcpu-macos-15", rescue.retry_labels(
+            "jobs:\n  a:\n    strategy:\n      matrix:\n        pool: [blacksmith-6vcpu-macos-15]\n"
+            "    runs-on: ${{ matrix.pool }}\n"))
+        self.assertIn("blacksmith-6vcpu-macos-15",
+                      rescue.retry_labels((ROOT / ".github/workflows/cmux-tui.yml").read_text()))
 
     def test_states_use_the_pickers_stall_rule(self):
         now = START
@@ -1425,6 +1433,52 @@ class BlacksmithStall(unittest.TestCase):
         self.assertTrue(rescue.repicks(target))
         self.assertFalse(rescue.repicks(dataclasses.replace(target, attempt=2)))
         self.assertFalse(rescue.repicks(rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)))
+
+    def test_a_late_job_moves_onto_a_busy_label_only_after_the_full_floor(self):
+        # job_budget() cuts a budget near the deadline; the floor keeps the 10 minutes.
+        late = rescue.E2E_WATCH_LIMIT_SECONDS - 200
+
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= late:
+                found.append(job("Verify signed cmux NEXT DEV", labels=[LIGHT], created=late))
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True, workflow=DEV_WORKFLOW,
+                      snapshot=blacksmith_snapshot(queued=2, running=10, oldest=1))
+        run_main(api, clock, payload=dev_event())
+        first = getattr(api, "first_cancel", None)
+        self.assertTrue(first is None or first - late >= rescue.OWNED_WAIT_FLOOR_SECONDS, first)
+
+    def test_a_refusal_beside_a_queued_sibling_is_not_held(self):
+        def jobs(seconds):
+            found = dev_jobs(seconds)[:2]  # runner, and verify queued on the owned pool
+            if seconds >= 40:
+                found.append({**job("Build the unsigned cmux NEXT DEV tip DMG", labels=[LIGHT], created=40),
+                              "status": "completed", "conclusion": "failure", "runner_name": "mini",
+                              "started_at": stamp(41), "completed_at": stamp(45),
+                              "steps": [{"name": "Set up job", "conclusion": "failure"}]})
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True, workflow=DEV_WORKFLOW,
+                      snapshot=blacksmith_snapshot(queued=40, running=0, oldest=30))
+        run_main(api, clock, payload=dev_event())
+        self.assertIn("cancel", api.calls)
+        self.assertLess(api.first_cancel, rescue.OWNED_WAIT_FLOOR_SECONDS)
+
+    def test_a_superseded_main_attempt_is_still_cancelled_while_blacksmith_stalls(self):
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True, head="b" * 40,
+                      rerun_jobs=lambda seconds: [job("macos / tests", labels=[LIGHT])],
+                      snapshot=blacksmith_snapshot(queued=40, running=0, oldest=30))
+        api.attempt = 2
+        target = rescue.Target(run_id=RUN_ID, attempt=2, head_sha=HEAD, pr_number=0, main=True)
+        result = rescue.follow(api, target, seconds=90, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                               log=lambda _: None)
+        self.assertEqual(result, "done")
+        self.assertIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertLess(api.first_cancel, rescue.OWNED_WAIT_FLOOR_SECONDS)
 
     def test_a_refusal_is_still_rerun_while_the_retry_label_is_stalled(self):
         # A refused job has already failed: holding it moves nothing, and its re-run is the only way it runs.

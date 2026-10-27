@@ -1609,13 +1609,22 @@ def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: s
     only on attempt 1), and a cancel would lose the job's place in the owned queue for a Blacksmith one.
     """
     held = ""
-    current = budget_seconds
+    current, floor = budget_seconds, floor_seconds
     while outcome == "rescue":
         if held and now() >= deadline:
             # watch() reports a stuck job before its deadline check, so the hold ends here.
             return "stop", "watch limit reached", held
+        # A re-run the picker places again takes the owned machines free now first: nothing to hold.
+        if repicks(target):
+            break
+        # A run whose head moved is only cancelled, never re-run (rescue()), so nothing moves to Blacksmith.
+        if pull_moved(client, target, sleep, log):
+            break
+        # assess() reports a stuck job before a refusal; a refused job needs its re-run whatever the queue.
+        if any(refused(job) for job in read(lambda: client.jobs(target.run_id, target.attempt), sleep, log)):
+            break
         verdict, label = move_verdict(client, target, now=now(), sleep=sleep, log=log)
-        if verdict == "free" or verdict == "busy" and current >= OWNED_WAIT_FLOOR_SECONDS:
+        if verdict == "free" or verdict == "busy" and floor is not None and floor >= OWNED_WAIT_FLOOR_SECONDS:
             break
         if verdict == "stalled":
             held = f"{label} is stalled (simple_pool_picker.blacksmith_stalled())"
@@ -1626,9 +1635,12 @@ def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: s
             held = f"{label} has no free slot"
             log(f"held on the owned pool: {reason}, but the re-run would take {label}, which has no free slot; "
                 f"moving only after {OWNED_WAIT_FLOOR_SECONDS}s")
+        # The floor too: job_budget() cuts a budget short near the deadline, but never below its floor, so a
+        # job moves onto a busy label only after it has really waited OWNED_WAIT_FLOOR_SECONDS.
         current = max(budget_seconds, OWNED_WAIT_FLOOR_SECONDS)
+        floor = OWNED_WAIT_FLOOR_SECONDS
         outcome, reason = watch(client, target, budget_seconds=current, now=now, sleep=sleep, log=log,
-                                deadline=deadline, floor_seconds=floor_seconds, seen=seen)
+                                deadline=deadline, floor_seconds=floor, seen=seen)
     return outcome, reason, held
 
 
@@ -1669,20 +1681,23 @@ def bot_rerun_leaves_owned(path: str, attempt: int) -> bool:
 # blacksmith-6vcpu-macos-26 was stalled, and 53 s later this rescue moved both onto that label, where they
 # queued 23 minutes.
 OWNED_WAIT_FLOOR_SECONDS = simple_pool_picker.BLACKSMITH_STALL_MINUTES * 60
-# A Blacksmith macOS label named in a runs-on: where a re-run past the owned attempt goes.
-RETRY_RUNS_ON = re.compile(r"^\s*runs-on:.*$", re.M)
+# A Blacksmith macOS label a workflow names, and a call of a reusable workflow, whose labels it does not show.
 BLACKSMITH_MACOS_LABEL = re.compile(r"blacksmith-[0-9]+vcpu-macos-[0-9]+")
+REUSABLE_CALL = re.compile(r"^\s*uses:\s*\./\.github/workflows/", re.M)
 
 
 def retry_labels(workflow_text: str | None) -> set[str]:
-    """The Blacksmith macOS labels a workflow's runs-on lines name, which its re-runs past the owned
-    attempt take (cmux-next-dev-daily.yml's verify: `github.run_attempt == 1 && ... ||
-    'blacksmith-6vcpu-macos-26'`). A workflow that names none takes its picker's retry output, whose
-    default is the pickers' fallback (simple_pool_picker.BLACKSMITH[1])."""
-    found = {label for line in RETRY_RUNS_ON.findall(workflow_text or "")
-             for label in BLACKSMITH_MACOS_LABEL.findall(line)}
-    known = found & set(simple_pool_picker.BLACKSMITH)
-    return known or {simple_pool_picker.BLACKSMITH[1]}
+    """The picker Blacksmith labels a re-run of the workflow may take, as far as its file shows.
+
+    Every picker label the file names anywhere (runs-on fallbacks, matrix entries, reusable-workflow inputs
+    such as cmux-tui.yml's macos_retry_runner) counts. A file that names none, calls a reusable workflow or
+    cannot be read may route anywhere (a picker's retry output), so every picker label counts: the rescue
+    then judges the worst of them (move_verdict())."""
+    every = set(simple_pool_picker.BLACKSMITH)
+    if not workflow_text or REUSABLE_CALL.search(workflow_text):
+        return every
+    found = set(BLACKSMITH_MACOS_LABEL.findall(workflow_text)) & every
+    return found or every
 
 
 def blacksmith_states(snapshot: Mapping[str, Any], now: dt.datetime) -> dict[str, str]:
@@ -1743,7 +1758,7 @@ def move_verdict(api: GitHub, target: Target, *, now: dt.datetime, sleep: Callab
         text = read(lambda: api.workflow_file(target.path, target.head_sha), sleep, log)
     except Aborted:
         raise
-    except Exception as error:  # noqa: BLE001 - the pickers' fallback label then counts as the destination
+    except Exception as error:  # noqa: BLE001 - every picker label then counts as a destination
         log(f"could not read {target.path} at {target.head_sha[:12]} ({type(error).__name__}: {error})")
         text = None
     labels = sorted(retry_labels(text))
