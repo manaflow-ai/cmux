@@ -85,6 +85,9 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// Bounds how long the theme color stands in for a committed document
     /// (`pageDidCommit`).
     @ObservationIgnored let pageBaseHold: MainDeadline
+    /// WebKit draws a background behind the document (`setDrawsPageBackground`): false on a blank or
+    /// New Tab page and while a committed document has not painted.
+    @ObservationIgnored var drawsPageBackground = true
     /// The app's main-thread scheduler (the engine's): this tab's main-thread follow-ups are classed tasks on it.
     @ObservationIgnored let mainWork: MainWorkScheduler
     /// The tab's node (``adoptNode(_:)``); nil (a page no pane shows: tests, fixtures) counts as visible.
@@ -92,6 +95,11 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// The daemon's resolved emulation (`WebKitTab+DeviceEmulation`) and the user agent to restore after it.
     @ObservationIgnored public internal(set) var deviceEmulation: BrowserEmulation?
     @ObservationIgnored var userAgentBeforeEmulation: String?
+    /// The site of the page its process runs (``WebKitProcessReuse``): the first URL's until a document commits, then
+    /// the committed one's. Nil with the reuse off, or for a page with no site.
+    @ObservationIgnored var processSite: WebKitProcessReuse.Site?
+    /// The tab whose process this one joined when it was made (``WebKitProcessReuse``); nil: its own process.
+    @ObservationIgnored weak var processAnchor: WebKitTab?
 
     init(configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration, engine: WebKitEngine,
          openedByPage: Bool = false) {
@@ -376,6 +384,20 @@ public final class WebKitTab: NSObject, BrowserTab {
             completion(response)
         }
         if let prompt { pendingPrompts.append(prompt) }
+    }
+
+    /// A document committed: its site is now the one this tab's process holds (WebKit swaps the process of a
+    /// cross-site navigation), so same-site reuse matches on it.
+    func processSiteCommitted() {
+        guard let reuse = engine?.processReuse else { return }
+        processSite = reuse.site(of: webView.url)
+    }
+
+    /// Its WebContent process ended: it holds no site and no longer runs in the process it joined; its next load
+    /// starts a process of its own.
+    func processSiteEnded() {
+        processSite = nil
+        processAnchor = nil
     }
 
     func emit(_ intent: BrowserTabIntent) {

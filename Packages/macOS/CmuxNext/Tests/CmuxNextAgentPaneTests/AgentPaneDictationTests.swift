@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDictation
 import CmuxNextPages
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -29,9 +30,15 @@ struct AgentPaneDictationTests {
         let tap = InputEventTap()
         let dictation: AgentPaneDictation
         let pressedAt = ProcessInfo.processInfo.systemUptime
+        /// The app's notices (resign) and the workspace's (sleep), each on a center of the test's own.
+        let appCenter = NotificationCenter(), workspaceCenter = NotificationCenter()
+        let appEvents: AppEvents, workspaceEvents: AppEvents
 
         init() {
-            dictation = AgentPaneDictation(input: tap, send: { _ in }, microphone: DictationMicrophone(),
+            (appEvents, workspaceEvents) = (AppEvents(center: appCenter), AppEvents(center: workspaceCenter))
+            let mainThread = AgentPaneMainThread(deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
+                                                 appEvents: appEvents, workspaceEvents: workspaceEvents)
+            dictation = AgentPaneDictation(input: tap, mainThread: mainThread, send: { _ in }, microphone: DictationMicrophone(),
                                            makeSession: { DictationSession(authorizer: WaitingAuthorizer()) })
             let pressedAt = pressedAt
             dictation.now = { pressedAt }
@@ -78,6 +85,26 @@ struct AgentPaneDictationTests {
         harness.dispatch(try harness.key(.keyUp, after: AgentPaneDictation.holdThreshold + 0.1))
         #expect(harness.dictation.phase.isStartable, "releasing a held shortcut did not stop dictation")
         #expect(harness.releaseSubscriptions == 0, "the release left its subscription on the tap")
+        #expect(!harness.dictation.holdsResources)
+    }
+
+    /// Rule 9 (p06-scheduler.md): the app's resign and the Mac's sleep reach dictation through the app's one
+    /// observer per notice (AppEvents), only while they matter: a resign ends an armed hold, sleep stops a running
+    /// session, and an idle pane holds no subscription. Before, each pane made its own NotificationCenter observers.
+    @Test func resignAndSleepComeThroughTheAppsFanOutsOnlyWhileTheyMatter() throws {
+        let harness = Harness()
+        #expect(harness.appEvents.subscriberCount(NSApplication.didResignActiveNotification) == 0)
+        #expect(harness.workspaceEvents.subscriberCount(NSWorkspace.willSleepNotification) == 0, "an idle pane observes sleep")
+        try harness.press()
+        #expect(harness.appEvents.subscriberCount(NSApplication.didResignActiveNotification) == 1, "the hold does not hear the resign")
+        #expect(harness.workspaceEvents.subscriberCount(NSWorkspace.willSleepNotification) == 1, "the session does not hear sleep")
+        harness.appCenter.post(name: NSApplication.didResignActiveNotification, object: nil)
+        #expect(harness.releaseSubscriptions == 0, "the resign left the hold armed")
+        #expect(harness.appEvents.subscriberCount(NSApplication.didResignActiveNotification) == 0)
+        #expect(!harness.dictation.phase.isStartable, "the resign stopped the session; only the hold ends")
+        harness.workspaceCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
+        #expect(harness.dictation.phase.isStartable, "sleep did not stop the session")
+        harness.dictation.close()
         #expect(!harness.dictation.holdsResources)
     }
 

@@ -1,5 +1,6 @@
 import CmuxNextHomeEngine
 import CmuxNextHome
+import CmuxNextWakeups
 import Observation
 import Testing
 
@@ -27,25 +28,50 @@ struct FirstWorkspaceLandingTests {
     /// waits for the listing instead of falling back to a New Tab workspace by timing.
     @MainActor @Test func aHomeListedAfterEnsureHomeStillLands() async {
         let store = ListedHome()
+        let (work, deadlines) = Self.schedulers()
         // task-owner: the test; lists Home once the wait has started
         Task { @MainActor in store.id = "ws_home" }
-        let home = await FirstWorkspaceLanding(launchIntoHome: true, classic: false, deadline: .seconds(30)).home(ensured: true) { store.id }
+        let home = await FirstWorkspaceLanding(launchIntoHome: true, classic: false, deadline: .seconds(30))
+            .home(ensured: true, work: work, deadlines: deadlines) { store.id }
         #expect(home == "ws_home")
     }
 
     @MainActor @Test func aHomeNeverListedFallsBackAfterTheDeadline() async {
         let store = ListedHome()
-        let home = await FirstWorkspaceLanding(launchIntoHome: true, classic: false, deadline: .milliseconds(50)).home(ensured: true) { store.id }
+        let (work, deadlines) = Self.schedulers()
+        let home = await FirstWorkspaceLanding(launchIntoHome: true, classic: false, deadline: .milliseconds(50))
+            .home(ensured: true, work: work, deadlines: deadlines) { store.id }
         #expect(home == nil)
+    }
+
+    /// p06 sweep (group 333): the wait is a classed FirstValueWait, so a cancelled launch stops waiting at once
+    /// instead of holding until the deadline.
+    @MainActor @Test(.timeLimit(.minutes(1))) func aCancelledLaunchStopsWaiting() async {
+        let store = ListedHome()
+        let (work, deadlines) = Self.schedulers()
+        let landing = Task { @MainActor in
+            await FirstWorkspaceLanding(launchIntoHome: true, classic: false, deadline: .seconds(600))
+                .home(ensured: true, work: work, deadlines: deadlines) { store.id }
+        }
+        landing.cancel()
+        #expect(await landing.value == nil)
     }
 
     @MainActor @Test func noEnsureHomeOrTheSwitchOffDoesNotWait() async {
         let store = ListedHome()
+        let (work, deadlines) = Self.schedulers()
         store.id = "ws_home"
-        let notEnsured = await FirstWorkspaceLanding(launchIntoHome: true, classic: false, deadline: .seconds(30)).home(ensured: false) { store.id }
-        let switchedOff = await FirstWorkspaceLanding(launchIntoHome: false, classic: false, deadline: .seconds(30)).home(ensured: true) { store.id }
+        let notEnsured = await FirstWorkspaceLanding(launchIntoHome: true, classic: false, deadline: .seconds(30))
+            .home(ensured: false, work: work, deadlines: deadlines) { store.id }
+        let switchedOff = await FirstWorkspaceLanding(launchIntoHome: false, classic: false, deadline: .seconds(30))
+            .home(ensured: true, work: work, deadlines: deadlines) { store.id }
         #expect(notEnsured == nil)
         #expect(switchedOff == nil)
+    }
+
+    @MainActor private static func schedulers() -> (MainWorkScheduler, MainDeadlineScheduler) {
+        let work = MainWorkScheduler(budget: MainFrameBudget())
+        return (work, MainDeadlineScheduler(work: work))
     }
 }
 

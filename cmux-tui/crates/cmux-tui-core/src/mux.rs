@@ -331,7 +331,7 @@ mod terminal_relaunch;
 pub(crate) mod terminal_respawn;
 mod terminal_sizing;
 pub(crate) use terminal_sizing::host_policy;
-mod terminal_work;
+pub(crate) mod terminal_work;
 mod topology_result;
 mod tree_close;
 mod workspace_close_guard;
@@ -743,15 +743,14 @@ pub struct Mux {
     terminal_adoptions: Mutex<HashSet<String>>,
     /// Notified when an id leaves `terminal_adoptions` (its adoption ended).
     terminal_adoption_ended: Condvar,
-    /// Terminals a request waits on (`wait_for_terminal_adoption`): their
-    /// adoption starts without waiting for the owner to say ready.
-    terminal_adoptions_now: Mutex<HashSet<String>>,
+    /// A start's adoptions held until the owner says ready, and the
+    /// terminals a request waits on, whose adoption starts at once.
+    startup_adoptions: Mutex<terminal_adoption::StartupAdoptions>,
+    /// Adoption tries running at once (`terminal_adoption::ADOPTION_REPLAYS`).
+    terminal_replays: Arc<mux_work::Permits>,
     /// Restored tab names, by tab slot, for terminals that adopt after the
     /// start: the surface takes its tab's name when it arrives. A leaf lock.
     restored_tab_names: Mutex<HashMap<SurfaceId, String>>,
-    /// Lets a start's adoption threads go before the owner says ready: a
-    /// creation the crash interrupted waits on its host's adoption.
-    startup_adoptions_released: AtomicBool,
     /// Terminals with a possibly live host and no runtime surface (R41),
     /// keyed by public terminal id (`term_…`, what the tab JSON reads), with
     /// the host terminal id. A leaf lock: nothing else is locked under it.
@@ -829,6 +828,9 @@ pub struct Mux {
     /// The history module's session state: journal folds and revision.
     pub(crate) history: crate::history_ops::HistoryHost,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
+    /// The daemon-wide sequenced pool: every connection's control sequence
+    /// and stream sequences run on its fixed workers (p05-ipc-073).
+    pub(crate) sequenced_pool: crate::server::SequencedPool,
     /// Records requests that run past 250 ms (server-stats `slow_requests`).
     pub(crate) request_watchdog: crate::server::RequestWatchdog,
     /// Blocking work that request threads hand off (`cmux_threads::work`
