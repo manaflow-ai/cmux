@@ -60,7 +60,7 @@ export function Storefront({ store, state, strings }: { store: CloudStore; state
     );
   };
   return (
-    <div className="cloud-store">
+    <div className="cloud-store" data-page-scroll="store">
       <section className="cloud-store-hero" aria-labelledby="cloud-store-headline">
         <div className="cloud-store-hero-text">
           <p className="cloud-store-eyebrow">{t(L.storeEyebrow)}</p>

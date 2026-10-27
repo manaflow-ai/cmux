@@ -5,7 +5,7 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 26140,
+            "T1": 27040,
             "T2": 44580
           },
           "stories": {
@@ -60,6 +60,7 @@
               "pane-stress",
               "perf-gate",
               "power",
+              "qos-inversions",
               "relaunch-e2e",
               "remote-browser-media",
               "renderer-sharing",
@@ -233,7 +234,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 12790
+            "T1": 13450
           },
           "stories": {
             "T0": [
@@ -263,6 +264,7 @@
               "open-panel",
               "palette-open-webkit",
               "pane-stress",
+              "power",
               "sidebar-doc",
               "sidebar-drag",
               "sidebar-rows-live",
@@ -279,7 +281,7 @@
           "index": 1,
           "seconds": {
             "T0": 150,
-            "T1": 13350
+            "T1": 13590
           },
           "stories": {
             "T0": [
@@ -313,7 +315,7 @@
               "omnibar-click-webkit",
               "palette-open",
               "perf-gate",
-              "power",
+              "qos-inversions",
               "relaunch-e2e",
               "remote-browser-media",
               "renderer-sharing",
