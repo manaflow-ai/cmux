@@ -29,4 +29,11 @@ public protocol SidebarSectionStateKeeping: AnyObject {
     var sectionState: SidebarSectionState { get }
     /// Shows `state` in a section made again; called once, right after it was made.
     func restoreSectionState(_ state: SidebarSectionState)
+    /// The section holds input ``sectionState`` does not keep (a name being typed in a row): it stays while hidden.
+    var holdsUnsavedInput: Bool { get }
+}
+
+extension SidebarSectionStateKeeping {
+    /// Its state keeps all it holds.
+    public var holdsUnsavedInput: Bool { false }
 }

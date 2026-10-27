@@ -34,19 +34,27 @@ public final class SidebarSectionRelease {
     private let planner: any SidebarSectionPlanner
     private let save: @MainActor () async -> Void
     private let drop: @MainActor () -> Void
+    private let holdsInput: @MainActor () -> Bool
+    /// The shows so far: a save that a show interrupted is stale, even when the view hid again since.
+    private var shows = 0
 
     /// - Parameters:
     ///   - owner: What the section is.
     ///   - planner: The App's one sidebar section planner.
     ///   - save: Saves the section's view-state record; runs before every release.
     ///   - drop: Lets the section's view go; called only while it is held and hidden.
+    ///   - holdsUnsavedInput: The view holds input its record does not keep (a draft, a rename being typed).
     public init(owner: String, planner: any SidebarSectionPlanner, save: @escaping @MainActor () async -> Void,
-                drop: @escaping @MainActor () -> Void) {
+                drop: @escaping @MainActor () -> Void, holdsUnsavedInput: @escaping @MainActor () -> Bool = { false }) {
         self.owner = owner
         self.planner = planner
         self.save = save
         self.drop = drop
+        holdsInput = holdsUnsavedInput
     }
+
+    /// The view holds input its record does not keep: it stays at any pressure (p07-memory.md, the lead rule).
+    public var holdsUnsavedInput: Bool { isHolding && holdsInput() }
 
     /// The planner's name for this section: its owner and its identity, unique while it lives.
     public var key: String { "\(owner)#\(UInt(bitPattern: ObjectIdentifier(self).hashValue))" }
@@ -61,6 +69,7 @@ public final class SidebarSectionRelease {
     /// The view shows: it is not due.
     public func didShow() {
         isShown = true
+        shows += 1
         planner.sectionDidShow(self)
     }
 
@@ -71,17 +80,19 @@ public final class SidebarSectionRelease {
         if isHolding { planner.sectionDidHide(self) }
     }
 
-    /// The planner's first step: the owner saves the view-state record. False when the view showed or went meanwhile.
+    /// The planner's first step: the owner saves the view-state record. False when the view showed or went
+    /// meanwhile, or holds unsaved input (before the save or after it).
     public func prepare() async -> Bool {
-        guard isHolding, !isShown else { return false }
+        guard isHolding, !isShown, !holdsInput() else { return false }
+        let began = shows
         await save()
-        return isHolding && !isShown
+        return shows == began && isHolding && !isShown && !holdsInput()
     }
 
     /// The planner's call: drops a held, hidden view. False, and nothing goes, otherwise.
     @discardableResult
     public func releaseNow() -> Bool {
-        guard isHolding, !isShown else { return false }
+        guard isHolding, !isShown, !holdsInput() else { return false }
         drop()
         isHolding = false
         releases += 1

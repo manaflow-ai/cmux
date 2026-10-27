@@ -71,7 +71,10 @@ extension SidebarSectionDiscards: ContentDiscardHost {
         return .afterHidden(releaseAfter)
     }
 
-    package func keepReasons(of key: String) -> [CannotDiscardReason] { [] }
+    /// Input its record does not keep (a draft, a name being typed) holds the section at any pressure, the lead rule.
+    package func keepReasons(of key: String) -> [CannotDiscardReason] {
+        section(key)?.holdsUnsavedInput == true ? [.formInput] : []
+    }
 
     package func isDrawn(_ key: String) -> Bool { false }
 

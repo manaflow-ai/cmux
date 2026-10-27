@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextPages
 
 /// The right sidebar's view: a bar of section icons under the window's top
 /// row, the shown section below it, and a grab strip on the edge facing the
@@ -22,7 +23,11 @@ final class RightSidebarView: NSView {
         self?.views[mode].map(Self.state(of:))
     } drop: { [weak self] mode in
         self?.letGo(mode)
+    } holdsUnsavedInput: { [weak self] mode in
+        self?.views[mode].map(Self.holdsUnsavedInput(_:)) ?? false
     }
+    /// The panel is collapsed: its shown section is hidden too, and may go as any hidden one does.
+    private var isPanelHidden = false
     /// The scroll a section made again without its own state goes back to at the next layout.
     private var pendingScroll: (mode: RightSidebarMode, origin: CGPoint)?
     private(set) var shownMode: RightSidebarMode?
@@ -120,6 +125,7 @@ final class RightSidebarView: NSView {
             addSubview(made, positioned: .below, relativeTo: resizeHandle)
             if let record = releases.takeRecord(mode) { restore(record, in: made, mode: mode) }
         }
+        isPanelHidden = false
         for (other, shown) in views { shown.isHidden = other != mode }
         releases.show(mode, hiding: views.keys, isNew: isNew)
         for (other, button) in buttons {
@@ -138,10 +144,24 @@ final class RightSidebarView: NSView {
     /// `mode`'s section view while it is made (tests and diagnostics).
     func sectionView(_ mode: RightSidebarMode) -> NSView? { views[mode] }
 
+    /// The panel collapsed (``WindowController/hideRightSidebar()``): its shown section stops showing and counts
+    /// its hidden time from now; the next ``show(_:)`` shows it again, made again if it went meanwhile.
+    func panelDidHide() {
+        guard !isPanelHidden else { return }
+        isPanelHidden = true
+        if let shownMode { releases.hide(shownMode) }
+    }
+
     /// The planner's release of hidden `mode`: its view goes, its record stays.
     private func letGo(_ mode: RightSidebarMode) {
-        guard mode != shownMode else { return }
+        guard mode != shownMode || isPanelHidden else { return }
         views.removeValue(forKey: mode)?.removeFromSuperview()
+    }
+
+    /// `view` holds input its record does not keep: a section with its own state says so; another one holds it
+    /// while one of its text fields holds typed text (its record keeps only its scroll).
+    private static func holdsUnsavedInput(_ view: NSView) -> Bool {
+        (view as? SidebarSectionStateKeeping)?.holdsUnsavedInput ?? PageViewState.holdsTypedText(view)
     }
 
     /// What `view` shows now: its own state, else its first list's scroll.

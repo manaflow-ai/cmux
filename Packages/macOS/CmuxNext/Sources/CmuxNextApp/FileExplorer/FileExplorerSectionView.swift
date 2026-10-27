@@ -162,8 +162,12 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         }
         if let origin = pendingScroll, !rows.isEmpty {
             pendingScroll = nil
-            scroll.contentView.scroll(to: origin)
-            scroll.reflectScrolledClipView(scroll.contentView)
+            // sync-layout: once per section made again, so the tree has its rows' height before it scrolls back.
+            layoutSubtreeIfNeeded()
+            table.tile()
+            let clip = scroll.contentView
+            clip.scroll(to: clip.constrainBoundsRect(NSRect(origin: origin, size: clip.bounds.size)).origin)
+            scroll.reflectScrolledClipView(clip)
         }
         prefetchOpenWith()
     }
@@ -263,8 +267,13 @@ extension FileExplorerSectionView: SidebarSectionStateKeeping {
     }
 
     func restoreSectionState(_ state: SidebarSectionState) {
-        model.restore(expanded: Set(state.expanded.map { URL(fileURLWithPath: $0, isDirectory: true) }),
-                      selection: state.selection.map { URL(fileURLWithPath: $0) })
+        model.restore(expanded: Set(state.expanded), selection: state.selection)
         pendingScroll = state.scroll
     }
+
+    /// A row's name being typed (Rename, or a new item's first name), which the record does not keep.
+    var holdsUnsavedInput: Bool { renaming != nil }
+
+    /// Where the tree is scrolled (tests).
+    var treeScroll: CGPoint { scroll.documentVisibleRect.origin }
 }

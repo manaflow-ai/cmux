@@ -179,8 +179,11 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
             if origin == nil { table.scrollRowToVisible(row) }
         }
         guard let origin else { return }
-        scroll.contentView.scroll(to: origin)
-        scroll.reflectScrolledClipView(scroll.contentView)
+        // sync-layout: once per restore, so the results have their height before the list scrolls back.
+        layoutSubtreeIfNeeded()
+        let clip = scroll.contentView
+        clip.scroll(to: clip.constrainBoundsRect(NSRect(origin: origin, size: clip.bounds.size)).origin)
+        scroll.reflectScrolledClipView(clip)
     }
 
     private var selected: RipgrepMatch? {

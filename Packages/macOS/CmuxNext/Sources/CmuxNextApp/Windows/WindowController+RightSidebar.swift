@@ -36,6 +36,7 @@ extension WindowController {
         }
         rightSidebar.hide()
         applyRightSidebar()
+        rightSidebarView?.panelDidHide()
     }
 
     func toggleRightSidebar() {
