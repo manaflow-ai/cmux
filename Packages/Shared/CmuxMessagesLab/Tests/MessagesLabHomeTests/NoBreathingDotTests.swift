@@ -6,9 +6,9 @@ import Testing
 @MainActor
 @Suite(.serialized) struct NoBreathingDotTests {
     @Test func nativeHomeSpinsAndStopsOnReduceMotionAndTypingEnd() async throws {
-        let savedGate = MessagesLabHomeView.activityMotionGate
-        defer { MessagesLabHomeView.activityMotionGate = savedGate }
-        MessagesLabHomeView.activityMotionGate = { true }
+        let savedGate = MessagesLabHomeView.voiceMotionGate
+        defer { MessagesLabHomeView.voiceMotionGate = savedGate }
+        MessagesLabHomeView.voiceMotionGate = { true }
         let saved = MessagesLabHomeView.reduceMotionOverride
         MessagesLabHomeView.reduceMotionOverride = false
         defer { MessagesLabHomeView.reduceMotionOverride = saved }
@@ -25,10 +25,10 @@ import Testing
         #expect(loopPaths(in: row.layer).isEmpty)
         MessagesLabHomeView.reduceMotionOverride = false
         #expect(loopPaths(in: row.layer) == ["transform.rotation.z"])
-        MessagesLabHomeView.activityMotionGate = { false }
+        MessagesLabHomeView.voiceMotionGate = { false }
         rig.view.applyReduceMotion()
         #expect(loopPaths(in: row.layer).isEmpty)
-        MessagesLabHomeView.activityMotionGate = { true }
+        MessagesLabHomeView.voiceMotionGate = { true }
         rig.view.applyReduceMotion()
         #expect(loopPaths(in: row.layer) == ["transform.rotation.z"])
         rig.store.typing[HomeChatRig.conversation] = []

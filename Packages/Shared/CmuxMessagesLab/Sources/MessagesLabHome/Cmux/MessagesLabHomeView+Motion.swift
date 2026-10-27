@@ -21,9 +21,6 @@ extension MessagesLabHomeView {
     /// Posted when `reduceMotionOverride` changes.
     nonisolated public static let reduceMotionDidChange = Notification.Name("MessagesLabHome.reduceMotionDidChange")
 
-    /// The host gates activity loops with its Home animation settings.
-    public static var activityMotionGate: @MainActor () -> Bool = { !MessagesLabHomeView.reducesMotion }
-
     /// Reduce Motion: the caret holds solid and the working spinner stands still.
     nonisolated static var reducesMotion: Bool {
         reduceMotionOverride ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion

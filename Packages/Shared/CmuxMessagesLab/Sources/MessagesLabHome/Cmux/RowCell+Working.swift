@@ -20,7 +20,7 @@ extension RowCell {
     func startTypingSpinner(begin: CFTimeInterval) {
         typingSpinnerActive = true
         typingSpinner.removeAnimation(forKey: "workingSpin")
-        guard !MessagesLabHomeView.reducesMotion, MessagesLabHomeView.activityMotionGate(),
+        guard !MessagesLabHomeView.reducesMotion, MessagesLabHomeView.voiceMotionGate(),
               Springs.typingStillPhase == nil else { return }
         // motion: allow the host's Home motion gate and Reduce Motion above govern this render-server loop.
         let spin = CABasicAnimation(keyPath: "transform.rotation.z")
