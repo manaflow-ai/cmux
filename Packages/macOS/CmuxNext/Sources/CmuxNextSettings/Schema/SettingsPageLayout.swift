@@ -38,6 +38,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         /// Rows by key, moved here from their schema group; `title` names the card then.
         public var keys: [String] = []
         public var title: SettingText?
+        /// Rows by key drawn first in the card, before the schema group's own rows.
+        public var lead: [String] = []
     }
 
     public nonisolated struct CategorySpec: Sendable {
@@ -77,7 +79,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
     public func categories(rows: [SettingDescriptor] = SettingsSchema.all) -> [Category] {
         let shown = rows.filter(\.isShownOnSettingsPage)
         let specs = Self.specs
-        let claimed = Set(specs.flatMap { $0.groups.flatMap(\.keys) })
+        let claimed = Set(specs.flatMap { $0.groups.flatMap { $0.lead + $0.keys } })
         let ids = Set(shown.map(\.id))
         return specs.map { spec in
             let groups = spec.groups.enumerated().compactMap { index, group -> Group? in
@@ -85,7 +87,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                     shown.filter { $0.textKeys.group == key && !claimed.contains($0.id) }.map(\.id)
                 } ?? []
                 let moved = group.keys.filter(ids.contains)
-                let rows = own + moved
+                let rows = group.lead.filter(ids.contains) + own + moved
                 let title = group.title ?? group.group.flatMap { key in
                     shown.first { $0.textKeys.group == key }.map { SettingText(key: key, text: $0.group) }
                 }
@@ -140,7 +142,10 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.terminalFont"), group("settings.group.densityMotion"), group("settings.group.motion"),
                 group("settings.group.colorTransition"),
                 group("settings.group.windowBackground"), group("settings.group.panes"), group("settings.group.focusRing"),
-                group("settings.group.sidebar"), group("settings.group.workspaceRows"),
+                // Show Workspace Tabs leads the Sidebar card: it is off by default, and this is
+                // where a person turns each workspace's tabs back on (#26384).
+                GroupSpec(group: "settings.group.sidebar", lead: ["sidebar.showWorkspaceTabs"]),
+                group("settings.group.workspaceRows"),
                 group("settings.group.statusIndicator"), group("settings.group.surfaces"),
             ],
             // Change Background… lands here: the art picker draws appearance.background and
