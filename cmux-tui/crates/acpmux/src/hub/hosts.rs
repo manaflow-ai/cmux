@@ -215,6 +215,15 @@ impl Hub {
     pub async fn adopt_agent_hosts(self: &Arc<Self>) {
         // MDM's off (start-mode.json, loaded with the hub), read once for this adoption (#23322).
         let off = self.full_access_managed_off();
+        // Debug builds only: `ACPMUX_TEST_ADOPT_HOLD_MS` holds adoption here, after it read MDM's
+        // off, so integration tests can push the off meanwhile. Bounded; release builds have no
+        // seam.
+        #[cfg(debug_assertions)]
+        if let Some(ms) =
+            std::env::var("ACPMUX_TEST_ADOPT_HOLD_MS").ok().and_then(|v| v.parse::<u64>().ok())
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000))).await;
+        }
         // Pooled sessions of a previous daemon were never taken: end them.
         self.sweep_pool_hosts().await;
         let dir = agent_host::hosts_dir();

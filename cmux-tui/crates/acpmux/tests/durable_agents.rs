@@ -2403,22 +2403,30 @@ async fn a_full_access_host_whose_end_failed_is_never_reached_under_mdm_off() {
     }
 }
 
+/// The person key `proven_daemon` gives its daemon.
+const PROVEN_KEY: &str = "7a0e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6";
+
 /// A daemon whose person is proven (`hub/person.rs`), with `fake` as its harness: only the person
 /// sets a mode that does not ask.
 async fn proven_daemon(tag: &str, fake: Value, env: &[(&str, &str)]) -> (Daemon, Rpc) {
-    const KEY: &str = "7a0e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6";
     let mut daemon = Daemon::with_env(tag, "ask", env);
     daemon.sigterm();
-    daemon.key = Some(KEY.to_owned());
+    daemon.key = Some(PROVEN_KEY.to_owned());
     let config =
         json!({"harnesses": {"fake": fake}, "defaultHarness": "fake", "permissionPolicy": "ask"});
     std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
     daemon.start();
     let mut rpc = daemon.rpc().await;
+    prove(&mut rpc).await;
+    (daemon, rpc)
+}
+
+/// Proves the person on `rpc` with the key `proven_daemon` gives its daemon.
+async fn prove(rpc: &mut Rpc) {
     let init = rpc.call("initialize", json!({"protocolVersion": 1})).await;
     let challenge = &init["_meta"]["acpmux"]["personChallenge"];
     let proof = acpmux::hub::person::person_proof(
-        KEY,
+        PROVEN_KEY,
         acpmux::hub::person::TRANSPORT_UNIX,
         challenge["nonce"].as_str().unwrap_or_else(|| panic!("{init}")),
         challenge["connection"].as_str().unwrap(),
@@ -2426,7 +2434,6 @@ async fn proven_daemon(tag: &str, fake: Value, env: &[(&str, &str)]) -> (Daemon,
     .unwrap();
     let proven = rpc.call("_acpmux/person_prove", json!({"proof": proof})).await;
     assert_eq!(proven["person"], true, "{proven}");
-    (daemon, rpc)
 }
 
 /// Review 60 of #23322: a `set_config_option` the harness took without answering its options (a
@@ -3078,4 +3085,75 @@ async fn an_auto_answered_asks_logged_display_line_is_never_read_back() {
     let display =
         &group["msg"]["group"]["items"][0]["request"]["toolCall"]["_meta"]["acpmux"]["display"];
     assert_eq!(display["target"], "a12", "{display}");
+}
+
+/// Review 68 of #23322: an off pushed while the next daemon adopts a left host, after that
+/// adoption read MDM's policy (unset) and before the host replayed (the debug seam
+/// `ACPMUX_TEST_ADOPT_HOLD_MS`), still judges what the replay says: the host had moved itself
+/// into full access with no daemon attached, and no prompt reaches it, also while the inbound
+/// loop has not applied the replayed update yet (`ACPMUX_TEST_UPDATE_DELAY_MS`).
+#[tokio::test]
+async fn an_off_pushed_while_a_left_host_is_adopted_judges_its_replay() {
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let env = [("ACPMUX_TEST_UPDATE_DELAY_MS", "1500"), ("ACPMUX_TEST_ADOPT_HOLD_MS", "3000")];
+    let (mut daemon, mut rpc) = proven_daemon("mdmadoptrace", fake, &env).await;
+    let session = new_session(&daemon).await;
+    rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    let later = json!({"sessionId": session,
+                       "prompt": [{"type": "text", "text": "set-mode-after: 1500 full-access"}]});
+    rpc.call("session/prompt", later).await;
+    daemon.sigterm();
+    drop(rpc);
+    assert!(alive(harness_pid), "SIGTERM ended the agent");
+    // The harness moves into full access with no daemon attached.
+    tokio::time::sleep(Duration::from_millis(2000)).await;
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    prove(&mut rpc).await;
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    let ask = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi again"}]});
+    rpc.reply("session/prompt", ask).await;
+    let mut adopted = false;
+    for e in daemon.events(&session) {
+        match (e["dir"].as_str(), e["kind"].as_str()) {
+            (Some("mux"), Some("host_adopted")) => adopted = true,
+            (Some("mux"), Some("host_started")) => adopted = false,
+            (Some("out"), Some("session/prompt")) => {
+                assert!(!adopted, "a prompt reached the full-access agent the host replayed: {e}")
+            }
+            _ => {}
+        }
+    }
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the full-access agent the host replayed ran on under the managed off"
+    );
+}
+
+/// Review 68 of #23322: a host link whose acknowledgement failed (the debug seam
+/// `ACPMUX_TEST_ACK_FAILS_ONCE`) stops its reader while its socket may still look open. Under
+/// MDM's off what the host reports from then on is not heard, so the agent ends at once, before
+/// it moves itself into full access unseen.
+#[tokio::test]
+async fn an_agent_whose_ack_failed_ends_under_mdm_off() {
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let env = [("ACPMUX_TEST_ACK_FAILS_ONCE", "ack-fails-here")];
+    let (daemon, mut rpc) = proven_daemon("mdmackfail", fake, &env).await;
+    let session = new_session(&daemon).await;
+    rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    let later = json!({"sessionId": session,
+                       "prompt": [{"type": "text", "text": "set-mode-after: 1500 full-access"}]});
+    rpc.call("session/prompt", later).await;
+    let fails = json!({"sessionId": session,
+                       "prompt": [{"type": "text", "text": "ack-fails-here"}]});
+    rpc.reply("session/prompt", fails).await;
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "an agent whose link stopped reading ran on under the managed off"
+    );
 }
