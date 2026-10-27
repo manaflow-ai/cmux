@@ -124,14 +124,6 @@ case "${CMUX_SWIFT_SANITIZE:-}" in
   ""|address|thread|undefined) ;;
   *) echo "package-test-lane.sh: CMUX_SWIFT_SANITIZE must be address, thread or undefined (got '$CMUX_SWIFT_SANITIZE')" >&2; exit 2 ;;
 esac
-# CMUX_SWIFT_TEST_COOP_STRICT=1 (suite phase): each `swift test` and the test process it
-# starts run with LIBDISPATCH_COOPERATIVE_POOL_STRICT=1, a cooperative pool of width 1, so
-# code that blocks a Swift concurrency thread hangs under the watchdog. The build does not:
-# a SwiftPM build on that pool has no watchdog.
-case "${CMUX_SWIFT_TEST_COOP_STRICT:-}" in
-  ""|0|1) ;;
-  *) echo "package-test-lane.sh: CMUX_SWIFT_TEST_COOP_STRICT must be 0 or 1 (got '$CMUX_SWIFT_TEST_COOP_STRICT')" >&2; exit 2 ;;
-esac
 
 # A sanitizer runtime adds a C personality routine, and the Rust static libraries the app
 # links bring their own: ld's compact unwind encodes at most three ("Too many personality
@@ -735,16 +727,13 @@ run_suite() {
   fi
   # One build serves every suite. Each suite runs in its own `swift test` so the
   # summary has a result per suite and one failure does not hide the others.
-  local log filter status started result failed=0 first_failure_status=0 rows=() test_env=()
-  if [ "${CMUX_SWIFT_TEST_COOP_STRICT:-}" = 1 ]; then
-    test_env=(LIBDISPATCH_COOPERATIVE_POOL_STRICT=1)
-  fi
+  local log filter status started result failed=0 first_failure_status=0 rows=()
   for filter in "${suite_filters[@]}"; do
     echo "::group::swift test --filter $filter"
     log="$(mktemp -t swift-suite-test.XXXXXX)"
     started=$SECONDS
     status=0
-    env ${test_env[@]+"${test_env[@]}"} python3 scripts/ci/hung_test_watchdog.py \
+    python3 scripts/ci/hung_test_watchdog.py \
       --stall-seconds "${CMUX_SWIFT_TEST_STALL_SECONDS:-180}" \
       --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
       --sample-seconds 5 --label "$filter" --log "$log" \
