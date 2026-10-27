@@ -25,16 +25,20 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     /// The scheduler the hang watch flushes on; nil: the tab's hang never reaches the page host and
     /// Chromium waits on it until the renderer answers again, as before the feature.
     private let hangWork: MainWorkScheduler?
+    /// The page posts its calls on the page channel where the runtime has one (feature `pageHostChannel`).
+    private let pageChannel: Bool
     private var closed = false
 
     /// - Parameters:
     ///   - tab: The CEF tab the page shows in.
     ///   - pageID: The page's id (logs).
     ///   - hangWork: Forward the tab's hang and its end, flushed on this scheduler (feature `pageHangNotice`); nil: never.
-    init(tab: CEFTab, pageID: String, hangWork: MainWorkScheduler? = nil) {
+    ///   - pageChannel: Post the page's calls on the runtime's page channel (feature `pageHostChannel`); false: the DevTools binding.
+    init(tab: CEFTab, pageID: String, hangWork: MainWorkScheduler? = nil, pageChannel: Bool = false) {
         self.tab = tab
         self.pageID = pageID
         self.hangWork = hangWork
+        self.pageChannel = pageChannel
     }
 
     var contentView: NSView { tab.contentView }
@@ -72,10 +76,15 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         }
     }
 
+    /// The tab's page channel event (`CEFAgentRelay.pageHostEvent`): nil before fork API 29 and
+    /// while feature `pageHostChannel` is off.
+    var pageHostEvent: String? { pageChannel ? tab.agentRelay.pageHostEvent : nil }
+
     private func listen() {
         guard onEvent != nil, !closed else {
             tab.pageFilesDragged = nil
             tab.pageUserInput = nil
+            tab.agentRelay.onPageHostPost = nil
             tab.agentRelay.set(onMessage: nil, onEnd: nil)
             crashWatch?.cancel()
             crashWatch = nil
@@ -86,6 +95,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         }
         tab.agentRelay.set(onMessage: { [weak self] json in self?.onEvent?(.devTools(json)) },
                            onEnd: { [weak self] in self?.renderEnded() })
+        tab.agentRelay.onPageHostPost = { [weak self] text in self?.onEvent?(.pageHostPost(text)) }
         tab.pageFilesDragged = { [weak self] urls in self?.onEvent?(.filesDragged(urls)) }
         tab.pageUserInput = { [weak self] uptime in self?.onEvent?(.userInput(uptime)) }
         let tab = tab
@@ -207,6 +217,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         crashWatch = nil
         hangWatch?.cancel()
         hangWatch = nil
+        tab.agentRelay.onPageHostPost = nil
         tab.agentRelay.set(onMessage: nil, onEnd: nil)
         tab.pageResources = nil
         tab.pageFilesDragged = nil

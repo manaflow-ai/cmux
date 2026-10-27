@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "pageHostChannel",
+  "owner": "PL-webui",
+  "description": "A cmux page in Chromium sends its calls to the app on the fork's page channel (fork API 29), the posts of one task as one message, with no DevTools binding event and no sender probe per call; off, every call is a DevTools binding call whose sender is asked first.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

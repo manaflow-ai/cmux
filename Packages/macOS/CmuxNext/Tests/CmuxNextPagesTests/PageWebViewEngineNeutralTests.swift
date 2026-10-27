@@ -65,6 +65,26 @@ struct PageWebViewEngineNeutralTests {
         view.close()
     }
 
+    /// p01-process-232: on the page channel the page script names its event, and a post after the page's commit
+    /// reaches the handler in the event's turn, each message of a batched post in order, with no DevTools call.
+    @Test func aPageChannelPostReachesTheHandlerWithNoDevToolsCall() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        hosting.onMade = { $0.pageHostEvent = "cmux-page-host-post" }
+        var heard: [String] = []
+        let (view, page) = try await started(hosting) { view in
+            view.addMessageHandler("testReport") { body in heard.append((body as? [String: Any])?["text"] as? String ?? "?") }
+        }
+        #expect(page.calls.contains { $0.method == "Page.addScriptToEvaluateOnNewDocument" &&
+            (($0.params["source"] as? String)?.contains(#"const channelEvent = "cmux-page-host-post";"#) ?? false) })
+        page.onEvent?(.committed(descriptor.url(route: "")))
+        let before = page.calls.count
+        page.onEvent?(.pageHostPost(#"[{"name":"testReport","body":{"text":"a"}},{"name":"testReport","body":{"text":"b"}}]"#))
+        #expect(heard == ["a", "b"], "the post's messages reach the handler in its turn")
+        #expect(page.calls.count == before, "a DevTools call for the post: \(page.calls.dropFirst(before).map(\.method))")
+        view.close()
+    }
+
     /// The next-frame wait runs through the page's `evaluate`: on the renderer path (`tabEvaluate`)
     /// it makes no DevTools call, and the body runs once the page answers.
     @Test func theNextFrameWaitRunsThroughTheChromiumPagesEvaluate() async throws {

@@ -58,14 +58,14 @@ extension PageWebView {
         Task { _ = try? await page.devTools("Runtime.evaluate", params: ["expression": "document.execCommand('copy')", "userGesture": true]) }
     }
 
-    /// The page's selected text, in whichever engine shows it (empty for none).
+    /// The page's selected text, in whichever engine shows it (empty for none). Chromium answers
+    /// through the page's own evaluation (``PageChromiumPage/evaluate(_:)``), never a DevTools call.
     public func selectedText() async -> String {
         let script = "String(getSelection())"
         guard let page = chromiumSession?.page else {
             return (try? await webKitPieces?.view.evaluateJavaScript(script)) as? String ?? "" // MQ12 allowed: the page the person acts on shows
         }
-        guard let json = try? await page.devTools("Runtime.evaluate", params: ["expression": script, "returnByValue": true]) else { return "" }
-        return ChromiumPageHostWire.evaluationString(json) ?? ""
+        return (try? await page.evaluate(script)) as? String ?? "" // MQ12 allowed: the page the person acts on shows
     }
 
     /// Runs an editing action (`cut:`, `copy:`, `paste:`, `pasteAsPlainText:`) as the page's own

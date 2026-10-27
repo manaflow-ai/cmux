@@ -452,7 +452,7 @@ final class AppServices {
                     self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
                 },
                 keyRouter: keyRouter, work: work, dialogs: .shared,
-                hangWork: features.isEnabled(.pageHangNotice) ? mainWork : nil),
+                hangWork: features.isEnabled(.pageHangNotice) ? mainWork : nil, pageChannel: features.isEnabled(.pageHostChannel)),
             openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
             hoverFrameInput: hoverFrameInput, retirer: PageRetirer(deadlines: mainDeadlines))
         host.scriptFrames = pageScriptFrame

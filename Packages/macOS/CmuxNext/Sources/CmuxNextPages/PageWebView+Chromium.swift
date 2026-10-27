@@ -152,8 +152,8 @@ extension PageWebView {
         page.onEvent = { [weak self] event in self?.chromiumEvent(event) }
         page.resources = { [weak self] url in await self?.chromiumResource(url) ?? .notFound }
         do {
-            for (method, params) in ChromiumPageHostBridge.setupCalls(handlers: handlers,
-                                                                       documentScripts: scripts.sources) {
+            for (method, params) in ChromiumPageHostBridge.setupCalls(handlers: handlers, documentScripts: scripts.sources,
+                                                                       channelEvent: page.pageHostEvent) {
                 _ = try await page.devTools(method, params: params)
             }
         } catch {
@@ -251,7 +251,11 @@ extension PageWebView {
             guard !chromiumSession.bridge.receive(devToolsMessage: json),
                   let event = ChromiumPageHostWire.documentEvent(json) else { return }
             chromiumEvent(event)
+        case .pageHostPost(let text):
+            chromiumSession.bridge.receive(pageHostPost: text)
         case .committed(let url):
+            // Before the policy: the posts that follow are this document's, whichever it is.
+            chromiumSession.bridge.documentCommitted(url)
             guard let url, url.scheme != "about" else { return }
             guard PageNavigation.policy(for: url, page: descriptor, userClicked: false, mainFrame: true, hook: onNavigate) == .allow else {
                 // A navigation the click script did not catch (a script set `location`): the page
