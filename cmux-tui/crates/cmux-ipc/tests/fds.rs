@@ -184,4 +184,28 @@ mod cmux_ipc_fds {
         assert_eq!(receiver.recv(receiver_end.as_raw_fd(), &mut buf, 16, |_| {}).unwrap(), 0);
         assert!(buf.is_empty());
     }
+
+    /// `recv_into` writes the bytes at the start of the caller's slice and
+    /// queues the descriptors as `recv` does; its errors are `recv`'s.
+    #[test]
+    fn recv_into_fills_the_callers_slice() {
+        let (sender, receiver_end) = UnixStream::pair().unwrap();
+        let (read_end, _write_end) = pipe();
+        fds::send_all(sender.as_raw_fd(), b"hello", &[read_end.as_raw_fd()]).unwrap();
+        let mut receiver = FdReceiver::default();
+        let mut room = [0xAAu8; 32];
+        let n = receiver.recv_into(receiver_end.as_raw_fd(), &mut room, |_| {}).unwrap();
+        assert_eq!(&room[..n], b"hello");
+        assert!(room[n..].iter().all(|byte| *byte == 0xAA), "nothing past the read is written");
+        let taken = receiver.take(1).unwrap();
+        assert_eq!(identity(taken[0].as_raw_fd()), identity(read_end.as_raw_fd()));
+
+        let (one, two) = pipe();
+        fds::send_all(sender.as_raw_fd(), b"x", &[one.as_raw_fd(), two.as_raw_fd()]).unwrap();
+        let mut small = FdReceiver::with_capacity(1);
+        let error = small.recv_into(receiver_end.as_raw_fd(), &mut room, |_| {}).unwrap_err();
+        assert_eq!(bad_message(&error), Some(FdBadMessage::ControlTruncated));
+        drop(sender);
+        assert_eq!(receiver.recv_into(receiver_end.as_raw_fd(), &mut room, |_| {}).unwrap(), 0);
+    }
 }

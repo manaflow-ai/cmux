@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextTabs
 
@@ -6,6 +7,7 @@ import CmuxNextTabs
 /// cache keeps one image per emoji and backing scale.
 @MainActor
 enum ScreenEmojiIcon {
+    // memory: fixed at most 65 images (emptied past 64): each one tab icon (16 pt) at its backing scale, under 10 KB at 3x
     private static var cache: [String: TabImage] = [:]
 
     static func icon(_ emoji: String) -> TabIcon {
@@ -21,9 +23,9 @@ enum ScreenEmojiIcon {
     private static func render(_ emoji: String, scale: CGFloat) -> TabImage? {
         let side = TabStripMetrics.standard.iconSize
         let pixels = Int((side * scale).rounded())
-        guard pixels > 0, let context = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0,
-                                                  space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        guard pixels > 0, let context = CGContext.bitmapOwningPixels(width: pixels, height: pixels,
+                                                                     space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         context.scaleBy(x: scale, y: scale)
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)

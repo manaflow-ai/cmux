@@ -1,4 +1,6 @@
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// A time limit raced against async work: the R-timer recipe's helper for "a sleep in a race"
 /// (plans/cmux-next/chrome-parity/p06-scheduler.md, "Recipes").
@@ -21,6 +23,12 @@ public struct Deadline: Sendable {
         public let label: String
         /// The limit it had.
         public let limit: Duration
+
+        /// The exceeded limit of the race named `label`.
+        public init(label: String, limit: Duration) {
+            self.label = label
+            self.limit = limit
+        }
 
         public var description: String { "\(label) missed its \(limit) deadline" }
     }
@@ -61,7 +69,7 @@ public struct Deadline: Sendable {
         let clock = clock
         let ledger = ledger
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<T, any Error>) in
                 race.begin(continuation)
                 let work = Task {
                     do {
@@ -71,6 +79,7 @@ public struct Deadline: Sendable {
                     }
                 }
                 let timer = Task {
+                    // timer-class-allow: this is the Deadline helper recipe R-timer sends sleeps in races to; the race runs off main
                     do { try await clock.sleep(for: limit, tolerance: tolerance) } catch { return }
                     ledger.record(label, reason: "deadline")
                     race.finish(.failure(Exceeded(label: label, limit: limit)), first: onTimeout)
@@ -99,7 +108,7 @@ public struct Deadline: Sendable {
     /// cancellation handler each finish from their own), as CmuxNextCompat's `Mutex` allows.
     private final class Race<T: Sendable>: Sendable {
         private struct State {
-            var continuation: CheckedContinuation<T, any Error>?
+            var continuation: OnceContinuation<T, any Error>?
             /// The outcome when it came before the continuation (a caller cancelled before the race began).
             var early: Result<T, any Error>?
             var done = false
@@ -108,7 +117,7 @@ public struct Deadline: Sendable {
 
         private let state = Mutex(State())
 
-        func begin(_ continuation: CheckedContinuation<T, any Error>) {
+        func begin(_ continuation: OnceContinuation<T, any Error>) {
             let early: Result<T, any Error>? = state.withLock { state in
                 if let early = state.early { return early }
                 state.continuation = continuation
@@ -129,7 +138,7 @@ public struct Deadline: Sendable {
         /// Ends the race with `result` when it is the first outcome: runs `first`, cancels the racers, then resumes
         /// the caller, so the caller never runs while a loser is still live. A later outcome is dropped.
         func finish(_ result: Result<T, any Error>, first: () -> Void = {}) {
-            let won: (CheckedContinuation<T, any Error>?, [Task<Void, Never>])? = state.withLock { state in
+            let won: (OnceContinuation<T, any Error>?, [Task<Void, Never>])? = state.withLock { state in
                 guard !state.done else { return nil }
                 state.done = true
                 let continuation = state.continuation

@@ -5,8 +5,8 @@ public import CmuxNextWakeups
 /// mounts (it opens the chat once), when the window closes or shows another workspace (it opens
 /// nothing), or when ``cancel()`` runs (the next jump replaces it).
 ///
-/// It waits on the model, not a view: a ``ServiceObservation`` in the visible class (the person's
-/// jump), so a burst of mounts reads `decide` once on the next frame.
+/// It waits on the model, not a view: a ``ServiceObservation`` in the userBlocking class (the person
+/// waits for the chat they picked), so a burst of mounts reads `decide` once, in the next flush.
 @MainActor
 public final class AgentChatPaneWait {
     /// What the wait does with the window's state now.
@@ -39,7 +39,7 @@ public final class AgentChatPaneWait {
     ///   - decide: Reads the window's state with tracking (``Decision/decide(showing:workspaceID:hasPane:)``).
     ///   - open: Opens the chat in the pane that mounted.
     public init(on work: MainWorkScheduler, decide: @escaping @MainActor () -> Decision, open: @escaping @MainActor () -> Void) {
-        let observation = ServiceObservation(.visible, owner: "agent-activity.pane-wait", on: work, read: decide) { [weak self] next in
+        let observation = ServiceObservation(.userBlocking, owner: "agent-activity.pane-wait", on: work, read: decide) { [weak self] next in
             self?.decided(next, open: open)
         }
         if isOver { observation.cancel() } else { self.observation = observation }

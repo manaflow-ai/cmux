@@ -187,32 +187,22 @@ class SettledTests(unittest.TestCase):
         return [(h.path.rsplit("/", 1)[-1], h.queue, h.settled)
                 for h in q.scan(files, q.heuristic_main_inherited) if h.recipe == "R-notif"]
 
-    def test_a_name_or_center_handed_to_window_or_app_events_is_the_notif_recipe_target(self):
-        self.assertEqual(self.states("let events = WindowEvents.of(window)\n"
-                                     "let s = events.subscribe(NSWindow.didResizeNotification, owner: o, changed)\n"),
-                         [("Q4", "R-notif", True)])
-        self.assertEqual(self.states("let s = WindowEvents.of(window).subscribe(NSWindow.didResizeNotification, owner: o) {}\n"),
-                         [("Q4", "R-notif", True)])
-        self.assertEqual(self.states("center.addObserver(forName: NSWindow.didResizeNotification, object: nil, queue: .main) { _ in }\n"),
-                         [("Q4", "R-notif", False)])
-        self.assertEqual(self.states("let names = [NSWindow.didResizeNotification]\n"), [("Q4", "R-notif", False)])
-        self.assertEqual(self.states("let c = NSWorkspace.shared.notificationCenter\n"), [("Q4", "R-notif", False)])
+    def test_a_notice_name_passed_to_a_subscribe_is_the_notice_recipe_target(self):
+        app = 'watch = appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "x") { stop() }\n'
+        window = 'watch = WindowEvents.of(w).subscribe( NSWindow.didResignKeyNotification, owner: "x") { stop() }\n'
+        self.assertEqual(self.states(app) + self.states(window), [("Q4", "R-notif", True)] * 2)
+        raw = 'watch = MainActorObservation(NSApplication.didResignActiveNotification) { stop() }\n'
+        listed = "let names = [NSWindow.didMoveNotification]\n"
+        workspace = 'events = AppEvents(center: NSWorkspace.shared.notificationCenter)\n'
+        both = 'a = events.subscribe(NSWindow.didMoveNotification, owner: "x") { center.addObserver(self) }\n'
+        self.assertEqual(self.states(raw) + self.states(listed) + self.states(workspace) + self.states(both),
+                         [("Q4", "R-notif", False)] * 4)
 
     def test_only_the_composition_root_makes_an_app_events(self):
         line = "let workspaceEvents = AppEvents(center: NSWorkspace.shared.notificationCenter)\n"
         self.assertEqual(self.notif_states({q.COMPOSITION_ROOT: line}), [("AppServices.swift", "Q4", True)])
         # A feature's own AppEvents is one more observer per name: R-notif's pattern stays open.
         self.assertEqual(self.notif_states({f"{S}CmuxNextApp/Feature/F.swift": line}), [("F.swift", "Q4", False)])
-
-    def test_a_subscribe_is_settled_only_on_a_window_or_app_events(self):
-        root = {q.COMPOSITION_ROOT: "    let workspaceEvents = AppEvents(center: .default)\n"}
-        feature = f"{S}CmuxNextApp/Feature/F.swift"
-        through_root = "s = services.workspaceEvents.subscribe(NSApplication.didHideNotification, owner: o) {}\n"
-        self.assertEqual(self.notif_states({**root, feature: through_root}), [("F.swift", "Q4", True)])
-        other = "s = bus.subscribe(NSApplication.didHideNotification, owner: o) {}\n"
-        self.assertEqual(self.notif_states({**root, feature: other}), [("F.swift", "Q4", False)])
-        unknown = "s = services.otherEvents.subscribe(NSApplication.didHideNotification, owner: o) {}\n"
-        self.assertEqual(self.notif_states({**root, feature: unknown}), [("F.swift", "Q4", False)])
 
     def test_hide_and_unhide_that_forward_to_the_node_are_settled(self):
         forward = self.view("    override func viewDidHide() {", "        super.viewDidHide()",
@@ -588,6 +578,9 @@ class UndocumentedTests(unittest.TestCase):
                 "    public static func == (lhs: A, rhs: A) -> Bool { true }\n"
                 "    public var description: String { \"\" }\n"
                 "    func internalOne() {}\n"
+                "    func reset() {\n"
+                "        open = nil\n"
+                "    }\n"
                 "}\n"
                 "public extension A {}\n")
         files = {f"{q.WAKEUPS}A.swift": text, f"{S}CmuxNextApp/B.swift": "public struct B {}\n"}

@@ -1,4 +1,5 @@
 public import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 
 /// cmux's own window background (`appearance.backgroundOpacity`,
@@ -28,20 +29,21 @@ extension GhosttyRuntime {
     static var seeThroughShown: Bool { !seeThroughHosts.allObjects.isEmpty }
 
     /// Records whether the window is see-through around `host`, and reloads the config when that
-    /// turns ``seeThroughShown`` on or off.
-    static func setSeeThrough(_ seeThrough: Bool, host: AnyObject) {
+    /// turns ``seeThroughShown`` on or off: one `visible` task on `mainWork`.
+    static func setSeeThrough(_ seeThrough: Bool, host: AnyObject, on mainWork: MainWorkScheduler) {
         if seeThrough { seeThroughHosts.add(host) } else { seeThroughHosts.remove(host) }
         guard seeThroughShown != seeThroughLoaded, !seeThroughReloadPending else { return }
         // Not inside the theme pass that asked: the reload repaints the hosts again. One reload
-        // per turn, and none when the set flipped back (a host moving between superviews).
+        // per pass, and none when the set flipped back (a host moving between superviews).
         seeThroughReloadPending = true
-        DispatchQueue.main.async {
+        // node-free: the reload changes every terminal's config, the hidden ones' too.
+        mainWork.post(.visible, owner: "GhosttyRuntime.seeThroughReload") {
             seeThroughReloadPending = false
             if seeThroughShown != seeThroughLoaded { shared.reloadConfig() }
         }
     }
 
-    /// The ``seeThroughShown`` the loaded config's surface policy read.
+    /// The ``seeThroughShown`` the last config build asked for reads (set when asked: `GhosttyConfigInputs.current`).
     static var seeThroughLoaded = false
     private static var seeThroughReloadPending = false
 

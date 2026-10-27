@@ -1,6 +1,8 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextSignposts
+import CmuxNextTrace
 import Foundation
 import Testing
 
@@ -200,6 +202,64 @@ import Testing
         #expect(tracker.reads.last?.screenRect.size == NSSize(width: 420, height: 600))
     }
 
+    // MARK: switch.tab (p09-observability task 028)
+
+    /// A switch to a live Chromium page: the page holds the request, the host's show (`showBrowser`) takes it once
+    /// and ends the switch as page activated; a later show of the same tab takes nothing.
+    @Test func aLivePagesShowTakesItsSwitchRequestOnce() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first, container) = try Self.liveHost(runtime)
+        let link = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(link)
+        host.present(link, in: container)
+        host.createDeferred()
+        try #require(link.browserID == TabSpyShim.addedBrowser)
+        host.conceal(link)
+        host.present(first, in: container)
+
+        var ends = 0
+        let signpost = TabSwitchSignpost(signposter: Signposter(category: .switch, trace: TraceRuntime(role: .app))) {
+            ends += 1
+            $0(.committed)
+        }
+        let pane = NSObject()
+        #expect(signpost.kind(of: link) == .page)
+        signpost.began(pane, to: "link", kind: .page, inputAgeMilliseconds: -1)
+        signpost.shows(link, for: pane, key: "link")
+        #expect(link.tabSwitchShow != nil, "a live page holds the request")
+        host.conceal(first)
+        host.present(link, in: container)
+        #expect(link.tabSwitchShow == nil, "the show took the request")
+        #expect(ends == 1)
+        #expect(signpost.openCount == 0)
+
+        // The next switch: a show of the tab with no request of its own ends nothing.
+        signpost.began(pane, to: "other", kind: .warm, inputAgeMilliseconds: -1)
+        host.conceal(link)
+        host.present(link, in: container)
+        #expect(ends == 1)
+        #expect(signpost.openCount == 1)
+    }
+
+    /// A Chromium tab with no browser yet is a cold destination and takes no request: its switch ends at the pane's
+    /// commit even when Chromium refuses to make the browser.
+    @Test func aPageWithNoBrowserTakesNoRequest() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = Self.host(runtime)
+        let cold = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(cold)
+        let signpost = TabSwitchSignpost(signposter: Signposter(category: .switch, trace: TraceRuntime(role: .app))) { $0(.committed) }
+        let pane = NSObject()
+        #expect(signpost.kind(of: cold) == .cold)
+        signpost.began(pane, to: "cold", kind: .cold, inputAgeMilliseconds: -1)
+        signpost.shows(cold, for: pane, key: "cold")
+        #expect(cold.tabSwitchShow == nil)
+        signpost.contentShown(pane, key: "cold")
+        #expect(signpost.openCount == 0)
+    }
+
     // MARK: Fixtures
 
     /// A runtime that outlives the test: a shown tab schedules work (its side panel refresh) that
@@ -207,7 +267,7 @@ import Testing
     private static func runtime() throws -> (CEFRuntime, URL) {
         TabSpyShim.reset()
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-deferred-\(UUID().uuidString)", directoryHint: .isDirectory)
-        let runtime = CEFRuntime(shim: try TabSpyShim.library(), storage: CEFProfileStorage(root: root))
+        let runtime = CEFRuntime.spy(shim: try TabSpyShim.library(), storage: CEFProfileStorage(root: root))
         _ = Unmanaged.passRetained(runtime)
         TabSpyShim.runtime = runtime
         return (runtime, root)

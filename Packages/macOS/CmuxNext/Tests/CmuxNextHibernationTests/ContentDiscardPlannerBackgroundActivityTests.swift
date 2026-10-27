@@ -1,5 +1,6 @@
 import CmuxNextHibernation
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Observation
 import Testing
@@ -121,7 +122,8 @@ import Testing
     @Test func aSameDocumentNavigationWithANewTitleCounts() {
         var activity = PageBackgroundActivity()
         activity.hide("spa", look: .init(document: 4, title: "Chat - general", icon: icon))
-        #expect(activity.note("spa", look: .init(document: 4, title: "Chat - random", icon: icon)))
+        let counted = activity.note("spa", look: .init(document: 4, title: "Chat - random", icon: icon))
+        #expect(counted)
         #expect(activity.contains("spa"))
     }
 
@@ -167,7 +169,7 @@ import Testing
 
     @MainActor @Test(.timeLimit(.minutes(1))) func theWatchFollowsAHiddenPageUntilItShows() async {
         let page = TestPage(document: 1, title: "Inbox")
-        let watch = PageActivityWatch()
+        let watch = PageActivityWatch(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         watch.isEnabled = true
         await confirmation { activated in
             await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
@@ -186,7 +188,7 @@ import Testing
 
     @MainActor @Test func anOffWatchWatchesNothing() {
         let page = TestPage(document: 1, title: "Inbox")
-        let watch = PageActivityWatch()
+        let watch = PageActivityWatch(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         watch.hide("mail", look: { [weak page] in page?.look }, onActive: { Issue.record("an off watch called back") })
         page.title = "Inbox (1)"
         #expect(!watch.contains("mail"))

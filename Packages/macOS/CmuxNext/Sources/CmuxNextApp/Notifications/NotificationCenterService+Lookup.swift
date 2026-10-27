@@ -105,7 +105,7 @@ extension NotificationCenterService {
             isSignedIn: { [weak feed] in feed?.isSignedIn ?? false },
             installID: { principal.installID },
             policy: { [weak self] in self?.feedHandoffPolicy() ?? FeedHandoffPolicy(preferences: .init(), mutedWorkspaces: []) },
-            since: Self.handoffSince)
+            since: Self.handoffSince, work: services.work)
     }
 
     /// The first time the driver ran for `install` (ms), kept per Mac: open
@@ -114,6 +114,7 @@ extension NotificationCenterService {
     static func handoffSince(_ install: String) -> UInt64 {
         let key = "feed.handoff.since.\(install)"
         if let stored = UserDefaults.standard.object(forKey: key) as? NSNumber { return stored.uint64Value }
+        // wall-clock: kept in UserDefaults and compared with items' Unix ms.
         let now = UInt64(Date().timeIntervalSince1970 * 1000)
         UserDefaults.standard.set(NSNumber(value: now), forKey: key)
         return now
@@ -246,7 +247,6 @@ extension NotificationCenterService {
     /// The local daemon's arrivals, viewed tabs, finished status runs, ledger texts and unread count.
     func follow(_ daemon: DaemonService) {
         let store = daemon.store
-        lastSeen = store.notifications.map(\.notification.rawValue).max() ?? 0
         // A new notification's ring and banner: visible work that no input of the person's caused.
         observations.append(ServiceObservation(.visible, owner: "notifications.arrivals", on: work) {
             store.notifications.last?.notification.rawValue ?? 0
@@ -294,6 +294,5 @@ extension NotificationCenterService {
             if self.preferences != prefs { self.preferences = prefs }
             self.updateDockBadge(self.currentUnreadCount())
         })
-        followChiefPet(settings)
     }
 }

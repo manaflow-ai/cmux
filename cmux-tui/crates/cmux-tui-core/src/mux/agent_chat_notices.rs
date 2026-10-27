@@ -27,6 +27,9 @@
 //!
 //! Only this machine's chats notify: a session a peer reports (`peer`) is
 //! not followed, so a peer cannot post on, or read, a local chat's tab.
+//!
+//! The same connection carries the daemon's Energy Saver to acpmux
+//! (`acpmux_energy.rs`): its mode as the watch connects, then each edge.
 
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -38,7 +41,9 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use super::acpmux_energy::AcpmuxEnergy;
 use super::{Mux, NotificationLevel, NotificationSource};
+use crate::panic_free::JsonFields;
 use crate::resource::ContentPublicId;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 use crate::{Actor, SurfaceId};
@@ -56,17 +61,27 @@ const MAX_BODY_CHARS: usize = 200;
 impl Mux {
     /// This machine's acpmux socket (`set_acpmux_socket`), a watch of its
     /// chats that posts their notifications for as long as the daemon runs,
-    /// and the agent message pump (`agent_message_pump.rs`), which the watch
-    /// wakes whenever it reaches acpmux.
+    /// the agent message pump (`agent_message_pump.rs`), which the watch
+    /// wakes whenever it reaches acpmux, and the Energy Saver relay
+    /// (`acpmux_energy.rs`), which sends the mode on the watch's connection.
     #[track_caller]
     pub fn watch_agent_chats(self: &Arc<Self>, socket: Option<PathBuf>) {
         self.set_acpmux_socket(socket.clone());
         let Some(socket) = socket else { return };
         self.start_agent_message_pump();
+        let energy = AcpmuxEnergy::start(self.energy.mode());
+        if energy.is_err() {
+            self.report_internal_diagnostic("acpmux energy relay not started");
+        }
         let mux = Arc::downgrade(self);
-        let spawned = std::thread::Builder::new()
-            .name("mux-agent-chat-notices".into())
-            .spawn(move || watch(&mux, &socket));
+        let spawned = crate::thread_qos::spawn_raisable(
+            "mux-agent-chat-notices",
+            crate::thread_qos::ThreadType::Utility.qos(),
+            None,
+            move || {
+                watch(&mux, &socket, energy.ok().as_ref());
+            },
+        );
         if spawned.is_err() {
             self.report_internal_diagnostic("agent chat notifications not started");
         }
@@ -143,7 +158,7 @@ impl Mux {
 
 /// Connects whenever acpmux listens and follows it until the daemon ends.
 #[track_caller]
-fn watch(mux: &Weak<Mux>, socket: &Path) {
+fn watch(mux: &Weak<Mux>, socket: &Path, energy: Option<&AcpmuxEnergy>) {
     let mut backoff = crate::backoff::Backoff::new(Duration::from_secs(1), Duration::from_secs(10));
     let mut chats = HashMap::new();
     loop {
@@ -159,7 +174,7 @@ fn watch(mux: &Weak<Mux>, socket: &Path) {
             live.wake_agent_message_pump();
         }
         if let Ok(stream) = stream
-            && follow(mux, stream, &mut chats).is_ok()
+            && follow(mux, stream, energy, &mut chats).is_ok()
         {
             backoff.reset();
         }
@@ -173,6 +188,7 @@ fn watch(mux: &Weak<Mux>, socket: &Path) {
 fn follow(
     mux: &Weak<Mux>,
     stream: UnixStream,
+    energy: Option<&AcpmuxEnergy>,
     chats: &mut HashMap<String, Chat>,
 ) -> std::io::Result<()> {
     let mut writer = stream.try_clone()?;
@@ -184,6 +200,9 @@ fn follow(
     let watch =
         json!({"jsonrpc": "2.0", "id": 2, "method": "_acpmux/watch", "params": {"enabled": true}});
     writer.write_all(format!("{initialize}\n{watch}\n").as_bytes())?;
+    if let Some(energy) = energy {
+        energy.reached(&writer);
+    }
     let mut reader = BufReader::new(stream);
     let mut watching = false;
     loop {
@@ -194,10 +213,12 @@ fn follow(
         }
         let Ok(message) = serde_json::from_slice::<Value>(&line) else { continue };
         let Some(mux) = mux.upgrade() else { return Ok(()) };
-        if message["id"] == 2 {
+        if message.field("id") == 2 {
             // What the watch knew before this connection: the page is a change from it.
             let mut before = std::mem::take(chats);
-            for summary in message["result"]["sessions"].as_array().into_iter().flatten() {
+            for summary in
+                message.field("result").field("sessions").as_array().into_iter().flatten()
+            {
                 let Some(next) = Chat::of(summary) else { continue };
                 let known = before.remove(&next.session);
                 if known.is_none() && next.needs_nobody() {
@@ -207,10 +228,10 @@ fn follow(
                 apply(&mux, known.as_ref(), next, chats);
             }
             watching = true;
-        } else if watching && message["method"] == "_acpmux/session_changed" {
-            changed(&mux, &message["params"], chats);
-        } else if watching && message["method"] == "_acpmux/permission_pending" {
-            asked(&mux, &message["params"], chats);
+        } else if watching && message.field("method") == "_acpmux/session_changed" {
+            changed(&mux, message.field("params"), chats);
+        } else if watching && message.field("method") == "_acpmux/permission_pending" {
+            asked(&mux, message.field("params"), chats);
         }
     }
 }
@@ -320,10 +341,15 @@ impl Chat {
             indicator: summary["indicator"].as_str().unwrap_or_default().to_owned(),
             unread: summary["unread"].as_bool() == Some(true),
             shown: summary["shown"].as_bool() == Some(true),
-            muted: summary["tags"][MUTE_TAG] == MUTED,
+            muted: summary.field("tags").field(MUTE_TAG) == MUTED,
             last_turn,
             notified_turn: None,
-            last_message: summary["lastMessage"]["text"].as_str().unwrap_or_default().to_owned(),
+            last_message: summary
+                .field("lastMessage")
+                .field("text")
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
             last_seq: summary["lastSeq"].as_u64().unwrap_or(0),
             asks: HashSet::new(),
         })

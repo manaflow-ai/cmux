@@ -49,10 +49,10 @@ public final class FakeInputTap: InputObserving {
     /// The app dispatched `record`: it becomes the last dispatched (and last pointer) event, and every
     /// live subscription of its class whose window is the record's window or owner window hears it.
     public func deliver(_ record: InputEventRecord) {
-        lastDispatched = record
         switch record.eventClass {
-        case .button, .pointerMove, .drag, .scroll: lastPointer = record
-        case .key, .flags, .gesture: break
+        case .button, .pointerMove, .drag, .scroll: (lastDispatched, lastPointer) = (record, record)
+        case .key, .flags, .gesture: lastDispatched = record
+        case .tracking: break
         }
         for entry in entries where !entry.flag.isCancelled && entry.classes.contains(record.eventClass) {
             if let window = entry.windowNumber, window != record.windowNumber, window != record.ownerWindowNumber { continue }

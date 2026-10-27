@@ -29,6 +29,8 @@ pub(crate) fn write_bounded(
                 return Err(io::Error::new(io::ErrorKind::TimedOut, timeout_message));
             }
             let Some(remaining) = bytes.get(delivered..) else { break };
+            // SAFETY: the caller keeps `fd` open (this function's contract);
+            // the pointer and length come from the live `remaining` slice.
             let written = unsafe { libc::write(fd, remaining.as_ptr().cast(), remaining.len()) };
             if written > 0 {
                 delivered += written as usize;
@@ -51,6 +53,8 @@ pub(crate) fn write_bounded(
             }
             let millis = wait.as_nanos().saturating_add(999_999) / 1_000_000;
             let mut poll_fd = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
+            // SAFETY: `poll_fd` is one valid, exclusively borrowed pollfd and the
+            // count is 1, so poll writes only its `revents`.
             let ready =
                 unsafe { libc::poll(&mut poll_fd, 1, millis.clamp(1, i32::MAX as u128) as i32) };
             if ready == 0 {
@@ -78,10 +82,12 @@ struct NonblockingFdGuard {
 
 impl NonblockingFdGuard {
     fn install(fd: RawFd) -> io::Result<Self> {
+        // SAFETY: `write_bounded`'s caller keeps `fd` open; F_GETFL touches no memory.
         let original_flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
         if original_flags < 0 {
             return Err(io::Error::last_os_error());
         }
+        // SAFETY: as above; F_SETFL only adds O_NONBLOCK to the flags just read.
         if unsafe { libc::fcntl(fd, libc::F_SETFL, original_flags | libc::O_NONBLOCK) } < 0 {
             return Err(io::Error::last_os_error());
         }
@@ -90,6 +96,8 @@ impl NonblockingFdGuard {
 
     fn restore(&mut self) -> io::Result<()> {
         if !self.restored {
+            // SAFETY: the guard lives inside `write_bounded`, whose caller keeps
+            // `fd` open; F_SETFL restores the flags read at install.
             if unsafe { libc::fcntl(self.fd, libc::F_SETFL, self.original_flags) } < 0 {
                 return Err(io::Error::last_os_error());
             }

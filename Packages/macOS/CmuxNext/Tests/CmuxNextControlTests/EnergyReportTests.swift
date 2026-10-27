@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// `debug.energy` (p14-energy-007): the exact top-level keys, the field names the idle bench reads, the
+/// `debug.energy` (p14-energy-007, 008): the exact top-level keys, the idle histogram, the field names the idle bench reads, the
 /// wake queue's wakes, the ledger's top owners, the process counters Chrome's way (interrupt wakeups, not
 /// summed with package-idle ones) from one sample, and sampling off the main thread.
 @Suite(.timeLimit(.minutes(1)))
@@ -39,14 +39,15 @@ struct EnergyReportTests {
                      energyNanojoules: energy, physFootprint: 0, uptimeNanos: 0)
     }
 
-    @Test func topLevelKeysAreExactlyTheSix() async throws {
+    @Test func topLevelKeysAreExactlyTheEight() async throws {
         let report = await Self.report()
         let object = try #require(report.objectValue)
-        #expect(Set(object.keys) == ["policy", "inputs", "wake_queue", "ledger_top", "processes", "cef"])
+        #expect(Set(object.keys) == ["policy", "inputs", "wake_queue", "ledger_top", "processes", "cef", "idle", "tabs"])
         #expect(object["policy"]?["reason"]?.stringValue == "battery")
         #expect(object["policy"]?["wakeAlignmentMs"]?.doubleValue == 32)
         #expect(object["policy"]?["webFrameRate"]?.intValue == 30)
         #expect(object["policy"]?["pollStretch"]?.intValue == 4)
+        #expect(object["policy"]?["pageSaver"]?.boolValue == true)
         #expect(object["inputs"]?["featureEnabled"]?.boolValue == true)
         #expect(object["inputs"]?["hasBattery"]?.boolValue == true)
         #expect(object["inputs"]?["batteryPercent"]?.intValue == 15)
@@ -60,6 +61,41 @@ struct EnergyReportTests {
         #expect(object["wake_queue"]?["alignmentMs"]?.doubleValue == 32)
         #expect(object["cef"]?["energySaver"]?.stringValue == "unsupported")
         #expect(object["cef"]?["earlyPasses"] == JSONValue.null)
+    }
+
+    @Test func idleReportsTheHistogramAndItsPercentiles() async throws {
+        var idle = IdleEnergyStats()
+        var uptime: UInt64 = 0
+        var wakeups: UInt64 = 0
+        idle.noteWake(at: uptime, inputEvents: 0) { wakeups }
+        uptime += IdleEnergyStats.idleAfterNanos
+        idle.noteWake(at: uptime, inputEvents: 0) { wakeups }
+        for _ in 0..<3 {
+            uptime += IdleEnergyStats.windowNanos
+            wakeups += 12
+            idle.noteWake(at: uptime, inputEvents: 0) { wakeups }
+        }
+        var state = Self.state
+        state.idle = idle
+        let report = await Self.report(state: state)
+        let section = try #require(report["idle"])
+        #expect(section["scope"]?.stringValue == "mainProcess")
+        #expect(section["idleAfterSeconds"]?.intValue == 60)
+        #expect(section["windowSeconds"]?.intValue == 60)
+        #expect(section["samples"]?.intValue == 3)
+        #expect(section["windowsWithInput"]?.intValue == 0)
+        #expect(section["p50"]?.doubleValue == 0.25)
+        #expect(section["p99"]?.doubleValue == 0.25)
+        let buckets = try #require(section["buckets"]?.arrayValue)
+        #expect(buckets.map { $0["le"]?.stringValue } == ["0", "0.1", "0.25", "0.5", "1", "2", "5", "10", "50", "50+"])
+        #expect(buckets.map { $0["count"]?.intValue } == [0, 0, 3, 0, 0, 0, 0, 0, 0, 0])
+    }
+
+    @Test func idleBeforeTheFirstIdleMinuteHasNullRates() async {
+        let report = await Self.report()
+        #expect(report["idle"]?["samples"]?.intValue == 0)
+        #expect(report["idle"]?["p50"] == JSONValue.null)
+        #expect(report["idle"]?["max"] == JSONValue.null)
     }
 
     /// scripts/cmux-next/idle-budget.py `saver_state` reads `policy.isSaver` (a bool) and then
@@ -95,6 +131,19 @@ struct EnergyReportTests {
         #expect(report["inputs"]?["featureEnabled"] == JSONValue.bool(false))
         #expect(report["inputs"]?["batteryPercent"]?.intValue == 15)
         #expect(report["inputs"]?["setting"]?.stringValue == "auto")
+    }
+
+    /// `debug.energy.simulate` (p14-energy-123): the report says when the inputs are simulated, and the
+    /// simulate method's `thermal` names are the ones the report gives.
+    @Test func inputsSayWhetherTheyAreSimulated() async {
+        #expect(await Self.report()["inputs"]?["simulated"] == JSONValue.bool(false))
+        var state = Self.state
+        state.inputs.simulated = true
+        #expect(await Self.report(state: state)["inputs"]?["simulated"] == JSONValue.bool(true))
+        for thermal in [ProcessInfo.ThermalState.nominal, .fair, .serious, .critical] {
+            #expect(EnergyReport.Inputs.thermal(named: EnergyReport.Inputs.name(thermal)) == thermal)
+        }
+        #expect(EnergyReport.Inputs.thermal(named: "hot") == nil)
     }
 
     @Test func wakeQueueFiresComeFromTheQueuesOwnLedgerRecord() async {
@@ -143,6 +192,61 @@ struct EnergyReportTests {
         let rendered = await Self.report(ledger: ledger)["ledger_top"]?.arrayValue?.first
         #expect(rendered?["count"]?.intValue == 30)
         #expect(rendered?["perSecond"]?.doubleValue != nil)
+    }
+
+    /// p14-energy-030: `cef.energySaver` is `applied` only when the built engine says the fork took the last
+    /// state; a refused or uncalled saver and no Chromium built yet are `unsupported`.
+    @Test func cefEnergySaverIsAppliedOnlyWhenTheEngineSaysSo() async {
+        #expect(EnergyReport.CEF.Saver(applied: true) == .applied)
+        #expect(EnergyReport.CEF.Saver(applied: false) == .unsupported)
+        #expect(EnergyReport.CEF.Saver(applied: nil) == .unsupported)
+        for (applied, name) in [(true, "applied"), (false, "unsupported")] {
+            var state = Self.state
+            state.cef = .init(saver: .init(applied: applied), earlyPasses: nil)
+            #expect(await Self.report(state: state)["cef"]?["energySaver"]?.stringValue == name)
+        }
+    }
+
+    /// `tabs` (p14-energy-124): the sampled tab renderers, per tab. Two tabs on one renderer both show its
+    /// whole usage and it names both. Only tab renderers count: an extension renderer (no client id) that a
+    /// stale tab pid names is not one.
+    @Test func tabsShowTheirRenderersUsageAndASharedRendererNamesEveryTab() throws {
+        let renderer = { (pid: pid_t, client: Int32?, energy: UInt64) in
+            EnergyReport.ProcessSample(kind: "cef-renderer", usage: Self.usage(pid: pid, interrupt: energy / 10, packageIdle: 1, energy: energy),
+                                       rendererClientID: client)
+        }
+        let processes = [
+            EnergyReport.ProcessSample(kind: "app", usage: Self.usage(pid: 1, interrupt: 1, packageIdle: 1, energy: 1)),
+            renderer(501, 3, 9_000), renderer(502, 4, 300), renderer(503, nil, 70),
+        ]
+        let tabs = [
+            ProcessUsage.TabRenderers(tab: "a", title: "Docs", pid: 501, rendererClients: [3]),
+            ProcessUsage.TabRenderers(tab: "b", title: "Docs 2", pid: 501, rendererClients: [3]),
+            ProcessUsage.TabRenderers(tab: "c", title: "Older fork", pid: nil, rendererClients: [4]),
+            ProcessUsage.TabRenderers(tab: "d", title: "Stale", pid: 503, rendererClients: []),
+        ]
+        let grouped = EnergyReport.tabUsage(tabs, processes: processes)
+
+        let rows = try #require(EnergyReport.render(state: Self.state, ledger: [], processes: processes, tabs: grouped)["tabs"]?.arrayValue)
+        try #require(rows.count == 4)
+        for row in rows.prefix(2) {
+            #expect(row["energyNj"]?.intValue == 9_000)
+            #expect(row["interruptWakeups"]?.intValue == 900)
+            let shared = try #require(row["renderers"]?.arrayValue?.first)
+            #expect(shared["pid"]?.intValue == 501)
+            #expect(shared["clientId"]?.intValue == 3)
+            #expect(shared["tabs"]?.arrayValue?.compactMap(\.stringValue) == ["a", "b"])
+        }
+        #expect(rows[0]["title"]?.stringValue == "Docs")
+        #expect(rows[2]["renderers"]?.arrayValue?.first?["pid"]?.intValue == 502, "a client id alone attributes the renderer")
+        #expect(rows[3]["renderers"]?.arrayValue?.isEmpty == true, "a process that is not a tab renderer is no tab's")
+        #expect(rows[3]["energyNj"]?.intValue == 0)
+    }
+
+    @Test func noTabsGroupNothing() {
+        let processes = [EnergyReport.ProcessSample(kind: "cef-renderer", usage: Self.usage(pid: 501, interrupt: 1, packageIdle: 1, energy: 1),
+                                                    rendererClientID: 3)]
+        #expect(EnergyReport.tabUsage([], processes: processes).isEmpty)
     }
 
     @Test func thermalStatesHaveStableNames() {

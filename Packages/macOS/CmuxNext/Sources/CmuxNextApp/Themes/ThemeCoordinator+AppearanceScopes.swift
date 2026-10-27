@@ -94,11 +94,15 @@ extension ThemeCoordinator {
     /// A window's own background and glass tint over its room scope (a workspace's own still wins
     /// while it shows).
     func applyWindowBackground(_ controller: WindowController) {
-        let window = AppearanceTarget.window(controller.state.profileID)
-        guard let key = scopeKey(window) else { return }
+        applyWindowBackground(of: controller.themeScope, room: controller.state.profileID)
+    }
+
+    /// The same for a window scope with no controller yet: the launch's picture window (p08-startup-059).
+    func applyWindowBackground(of scope: ThemeScope, room: ProfileID) {
+        guard let key = scopeKey(AppearanceTarget.window(room)) else { return }
         let background = appearanceScopes.background(for: "\(key)|background")
-        controller.themeScope.pinBackdrop(WorkspaceBackgroundStore.pin(background, now: Date()))
-        controller.themeScope.pinBackdropTint(appearanceScopes.background(for: "\(key)|opacity").flatMap(Double.init))
+        scope.pinBackdrop(WorkspaceBackgroundStore.pin(background, now: Date()))
+        scope.pinBackdropTint(appearanceScopes.background(for: "\(key)|opacity").flatMap(Double.init))
     }
 
     // MARK: Pane shortcuts (pane.setBackground)

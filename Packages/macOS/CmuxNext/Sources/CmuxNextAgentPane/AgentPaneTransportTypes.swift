@@ -72,10 +72,4 @@ public nonisolated struct AgentPaneTransportEvent: Equatable, Sendable {
         }
         return object
     }
-
-    /// The old host's push: `cmuxAcpmuxTransport.receive(event)` (bridgeSocket.ts).
-    var script: String {
-        let json = (try? JSONSerialization.data(withJSONObject: object)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
-        return "window.cmuxAcpmuxTransport?.receive(\(json));"
-    }
 }

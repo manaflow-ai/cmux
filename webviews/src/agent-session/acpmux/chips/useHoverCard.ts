@@ -3,6 +3,7 @@
 // moved into the card, or a menu the card opened (Open in) is still open. Every link's card shares
 // it (LinkHoverCard.tsx): reply links, pull request chips and the pull request bars.
 import { useCallback, useEffect, useRef, useState, type FocusEvent, type PointerEvent } from "react";
+import { frameInput, type FrameInput } from "../../../ui/frameInput";
 import { HOVER_INTENT, HoverBridge, type Point } from "../../../ui/hoverIntent";
 
 export type HoverCard = ReturnType<typeof useHoverCard>;
@@ -12,17 +13,25 @@ type Rect = { left: number; top: number; right: number; bottom: number };
 type PointerBridgeListener = (point: Point) => void;
 const activePointerBridges = new Set<PointerBridgeListener>();
 let removePointerBridgeListener: (() => void) | undefined;
+let pointerBridgeMoves: FrameInput<Point> | undefined;
 
 function watchPointerBridge(listener: PointerBridgeListener): () => void {
   activePointerBridges.add(listener);
-  if (!removePointerBridgeListener && typeof document !== "undefined") {
-    const onMove = (event: globalThis.PointerEvent) => {
-      const point = { x: event.clientX, y: event.clientY };
+  const win = typeof document === "undefined" ? null : document.defaultView;
+  if (!removePointerBridgeListener && win) {
+    // Each bridge measures its trigger and card per move: once per frame, at the newest pointer
+    // (ui/frameInput.ts).
+    const moves = frameInput(win, (point: Point) => {
       for (const active of activePointerBridges) active(point);
-    };
-    document.addEventListener("pointermove", onMove, true);
+    });
+    const onMove = (event: globalThis.PointerEvent) => moves.push({ x: event.clientX, y: event.clientY });
+    // Passive: the bridge only follows the pointer, it cancels nothing.
+    document.addEventListener("pointermove", onMove, { capture: true, passive: true });
+    pointerBridgeMoves = moves;
     removePointerBridgeListener = () => {
+      moves.cancel();
       document.removeEventListener("pointermove", onMove, true);
+      pointerBridgeMoves = undefined;
       removePointerBridgeListener = undefined;
     };
   }
@@ -78,10 +87,14 @@ export function useHoverCard(dwell: number = HOVER_INTENT.cardDwell) {
     unwatch.current = undefined;
   };
   const move = (event: PointerEvent<HTMLElement>) => {
+    // While watching, the document listener already hands this move over at the frame.
+    if (unwatch.current) return;
     refresh();
     bridge.current?.move(point(event));
   };
   const enter = (region: "trigger" | "card", event: PointerEvent<HTMLElement>, immediate = false) => {
+    // A held move is older than this crossing: it goes first, as in the browser.
+    pointerBridgeMoves?.flush();
     if (region === "trigger") trigger.current = event.currentTarget;
     watch();
     refresh();
@@ -93,6 +106,7 @@ export function useHoverCard(dwell: number = HOVER_INTENT.cardDwell) {
     );
   };
   const leave = (region: "trigger" | "card", event?: PointerEvent<HTMLElement>) => {
+    pointerBridgeMoves?.flush();
     refresh();
     bridge.current?.leave(
       region,

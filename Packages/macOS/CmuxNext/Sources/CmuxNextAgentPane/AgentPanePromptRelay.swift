@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import os
 
@@ -39,7 +40,7 @@ nonisolated struct AgentPanePromptRelay: Sendable {
     /// promptId, or nil when it is not kept.
     @concurrent func record(_ box: AgentPaneTransport.FrameBox, ids: AcpmuxRequestIds, relayID: Int?) async -> String? {
         guard let text = box.encoded(id: nil),
-              var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+              var object = (try? JSONSerialization.blockingJSONObject(with: Data(text.utf8))) as? [String: Any],
               var params = object["params"] as? [String: Any], let session = params["sessionId"] as? String else { return nil }
         var meta = params["_meta"] as? [String: Any] ?? [:]
         var acpmux = meta["acpmux"] as? [String: Any] ?? [:]
@@ -101,7 +102,7 @@ nonisolated struct AgentPanePromptRelay: Sendable {
     /// The `session/prompt` request for a recorded prompt: its params, marked as a resend. A steer
     /// goes as a plain prompt: the turn it was meant for ended with the app.
     static func resendFrame(_ entry: AgentPanePromptJournal.Entry, id: Int) -> String? {
-        guard var params = (try? JSONSerialization.jsonObject(with: Data(entry.params.utf8))) as? [String: Any],
+        guard var params = (try? JSONSerialization.blockingJSONObject(with: Data(entry.params.utf8))) as? [String: Any],
               params["sessionId"] as? String == entry.sessionId else { return nil }
         var meta = params["_meta"] as? [String: Any] ?? [:]
         var acpmux = meta["acpmux"] as? [String: Any] ?? [:]

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextDaemon
 public import Foundation
 
@@ -84,7 +85,7 @@ public nonisolated struct HomeChiefHostedEngine: HomeChiefEngineSource {
 
     /// The brain's config from one reply (GET's `value.config`, PUT's `value`), or why not.
     static func config(status: Int, body: Data) throws(HomeChiefEngineError) -> [String: Any] {
-        let json = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
+        let json = (try? JSONSerialization.blockingJSONObject(with: body)) as? [String: Any] ?? [:]
         if status == 200, let value = json["value"] as? [String: Any] {
             return value["config"] as? [String: Any] ?? value
         }

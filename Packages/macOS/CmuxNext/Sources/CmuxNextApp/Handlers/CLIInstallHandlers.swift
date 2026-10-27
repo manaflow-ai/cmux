@@ -2,12 +2,14 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextActions
 import CmuxNextCLIInstall
+import CmuxNextWakeups
 import os
 
 /// Install cmux CLI in PATH and Uninstall cmux CLI from PATH (the old app's
 /// "Shell Command" palette rows): `CLIPathInstaller` runs off the main
 /// actor, since it may wait on the administrator prompt, and the outcome
-/// shows as a toast on the active window (Lawrence 2026-10-07: results are
+/// shows as a toast on the active window, posted as userBlocking work: the
+/// rest of the person's action (p06 rule 2; Lawrence 2026-10-07: results are
 /// toasts, never dialogs).
 enum CLIInstallHandlers {
     static let toastID = "cli-install"
@@ -16,63 +18,89 @@ enum CLIInstallHandlers {
         registry.bind("palette.installCLI", run: { invocation in
             let window = context.activeWindow?.window
             let name: CLIPathInstaller.Name = invocation["cmux_next"]?.boolValue == true ? .cmuxNext : .cmux
-            let replacing = invocation["replace"]?.boolValue == true
-            Task { @MainActor in // task-owner: one install, ended by its toast
-                await install(name, replacing: replacing, in: window)
-            }
+            install(name, replacing: invocation["replace"]?.boolValue == true, in: window, services: context.services)
         })
         registry.bind("palette.uninstallCLI", run: { _ in
-            let window = context.activeWindow?.window
-            Task { // task-owner: one uninstall, ended by its toast
-                do {
-                    let outcome = try await CLIPathInstaller().uninstall()
-                    show(CLIInstallStrings.body(outcome), in: window)
-                } catch {
-                    show(CLIInstallStrings.failed(CLIInstallStrings.uninstallFailed, error), in: window)
-                }
+            let window = context.activeWindow?.window, mainWork = context.services.mainWork
+            // task-owner: one uninstall off the main actor, ended by its toast
+            context.services.work.task(.userBlocking) {
+                let outcome = await uninstall()
+                mainWork.postFromAnyThread(.userBlocking, owner: "cli-install.toast") { show(outcome, in: window) }
             }
         })
     }
 
-    /// Installs `name`. When another app's CLI or a file is in the way and
-    /// the caller did not pass `replace`, nothing is replaced: `cmux` goes
-    /// in as `cmux-next` beside it, and the toast's Replace (a person's
-    /// click) makes this app's CLI the `cmux` command.
-    @MainActor private static func install(_ name: CLIPathInstaller.Name, replacing: Bool, in window: NSWindow?) async {
+    /// What an install or uninstall ended with: found off the main actor, shown on it.
+    private nonisolated enum Outcome: Sendable {
+        case installed(path: String)
+        /// `cmux` was taken: this app's CLI went in as `path` beside the CLI at `other`.
+        case installedBeside(path: String, other: String)
+        case uninstalled(CLIPathInstaller.UninstallOutcome)
+        /// An install (else an uninstall) failed; `offersReplace` when something else holds the path.
+        case failed(installing: Bool, error: any Error, offersReplace: Bool)
+    }
+
+    /// Installs `name` off the main actor and shows the outcome. When another app's CLI or a
+    /// file is in the way and the caller did not pass `replace`, nothing is replaced: `cmux`
+    /// goes in as `cmux-next` beside it, and the toast's Replace (a person's click) makes this
+    /// app's CLI the `cmux` command.
+    private static func install(_ name: CLIPathInstaller.Name, replacing: Bool, in window: NSWindow?, services: AppServices) {
+        let mainWork = services.mainWork
+        // task-owner: one install off the main actor, ended by its toast
+        services.work.task(.userBlocking) {
+            let outcome = await attempt(name, replacing: replacing)
+            mainWork.postFromAnyThread(.userBlocking, owner: "cli-install.toast") {
+                show(outcome, in: window) { install(name, replacing: true, in: window, services: services) }
+            }
+        }
+    }
+
+    private nonisolated static func attempt(_ name: CLIPathInstaller.Name, replacing: Bool) async -> Outcome {
         do {
             let outcome = try await CLIPathInstaller(destination: name.destination).install(replacing: replacing)
-            show(CLIInstallStrings.installed(at: outcome.destination.path), in: window)
+            return .installed(path: outcome.destination.path)
         } catch let failure as CLIPathInstaller.Failure {
-            guard case .occupied(let path, _) = failure else {
-                show(CLIInstallStrings.failed(CLIInstallStrings.installFailed, failure), in: window)
-                return
-            }
-            let replace = CmuxToast.Action(title: CLIInstallStrings.replace)
-            guard name != .cmuxNext else {
-                show(CLIInstallStrings.failed(CLIInstallStrings.installFailed, failure), action: replace, in: window) {
-                    Task { @MainActor in await install(name, replacing: true, in: window) }
-                }
-                return
-            }
+            guard case .occupied(let path, _) = failure else { return .failed(installing: true, error: failure, offersReplace: false) }
+            guard name != .cmuxNext else { return .failed(installing: true, error: failure, offersReplace: true) }
             do {
                 let beside = try await CLIPathInstaller(destination: CLIPathInstaller.Name.cmuxNext.destination).install(replacing: false)
-                show(CLIInstallStrings.installedBeside(beside.destination.path, other: path), action: replace, in: window) {
-                    Task { @MainActor in await install(name, replacing: true, in: window) }
-                }
+                return .installedBeside(path: beside.destination.path, other: path)
             } catch {
-                show(CLIInstallStrings.failed(CLIInstallStrings.installFailed, error), action: replace, in: window) {
-                    Task { @MainActor in await install(name, replacing: true, in: window) }
-                }
+                return .failed(installing: true, error: error, offersReplace: true)
             }
         } catch {
-            show(CLIInstallStrings.failed(CLIInstallStrings.installFailed, error), in: window)
+            return .failed(installing: true, error: error, offersReplace: false)
+        }
+    }
+
+    private nonisolated static func uninstall() async -> Outcome {
+        do {
+            return .uninstalled(try await CLIPathInstaller().uninstall())
+        } catch {
+            return .failed(installing: false, error: error, offersReplace: false)
+        }
+    }
+
+    /// The outcome's toast; its Replace runs `replace`.
+    private static func show(_ outcome: Outcome, in window: NSWindow?, replace: (@MainActor () -> Void)? = nil) {
+        let action = CmuxToast.Action(title: CLIInstallStrings.replace)
+        switch outcome {
+        case .installed(let path):
+            show(CLIInstallStrings.installed(at: path), in: window)
+        case .installedBeside(let path, let other):
+            show(CLIInstallStrings.installedBeside(path, other: other), action: action, in: window, run: replace)
+        case .uninstalled(let result):
+            show(CLIInstallStrings.body(result), in: window)
+        case .failed(let installing, let error, let offersReplace):
+            let message = CLIInstallStrings.failed(installing ? CLIInstallStrings.installFailed : CLIInstallStrings.uninstallFailed, error)
+            show(message, action: offersReplace ? action : nil, in: window, run: offersReplace ? replace : nil)
         }
     }
 
     /// A toast on the window (else the key or main window); a long one with
     /// an action stays 12 s.
-    @MainActor private static func show(_ message: String, action: CmuxToast.Action? = nil, in window: NSWindow?,
-                                        run: (@MainActor () -> Void)? = nil) {
+    private static func show(_ message: String, action: CmuxToast.Action? = nil, in window: NSWindow?,
+                             run: (@MainActor () -> Void)? = nil) {
         guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else {
             Logger(subsystem: "com.cmuxterm.app.next", category: "cli.install").info("cli install result with no window: \(message, privacy: .public)")
             return

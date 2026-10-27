@@ -142,3 +142,40 @@ impl Hub {
         }
     }
 }
+
+/// What keeps a client-less daemon running (`daemon_lifecycle.rs`).
+impl Hub {
+    /// Sessions with a harness or agent host, a turn, a queued prompt, a
+    /// pending permission, a start in flight or a continuation of a cut turn
+    /// that waits (`auto_resume.rs`: it lives only in this process, so an exit
+    /// would drop it); startup work not yet done (adoption, the log load)
+    /// counts as one. A lock held now counts as live.
+    pub fn live_agent_count(&self) -> usize {
+        let starting = usize::from(!self.startup_complete() || !self.logs_loaded());
+        let live = |s: &Arc<Session>| {
+            s.child.try_lock().map(|c| c.is_some()).unwrap_or(true)
+                || s.turn().is_some()
+                || s.turn_lock.try_lock().is_err()
+                || s.queued() > 0
+                || !s.pending_permissions().is_empty()
+                || s.spawn_lock.try_lock().is_err()
+                || self.continuation_pending(s)
+        };
+        starting + self.sessions().iter().filter(|s| live(s)).count()
+    }
+
+    /// Background processes an agent started that still run, from the
+    /// tables this daemon has read.
+    pub fn live_process_count(&self) -> usize {
+        self.sessions().iter().map(|s| self.running_processes_read(s)).sum()
+    }
+
+    /// The clock lifecycle timers run on (`set_clock`).
+    pub fn lifecycle_clock(&self) -> Arc<dyn crate::clock::Clock> {
+        self.clock.lock().unwrap().clone()
+    }
+}
+
+#[cfg(test)]
+#[path = "idle_exit_tests.rs"]
+mod idle_exit_tests;

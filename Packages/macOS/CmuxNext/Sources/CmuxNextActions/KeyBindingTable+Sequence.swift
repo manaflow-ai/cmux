@@ -23,24 +23,45 @@ extension KeyBindingTable {
 
     /// The step a key with `readings` takes after the armed `keys` (empty
     /// for a first key).
-    public func step(after keys: [Shortcut], readings: [Shortcut], in context: KeyContext, // perf-hot: 0.5ms key-dispatch (every chord key-down)
+    public func step(after keys: [Shortcut], readings: some Collection<Shortcut>, in context: KeyContext, // perf-hot: 0.5ms key-dispatch (every chord key-down)
                      isRunnable: (ActionID) -> Bool) -> SequenceStep {
         // A bare sequence goes on only while the context still owns bare
         // keys: focus that moved into a text field mid-sequence types the key.
         if let first = keys.first, first.isBare, !context.ownsBareKeys { return .none }
+        let input = CompiledWhen.Input(context)
         if keys.count + 1 < Self.maxSequenceLength,
            let longer = readings.first(where: {
-               (!keys.isEmpty || !$0.isBare || context.ownsBareKeys) && continues(keys + [$0], in: context, isRunnable: isRunnable)
+               (!keys.isEmpty || !$0.isBare || context.ownsBareKeys)
+                   && continues(KeysThenOne(keys, $0), in: input, isRunnable: isRunnable)
            }) {
             return .extend(longer)
         }
-        if keys.isEmpty, readings.contains(LeaderLayer.prefix), !entries(after: [LeaderLayer.prefix]).isEmpty {
+        if keys.isEmpty, readings.contains(LeaderLayer.prefix), hasEntries(after: CollectionOfOne(LeaderLayer.prefix)) {
             return .extend(LeaderLayer.prefix)
         }
         for reading in readings {
-            if let winner = resolve(keys + [reading], in: context, isRunnable: isRunnable).winner { return .run(winner) }
+            if let winner = resolveWinner(KeysThenOne(keys, reading), in: input, isRunnable: isRunnable) { return .run(winner) }
         }
         return .none
+    }
+
+    /// The armed keys followed by one more key, read in place: the sequence a reading would make,
+    /// with no array built for it, so a chord key-down allocates nothing in ``step(after:readings:in:isRunnable:)``.
+    public nonisolated struct KeysThenOne: RandomAccessCollection, Sendable {
+        public let keys: [Shortcut]
+        public let next: Shortcut
+
+        public init(_ keys: [Shortcut], _ next: Shortcut) {
+            self.keys = keys
+            self.next = next
+        }
+
+        public var startIndex: Int { 0 }
+        public var endIndex: Int { keys.count + 1 }
+
+        public subscript(position: Int) -> Shortcut {
+            position == keys.count ? next : keys[position]
+        }
     }
 
     /// Where a whole sequence ends: an entry runs, the chord stays armed

@@ -9,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "e02313f2112ebdb438482aac92ad4c5097bcf1fdc45c4e910c3821f2bdc69333";
+    public static final String IR_SHA256 = "5739101a2a1f12a08327e6d4e67314a7c13e6f450f88de4362e39eec5338716c";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
@@ -58,6 +58,10 @@ public final class Protocol {
             case "history-changed" -> HistoryChangedEvent.fromWire(value);
             case "keybindings-changed" -> KeybindingsChangedEvent.fromWire(value);
             case "layout-changed" -> LayoutChangedEvent.fromWire(value);
+            case "loopback-closed" -> LoopbackClosedEvent.fromWire(value);
+            case "loopback-credit" -> LoopbackCreditEvent.fromWire(value);
+            case "loopback-data" -> LoopbackDataEvent.fromWire(value);
+            case "loopback-eof" -> LoopbackEofEvent.fromWire(value);
             case "machine-usage-changed" -> MachineUsageChangedEvent.fromWire(value);
             case "notification" -> NotificationEvent.fromWire(value);
             case "output" -> OutputEvent.fromWire(value);
@@ -76,10 +80,13 @@ public final class Protocol {
             case "screen-changed" -> ScreenChangedEvent.fromWire(value);
             case "screen-closed" -> ScreenClosedEvent.fromWire(value);
             case "screen-renamed" -> ScreenRenamedEvent.fromWire(value);
+            case "script-log" -> ScriptLogEvent.fromWire(value);
             case "scroll-changed" -> ScrollChangedEvent.fromWire(value);
+            case "server-diagnostic-site" -> ServerDiagnosticSiteEvent.fromWire(value);
             case "settings-changed" -> SettingsChangedEvent.fromWire(value);
             case "size-state" -> SizeStateEvent.fromWire(value);
             case "status" -> StatusEvent.fromWire(value);
+            case "stream-end" -> StreamEndEvent.fromWire(value);
             case "surface-exited" -> SurfaceExitedEvent.fromWire(value);
             case "surface-output" -> SurfaceOutputEvent.fromWire(value);
             case "surface-resize-failed" -> SurfaceResizeFailedEvent.fromWire(value);

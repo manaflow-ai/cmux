@@ -3,13 +3,39 @@ import AppKit
 /// Holds presented overlays; flipped so overlay frames read top-down in tests and logs.
 final class OverlayContainerView: NSView {
     nonisolated override var isFlipped: Bool { false }
+    /// Its host reads the overlays' sizes after each layout pass. Auto Layout marks this view for layout
+    /// when it solves a new frame for a content held here (a SwiftUI popover that grew).
+    var onLayout: (() -> Void)?
+
+    override func layout() {
+        super.layout()
+        onLayout?()
+    }
+
+    /// The container fills the whole layer: only what it holds takes the mouse, never the empty container,
+    /// or the topmost one would take every click of the layers below it (an agent cursor tag, a popover).
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return hit === self ? nil : hit
+    }
 }
 
 /// Clips a `.pane` overlay to its pane minus the occluders (a mask with holes).
 final class OverlayClipView: NSView {
+    /// Its host reads the overlay's size after each layout pass, as ``OverlayContainerView/onLayout``:
+    /// this view, not the container, holds a `.pane` overlay's content.
+    var onLayout: (() -> Void)?
+
+    override func layout() {
+        super.layout()
+        onLayout?()
+    }
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        // A clipping container: nothing of its own to draw.
+        layerContentsRedrawPolicy = .never
         layer?.masksToBounds = true
     }
 
@@ -42,6 +68,7 @@ final class OverlayScrimView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         autoresizingMask = [.width, .height]
         updateLayer()
     }
@@ -55,7 +82,7 @@ final class OverlayScrimView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        needsDisplay = true
+        needsDisplay = true // invalidate: the appearance changed; the colors resolve again.
     }
 
     @available(*, unavailable)

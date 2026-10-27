@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 public import Foundation
 
 /// `optchat-chief usage` (Native/OptChat, plans/cmux-next/chief-usage-analytics-DESIGN.md): the
@@ -24,9 +25,15 @@ public nonisolated struct ChiefUsageTool: Sendable {
         public let message: String
     }
 
-    /// - Parameter executable: The `optchat-chief` to run.
-    public init(executable: URL) {
+    /// Runs the tool to its end (``AsyncProcess``; tests pass a fake).
+    let processes: any ProcessRunning
+
+    /// - Parameters:
+    ///   - executable: The `optchat-chief` to run.
+    ///   - processes: What runs it; ``AsyncProcess`` by default.
+    public init(executable: URL, processes: any ProcessRunning = AsyncProcess()) {
         self.executable = executable
+        self.processes = processes
     }
 
     /// The tool this app runs, or nil when there is none (Release and RC bundle no Chief).
@@ -47,43 +54,22 @@ public nonisolated struct ChiefUsageTool: Sendable {
     }
 
     /// Runs the tool with `arguments`, then `--mux-home muxHome --chiefs --json` (the home's
-    /// Chief and every Chief under it), off the main actor, and returns its standard output.
-    /// Both pipes drain while it runs, so a large summary never blocks the tool.
+    /// Chief and every Chief under it), and returns its standard output. Nothing waits on a thread:
+    /// the spawn runs off the caller's actor and both pipes drain while it runs, so a large summary
+    /// never blocks the tool. The usage page shows the answer, so the tool runs at userVisible.
     /// - Parameters:
     ///   - arguments: The tool's arguments (`usage --since 7d --by chief`).
     ///   - muxHome: This build's Chief home (`HomeBrainHost.muxHome(tag:)`).
     /// - Returns: The tool's standard output.
-    /// - Throws: ``Failure`` on a non-zero exit, or the launch error.
+    /// - Throws: ``Failure`` on a non-zero exit, or ``ProcessFailure/launch(_:)``.
     @concurrent public func run(_ arguments: [String], muxHome: URL) async throws -> Data {
-        let process = Process()
-        process.executableURL = executable
-        process.arguments = arguments + ["--mux-home", muxHome.path, "--chiefs", "--json"]
-        let output = Pipe(), errors = Pipe()
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = output
-        process.standardError = errors
-        let exited = AsyncStream.makeStream(of: Int32.self, bufferingPolicy: .bufferingNewest(1))
-        process.terminationHandler = { process in
-            exited.continuation.yield(process.terminationStatus)
-            exited.continuation.finish()
+        let request = ProcessRequest(executable, arguments + ["--mux-home", muxHome.path, "--chiefs", "--json"],
+                                     errorOutput: .separate, priority: .userVisible)
+        let outcome = try await processes.outcome(of: request)
+        guard outcome.succeeded else {
+            let message = String(decoding: outcome.errorOutput, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            throw Failure(status: outcome.status, message: message)
         }
-        try process.run()
-        let outputFD = output.fileHandleForReading.fileDescriptor, errorFD = errors.fileHandleForReading.fileDescriptor
-        async let out = Self.drain(outputFD)
-        async let err = Self.drain(errorFD)
-        let (stdout, stderr) = await (out, err)
-        var status: Int32 = -1
-        for await code in exited.stream { status = code }
-        guard status == 0 else {
-            throw Failure(status: status, message: String(decoding: stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-        return stdout
-    }
-
-    /// Reads a pipe to its end, by raw descriptor (an `Int32` is `Sendable`; a `FileHandle` is not).
-    @concurrent private static func drain(_ fd: Int32) async -> Data {
-        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
-        // concurrency-allow: @concurrent: runs on the global executor, never the main actor
-        return (try? handle.readToEnd()) ?? Data()
+        return outcome.output
     }
 }

@@ -4,6 +4,8 @@ import CmuxNextAgentActivity
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextPages
+import CmuxNextWakeups
 import Foundation
 
 /// Opens `cmux://agent-activity` (plans/cmux-next/computer-use.md section 7)
@@ -37,7 +39,8 @@ final class AgentActivityPageService {
     }
 
     func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> AgentActivityPageTab {
-        AgentActivityPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: makeSource(), webUI: services.webUI)
+        AgentActivityPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: makeSource(),
+                             openPage: { services.webUI.open($0) }, deadlines: services.mainDeadlines)
     }
 
     /// Shows a lane's chat where ``AgentChatJump`` says it lives. Back returns
@@ -84,7 +87,8 @@ final class AgentActivityPageService {
         // ends when a pane mounts, when the window closes or shows another workspace, or when
         // the next pick replaces it. The registry and the window's state are observable, so
         // closing the window or showing another workspace (even one already mounted, which
-        // mounts nothing) ends the wait on the next frame (``AgentChatPaneWait``).
+        // mounts nothing) ends the wait in its next flush (``AgentChatPaneWait``).
+        // A service, not a view: the chat opens whether or not the page that asked still shows.
         let windows = services.windows, mounts = services.paneMounts, state = window.state, windowID = window.state.id
         paneWait?.cancel()
         let wait = AgentChatPaneWait(on: services.mainWork) {

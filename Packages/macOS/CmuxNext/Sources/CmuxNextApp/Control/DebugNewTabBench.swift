@@ -2,6 +2,9 @@
 import AppKit
 import CmuxNextSettings
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// `debug.new_tab` benches (R81): Cmd-W on a new tab page and `!` in its
 /// field, each driven through the real key path (`debug.key`), with the
@@ -104,13 +107,14 @@ final class BenchFrames {
         var window: Double
         var deadline: Double
         var visible: Double?
-        var continuation: CheckedContinuation<Double?, Never>
+        var continuation: OnceContinuation<Double?, OnceContinuationError>
     }
 
     /// Resumes with the ms at which `done` first held (checked each frame), once `window` ms of
     /// frames followed it, or nil at `deadline` ms.
     func settled(until done: @escaping () -> Bool, start: ContinuousClock.Instant, window: Double, deadline: Double) async -> Double? {
-        await withCheckedContinuation { continuation in
+        // A waiter replaced by a newer call, or dropped with the bench, never settled.
+        try? await withOnceContinuation { (continuation: OnceContinuation<Double?, OnceContinuationError>) in
             waiter = Waiter(done: done, start: start, window: window, deadline: deadline, continuation: continuation)
         }
     }
@@ -131,7 +135,7 @@ final class BenchFrames {
             "count": .number(Double(intervals.count)), "refresh_ms": .number(period),
             "max_ms": .number(intervals.max() ?? 0), "missed": .number(Double(missed)),
             "first_tick_ms": firstTick.map { .number($0) } ?? .null,
-            "intervals_ms": .array(intervals.prefix(64).map { .number(($0 * 100).rounded() / 100) }),
+            "intervals_ms": .array(intervals.prefix(128).map { .number(($0 * 100).rounded() / 100) }),
         ])
     }
 

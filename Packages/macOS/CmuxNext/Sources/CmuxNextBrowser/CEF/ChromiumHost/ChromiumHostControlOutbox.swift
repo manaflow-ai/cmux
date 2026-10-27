@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 import Darwin
 
@@ -25,6 +25,9 @@ nonisolated struct ChromiumHostControlOutbox: Sendable {
         var key: UInt64?
         /// False: replaced by a newer state op.
         var live = true
+        /// Payload bytes in shared regions among ``fds`` (task 020): they
+        /// count toward the quota, as inline bytes do.
+        var sharedBytes = 0
     }
 
     /// What one `sendmsg` did.
@@ -78,15 +81,15 @@ nonisolated struct ChromiumHostControlOutbox: Sendable {
 
     /// Queues a frame; true when it replaced a waiting entry with the same key.
     @discardableResult
-    mutating func push(_ frame: [UInt8], fds: [Int32], key: UInt64?) -> Bool {
+    mutating func push(_ frame: [UInt8], fds: [Int32], key: UInt64?, sharedBytes: Int = 0) -> Bool {
         var replaced = false
         if let key, let index = keyed.removeValue(forKey: key), entries[index].offset == 0 {
             drop(at: index)
             replaced = true
         }
-        bytes += frame.count
+        bytes += frame.count + sharedBytes
         messages += 1
-        entries.append(Entry(bytes: frame, fds: fds, key: key))
+        entries.append(Entry(bytes: frame, fds: fds, key: key, sharedBytes: sharedBytes))
         if let key { keyed[key] = entries.count - 1 }
         if dead > 64, dead > messages { compact() }
         return replaced
@@ -96,9 +99,11 @@ nonisolated struct ChromiumHostControlOutbox: Sendable {
     /// batch: the unwritten bytes of the front entry, then whole entries after
     /// it up to the next one with descriptors or ``batchBytes``. `send` gets
     /// the front entry's descriptors when the batch starts at its first byte.
+    /// `send` gets a view of the outbox's own bytes, valid only during its call.
+    @safe
     mutating func flush(_ send: (UnsafeRawBufferPointer, [Int32]) -> SendOutcome) -> FlushResult {
         while let index = frontIndex() {
-            let (outcome, offered) = sendBatch(from: index, send)
+            let (outcome, offered) = unsafe sendBatch(from: index, send)
             switch outcome {
             case .interrupted:
                 continue
@@ -144,8 +149,9 @@ nonisolated struct ChromiumHostControlOutbox: Sendable {
             end += 1
         }
         if total == front {
-            let outcome = entries[index].bytes.withUnsafeBytes { raw in
-                send(UnsafeRawBufferPointer(rebasing: raw[offset...]), fds)
+            // SAFETY: a view of the front entry's unsent bytes, inside its array, valid for the call.
+            let outcome = unsafe entries[index].bytes.withUnsafeBytes { raw in
+                unsafe send(UnsafeRawBufferPointer(rebasing: raw[offset...]), fds)
             }
             return (outcome, total)
         }
@@ -154,7 +160,8 @@ nonisolated struct ChromiumHostControlOutbox: Sendable {
         for later in (index + 1)..<end where entries[later].live {
             scratch.append(contentsOf: entries[later].bytes)
         }
-        return (scratch.withUnsafeBytes { send($0, fds) }, total)
+        // SAFETY: a view of the whole scratch array, valid for the call.
+        return (unsafe scratch.withUnsafeBytes { unsafe send($0, fds) }, total)
     }
 
     /// Marks `count` bytes from the front written: whole entries leave, and a
@@ -184,7 +191,7 @@ nonisolated struct ChromiumHostControlOutbox: Sendable {
 
     private mutating func popFront(_ index: Int) {
         if let key = entries[index].key, keyed[key] == index { keyed[key] = nil }
-        bytes -= entries[index].bytes.count
+        bytes -= entries[index].bytes.count + entries[index].sharedBytes
         messages -= 1
         entries[index] = Entry(bytes: [], fds: [])
         head += 1
@@ -193,7 +200,7 @@ nonisolated struct ChromiumHostControlOutbox: Sendable {
 
     private mutating func drop(at index: Int) {
         Self.closeFds(&entries[index])
-        bytes -= entries[index].bytes.count
+        bytes -= entries[index].bytes.count + entries[index].sharedBytes
         entries[index].bytes = []
         entries[index].live = false
         messages -= 1

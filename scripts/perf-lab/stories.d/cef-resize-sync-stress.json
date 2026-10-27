@@ -1,0 +1,25 @@
+{
+  "id": "cef-resize-sync-stress",
+  "tier": "T2",
+  "description": "Chromium page resize sync (cef-resize-sync-bench.py, STRESS bench: every pane a Chromium page): layer hosting off, on and on with no sync deadline, each checked first with cef-layer-verify.py; per mode, layout and action (split, close, column, drag) each round's Core Animation commit p95 and max (the page's resize wait), frame interval p95 and p99 and missed frames, and the modes that were not valid, stress session.",
+  "command": ["scripts/cmux-next/cef-resize-sync-bench.py", "--benches", "stress"],
+  "session": "stress",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "cef_resize_sync\\.(off|on|on0|host|hostfence)\\.[^.]+\\.[^.]+\\.(commit_p95|commit_max|frame_p95|frame_p99)", "unit": "ms",
+     "better": "lower"},
+    {"name": "cef_resize_sync\\.(off|on|on0|host|hostfence)\\.[^.]+\\.[^.]+\\.missed", "unit": "count", "better": "lower"},
+    {"name": "cef_resize_sync\\.(off|on|on0|host|hostfence)\\.[^.]+\\.[^.]+\\.[a-z0-9_]+\\.missed_runs", "unit": "count",
+     "better": "lower"},
+    {"name": "cef_resize_sync\\.(off|on|on0|host|hostfence)\\.failed", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 2400,
+  "needs": ["file:scripts/cmux-next/cef-layer-verify.py", "file:scripts/cmux-next/pane-perf-terminal.py",
+            "file:scripts/cmux-next/perf-stress-session.py", "debug:debug.motion", "debug:debug.frames",
+            "debug:debug.layers"],
+  "hot_paths": ["cef-geometry"],
+  "owner": "PL-cef-layer",
+  "component": "Browser>Resize"
+}

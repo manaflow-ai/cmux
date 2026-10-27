@@ -119,7 +119,12 @@ public actor CloudTunnelHub {
         let child = ChildProcess(executable: binary, arguments: [
             "wg", "hub", "--config", paths.wireGuardConfig.path, "--socket", socketPath, "--exit-with-parent",
         ])
-        try child.start()
+        try await child.start()
+        // A stop during the launch found no child to end.
+        guard generation == self.generation else {
+            child.terminate()
+            throw CancellationError()
+        }
         self.child = child
         let ready: String
         do {

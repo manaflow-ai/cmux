@@ -32,6 +32,12 @@ fi
 
 verify_pin() {
   local relative="$1"
+  # A staging pin (scripts/cmux-next/cef-pin-staging.sh) names a fleet artifact
+  # the controller store drops after two weeks; it was never published.
+  if python3 -c 'import json,sys; sys.exit("staging" not in json.load(open(sys.argv[1])))' "$ROOT/$relative"; then
+    echo "error: $relative is a staging pin (a fleet artifact with no release store object; cef-pin-staging.sh): publish it before it lands here" >&2
+    return 1
+  fi
   case "$relative" in
     scripts/cmux-next/remote-browser-host.pin.json)
       echo "Checking $relative in the controller/R2 store"

@@ -10,13 +10,8 @@ extension AgentPageEvent {
 }
 
 extension AgentPaneView {
-    /// The script that gives a loaded old-host page the edited-files card's settings.
-    static func editedFilesScript(_ setting: AgentPaneEditedFilesSetting) -> String {
-        "window.cmuxAcpmuxEditedFiles?.(\(setting.pageValue.compactText));"
-    }
-
     /// Pushes ``editedFiles`` to the page.
     func applyEditedFiles() {
-        deliver([.editedFiles(editedFiles)], scripts: [Self.editedFilesScript(editedFiles)])
+        deliver([.editedFiles(editedFiles)])
     }
 }

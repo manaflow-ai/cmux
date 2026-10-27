@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import CmuxNextDaemon
 
@@ -48,7 +49,7 @@ public nonisolated struct BundledAgentMemoryIndex: AgentMemoryIndex {
         }
         // A cancelled call's child is killed; that exit is the cancellation, not an outage.
         if Task.isCancelled { throw cancelled() }
-        guard result.status == 0, let hits = try? JSONDecoder().decode([AgentMemoryHit].self, from: result.stdout) else {
+        guard result.status == 0, let hits = try? JSONDecoder().blockingDecode([AgentMemoryHit].self, from: result.stdout) else {
             throw unavailable(retryable: result.status != 0)
         }
         return hits

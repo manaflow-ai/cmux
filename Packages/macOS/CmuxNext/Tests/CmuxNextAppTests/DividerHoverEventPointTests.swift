@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextLayout
+import CmuxNextWakeups
 import Testing
 
 /// A divider handle's enter or exit hovers from that event's own point, not from the live cursor
@@ -23,7 +24,7 @@ struct DividerHoverEventPointTests {
         ])
         let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s", focusedPane: "p1")
         let provider = Panes()
-        let root = LayoutRootView(model: model, contentProvider: provider)
+        let root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         root.context.reduceMotionOverride = true
         let visible = NSScreen.screens.first?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
         let window = KeyWindow(contentRect: CGRect(x: visible.maxX - 660, y: visible.minY + 60, width: 600, height: 400),
