@@ -205,6 +205,17 @@ describe("release feed sockets", () => {
     expect(host.fetched).toHaveLength(1);
   });
 
+  it("keeps latestFrame at the newest broadcast for a joining socket", async () => {
+    const host = new FakeHost();
+    const core = new ReleaseFeedCore("tip", host);
+    await core.current();
+    host.clock += POKE_COALESCE_MS;
+    host.feed = appcast(item("150"));
+    await core.poke();
+    expect(core.latestFrame).toBe(host.frames.at(-1)!);
+    expect(JSON.parse(core.latestFrame!).build).toBe(150);
+  });
+
   it("has no frame while the feed has never been readable", async () => {
     const host = new FakeHost();
     host.feed = "";

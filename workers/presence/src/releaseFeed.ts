@@ -106,6 +106,11 @@ export interface ReleaseFeedHost {
 /** One feed's state machine: coalesced appcast reads, a monotonic build, and
  * the frame every socket receives. */
 export class ReleaseFeedCore {
+  /** The newest frame this instance stored or loaded, read synchronously by a
+   * socket joining right after an await (so it never gets an older frame than
+   * a broadcast it missed). */
+  latestFrame: string | null = null;
+
   constructor(private readonly feed: ReleaseFeedId, private readonly host: ReleaseFeedHost) {}
 
   /** A publisher or the cron says the feed may have changed. Reads now, or, if
@@ -139,7 +144,8 @@ export class ReleaseFeedCore {
       await this.read();
       state = await this.host.load();
     }
-    return state ? releaseFrame(this.feed, state) : null;
+    if (state) this.latestFrame = releaseFrame(this.feed, state);
+    return this.latestFrame;
   }
 
   private async read(): Promise<void> {
@@ -156,7 +162,8 @@ export class ReleaseFeedCore {
     if (stored && newest.build <= stored.build) return;
     const state: ReleaseState = { ...newest, at: new Date(this.host.now()).toISOString() };
     await this.host.save(state);
-    this.host.broadcast(releaseFrame(this.feed, state));
+    this.latestFrame = releaseFrame(this.feed, state);
+    this.host.broadcast(this.latestFrame);
   }
 }
 

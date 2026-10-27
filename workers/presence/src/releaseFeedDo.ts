@@ -38,15 +38,20 @@ export class ReleaseFeed extends DurableObject<unknown> {
         ? new Response(frame, { headers: { "content-type": "application/json", "cache-control": "no-store" } })
         : Response.json({ error: "feed_unavailable" }, { status: 503, headers: { "Retry-After": "10" } });
     }
+    // Settle the state BEFORE the socket joins: a first read inside current()
+    // broadcasts to the sockets already here, never to this one, so the new
+    // socket gets exactly one initial frame.
+    await core.current();
+    // The cap is checked with no await between it and acceptWebSocket, so
+    // concurrent handshakes cannot all pass on one stale count.
     if (this.ctx.getWebSockets().length >= MAX_RELEASE_SOCKETS) {
       return new Response(null, { status: 429, headers: { "Retry-After": "60" } });
     }
-    // The frame is settled BEFORE the socket joins: a first read inside
-    // current() broadcasts to the sockets already here, never to this one, so
-    // the new socket gets exactly one initial frame.
-    const frame = await core.current();
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1]);
+    // Read with no await since accept: any broadcast from here on reaches this
+    // socket too, and any earlier one is already in latestFrame.
+    const frame = core.latestFrame;
     if (frame) {
       try { pair[1].send(frame); } catch { /* closed already; nothing to deliver */ }
     }
