@@ -401,6 +401,10 @@ export function useFolderTrustAsk(
         // Fence every effect, including cache/refusal mutations and forced composer replay.
         // The same UUID and cwd can now belong to another machine or a newer connection.
         if (!mounted.current || !sameAuthority()) return;
+        // A newer refusal for this chat may arrive while the older Trust save is in flight. It
+        // owns the question and its replay even on the same render/visit; never replace it with
+        // the older save's folder or consume its callback.
+        if (refusedTrust.current.get(asked.sessionId) !== refusalBeforeSave) return;
         if (refusedTrust.current.get(asked.sessionId) === refusalBeforeSave)
           refusedTrust.current.delete(asked.sessionId);
         if (askFromRefusal.current?.sessionId === asked.sessionId) askFromRefusal.current = undefined;

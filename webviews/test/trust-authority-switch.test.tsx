@@ -205,6 +205,23 @@ test("an older same-authority save cannot erase a newer refusal for that chat", 
   expect(shown.ask?.cwd).toBe("/home/you/f2");
 });
 
+test("a newer same-visit refusal keeps its folder and replay over an older save", async () => {
+  const cwd = "/home/you/same-visit-refusal";
+  const save = deferred<unknown>();
+  let resentOld = 0;
+  let resentNew = 0;
+  const source = { get: async () => trusted(cwd), set: () => save.promise };
+  await act(async () => root.render(<Probe source={source} cwd={cwd} authority="A" visit={() => 1} />));
+  await act(async () => shown.refused(pending("/home/you/f1"), () => resentOld++));
+  await act(async () => shown.trust());
+  await act(async () => shown.refused(pending("/home/you/f2"), () => resentNew++));
+  await act(async () => save.resolve(undefined));
+  expect(shown.ask?.cwd).toBe("/home/you/f2");
+  await act(async () => shown.trust());
+  expect(resentOld).toBe(0);
+  expect(resentNew).toBe(1);
+});
+
 test("a delayed prompt refusal is dropped after direct-client navigation", async () => {
   const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
   const { MockAcpmuxSocket, mockHost } = await import("../src/agent-session/acpmux/mock");
