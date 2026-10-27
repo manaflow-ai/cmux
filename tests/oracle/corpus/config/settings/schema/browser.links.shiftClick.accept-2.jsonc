@@ -1,0 +1,7 @@
+{
+  "browser": {
+    "links": {
+      "shiftClick": "foregroundTab"
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "notifications": {
+    "sources": {
+      "cli": {
+        "dismissal": 1
+      }
+    }
+  }
+}
