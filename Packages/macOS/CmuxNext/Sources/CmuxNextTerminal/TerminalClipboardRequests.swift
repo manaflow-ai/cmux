@@ -85,6 +85,7 @@ final class TerminalClipboardRequests {
             confirmProgramWrite(contents: contents, contentBytes: contentBytes, state: state)
             return
         }
+        // visibility-walk-allow: the confirm dialog attaches to the view AppKit shows (a tab dialog on a hidden view is never seen); an occluded window keeps it for the person, which a node would deny
         guard let view, view.window != nil, !view.isHiddenOrHasHiddenAncestor else {
             deny(state: state)
             return
@@ -182,6 +183,7 @@ final class TerminalClipboardRequests {
             finishWritePrompt()
             return nil
         }
+        // visibility-walk-allow: the prompt attaches to the view AppKit shows, else to its window; an occluded window keeps a tab prompt for the person, which a node would move
         if view.window != nil, !view.isHiddenOrHasHiddenAncestor { return .tab(view) }
         if let window = view.window { return .window(window) }
         return .app

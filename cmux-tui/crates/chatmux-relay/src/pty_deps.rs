@@ -441,8 +441,8 @@ impl ProcessOutputCompletion {
         let mut state = self.state.lock().expect("process output completion lock");
         while state.readers_remaining != 0 && state.child_exit.is_some() {
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else { break };
-            let (next, timeout) =
-                self.wake.wait_timeout(state, remaining).expect("process output completion lock");
+            let (next, timeout) = cmux_blocking::sync::wait_timeout(&self.wake, state, remaining)
+                .expect("process output completion lock");
             state = next;
             if timeout.timed_out() {
                 break;
@@ -786,7 +786,7 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
             std::thread::spawn(move || {
                 let mut exit_ready = false;
                 while !exit_ready {
-                    match command_rx.recv() {
+                    match cmux_blocking::sync::recv(&command_rx) {
                         Ok(PipeChildCommand::ExitReady) => exit_ready = true,
                         Ok(PipeChildCommand::Kill) => {
                             let _ = child.kill();
@@ -794,8 +794,9 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
                         Err(_) => exit_ready = true,
                     }
                 }
-                let code =
-                    child.wait().map(|status| status.code().unwrap_or(0) as i64).unwrap_or(0);
+                let code = cmux_blocking::process::wait(&mut child)
+                    .map(|status| status.code().unwrap_or(0) as i64)
+                    .unwrap_or(0);
                 wait_completion.child_exited(code);
             });
             PtyHandle { control, output, banner: Some(banner.into_bytes()) }
@@ -892,7 +893,7 @@ impl PtyDeps for RealPtyDeps {
         let output = ThreadOutput::new();
         let task_output = Arc::clone(&output);
         let fallback_output = Arc::clone(&output);
-        tokio::task::spawn_blocking(move || {
+        cmux_blocking::spawn_blocking(move || {
             if spec.cancellation.is_cancelled() {
                 task_output.push_exit(1);
                 return PtyHandle {

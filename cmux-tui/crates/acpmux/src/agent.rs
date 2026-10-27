@@ -375,6 +375,8 @@ impl ChildAgent {
                                 // Stop what the agent left running so the pipe closes.
                                 #[cfg(unix)]
                                 if let Some(pg) = agent_for_exit.pid {
+                                    // SAFETY: killpg takes no pointers; `pg` is the
+                                    // group this agent leads (process_group(0) at spawn).
                                     unsafe {
                                         libc::killpg(pg as i32, libc::SIGKILL);
                                     }
@@ -554,6 +556,8 @@ impl ChildAgent {
             // then KILL whatever is left. The wait ends as soon as the
             // agent exits; 300 ms is only the most it gets.
             #[cfg(unix)]
+            // SAFETY: killpg takes no pointers; `pid` is the group this agent leads
+            // (process_group(0) at spawn), saved so it outlives the reap.
             unsafe {
                 libc::killpg(pid as i32, libc::SIGTERM);
             }
@@ -567,6 +571,7 @@ impl ChildAgent {
             #[cfg(windows)]
             self.kill_job();
             #[cfg(unix)]
+            // SAFETY: as above: no pointers, and `pid` is the agent's own group.
             unsafe {
                 libc::killpg(pid as i32, libc::SIGKILL);
             }
@@ -611,6 +616,8 @@ impl ChildAgent {
         };
         #[cfg(unix)]
         if let Some(pg) = pgid {
+            // SAFETY: killpg takes no pointers; `pg` is the group this agent leads
+            // (process_group(0) at spawn).
             unsafe {
                 libc::killpg(pg, libc::SIGTERM);
             }
@@ -633,6 +640,7 @@ impl ChildAgent {
         self.kill_job();
         #[cfg(unix)]
         if let Some(pg) = pgid {
+            // SAFETY: as above: no pointers, and `pg` is the agent's own group.
             unsafe {
                 libc::killpg(pg, libc::SIGKILL);
             }
@@ -1235,6 +1243,7 @@ pub(crate) fn spawn_error(what: &str, e: std::io::Error) -> anyhow::Error {
     #[cfg(unix)]
     if matches!(e.raw_os_error(), Some(libc::EMFILE | libc::ENFILE)) {
         let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        // SAFETY: `lim` is a live, writable rlimit; getrlimit writes only it.
         let limit = if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) } == 0 {
             format!(" (its limit is {})", lim.rlim_cur)
         } else {

@@ -3,7 +3,10 @@
 
 Launches one tagged Debug cmux-next app with `browserHost.helper` and `browserResize.layerHostingEveryPage` (the
 bench-only feature `cefLayerHostingEveryPage`'s local override: every page window hosts from fork API 26, without the
-Track A calls the shipping feature `cefLayerHosting` needs) on, and measures the same probe page twice:
+Track A calls the shipping feature `cefLayerHosting` needs) on, and measures the same probe page twice. Chromium tabs
+stay in cmux (`browserHost.tabs` off) except with `--modes profiles`, which needs them in the host and so runs in a
+launch without the in-process rows (inproc, --baseline, --stress); an in-process row of a launch whose tabs run in the
+host says not_run (its numbers would be the host's):
 
   inproc   a normal Chromium tab (`openBrowser.chromium`): the browser process is the cmux app, its pump runs on
            cmux's main thread, the page's pixels are layer hosted (fork API >= 26) and its input goes to the page
@@ -109,6 +112,10 @@ Per mode:
            with a second display (cmux20-bench has an external one), frames until both are the new display's after
            the window moves there and back, counted from the move (pass: rate within 2 frames, scale within 1, the
            1x to 2x move reported as `scale_up`) (chromium_host_display.py).
+  profiles `--modes profiles` (task 080), with `browserHost.tabs` on (every Chromium tab in the supervisor's
+           host): two browser profiles made with the app's CLI, a Chromium tab of each; pass when the backend is the
+           host, both load, the supervisor's one host (`debug.cef` host_supervisor) serves both and their localStorage
+           is apart (chromium_host_profiles.py).
 
   swipe    `--modes swipe` (task 234), on an input host (real HID events): a two-finger trackpad swipe
            (pointer-probe.swift swipe, through NSApp's event dispatch like a hand's) over a Chromium tab of the app's
@@ -127,14 +134,20 @@ Per mode:
            magnify route is p01-process-042's input route with p01-process-054's PinchEvent) says not_measurable.
 
 --native-ui [ROWS] runs instead the native UI rows (chromium_host_native_ui.py), all or the comma-separated ROWS: a
-<select> as a cmux menu while the host is never frontmost (p01-process-060, feature chromiumHostPopupMenus), the
-hosted widget rows (p01-process-066): date, datalist, popup window, DevTools docked and in a window, an extension
+<select> as a cmux menu while the host is never frontmost (p01-process-060, feature chromiumHostPopupMenus), the page
+menu (CONTEXT_MENU and context_menu_done) and a page's download (DOWNLOAD_* and download_continue) in host mode
+(p01-process-069), the hosted widget rows (p01-process-066): date, datalist, popup window, DevTools docked and in a window, an extension
 popup and a side panel, each shown by cmux from the host's layer context (`debug.cef` `host_widgets`), with feature
 chromiumHostWidgets on and two test extensions, then the autofill and password rows (chromium_host_suggestions.py,
 p01-process-061): the field's suggestions in cmux's list (`debug.cef` `host_suggestions`) with feature
 chromiumHostSuggestions on, then the page dialog rows (chromium_host_native_ui_dialogs.py, p01-process-064): file
 picker, certificate error, beforeunload and renderer hang, each answered by cmux while the host is never frontmost
 and shows no window, with feature chromiumHostFileDialogs on.
+
+--kill-host runs instead the host kill rows (chromium_host_kill.py, p01-process-082): one `--signals` signal per row
+(default KILL; TRAP,SEGV,ABRT,KILL for the done check) to the Chromium Host under a Chromium tab of the app's backend:
+cmux runs on, the tab shows the crash page with Reload (`crash_page_ms` from the signal), and Reload brings the page
+back under a new host.
 
 --find runs instead the find rows (chromium_host_find.py, p01-process-048): Cmd-F, a typed query, Cmd-G, Cmd-Shift-G
 and Escape through cmux's find pill on a Chromium page in the host (`debug.cef` backend `host`), the pill's match
@@ -164,8 +177,10 @@ import browser_engine_bench_report as results  # noqa: E402
 import chromium_host_baseline  # noqa: E402
 import chromium_host_display  # noqa: E402
 import chromium_host_find  # noqa: E402
+import chromium_host_kill  # noqa: E402
 import chromium_host_native_ui  # noqa: E402
 import chromium_host_native_ui_dialogs  # noqa: E402
+import chromium_host_profiles  # noqa: E402
 
 
 def parse(argv=None):
@@ -184,6 +199,9 @@ def parse(argv=None):
                         help="only the native UI rows (chromium_host_native_ui.py): all, or the comma-separated ROWS "
                              f"({', '.join(chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS)})")
     parser.add_argument("--find", action="store_true", help="only the find rows (chromium_host_find.py)")
+    parser.add_argument("--kill-host", action="store_true", help="only the host kill rows (chromium_host_kill.py)")
+    parser.add_argument("--signals", default="KILL",
+                        help=f"--kill-host: the signals, one row each ({','.join(chromium_host_kill.SIGNALS)})")
     parser.add_argument("--baseline", action="store_true", help="task p01-process-005: stall 9a, 10-tab idle wakes, census, rows")
     parser.add_argument("--idle-settle-seconds", type=float, default=35.0, help="wait before the 10-tab idle sample")
     parser.add_argument("--tag", help="the lab runner's tag of --app (checked against the bundle's name)")
@@ -193,8 +211,15 @@ def parse(argv=None):
     parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
                         help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
     args = parser.parse_args(argv)
-    if args.native_ui is not None and args.find:
-        parser.error("--native-ui and --find each run instead of the modes: pick one")
+    if sum([args.native_ui is not None, args.find, args.kill_host]) > 1:
+        parser.error("--native-ui, --find and --kill-host each run instead of the modes: pick one")
+    if "profiles" in args.modes.split(",") and ("inproc" in args.modes.split(",") or args.baseline or args.stress):
+        parser.error("--modes profiles runs every Chromium tab in the host: run it in a launch of its own, without "
+                     "inproc, --baseline or --stress (they measure in-process tabs)")
+    try:
+        args.signals = chromium_host_kill.signal_numbers(args.signals)
+    except ValueError as error:
+        parser.error(str(error))
     if args.native_ui is not None:
         try:
             args.native_ui = chromium_host_native_ui.rows_named(
@@ -351,6 +376,20 @@ addEventListener("wheel", e => { if (e.ctrlKey) __mouse.push({type: "pinch-wheel
 </script>""".replace("TIP", MOUSE_TOOLTIP)
 
 TUNABLES = {"version": 1, "values": {"browserHost.helper": True, "browserResize.layerHostingEveryPage": True}}
+
+
+def launch_tunables(modes):
+    """TUNABLES for a run of `modes`: Chromium tabs move to the host (`browserHost.tabs`, feature chromiumHostTabs)
+    only for the profiles row, so every other row's Chromium tab stays in process."""
+    values = dict(TUNABLES["values"], **{"browserHost.tabs": "profiles" in modes})
+    return {**TUNABLES, "values": values}
+
+
+def tabs_in_host(rpc):
+    """Why this launch's Chromium tabs cannot be measured as in-process tabs (they run in the Chromium Host,
+    `debug.cef` backend `host`), or None when they run in cmux."""
+    backend = (rpc("debug.cef") or {}).get("backend")
+    return f"the Chromium backend is {backend!r}: Chromium tabs run in the Chromium Host" if backend == "host" else None
 RESULT = {"build": "Debug", "modes": {}, "notes": []}
 
 
@@ -554,16 +593,37 @@ def front_pid():
 
 def chromium_host_pid():
     """The pid of the running Chromium Host (`<Product> Chromium Host` in the app's Contents/MacOS), or None."""
+    return next(iter(chromium_host_pids()), None)
+
+
+def chromium_host_pids():
+    """The pids of every running Chromium Host of the app (`<Product> Chromium Host` in its Contents/MacOS)."""
     macos = os.path.join(os.path.abspath(opts.app), "Contents", "MacOS") + "/"
     try:
         listing = subprocess.run(["/bin/ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=10).stdout
     except subprocess.TimeoutExpired:
-        return None
+        return []
+    pids = []
     for line in listing.splitlines():
         pid, _, command = line.strip().partition(" ")
         if command.startswith(macos) and command[len(macos):].split(" --", 1)[0].endswith(" Chromium Host"):
-            return int(pid)
-    return None
+            pids.append(int(pid))
+    return pids
+
+
+def bundled_cli(*args, timeout=90):
+    """(exit code, JSON reply) of the app's bundled `cmux --json` on its own session (no socket flag)."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}
+    cli = os.path.join(os.path.abspath(opts.app), "Contents", "Resources", "bin", "cmux")
+    try:
+        run = subprocess.run([cli, "--json", *args], capture_output=True, text=True, timeout=timeout, env=env,
+                             stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return 1, {"error": str(error)}
+    try:
+        return run.returncode, json.loads(run.stdout or "{}")
+    except ValueError:
+        return run.returncode, {"error": run.stdout.strip()[:400]}
 
 
 def defaults_snapshot(domain):
@@ -665,7 +725,7 @@ def padded(values, expected):
 def main():
     os.makedirs(opts.out, exist_ok=True)
     tunables = os.path.join(opts.out, "debug-tunables.json")
-    json.dump(TUNABLES, open(tunables, "w"))
+    json.dump(launch_tunables(opts.modes.split(",")), open(tunables, "w"))
     probe = os.path.join(opts.out, "probe.html")
     open(probe, "w").write(PAGE)
     url = pathlib.Path(probe).as_uri()
@@ -676,6 +736,10 @@ def main():
         url = pathlib.Path(native).as_uri()
         env.update(chromium_host_native_ui.launch_env(chromium_host_native_ui.write_extensions(opts.out)))
         env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_native_ui_dialogs.FEATURES]))
+    if opts.kill_host:
+        kill_page = os.path.join(opts.out, "kill-host.html")
+        open(kill_page, "w").write(chromium_host_kill.PAGE)
+        url = pathlib.Path(kill_page).as_uri()
     if opts.find:
         find_page = os.path.join(opts.out, "find.html")
         open(find_page, "w").write(chromium_host_find.PAGE)
@@ -703,12 +767,12 @@ def main():
         RESULT["cef"] = {"fork_api": (cef.get("windows") or {}).get("fork_api"), "unavailable": cef.get("unavailable"),
                          "fallback": cef.get("fallback")}
         DEFAULTS["launch"] = defaults_snapshot(app_bundle_id())
-        modes = [] if opts.native_ui or opts.find else opts.modes.split(",")
+        modes = [] if opts.native_ui or opts.find or opts.kill_host else opts.modes.split(",")
         if opts.native_ui:
             RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(
                 rpc, wait, lambda script: page_eval(rpc, script, None), url,
                 rows_to_run=[row for row in opts.native_ui if row in chromium_host_native_ui.ROWS], front=front_pid,
-                app_pid=app.process.pid if app.process else None)
+                app_pid=app.process.pid if app.process else None, right_click=page_right_click(rpc))
             dialog_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_dialogs.ROWS]
             if dialog_rows:
                 dialogs, dialogs_ok = chromium_host_native_ui_dialogs.run(
@@ -718,6 +782,10 @@ def main():
                 ok = ok and dialogs_ok
         if opts.find:
             RESULT["modes"]["find"], ok = chromium_host_find.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
+        if opts.kill_host:
+            RESULT["modes"]["kill_host"], ok = chromium_host_kill.run(
+                rpc, wait, url, opts.signals, chromium_host_pid, app.process.pid if app.process else None,
+                lambda pid: pid is not None and not pid_gone(pid))
         inproc_tab = None
         if "inproc" in modes:
             inproc_tab = run_inproc(rpc, url)
@@ -755,6 +823,11 @@ def main():
             open(display_probe, "w").write(chromium_host_display.PAGE)
             RESULT["modes"]["display"], ran = chromium_host_display.run(
                 rpc, wait, lambda script: page_eval(rpc, script, None), pathlib.Path(display_probe).as_uri(), time.sleep)
+            ok = ran and ok
+        if "profiles" in modes:
+            RESULT["modes"]["profiles"], ran = chromium_host_profiles.run(
+                rpc, wait, lambda script, tab: page_eval(rpc, script, tab), url, bundled_cli, chromium_host_pids,
+                str(int(time.time())))
             ok = ran and ok
         if opts.stress:
             run_stress_pump(rpc, url, "helper" in modes)
@@ -909,6 +982,10 @@ def open_inproc_probe(rpc, url, name):
 
 def run_inproc(rpc, url):
     """The in-process rows; returns the probe's tab id, or None."""
+    not_in_process = tabs_in_host(rpc)
+    if not_in_process:
+        RESULT["modes"]["inproc"] = {"not_run": not_in_process}
+        return None
     page, click_point, tab = open_inproc_probe(rpc, url, "light")
     if not page:
         RESULT["modes"]["inproc"] = {"error": click_point}
@@ -1057,6 +1134,9 @@ TABS_IDLE = 10  # p01-process.md done check 12: idle wakes with 10 Chromium tabs
 
 def tabs10_wakes(rpc, url):
     """Idle wakes with the probe and 9 more in-process Chromium tabs, in the three scenarios; the 9 are closed after."""
+    not_in_process = tabs_in_host(rpc)
+    if not_in_process:
+        return {"not_run": not_in_process}
     before = {tab.get("id") for tab in topology_tabs(rpc)}
     for _ in range(TABS_IDLE - 1):
         rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True, "origin": "script"}, timeout=120)
@@ -1136,6 +1216,20 @@ def focused_pane_border(rpc):
     layers = rpc("debug.pane_chrome") or {}
     return next((p.get("border") for w in layers.get("windows") or [] for p in w.get("panes") or []
                  if pane and p.get("pane") == pane and isinstance(p.get("border"), list)), None)
+
+
+def page_right_click(rpc):
+    """A right click (a posted window event, as a person's) on an empty spot of the focused pane's page, low and right
+    of the native-ui probe's controls and below any browser toolbar. The pane is read at each call (the probe's tab
+    opens after this is made); the click returns False when no pane is focused."""
+    def click():
+        border = focused_pane_border(rpc)
+        if not border:
+            return False
+        bx, by, bw, bh = border
+        rpc("debug.mouse", {"x": bx + bw * 0.75, "y": by + bh * 0.8, "button": "right"})
+        return True
+    return click
 
 
 def run_host_probe(rpc, url, record=True):

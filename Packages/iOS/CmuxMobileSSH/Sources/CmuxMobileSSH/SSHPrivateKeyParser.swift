@@ -114,7 +114,7 @@ extension [UInt8] {
     /// Exactly `length` big-endian bytes: zero-padded on the left, or the
     /// low-order suffix when longer.
     fileprivate func leftPadded(to length: Int) -> [UInt8] {
-        count >= length ? Array(suffix(length)) : Array(repeating: 0, count: length - count) + self
+        count >= length ? Array(suffix(Swift.max(0, length))) : Array(repeating: 0, count: Swift.max(0, length - count)) + self
     }
 }
 

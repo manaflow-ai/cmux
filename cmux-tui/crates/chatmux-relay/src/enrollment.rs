@@ -23,6 +23,9 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use url::{Host, Url};
 
+#[cfg(unix)]
+use crate::blocking_fs::{create_dir_with, hard_link, remove_dir};
+use crate::blocking_fs::{open_with, sync_all};
 use crate::config::{Config, ManagedEvents, ManagedIdentity};
 
 pub const MANAGED_CLIENT: &str = "cmux-relay-managed-v1";
@@ -58,7 +61,7 @@ fn read_and_shred(path: &Path) -> Result<String, ManagedEnrollmentError> {
     #[cfg(unix)]
     options.custom_flags(libc::O_NOFOLLOW);
     let mut file =
-        options.open(path).map_err(|_| error("Managed enrollment file is unavailable."))?;
+        open_with(&options, path).map_err(|_| error("Managed enrollment file is unavailable."))?;
     let metadata = file.metadata().map_err(|_| error("Managed enrollment file is unavailable."))?;
     if !metadata.is_file() {
         return Err(error("Managed enrollment file is unavailable."));
@@ -109,7 +112,7 @@ fn read_and_shred(path: &Path) -> Result<String, ManagedEnrollmentError> {
     let mut writable = {
         let mut write_options = OpenOptions::new();
         write_options.read(true).write(true).custom_flags(libc::O_NOFOLLOW);
-        write_options.open(path).ok().filter(|candidate| {
+        open_with(&write_options, path).ok().filter(|candidate| {
             candidate.metadata().ok().is_some_and(|candidate_metadata| {
                 file_identity_matches(&candidate_metadata, &metadata)
             })
@@ -135,7 +138,7 @@ fn read_and_shred(path: &Path) -> Result<String, ManagedEnrollmentError> {
             remaining -= chunk as u64;
         }
         let _ = write_file.set_len(0);
-        let _ = write_file.sync_all();
+        let _ = sync_all(write_file);
     }
     drop(writable);
     drop(file);
@@ -177,7 +180,7 @@ fn unlink_if_same_inode(path: &Path, expected: &std::fs::Metadata) {
                 parent.join(format!(".cmux-enrollment-cleanup-{}-{id}", std::process::id()));
             let mut builder = std::fs::DirBuilder::new();
             builder.mode(0o700);
-            match builder.create(&candidate) {
+            match create_dir_with(&builder, &candidate) {
                 Ok(()) => {
                     quarantine = Some(candidate);
                     break;
@@ -190,26 +193,26 @@ fn unlink_if_same_inode(path: &Path, expected: &std::fs::Metadata) {
             return;
         };
         let moved = quarantine.join("entry");
-        if std::fs::rename(path, &moved).is_err() {
-            let _ = std::fs::remove_dir(&quarantine);
+        if cmux_blocking::fs::rename(path, &moved).is_err() {
+            let _ = remove_dir(&quarantine);
             return;
         }
 
-        let matches = std::fs::symlink_metadata(&moved)
+        let matches = cmux_blocking::fs::symlink_metadata(&moved)
             .map(|current| current.is_file() && file_identity_matches(&current, expected))
             .unwrap_or(false);
         if matches {
-            let _ = std::fs::remove_file(&moved);
-            let _ = std::fs::remove_dir(&quarantine);
+            let _ = cmux_blocking::fs::remove_file(&moved);
+            let _ = remove_dir(&quarantine);
             return;
         }
 
         // The pathname was replaced before the rename. Restore the moved
         // object only when the pathname is still absent; hard_link never
         // overwrites a concurrently created replacement.
-        if std::fs::hard_link(&moved, path).is_ok() {
-            let _ = std::fs::remove_file(&moved);
-            let _ = std::fs::remove_dir(&quarantine);
+        if hard_link(&moved, path).is_ok() {
+            let _ = cmux_blocking::fs::remove_file(&moved);
+            let _ = remove_dir(&quarantine);
         }
     }
 
