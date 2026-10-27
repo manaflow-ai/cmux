@@ -178,6 +178,8 @@ struct PaneSublayerParityTests {
             model.baseStyle.panePadding = 4
             model.baseStyle.paneCornerRadius = 8
             root = LayoutRootView(model: model, contentProvider: panes, rendersMotionOnServer: { true }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+            // The split spring this suite measures: the Debug choice `motion.split.arrival` = grow (a split fades in by default).
+            root.context.splitArrival = { .grow }
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
