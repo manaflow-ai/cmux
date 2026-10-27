@@ -459,21 +459,20 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     cmux_unix_socket::check_path(path)?;
     if let Some(parent) = path.parent() {
         // Owner-only when created here, like the /tmp fallback directory.
-        use std::os::unix::fs::DirBuilderExt;
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent)?;
+        tokio::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent).await?;
     }
-    if path.exists() {
+    if tokio::fs::try_exists(path).await.unwrap_or(false) {
         // Refuse to steal a live socket.
         if tokio::net::UnixStream::connect(path).await.is_ok() {
             anyhow::bail!("another acpmux daemon owns {}", path.display());
         }
-        std::fs::remove_file(path)?;
+        tokio::fs::remove_file(path).await?;
     }
     let listener = UnixListener::bind(path).with_context(|| format!("bind {}", path.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        tokio::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).await?;
     }
     tracing::info!("listening on {}", path.display());
     Ok(listener)
