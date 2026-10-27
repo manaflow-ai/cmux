@@ -6,8 +6,12 @@
 Without paths it reads every xbench report in scripts/perf-bench/baseline/ (a file with `machine` and `rows`; the
 tab-switch-matrix reports beside them are not xbench reports). Each (file, browser) becomes one run of the story
 vs-browsers (stories.d/vs-browsers.json, task 208) at the report's `cmux_ref`, with one metric per row under the name
-the lab story writes, `xbench.<browser>.<row>` in result-v1 units (xbench.result_metric, xbench.result_unit), and for
-a cmux arm the row's ratio to Chrome's median, `xbench.<browser>.<row>.vs-chrome`. The nightly kept per-row medians
+the lab story writes, `xbench.<arm>.<row>` in result-v1 units (xbench.result_metric, xbench.result_unit; a vendor
+browser's <arm> carries the version the report's `browsers` block names), and for a cmux arm the row's ratio to
+Chrome's median, `xbench.<browser>.<row>.vs-chrome-<version>`. `cmux_ref` is the commit of the checkout that ran the
+bench scripts (scripts/measure/perf-bench.sh), so a cmux arm is a point of it only when it measured a build of it
+(cmux=build): an arm that ran the nightly-next binary (cmux=nightly, a fetch_browsers.py cmux-nightly bundle) or
+whose bundle the report does not name is rejected with the reason. The nightly kept per-row medians
 with min, max and n, so a point has no raw samples: its summary carries them and LEGACY_FLAGS, its measure version is
 `legacy-xbench` and its host class is `xbench:<chip>/<n>gb/<n>hz`, so it is shown on the dashboard, never judged
 (alerts.judged_points) and never a point of the lab's bench series, as ingest.import_perf_cron does for the cron.
@@ -65,13 +69,17 @@ LAB_COMMANDS = {
 LEGACY_FLAGS = ("legacy_median_only", "legacy_stat")
 LEGACY_MEASURE_VERSION = "legacy-xbench"  # alerts.judged_points skips a "legacy" measure version
 LEGACY_HOST_PREFIX = "xbench:"
-# The nightly measured a Release-optimized cmux (the nightly-next DMG, or `reload.sh --config release`); the
+# A cmux arm the import keeps measured `reload.sh --config release` of cmux_ref (cmux=build); the
 # matrix rows of its Debug arm (`cmux-debug`, xbench.TAB_SWITCH_BROWSER) came from a tagged Debug build.
 LEGACY_CONFIG = "release"
 DEBUG_ARM_CONFIG = "debug"
 # The engine of the Debug arm's rows: they switch between tabs of several kinds, not pages of one engine.
 DEBUG_ARM_ENGINE = "none"
 LEGACY_SESSION = "light"
+# How a report's browsers block shows the nightly-next binary: fetch_browsers.py's cmux-nightly cache folder and the
+# nightly's CFBundleShortVersionString (1.0.0-nightly.3946367535401).
+NIGHTLY_BUNDLE = "/cmux-nightly/"
+NIGHTLY_VERSION = "-nightly."
 STORY_TIER = "T2"
 
 
@@ -131,10 +139,17 @@ def _known_row(row: str) -> bool:
     return row in xbench().ROW_INFO or row.startswith(("tab-switch-", "palette-open-"))
 
 
-def arm_metrics(rows: dict, browser: str) -> list[store.Metric]:
-    """The legacy metrics of one browser arm of a report's `rows` ({row: {browser: {median, min, max, n}}})."""
+def _measured(rows: dict, browser: str) -> bool:
+    """Whether an arm has a median in any row (an arm that measured nothing is neither stored nor refused)."""
+    return any(isinstance(per, dict) and _summary(per.get(browser), 1.0) is not None for per in rows.values())
+
+
+def arm_metrics(rows: dict, browser: str, versions: dict[str, str]) -> list[store.Metric]:
+    """The legacy metrics of one browser arm of a report's `rows` ({row: {browser: {median, min, max, n}}});
+    `versions` is each vendor arm's version (report_versions). A cmux arm has ratios only when Chrome's version
+    is known."""
     xb = xbench()
-    reference = xb.REFERENCE_ARM if browser in xb.CMUX else None
+    reference = xb.REFERENCE_ARM if browser in xb.CMUX and xb.REFERENCE_ARM in versions else None
     metrics = []
     for row in sorted(rows):
         per = rows[row]
@@ -144,14 +159,49 @@ def arm_metrics(rows: dict, browser: str) -> list[store.Metric]:
         summary = _summary(per[browser], factor)
         if summary is None:
             continue
-        name = xb.result_metric(browser, row)
+        name = xb.result_metric(browser, row, versions)
         metrics.append(store.Metric(name=name, unit=unit, better="lower", samples=[], summary=summary))
         ref = _summary(per.get(reference), factor) if reference else None
         if ref and ref["p50"] > 0:
-            metrics.append(store.Metric(name=f"{name}.vs-{reference}", unit="ratio", better="lower", samples=[],
+            metrics.append(store.Metric(name=f"{name}.vs-{xb.arm_name(reference, versions)}", unit="ratio",
+                                        better="lower", samples=[],
                                         summary={"p50": summary["p50"] / ref["p50"],
                                                  **dict.fromkeys(LEGACY_FLAGS, True)}))
     return metrics
+
+
+def report_versions(doc: dict) -> dict[str, str]:
+    """{browser: version} of the vendor arms whose version the report's `browsers` block names (xbench Browser.info)."""
+    xb = xbench()
+    browsers = doc.get("browsers") if isinstance(doc.get("browsers"), dict) else {}
+    versions = {}
+    for browser, info in browsers.items():
+        version = info.get("version") if isinstance(info, dict) else None
+        if browser in xb.VENDORS and isinstance(version, str) and xb.VENDOR_VERSION.fullmatch(version):
+            versions[browser] = version
+    return versions
+
+
+def arm_refusal(doc: dict, browser: str, versions: dict[str, str]) -> str | None:
+    """Why an arm of a report is not a point of its `cmux_ref`, or None. The Debug matrix arm is a build of the
+    checkout (perf-bench.sh reload.sh --tag pbswitch); every other cmux arm must name its bundle, and a nightly-next
+    bundle is not a build of the checkout. A vendor arm must name its version."""
+    xb = xbench()
+    if browser == xb.TAB_SWITCH_BROWSER:
+        return None
+    if browser not in xb.ENGINES:
+        return f"{browser} is not an xbench browser"
+    if browser not in xb.CMUX:
+        return None if browser in versions else f"{browser}: the report's browsers block names no version of it"
+    info = (doc.get("browsers") or {}).get(browser) if isinstance(doc.get("browsers"), dict) else None
+    bundle = info.get("bundle") if isinstance(info, dict) else None
+    if not isinstance(bundle, str) or not bundle:
+        return f"{browser}: the report's browsers block names no bundle, so no commit names what it measured"
+    version = str(info.get("version") or "")
+    if NIGHTLY_BUNDLE in bundle or NIGHTLY_VERSION in version:
+        return (f"{browser} ran the nightly-next binary {version or bundle}, not a build of cmux_ref "
+                f"{doc.get('cmux_ref')}; no lab build config is that binary")
+    return None
 
 
 def _arm(browser: str) -> tuple[str, str]:
@@ -180,12 +230,13 @@ def report_points(doc: object, stem: str, *, commit_positions: ingest.CommitPosi
     position = ingest._position(commit_positions, sha, waterfall=True, again="import again")
     xb = xbench()
     arms = sorted({browser for per in doc["rows"].values() if isinstance(per, dict) for browser in per})
+    versions = report_versions(doc)
     points = []
     for browser in arms:
-        if browser not in xb.ENGINES and browser != xb.TAB_SWITCH_BROWSER:
-            points.append((browser, None, f"{browser} is not an xbench browser"))
-            continue
-        metrics = arm_metrics(doc["rows"], browser)
+        refusal = arm_refusal(doc, browser, versions)
+        if refusal and _measured(doc["rows"], browser):
+            points.append((browser, None, refusal))
+        metrics = [] if refusal else arm_metrics(doc["rows"], browser, versions)
         if not metrics:
             continue
         engine, config = _arm(browser)
