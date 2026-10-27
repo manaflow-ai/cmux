@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextCloudUI
 import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextOnboarding
