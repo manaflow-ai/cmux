@@ -3,6 +3,7 @@
 //! hide secret fields for their duration (main's BrowserReplCaptureMask).
 
 use super::Gate;
+use crate::panic_free::JsonFields;
 use crate::protocol::{DriverError, ErrorCode};
 use serde_json::{Value, json};
 use std::sync::PoisonError;
@@ -115,7 +116,7 @@ impl Gate {
                     );
                 };
                 let info = self.driver.call("tab.info", &json!({"targetId": target}))?;
-                let url = info["url"].as_str().unwrap_or("");
+                let url = info.field("url").as_str().unwrap_or("");
                 if let Some(reason) = url_refusal(url) {
                     return refuse(format!("cookies.clear: {url} is blocked: {reason}"));
                 }
@@ -182,7 +183,7 @@ impl Gate {
             let mut call = json!({"targetId": target, "world": "host", "source": source, "args": args,
                 "closedRoots": source != CAPTURE_UNMASK});
             if !frame.is_null() {
-                call["frameId"] = frame.clone();
+                call.insert("frameId", frame.clone());
             }
             self.driver.call("frame.evaluate", &call)
         };

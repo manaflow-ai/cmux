@@ -44,6 +44,7 @@ pub mod idle_exit;
 pub mod lease;
 pub mod locality;
 pub mod observe;
+mod panic_free;
 pub mod policy;
 pub mod policy_proxy;
 pub mod private_data_log;

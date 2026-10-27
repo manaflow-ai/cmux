@@ -270,10 +270,10 @@ pub(crate) fn dir_is_chromium_family(path: &str) -> bool {
 pub(crate) fn parse_procargs2(data: &[u8]) -> Option<(Vec<String>, Vec<String>)> {
     let argc = i32::from_le_bytes(data.get(..4)?.try_into().ok()?);
     let argc = usize::try_from(argc).ok()?;
-    let rest = &data[4..];
+    let rest = data.get(4..)?;
     let path_end = rest.iter().position(|b| *b == 0)?;
-    let start = path_end + rest[path_end..].iter().position(|b| *b != 0)?;
-    let mut strings = rest[start..].split(|b| *b == 0);
+    let start = path_end + rest.get(path_end..)?.iter().position(|b| *b != 0)?;
+    let mut strings = rest.get(start..)?.split(|b| *b == 0);
     let args: Vec<String> =
         strings.by_ref().take(argc).map(|s| String::from_utf8_lossy(s).into_owned()).collect();
     if args.len() != argc {
@@ -327,7 +327,7 @@ pub(crate) fn system_holder(pid: i32) -> Option<Holder> {
     if read != 0 {
         return None;
     }
-    let (args, env) = parse_procargs2(&buffer[..filled])?;
+    let (args, env) = parse_procargs2(buffer.get(..filled)?)?;
     Some(Holder { pid, path, args, env })
 }
 

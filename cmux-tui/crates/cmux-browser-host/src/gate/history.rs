@@ -13,6 +13,7 @@
 
 use super::Gate;
 use crate::history_link::HistoryLink;
+use crate::panic_free::JsonFields;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -24,11 +25,7 @@ const MAX_SEARCH_TEXT: usize = 1024;
 /// `text` cut to at most [`MAX_SEARCH_TEXT`] bytes at a character boundary:
 /// the daemon refuses longer search text, and a prefix still narrows.
 fn search_text(text: &str) -> &str {
-    let mut end = text.len().min(MAX_SEARCH_TEXT);
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
+    text.get(..text.floor_char_boundary(MAX_SEARCH_TEXT)).unwrap_or(text)
 }
 
 /// Whether `url`'s host is `site` or one of its subdomains.
@@ -68,7 +65,7 @@ impl Gate {
             "history.entries.list",
             json!({"kinds": ["page"], "text": text, "limit": limit}),
         )?;
-        Ok(listed["entries"].as_array().cloned().unwrap_or_default())
+        Ok(listed.field("entries").as_array().cloned().unwrap_or_default())
     }
 
     pub(super) fn history_op(&self, op: &str, args: &Value) -> Result<Value, String> {
@@ -107,10 +104,10 @@ impl Gate {
                     .take(limit as usize)
                     .map(|entry| {
                         json!({
-                            "id": entry["id"],
-                            "url": entry["url"],
-                            "title": entry["title"],
-                            "at": entry["at_ms"].as_str().and_then(|at| at.parse::<u64>().ok()),
+                            "id": entry.field("id"),
+                            "url": entry.field("url"),
+                            "title": entry.field("title"),
+                            "at": entry.field("at_ms").as_str().and_then(|at| at.parse::<u64>().ok()),
                         })
                     })
                     .collect();
@@ -173,10 +170,9 @@ impl Gate {
                         Value::Null,
                     ),
                 };
-                let answer =
-                    json!({"removed": removal["removed"], "restoreId": removal["restore_id"]});
+                let answer = json!({"removed": removal.field("removed"), "restoreId": removal.field("restore_id")});
                 self.record_private_data(
-                    json!({"op": "history.delete", "site": site, "visits": removal["removed"], "restoreId": removal["restore_id"]}),
+                    json!({"op": "history.delete", "site": site, "visits": removal.field("removed"), "restoreId": removal.field("restore_id")}),
                     None,
                 );
                 Ok(answer)
@@ -186,10 +182,10 @@ impl Gate {
                     .ok_or("history.restore: restoreId must be a history:<id> restore id")?;
                 let restored = self.history_call("history.restore", json!({"restore_id": id}))?;
                 self.record_private_data(
-                    json!({"op": "history.restore", "site": null, "visits": restored["restored"], "restoreId": id}),
+                    json!({"op": "history.restore", "site": null, "visits": restored.field("restored"), "restoreId": id}),
                     None,
                 );
-                Ok(json!({"restored": restored["restored"]}))
+                Ok(json!({"restored": restored.field("restored")}))
             }
             other => Err(format!("history: unknown operation {other:?}")),
         }

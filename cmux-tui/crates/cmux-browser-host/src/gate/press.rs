@@ -16,6 +16,7 @@
 //! never sees `expect`.
 
 use super::Gate;
+use crate::panic_free::JsonFields;
 use crate::protocol::{DriverError, ErrorCode};
 use serde_json::{Value, json};
 
@@ -125,7 +126,7 @@ impl Gate {
                 "args": [level.handle, level.point, behavior, if i == 0 { json!(level.selector) } else { Value::Null }],
             });
             if let Some(frame) = &level.frame_id {
-                call["frameId"] = json!(frame);
+                call.insert("frameId", json!(frame));
             }
             let hit = match self.driver.call("frame.evaluate", &call) {
                 Ok(hit) => hit,
