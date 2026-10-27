@@ -14,15 +14,22 @@ const LEDGER_PRUNE_BATCHES_PER_TICK: usize = 8;
 /// a corrupt page.
 const LEDGER_SCAN_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
+/// Test-only: runs once between a scan and its quarantines.
+#[cfg(test)]
+pub(super) type AfterScanHook = Box<dyn FnOnce(&Mux)>;
+
 /// The worker's scan state; it lives on the worker thread.
 #[derive(Default)]
 pub(super) struct LedgerMaintenance {
     last_scan: Option<Instant>,
+    #[cfg(test)]
+    pub(super) after_scan: Option<AfterScanHook>,
 }
 
 impl Mux {
-    /// One ledger step; true when rows are left for another pass (retention
-    /// has not drained, a pause, or a failure to retry).
+    /// One ledger step; true when work is left for another pass: retention
+    /// has not drained, a corrupt ledger is not yet set aside, a pause, or a
+    /// failure to retry.
     #[track_caller]
     pub(super) fn run_ledger_maintenance(&self, state: &mut LedgerMaintenance) -> bool {
         self.try_ledger_maintenance(state).unwrap_or_else(|error| {
@@ -53,27 +60,32 @@ impl Mux {
         let due = corrupt
             || (drained
                 && state.last_scan.is_none_or(|scanned| scanned.elapsed() >= LEDGER_SCAN_INTERVAL));
-        if due {
-            self.scan_and_quarantine_ledgers(state)?;
-        }
-        Ok(!drained && !corrupt)
+        let quarantined = !due || self.scan_and_quarantine_ledgers(state)?;
+        // A batch that freed rows, corrupt or not, leaves more to drain.
+        Ok(!drained || !quarantined)
     }
 
+    /// Scans the ledgers and sets each corrupt one aside; false when a pause
+    /// stopped it before every corrupt ledger was set aside.
     #[track_caller]
-    fn scan_and_quarantine_ledgers(&self, state: &mut LedgerMaintenance) -> anyhow::Result<()> {
+    fn scan_and_quarantine_ledgers(&self, state: &mut LedgerMaintenance) -> anyhow::Result<bool> {
         let Some(database) = self
             .workspace_registry
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .session_journal_database_path()
         else {
-            return Ok(());
+            return Ok(true);
         };
         let corrupt = scan_mutation_ledgers(&database)?;
         state.last_scan = Some(Instant::now());
+        #[cfg(test)]
+        if let Some(hook) = state.after_scan.take() {
+            hook(self);
+        }
         for (table, report) in corrupt {
             if self.journal_maintenance_paused() {
-                return Ok(());
+                return Ok(false);
             }
             let aside = self
                 .workspace_registry
@@ -88,6 +100,6 @@ impl Mux {
                 "mutation ledger {table} was corrupt; it was set aside and recreated empty"
             ));
         }
-        Ok(())
+        Ok(true)
     }
 }

@@ -84,6 +84,7 @@ pub(super) struct JournalMaintenanceControl {
     /// commits cost one atomic swap and no lock.
     armed: AtomicBool,
     interval: Duration,
+    idle_pass: Duration,
 }
 
 #[derive(Default)]
@@ -95,16 +96,28 @@ struct MaintenanceWakeState {
 
 impl JournalMaintenanceControl {
     pub(super) fn shared() -> Arc<Self> {
-        Self::with_interval(journal_maintenance_interval())
+        Self::with_cadence(journal_maintenance_interval(), JOURNAL_MAINTENANCE_IDLE_PASS)
     }
 
-    fn with_interval(interval: Duration) -> Arc<Self> {
+    fn with_cadence(interval: Duration, idle_pass: Duration) -> Arc<Self> {
         Arc::new(Self {
             state: Mutex::new(MaintenanceWakeState::default()),
             changed: Condvar::new(),
             armed: AtomicBool::new(false),
             interval,
+            idle_pass,
         })
+    }
+
+    #[cfg(test)]
+    fn with_interval(interval: Duration) -> Arc<Self> {
+        Self::with_cadence(interval, JOURNAL_MAINTENANCE_IDLE_PASS)
+    }
+
+    /// A pass ended: the next one is an interval away while it left work,
+    /// else the idle pass away (unless a commit armed one sooner).
+    fn pass_finished(&self, work_left: bool) {
+        self.schedule(if work_left { self.interval } else { self.idle_pass });
     }
 
     /// The journal committed: arm a pass unless one is armed already.
@@ -169,6 +182,26 @@ impl JournalMaintenanceControl {
     fn due(&self) -> Option<Instant> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner).due
     }
+
+    /// Test-only: blocks until a pass is due at least `beyond` from now, or
+    /// `timeout` passes; returns that due time.
+    #[cfg(test)]
+    fn wait_for_due_beyond(&self, beyond: Duration, timeout: Duration) -> Option<Instant> {
+        let deadline = Instant::now() + timeout;
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            let now = Instant::now();
+            if let Some(due) = state.due.filter(|due| *due >= now + beyond) {
+                return Some(due);
+            }
+            if now >= deadline {
+                return None;
+            }
+            state = cmux_threads::checked::sync::wait_timeout(&self.changed, state, deadline - now)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+    }
 }
 
 /// The journal maintenance worker of a persistent session: each pass bounds
@@ -183,8 +216,7 @@ pub(super) struct JournalMaintenance {
 
 impl JournalMaintenance {
     #[track_caller]
-    fn start(mux: &Arc<Mux>) -> anyhow::Result<Self> {
-        let control = mux.journal_maintenance_wake.clone();
+    fn start(mux: &Arc<Mux>, control: Arc<JournalMaintenanceControl>) -> anyhow::Result<Self> {
         control.start();
         let worker_control = control.clone();
         let weak_mux = Arc::downgrade(mux);
@@ -198,11 +230,7 @@ impl JournalMaintenance {
                     let _pass = mux.request_qos().enter_upkeep_pass();
                     let work_left = mux.run_journal_maintenance(&mut ledgers);
                     drop(mux);
-                    worker_control.schedule(if work_left {
-                        worker_control.interval
-                    } else {
-                        JOURNAL_MAINTENANCE_IDLE_PASS
-                    });
+                    worker_control.pass_finished(work_left);
                 }
             },
         )?;
@@ -233,7 +261,8 @@ impl Mux {
             .session_journal_database_path()
             .is_some()
         {
-            let maintenance = JournalMaintenance::start(self)?;
+            let maintenance =
+                JournalMaintenance::start(self, self.journal_maintenance_wake.clone())?;
             *self.journal_maintenance.lock().unwrap_or_else(PoisonError::into_inner) =
                 Some(maintenance);
         }
@@ -273,8 +302,9 @@ impl Mux {
     }
 
     /// One maintenance pass; true when it left work for another pass (a
-    /// pause, a ledger still draining, segments still to seal, a migration
-    /// that ended the pass early, or a failure to retry).
+    /// pause, a ledger still draining or to set aside, segments still to
+    /// seal, free pages still to return, a migration that ended the pass
+    /// early, or a failure to retry).
     #[track_caller]
     fn run_journal_maintenance(&self, ledgers: &mut ledger_maintenance::LedgerMaintenance) -> bool {
         if self.journal_maintenance_paused() {
@@ -321,13 +351,13 @@ impl Mux {
             if !pending_seal
                 && head.saturating_sub(checkpoint_source) < JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS
             {
-                steps.time("incremental_vacuum", || {
+                // Free pages a prune or seal left go back 256 per pass.
+                return steps.time("incremental_vacuum", || {
                     self.workspace_registry
                         .lock()
                         .unwrap_or_else(PoisonError::into_inner)
                         .incremental_journal_vacuum()
-                })?;
-                return Ok(false);
+                });
             }
 
             let target = if pending_seal {
@@ -358,13 +388,13 @@ impl Mux {
                 }
                 sealed_through = commit.through_sequence;
             }
-            steps.time("incremental_vacuum", || {
+            let pages_left = steps.time("incremental_vacuum", || {
                 self.workspace_registry
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
                     .incremental_journal_vacuum()
             })?;
-            Ok(sealed_through < target)
+            Ok(sealed_through < target || pages_left)
         })();
         if let Some(report) = steps.slow_report(SLOW_MAINTENANCE_TICK) {
             eprintln!("cmux-tui: {report}");
@@ -794,6 +824,10 @@ mod maintenance_steps_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "journal_maintenance_work_tests.rs"]
+mod work_tests;
 
 #[cfg(test)]
 mod maintenance_wake_tests {
