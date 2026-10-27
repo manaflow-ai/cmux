@@ -236,7 +236,7 @@ impl<T> Pool<T> {
             .map(|(i, e)| (e.hinted_at, i))
             .collect();
         // Newest first; `key` itself holds one of the harness's places.
-        others.sort_by(|a, b| b.0.cmp(&a.0));
+        others.sort_by_key(|e| std::cmp::Reverse(e.0));
         for (_, i) in others.into_iter().skip(self.hinted_per_harness - 1) {
             self.entries[i].hinted = false;
         }
