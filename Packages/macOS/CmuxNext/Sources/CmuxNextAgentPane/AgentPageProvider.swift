@@ -349,6 +349,9 @@ public final class AgentPageProvider: PageProvider {
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let method = AgentPageOps.method(for: op) else { throw PageError.unknownOp(op) }
         if method == "pane.edit" { return try edit(params, op: op, context: context) }
+        if method == "pane.setScrollToBottomOnSend", !context.userGesture {
+            throw PageError(code: PageNativeOp.userOnlyCode, message: "This setting can only be changed by a person")
+        }
         // Named, not a prefix: `scrollAnchor` treats anything but `.get` as a write, so a later
         // `chat.scrollAnchor.forget` would have erased a chat's place instead of being refused.
         if AgentPaneScrollAnchors.handles(method: method) { return try Self.scrollAnchor(method, params: params, op: op) }

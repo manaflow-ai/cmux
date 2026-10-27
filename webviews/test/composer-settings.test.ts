@@ -62,3 +62,18 @@ test("send-to-bottom defaults on and the composer toggle writes the host setting
     settings.setComposerSettings(DEFAULT_COMPOSER);
   }
 });
+
+test("a rejected send-to-bottom write rolls back the optimistic choice", async () => {
+  const settings = await import("../src/agent-session/acpmux/composerSettings");
+  settings.setComposerSettings({ scrollToBottomOnSend: true });
+  settings.registerComposerHost(() => Promise.reject(new Error("managed")));
+  try {
+    settings.setScrollToBottomOnSend(false);
+    expect(settings.composerSettingsSnapshot().scrollToBottomOnSend).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settings.composerSettingsSnapshot().scrollToBottomOnSend).toBe(true);
+  } finally {
+    settings.registerComposerHost(undefined);
+    settings.setComposerSettings(DEFAULT_COMPOSER);
+  }
+});

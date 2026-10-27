@@ -91,6 +91,8 @@ let confirmedAttachmentView = current.attachmentView;
 let attachmentWrite = 0;
 let confirmedWrite = 0;
 let pendingWrite = 0;
+let confirmedScrollToBottomOnSend = current.scrollToBottomOnSend;
+let scrollWrite = 0;
 
 function publishComposerSettings(value: unknown) {
   const next = readComposerSettings({ ...current, ...(value && typeof value === "object" ? value : undefined) });
@@ -101,6 +103,9 @@ function publishComposerSettings(value: unknown) {
 
 /// The host's whole value, or a page change to some settings (the rest stay as they are).
 export function setComposerSettings(value: unknown) {
+  if (value && typeof value === "object" && "scrollToBottomOnSend" in value) {
+    confirmedScrollToBottomOnSend = readComposerSettings(value).scrollToBottomOnSend;
+  }
   if (value && typeof value === "object" && "attachmentView" in value) {
     confirmedAttachmentView = readComposerSettings(value).attachmentView;
     // A host push is authoritative, including over replies from older writes.
@@ -120,6 +125,11 @@ export function useComposerSettings(): ComposerSettings {
   );
 }
 
+/// The current page value for non-React bridges and focused persistence tests.
+export function composerSettingsSnapshot(): ComposerSettings {
+  return current;
+}
+
 declare global {
   interface Window {
     /// The old host's script for the `composer` event (CmuxNextAgentPane AgentPaneView).
@@ -132,7 +142,7 @@ if (typeof window !== "undefined") window.cmuxAcpmuxComposer = setComposerSettin
 type ComposerHost = (
   method: "pane.showContextUsage" | "pane.showDictation" | "pane.setScrollToBottomOnSend",
   show: boolean,
-) => void;
+) => unknown;
 let composerHost: ComposerHost | undefined;
 
 /// App's route to the host; a page with none (a gallery, a test) keeps its choice in the page.
@@ -186,6 +196,25 @@ export function showComposerControl(key: "showContextUsage" | "showDictation", s
 /// persist the choice. The page updates immediately so the context menu reflects the new state even
 /// while the native settings write is in flight.
 export function setScrollToBottomOnSend(show: boolean) {
-  setComposerSettings({ scrollToBottomOnSend: show });
-  composerHost?.("pane.setScrollToBottomOnSend", show);
+  const write = ++scrollWrite;
+  publishComposerSettings({ scrollToBottomOnSend: show });
+  if (!composerHost) {
+    confirmedScrollToBottomOnSend = show;
+    return;
+  }
+  let result: unknown;
+  try {
+    result = composerHost("pane.setScrollToBottomOnSend", show);
+  } catch {
+    if (write === scrollWrite) publishComposerSettings({ scrollToBottomOnSend: confirmedScrollToBottomOnSend });
+    return;
+  }
+  void Promise.resolve(result).then(
+    () => {
+      if (write === scrollWrite) confirmedScrollToBottomOnSend = show;
+    },
+    () => {
+      if (write === scrollWrite) publishComposerSettings({ scrollToBottomOnSend: confirmedScrollToBottomOnSend });
+    },
+  );
 }
