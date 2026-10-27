@@ -67,9 +67,10 @@ pub enum Inbound {
     ReplayDone {
         agent: u64,
     },
-    /// The reader of this generation's host link stopped: an entry could not be logged, so what
-    /// the host reports from there waits with the host until a reattach. The hub's full-access
-    /// bound treats such an agent as unheard (#23322).
+    /// The reader of this generation's host link stopped: an entry could not be logged, or the
+    /// link closed (the host died, or another owner took it), so what the host reports from there
+    /// is not heard until a reattach. The hub's full-access bound treats such an agent as unheard
+    /// (#23322).
     LinkBroken {
         agent: u64,
     },
@@ -1124,10 +1125,13 @@ impl ChildAgent {
                 return;
             }
             // The host died or another owner took it.
-            let mut p = reader.pending.lock().await;
-            for (_, tx) in p.map.drain() {
-                let _ = tx.send(Err(RpcError::internal("agent process closed")));
+            {
+                let mut p = reader.pending.lock().await;
+                for (_, tx) in p.map.drain() {
+                    let _ = tx.send(Err(RpcError::internal("agent process closed")));
+                }
             }
+            let _ = hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
         });
     }
 

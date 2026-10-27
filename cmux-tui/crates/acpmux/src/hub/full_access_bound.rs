@@ -403,10 +403,11 @@ impl Hub {
     /// refuses a profile that pins full access (`refuse_pinned_full_access`). A host whose end its
     /// nonce does not prove may still run in full access: what says so stays, so the next check
     /// (a start, a push, the background check) tries again, and nothing reaches it meanwhile
-    /// (`FullAccessEnd::StillRunning`, review 51 of #23322).
+    /// (`FullAccessEnd::StillRunning`, review 51 of #23322). So does one whose records cannot be
+    /// read (`host_record_gone`, review 66).
     pub(super) async fn end_managed_full_access(&self, session: &Session) -> FullAccessEnd {
         let child = session.child.lock().await.take();
-        let ended = child.is_some() || Self::host_record_live(&session.id);
+        let ended = child.is_some() || !Self::host_record_gone(&session.id);
         if let Some(child) = child {
             // Bounded: a host whose link stopped reading never answers the terminate; it is then
             // ended by its nonce below (review 27 of #23322).
@@ -419,9 +420,9 @@ impl Hub {
             child.fail_pending().await;
             self.cancel_pending_permissions(session);
         }
-        if Self::host_record_live(&session.id) {
+        if !Self::host_record_gone(&session.id) {
             self.end_unadopted_host(session).await;
-            if Self::host_record_live(&session.id) {
+            if !Self::host_record_gone(&session.id) {
                 tracing::warn!(session = %session.id, "MDM forces full access off: its full-access agent host did not end; it is not reached until it does");
                 self.append(session, "mux", "full_access_end_failed", json!({"reason": "managed"}));
                 session.floor.full_access_end_pending.store(true, Ordering::SeqCst);

@@ -66,8 +66,13 @@ impl Hub {
     /// Sessions whose agent host is still running, by session id. Read at
     /// startup so their open turns are not marked lost.
     pub(super) fn live_host_sessions() -> std::collections::HashSet<String> {
+        Self::read_live_host_sessions().unwrap_or_default()
+    }
+
+    /// `live_host_sessions`, or `None` when the host records cannot be read.
+    fn read_live_host_sessions() -> Option<std::collections::HashSet<String>> {
         let dir = agent_host::hosts_dir();
-        let Ok((good, bad)) = agent_host::load_records(&dir) else { return Default::default() };
+        let (good, bad) = agent_host::load_records(&dir).ok()?;
         let mut live: std::collections::HashSet<String> = good
             .into_iter()
             .filter(|(_, r)| {
@@ -85,7 +90,7 @@ impl Hub {
             }
             live.insert(b.session_id);
         }
-        live
+        Some(live)
     }
 
     /// Adopt this session's running host again (its link was lost, or a
@@ -190,6 +195,12 @@ impl Hub {
     /// Whether a host for `session` may still run (a live or unproven record).
     pub(super) fn host_record_live(session_id: &str) -> bool {
         Self::live_host_sessions().contains(session_id)
+    }
+
+    /// Whether the host records prove that no host for `session` runs. Records that cannot be
+    /// read prove nothing (review 66 of #23322).
+    pub(super) fn host_record_gone(session_id: &str) -> bool {
+        Self::read_live_host_sessions().is_some_and(|live| !live.contains(session_id))
     }
 
     /// Reattach every running agent host. Called once at daemon start,
