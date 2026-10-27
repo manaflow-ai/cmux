@@ -1,3 +1,4 @@
+internal import CmuxSafeConcurrency
 public import Foundation
 
 /// The consolidated on-disk application log: one active file with bounded
@@ -211,34 +212,42 @@ public actor AppLog {
 
     /// A one-shot acknowledgement that can be resolved by either the drain or
     /// the export task's timeout/cancellation path without ever resuming a
-    /// continuation twice.
-    private final class Acknowledgement: @unchecked Sendable {
-        // lint:allow lock - synchronous acknowledgement resolution is required
-        // for cancellation and timeout races across producer tasks.
-        private let lock = NSLock()
-        private var continuation: CheckedContinuation<Bool, Never>?
-        private var result: Bool?
+    /// continuation twice. Its state lives in a `Mutex`, so it is plainly
+    /// `Sendable` (Chromium guards a one-shot flag the same way:
+    /// base/synchronization/lock.h with `GUARDED_BY` state).
+    final class Acknowledgement: Sendable {
+        private struct State {
+            var continuation: OnceContinuation<Bool, OnceContinuationError>?
+            var result: Bool?
+        }
 
-        func wait(timeoutNanoseconds: UInt64) async -> Bool {
+        // carve-out: synchronous acknowledgement resolution is required for
+        // cancellation and timeout races across producer tasks.
+        private let state = Mutex(State())
+
+        func wait(timeout: Duration, on clock: any Clock<Duration>) async -> Bool {
             let timeoutTask = Task.detached { [self] in
                 do {
-                    try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                    // wakeup-allow: deadline the acknowledgement times out once; an earlier answer cancels it.
+                    try await clock.sleep(for: timeout, tolerance: timeout.flexibleWakeTolerance)
                     resolve(false)
                 } catch {
                     // The waiter completed before the deadline.
                 }
             }
             let result = await withTaskCancellationHandler(operation: {
-                await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                    lock.lock()
-                    if let resolvedResult = self.result {
-                        lock.unlock()
-                        continuation.resume(returning: resolvedResult)
-                    } else {
-                        self.continuation = continuation
-                        lock.unlock()
+                // The state holds the continuation until resolve(), so it is never abandoned; false (as a
+                // timeout answers) if it ever were.
+                (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
+                    let resolved = state.withLock { state -> Bool? in
+                        if let result = state.result { return result }
+                        state.continuation = continuation
+                        return nil
                     }
-                }
+                    if let resolved {
+                        continuation.resume(returning: resolved)
+                    }
+                }) ?? false
             }, onCancel: {
                 resolve(false)
             })
@@ -251,15 +260,13 @@ public actor AppLog {
         }
 
         private func resolve(_ result: Bool) {
-            lock.lock()
-            guard self.result == nil else {
-                lock.unlock()
-                return
+            let continuation = state.withLock { state -> OnceContinuation<Bool, OnceContinuationError>? in
+                guard state.result == nil else { return nil }
+                state.result = result
+                let continuation = state.continuation
+                state.continuation = nil
+                return continuation
             }
-            self.result = result
-            let continuation = self.continuation
-            self.continuation = nil
-            lock.unlock()
             continuation?.resume(returning: result)
         }
     }
@@ -268,23 +275,24 @@ public actor AppLog {
     /// keeping normal event and mirrored-line traffic bounded. Control entries
     /// never evict an entry that was already accepted. A small reserved control
     /// lane admits barriers and clears while the traffic queue drains.
-    // lint:allow lock - synchronous admission is required for nonisolated
-    // producers; the lock is held only while updating a bounded in-memory queue.
-    private final class EntryIngress: @unchecked Sendable {
+    ///
+    /// The queue lives in a `Mutex`, and the wake-up iterator belongs to the
+    /// one drain task (``nextBatch(wakes:)``), so the type is plainly `Sendable`.
+    private final class EntryIngress: Sendable {
         private struct State: Sendable {
             var entries: [Entry] = []
             var bufferedDroppableCount = 0
             var finished = false
         }
 
-        // lint:allow lock - synchronous admission is required for nonisolated
+        // carve-out: synchronous admission is required for nonisolated
         // producers; the lock is held only while updating a bounded queue.
-        private let lock = NSLock()
-        private var state = State()
+        private let state = Mutex(State())
         private let maxBufferedEntries: Int
         private let maxBufferedControlEntries: Int
         private let wakeContinuation: AsyncStream<Void>.Continuation
-        private var wakeIterator: AsyncStream<Void>.Iterator
+        /// Yields after an admission; only the drain task iterates it.
+        let wakes: AsyncStream<Void>
 
         init(maxBufferedEntries: Int = 2_048) {
             self.maxBufferedEntries = max(1, maxBufferedEntries)
@@ -293,7 +301,7 @@ public actor AppLog {
                 bufferingPolicy: .bufferingNewest(1)
             )
             wakeContinuation = continuation
-            wakeIterator = stream.makeAsyncIterator()
+            wakes = stream
         }
 
         func enqueue(_ entry: Entry) {
@@ -324,34 +332,31 @@ public actor AppLog {
             }
         }
 
-        func nextBatch() async -> [Entry]? {
-            while true {
-                if let batch = withStateLock({ state -> [Entry]? in
-                    guard !state.entries.isEmpty else {
-                        return state.finished ? nil : []
-                    }
-                    let batch = state.entries
-                    state.entries.removeAll(keepingCapacity: true)
-                    state.bufferedDroppableCount = 0
-                    return batch
-                }) {
-                    if !batch.isEmpty { return batch }
-                } else {
-                    return nil
+        /// The entries admitted since the last batch, nil once the ingress is
+        /// finished and empty. `wakes` is the drain task's own iterator of
+        /// ``wakes``; it waits there while the queue is empty.
+        func nextBatch(wakes: inout AsyncStream<Void>.Iterator) async -> [Entry]? {
+            var batch = takeBatch()
+            while batch?.isEmpty == true {
+                guard await wakes.next() != nil else {
+                    return takeBatch().flatMap { $0.isEmpty ? nil : $0 }
                 }
+                batch = takeBatch()
+            }
+            return batch
+        }
 
-                guard await wakeIterator.next() != nil else {
-                    if let batch = withStateLock({ state -> [Entry]? in
-                        guard !state.entries.isEmpty else { return nil }
-                        let batch = state.entries
-                        state.entries.removeAll(keepingCapacity: true)
-                        state.bufferedDroppableCount = 0
-                        return batch
-                    }) {
-                        return batch
-                    }
-                    return nil
+        /// Everything admitted so far, `[]` when nothing is waiting, or nil
+        /// when the ingress is finished and empty.
+        private func takeBatch() -> [Entry]? {
+            withStateLock { state -> [Entry]? in
+                guard !state.entries.isEmpty else {
+                    return state.finished ? nil : []
                 }
+                let batch = state.entries
+                state.entries.removeAll(keepingCapacity: true)
+                state.bufferedDroppableCount = 0
+                return batch
             }
         }
 
@@ -369,10 +374,8 @@ public actor AppLog {
             wakeContinuation.finish()
         }
 
-        private func withStateLock<T>(_ body: (inout State) -> T) -> T {
-            lock.lock()
-            defer { lock.unlock() }
-            return body(&state)
+        private func withStateLock<T: Sendable>(_ body: (inout State) -> T) -> T {
+            state.withLock { body(&$0) }
         }
 
         private static func isDroppable(_ entry: Entry) -> Bool {
@@ -635,14 +638,16 @@ public actor AppLog {
     private let supplementalAppLogURLs: @Sendable () -> [URL]
     private let flushSupplementalAppLog: @Sendable () async -> Bool
     private let supplementalAppLogSnapshot: @Sendable () async -> [Data]?
+    private let timeoutClock: any Clock<Duration>
 
-    private static let drainWaitTimeoutNanoseconds: UInt64 = 5_000_000_000
+    private static let drainWaitTimeout = Duration.seconds(5)
     private static let exportTimeoutNanoseconds: UInt64 = 10_000_000_000
     private static let ingressCapacity = 2_048
     private static let controlReserve = 16
 
     /// Create a log writing to the given locations. Passing `nil` for a URL
     /// disables that file (used by tests exercising one file at a time).
+    /// `timeoutClock` runs the drain and export deadlines.
     public init(
         appFileURL: URL?,
         networkFileURL: URL?,
@@ -653,7 +658,8 @@ public actor AppLog {
         now: @escaping @Sendable () -> Date = { Date() },
         supplementalAppLogURLs: @escaping @Sendable () -> [URL] = { [] },
         flushSupplementalAppLog: @escaping @Sendable () async -> Bool = { true },
-        supplementalAppLogSnapshot: @escaping @Sendable () async -> [Data]? = { nil }
+        supplementalAppLogSnapshot: @escaping @Sendable () async -> [Data]? = { nil },
+        timeoutClock: any Clock<Duration> = ContinuousClock()
     ) {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -661,6 +667,7 @@ public actor AppLog {
         self.supplementalAppLogURLs = supplementalAppLogURLs
         self.flushSupplementalAppLog = flushSupplementalAppLog
         self.supplementalAppLogSnapshot = supplementalAppLogSnapshot
+        self.timeoutClock = timeoutClock
         Self.removeStaleExportArchives()
         let started = formatter.string(from: now())
         if let appFileURL {
@@ -688,7 +695,8 @@ public actor AppLog {
         // The drain holds self only across one write; when the log deallocs,
         // `deinit` finishes ingress and the loop ends on its own.
         Task { [weak self] in
-            while let batch = await ingress.nextBatch() {
+            var wakes = ingress.wakes.makeAsyncIterator()
+            while let batch = await ingress.nextBatch(wakes: &wakes) {
                 for entry in batch {
                     guard let self else { return }
                     await self.write(entry)
@@ -787,7 +795,7 @@ public actor AppLog {
         guard await flushSupplementalAppLog() else { return nil }
         let acknowledgement = Acknowledgement()
         ingress.enqueue(.barrier(acknowledgement))
-        guard await acknowledgement.wait(timeoutNanoseconds: Self.drainWaitTimeoutNanoseconds),
+        guard await acknowledgement.wait(timeout: Self.drainWaitTimeout, on: timeoutClock),
               !Task.isCancelled else {
             return nil
         }
@@ -800,9 +808,11 @@ public actor AppLog {
             }
             completion.resolve(Self.writeExportArchive(inputs: inputs))
         }
-        let timeoutTask = Task.detached {
+        let exportTimeout = Duration.nanoseconds(Self.exportTimeoutNanoseconds)
+        let timeoutTask = Task.detached { [timeoutClock] in
             do {
-                try await Task.sleep(nanoseconds: Self.exportTimeoutNanoseconds)
+                // wakeup-allow: deadline the export times out once; its completion cancels the wait.
+                try await timeoutClock.sleep(for: exportTimeout, tolerance: exportTimeout.flexibleWakeTolerance)
                 completion.resolve(nil)
                 exportTask.cancel()
             } catch {
@@ -974,12 +984,11 @@ public actor AppLog {
             }
             let destinationHandle = try FileHandle(forWritingTo: destination)
             defer { try? destinationHandle.close() }
-            while !Task.isCancelled {
-                let chunk = try sourceHandle.read(upToCount: 64 * 1024) ?? Data()
-                if chunk.isEmpty { return true }
+            while let chunk = try sourceHandle.read(upToCount: 64 * 1024), !chunk.isEmpty {
+                guard !Task.isCancelled else { return false }
                 try destinationHandle.write(contentsOf: chunk)
             }
-            return false
+            return !Task.isCancelled
         } catch {
             try? FileManager.default.removeItem(at: destination)
             return false
@@ -993,7 +1002,7 @@ public actor AppLog {
     public func clear() async -> Bool {
         let acknowledgement = Acknowledgement()
         ingress.enqueue(.clear(acknowledgement))
-        let didClear = await acknowledgement.wait(timeoutNanoseconds: Self.drainWaitTimeoutNanoseconds)
+        let didClear = await acknowledgement.wait(timeout: Self.drainWaitTimeout, on: timeoutClock)
         if didClear {
             Self.removeStaleExportArchives()
         }
@@ -1009,40 +1018,47 @@ public actor AppLog {
 
     /// Resolves the settings task independently from the detached ZIP writer.
     /// If a late worker finishes after cancellation or timeout, its temporary
-    /// archive is removed instead of being left behind.
-    private final class ExportCompletion: @unchecked Sendable {
-        // lint:allow lock - this gate crosses the detached ZIP worker and the
+    /// archive is removed instead of being left behind. Its state lives in a
+    /// `Mutex`, so it is plainly `Sendable`.
+    private final class ExportCompletion: Sendable {
+        private struct State {
+            var continuation: OnceContinuation<URL?, OnceContinuationError>?
+            var result: URL??
+        }
+
+        // carve-out: this gate crosses the detached ZIP worker and the
         // cancellable settings task without actor affinity.
-        private let lock = NSLock()
-        private var continuation: CheckedContinuation<URL?, Never>?
-        private var result: URL??
+        private let state = Mutex(State())
 
         func wait() async -> URL? {
-            await withCheckedContinuation { continuation in
-                lock.lock()
-                if let result {
-                    lock.unlock()
-                    continuation.resume(returning: result)
-                } else {
-                    self.continuation = continuation
-                    lock.unlock()
+            // An abandoned wait answers nil, as a failed export does.
+            try? await withOnceContinuation { (continuation: OnceContinuation<URL?, OnceContinuationError>) in
+                let resolved = state.withLock { state -> URL?? in
+                    if let result = state.result { return .some(result) }
+                    state.continuation = continuation
+                    return nil
+                }
+                if let resolved {
+                    continuation.resume(returning: resolved)
                 }
             }
         }
 
         func resolve(_ result: URL?) {
-            lock.lock()
-            guard self.result == nil else {
-                lock.unlock()
+            let (isFirst, continuation) = state.withLock {
+                state -> (Bool, OnceContinuation<URL?, OnceContinuationError>?) in
+                guard state.result == nil else { return (false, nil) }
+                state.result = .some(result)
+                let continuation = state.continuation
+                state.continuation = nil
+                return (true, continuation)
+            }
+            guard isFirst else {
                 if let result {
                     try? FileManager.default.removeItem(at: result)
                 }
                 return
             }
-            self.result = .some(result)
-            let continuation = self.continuation
-            self.continuation = nil
-            lock.unlock()
             continuation?.resume(returning: result)
         }
     }

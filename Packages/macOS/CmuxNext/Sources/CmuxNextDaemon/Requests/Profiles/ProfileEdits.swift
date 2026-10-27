@@ -80,4 +80,8 @@ public struct DeleteProfileRequest: DaemonRequest {
         self.profile = profile
         self.moveTo = moveTo
     }
+
+    enum CodingKeys: String, CodingKey {
+        case profile, moveTo = "move_to"
+    }
 }

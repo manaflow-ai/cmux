@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextSettings
+import CmuxNextWakeups
 import Observation
 import os
 import CmuxNextFocusUI
@@ -32,7 +33,10 @@ final class GlobalHotKeyService {
     @ObservationIgnored private let startAgentEnabled: @MainActor () -> Bool
     @ObservationIgnored private var registered: [ActionID: Registration] = [:]
     @ObservationIgnored private var nextNumber: UInt32 = 1
-    @ObservationIgnored private var tasks: [Task<Void, Never>] = []
+    /// The app's main-thread scheduler: a change of the keys, the suspension or a gate applies as one task on it.
+    @ObservationIgnored private let mainWork: MainWorkScheduler
+    /// Follows what the registration depends on while started (``start()`` to ``stop()``).
+    @ObservationIgnored private var inputsWatch: ServiceObservation<Inputs>?
     @ObservationIgnored private var layoutObserver: KeyboardLayoutObserver?
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.hotkeys")
 
@@ -41,14 +45,25 @@ final class GlobalHotKeyService {
         var number: UInt32
     }
 
+    /// What ``apply()`` reads that may change: the catalog's keys, the suspension and both gates. Suspension
+    /// reads the whole focus context, so a change that moves none of these applies nothing.
+    struct Inputs: Equatable {
+        var keys: [ActionID: Shortcut]
+        var suspended: Bool
+        var showHide: Bool
+        var startAgent: Bool
+    }
+
     init(
         registry: ActionRegistry,
+        mainWork: MainWorkScheduler,
         registrar: any GlobalHotKeyRegistrar = CarbonHotKeyRegistrar(),
         layout: @escaping @MainActor () -> KeyCodeLayout = KeyCodeLayout.current,
         showHideEnabled: @escaping @MainActor () -> Bool = { CmuxConfigSnapshot.globalHotKeyFallback },
         startAgentEnabled: @escaping @MainActor () -> Bool = { CmuxConfigSnapshot.startAgentGlobalHotKeyFallback }
     ) {
         self.registry = registry
+        self.mainWork = mainWork
         self.registrar = registrar
         self.layout = layout
         self.showHideEnabled = showHideEnabled
@@ -71,31 +86,25 @@ final class GlobalHotKeyService {
 
     /// Registers now, then follows shortcut and layout changes.
     func start() {
-        guard tasks.isEmpty else { return }
+        guard inputsWatch == nil else { return }
         registrar.onPress = { [weak self] number in self?.press(number) }
-        apply()
         let registry = registry
         let showHideEnabled = showHideEnabled
         let startAgentEnabled = startAgentEnabled
-        tasks.append(Task { [weak self] in
-            // Suspension reads the whole focus context, so skip the changes
-            // that move neither the keys nor the suspension.
-            var last: (keys: [ActionID: Shortcut], suspended: Bool, enabled: Bool, startAgent: Bool)?
-            for await next in ObservationStream({
-                (keys: registry.globalHotKeys(), suspended: registry.globalHotKeysSuspended, enabled: showHideEnabled(),
-                 startAgent: startAgentEnabled())
-            }) {
-                if let last, last == next { continue }
-                last = next
-                self?.apply()
-            }
-        })
+        // Applies now (the first value) and once per change after. A system-wide key nobody sees: background,
+        // and a person's rebind or setting change flushes visible by its cause.
+        inputsWatch = ServiceObservation(.background, owner: "GlobalHotKeys.inputs", on: mainWork) {
+            Inputs(keys: registry.globalHotKeys(), suspended: registry.globalHotKeysSuspended, showHide: showHideEnabled(),
+                   startAgent: startAgentEnabled())
+        } apply: { [weak self] _ in
+            self?.apply()
+        }
         layoutObserver = KeyboardLayoutObserver { [weak self] in self?.apply() }
     }
 
     func stop() {
-        tasks.forEach { $0.cancel() }
-        tasks.removeAll()
+        inputsWatch?.cancel()
+        inputsWatch = nil
         layoutObserver = nil
         for registration in registered.values { registrar.unregister(number: registration.number) }
         registered.removeAll()

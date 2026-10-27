@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextInput
 import CmuxNextIcons
 
 /// The bookmarks bar under a browser pane's toolbar (bookmarks.md section 3):
@@ -29,6 +30,7 @@ public final class BookmarksBarView: NSView {
     public override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         for button in [overflow, otherButton] {
             button.isBordered = false
             button.bezelStyle = .accessoryBarAction
@@ -137,6 +139,7 @@ public final class BookmarksBarView: NSView {
         }
     }
 
+    // visibility-walk-allow: it only invalidates; AppKit runs updateLayer only for a view it draws, so a hidden bar costs one flag
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
@@ -144,26 +147,30 @@ public final class BookmarksBarView: NSView {
 
     // MARK: Clicks and menus
 
-    private func click(_ item: BookmarkBarItemView, _ event: NSEvent) {
+    /// A click on `item` (nil `event`: an accessibility press, which has no modifiers).
+    private func click(_ item: BookmarkBarItemView, _ event: NSEvent?) {
         guard let source else { return }
         if item.node.isFolder {
-            let menu = BookmarkFolderMenu(source: source, folder: item.node.id, title: item.node.displayTitle)
+            let menu = BookmarkFolderMenu(source: source, input: input, folder: item.node.id, title: item.node.displayTitle)
             popUp(menu, below: item)
         } else {
-            source.open(item.node, disposition: .from(event.modifierFlags, middleButton: event.type == .otherMouseUp))
+            source.open(item.node, disposition: .from(event?.modifierFlags ?? [], middleButton: event?.type == .otherMouseUp))
         }
     }
+
+    /// The input tap of the bar's window (the folder menus read their chosen item's modifiers from it).
+    private var input: InputEventTap? { (window as? InputTapHosting)?.inputTap }
 
     @objc private func showOverflow() {
         guard let source else { return }
         let hidden = items.dropFirst(visibleCount).map(\.node)
-        popUp(BookmarkFolderMenu(source: source, folder: "", title: BookmarkStrings.moreBookmarks, leading: hidden, includeChildren: false),
+        popUp(BookmarkFolderMenu(source: source, input: input, folder: "", title: BookmarkStrings.moreBookmarks, leading: hidden, includeChildren: false),
               below: overflow)
     }
 
     @objc private func showOther() {
         guard let source else { return }
-        popUp(BookmarkFolderMenu(source: source, folder: BookmarkRoot.other.rawValue, title: BookmarkStrings.otherBookmarks),
+        popUp(BookmarkFolderMenu(source: source, input: input, folder: BookmarkRoot.other.rawValue, title: BookmarkStrings.otherBookmarks),
               below: otherButton)
     }
 

@@ -1,29 +1,40 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
+import CmuxNextWakeups
 import SwiftUI
 
 /// Hosts the history page in a browser tab's content area. Resolves the
 /// page colors in this view's theme scope (room, workspace) and again on
-/// every theme change.
-public final class HistoryPageHostView: NSView {
+/// every theme change (once, on show, for a hidden page).
+public final class HistoryPageHostView: NSView, VisibilityGatedContent {
     public let model: HistoryPageModel
-    private let appearanceState = HistoryPageAppearance()
-    private var hosting: NSHostingView<HistoryPageView>?
+    private let appearanceState: HistoryPageAppearance
+    private let gate: VisibilityGatedHostingView
+    /// The view's place in the visibility tree: a theme change while the page is hidden resolves the colors once, on show.
+    private let visibility = ViewVisibility("history")
+    private var visibilityNode: VisibilityNode { visibility.node }
+    /// How many times the colors were resolved (tests: a hidden page resolves none until it shows).
+    private(set) var colorResolves = 0
+
+    /// Its SwiftUI leaves the hierarchy while the tab is hidden (``VisibilityGatedHostingView``).
+    public var visibilityGate: VisibilityGatedHostingView? { gate }
 
     public init(model: HistoryPageModel) {
+        let appearance = HistoryPageAppearance()
         self.model = model
+        appearanceState = appearance
+        gate = VisibilityGatedHostingView(owner: "HistoryPageHostView") { HistoryPageView(model: model, appearance: appearance) }
         super.init(frame: .zero)
         wantsLayer = true
-        let hosting = NSHostingView(rootView: HistoryPageView(model: model, appearance: appearanceState))
-        hosting.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(hosting)
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        gate.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(gate)
         NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: topAnchor),
-            hosting.bottomAnchor.constraint(equalTo: bottomAnchor),
+            gate.leadingAnchor.constraint(equalTo: leadingAnchor),
+            gate.trailingAnchor.constraint(equalTo: trailingAnchor),
+            gate.topAnchor.constraint(equalTo: topAnchor),
+            gate.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        self.hosting = hosting
     }
 
     @available(*, unavailable)
@@ -37,15 +48,31 @@ public final class HistoryPageHostView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        visibility.place(in: window)
         resolveColors()
     }
 
+    // R-hide: hiding forwards to the node.
+    public override func viewDidHide() {
+        super.viewDidHide()
+        visibilityNode.set(.hidden)
+    }
+
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        visibilityNode.set(.visible)
+    }
+
+    // R-appear: the colors feed the SwiftUI page, so a hidden page resolves them on show.
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        resolveColors()
+        visibilityNode.deferUntilVisible(key: Self.appearanceKey) { [weak self] in self?.resolveColors() }
     }
 
+    private static let appearanceKey = "HistoryPageHostView.appearance"
+
     private func resolveColors() {
+        colorResolves += 1
         let colors = Self.colors(in: self)
         if appearanceState.colors != colors { appearanceState.colors = colors }
     }

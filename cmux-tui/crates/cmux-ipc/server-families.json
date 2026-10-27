@@ -1,0 +1,12 @@
+{
+  "description": "Schema families (spec/sdk-schema.json `families`) whose daemon Command variants and request params cmux-ipc build.rs generates (p05-ipc design 3.3, queue Q15). A family moves here when its hand-written variants in cmux-tui-core server.rs are deleted; check-sdk-schema.py and check-spec-inventory.py read this list for the commands those variants served. `refused_fields` names, per command, a pre-rename field the daemon still reads only to refuse it with invalid-argument, with its reason: not in the schema, so the SDKs never send it. `boxed` names, per command, a params struct the Command enum holds in a `Box`, with its reason: one large, rarely sent command must not grow every Command and Request.",
+  "families": ["terminal-io", "tabs"],
+  "refused_fields": {
+    "move-tab-to-column": {
+      "sticky": "R87 DOCK-WIRE: `sticky` was renamed to `dock`; ignoring it would turn an older client's pin into a plain column."
+    }
+  },
+  "boxed": {
+    "create-surface-with-receipt": "Its params are far larger than any other command's: unboxed, every daemon Command grows from 376 to 624 bytes, and parse, dispatch and the pending queue move Commands by value. The hand-written enum boxed it since a1874d37a97."
+  }
+}

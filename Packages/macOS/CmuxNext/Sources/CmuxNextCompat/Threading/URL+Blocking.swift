@@ -11,6 +11,7 @@ extension URL {
     ///   - line: The calling code's `#line`.
     /// - Returns: The values.
     /// - Throws: What `resourceValues(forKeys:)` throws.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingResourceValues(forKeys keys: Set<URLResourceKey>, fileID: StaticString = #fileID,
                                        line: UInt = #line) throws -> URLResourceValues {

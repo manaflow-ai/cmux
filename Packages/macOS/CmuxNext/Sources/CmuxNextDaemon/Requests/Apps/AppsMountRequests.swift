@@ -23,7 +23,7 @@ public struct AppsMountRequest: DaemonRequest, VerbatimFieldsRequest {
     }
 
     enum CodingKeys: String, CodingKey {
-        case app, interface, mountID = "mountId"
+        case app, interface, mountID = "mount_id"
     }
 
     var verbatimFields: [String: JSONValue] { ["context": context] }
@@ -40,7 +40,7 @@ public struct AppsUnmountRequest: DaemonRequest {
     }
 
     enum CodingKeys: String, CodingKey {
-        case mountID = "mountId"
+        case mountID = "mount_id"
     }
 }
 
@@ -65,7 +65,7 @@ public struct AppsDispatchRequest: DaemonRequest, VerbatimFieldsRequest {
     }
 
     enum CodingKeys: String, CodingKey {
-        case mountID = "mountId", node, event, origin
+        case mountID = "mount_id", node, event, origin
     }
 
     var verbatimFields: [String: JSONValue] { ["payload": payload] }

@@ -60,7 +60,9 @@ struct SubtleElevationTests {
         let chip = TabGroupChipCell(group: TabGroupItem(id: "g", name: "Frontend"), memberCount: 2)
         chip.isLifted = true
         #expect(chip.pill.shadowRadius == raised.layerRadius)
+        // The elevation's strength, cast from the opaque pill's outline (a clear pill casts its glyphs).
         #expect(abs(CGFloat(chip.pill.shadowOpacity) - raised.alpha) < 0.001)
+        #expect(chip.pill.shadowPath != nil)
         let lift = DragLiftView(content: NSView(), count: 2)
         lift.frame = NSRect(x: 0, y: 0, width: 220, height: 28)
         lift.setLifted(true, animated: false)

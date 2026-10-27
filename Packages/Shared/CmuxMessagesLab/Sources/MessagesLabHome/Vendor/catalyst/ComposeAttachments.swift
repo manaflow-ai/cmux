@@ -54,6 +54,7 @@ final class ComposeAttachmentStrip {
     private(set) var height: CGFloat = 0
     private var width: CGFloat = 0
     private var scale: CGFloat = 2
+    // cmux: memory: fixed one layer pair per attachment in the field (removed with it) and at most 16 thumbnails
     private var imageLayers: [ID: (image: CALayer, remove: CALayer)] = [:]
     private let pills = CALayer()
     private var thumbs: [String: CGImage] = [:]       // key: asset + pixel size
@@ -97,8 +98,9 @@ final class ComposeAttachmentStrip {
         return (tiles, y + rowH + gap - top)
     }
 
-    static let nameFont = UIFont.systemFont(ofSize: 11, weight: .semibold)
-    static let kindFont = UIFont.systemFont(ofSize: 10)
+    // cmux: held by HomeFonts (a `static let` of NSFont is a non-Sendable global).
+    static var nameFont: UIFont { HomeFonts.system(ofSize: 11, weight: .semibold) }
+    static var kindFont: UIFont { HomeFonts.system(ofSize: 10) }
     /// "PDF Document · 7 KB" (the type's localized description and the size).
     static func kindText(_ a: Attachment) -> String {
         let kind = UTType(mimeType: a.mimeType)?.localizedDescription ?? a.mimeType
@@ -277,9 +279,7 @@ final class ComposeAttachmentStrip {
 
     /// The thumbnail shown for an image (tests).
     func shownImage(_ id: ID) -> CGImage? {
-        guard let raw = imageLayers[id]?.image.contents else { return nil }
-        let contents = raw as AnyObject
-        return CFGetTypeID(contents) == CGImage.typeID ? unsafeDowncast(contents, to: CGImage.self) : nil
+        imageLayers[id]?.image.bitmapContents // cmux: the one checked downcast (RowDrawing.swift)
     }
 }
 

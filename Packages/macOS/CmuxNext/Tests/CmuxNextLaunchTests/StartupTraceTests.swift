@@ -1,4 +1,6 @@
 @testable import CmuxNextLaunch
+import CmuxNextCompat
+import CmuxNextTrace
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Dispatch
@@ -65,20 +67,45 @@ import Testing
 
     /// Each launch mark once; with a trace attached, a process_start mark and every later first mark reach it.
     @Test func launchMarksRecordEachNameOnceAndForwardToTheTrace() {
-        let processStart = Date(timeIntervalSinceNow: -1)
+        let start = LaunchClock.Instant(wallNanos: UInt64((Date().timeIntervalSince1970 - 1) * 1e9), uptimeNanos: 5_000_000_000)
+        let processStart = Date(timeIntervalSince1970: Double(start.wallNanos) / 1e9)
         var marks = LaunchMarks()
         let early = marks.record("early", at: Date(), processStart: processStart)
         #expect(early.map { $0 >= 1_000 } == true)
         let trace = StartupTrace(configuration: StartupTraceConfiguration(file: Self.temporaryFile()), processStartNanos: 0,
                                  clock: ManualClock())
-        marks.attach(trace, processStart: processStart)
+        marks.attach(trace, processStart: start)
         #expect(marks.trace === trace)
         let now = Date()
         #expect(marks.record("main_start", at: now, processStart: processStart) != nil)
-        LaunchMarks.forward("main_start", at: now, to: marks.trace)
+        LaunchMarks.forward("main_start", at: now, to: marks.trace, pairedWith: start)
         #expect(marks.record("main_start", at: Date(), processStart: processStart) == nil)
         #expect(marks.all.map { $0.name } == ["early", "main_start"])
         #expect(trace.status.pending == 2)
+    }
+
+    /// Every mark reaches the trace clock through the launch's one pairing (the process start, read once, as
+    /// Chrome's `StartupTimeToTimeTicks` keeps one `time_base` and `trace_ticks_base`): a wall-clock step
+    /// between two marks moves neither, while a pairing read again after the step would.
+    @Test func aWallClockStepBetweenMarksMovesNoMark() throws {
+        let second: UInt64 = 1_000_000_000
+        let wall = WallClock(1_002 * second)
+        let clock = LaunchClock(reader: LaunchClock.Reader(
+            processStartWallNanos: { 1_000 * second }, wallNanos: { wall.nanos }, uptimeNanos: { 50 * second },
+            pageins: { nil }))
+        let pairing = try #require(clock.processStart())
+        #expect(pairing == LaunchClock.Instant(wallNanos: 1_000 * second, uptimeNanos: 48 * second))
+
+        let first = Date(timeIntervalSince1970: 1_001)
+        #expect(LaunchMarks.uptimeNanos(of: first, pairedWith: pairing) == 49 * second)
+        wall.set(2_000 * second) // the wall clock is set 998 s forward
+        #expect(LaunchMarks.uptimeNanos(of: first, pairedWith: pairing) == 49 * second)
+        #expect(LaunchMarks.uptimeNanos(of: Date(timeIntervalSince1970: 1_003), pairedWith: pairing) == 51 * second)
+        #expect(LaunchMarks.uptimeNanos(of: first, pairedWith: clock.now()) != 49 * second,
+                "a pairing read after the step moves the mark")
+
+        #expect(LaunchMarks.uptimeNanos(of: Date(timeIntervalSince1970: 999), pairedWith: pairing) == 47 * second)
+        #expect(LaunchMarks.uptimeNanos(of: Date(timeIntervalSince1970: 900), pairedWith: pairing) == 0)
     }
 
     // MARK: file
@@ -89,13 +116,14 @@ import Testing
         defer { try? FileManager.default.removeItem(at: file) }
         let trace = StartupTrace(configuration: StartupTraceConfiguration(file: file), processStartNanos: 1_000,
                                  clock: ManualClock(), now: { 9_000_000 })
-        let work = BackgroundWork(label: "test.startup-trace", onRan: trace.laneJobSink)
+        // One slot per priority: the empty item below runs between the start's drain and the close's.
+        let work = BackgroundWork(filesWidths: .serial, label: "test.startup-trace", onRan: trace.laneJobSink)
         trace.start(writingOn: work)
         trace.mark("main_start", at: 2_500)
         trace.mark("daemon.connect_start", at: 3_000)
         trace.task("startup.theme", start: 4_000, end: 6_500)
         trace.mainTurn(start: 7_000, end: 2_007_000)
-        // Ahead of the close's drain on the same serial queue, so its record is in the ring by then.
+        // Ahead of the close's drain on the one user-visible slot, so its record is in the ring by then.
         work.post(.userVisible, mayBlock: .files) {}
         trace.close()
         let closed = await Self.waitUntilClosed(trace)
@@ -162,11 +190,12 @@ import Testing
         // 1 KiB writes and 8 records: a drain is due at 4 pending records.
         let trace = StartupTrace(configuration: StartupTraceConfiguration(file: file, capacity: 8, chunkBytes: 1_024),
                                  processStartNanos: 0, clock: ManualClock())
-        let work = BackgroundWork(label: "test.startup-trace", onRan: trace.laneJobSink)
+        // One slot per priority, so the gate below holds the drains.
+        let work = BackgroundWork(filesWidths: .serial, label: "test.startup-trace", onRan: trace.laneJobSink)
         trace.start(writingOn: work)
         _ = await trace.flush()
         let gate = DispatchSemaphore(value: 0)
-        // The test's own hold on the drains' serial queue: it may block (a files-lane item).
+        // The test's own hold on the drains' one user-visible slot: it may block (a files-lane item).
         work.post(.userVisible, mayBlock: .files) { gate.wait() }
         let main = StartupTrace.threadID()
         for index in 0..<4 { trace.mark("on_main_\(index)") }
@@ -283,6 +312,21 @@ import Testing
             status = await trace.flush()
         }
         return status
+    }
+}
+
+/// The wall clock a test sets while the clock reader reads it.
+private nonisolated final class WallClock: Sendable {
+    private let value: Mutex<UInt64>
+
+    init(_ nanos: UInt64) {
+        value = Mutex(nanos)
+    }
+
+    var nanos: UInt64 { value.withLock { $0 } }
+
+    func set(_ nanos: UInt64) {
+        value.withLock { $0 = nanos }
     }
 }
 

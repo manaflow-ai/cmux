@@ -29,7 +29,11 @@ enum GUIAnimationTestSupport {
         let display = CGDirectDisplayID(number.uint32Value)
         guard CGDisplayIsOnline(display) != 0, CGDisplayIsActive(display) != 0,
               CGDisplayCopyDisplayMode(display) != nil else { return false }
+        return await nextFrame(on: screen)
+    }
 
+    /// Waits for the next frame `screen`'s display link ticks; false when none came within 350 ms.
+    static func nextFrame(on screen: NSScreen) async -> Bool {
         let probe = DisplayFrameProbe(screen: screen)
         return await withTaskGroup(of: Bool.self) { group in
             group.addTask { await probe.waitForFrame() }

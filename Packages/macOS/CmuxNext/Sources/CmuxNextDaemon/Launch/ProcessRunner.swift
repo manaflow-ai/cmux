@@ -138,8 +138,9 @@ public struct ProcessRunner {
     }
 }
 
-/// `Process` is not Sendable; it is only touched from the group tasks above and the launcher queue they hand it to.
-final class ProcessBox: @unchecked Sendable {
+/// The child of one ``ProcessRunner/run(executable:arguments:environment:stdin:timeout:progressIdle:clock:)``,
+/// shared by its waiter task, its deadline task and the cancellation handler (`Process` is Sendable).
+final class ProcessBox: Sendable {
     let process: Process
     /// Sends a signal (tests record it instead).
     private let signal: @Sendable (pid_t, Int32) -> Void

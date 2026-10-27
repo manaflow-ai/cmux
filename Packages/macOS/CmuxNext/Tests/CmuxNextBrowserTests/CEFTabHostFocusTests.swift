@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextDesign
 import Foundation
 import Testing
 
@@ -112,6 +113,69 @@ import Testing
         #expect(FocusSpy.embedderActive.map(\.active) == [1, 1])
     }
 
+    /// The pane's page view reports its first responder changes to the tab it shows: embedder-active
+    /// once the host detached the page, nothing before.
+    @Test func hostModePageViewFirstResponderDrivesEmbedderActiveOnceDetached() throws {
+        let runtime = try Self.runtime(hostMode: true)
+        let (host, tab) = try Self.livePane(runtime)
+        host.present(tab, in: NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100)))
+        let page = try #require(host.hostedPageView)
+
+        page.onFocusChange?(true)
+        #expect(FocusSpy.embedderActive.isEmpty, "not detached yet")
+
+        tab.hostDetachedPage(browser: Self.firstBrowser)
+        page.onFocusChange?(true)
+        page.onFocusChange?(false)
+
+        #expect(FocusSpy.embedderActive.map(\.active) == [1, 0])
+        #expect(FocusSpy.setFocus.isEmpty)
+    }
+
+    @Test func pageViewReportsFirstResponderChanges() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: .borderless,
+                              backing: .buffered, defer: true)
+        let view = ChromiumHostPageView(frame: NSRect(x: 0, y: 0, width: 200, height: 100), inputTarget: .view)
+        var changes: [Bool] = []
+        view.onFocusChange = { changes.append($0) }
+        window.contentView?.addSubview(view)
+
+        #expect(window.makeFirstResponder(view))
+        #expect(window.makeFirstResponder(nil))
+
+        #expect(changes == [true, false])
+    }
+
+    @Test func aPageWindowTargetNeverTakesFirstResponder() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: .borderless,
+                              backing: .buffered, defer: true)
+        let view = ChromiumHostPageView(frame: NSRect(x: 0, y: 0, width: 200, height: 100), inputTarget: .pageWindow)
+        var changes: [Bool] = []
+        view.onFocusChange = { changes.append($0) }
+        window.contentView?.addSubview(view)
+
+        #expect(!window.makeFirstResponder(view))
+        #expect(changes.isEmpty)
+    }
+
+    #if DEBUG
+    /// The pane's page view asks its pane which page shows (p01-process-230): no macOS caret accessory while the
+    /// shown tab is a cmux page (``CEFTab/pageThemeSurface``), the system's placement for a web page.
+    @Test func hostModePageViewHidesTheCaretAccessoryOnACmuxPage() throws {
+        let runtime = try Self.runtime(hostMode: true)
+        let (host, tab) = try Self.livePane(runtime)
+        host.present(tab, in: NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100)))
+        let page = try #require(host.hostedPageView)
+        #expect(try ChromiumHostPasswordInputTests.accessoryPlacement(of: page) == .unspecified)
+
+        tab.pageThemeSurface = .internalPage
+        #expect(try ChromiumHostPasswordInputTests.accessoryPlacement(of: page) == .invisible)
+
+        tab.pageThemeSurface = nil
+        #expect(try ChromiumHostPasswordInputTests.accessoryPlacement(of: page) == .unspecified)
+    }
+    #endif
+
     // MARK: Fixtures
 
     private static let firstBrowser: Int32 = 1
@@ -125,7 +189,6 @@ import Testing
             let hostStart = CEFHostStart(supervisor: FocusNoHost(), clock: ContinuousClock())
             hostStart.mapsClientIDs = true
             runtime.hostStart = hostStart
-            runtime.hostReplies = try CEFHostReplyRoute(symbol: FocusSpy.symbol, replies: hostStart.replies)
         }
         _ = Unmanaged.passRetained(runtime)
         return runtime
@@ -154,6 +217,8 @@ import Testing
     func attachment() async throws(ChromiumHostAttachError) -> ChromiumHostAttachment {
         throw .cannotStart("not started in this test")
     }
+
+    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
 }
 
 /// Stand-in shim functions: `set_focus` and `browser_set_embedder_active` record their calls,
@@ -168,7 +233,7 @@ private nonisolated enum FocusSpy {
     }
 
     static func symbol(_ name: String) -> UnsafeMutableRawPointer? {
-        let lastReplyToken: CEFHostReplyRoute.LastReplyTokenFn = { 0 }
+        let lastReplyToken: CEFRemoteShim.LastReplyTokenFn = { 0 }
         let setFocus: @convention(c) (Int32, Int32) -> Void = { browser, focus in
             FocusSpy.setFocus.append((browser, focus))
         }

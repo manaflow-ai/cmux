@@ -8,15 +8,32 @@ extension CmuxSidebarView {
     /// setting, calm mode and the tests' pin); nil reads the system setting. The host also tells
     /// live views of a change (``applyReduceMotion()``): this view observes nothing itself.
     nonisolated public static var reduceMotionOverride: Bool? {
-        get { reduceMotionPin.withLock { $0 } }
-        set { reduceMotionPin.withLock { $0 = newValue } }
+        get { motionPins.withLock { $0.reduceMotion } }
+        set { motionPins.withLock { $0.reduceMotion = newValue } }
     }
-    nonisolated private static let reduceMotionPin = OSAllocatedUnfairLock<Bool?>(initialState: nil)
+
+    /// The host's own reason for the typing bubble's pulse to hold still, besides Reduce Motion:
+    /// cmux-next pushes `!Motion.sidebar.animatesLoops` (Energy Saver, the animation speed off, the
+    /// sidebar's motion off). The host also tells live views of a change (``applyReduceMotion()``).
+    nonisolated public static var hostStillsLoops: Bool {
+        get { motionPins.withLock { $0.stillsLoops } }
+        set { motionPins.withLock { $0.stillsLoops = newValue } }
+    }
+
+    /// What the host pushed: one lock for both values.
+    private struct MotionPins: Sendable {
+        var reduceMotion: Bool?
+        var stillsLoops = false
+    }
+    nonisolated private static let motionPins = OSAllocatedUnfairLock(initialState: MotionPins())
 
     /// Reduce Motion: the typing bubble's dots stand still.
     nonisolated static var reducesMotion: Bool {
         reduceMotionOverride ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
+
+    /// The typing bubble's dots stand still: Reduce Motion or ``hostStillsLoops``.
+    nonisolated static var stillsLoops: Bool { hostStillsLoops || reducesMotion }
 
     /// The host's motion gate for movement (cmux-next: `Motion.animatesMovement`, so the
     /// animation speed `off` and the motion settings also apply); nil: only Reduce Motion

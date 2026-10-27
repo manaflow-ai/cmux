@@ -15,23 +15,22 @@
 //! signed `flags.json` reader (`cmux-tui/src/feature_flags.rs`) applies last
 //! ([`Snapshot::with_disabled`]).
 //!
+//! The daemon outlives the app, so a later app's hello can disagree with the
+//! daemon's start snapshot: [`Live`] keeps that snapshot for the daemon's life
+//! and turns off only a verified app's `process=daemon` kill switches; every
+//! other difference is reported as pending ([`Live::reconcile`]).
+//!
 //! This is Chromium's `base/feature_list.cc`: `FeatureList::InitFromCommandLine`
 //! reads `--enable-features` and `--disable-features` the same way, and
 //! `FeatureList::AddFeaturesToCommandLine` gives a child process only the
 //! overridden features.
 
-/// Defines `pub const HANDLE: Feature` for each `HANDLE = "name"`: the index of
-/// `name` in `table`. A name the table lacks fails the build; every check is a
-/// `const` item, so none of it runs in the daemon.
-#[cfg_attr(
-    not(test),
-    expect(
-        unused_macros,
-        reason = "the generated handles use it; the registry has no daemon feature yet"
-    )
-)]
+/// Defines `pub const HANDLE: Feature` for each `HANDLE = "name"` (with its doc
+/// comment): the index of `name` in `table`. A name the table lacks fails the
+/// build; every check is a `const` item, so none of it runs in the daemon.
 macro_rules! feature_handles {
-    ($table:path; $($handle:ident = $name:literal),* $(,)?) => {$(
+    ($table:path; $($(#[$meta:meta])* $handle:ident = $name:literal),* $(,)?) => {$(
+        $(#[$meta])*
         pub const $handle: $crate::Feature = $crate::Feature($crate::position($table, $name));
         const _: () = assert!(
             $crate::position($table, $name) < $table.len(),
@@ -41,8 +40,13 @@ macro_rules! feature_handles {
 }
 
 mod generated;
+mod hello;
+/// The daemons' value sources (managed policy, the signed document, the channel).
+#[cfg(feature = "sources")]
+pub mod sources;
 
 pub use generated::feature;
+pub use hello::{Live, Pending, Reconciled, values_hash};
 
 /// The comma-separated names to turn on (Chromium's `--enable-features`).
 pub const ENABLE_ENV: &str = "CMUX_ENABLE_FEATURES";
@@ -117,6 +121,18 @@ impl Defaults {
     }
 }
 
+/// What a feature is for (`schemas/features/features.schema.json` `kind`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    /// A faster path that replaces an old one; on once the lab shows both arms.
+    PerfPath,
+    /// Default on; turning it off stops a path that misbehaves (Chromium's
+    /// `OVERRIDE_DISABLE_FEATURE` from a field trial).
+    KillSwitch,
+    /// Opt-in, shown on the Labs page.
+    Labs,
+}
+
 /// Which processes read a feature. The table holds only the daemon's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Process {
@@ -129,6 +145,7 @@ pub enum Process {
 pub struct FeatureDef {
     pub name: &'static str,
     pub defaults: Defaults,
+    pub kind: Kind,
     pub process: Process,
 }
 
@@ -141,6 +158,8 @@ pub enum Source {
     Override,
     /// Managed policy or the signed document's `DisabledFeatures`.
     Disabled,
+    /// A verified app's client hello turned this kill switch off ([`Live`]).
+    Hello,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -160,6 +179,18 @@ impl Snapshot {
     /// Every feature at its registry default for `channel`.
     pub fn defaults(channel: Channel) -> Self {
         Self::defaults_in(generated::TABLE, channel)
+    }
+
+    /// Every feature of `table` at its default for `channel`: a table other
+    /// than the generated one, for another crate's tests. Its handles are
+    /// `feature_handles!`-style indexes into `table`.
+    pub fn defaults_of(table: &'static [FeatureDef], channel: Channel) -> Self {
+        Self::defaults_in(table, channel)
+    }
+
+    /// The handle of the feature named `name` in this snapshot's table.
+    pub fn feature(&self, name: &str) -> Option<Feature> {
+        self.index_of(name).map(Feature)
     }
 
     /// The spawn snapshot from the values of [`ENABLE_ENV`] and [`DISABLE_ENV`], `None` when unset.
@@ -260,6 +291,22 @@ impl Snapshot {
     }
 }
 
+/// Whether the [`ENABLE_ENV`] and [`DISABLE_ENV`] lists of this process turn
+/// on `name`, a daemon feature whose registry default is off on every channel.
+/// The gate of such a feature until the generated registry lists it; then
+/// [`Snapshot::is_enabled`] replaces it.
+pub fn listed_in_env(name: &str) -> bool {
+    let list = |variable: &str| std::env::var(variable).ok();
+    listed(name, list(ENABLE_ENV).as_deref(), list(DISABLE_ENV).as_deref())
+}
+
+/// Whether `enable` names `name` and `disable` does not (disable wins), split
+/// the way [`Snapshot::from_env`] splits the lists.
+pub fn listed(name: &str, enable: Option<&str>, disable: Option<&str>) -> bool {
+    let named = |list: Option<&str>| names(list).any(|listed| listed == name);
+    named(enable) && !named(disable)
+}
+
 /// The names in one comma-separated list; empty entries are skipped.
 fn names(list: Option<&str>) -> impl Iterator<Item = &str> {
     list.into_iter().flat_map(|text| text.split(',')).map(str::trim).filter(|name| !name.is_empty())
@@ -273,11 +320,13 @@ mod tests {
         FeatureDef {
             name: "terminalHolder",
             defaults: Defaults { dev: true, nightly: true, release: false },
+            kind: Kind::PerfPath,
             process: Process::Both,
         },
         FeatureDef {
             name: "daemonOnly",
             defaults: Defaults { dev: false, nightly: false, release: false },
+            kind: Kind::Labs,
             process: Process::Daemon,
         },
     ];
@@ -285,6 +334,16 @@ mod tests {
 
     fn values(snapshot: &Snapshot) -> Vec<(bool, Source)> {
         snapshot.iter().map(|(_, enabled, source)| (enabled, source)).collect()
+    }
+
+    #[test]
+    fn listed_reads_the_lists_like_a_snapshot() {
+        assert!(!listed("daemonOnly", None, None));
+        assert!(!listed("daemonOnly", Some("terminalHolder"), None));
+        assert!(listed("daemonOnly", Some("a,, daemonOnly ,"), None));
+        assert!(!listed("daemonOnly", Some("daemononly"), None), "names are case-sensitive");
+        assert!(!listed("daemonOnly", Some("daemonOnly"), Some(" daemonOnly")), "disable wins");
+        assert!(listed("daemonOnly", Some("daemonOnly"), Some("terminalHolder")));
     }
 
     #[test]

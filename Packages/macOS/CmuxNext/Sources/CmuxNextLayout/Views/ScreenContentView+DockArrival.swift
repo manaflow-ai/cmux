@@ -47,12 +47,12 @@ extension ScreenContentView {
         let moving = RenderLayerAxes(superview).velocity(velocity, anchor: layer.anchorPoint).position
         let inner = RenderLayerAxes(stripContainer).velocity(velocity, anchor: .zero)
         spring.animateGroup([
-            RenderSpring.Move(layer, "position.x", from: position.x, to: to.x, velocity: moving.x),
-            RenderSpring.Move(layer, "position.y", from: position.y, to: to.y, velocity: moving.y),
-            RenderSpring.Move(layer, "bounds.origin.x", from: shown.origin.x, to: bounds.origin.x, velocity: inner.position.x),
-            RenderSpring.Move(layer, "bounds.origin.y", from: shown.origin.y, to: bounds.origin.y, velocity: inner.position.y),
-            RenderSpring.Move(layer, "bounds.size.width", from: shown.width, to: bounds.width, velocity: inner.size.width),
-            RenderSpring.Move(layer, "bounds.size.height", from: shown.height, to: bounds.height, velocity: inner.size.height),
+            RenderSpring.Move(layer, .positionX, from: position.x, to: to.x, velocity: moving.x),
+            RenderSpring.Move(layer, .positionY, from: position.y, to: to.y, velocity: moving.y),
+            RenderSpring.Move(layer, .boundsOriginX, from: shown.origin.x, to: bounds.origin.x, velocity: inner.position.x),
+            RenderSpring.Move(layer, .boundsOriginY, from: shown.origin.y, to: bounds.origin.y, velocity: inner.position.y),
+            RenderSpring.Move(layer, .boundsWidth, from: shown.width, to: bounds.width, velocity: inner.size.width),
+            RenderSpring.Move(layer, .boundsHeight, from: shown.height, to: bounds.height, velocity: inner.size.height),
         ], in: stripContainer) { _ in landed() }
         CATransaction.commit()
         // Pages drawing in their own windows re-read their clip shapes, which carry this range.

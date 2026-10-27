@@ -71,7 +71,7 @@ public final class ThinScroller: NSScroller {
     let notificationCenter: NotificationCenter
     /// The pending fade-out after the last scroll; the next scroll cancels it.
     private(set) var restTask: Task<Void, Never>?
-    private var proximity: ThinScrollerProximity?
+    private(set) var proximity: ThinScrollerProximity?
     private var drawnExpanded = false
 
     override public convenience init(frame frameRect: NSRect) {
@@ -202,6 +202,13 @@ public final class ThinScroller: NSScroller {
         super.viewDidMoveToSuperview()
         guard let superview else { return }
         proximity = ThinScrollerProximity(scroller: self, host: superview, notificationCenter: notificationCenter)
+        proximity?.windowChanged(window)
+    }
+
+    /// Its proximity hovers on the new window's frames (``HoverFrameInputHosting``, `pointerFrameHover`).
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        proximity?.windowChanged(window)
     }
 
     /// Never a track, also while the pointer is over the scroller.
@@ -224,9 +231,11 @@ public final class ThinScroller: NSScroller {
         let clock = clock
         // A bounded, cancellable delay that is the intended behavior (the knob's rest time after
         // the last scroll step); the next scroll cancels it. Its clock is injected.
+        // main-hop-allow: the knob's rest after the last scroll step; AppKit makes this scroller (SystemScrollers), so
+        // no scheduler seam reaches it yet, and the next scroll step cancels the task
         restTask = Task { [weak self] in
             // wakeup-allow: deadline of the knob's rest after the last scroll step, injected clock; the next scroll cancels it;
-            // not a DemandTimer: main actor (timer-class asks MainDeadline, and this type has no MainDeadlineScheduler seam)
+            // timer-class-allow: the same rest, on the injected clock with the window leeway; one wake per scroll gesture
             do { try await clock.sleep(for: Self.restDelay, tolerance: WakeLeeway.window(delay: Self.restDelay).tolerance) } catch { return }
             self?.update { $0.rested() }
         }
@@ -294,6 +303,7 @@ final class ThinScrollerKnobView: NSView {
         updateBar(animated: animated)
     }
 
+    // visibility-walk-allow: the knob bar's color, frame and radius layer stores; no layout, cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateBar(animated: false)
