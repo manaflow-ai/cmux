@@ -7,6 +7,7 @@ import CmuxNextFeatures
 package import CmuxNextHibernation
 import CmuxNextInput
 import CmuxNextMemory
+import CmuxNextPages
 import CmuxNextResources
 import CmuxNextSettings
 package import CmuxNextTabs
@@ -129,6 +130,13 @@ extension AppServices {
             idleTimeout: held && features.isEnabled(.memoryDiscardParkedIdleTimeout) ? budget.parkedIdleTimeout : nil,
             deadline: MainDeadline(owner: "ParkedWorkspaceBudget", workClass: .background, scheduler: mainDeadlines),
             memory: memoryCoordinator)
+    }
+
+    /// The page host's shared WebKit processes (p07-memory-087): at most `SubsystemBudget.webProcessPagesPerGroup`
+    /// pages per process; every page of a sharing group joins with `webKitPageProcessGroups`, else only the agent pages.
+    func makeWebProcessGroups() -> WebProcessGroups {
+        WebProcessGroups(pagesPerProcess: SubsystemBudget.forThisMac(gpuResidentAvailable: false).webProcessPagesPerGroup,
+                         groupsEverySharingPage: features.isEnabled(.webKitPageProcessGroups))
     }
 
     /// The one list of hidden frames with `memoryHiddenFrameLRU` (p03-rendering-099): every evicted terminal's last

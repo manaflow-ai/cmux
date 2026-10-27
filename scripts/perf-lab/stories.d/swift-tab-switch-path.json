@@ -1,0 +1,18 @@
+{
+  "id": "swift-tab-switch-path",
+  "tier": "builder",
+  "description": "TabSwitchPathBench: the app's own tab switch path (PaneController.applySelection through layout, display and commit) over 2, 10, 30 and 60 warm page tabs, apply and whole-turn time per switch.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-tab-switch-path", "--filter", "TabSwitchPathBench"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.tab_switch_path\\.[0-9]+\\.(apply|turn)", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 1200,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/TabSwitchPathBench.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "PL-switch",
+  "component": "Switch>Tab",
+  "hot_paths": ["tab-switch"]
+}
