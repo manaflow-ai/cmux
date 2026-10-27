@@ -39,6 +39,8 @@ final class AppControl {
     /// the probes' methods are in AppControl+DebugProbes.swift).
     let frameProbe: DebugFrameProbe
     let damageWindow: RenderDamageWindow
+    /// The app's one RenderStats; terminal renderers count their presented frames in it (AppDelegate).
+    let renderStats: RenderStats
     let mainCPUProbe = DebugMainCPUProbe()
     let terminalDisplayProbe: DebugTerminalDisplayProbe
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
@@ -73,6 +75,7 @@ final class AppControl {
         (self.mainWork, self.input) = (mainWork, input)
         frames = FrameBatcher(owner: "Control.frames", budgeted: .automation, on: mainWork)
         let renderStats = RenderStats(layoutGuard: .shared)
+        self.renderStats = renderStats
         let terminalDisplay = DebugTerminalDisplayProbe()
         terminalDisplayProbe = terminalDisplay
         frameProbe = DebugFrameProbe(render: RenderFrameLog(stats: renderStats))

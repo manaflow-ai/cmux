@@ -383,28 +383,27 @@ public final class TerminalSurfaceView: NSView {
 
     /// `ghostty_surface_set_content_scale` + `ghostty_surface_set_display_id`
     /// (ghostty.h:1440, :1821).
-    /// Applies only what changed since the last call (a terminal shown again calls it).
+    /// Applies only what changed since the last call (a terminal shown again calls it). The root layer's scale goes
+    /// first: Ghostty copies it to its renderer's layer (upstream SurfaceView_AppKit `viewDidChangeBackingProperties`).
     private func updateContentScale() {
         guard let surface else { return }
+        if let window, layer?.contentsScale != window.backingScaleFactor {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer?.contentsScale = window.backingScaleFactor
+            CATransaction.commit()
+        }
         let scale = convertToBacking(NSSize(width: 1, height: 1))
         if scale != appliedContentScale {
             appliedContentScale = scale
             // SAFETY: the view's live surface (`surface`).
             unsafe ghostty_surface_set_content_scale(surface, scale.width, scale.height)
         }
-        if let window {
-            if layer?.contentsScale != window.backingScaleFactor {
-                CATransaction.begin()
-                CATransaction.setDisableActions(true)
-                layer?.contentsScale = window.backingScaleFactor
-                CATransaction.commit()
-            }
-            if let screenNumber = window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
-               screenNumber.uint32Value != appliedDisplayID {
-                appliedDisplayID = screenNumber.uint32Value
-                // SAFETY: the view's live surface (`surface`).
-                unsafe ghostty_surface_set_display_id(surface, screenNumber.uint32Value)
-            }
+        if let screenNumber = window?.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
+           screenNumber.uint32Value != appliedDisplayID {
+            appliedDisplayID = screenNumber.uint32Value
+            // SAFETY: the view's live surface (`surface`).
+            unsafe ghostty_surface_set_display_id(surface, screenNumber.uint32Value)
         }
     }
 

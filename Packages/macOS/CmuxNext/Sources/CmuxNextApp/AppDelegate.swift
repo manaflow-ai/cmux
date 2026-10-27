@@ -212,6 +212,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The terminal key path's input-source switch keys, read off main now and on each activation.
         GhosttyRuntime.shared.inputSources.start(runner: services.work)
         GhosttyRuntime.shared.traceHook.deliverGPUCompletions(on: services.mainWork, to: FrameScheduler.appDisplays.presents)
+        // Renderer-presented terminal frames pass through no `setContents:` hook: they count in the app's RenderStats.
+        GhosttyRuntime.shared.traceHook.countPresentedFrames(in: control.renderStats.presentedFrames)
         GhosttyRuntime.shared.followEnergySaver(on: services.mainWork)
         DebugTimings.markLaunch("dfl.bind")
         startSettingsAndControl(services: services, launch: settingsRead)
