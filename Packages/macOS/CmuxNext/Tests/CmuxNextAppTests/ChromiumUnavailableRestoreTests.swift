@@ -104,6 +104,28 @@ import Testing
         #expect(written == [typed.absoluteString, original.absoluteString], "the last typed address is the record's")
     }
 
+    /// An address typed while quit waits for the records is waited for too.
+    @Test func quitsFlushWaitsForAnAddressTypedDuringIt() async throws {
+        let cache = cache(.startFailed("CefInitialize failed"))
+        let tab = restoredChromiumTab(68)
+        defer { cache.release(tab.id) }
+        cache.findTab = { $0 == tab.id ? tab : nil }
+        let typed = try #require(URL(string: "https://example.com/typed"))
+        let late = try #require(URL(string: "https://example.com/late"))
+        var written: [String] = []
+        cache.browserTabs.update = { [weak cache] _, _, update in
+            for _ in 0..<5 { await Task.yield() }
+            if let url = update.url { written.append(url) }
+            // The person types again while quit waits.
+            if written.count == 1 { (cache?.existingBrowser(tab.id)?.tab as? DeferredBrowserTab)?.load(late) }
+            return true
+        }
+        let first = try #require(cache.browser(for: tab))
+        first.tab.load(typed)
+        await cache.browserTabs.flushRecords()
+        #expect(written == [typed.absoluteString, late.absoluteString], "the flush ends after the late write")
+    }
+
     /// A stand-in tab's "Chromium unavailable" page that moved to its daemon tab retries under the daemon tab's id.
     @Test func aMovedStandInRetriesUnderItsDaemonTab() throws {
         let cache = cache(.startFailed("CefInitialize failed"))
