@@ -97,9 +97,11 @@ extension HomeNativeTranscriptView {
     /// The part limit counts what earlier intakes (a drop's promised files) added.
     func attach(_ inputs: [HomeDraftInput]) {
         guard let preparer = attachmentPreparer else { return }
+        starterIntakes += 1
         let previous = intake
         let keepLocation = self.keepLocation()
         intake = Task { [weak self] in
+            defer { self?.starterIntakes -= 1 }
             await previous?.value
             await self?.checkAndPrepare(inputs, with: preparer, keepLocation: keepLocation)
         }
@@ -110,11 +112,13 @@ extension HomeNativeTranscriptView {
     /// `standIn`: the drag's own picture, read at the drop, for when no file comes.
     func attachPromised(_ promised: HomePromisedFiles, standIn: [HomeDraftInput]) {
         guard let preparer = attachmentPreparer else { return promised.discard() }
+        starterIntakes += 1
         drop.pending += 1
         showNotice(pendingNotice)
         let previous = intake
         let keepLocation = self.keepLocation()
         intake = Task { [weak self] in
+            defer { self?.starterIntakes -= 1 }
             let files = await promised.files.value
             await previous?.value
             defer { promised.discard() }
@@ -274,6 +278,7 @@ extension HomeNativeTranscriptView {
     /// Every key typed into the composer ends here (`ChatController.textDidChange`, vendored MessagesLab, carries
     /// the other home-key marker): a notice the person typed past goes. Keep it O(1): no transcript or row work.
     func draftTextChanged() { // perf-hot: 0.1ms home-key (every key typed into the Home composer)
+        updateStarterAvailability()
         guard notice != nil, !transcript.draftText.isEmpty else { return }
         showNotice(nil)
     }

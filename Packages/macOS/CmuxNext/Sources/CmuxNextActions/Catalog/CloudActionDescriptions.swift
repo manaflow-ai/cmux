@@ -19,8 +19,9 @@ nonisolated enum CloudActionDescriptions {
             Creates a Cloud machine; returns machine_id, title, status and target once the server has it. \
             After 30 s it answers pending: true and the create goes on: check `cmux cloud list-machines` \
             before another. Options: --size small|medium|large|xlarge, --name, --persistent (no idle \
-            pause), --bootstrap-script FILE (--bootstrap lane for a lane host), answering bootstrap and \
-            enrollment. An agent's create may ask the person first.
+            pause), --bootstrap-script FILE (--bootstrap lane for a lane host), --machine-config FILE (a \
+            .cmux/machine.toml), answering bootstrap, machine_config and enrollment. An agent's create may \
+            ask the person first.
             """,
         "palette.cloud.fork": """
             Forks the machine (--target machine:<id>) into a new machine. Answers at once with no id; the \
@@ -210,6 +211,12 @@ nonisolated enum CloudActionDescriptions {
             """,
         "cloudCopyMachineID": """
             Copies the machine's id to the clipboard. Not a CLI verb: `cmux cloud list-machines` returns ids.
+            """,
+        "cloudApplyMachineConfig": """
+            Applies a .cmux/machine.toml (env, secret names, setup) to the machine (--target machine:<id>): \
+            --machine-config FILE uploads one, else the machine takes its --repo checkout's or the last \
+            upload. Answers status (started, running or failed) at once; the machine writes the outcome to \
+            ~/.cmux/machine-config/status.json, read with `cmux cloud file-read --target machine:<id> --path …`.
             """,
         "cloudResizeMachine": """
             Resizes the machine (--target machine:<id> --size small, medium, large or xlarge: 2 vCPU and \

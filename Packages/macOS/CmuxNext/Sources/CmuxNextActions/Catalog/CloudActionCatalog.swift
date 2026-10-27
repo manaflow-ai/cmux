@@ -18,7 +18,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 // All optional: `cmux cloud new-machine --persistent --size medium --name lane-vm-1
                 // --bootstrap lane --bootstrap-script FILE` makes a lane host in one call.
                 arguments: [CatalogArgument.nameString.optional, CatalogArgument.newMachineSizeString, CatalogArgument.persistentBool,
-                            CatalogArgument.bootstrapString, CatalogArgument.bootstrapScriptString],
+                            CatalogArgument.bootstrapString, CatalogArgument.bootstrapScriptString, CatalogArgument.machineConfigString],
                 cliName: "cloud new-machine", mainMenu: .file
             ),
             ActionDescriptor(
@@ -255,6 +255,15 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.nameString.optional, CatalogArgument.sshKeyString], targets: [.machine],
                 cliName: "cloud enroll-machine"
             ),
+            // `cmux cloud apply-machine-config --target machine:<id> [--machine-config FILE]`: env, secret
+            // names and setup from `.cmux/machine.toml` (CloudMachineConfig).
+            ActionDescriptor(
+                id: "cloudApplyMachineConfig",
+                title: String(localized: "action.cloudApplyMachineConfig", defaultValue: "Apply Machine Config", bundle: .module),
+                keywords: ["vm", "cloud", "env", "environment", "setup", "secrets", "config", "toml"], category: .cloud,
+                symbol: "gearshape.2", surfaces: [.palette], requires: [.cloudWorkspace],
+                arguments: [CatalogArgument.machineConfigString], targets: [.machine], cliName: "cloud apply-machine-config"
+            ),
             ActionDescriptor(
                 id: "cloudSetIdlePause",
                 title: String(localized: "action.cloudSetIdlePause", defaultValue: "Pause When Idle…", bundle: .module),
@@ -317,7 +326,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             // Each answers its machine's id (and the workspace's) once the server is done, so a CLI
             // caller hears a failure instead of OK, and can name the result in the next command.
             "palette.cloud.fork", "palette.cloud.restore", "newCloudWorkspace", "cloudRenameMachine", "cloudKillMachine",
-            "cloudResizeMachine",
+            "cloudResizeMachine", "cloudApplyMachineConfig",
         ]
         for index in actions.indices where waitsForResult.contains(actions[index].id) {
             actions[index].waitsForResult = true
