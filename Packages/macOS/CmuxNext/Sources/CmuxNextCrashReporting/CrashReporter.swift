@@ -10,10 +10,21 @@ import CmuxNextCompat
 /// exceptions, app hangs) to Sentry, under ``CrashReportingPolicy``.
 ///
 /// Same options as the main app (`AppDelegate`): no default PII, no
-/// performance tracing (its root transaction cannot be scrubbed), 8 s app
-/// hangs, every event, breadcrumb and span through `SentryEventScrubber`.
-/// No structured logs: cmux-next has no log bridge, so it sends nothing the
-/// main app does not.
+/// performance tracing (its root transaction cannot be scrubbed), every
+/// event, breadcrumb and span through `SentryEventScrubber`. No structured
+/// logs: cmux-next has no log bridge, so it sends nothing the main app does
+/// not. App hangs come from ``HangTracking``.
+///
+/// Idle cost (p09-observability-076). On macOS the SDK's app-hang tracker
+/// (`SentryANRTrackerV1`) is a thread that posts a block to the main queue
+/// every `appHangTimeoutInterval / 5` (1.6 s at 8 s), idle or not: 0.625 main
+/// wakeups per second. Chrome's HangWatcher wakes for nothing while no scope
+/// is open (base/threading/hang_watcher.cc), and neither does the main-thread
+/// watchdog that reports cmux-next's hangs, so the tracker is off whenever
+/// the fatal-hang record covers the hang the app does not survive
+/// (``HangTracking/watchdog``). Every other option that would add an
+/// integration, a swizzle or a wakeup is set here and checked against
+/// `CLISentryRuntimePolicy` by `CrashReporterOptionsTests`.
 ///
 /// Signal order. Start after the run marker installs its handlers
 /// (`AppRunMarker`): Sentry saves them as the previous handlers and calls
@@ -36,7 +47,8 @@ public final class CrashReporter: Sendable {
         case standard
         /// The same integrations, but app-hang reports wait for startup (feature `sentryHandlersFirst`):
         /// paused until ``CrashReporter/resumeAfterStartup()``; the main-thread watchdog reports launch
-        /// hangs. Crash capture, sessions and breadcrumbs are as in ``standard``.
+        /// hangs. Crash capture, sessions and breadcrumbs are as in ``standard``. With
+        /// ``HangTracking/watchdog`` there is no app-hang tracker to pause.
         case handlersFirst
     }
 
@@ -50,17 +62,56 @@ public final class CrashReporter: Sendable {
     /// no-op handler (`ChildSignalDefaults`), SIGTERM a requested quit.
     public static let appOwnedSignals: [Int32] = [SIGPIPE, SIGTERM]
 
+    /// Which part of the app reports main-thread hangs.
+    public nonisolated enum HangTracking: Sendable, Equatable {
+        /// Sentry's app-hang tracker, 8 s: the only report of a hang the app does not survive. Its thread
+        /// wakes the main queue every 1.6 s for the whole run.
+        case sentry
+        /// The main-thread watchdog reports each hang (`MainThreadWatchdog.onHang`) and keeps the fatal-hang
+        /// record the next launch reports (p09-observability-110); Sentry's tracker is off. The app sets both
+        /// sinks before ``CrashReporter/start(profile:)`` (`WatchdogHangSinks`), so a launch hang is reported too.
+        case watchdog
+
+        /// The launch's choice: ``watchdog`` once the fatal-hang record is kept (feature `fatalHangReports`).
+        public init(fatalHangRecordOn: Bool) {
+            self = fatalHangRecordOn ? .watchdog : .sentry
+        }
+    }
+
     public let policy: CrashReportingPolicy
+    public let hangTracking: HangTracking
     /// The previous run's crash keys and black box, put on its crash event at this launch (task 079).
     public let previousRun: PreviousRunCrashEvidence?
     private let sentryHandlers = Mutex<SignalActions?>(nil)
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// With `CMUX_NEXT_SENTRY_RECORDER=<dir>`, every event goes to a file in `<dir>` instead of Sentry.
+    private let recorder: SentryRecorderTransport?
+
+    /// - Parameters:
+    ///   - previousRun: The previous run's files, read when its crash event is sent; nil after a clean exit or
+    ///     outside the app process.
+    ///   - recorder: Records events instead of sending them; by default the one the process
+    ///     environment asks for (``SentryRecorderTransport/environmentKey``).
+    public init(policy: CrashReportingPolicy,
+                hangTracking: HangTracking = .sentry,
+                previousRun: PreviousRunCrashEvidence? = nil,
+                recorder: SentryRecorderTransport? = SentryRecorderTransport(environment: ProcessInfo.processInfo.environment)) {
+        self.policy = policy
+        self.hangTracking = hangTracking
+        self.previousRun = previousRun
+        self.recorder = recorder
+    }
+    #else
     /// - Parameter previousRun: The previous run's files, read when its crash event is sent; nil after a clean
     ///   exit or outside the app process.
-    public init(policy: CrashReportingPolicy, previousRun: PreviousRunCrashEvidence? = nil) {
+    public init(policy: CrashReportingPolicy, hangTracking: HangTracking = .sentry,
+                previousRun: PreviousRunCrashEvidence? = nil) {
         self.policy = policy
+        self.hangTracking = hangTracking
         self.previousRun = previousRun
     }
+    #endif
 
     /// Whether Sentry runs in this process.
     public var isStarted: Bool { sentryHandlers.withLock { $0 != nil } }
@@ -75,7 +126,18 @@ public final class CrashReporter: Sendable {
         options.debug = false
         options.sendDefaultPii = false
         options.tracesSampleRate = 0.0
+        // No tracing, so no auto-instrumentation: network, file I/O and Core Data spans stay off even if a
+        // sample rate is set later.
+        options.enableAutoPerformanceTracing = false
+        options.enableAppHangTracking = hangTracking == .sentry
         options.appHangTimeoutInterval = 8.0
+        // MetricKit's hang, CPU and disk diagnostics repeat what the watchdog and the system crash forwarder
+        // send; the SDK turns it on by default in v10.
+        options.enableMetricKit = false
+        // Swizzling stays on for the two macOS hooks that need it: uncaught NSException reports (NSApplication
+        // reportException:) and URLSession breadcrumbs. With tracing off the SDK installs no other swizzle, and
+        // its breadcrumb tracker only observes NSApplication notifications (no timer).
+        options.enableSwizzling = true
         options.attachStacktrace = true
         options.enableCaptureFailedRequests = false
         // Objective-C exceptions that reach NSApplication's reportException:
@@ -86,17 +148,29 @@ public final class CrashReporter: Sendable {
         options.enableLogs = false
         let scrubber = SentryEventScrubber()
         let labels = CrashEventLabels(policy: policy)
-        let previousRun = previousRun
-        // The hint form of beforeSend: only its hint can add an attachment to one event (the previous run's
-        // crash). The previous run's tags go on before the scrub, so they are scrubbed with the rest.
-        options.beforeSendWithHint = { event, hint in
-            previousRun?.decorate(event, hint: hint)
+        let prepare: (Event) -> Event = { event in
             let scrubbed = scrubber.scrub(event)
             labels.apply(to: scrubbed)
             return scrubbed
         }
+        options.beforeSend = { event in prepare(event) }
+        // The previous run's crash (p09-observability-079): only the hint form of beforeSend can add an attachment
+        // to one event, and sentry-cocoa 9 calls it instead of beforeSend when it is set (SentryClient
+        // prepareEvent), so it does the whole job. Its tags go on before the scrub, so they are scrubbed with the rest.
+        let decorate: ((Event, Hint) -> Void)? = previousRun.map { evidence in
+            { (event: Event, hint: Hint) in evidence.decorate(event, hint: hint) }
+        }
+        if let decorate {
+            options.beforeSendWithHint = { event, hint in
+                decorate(event, hint)
+                return prepare(event)
+            }
+        }
         options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }
         options.beforeSendSpan = { span in scrubber.scrub(span) }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        recorder?.install(on: options, prepare: prepare, decorate: decorate)
+        #endif
         return options
     }
 

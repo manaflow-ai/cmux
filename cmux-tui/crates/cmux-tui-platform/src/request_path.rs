@@ -27,8 +27,19 @@
 //! `REQUEST_PATH_IO kind=<kind> site=<file:line>` line on stderr. A
 //! `panic:` kind panics only in builds with debug assertions (debug and test).
 //! Nothing here allocates on the note path.
+//!
+//! A pool worker learns of the blocking work of the task it runs through a
+//! [`BlockingObserver`] it sets for its thread, as Chrome's thread group
+//! does through `SetBlockingObserverForCurrentThread`
+//! (base/threading/scoped_blocking_call_internal.h,
+//! base/task/thread_pool/thread_group_impl.cc): every note but
+//! `lock_hold_over_1ms` (measured after the hold) tells it the task may
+//! block until it ends, and [`will_block`] tells it where a wait with no note
+//! (a PTY or host input write, a stream wait) starts and ends. The daemon's
+//! sequenced pool lets a worker whose task blocks stop counting against its
+//! priority's workers.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::fmt;
 use std::io::Write as _;
 use std::marker::PhantomData;
@@ -318,6 +329,53 @@ pub enum Noted {
 
 thread_local! {
     static ACTIVE: RefCell<Option<Arc<RequestPathStats>>> = const { RefCell::new(None) };
+    static OBSERVER: Cell<Option<&'static dyn BlockingObserver>> = const { Cell::new(None) };
+}
+
+/// What a pool worker is told about the blocking work of the task it runs
+/// (Chrome's `BlockingObserver`, base/threading/scoped_blocking_call_internal.h).
+/// The calls come on the worker's own thread, with no lock of this module held.
+pub trait BlockingObserver: Sync {
+    /// A blocking kind was noted: the task may block from here until it ends.
+    fn noted(&self, kind: BlockingKind);
+    /// A [`will_block`] scope starts on this thread.
+    fn scope_started(&self);
+    /// The [`will_block`] scope that started last ends, unwinding included.
+    fn scope_ended(&self);
+}
+
+/// Sets the current thread's [`BlockingObserver`] (`None` clears it) and
+/// returns the one it replaces.
+pub fn set_blocking_observer(
+    observer: Option<&'static dyn BlockingObserver>,
+) -> Option<&'static dyn BlockingObserver> {
+    OBSERVER.try_with(|current| current.replace(observer)).ok().flatten()
+}
+
+fn observer() -> Option<&'static dyn BlockingObserver> {
+    OBSERVER.try_with(Cell::get).ok().flatten()
+}
+
+/// Runs `f`, which may wait without a note of its own (a PTY or host input
+/// write that waits while the child does not read, a wait for stream
+/// output), as Chrome's `ScopedBlockingCall` with `WILL_BLOCK`
+/// (base/threading/scoped_blocking_call.h): the thread's
+/// [`BlockingObserver`] hears where it starts and ends. On a thread with no
+/// observer it only runs `f`. It checks nothing: a primitive inside still
+/// notes its own kind.
+pub fn will_block<R>(f: impl FnOnce() -> R) -> R {
+    let Some(observer) = observer() else { return f() };
+    observer.scope_started();
+    let _ended = ScopeEnded(observer);
+    f()
+}
+
+struct ScopeEnded(&'static dyn BlockingObserver);
+
+impl Drop for ScopeEnded {
+    fn drop(&mut self) {
+        self.0.scope_ended();
+    }
 }
 
 /// The current thread runs a request handler until this drops. Scopes nest:
@@ -377,6 +435,11 @@ pub fn note_at(kind: BlockingKind, site: &'static Location<'static>) -> Noted {
 /// The request-path half of [`note_at`], for a primitive whose checked form
 /// in `cmux_threads::checked` makes the thread check itself.
 fn note_request_path(kind: BlockingKind, site: &'static Location<'static>) -> Noted {
+    if kind != BlockingKind::LockHoldOver1ms
+        && let Some(observer) = observer()
+    {
+        observer.noted(kind);
+    }
     let (noted, refused) = ACTIVE
         .try_with(|active| match active.borrow().as_ref() {
             Some(stats) => stats.noted(kind, site),

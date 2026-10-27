@@ -344,7 +344,7 @@ fn serve_stream(
 /// shutting down, so their sockets are shut down and their transfers end.
 pub(super) fn close_remote_clients(mux: &Arc<Mux>) {
     let remote: Vec<u64> = {
-        // Safety: this list only closes streams; a stale id closes nothing.
+        // Poison recovery: this list only closes streams; a stale id closes nothing.
         let state =
             mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state
