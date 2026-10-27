@@ -289,12 +289,14 @@ struct AgentPaneSendPickedFolderPromptTests {
         let url = pane.base.appendingPathComponent("queued-trust.json")
         transport.promptJournal = AgentPanePromptJournal(url: url)
         try await holdIdleDrain(transport)
+        defer { transport.close(connection: pane.id); transport.draining = false }
         let picking = Task { await transport.pick(pane.folder) }
         try await waitForQueuedTrust(transport)
         let saved = await Task.detached { AgentPanePromptJournal(url: url).pendingTrustFolders(daemon: daemon) }.value
         #expect(saved == [pane.folder], "queued consent must already be durable before sendHost runs")
         transport.close(connection: pane.id)
         _ = await picking.value
+        #expect(transport.pendingHost.isEmpty && transport.awaitingHost.isEmpty)
         let restarted = AgentPaneTransport()
         restarted.promptJournal = AgentPanePromptJournal(url: url)
         restarted.deliver = { event, done in pane.inbox.deliver(event.frames); done() }
@@ -318,10 +320,12 @@ struct AgentPaneSendPickedFolderPromptTests {
         if queued {
             #expect(await transport.send(connection: first, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
             try await holdIdleDrain(transport)
+            defer { transport.close(connection: first); transport.draining = false }
             let picking = Task { await transport.pick(pane.folder) }
             try await waitForQueuedTrust(transport)
             transport.close(connection: first)
             _ = await picking.value
+            #expect(transport.pendingHost.isEmpty && transport.awaitingHost.isEmpty)
         } else {
             #expect(await transport.pick(pane.folder) == pane.folder)
             transport.close(connection: first)
