@@ -139,7 +139,7 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertNotIn('macos-15', WORKFLOW_FILE.read_text())
 
     def test_next_build_and_prepare_never_name_a_hosted_mac_past_the_fork_branch(self):
-        for name in ('build-nightly-app',):
+        for name in ('build-nightly-app', 'prepare-nightly-variant-primary'):
             with self.subTest(job=name):
                 source = DOC['jobs'][name]['runs-on'].replace("github.repository_owner != 'manaflow-ai' && 'macos-26'", '')
                 self.assertIsNone(re.search(r"'macos-[0-9]+'", source))
@@ -152,17 +152,30 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertEqual(select(**{'github.run_attempt': 2}), 'blacksmith-6vcpu-macos-26')
         self.assertEqual(select(**{'github.run_attempt': 2, 'github.ref': 'refs/heads/main'}), 'blacksmith-12vcpu-macos-26')
 
-    def test_prepare_runs_on_linux_on_every_attempt(self):
+    def test_prepare_takes_the_build_pick_and_never_one_owned_label(self):
         def prepare(**changes):
             source = DOC['jobs']['prepare-nightly-variant-primary']['runs-on'].removeprefix('${{').removesuffix('}}')
             context = {'github.repository_owner': 'manaflow-ai', 'github.repository': 'manaflow-ai/cmux',
                        'github.event_name': 'push', 'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
-                       'vars.CI_PR_POOL_OWNED': '1', **changes}
+                       'vars.CI_PR_POOL_OWNED': '1', 'vars.CI_SIDE_LANE_RUNNER': 'glaeda-side-std-xcode-26.6',
+                       'vars.MACOS_RUNNER_26': 'blacksmith-12vcpu-macos-26',
+                       'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-dev-std-xcode-26.6',
+                       'needs.pick-nightly-build-runner.outputs.blacksmith': 'blacksmith-12vcpu-macos-26', **changes}
             return evaluate(parse_expression(source), context)
-        self.assertEqual(prepare(), 'blacksmith-4vcpu-ubuntu-2404')
-        self.assertEqual(prepare(**{'github.run_attempt': 2}), 'blacksmith-4vcpu-ubuntu-2404')
-        self.assertEqual(prepare(**{'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-4vcpu-ubuntu-2404')
-        self.assertEqual(prepare(**{'github.repository_owner': 'someone'}), 'ubuntu-24.04')
+        self.assertIn('pick-nightly-build-runner', DOC['jobs']['prepare-nightly-variant-primary']['needs'])
+        # nightly-next: attempt 1 takes the idle owned label the pick found, else the moving Blacksmith label.
+        self.assertEqual(prepare(), 'glaeda-dev-std-xcode-26.6')
+        self.assertEqual(prepare(**{'github.run_attempt': 2}), 'blacksmith-12vcpu-macos-26')
+        self.assertEqual(prepare(**{'needs.pick-nightly-build-runner.outputs.owned': ''}), 'blacksmith-12vcpu-macos-26')
+        self.assertEqual(prepare(**{'needs.pick-nightly-build-runner.outputs.owned': '',
+                                    'needs.pick-nightly-build-runner.outputs.blacksmith': ''}), 'blacksmith-6vcpu-macos-26')
+        # A variable naming one owned label is never read: a busy label cannot hold the prepare.
+        self.assertEqual(prepare(**{'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': 'glaeda-side-std-xcode-26.6',
+                                    'github.run_attempt': 2}), 'blacksmith-12vcpu-macos-26')
+        # An unsigned resume and main keep the side lane on attempt 1 and vars.MACOS_RUNNER_26 after.
+        self.assertEqual(prepare(**{'inputs.nightly_next_unsigned_run': '123'}), 'glaeda-side-std-xcode-26.6')
+        self.assertEqual(prepare(**{'github.run_attempt': 2, 'github.ref': 'refs/heads/main'}), 'blacksmith-12vcpu-macos-26')
+        self.assertEqual(prepare(**{'github.run_attempt': 2, 'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-12vcpu-macos-26')
 
     def test_dispatch_fast_retries_rc_and_disabled_owned_use_blacksmith_pool(self):
         cases = [
