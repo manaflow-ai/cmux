@@ -512,6 +512,8 @@ struct ChatDockLinkSplitMotionTests {
         #expect(openedURL == url, "the installed AgentPaneView.openURL did not reach LinkRouter")
         #expect(openedSource == Self.anchor.rawValue,
                 "the installed AgentPaneView.openURL lost the clicked pane source")
+        #expect(!chat.model.transport.gestures.consume(),
+                "the installed external-link callback bypassed the navigation seam's gesture gate")
         #expect(AgentPaneNavigation.handle(
             url: url, source: chat.source, userClicked: true, mainFrame: true,
             modifiers: [], gestures: chat.model.transport.gestures,
