@@ -43,6 +43,13 @@ final class MainPaneCardView: NSView {
         didSet { hiddenDetach?.host = self }
     }
 
+    /// A workspace view here hid or showed (`WorkspaceContentView.isHidden`): a hide starts its grace, a show
+    /// ends it, whether a switch (`WindowRootView.show`) or the side-by-side view (`arrangeOnScreen`) set it.
+    func workspaceDidChangeHidden(_ view: NSView) {
+        guard let hiddenDetach else { return }
+        if view.isHidden { hiddenDetach.didHide(view) } else { hiddenDetach.willShow(view) }
+    }
+
     /// Places the workspaces a window shows side by side in these bounds (`WindowController.arrangeOnScreen`, Debug
     /// Settings `sidebar.multiView`), now and after every resize; nil while one workspace fills the host by its
     /// autoresizing mask.

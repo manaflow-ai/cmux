@@ -126,4 +126,60 @@ import Testing
         #expect(b.superview === root.contentHost && b.window === window && !b.isHidden, "a detached workspace joins the window when shown")
         #expect(a.isHidden && a.superview === root.contentHost && detach.pendingCount == 1, "A, hidden now, waits for its own grace")
     }
+
+    /// The side-by-side view (`WindowController.arrangeOnScreen`, `clearArrangement`) shows and hides a workspace
+    /// by its `isHidden`, not through `WindowRootView.show`: each hide restarts the grace and each show ends it,
+    /// so a workspace never leaves within the grace of its latest hide.
+    @Test func aWorkspaceHiddenAgainBesideTheShownOneIsMeasuredFromItsLatestHide() {
+        let (window, root) = makeRoot()
+        defer { window.close() }
+        let deadline = FakeDeadline(), clock = Clock()
+        let detach = HiddenWorkspaceDetach(grace: .seconds(30), deadline: deadline, now: { clock.now })
+        root.contentHost.hiddenDetach = detach
+        let (a, _) = makeWorkspace(), (b, _) = makeWorkspace()
+        show(a, in: root)
+        show(b, in: root)
+        #expect(detach.pendingCount == 1 && deadline.delay == .seconds(30), "A's grace starts when the switch hides it")
+
+        clock.now += .seconds(10)
+        a.isHidden = false  // A comes on screen beside B
+        #expect(detach.pendingCount == 0 && deadline.delay == nil, "a workspace on screen waits for no grace")
+        clock.now += .seconds(15)
+        a.isHidden = true  // A leaves the set at 25 s
+        #expect(detach.pendingCount == 1 && deadline.delay == .seconds(30), "A's grace starts again at its latest hide")
+
+        clock.now += .seconds(5)
+        deadline.fire()  // 30 s after the first hide, 5 s after the latest
+        #expect(detach.detachedCount == 0 && a.superview === root.contentHost && a.isHidden, "A left 5 s after its latest hide")
+        #expect(deadline.delay == .seconds(25), "the deadline aims at the end of A's latest grace")
+
+        clock.now += .seconds(25)
+        deadline.fire()
+        #expect(detach.detachedCount == 1 && a.superview == nil, "A hidden for its whole grace leaves the main pane")
+        #expect(b.superview === root.contentHost && !b.isHidden)
+    }
+
+    /// The other order: the deadline fires while the workspace shows beside the shown one, then a direct hide
+    /// starts its grace, and it leaves once that grace ends.
+    @Test func aWorkspaceHiddenDirectlyAfterTheDeadlineSkippedItStillLeavesAfterItsGrace() {
+        let (window, root) = makeRoot()
+        defer { window.close() }
+        let deadline = FakeDeadline(), clock = Clock()
+        let detach = HiddenWorkspaceDetach(grace: .seconds(30), deadline: deadline, now: { clock.now })
+        root.contentHost.hiddenDetach = detach
+        let (a, _) = makeWorkspace(), (b, _) = makeWorkspace()
+        show(a, in: root)
+        show(b, in: root)
+        clock.now += .seconds(10)
+        a.isHidden = false
+        clock.now += .seconds(20)
+        deadline.fire()
+        #expect(detach.detachedCount == 0 && a.superview === root.contentHost && !a.isHidden, "a workspace on screen never leaves")
+
+        a.isHidden = true
+        #expect(detach.pendingCount == 1 && deadline.delay == .seconds(30), "a direct hide is measured")
+        clock.now += .seconds(30)
+        deadline.fire()
+        #expect(detach.detachedCount == 1 && a.superview == nil)
+    }
 }

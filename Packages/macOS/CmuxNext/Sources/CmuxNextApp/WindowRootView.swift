@@ -2,7 +2,6 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
-import CmuxNextHibernation
 import CmuxNextHistory
 import CmuxNextLaunch
 import CmuxNextSidebar
@@ -310,7 +309,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// then, as in a pane (no-flicker audit).
     func show(_ view: NSView) {
         guard content !== view else { return }
-        contentHost.hiddenDetach?.willShow(view)
         let previous = content
         // While an earlier swap waits, the view on screen is the one it keeps.
         let outgoing = paintHold.kept ?? previous
@@ -376,7 +374,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         // Parked once hidden: the hidden subtree hears nothing more.
         (view as? WorkspaceContentView)?.setParked(true)
         view.autoresizingMask = []
-        contentHost.hiddenDetach?.didHide(view)
     }
 
     /// Paints only this view. The window's opacity and background are set by

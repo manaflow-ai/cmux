@@ -64,14 +64,16 @@ package final class HiddenWorkspaceDetach {
     /// Workspaces waiting for their grace to end.
     package var pendingCount: Int { hidden.count }
 
-    /// `workspace` hid in the switch's turn: its grace starts. An O(parked) list edit and one deadline plan.
+    /// `workspace` hid in its window (a switch, or the side-by-side view taking it off screen): its grace starts
+    /// again from now. An O(parked) list edit and one deadline plan.
     package func didHide(_ workspace: AnyObject) {
         forget(workspace)
         hidden.append(Entry(workspace: workspace, id: ObjectIdentifier(workspace), hiddenAt: now()))
         arm()
     }
 
-    /// `workspace` shows again: it stays in, or joins, the window.
+    /// `workspace` shows again (the shown one, or one beside it): it stays in, or joins, the window. The host
+    /// reports every show and hide, so a workspace hidden again later is measured from that hide.
     package func willShow(_ workspace: AnyObject) {
         guard forget(workspace) else { return }
         arm()
