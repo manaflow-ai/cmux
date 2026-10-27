@@ -9,9 +9,9 @@ stuck past its timeout or certain to fail." A job waiting for a runner is not
 stuck past its timeout; the answer to that is capacity, not a cancel (run
 40428578701, a DEV publish, was cancelled as an orphan on 2026-10-27).
 
-Promotion runs inside nightly.yml (promote-nightly-next), so the nightly glob
-covers it. A glob picks up a new workflow on its own; REQUIRED names make a
-rename or deletion fail the test instead of quietly dropping out.
+Nightly promotion runs inside nightly.yml (promote-nightly-next), so the
+nightly glob covers it. A glob picks up a new workflow on its own; REQUIRED
+names make a rename or deletion fail the test instead of quietly dropping out.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ DELIVERY_GLOBS = (
     "nightly*.yml",          # nightly.yml, nightly-sign.yml, nightly-next-*.yml
     "*-nightly*.yml",        # cmux-tui-nightly.yml, ios-internal-nightly*.yml, resume-nightly-notarization.yml
     "cmux-next-dev-*.yml",   # cmux-next-dev-daily.yml (DEV build/sign/publish), its dispatcher and kick
+    "*promote*.yml",         # cloud-vm-image-promote.yml (a VM image to the dev channel)
 )
 REQUIRED_DELIVERY_WORKFLOWS = ("nightly.yml", "cmux-next-dev-daily.yml")
 
@@ -45,9 +46,13 @@ def is_delivery_workflow(path: str | None) -> bool:
     return bool(name) and any(fnmatch(name, pattern) for pattern in DELIVERY_GLOBS)
 
 
-def is_delivery_run(path: str | None, run_name: str | None) -> bool:
-    """Whether a run is a nightly, DEV or promote build: a delivery workflow, or a named delivery run of a shared one."""
+def is_delivery_run(path: str | None, *names: str | None) -> bool:
+    """Whether a run is a nightly, DEV or promote build: a delivery workflow, or a named delivery run of a shared one.
+
+    Pass every title the run carries (the API's `name` and `display_title`); any one matching counts,
+    as the dispatcher itself checks both.
+    """
     if is_delivery_workflow(path):
         return True
     prefixes = DELIVERY_RUN_NAME_PREFIXES.get(_file_name(path), ())
-    return any(str(run_name or "").startswith(prefix) for prefix in prefixes)
+    return any(str(name or "").startswith(prefix) for name in names for prefix in prefixes)

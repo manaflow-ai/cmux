@@ -47,7 +47,7 @@ def test_required_delivery_workflows_exist() -> None:
 def test_the_declared_list_matches_every_delivery_workflow_path() -> None:
     for path in delivery_workflows():
         assert is_delivery_workflow(f".github/workflows/{path.name}"), path
-    for name in ("ci.yml", "ci-queue-janitor.yml", "cloud-vm-image-promote.yml"):
+    for name in ("ci.yml", "ci-queue-janitor.yml", "cmux-next.yml"):
         assert not is_delivery_workflow(f".github/workflows/{name}"), name
 
 
@@ -59,6 +59,8 @@ def test_dev_source_runs_are_named_as_the_declared_list_expects() -> None:
     assert f"const devTitle = `{prefix}${{sha}}`;" in dispatch, prefix
     assert is_delivery_run(".github/workflows/cmux-next.yml", f"{prefix}{'a' * 40}")
     assert not is_delivery_run(".github/workflows/cmux-next.yml", "cmux-next · " + "a" * 40)
+    # The API's name can be the generic workflow name while display_title carries the DEV title.
+    assert is_delivery_run(".github/workflows/cmux-next.yml", "cmux-next", f"{prefix}{'a' * 40}")
 
 
 def test_delivery_workflows_never_cancel_in_progress_work() -> None:

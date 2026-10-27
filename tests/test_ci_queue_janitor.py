@@ -1032,6 +1032,14 @@ class OrphanPlanTests(unittest.TestCase):
         tip_suite = dict(event="workflow_dispatch", branch="feat-cmux-next", path=".github/workflows/cmux-next.yml",
                          name="cmux-next tip Swift suite · bf4461675b1c6321a8c93ff5310ed46d42a51998")
         self.assertEqual([d.action for d in orphan_plan(self.orphans(1, **tip_suite))], ["cancel"])
+        # A generic `name` with the DEV title only in `display_title` is still a DEV run.
+        titled = self.orphans(1, event="workflow_dispatch", branch="feat-cmux-next", name="cmux-next",
+                              path=".github/workflows/cmux-next.yml")
+        titled[0].run["display_title"] = "cmux NEXT DEV daily · bf4461675b1c6321a8c93ff5310ed46d42a51998"
+        self.assertEqual([d.action for d in orphan_plan(titled)], ["skip"])
+        for kwargs in (dict(event="workflow_dispatch", branch="feat-cmux-next", name="Cloud VM image promote",
+                            path=".github/workflows/cloud-vm-image-promote.yml"),):
+            self.assertEqual([d.action for d in orphan_plan(self.orphans(1, **kwargs))], ["skip"])
 
     def test_release_merge_queue_and_tag_orphans_are_only_reported(self):
         for kwargs in (
