@@ -705,8 +705,8 @@ final class AppServices {
          wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch,
          energyMonitor: EnergyMonitor = EnergyMonitor(), inputTap: InputEventTap = InputEventTap(),
          launchImageHold: LaunchImageHold = LaunchImageHold(), launchStartup: StartupScheduler? = nil,
-         crashKeys: CrashKeySlots? = nil, appearance: AppearanceSignals = DesignSettings.shared.signals,
-         features: FeatureList? = nil) {
+         crashKeys: CrashKeySlots? = nil, watchdog: MainThreadWatchdog? = nil,
+         appearance: AppearanceSignals = DesignSettings.shared.signals, features: FeatureList? = nil) {
         self.appearance = appearance
         let work = work ?? BackgroundWork(hangs: hangWatch, inputTurns: mainWork.budget.board)
         self.work = work
@@ -750,7 +750,12 @@ final class AppServices {
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun, crashKeys: crashKeys, work: work, mainWork: mainWork)
         self.features = features ?? Self.launchFeatures(environment)
         launchPanes = LaunchPaneGate(startup: self.features.isEnabled(.launchVisiblePanesOnly) ? launchStartup : nil)
-        crashReporting = AppCrashReporting(environment: environment, features: CrashFeatureScope(FeatureFlagsPage.report(self.features, tunables: TunableStore.shared).fieldState), afterStartup: .init(handlersFirst: self.features.isEnabled(.sentryHandlersFirst), startup: launchStartup), hangTracking: .init(fatalHangRecordOn: self.features.isEnabled(.fatalHangReports)))  // after the run marker's handlers
+        // The fatal-hang record needs the run marker, whose folder the next launch reads (p09-observability-110).
+        let hangSinks = watchdog.map { [features = self.features, marker = crashRecovery.marker] in
+            WatchdogHangSinks(watchdog: $0, keepsFatalHangRecord: features.isEnabled(.fatalHangReports) && marker != nil,
+                              markerFolder: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID))
+        }
+        crashReporting = AppCrashReporting(environment: environment, features: CrashFeatureScope(FeatureFlagsPage.report(self.features, tunables: TunableStore.shared).fieldState), afterStartup: .init(handlersFirst: self.features.isEnabled(.sentryHandlersFirst), startup: launchStartup), hangSinks: hangSinks)  // after the run marker's handlers
         DebugTimings.markLaunch("services.crash_reporting")
         machines = MachineRegistry(local: daemon)
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }

@@ -59,12 +59,12 @@ struct AppCrashReporting: Sendable {
     ///   - features: The features the app runs with, put on the Sentry scope right after it starts
     ///     (`DebugSettingsService.start` keeps them current as live Debug toggles change, `CrashReporter.followFeatures`).
     ///   - afterStartup: How Sentry starts and when its paused part resumes (feature `sentryHandlersFirst`).
-    ///   - hangTracking: Who reports main-thread hangs: ``CrashReporter/HangTracking/watchdog`` with feature
-    ///     `fatalHangReports`, which turns Sentry's app-hang tracker off.
+    ///   - hangSinks: The main-thread watchdog's hang sinks, set before Sentry starts; they decide whether Sentry's
+    ///     app-hang tracker runs (``WatchdogHangSinks/hangTracking``). Nil (tests, no watchdog) keeps the tracker.
     init(environment: AppEnvironment, features: CrashFeatureScope? = nil,
          afterStartup: AfterStartup = AfterStartup(handlersFirst: false, startup: nil),
-         hangTracking: CrashReporter.HangTracking = .sentry) {
-        reporter = CrashReporter.forThisLaunch(bundleID: environment.launch.bundleID, hangTracking: hangTracking)
+         hangSinks: WatchdogHangSinks? = nil) {
+        reporter = CrashReporter.forThisLaunch(bundleID: environment.launch.bundleID, hangTracking: hangSinks?.hangTracking ?? .sentry)
         let bundleVersion = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
         guard environment.marksRun else {
             // No Sentry in this process: the running build still decides when a notFatalUntil site traps.
@@ -74,6 +74,8 @@ struct AppCrashReporting: Sendable {
             acpmuxPanics = nil
             return
         }
+        // Before the start: with Sentry's tracker off, the watchdog reports every hang from the start on (p09-observability-076).
+        hangSinks?.install(reporter: reporter)
         DebugTimings.markLaunch("crash.sentry_start")
         let sends = reporter.start(profile: afterStartup.profile)
         DebugTimings.markLaunch("crash.sentry_started")

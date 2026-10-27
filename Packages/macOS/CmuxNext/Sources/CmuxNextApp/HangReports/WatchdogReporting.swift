@@ -48,9 +48,9 @@ enum WatchdogReporting {
         services.blocking.install(sink: BlockingReportSink(collector: collector, nonFatal: .init(
             consented: { reporter.isStarted },
             send: { reporter.captureNonFatal($0.message, type: $0.type, fingerprint: $0.fingerprint, tags: $0.tags, extra: $0.extra) })))
+        // Replaces the crash-reporting-only sink set before Sentry started (WatchdogHangSinks), adding hang reports.
         watchdog.onHang = { hang in
-            reporter.reportHang(duration: hang.duration, addresses: hang.addresses, otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) },
-                                phase: hang.phase, attribution: .init(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass, location: hang.attribution.location, turnNanos: hang.attribution.turnNanos))
+            WatchdogHangSinks.send(hang, to: reporter)
             collector?.noteHang(durationNanos: Self.nanos(hang.duration), addresses: hang.addresses, task: HangSample.MainTask(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass))
         }
         // A watched thread still in its hang-watch scope 2 s past its budget (p09-observability-068): a crash report
@@ -63,8 +63,8 @@ enum WatchdogReporting {
         }
         // ~/Library/Logs/<bundle id>/hangs, listed in Debug Settings > Hangs.
         watchdog.episodes = HangFileTunables.recorder(bundleID: Bundle.main.bundleIdentifier)
-        // A hang the app does not survive (p09-observability-110): the previous run's record goes out now, and this
-        // run's is kept on disk while each hang lasts.
+        // A hang the app does not survive (p09-observability-110): the previous run's record goes out now. This run's is
+        // kept on disk while each hang lasts by the sink set before Sentry started (WatchdogHangSinks).
         let bundleID = services.environment.launch.bundleID, markerFolder = AppRunMarker.standardDirectory(bundleID: bundleID)
         let fatalHangReports = services.features.isEnabled(.fatalHangReports)
         if let marker = services.crashRecovery.marker {
@@ -73,14 +73,6 @@ enum WatchdogReporting {
                                              enabled: fatalHangReports, traceDirectory: TraceBlackBoxFileSteps.appDirectory(bundleID: bundleID),
                                              hangReportsOptIn: UserDefaults.standard.object(forKey: HangReportsController.consentKey) is Date,
                                              work: services.work)
-        }
-        if services.crashRecovery.marker != nil, reporter.isStarted, fatalHangReports {
-            let fatal = FatalHangRecorder(directory: markerFolder, release: reporter.policy.release, dist: reporter.policy.dist)
-            watchdog.fatalHangs = MainThreadWatchdog.FatalHangSink(began: { hang, start in
-                fatal.began(startUptimeNanos: start, elapsedNanos: Self.nanos(hang.duration), addresses: hang.addresses, phase: hang.phase,
-                            attribution: .init(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass,
-                                               location: hang.attribution.location, turnNanos: hang.attribution.turnNanos))
-            }, progressed: { fatal.progressed(elapsedNanos: $0) }, ended: { fatal.ended() })
         }
         let lagSpikes = LagSpikeReporter(reporter: reporter)
         lagSpikes.setContextProvider {

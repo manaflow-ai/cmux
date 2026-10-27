@@ -1576,6 +1576,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWakeups",
                 // FeatureFieldState: the launch's features on the Sentry scope (p12-perf-process-151).
                 "CmuxNextFeatures",
+                // WatchdogHangSinks: the main-thread watchdog's hang sinks, set before Sentry starts (p09-observability-076).
+                "CmuxNextControl",
             ],
             swiftSettings: daemonSwiftSettings
         ),

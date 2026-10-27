@@ -67,11 +67,11 @@ public final class CrashReporter: Sendable {
         /// wakes the main queue every 1.6 s for the whole run.
         case sentry
         /// The main-thread watchdog reports each hang (`MainThreadWatchdog.onHang`) and keeps the fatal-hang
-        /// record the next launch reports (p09-observability-110); Sentry's tracker is off.
+        /// record the next launch reports (p09-observability-110); Sentry's tracker is off. The app sets both
+        /// sinks before ``CrashReporter/start(profile:)`` (`WatchdogHangSinks`), so a launch hang is reported too.
         case watchdog
 
-        /// The launch's choice: ``watchdog`` once the fatal-hang record is on (feature `fatalHangReports`),
-        /// so no channel loses the report of a hang that ends the app.
+        /// The launch's choice: ``watchdog`` once the fatal-hang record is kept (feature `fatalHangReports`).
         public init(fatalHangRecordOn: Bool) {
             self = fatalHangRecordOn ? .watchdog : .sentry
         }
