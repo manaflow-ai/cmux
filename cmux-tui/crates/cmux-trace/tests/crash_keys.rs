@@ -89,7 +89,7 @@ fn child_abort(dir: &Path) {
     std::process::abort();
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn crash_keys_page_decodes_after_an_abort_inside_a_scope() {
     let dir = scratch_dir("abort");

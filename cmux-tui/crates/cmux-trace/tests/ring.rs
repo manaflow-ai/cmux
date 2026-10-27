@@ -282,7 +282,7 @@ fn a_thousand_short_lived_threads_reuse_the_thread_table() {
     assert_eq!(owners.len(), decoded.records.len(), "two threads shared an (index, generation)");
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn heap_records_move_into_the_file_and_later_writes_land_there() {
     let dir = scratch_dir("adopt");
@@ -335,7 +335,7 @@ fn heap_records_move_into_the_file_and_later_writes_land_there() {
 
 /// Copy first, swap last: records written while the copy runs may be lost (counted by chunk in
 /// `heap_chunks_lost`), but none doubles, and every record after the swap lands in the file.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn adoption_while_eight_threads_write_doubles_nothing_and_keeps_every_later_record() {
     const BEFORE: u64 = 50_000;
@@ -398,7 +398,7 @@ fn a_full_disk_keeps_the_black_box_on_the_heap() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn start_record_stop_and_restart_move_writes_between_the_rings() {
     let dir = scratch_dir("recording");

@@ -86,8 +86,21 @@ pub fn now_ns() -> u64 {
     let mut count = 0i64;
     // SAFETY: a valid out pointer; the call cannot fail on Windows XP and later.
     unsafe { QueryPerformanceCounter(&mut count) };
-    let ns = u128::from(count.unsigned_abs()) * 1_000_000_000 / u128::from(frequency);
-    u64::try_from(ns).unwrap_or(u64::MAX)
+    qpc_to_ns(count.unsigned_abs(), frequency)
+}
+
+/// Counter ticks at `frequency` Hz in ns, split into whole seconds and the rest so the product
+/// cannot overflow and no 128-bit division runs per record (Chromium's `QPCValueToTimeDelta`,
+/// base/time/time_win.cc).
+#[cfg(any(windows, test))]
+#[inline]
+fn qpc_to_ns(ticks: u64, frequency: u64) -> u64 {
+    const NS_PER_SECOND: u64 = 1_000_000_000;
+    let frequency = frequency.max(1);
+    // The rest is below `frequency` (10 MHz on Windows 10 and later), so its product with 10^9
+    // fits in u64 for any counter below 18 GHz.
+    let rest_ns = (ticks % frequency).saturating_mul(NS_PER_SECOND) / frequency;
+    (ticks / frequency).saturating_mul(NS_PER_SECOND).saturating_add(rest_ns)
 }
 
 /// The wall clock in ns since the Unix epoch: the header's `start_unix_ns` (display and the 3-day
@@ -198,6 +211,20 @@ mod tests {
         assert_eq!(parse_uuid("00112233"), None);
         assert_eq!(parse_uuid("zz112233-4455-6677-8899-aabbccddeeff"), None);
         assert_eq!(parse_uuid("00112233-4455-6677-8899-aabbccddeeff00"), None);
+    }
+
+    #[test]
+    fn qpc_ticks_convert_to_ns_without_overflow() {
+        assert_eq!(qpc_to_ns(0, 10_000_000), 0);
+        assert_eq!(qpc_to_ns(1, 10_000_000), 100);
+        assert_eq!(qpc_to_ns(10_000_001, 10_000_000), 1_000_000_100);
+        assert_eq!(qpc_to_ns(3, 3), 1_000_000_000);
+        assert_eq!(qpc_to_ns(1, 3), 333_333_333);
+        // A year of uptime at a 3 GHz counter: the naive ticks * 10^9 overflows u64.
+        let year_ticks = 3_000_000_000 * 31_536_000;
+        assert_eq!(qpc_to_ns(year_ticks + 1, 3_000_000_000), 31_536_000 * 1_000_000_000);
+        assert_eq!(qpc_to_ns(u64::MAX, 1), u64::MAX, "saturates");
+        assert_eq!(qpc_to_ns(5, 0), 5_000_000_000, "a zero frequency reads as 1 Hz");
     }
 
     #[test]

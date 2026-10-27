@@ -208,6 +208,9 @@ fn a_blocked_thread_is_reported_within_its_deadline_plus_the_period() {
     if cfg!(any(target_os = "linux", target_os = "macos", windows)) {
         assert_ne!(hang.native_thread_id, 0);
     }
+    if !cfg!(target_os = "macos") {
+        assert_eq!(hang.stack, None, "only macOS samples the hung thread");
+    }
     assert_eq!(watch.stats().hangs, 1);
 }
 

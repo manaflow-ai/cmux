@@ -172,7 +172,7 @@ fn metrics_store_reads_what_it_recorded() {
     assert_eq!(store.layout(2), Some(Layout::Linear { maximum: 100 }));
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn metrics_adoption_moves_the_heap_counts_into_the_file() {
     let dir = scratch_dir("adopt");
@@ -192,7 +192,7 @@ fn metrics_adoption_moves_the_heap_counts_into_the_file() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn metrics_a_failed_adoption_keeps_the_counters_on_the_heap() {
     let dir = scratch_dir("blocked");
@@ -205,7 +205,7 @@ fn metrics_a_failed_adoption_keeps_the_counters_on_the_heap() {
     let _ = std::fs::remove_file(&dir);
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn metrics_a_file_folds_each_sample_once() {
     let dir = scratch_dir("fold");
@@ -230,7 +230,7 @@ fn metrics_a_file_folds_each_sample_once() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn metrics_a_delta_of_another_file_marks_nothing() {
     let dir = scratch_dir("other");
@@ -246,7 +246,7 @@ fn metrics_a_delta_of_another_file_marks_nothing() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn metrics_a_torn_or_foreign_file_is_refused() {
     let dir = scratch_dir("torn");

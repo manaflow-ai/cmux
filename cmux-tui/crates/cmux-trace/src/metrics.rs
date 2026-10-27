@@ -48,7 +48,9 @@ use std::sync::atomic::{AtomicPtr, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use crate::Role;
-use crate::map::{HeapBlock, create_private_dir, map_file, reserve_blocks};
+use crate::map::{
+    HeapBlock, SharedView, create_private_dir, map_file, open_existing, reserve_blocks,
+};
 
 /// The file's first 8 bytes.
 pub const MAGIC: [u8; 8] = *b"CMXMETRC";
@@ -720,69 +722,27 @@ struct Entry {
 /// A metrics file mapped read-write and shared (Swift's `MetricsImage` over `MetricsLaunchFileReader`'s
 /// mapping): its header and counters, read in place. Unmapped on drop.
 pub struct MetricsFile {
-    base: std::ptr::NonNull<u8>,
-    len: usize,
+    view: SharedView,
     header: Header,
     entries: Vec<Entry>,
 }
 
-// SAFETY: the mapping is plain shared memory; its counters are read and written only through atomics.
-unsafe impl Send for MetricsFile {}
-
 impl MetricsFile {
-    /// Maps `path` and validates it. Blocking file work: never on a latency path.
-    #[cfg(unix)]
+    /// Maps `path` (`mmap` on unix, a file mapping on Windows) and validates it. Blocking file work:
+    /// never on a latency path.
     pub fn open(path: &Path) -> Result<MetricsFile, MetricsFileError> {
-        use std::os::fd::AsRawFd;
-        use std::os::unix::fs::OpenOptionsExt;
-        let file = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(path)
-            .map_err(MetricsFileError::Io)?;
+        let file = open_existing(path).map_err(MetricsFileError::Io)?;
         let len = usize::try_from(file.metadata().map_err(MetricsFileError::Io)?.len())
             .map_err(|_| MetricsFileError::Invalid)?;
         if len < DIRECTORY_OFFSET {
             return Err(MetricsFileError::Invalid);
         }
-        // SAFETY: a shared read-write mapping of a descriptor opened read-write, `len` bytes long.
-        let raw = unsafe {
-            libc::mmap(
-                std::ptr::null_mut(),
-                len,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_SHARED,
-                file.as_raw_fd(),
-                0,
-            )
-        };
-        if raw == libc::MAP_FAILED {
-            return Err(MetricsFileError::Io(io::Error::last_os_error()));
-        }
-        let Some(base) = std::ptr::NonNull::new(raw.cast::<u8>()) else {
-            return Err(MetricsFileError::Io(io::Error::other("mmap returned null")));
-        };
-        // SAFETY: the mapping holds `len` bytes; only the header and directory are read through this slice,
+        let view = SharedView::map(&file, len).map_err(MetricsFileError::Io)?;
+        // SAFETY: the view holds `len` bytes; only the header and directory are read through this slice,
         // and nothing here writes them.
-        let bytes = unsafe { std::slice::from_raw_parts(base.as_ptr(), len) };
-        match validate(bytes) {
-            Some((header, entries)) => Ok(MetricsFile { base, len, header, entries }),
-            None => {
-                // SAFETY: the mapping made above, unmapped once.
-                unsafe { libc::munmap(raw, len) };
-                Err(MetricsFileError::Invalid)
-            }
-        }
-    }
-
-    /// No file mapping on this platform yet (task 132).
-    #[cfg(not(unix))]
-    pub fn open(_path: &Path) -> Result<MetricsFile, MetricsFileError> {
-        Err(MetricsFileError::Io(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "cmux-trace maps metrics files on unix only",
-        )))
+        let bytes = unsafe { std::slice::from_raw_parts(view.as_ptr(), view.len()) };
+        let (header, entries) = validate(bytes).ok_or(MetricsFileError::Invalid)?;
+        Ok(MetricsFile { view, header, entries })
     }
 
     pub fn header(&self) -> &Header {
@@ -796,7 +756,7 @@ impl MetricsFile {
 
     /// Current minus logged for every histogram with a sample since the last [`Self::mark_logged`].
     pub fn delta(&self) -> Delta {
-        let base = self.base.as_ptr();
+        let base = self.view.as_ptr();
         let mut histograms = Vec::new();
         for (position, entry) in self.entries.iter().enumerate() {
             let word = entry.offset / 8;
@@ -830,7 +790,7 @@ impl MetricsFile {
     /// Adds `delta` (from [`Self::delta`] of this file) to the logged shadow, so the next delta leaves its
     /// samples out. A histogram whose position names another histogram is left alone.
     pub fn mark_logged(&self, delta: &Delta) {
-        let base = self.base.as_ptr();
+        let base = self.view.as_ptr();
         for histogram in &delta.histograms {
             let Some(entry) = self.entries.get(histogram.entry) else { continue };
             if entry.name != histogram.name {
@@ -856,16 +816,6 @@ impl MetricsFile {
         let delta = self.delta();
         self.mark_logged(&delta);
         delta
-    }
-}
-
-impl Drop for MetricsFile {
-    fn drop(&mut self) {
-        #[cfg(unix)]
-        // SAFETY: the mapping `open` made, unmapped once, here.
-        unsafe {
-            libc::munmap(self.base.as_ptr().cast(), self.len);
-        }
     }
 }
 
