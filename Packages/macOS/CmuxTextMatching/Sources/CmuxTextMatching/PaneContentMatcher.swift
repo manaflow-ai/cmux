@@ -95,6 +95,12 @@ public struct PaneContentMatcher: Sendable {
     ///   - limit: The most ranges to return.
     /// - Returns: The matched ranges in `line`.
     public func matches(in line: String, limit: Int) -> [Range<String.Index>] {
+        matches(in: line, limit: limit, isCancelled: { Task.isCancelled })
+    }
+
+    /// ``matches(in:limit:)`` with the cancellation check supplied; a regex consults it
+    /// on every progress report while it runs.
+    func matches(in line: String, limit: Int, isCancelled: () -> Bool) -> [Range<String.Index>] {
         guard limit > 0 else { return [] }
         let trimmedEnd = Self.endTrimmingTrailingWhitespace(line)
         let searchable = line[line.startIndex..<trimmedEnd]
@@ -130,7 +136,7 @@ public struct PaneContentMatcher: Sendable {
                 if let result, let range = Range(result.range, in: text) {
                     ranges.append(Self.translate(range, from: text, to: line))
                 }
-                if ranges.count >= limit || Task.isCancelled { stop.pointee = true }
+                if ranges.count >= limit || isCancelled() { stop.pointee = true }
             }
         }
         return ranges
