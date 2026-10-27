@@ -248,7 +248,7 @@ public final class TabStripView: NSView {
         setAccessibilityRole(.tabGroup)
         setAccessibilityLabel(Strings.axStrip)
         setAccessibilityIdentifier("cmux.tabs.strip")
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeForHover, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
