@@ -349,6 +349,12 @@ test("the managed mark is this Mac's: a peer's or another host's chat keeps its 
     [{ origin: "peer" }, reported("s1", "default")],
     [{}, { ...reported("s2", "default"), host: "studio" }],
     [{}, { ...reported("s3", "default"), hostKind: "cloud" }],
+    // Review 110: a peers chat comes over this Macs own connection (origin "local"); only its
+    // summary or its listed row says it is a peers. The attachs detail names no peer
+    // (server/peer_forward.rs adds it to the reply, not to the session), so the listed row may
+    // be all there is.
+    [{ origin: "local" }, { ...reported("s4", "default"), peer: "studio" }],
+    [{ origin: "local", sessions: [{ sessionId: "s5", peer: "studio" }] }, reported("s5", "default")],
   ] as const) {
     await render(summary, () => undefined, where);
     await act(async () => void openPicker("Mode"));
