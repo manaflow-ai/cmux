@@ -90,6 +90,8 @@ final class WindowManager {
     var onFirstWindow: ((WindowController) -> Void)?
     /// The restore's and the visible panes' startup refs (p08-startup task 013), passed to `restoreWhenLoaded`.
     private var launchPaneRefs: VisiblePaneRefs?
+    /// Whether the app is hidden now (`NSApplication.isHidden`); tests pass their own.
+    var appHidden: @MainActor () -> Bool = { NSApp.isHidden }
     /// The restored windows behind the front one not built yet (`launchWindowsByOcclusion`, p08-startup-062):
     /// nil when every restored window was built in the restore's turn.
     private(set) var launchWindows: LaunchWindowQueue?
@@ -300,7 +302,7 @@ final class WindowManager {
         fullScreenRestoreReady = true
         enterRestoredFullScreens()
         FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // its New Tab page, not Home
-        launchPaneRefs?.finishRestore(of: self)
+        if let launchPaneRefs { finishLaunchRestore(launchPaneRefs) }
         launchPaneRefs = nil
         let waiting = restoreWaiters ?? []
         restoreWaiters = nil
@@ -309,6 +311,18 @@ final class WindowManager {
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)
         Task { await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace) }
+    }
+
+    /// The end of the launch restore: each visible pane holds startup until its content shows, or, when the person
+    /// sees no window (`LaunchWindowSight`, p08-startup-095), the startup refs end with `noWindow` at once.
+    private func finishLaunchRestore(_ paneRefs: VisiblePaneRefs) {
+        let environment = services.environment
+        let behind = LaunchWindowSight.ordersBehind(noActivate: environment.noActivate, testScreen: environment.testWindow != nil)
+        let sight = LaunchWindowSight(appHidden: appHidden(), orderedBehind: behind,
+                                      coming: awaitingContent.count + (launchWindows?.waitingVisible.count ?? 0),
+                                      windows: controllers.compactMap(\.window))
+        guard sight.showsWindow else { return paneRefs.restoreShowedNoWindow(startup: services.launchStartup, images: services.launchImageHold) }
+        paneRefs.finishRestore(of: self)
     }
 
     /// The restored windows behind the front one build by what shows of them, not all in the restore's

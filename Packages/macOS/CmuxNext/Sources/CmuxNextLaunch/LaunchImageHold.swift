@@ -52,6 +52,8 @@ public final class LaunchImageHold {
 
     private let startup: StartupScheduler?
     private var shown = 0
+    /// False once the launch showed no window (``launchShowedNoWindow()``): no image is seen, so none holds startup.
+    private var holdsStartup = true
     private var ref: StartupInProgressRef?
     /// ``whenClear(_:)`` work, run when the last image goes or startup completes.
     private var clearWaiters: [@MainActor () -> Void] = []
@@ -69,8 +71,16 @@ public final class LaunchImageHold {
     /// - Returns: The image's share; end it when the image goes.
     public func began() -> Share {
         shown += 1
-        if shown == 1 { ref = startup?.hold("LaunchImageHold.images") }
+        if shown == 1, holdsStartup { ref = startup?.hold("LaunchImageHold.images") }
         return Share(self)
+    }
+
+    /// The launch shows no window (p08-startup-095): nobody sees an image, so the hold ends with `noWindow` and later
+    /// images hold nothing. The images still go when their pages paint.
+    public func launchShowedNoWindow() {
+        holdsStartup = false
+        ref?.release(.noWindow)
+        ref = nil
     }
 
     /// An image's share ended; the last one ends the hold with its reason.

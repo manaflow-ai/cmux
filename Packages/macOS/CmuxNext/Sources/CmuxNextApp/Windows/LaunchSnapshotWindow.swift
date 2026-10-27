@@ -74,6 +74,11 @@ struct LaunchSnapshotWindow {
     /// of: full screen, side by side, test placement).
     private func open(_ window: WindowRegistry.Window) {
         let manager = manager, services = manager.services, state = manager.state(for: window.id)
+        // A hidden launch's first frame shows nobody its picture: none is taken, and the read's pixels go now (095).
+        guard LaunchWindowSight.showsPicture(appHidden: manager.appHidden()) else {
+            services.environment.windowPictures?.dropFront()
+            return openToday(window)
+        }
         guard services.features.isEnabled(.savedWindowPicture), let pictures = services.environment.windowPictures,
               services.environment.testWindow == nil, window.frame != nil, !state.restoresFullScreen, state.viewSet == nil else {
             return openToday(window)

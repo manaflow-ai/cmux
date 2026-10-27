@@ -275,6 +275,15 @@ public final class StartupScheduler {
         firstFrame = nil
     }
 
+    /// The launch shows no window (p08-startup-095), so no first frame is waited for: the phase reveals without one
+    /// and the first-frame ref ends with `noWindow` (Chrome's `StartupObserver::Start`, after_startup_task_utils.cc).
+    public func launchShowedNoWindow() {
+        guard !isQuitting else { return }
+        mainWork.startup.noteLaunch(.noWindow)
+        mainWork.startup.markDone(.firstFrame)
+        firstFrameMissed(.noWindow)
+    }
+
     /// Quit began: drops every task not started, cancels the failsafe, and runs nothing more.
     public func beginQuit() {
         guard !isQuitting else { return }
