@@ -102,7 +102,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     ],
   };
 
-  function answer(method: string): unknown {
+  function answer(method: string, firstRun: boolean): unknown {
     switch (method) {
       case "initialize":
         return {
@@ -112,21 +112,21 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
           },
         };
       case "_acpmux/watch":
-        return { sessions: [session] };
+        return { sessions: firstRun ? [] : [session] };
       case "_acpmux/attach":
         return { session, lastSeq: events.length, events };
       case "_acpmux/events":
         return { events: [], hasMore: false, lastSeq: events.length };
       case "_acpmux/harnesses":
-        return harnesses;
+        return firstRun ? { harnesses: {}, families: {} } : harnesses;
       case "_acpmux/models":
-        return models;
+        return firstRun ? { harnesses: [] } : models;
       default:
         return null;
     }
   }
 
-  let daemon: ReturnType<typeof Bun.serve> | undefined;
+  let daemon: Bun.Server<{ firstRun: boolean }> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const url = () => {
@@ -135,11 +135,12 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${CHAT}`;
   };
   beforeAll(async () => {
-    daemon = Bun.serve({
+    daemon = Bun.serve<{ firstRun: boolean }>({
       port: 0,
       hostname: "127.0.0.1",
       fetch(request, server) {
-        return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
+        const firstRun = new URL(request.url).pathname === "/first-run";
+        return server.upgrade(request, { data: { firstRun } }) ? undefined : new Response("acpmux", { status: 426 });
       },
       websocket: {
         message(ws, raw) {
@@ -152,7 +153,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
               JSON.stringify({
                 jsonrpc: "2.0",
                 id: message.id,
-                result: answer(message.method),
+                result: answer(message.method, ws.data.firstRun),
               }),
             );
         },
@@ -185,6 +186,103 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     await browser?.close();
     await vite?.close();
     await daemon?.stop(true);
+  });
+
+  async function firstRunPage() {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await page.addInitScript((endpoint) => {
+      const newTab = { kind: "agent", template: "default", home: "/Users/you", projects: [] };
+      Object.assign(window, {
+        __cmuxNewTabContext: newTab,
+        webkit: {
+          messageHandlers: {
+            agentSession: {
+              postMessage: async ({ method }: { method: string }) => {
+                let value: unknown = null;
+                switch (method.replace(/^cmux\.agent\./, "")) {
+                  case "ready":
+                  case "handshake":
+                    value = {
+                      protocolVersion: 1,
+                      transport: "acpmux-websocket",
+                      endpoint,
+                      token: "t",
+                      newSession: true,
+                      newTab,
+                    };
+                    break;
+                  case "newTab.context":
+                    value = { newTab };
+                    break;
+                  case "project.list":
+                    value = { projects: [] };
+                    break;
+                }
+                return { ok: true, value };
+              },
+            },
+          },
+        },
+      });
+    }, `ws://127.0.0.1:${daemon!.port}/first-run`);
+    const { port } = vite!.httpServer!.address() as { port: number };
+    await page.goto(`http://127.0.0.1:${port}/`);
+    await page.locator(".nt-field").waitFor();
+    // Wait for the actual no-harness chip; the page may mount before the catalog arrives.
+    await page.locator(".acpmux-add-harness").waitFor();
+    return page;
+  }
+
+  test.each(["", "Implement a todo list"])("first-run Return opens setup and returns to draft %j", async (draft) => {
+    const page = await firstRunPage();
+    try {
+      const field = page.locator(".nt-field");
+      if (draft) await field.fill(draft);
+      await field.press("Enter");
+      await page.locator(".acpmux-harnesses-close").waitFor();
+      expect(await field.isVisible()).toBe(false);
+      await page.locator(".acpmux-harnesses-close").click();
+      await field.waitFor();
+      expect(await field.inputValue()).toBe(draft);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("first-run New chat setup preserves the typed draft, image and no-project choice", async () => {
+    const page = await firstRunPage();
+    try {
+      await page.locator('.nt-env .nt-stage-row[aria-pressed="false"]').click();
+      const field = page.locator(".nt-field");
+      await field.fill("Implement a todo list from this screenshot");
+      await field.evaluate(async (target) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 8;
+        canvas.height = 8;
+        canvas.getContext("2d")!.fillRect(0, 0, 8, 8);
+        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+        const data = new DataTransfer();
+        data.items.add(new File([blob], "first-chat.png", { type: "image/png" }));
+        target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      });
+      const image = page.locator(".acpmux-attachment-image img");
+      await image.waitFor();
+      const source = await image.getAttribute("src");
+      expect(source).toBeTruthy();
+      await page.locator('[data-create="chat"]').click();
+      await page.locator(".acpmux-harnesses-close").waitFor();
+      expect(await field.isVisible()).toBe(false);
+      expect(await image.isVisible()).toBe(false);
+      await page.locator(".acpmux-harnesses-close").click();
+      await field.waitFor();
+      expect(await field.inputValue()).toBe("Implement a todo list from this screenshot");
+      expect(await image.isVisible()).toBe(true);
+      expect(await image.getAttribute("src")).toBe(source);
+      expect(await page.locator('.nt-env .nt-stage-row[aria-pressed="true"]').count()).toBe(1);
+      expect(await page.locator('[data-action="browse-project"]').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
   });
 
   test("the Harnesses page has Claude Code ready", async () => {

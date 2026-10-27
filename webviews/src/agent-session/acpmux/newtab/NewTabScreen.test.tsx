@@ -23,6 +23,7 @@ beforeEach(() => {
     "Node",
     "HTMLElement",
     "Element",
+    "getComputedStyle",
     "ResizeObserver",
     "requestAnimationFrame",
     "cancelAnimationFrame",
@@ -36,14 +37,17 @@ beforeEach(() => {
     Node: dom.window.Node,
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
     ResizeObserver: class {
       observe() {}
+      unobserve() {}
       disconnect() {}
     },
     requestAnimationFrame,
     cancelAnimationFrame: (handle: number) => clearTimeout(handle),
     IS_REACT_ACT_ENVIRONMENT: true,
   });
+  Object.assign(dom.window, { ResizeObserver: scope.ResizeObserver });
   container = dom.window.document.getElementById("root")!;
   root = createRoot(container);
 });
@@ -59,6 +63,22 @@ afterEach(() => {
   dom?.window.close();
   dom = undefined;
 });
+
+async function typePrompt(text: string) {
+  const field = container.querySelector<HTMLTextAreaElement>(".nt-field")!;
+  const setValue = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
+  await act(async () => {
+    setValue.call(field, text);
+    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  return field;
+}
+
+async function press(field: HTMLTextAreaElement, key: string) {
+  await act(async () => {
+    field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+  });
+}
 
 test("New Tab exposes the chat composer attachment menu", async () => {
   await act(async () => {
@@ -144,9 +164,10 @@ test("a fresh New Tab exposes the no-project path in its environment card", asyn
   expect(container.querySelector('.nt-env .nt-stage-row[aria-pressed="true"]')).toBeTruthy();
 });
 
-test.each(["", "Implement a todo list"])("Return without a harness opens setup and keeps draft %j", async (draft) => {
+test.each(["", "Implement a todo list"])("Return without a harness opens setup for typed draft %j", async (draft) => {
   let opened = 0;
   const searches: string[] = [];
+  const typed: string[] = [];
   const unregister = registerHarnessesPage(() => {
     opened += 1;
   });
@@ -155,7 +176,7 @@ test.each(["", "Implement a todo list"])("Return without a harness opens setup a
       root!.render(
         <NewTabScreen
           snapshot={noChat([], { catalog: [] })}
-          location={draft}
+          onPromptTyped={(text) => typed.push(text)}
           onAsk={() => {}}
           onOpen={() => {}}
           onSearch={(text) => searches.push(text)}
@@ -166,20 +187,83 @@ test.each(["", "Implement a todo list"])("Return without a harness opens setup a
         />,
       );
     });
-    const field = container.querySelector<HTMLTextAreaElement>(".nt-field")!;
-    if (draft) {
-      await act(async () => {
-        field.value = draft;
-        field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
-        field.dispatchEvent(new dom!.window.Event("change", { bubbles: true }));
-      });
-    }
-    await act(async () => {
-      field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    });
+    const field = draft ? await typePrompt(draft) : container.querySelector<HTMLTextAreaElement>(".nt-field")!;
+    expect(typed).toEqual(draft ? [draft] : []);
+    await press(field, "Enter");
     expect(opened).toBe(1);
     expect(searches).toEqual([]);
     expect(field.value).toBe(draft);
+  } finally {
+    unregister();
+  }
+});
+
+test.each(["keyboard", "pointer"])("an explicit %s search still works without a harness", async (via) => {
+  let opened = 0;
+  const searches: string[] = [];
+  const unregister = registerHarnessesPage(() => {
+    opened += 1;
+  });
+  try {
+    await act(async () => {
+      root!.render(
+        <NewTabScreen
+          snapshot={noChat([], { catalog: [] })}
+          onAsk={() => {}}
+          onOpen={() => {}}
+          onSearch={(text) => searches.push(text)}
+          onShell={() => {}}
+          onJump={() => {}}
+          onOpenSession={() => {}}
+          onShowAll={() => {}}
+        />,
+      );
+    });
+    const field = await typePrompt("Implement a todo list");
+    const search = dom!.window.document.querySelector<HTMLElement>('.nt-row[data-type="search"]');
+    expect(search).toBeTruthy();
+    if (via === "keyboard") {
+      // Up leaves the default row, then Down explicitly selects web search.
+      await press(field, "ArrowUp");
+      await press(field, "ArrowDown");
+      await press(field, "Enter");
+    } else {
+      await act(async () => {
+        search!.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+      });
+    }
+    expect(searches).toEqual(["Implement a todo list"]);
+    expect(opened).toBe(0);
+  } finally {
+    unregister();
+  }
+});
+
+test("Return on a typed address still opens it without a harness", async () => {
+  let opened = 0;
+  const urls: string[] = [];
+  const unregister = registerHarnessesPage(() => {
+    opened += 1;
+  });
+  try {
+    await act(async () => {
+      root!.render(
+        <NewTabScreen
+          snapshot={noChat([], { catalog: [] })}
+          onAsk={() => {}}
+          onOpen={(url) => urls.push(url)}
+          onSearch={() => {}}
+          onShell={() => {}}
+          onJump={() => {}}
+          onOpenSession={() => {}}
+          onShowAll={() => {}}
+        />,
+      );
+    });
+    const field = await typePrompt("https://example.com/");
+    await press(field, "Enter");
+    expect(urls).toEqual(["https://example.com/"]);
+    expect(opened).toBe(0);
   } finally {
     unregister();
   }
