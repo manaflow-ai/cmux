@@ -1,6 +1,6 @@
 ---
 name: cmux-cua
-description: "cmux Computer Use. Read this skill before the first step of any request, in a cmux chat, to do something in an app on the person's Mac (Calculator, Notes, Finder, Mail, Preview, any desktop app) or to look at their screen. In a cmux chat this is the computer use tool: the cua_* tools inside cmux_exec (or mcp__cmux-cua__*), attached by cmux in local chats when computer use is available. Use it, not another app's computer-use skill or tools (for example anthropic-skills:computer-use, whose tools a cmux chat does not have), and never osascript, AppleScript or System Events keystrokes, which macOS blocks and which skip cmux's setup card and blocked-app check. Covers setup, blocked apps and the steps that still wait for the person."
+description: "cmux Computer Use. Read this skill before the first step of any request, in a cmux chat, to do something in an app on the person's Mac (Calculator, Notes, Finder, Mail, Preview, any desktop app) or to look at their screen. In a cmux chat this is the computer use tool: the cua_* tools inside cmux_exec (listed directly: mcp__cmux__cua_*, or mcp__cmux-cua__* as its own server), attached by cmux in local chats when computer use is available. Use it, not another app's computer-use skill or tools (for example anthropic-skills:computer-use, whose tools a cmux chat does not have), and never osascript, AppleScript or System Events keystrokes, which macOS blocks and which skip cmux's setup card and blocked-app check. Covers setup, blocked apps and the steps that still wait for the person."
 ---
 
 # cmux-cua
@@ -97,8 +97,9 @@ text; it calls the tool, and cmux shows its own card when one is needed.
   that needs an app does (see "When to use it").
 - In code mode (one `cmux_exec` tool) the tools are `cua_*` inside a script:
   `await cmux.cua_list_apps({})`. Find their schemas with
-  `cmux.docs("cua")`. With the server listed directly they are
-  `mcp__cmux-cua__*`.
+  `cmux.docs("cua")`. When cmux lists every tool they are
+  `mcp__cmux__cua_*`; where `cmux-cua` is its own server (cmux MCP off, a
+  cloud VM image) they are `mcp__cmux-cua__*`.
 - Use only the `cmux-cua` tools. Never substitute a harness's built-in
   computer tool, another computer-use connector, a direct helper launch or
   `osascript`. If the `cmux-cua` tools are absent or fail to connect, report

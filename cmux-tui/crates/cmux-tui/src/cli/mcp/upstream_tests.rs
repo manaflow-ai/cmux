@@ -76,6 +76,14 @@ fn code_mode_runs_the_chats_other_servers_behind_it() {
     assert_eq!(found["structuredContent"]["servers"]["cmux-cua"], rules);
     let other = call(&mut server, "cmux_docs", json!({"query": "workspace rename"}));
     assert!(other["structuredContent"].get("servers").is_none(), "{other}");
+    // Search matches what a tool does, not the rules its server shares with every tool (they
+    // name terminals and passwords).
+    let rules_only = call(&mut server, "cmux_docs", json!({"query": "terminal password"}));
+    let content = &rules_only["structuredContent"];
+    let names =
+        content["tools"].as_array().into_iter().flatten().filter_map(|tool| tool["name"].as_str());
+    let more = content["more"].as_array().into_iter().flatten().filter_map(Value::as_str);
+    assert!(!names.chain(more).any(|name| name.starts_with("cua_")), "{rules_only}");
 
     // A script calls it like any tool; the screenshot comes back as an image
     // block of the cmux_exec result, the script sees its index.
@@ -463,4 +471,22 @@ fn computer_use_rules_route_app_tasks_and_keep_consent() {
     let tool = other.descriptors(&BTreeSet::new()).into_iter().next().unwrap();
     let text = tool["description"].as_str().unwrap();
     assert!(!text.contains("Computer Use") && text.ends_with("Ask before you click."), "{text}");
+}
+
+/// The helper v2 bridge has no target guard yet: its chats must not get cmux's rules, which say
+/// cmux, the terminals and the security windows are refused.
+#[test]
+fn the_helper_v2_bridge_gets_no_cmux_rules() {
+    let spec = |env: Vec<(String, String)>| upstream::Spec {
+        name: acpmux::cua_v2::SERVER_NAME.into(),
+        command: "/bin/cua".into(),
+        args: Vec::new(),
+        env,
+        call_timeout: std::time::Duration::from_secs(1),
+    };
+    let legacy = spec(Vec::new());
+    assert_eq!(upstream::rules(&legacy, None).as_deref(), Some(acpmux::agent_tools::CUA_RULES));
+    let v2 = spec(vec![(acpmux::cua_v2::ENDPOINT_DIR_ENV.into(), "/tmp/cua".into())]);
+    assert_eq!(upstream::rules(&v2, None), None);
+    assert_eq!(upstream::rules(&v2, Some("Its own text.")).as_deref(), Some("Its own text."));
 }

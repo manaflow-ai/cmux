@@ -205,7 +205,9 @@ fn search(tools: &[Value], query: &str, limit: usize) -> Value {
         .iter()
         .filter_map(|tool| {
             let name = tool["name"].as_str()?.to_lowercase();
-            let description = tool["description"].as_str().unwrap_or_default().to_lowercase();
+            let description =
+                super::upstream::without_rules(tool["description"].as_str().unwrap_or_default())
+                    .to_lowercase();
             let arguments = tool["inputSchema"]["properties"]
                 .as_object()
                 .map(|properties| properties.keys().cloned().collect::<Vec<_>>().join(" "))
