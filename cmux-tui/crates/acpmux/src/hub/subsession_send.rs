@@ -49,11 +49,15 @@ impl Hub {
         self.receiver_check(caller, target).await?;
         let mut blocks = vec![json!({"type": "text", "text": text})];
         blocks.extend(attachments);
-        // The whole message fits one JSON-RPC message, and is saved in the receiver's uploads, as
-        // any message's files are (`attach.rs`).
+        // Inline files fit one JSON-RPC message and are saved in the receiver's uploads, and files
+        // sent by reference are read from them, as any message's are (`attach.rs`,
+        // `prompt_uploads.rs`).
         crate::attach::check_wire(&json!({"sessionId": target.id, "prompt": blocks}))?;
         let id = target.id.clone();
         let received = tokio::task::spawn_blocking(move || {
+            if crate::prompt_uploads::any(&blocks) {
+                crate::prompt_uploads::resolve(&id, false, &mut blocks)?;
+            }
             crate::attach::receive(&id, false, &mut blocks).map(|saved| (blocks, saved))
         });
         let (blocks, saved) = received.await.map_err(|e| RpcError::internal(e.to_string()))??;

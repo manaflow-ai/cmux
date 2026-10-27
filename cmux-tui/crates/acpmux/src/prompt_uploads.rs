@@ -56,6 +56,11 @@ fn upload_of(block: &Value) -> Option<&Value> {
     named.or(by_uri.then_some(&NONE))
 }
 
+/// Whether `block` names an upload (`send_message` sends files that go by reference so).
+pub fn names_upload(block: &Value) -> bool {
+    upload_of(block).is_some()
+}
+
 /// Whether any of `blocks` names an upload, or carries a link this daemon resolved from one.
 pub fn any(blocks: &[Value]) -> bool {
     blocks.iter().any(|b| upload_of(b).is_some()) || links_upload(blocks)
