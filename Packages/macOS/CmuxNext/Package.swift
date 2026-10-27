@@ -13,7 +13,7 @@ import Foundation
 // Dependency direction (no cycles, no upward imports):
 //   CmuxNextApp -> every feature module
 //   CmuxNextBridge -> Daemon, Layout, Sidebar, Tabs (App-layer mapping, testable); Oracle (the layout facet)
-//   CmuxNextBrowserCore -> Compat, Wakeups (the browser's engine-neutral values and protocols; Browser re-exports it)
+//   CmuxNextBrowserCore -> Compat, Wakeups, CmuxSafeConcurrency (the browser's engine-neutral values and protocols; Browser re-exports it)
 //   CmuxNextFavicons -> CmuxNextBrowser, CmuxNextTabs (public read-only favicon leaf)
 //   CmuxNextTabs, Sidebar, Layout, Browser -> CmuxNextDesign; Tabs, Sidebar -> CmuxNextIcons; Palette -> Design, Actions
 //   CmuxNextBrowser -> Input, InputCore (page link clicks, swipes and mouse side buttons hear the app's input tap)
@@ -108,7 +108,7 @@ import Foundation
 //     plans/cmux-next/react-pages.md)
 //   CmuxNextCodeRouter -> CmuxNextCloud (provider sign-in detection, the CodeRouter control-plane
 //     client, pasted-key Keychain store, account row state; no UI, no daemon; plans/cmux-next/coderouter.md)
-//   CmuxNextAccounts -> CodeRouter, Design, Icons (Settings > Accounts and the onboarding step; the App supplies AccountsServices)
+//   CmuxNextAccounts -> CodeRouter, Design, Icons, CmuxSafeConcurrency (Settings > Accounts and the onboarding step; the App supplies AccountsServices)
 //   CmuxNextAgentIntegrations -> Daemon, Pages, Settings (Settings > Agents > Agent integrations: relays the bundled
 //     CLI's `agent hook status|install|uninstall`; the App supplies the CLI's location)
 //   CmuxNextBookmarks -> Design, Icons, Wakeups (bookmark tree per browser profile, Netscape HTML, ranking, file store,
@@ -462,6 +462,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextFloatingTests",
+            // CmuxNextWakeups: the pet's AppEvents and the scheduler its setting follow posts on (p06-scheduler-337).
             // WakeupsTestSupport: ChiefPetDragFramesTests' fake-link coalescer.
             dependencies: ["CmuxNextFloating", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
@@ -549,8 +550,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // supplies `AccountsServices`.
         .target(
             name: "CmuxNextAccounts",
+            // CmuxSafeConcurrency: OnceContinuation for a pasted key's save answer (p02-threads-054..055).
             dependencies: ["CmuxNextCloud", "CmuxNextCodeRouter", "CmuxNextDesign", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
-                           .product(name: "CMUXAuthCore", package: "CMUXAuthCore")],
+                           .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
+                           .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [
                 .process("Localizable.xcstrings"),
                 // BillingStrings (table Billing): moved from the App with Billing/ in B1.
@@ -819,7 +822,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextPages",
             // Hibernation: PageLifecyclePlanner, the pure plan PageLifecycle performs (p13-webui-022).
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextErrorJournal", "CmuxNextHibernation", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts",
+            // InputCore: the quiet-input wait of the Settings, History and Cloud preload (PagePreloads, p13-webui-045).
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextErrorJournal", "CmuxNextHibernation", "CmuxNextInputCore", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts",
                            .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [.copy("Resources/pages"), .process("Localizable.xcstrings")],
             swiftSettings: uiSwiftSettings
@@ -835,7 +839,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextPagesTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextHibernation", "CmuxNextMemory", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextWakeups",
+            dependencies: ["CmuxNextCompat", "CmuxNextHibernation", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextMemory", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextWakeups",
                            "CmuxNextTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
@@ -1599,6 +1603,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 // InvariantSink: the process's Invariant reports go to Sentry (p10-stability-099).
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
                 .product(name: "CmuxSentryReporting", package: "CmuxSentryTelemetry"),
+                // SentryScrubber: the previous run's blackbox.txt is scrubbed like the event (p09-observability-079).
+                .product(name: "CmuxSentryScrubbing", package: "CmuxSentryTelemetry"),
                 .product(name: "Sentry-Dynamic", package: "sentry-cocoa"),
                 "CmuxNextTrace",
                 "CmuxNextWakeups",
@@ -1615,6 +1621,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCrashReporting",
                 // InvariantSinkTests binds the blocking detector's scoped table.
                 "CmuxNextCompat",
+                // PreviousRunCrashEvidenceTests writes a previous run's black box and crash-key page.
                 "CmuxNextTrace",
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
                 .product(name: "Sentry-Dynamic", package: "sentry-cocoa"),
@@ -2062,7 +2069,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // section 8). CmuxNextBrowser depends on it and re-exports it.
         .target(
             name: "CmuxNextBrowserCore",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
+            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089); SitePermissionRequest awaits the prompt bar's answer (withOnceContinuation).
             dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextTrace", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: uiSwiftSettings
         ),

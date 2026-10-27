@@ -83,7 +83,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Where that deadline runs: the view's ``deadlines`` (a suite that is not about the fallback passes one that
     /// never fires). Read when the Chromium page reaches the host, after the view's first turn; set before then.
     var chromiumDeadlines: MainDeadlineScheduler
-    /// The app's one deadline scheduler (``WebUIHost``'s or ``PageHostPool``'s): the claim's fallback, the Chromium
+    /// The app's one deadline scheduler (``WebUIHost``'s): the claim's fallback, the Chromium
     /// page's deadline and the settings pushes (status look, UI scale) run on it and its ``MainDeadlineScheduler/work``.
     let deadlines: MainDeadlineScheduler
     /// The Chromium host the view was made with (its ``WebUIHost``'s); a discarded page makes its
@@ -117,7 +117,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The page's popup past the window's edge (PageWebView+Popup.swift), made on first use.
     var popupHost: WebPopupHost?
     /// The windows' frame-aligned pointer input for the page's popup (feature `pointerFrameHover`, the
-    /// App's `hoverFrameInput`; ``WebUIHost/open(_:)`` and ``PageHostPool`` claims set it): the popup's
+    /// App's `hoverFrameInput`; ``WebUIHost/open(_:)`` sets it, a preload too): the popup's
     /// rows hover at most twice a frame. Nil: each move.
     public var popupHoverFrameInput: FrameInputCoalescers? {
         didSet { popupHost?.hoverFrameInput = popupHoverFrameInput }
@@ -150,7 +150,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Answers the page's dynamic prefixes (``PageDescriptor/dynamicPrefixes``); the scheme
     /// handler holds it weakly, so the view keeps it alive.
     var dynamicResources: (any PageDynamicResourceSource)?
-    /// True when this view came from ``PageHostPool`` and may be rebound to another bundled page.
+    /// True when the page was opened parked for the preload slot (``PageOpenRequest/parked``): its
+    /// routes come with its claim (``bindClaim(routes:route:documentAttributes:surface:dynamicResources:)``).
     public let isPooled: Bool
     var pooledOwner: PagePooledOwner?
     /// Whether a pooled host has received real user input (a key or mouse event) since its claim.
@@ -315,7 +316,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         webKitRecipe = PageWebKitRecipe(configuration: configuration, processGroup: processGroup, openPanel: openPanel)
         self.inputReadiness = inputReadiness
         let decision = Self.engineDecision(for: descriptor, options: options, hosting: chromium)
-        let decided = pooled || !load ? decision.webKitOnly : decision
+        let decided = !load ? decision.webKitOnly : decision
         engineDecision = decided
         // A Chromium page the launch restored waits for its show or launch turn (``PageOpenOrigin/launchRestore``), as one
         // that starts at its first show does; until it starts it sends no script (``PageScriptTarget/hasDocument``).
@@ -436,7 +437,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         if !nativeRects.isEmpty { applyNativeRects() } // the unflipped Chromium view's rects move with the height
         // Not while the claim is pending: a refused document reloads, and its paint would end the
         // pane's hold before the reloaded one drew (finishClaim runs the probe on acknowledgement).
-        if repaintsAtNextLayout, !claimState.pending, window != nil, !bounds.isEmpty, !(superview is PageHostParking) {
+        if repaintsAtNextLayout, !claimState.pending, window != nil, !bounds.isEmpty, !isParkedSpare {
             repaintsAtNextLayout = false
             pushes.run(PagePaintProbe.script, whileFrozen: .latest(.paintProbe))
         }
@@ -505,8 +506,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The agent chat open this page shows (its stages go there, ``traceMark(_:)``); nil for every other page and
     /// for one made with no open (a prewarmed page gets the open that adopts it).
     public var chatOpen: ChatOpenStages?
-    /// A claimed spare painted while parked at its window's full size: it counts as painted again
-    /// only once it drew at its own size (``claimDocument(documentAttributes:)``, ``layout()``).
+    /// A claimed preload painted while parked, maybe at another size: it counts as painted again
+    /// only once it drew at its own size (``bindClaim(routes:route:documentAttributes:surface:dynamicResources:)``, ``layout()``).
     var repaintsAtNextLayout = false
 
     func receive(_ message: PageHostMessage) async -> Any? {

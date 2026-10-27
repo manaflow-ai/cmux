@@ -1766,7 +1766,7 @@ export class AcpmuxDirectClient {
       () => {
         this.releaseSnapshots(hold);
         // An open whose socket closed after it opened took the loss path in its own onclose.
-        if (!this.closed && this.reconnectTimer === undefined) this.lost();
+        if (!this.closed && !this.reconnect.waiting) this.lost();
       },
     );
   }

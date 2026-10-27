@@ -14,13 +14,18 @@ import Testing
 /// compressed or decoded, and takes no picture it would drop.
 @MainActor @Suite(.serialized)
 struct HibernationSnapshotsTests {
-    private static let pictureBytes = 1_000
+    /// A 16 x 4 picture's kept pixels: rows of 64 bytes.
+    private static let pictureBytes = PurgeableBitmap.byteCount(width: 16, height: 4)
 
-    private func picture() throws -> HibernationSnapshots.Picture {
-        let context = try #require(CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 16,
-                                             space: CGColorSpaceCreateDeviceRGB(),
-                                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-        return HibernationSnapshots.Picture(data: Data(count: Self.pictureBytes), image: try #require(context.makeImage()))
+    private static func image(width: Int = 16, height: Int = 4) throws -> CGImage {
+        let context = try #require(CGContext.bitmapOwningPixels(width: width, height: height, space: CGColorSpaceCreateDeviceRGB(),
+                                                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        return try #require(context.makeImage())
+    }
+
+    /// One picture of `pictureBytes` in pages from `allocator`.
+    private func picture(allocator: PurgeableAllocator = .resident) throws -> PurgeablePicture {
+        try #require(PurgeablePicture(decoding: try Self.image(), allocator: allocator))
     }
 
     /// A store of `count` pictures' bytes holding pictures "p0" (oldest) to "p<count-1>".
@@ -30,9 +35,9 @@ struct HibernationSnapshotsTests {
         return store
     }
 
-    /// A decoded picture (feature `compressedSnapshots` off): no bytes, its pixels are its cost.
-    private func decoded() throws -> HibernationSnapshots.Picture {
-        HibernationSnapshots.Picture(data: nil, image: try picture().image)
+    /// A larger decoded picture (feature `compressedSnapshots` off): its pixels are its cost.
+    private func decoded() throws -> PurgeablePicture {
+        try #require(PurgeablePicture(decoding: try Self.image(width: 32, height: 32), allocator: .resident))
     }
 
     private func release(_ store: HibernationSnapshots, to limit: MemoryLimit) -> MemoryReleaseProgress {
@@ -47,6 +52,8 @@ struct HibernationSnapshotsTests {
         let hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), deadlines: services.mainDeadlines)
         #expect(services.cache.imageCaches == .legacy)
         #expect(hibernation.snapshots.fullCapacityBytes == 64 << 20)
+        // `purgeableImageCaches` off (the test services' default): the pictures stay resident.
+        #expect(hibernation.snapshots.allocator.pages(byteCount: 16 << 10)?.isPurgeable == false)
     }
 
     @Test func aHalfLimitHalvesTheCapacityAndKeepsTheMostRecentPictures() throws {
@@ -100,7 +107,7 @@ struct HibernationSnapshotsTests {
     /// With compressed snapshots off the decoded pictures live in this store too, under the same neighbor
     /// rule: before, they sat in the terminal previews' LRU, which the critical limit emptied, neighbors too.
     @Test func decodedPicturesKeepTheNeighborRuleAtTheCriticalLimit() throws {
-        let cost = try decoded().cost
+        let cost = try decoded().byteCount
         let store = HibernationSnapshots(fullCapacityBytes: 6 * cost)
         for index in 0..<6 { store.insert(try decoded(), for: "p\(index)") }
         #expect(store.count == 6 && store.totalBytes == 6 * cost, "decoded pictures were not kept in the store")
@@ -131,7 +138,7 @@ struct HibernationSnapshotsTests {
         let services = AppServices(environment: AppEnvironment.current([:]))
         let hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), deadlines: services.mainDeadlines)
         let captures = CaptureCount()
-        let image = try picture().image
+        let image = try Self.image()
         hibernation.capture = { _ in
             captures.count += 1
             return image
@@ -178,6 +185,38 @@ struct HibernationSnapshotsTests {
         let kept = Set(hidden.filter { hibernation.snapshots.image(for: $0) != nil })
         #expect(kept == ["l1", "l3"], "the critical limit kept \(kept.sorted()), not the shown tab's two neighbors")
         withExtendedLifetime((pressure, coordinator, left, right)) {}
+    }
+
+    /// p07-memory-107: a picture the kernel purged, compressed or decoded, is a miss that leaves the store (the
+    /// page wakes loading), never a blank wake; a neighbor's purged picture goes too, since nothing is left of it.
+    @Test func aPurgedPictureIsAMissNotABlankWake() async throws {
+        let fakes = FakePurgeableAllocations()
+        let store = HibernationSnapshots(fullCapacityBytes: 64 << 20, allocator: fakes.allocator)
+        store.insert(try #require(await HibernationSnapshots.compress(try Self.image(), allocator: store.allocator)), for: "compressed")
+        store.insert(try #require(await HibernationSnapshots.decoded(try Self.image(), allocator: store.allocator)), for: "decoded")
+        store.insert(try picture(allocator: store.allocator), for: "kept")
+        store.neighbors = { ["decoded"] }
+        let pages = fakes.pages
+        try #require(pages.count == 3 && pages.allSatisfy(\.isVolatile), "kept pictures are not volatile at rest")
+        let kept = try #require(store.image(for: "kept"))
+        #expect(pages[0].purge() && pages[1].purge())
+        #expect(store.image(for: "compressed") == nil, "a purged compressed picture was returned")
+        #expect(store.image(for: "decoded") == nil, "a purged neighbor's picture was returned")
+        #expect(store.count == 1 && store.totalBytes == Self.pictureBytes, "purged pictures stayed in the store")
+        #expect(store.image(for: "kept") != nil)
+        withExtendedLifetime(kept) {}
+    }
+
+    /// p07-memory-107: the report splits locked bytes (an image of the picture lives) from volatile ones.
+    @Test func lockedAndVolatileBytesAreReportedApart() throws {
+        let fakes = FakePurgeableAllocations()
+        let store = HibernationSnapshots(fullCapacityBytes: 4 * Self.pictureBytes, allocator: fakes.allocator)
+        for index in 0..<3 { store.insert(try picture(allocator: store.allocator), for: "p\(index)") }
+        #expect(store.memoryUsage == MemoryUsage(footprintBytes: 0, volatileBytes: 3 * Self.pictureBytes, entries: 3))
+        try withExtendedLifetime(try #require(store.image(for: "p1"))) { _ in
+            #expect(store.memoryUsage == MemoryUsage(footprintBytes: Self.pictureBytes, volatileBytes: 2 * Self.pictureBytes, entries: 3))
+        }
+        #expect(store.memoryUsage == MemoryUsage(footprintBytes: 0, volatileBytes: 3 * Self.pictureBytes, entries: 3))
     }
 }
 
