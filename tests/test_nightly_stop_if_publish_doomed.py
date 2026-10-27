@@ -50,9 +50,25 @@ def descendants(job: str) -> set[str]:
     return {j for j in JOBS if job in ancestors(j)}
 
 
+def hard_ancestors(job: str) -> set[str]:
+    # Like ancestors(), but skips a need its job reads only as a fallback
+    # (`needs.X.result != 'success'`): that need failing is what lets the job run.
+    seen, stack = set(), [job]
+    while stack:
+        child = stack.pop()
+        condition = str(JOBS[child].get("if", ""))
+        for parent in needs(child):
+            if f"needs.{parent}.result != 'success'" in condition:
+                continue
+            if parent not in seen:
+                seen.add(parent)
+                stack.append(parent)
+    return seen
+
+
 def derived_peers() -> set[str]:
     app = "build-nightly-app"
-    path = ancestors("build-sign-notarize-nightly") & ancestors("publish-nightly")
+    path = hard_ancestors("build-sign-notarize-nightly") & ancestors("publish-nightly")
     return {j for j in path if j != app and j not in ancestors(app) and j not in descendants(app)}
 
 
