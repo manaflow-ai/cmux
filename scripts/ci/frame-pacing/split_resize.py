@@ -130,8 +130,8 @@ def drive(driver, out: Path, strip: bool = False) -> None:
             driver.call("debug.mouse", {"action": "drag", "x": at, "y": y, "to_x": at, "to_y": y, "steps": 1,
                                         "press": False, "release": False})
             time.sleep(1 / 120)
-            if step % 12 == 0:
-                path = out / f"strip-{step // 12:02d}.png"
+            if step % STRIP_EVERY == 0:
+                path = out / f"strip-{step // STRIP_EVERY:02d}.png"
                 shots.append({"step": step, "path": path.name,
                               "result": driver.call("debug.window_snapshot", {"kind": "main", "path": str(path)}, timeout=20)})
         driver.call("debug.mouse", {"action": "up", "x": x - 200, "y": y})
@@ -140,6 +140,10 @@ def drive(driver, out: Path, strip: bool = False) -> None:
         shots.append({"step": "landed", "path": path.name,
                       "result": driver.call("debug.window_snapshot", {"kind": "main", "path": str(path)}, timeout=20)})
     driver.save("split_resize", {"drags": drags, "split": split, "opened": opened, "strip": shots})
+
+
+# The recording drag: a window snapshot every this many of its 96 moves (16 frames, then one after it landed).
+STRIP_EVERY = 6
 
 
 def judge_drag(trace: dict, refresh: float) -> dict:
@@ -180,7 +184,8 @@ def judge_drag(trace: dict, refresh: float) -> dict:
             hit = next((t for t, w in page if t >= wall - refresh / 2 and abs(w - width) <= 0.5), None)
             if hit is not None:
                 layout_lags.append(max(0.0, (hit - wall) / refresh))
-        for (_, width), wall in zip(area, walls):
+        # Only the frames the divider moved in, the same frames `moving_frames` counts.
+        for (_, width), wall in zip(area[first:last], walls[first:last]):
             shown = [w for t, w in page if t <= wall + refresh / 2]
             if shown and abs(shown[-1] - width) > 0.5:
                 stale += 1
@@ -192,6 +197,8 @@ def judge_drag(trace: dict, refresh: float) -> dict:
             settle_ms = round(max(0.0, settled - walls[last]), 1) if settled is not None else None
     intervals = [b - a for a, b in zip(times[first:last + 1], times[first + 1:last + 1])]
     dropped = sum(max(0, round(interval / refresh) - 1) for interval in intervals if interval > 1.5 * refresh)
+    # The longest the app went without a display frame while the divider moved (a held commit shows here).
+    worst_stall_ms = round(max(intervals), 1) if intervals else None
     page_times = [t for t, _ in page if walls[first] <= t <= walls[last] + refresh] if moving else []
     page_dropped = sum(max(0, round((b - a) / refresh) - 1) for a, b in zip(page_times, page_times[1:])
                        if b - a > 1.5 * refresh)
@@ -217,6 +224,7 @@ def judge_drag(trace: dict, refresh: float) -> dict:
         "settle_ms": settle_ms,
         "gap_frames": gap_frames,
         "dropped": dropped,
+        "worst_stall_ms": worst_stall_ms,
         "page_dropped": page_dropped,
         "page_frames": len(page),
         # The host's widths over the drag: one value when it held its size.
@@ -233,9 +241,9 @@ def judge(data: dict, refresh: float) -> dict:
                 "note": "not measured: " + (data.get("error") or "no drag with a divider and a Chromium host")}
     settles = [drag["settle_ms"] for drag in measured if drag["settle_ms"] is not None]
 
-    def worst(key: str, field: str):
-        """The largest `field` of `key` over the drags that measured it; None when none did."""
-        values = [drag[key][field] for drag in measured if drag.get(key)]
+    def worst(key: str, field: str | None):
+        """The largest `field` of `key` (or `key` itself, field None) over the drags that measured it; None when none did."""
+        values = [drag[key] if field is None else drag[key][field] for drag in measured if drag.get(key) is not None]
         return max(values) if values else None
 
     return {
@@ -257,6 +265,7 @@ def judge(data: dict, refresh: float) -> dict:
         "unmatched_page_window": sum(drag["unmatched_page_window"] for drag in measured),
         "gap_frames": sum(drag["gap_frames"] for drag in measured),
         "dropped": sum(drag["dropped"] for drag in measured),
+        "worst_stall_ms": worst("worst_stall_ms", None),
         "page_dropped": sum(drag["page_dropped"] for drag in measured),
     }
 
@@ -274,4 +283,4 @@ def markdown_row(verdict: dict) -> str:
             f"(p50/p95/max; p95 {shown(verdict['layout_lag_ms_p95'])} ms), stale in {verdict['stale_frames']} of "
             f"{verdict['moving_frames']} moving frames, {verdict['relayouts']} relayouts while moving, settled "
             f"≤{shown(verdict['settle_ms_max'])} ms after the last move; {verdict['dropped']} app and {verdict['page_dropped']} "
-            "page frames dropped (reported only) |")
+            f"page frames dropped, worst app frame {shown(verdict.get('worst_stall_ms'))} ms (reported only) |")
