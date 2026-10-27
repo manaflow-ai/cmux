@@ -11,7 +11,15 @@ const runtime: CloudRuntimeRow = {
   journalSessionId: "session_00000000000000000000000000000001",
   machineId: "00000000-0000-4000-8000-000000000002",
   placementGeneration: 7,
+  runtimeKind: "persistent",
+  lifecycleState: "running",
+  leaseToken: null,
+  leaseGeneration: 0,
+  leaseExpiresAt: null,
+  idempotencyKey: null,
   createdAt: new Date("2026-09-21T00:00:00Z"),
+  updatedAt: new Date("2026-09-21T00:00:00Z"),
+  releasedAt: null,
 };
 const placement = { runtimeId: runtime.id, machineId: runtime.machineId!, generation: 7 };
 const machine = (status: "running" | "paused" | "provisioning" | "failed" | "destroyed") =>

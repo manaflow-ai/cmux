@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { getTableConfig, type PgEnum, type PgTable } from "drizzle-orm/pg-core";
+import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 import {
   cloudRuntimeKind, cloudRuntimeLifecycle, cloudRuntimes, cloudRuntimeWorkspaces, runArtifacts, runAttachTickets,
   runAttemptStatus, runAttempts, runEventKind, runEvents, runs, runStatus, vmProvider,
@@ -62,7 +62,7 @@ const nextEnums: Record<string, string[]> = {
 };
 // web/db/schema.ts declares the union of main's and next's Run model.
 const schemaTables: PgTable[] = [runs, runAttempts, runEvents, runArtifacts, runAttachTickets, cloudRuntimes, cloudRuntimeWorkspaces];
-const schemaEnums: PgEnum<[string, ...string[]]>[] = [runStatus, runAttemptStatus, runEventKind, vmProvider, cloudRuntimeKind, cloudRuntimeLifecycle];
+const schemaEnums: ReadonlyArray<{ readonly enumName: string; readonly enumValues: readonly string[] }> = [runStatus, runAttemptStatus, runEventKind, vmProvider, cloudRuntimeKind, cloudRuntimeLifecycle];
 const rowTables = ["runs", "run_attempts", "run_events", "run_artifacts", "run_attach_tickets", "cloud_runtimes"];
 
 const scratchRoot = mkdtempSync(path.join(tmpdir(), "cmux-run-model-migrations-"));
