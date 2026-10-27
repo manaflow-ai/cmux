@@ -498,7 +498,7 @@ Gives each Claude Code pane the reasoning effort its workspace's priority asks f
 
 - `enabled`: default `false`. Toggle it from **Settings > Automation > Prioritize Claude Sessions by Sidebar Order**.
 - `urgentCount`: default `3`. Per window, the top `urgentCount` workspaces that run Claude (pinned workspaces first) are **urgent**; every other Claude workspace is **slow**.
-- `matrix`: the effort (`low`, `medium`, `high`, `xhigh` or `max`) and optional `model` for each tier and difficulty. Empty (the default) uses the shipped matrix below. A matrix you set replaces it, and a cell you leave out is not adjusted, so list every cell you want.
+- `matrix`: the effort (`low`, `medium`, `high`, `xhigh` or `max`) and optional `model` for each tier and difficulty. Empty (the default) uses the shipped matrix below. Cells you leave out keep the shipped defaults. A cell you write replaces that whole cell, so give both `effort` and `model` when you want both. `{}` turns adjustment off for that cell.
 
 Shipped matrix (no model cells):
 

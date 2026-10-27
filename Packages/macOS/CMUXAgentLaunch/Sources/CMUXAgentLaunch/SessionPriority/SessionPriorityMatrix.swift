@@ -29,12 +29,13 @@ public struct SessionPriorityMatrix: Equatable, Sendable {
         self.cells = cells
     }
 
-    /// Decodes and validates a matrix document. Unknown keys at any level are rejected.
+    /// Decodes and validates a matrix document over `shippedDefault`. A cell you write replaces that
+    /// whole cell (`{}` means not adjusted); cells you leave out keep the default. Unknown keys are rejected.
     public init(json: Data) throws {
         guard let root = (try? JSONSerialization.jsonObject(with: json)) as? [String: Any] else {
             throw SessionPriorityMatrixError.notAnObject(path: "")
         }
-        var parsed: [SessionPriorityTier: [ClaudeSessionDifficulty: SessionPriorityTarget]] = [:]
+        var parsed = Self.shippedDefault.cells
         for (tierKey, tierValue) in root {
             guard let tier = SessionPriorityTier(rawValue: tierKey) else {
                 throw SessionPriorityMatrixError.unknownKey(path: tierKey)
@@ -51,7 +52,7 @@ public struct SessionPriorityMatrix: Equatable, Sendable {
                     throw SessionPriorityMatrixError.notAnObject(path: path)
                 }
                 let target = try Self.target(fromCell: cell, path: path)
-                if !target.isEmpty { parsed[tier, default: [:]][difficulty] = target }
+                parsed[tier, default: [:]][difficulty] = target
             }
         }
         self.cells = parsed
@@ -87,18 +88,18 @@ public struct SessionPriorityMatrix: Equatable, Sendable {
         (try? SessionPriorityMatrix(json: Data(s.utf8))) ?? .shippedDefault
     }
 
-    /// Sorted-key, whitespace-free JSON containing only cells that have a value.
+    /// Sorted-key, whitespace-free JSON containing all six cells; an empty cell is `{}`.
     public func canonicalJSONString() -> String {
         var root: [String: Any] = [:]
         for (tier, row) in cells {
             var tierObject: [String: Any] = [:]
-            for (difficulty, target) in row where !target.isEmpty {
+            for (difficulty, target) in row {
                 var cell: [String: Any] = [:]
                 if let effort = target.effort { cell["effort"] = effort.rawValue }
                 if let model = target.model { cell["model"] = model }
                 tierObject[difficulty.rawValue] = cell
             }
-            if !tierObject.isEmpty { root[tier.rawValue] = tierObject }
+            root[tier.rawValue] = tierObject
         }
         guard let data = try? JSONSerialization.data(withJSONObject: root, options: [.sortedKeys]),
               let string = String(data: data, encoding: .utf8) else { return "{}" }

@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxCore
 import Darwin
 import AppKit
@@ -1303,7 +1304,10 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
         XCTAssertEqual(defaults.object(forKey: keys[0]) as? Bool, true)
         XCTAssertEqual(defaults.object(forKey: keys[1]) as? Int, 2)
-        XCTAssertEqual(defaults.string(forKey: keys[2]), #"{"slow":{"hard":{"effort":"high"}}}"#)
+        let stored = try XCTUnwrap(defaults.string(forKey: keys[2]))
+        let matrix = SessionPriorityMatrix.fromStoredString(stored)
+        XCTAssertEqual(matrix.target(tier: .slow, difficulty: .hard).effort, .high)
+        XCTAssertEqual(matrix.target(tier: .urgent, difficulty: .normal).effort, .high)
     }
 
     func testSettingsFileStoreRejectsNegativeSessionPriorityUrgentCount() throws {
