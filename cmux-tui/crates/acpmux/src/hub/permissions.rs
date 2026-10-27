@@ -167,7 +167,8 @@ impl Hub {
                 }
             }
             "tool_call" | "tool_call_update" => {
-                super::pull_requests::absorb(session, update, &mut m)
+                super::pull_requests::absorb(session, update, &mut m);
+                super::lineage::note_tool_call(session, update);
             }
             "usage_update" => m.usage = Some(update.clone()),
             "available_commands_update" => m.available_commands = Some(update.clone()),
@@ -797,8 +798,32 @@ impl Hub {
         answerer: super::person::Answerer<'_>,
         control: Control,
     ) -> Result<(), RpcError> {
-        // Checked again here, at the answer, not only in the remote guard.
-        self.web_control_check(session, control)?;
+        // The Web's asking rule, checked here at the answer, where its option
+        // and proof are known (`Hub::web_answer_check`); the prompt's own
+        // checks below run again under its lock.
+        if control == Control::Web {
+            let (narrows, proved) = {
+                let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+                state.pending.get(permission_id).map_or((false, false), |p| {
+                    let options = p.request["options"].as_array().map_or(&[][..], Vec::as_slice);
+                    let narrows = option_id.as_deref().is_none_or(|o| {
+                        matches!(option_kind(options, o), Some("reject_once" | "reject_always"))
+                    });
+                    let (proved, signed) = self.answer_proof(
+                        session,
+                        permission_id,
+                        p,
+                        option_id.as_deref(),
+                        answers.as_ref(),
+                        annotations.as_ref(),
+                        answered_by.is_some(),
+                        &answerer,
+                    );
+                    (narrows, proved || signed)
+                })
+            };
+            self.web_answer_check(session, control, narrows, proved)?;
+        }
         let cfg = self.config.read().await;
         let (pending, answered_by, annotations) = {
             let mut guard = session.permissions.lock().unwrap();
@@ -908,46 +933,33 @@ impl Hub {
                     return Err(super::person::person_required("annotations"));
                 }
                 if needs_proof {
-                    let proved = match (&option_id, answerer.decision) {
-                        (Some(o), Some((nonce, proof))) => {
-                            cmux_local_auth::tokens_match(nonce, &p.decision_nonce)
-                                && self.person.decision_proves(
-                                    &session.id,
-                                    permission_id,
-                                    o,
-                                    nonce,
-                                    answers.as_ref(),
-                                    annotations.as_ref(),
-                                    proof,
-                                )
-                        }
-                        _ => false,
-                    };
-                    // A phone's signed allow or answer (`approvers.rs`): it
-                    // covers the answers, never `answeredBy` or annotations.
-                    let signed = !proved
-                        && answered_by.is_none()
-                        && annotations.is_none()
-                        && match (&option_id, answerer.approver) {
-                            (Some(o), Some((nonce, decision))) => {
-                                cmux_local_auth::tokens_match(nonce, &p.decision_nonce)
-                                    && self.person.approver_proves(
-                                        &session.id,
-                                        permission_id,
-                                        o,
-                                        nonce,
-                                        answers.as_ref(),
-                                        decision,
-                                    )
-                            }
-                            _ => false,
-                        };
+                    let (proved, signed) = self.answer_proof(
+                        session,
+                        permission_id,
+                        p,
+                        option_id.as_deref(),
+                        answers.as_ref(),
+                        annotations.as_ref(),
+                        answered_by.is_some(),
+                        &answerer,
+                    );
+                    // A phone's signature counts only while its phone is still enrolled, checked
+                    // again as the nonce is spent (`approver_spends`: lock order there).
                     let spent = (proved
                         && answerer.decision.is_some_and(|(n, _)| self.person.spend_decision(n)))
                         || (signed
-                            && answerer
-                                .approver
-                                .is_some_and(|(n, _)| self.person.spend_decision(n)));
+                            && option_id.as_deref().zip(answerer.approver).is_some_and(
+                                |(o, (n, d))| {
+                                    self.person.approver_spends(
+                                        &session.id,
+                                        permission_id,
+                                        o,
+                                        n,
+                                        answers.as_ref(),
+                                        d,
+                                    )
+                                },
+                            ));
                     if !spent {
                         return Err(super::person::person_required("allowing a permission"));
                     }
@@ -1040,6 +1052,60 @@ fn full_access_allow(session: &Session, request: &Value) -> Option<(String, Stri
 }
 
 /// The kind of the offered option `id`.
+impl Hub {
+    /// Whether `answerer`'s answer `option` to the pending prompt `p` carries
+    /// the person's decision proof (`.0`), or else an enrolled approver's
+    /// signature (`.1`, `approvers.rs`: it covers the answers, never
+    /// `answeredBy` or annotations), that counts now. Nothing is spent: the answer that
+    /// counts spends the nonce under the prompt's lock.
+    #[allow(clippy::too_many_arguments)]
+    fn answer_proof(
+        &self,
+        session: &Session,
+        permission_id: &str,
+        p: &PendingPermission,
+        option: Option<&str>,
+        answers: Option<&Value>,
+        annotations: Option<&Value>,
+        answered_by: bool,
+        answerer: &super::person::Answerer<'_>,
+    ) -> (bool, bool) {
+        let proved = match (option, answerer.decision) {
+            (Some(o), Some((nonce, proof))) => {
+                cmux_local_auth::tokens_match(nonce, &p.decision_nonce)
+                    && self.person.decision_proves(
+                        &session.id,
+                        permission_id,
+                        o,
+                        nonce,
+                        answers,
+                        annotations,
+                        proof,
+                    )
+            }
+            _ => false,
+        };
+        let signed = !proved
+            && !answered_by
+            && annotations.is_none()
+            && match (option, answerer.approver) {
+                (Some(o), Some((nonce, decision))) => {
+                    cmux_local_auth::tokens_match(nonce, &p.decision_nonce)
+                        && self.person.approver_proves(
+                            &session.id,
+                            permission_id,
+                            o,
+                            nonce,
+                            answers,
+                            decision,
+                        )
+                }
+                _ => false,
+            };
+        (proved, signed)
+    }
+}
+
 fn option_kind<'a>(options: &'a [Value], id: &str) -> Option<&'a str> {
     options
         .iter()

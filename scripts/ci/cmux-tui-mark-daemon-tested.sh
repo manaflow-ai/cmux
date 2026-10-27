@@ -5,7 +5,10 @@
 #
 # Usage: cmux-tui-mark-daemon-tested.sh <key> [<legacy key>]
 # Env: R2_ENDPOINT and the R2 AWS_* credentials; GITHUB_SHA, GITHUB_RUN_ID,
-# GITHUB_SERVER_URL and GITHUB_REPOSITORY (the run that tested the tree).
+# GITHUB_SERVER_URL and GITHUB_REPOSITORY (the run that tested the tree);
+# TESTED_OS, the runner OS the tests passed on (Linux since 2026-10-26),
+# recorded as "os" when set. request-nightly-next.sh reads only that the
+# marker exists, so the extra field changes no reader.
 # Caller: cmux-tui-artifacts.yml publish-tree-tested, after the run's daemon
 # tests of this key passed. The publisher (publish-tree)
 # publishes without the marker and never write it (cx-y0nf2).
@@ -27,13 +30,16 @@ mark() { # <key>
   fi
   python3 - "$key" > "$tmp/daemon-tests.json" <<'PY'
 import json, os, sys
-print(json.dumps({
+marker = {
     "key": sys.argv[1],
     "commit": os.environ["GITHUB_SHA"],
     "run": os.environ["GITHUB_RUN_ID"],
     "runUrl": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
     "result": "success",
-}, indent=2))
+}
+if os.environ.get("TESTED_OS"):
+    marker["os"] = os.environ["TESTED_OS"]
+print(json.dumps(marker, indent=2))
 PY
   if ! python3 "$script_dir/upload-r2-object.py" --file "$tmp/daemon-tests.json" --endpoint-url "$R2_ENDPOINT" \
       --bucket cmux-binaries --key "cmux-tui/tree/$key/daemon-tests.json" \

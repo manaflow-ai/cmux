@@ -19,6 +19,7 @@ import tempfile
 import unittest
 
 import yaml
+from nightly_workflow_text import nightly_text
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -235,7 +236,7 @@ class CheckManifestTests(unittest.TestCase):
 
 
 def workflow() -> dict:
-    return yaml.safe_load(WORKFLOW.read_text())
+    return yaml.safe_load(nightly_text())
 
 
 def step(job: dict, name: str) -> dict:

@@ -30,6 +30,7 @@ impl Hub {
             starter,
             route,
             subsession,
+            lineage,
             disallowed_tools,
             checked_cwd,
         } = req;
@@ -151,6 +152,7 @@ impl Hub {
             (session_env, chat_store, adopted_cwd, git.branch, git.head);
         meta.workspace_id = workspace_id;
         meta.subsession = subsession;
+        meta.lineage = lineage;
         meta.tools
             .off
             .extend(disallowed_tools.iter().map(|t| format!("{}{t}", super::tools::BUILT_IN)));
