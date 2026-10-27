@@ -36,6 +36,8 @@ final class CloudMachineCreation: Identifiable {
     /// removal (the workspace is mirrored) cancels ``task`` and must not end this wait. It ends with its
     /// bound, a new start (Retry), ``tearDown()`` or the creation's release (it holds the creation weakly).
     @ObservationIgnored private(set) var completionTask: Task<Void, Never>?
+    /// ``tearDown()`` ran: a start that returns after it (its flow was cancelled mid-start) starts no wait.
+    @ObservationIgnored private(set) var isTornDown = false
     /// How the requested machine config's apply started (``CloudMachineRequest/machineConfig``).
     private(set) var machineConfig: CloudMachineBootstrap.Outcome?
     /// The flow's work for this creation; cancelled on dismiss and retry.
@@ -98,6 +100,7 @@ final class CloudMachineCreation: Identifiable {
     func awaitBootstrapCompletion(_ outcome: CloudMachineBootstrap.Outcome,
                                   wait: @escaping @Sendable () async -> CloudMachineBootstrap.Completion) {
         completionTask?.cancel()
+        guard !isTornDown else { return }
         bootstrapCompletion = nil
         guard outcome.status != "failed" else {
             bootstrapCompletion = .failed(reason: CloudStrings.bootstrapStartFailed(outcome.reason ?? ""))
@@ -114,6 +117,7 @@ final class CloudMachineCreation: Identifiable {
     /// The creation ends for good (dismissed, or its machine deleted): its work stops, the
     /// bootstrap wait too.
     func tearDown() {
+        isTornDown = true
         task?.cancel()
         completionTask?.cancel()
     }
@@ -328,5 +332,27 @@ struct CloudCreationFlow {
         let store = session.daemon.store
         for await known in ObservationStream({ store.workspaces.contains { $0.id == id } }) where known { return true }
         return false
+    }
+}
+
+extension CloudMachineBootstrap {
+    /// The end of the run a start began, in words a person reads: the New Cloud Workspace wizard opens
+    /// its project at `finished`'s `repoPath`, or shows `failed`'s reason. Blocks on the machine's runner
+    /// (``waitForRun(on:bound:)``), never on a timer.
+    func waitForCompletion(on machine: Machine) async -> Completion {
+        Self.completion(await waitForRun(on: machine))
+    }
+
+    static func completion(_ run: Run) -> Completion {
+        switch run {
+        case let .finished(repoPath): .finished(repoPath: repoPath)
+        case let .needsGitHub(repo): .failed(reason: CloudStrings.bootstrapNeedsGitHub(repo))
+        case let .repoFailed(repo): .failed(reason: CloudStrings.bootstrapRepoFailed(repo, log: logPath))
+        case let .scriptFailed(code): .failed(reason: CloudStrings.bootstrapScriptFailed(code, log: logPath))
+        case .runnerNeverCame: .failed(reason: CloudStrings.bootstrapRunnerNeverCame)
+        case .stopped: .failed(reason: CloudStrings.bootstrapStopped(log: logPath))
+        case .stillRunning: .failed(reason: CloudStrings.bootstrapStillRunning(log: logPath))
+        case let .unreachable(error): .failed(reason: CloudStrings.bootstrapUnreachable(error))
+        }
     }
 }

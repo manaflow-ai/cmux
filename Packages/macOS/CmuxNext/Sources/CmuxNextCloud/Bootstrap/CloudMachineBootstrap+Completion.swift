@@ -36,16 +36,19 @@ extension CloudMachineBootstrap {
     public static let completionLockWait = 15
 
     /// One read: waits (`flock -s -w`) while a runner holds `alive`, which it holds for its whole life and the
-    /// kernel drops however it ends, then prints whether the lock was free, the machine's clock and
-    /// ``statusPath``. A shared lock taken and let go at once, like the applier's probe: a runner about to take
-    /// it waits a moment at most. Only a start whose runner has not taken over yet (`starting`, normally a few
-    /// milliseconds) has no lock to wait on: that read waits one second before it answers, and the next read
-    /// comes after it, so a runner that never comes costs one read a second until its minute is up.
+    /// kernel drops however it ends, and reads ``statusPath`` while it holds the lock shared, so a runner can't
+    /// take over between the two (a runner writes its status only while it holds `alive`). It prints whether
+    /// the lock was `free`, `held` (the wait ran out: read again) or `none` (no runner made it yet), the
+    /// machine's clock, and the status. The lock is let go at once, like the applier's probe: a runner about to
+    /// take it waits a moment at most. Only a start whose runner has not taken over yet (`starting`, normally a
+    /// few milliseconds) has no lock to wait on: that read waits one second first, so a runner that never comes
+    /// costs one read a second until its minute is up.
     public static var waitCommand: String { [
         "set -u", "d=\(directory)", "u=\(user)", #"h=$(getent passwd "$u" | cut -d: -f6)"#, noSymlinks,
-        #"w=free; if [ -f "$d/alive" ] && [ ! -L "$d/alive" ] && exec 8<"$d/alive"; then flock -s -w \#(completionLockWait) 8 || w=held; exec 8<&-; fi"#,
-        #"if [ "$w" = free ] && grep -q '"state":"starting"' "$d/status.json" 2>/dev/null; then sleep 1; fi"#,
-        #"printf 'cmux-wait %s %s\n' "$w" "$(date +%s)"; cat "$d/status.json" 2>/dev/null || true"#,
+        #"if grep -q '"state":"starting"' "$d/status.json" 2>/dev/null; then sleep 1; fi"#,
+        #"w=none; s=''"#,
+        #"if [ -f "$d/alive" ] && [ ! -L "$d/alive" ] && exec 8<"$d/alive"; then if flock -s -w \#(completionLockWait) 8; then w=free; s=$(cat "$d/status.json" 2>/dev/null || true); else w=held; fi; exec 8<&-; else s=$(cat "$d/status.json" 2>/dev/null || true); fi"#,
+        #"printf 'cmux-wait %s %s\n%s\n' "$w" "$(date +%s)" "$s""#,
     ].joined(separator: "; ") }
 
     /// One read's answer: the run's end, or read again (`wait`), or an answer that says nothing (`unreadable`).
@@ -57,11 +60,15 @@ extension CloudMachineBootstrap {
 
     /// Waits for the run a start began (`started`, `running` or `skipped`) to end: one ``waitCommand`` after
     /// another, each blocked on the runner's lock, until ``statusPath`` says the run ended or `bound` passes.
-    /// No read sleeps between runs of the lock. Three failed reads in a row end it as ``Run/unreachable(_:)``.
+    /// No read sleeps between runs of the lock. Three failed reads in a row end it as ``Run/unreachable(_:)``;
+    /// a cancelled wait ends as ``Run/stillRunning``. Every read that says read again takes at least a second
+    /// (a `starting` read waits one, a running one up to ``completionLockWait``), so one read a second of
+    /// `bound` is enough reads.
     public func waitForRun(on machine: Machine, bound: Duration = .seconds(3 * 3600)) async -> Run {
         let clock = ContinuousClock(), deadline = clock.now.advanced(by: bound)
         var failures = 0
-        while !Task.isCancelled {
+        for _ in 0...max(0, bound.components.seconds) {
+            guard !Task.isCancelled else { break }
             var last = ""
             do {
                 switch Self.read(try await machine.exec(Self.waitCommand), repo: repo) {
@@ -87,7 +94,8 @@ extension CloudMachineBootstrap {
         let head = lines[first].split(separator: " ")
         lines.removeSubrange(...first)
         guard head.count == 3, let now = Int(head[2]) else { return .unreadable }
-        if head[1] == "held" { return .wait }
+        let lock = head[1]
+        if lock == "held" { return .wait }
         let text = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
         // No status at all: no start ever got as far as `starting` here.
         if text.isEmpty { return .ended(.runnerNeverCame) }
@@ -112,8 +120,9 @@ extension CloudMachineBootstrap {
             if code == 75, cloned == nil { return .ended(.runnerNeverCame) }
             return .ended(.scriptFailed(exitCode: code ?? -1))
         case "running":
-            // `alive` was free: the runner that wrote `running` is gone.
-            return .ended(.stopped)
+            // Read under a free `alive`: the runner that wrote `running` is gone. Without an `alive` the read
+            // raced the runner making it (the next read sees it); counted as a failed read, so it never spins.
+            return lock == "free" ? .ended(.stopped) : .unreadable
         case "starting":
             let at = status["at"] as? Int ?? now
             return now - at >= 60 ? .ended(.runnerNeverCame) : .wait

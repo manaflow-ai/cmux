@@ -72,7 +72,10 @@ extension CloudMachineRepoTests {
         #expect(await run(withRepo, [.success(Self.answer(Self.status("failed", "75")))]).0 == .runnerNeverCame, "the runner came a minute late")
         #expect(await run(withRepo, [.success(Self.answer(Self.status("starting", at: 1000), now: 1100))]).0 == .runnerNeverCame)
         #expect(await run(withRepo, [.success(Self.answer(nil))]).0 == .runnerNeverCame, "no status at all")
-        #expect(await run(withRepo, [.success(Self.answer(Self.status("running")))]).0 == .stopped, "`running` with its lock free")
+        #expect(await run(withRepo, [.success(Self.answer(Self.status("running")))]).0 == .stopped, "`running` read under a free lock")
+        // `running` with no `alive` yet raced the runner making it: read again, and the next read sees the run.
+        #expect(await run(withRepo, [.success(Self.answer(Self.status("running"), lock: "none")),
+                                     .success(Self.answer(Self.status("done", "0", repo: Self.repoStatus("cloned"))))]) == (Run.finished(repoPath: Self.clone), 2))
     }
 
     @Test func aSkippedStartReadsTheEarlierRunAtOnce() async {
@@ -96,9 +99,12 @@ extension CloudMachineRepoTests {
         #expect(CloudMachineBootstrap.completion(.stillRunning) == .failed(reason: CloudStrings.bootstrapStillRunning(log: CloudMachineBootstrap.logPath)))
     }
 
-    @Test func theReadBlocksOnTheRunnersLockAndNeverLoopsOnTheMachine() {
+    @Test func theReadBlocksOnTheRunnersLockAndNeverLoopsOnTheMachine() throws {
         let command = CloudMachineBootstrap.waitCommand
-        #expect(command.contains(#"exec 8<"$d/alive"; then flock -s -w 15 8 || w=held"#), "a shared wait on the lock the runner holds for its life")
+        #expect(command.contains(#"exec 8<"$d/alive"; then if flock -s -w 15 8; then w=free; s=$(cat "$d/status.json""#),
+                "a shared wait on the lock the runner holds for its life, and the status read while holding it")
+        let starting = try #require(command.range(of: "then sleep 1; fi")), locked = try #require(command.range(of: "flock -s"))
+        #expect(starting.upperBound < locked.lowerBound, "a `starting` read waits before it takes the lock, never between the lock and the status")
         #expect(!command.contains("while") && !command.contains("until"))
         #expect(CloudMachineBootstrap.runner.contains("exec 8>\"$d/alive\"\nflock 8\n"))
     }
@@ -189,6 +195,18 @@ extension CloudMachineRepoTests {
         fake.answer(Self.answer(Self.status("running"), lock: "held"))
         await creation.completionTask?.value
         #expect(fake.readCount == 1)
+        #expect(creation.bootstrapCompletion == nil)
+    }
+
+    @MainActor @Test func aStartThatReturnsAfterTheTearDownStartsNoWait() {
+        // The flow was cancelled while `start` was out on the machine; its outcome comes back afterwards.
+        let creation = CloudMachineCreation(windowID: nil)
+        creation.tearDown()
+        creation.awaitBootstrapCompletion(CloudMachineBootstrap.Outcome(status: "started")) {
+            Issue.record("a torn-down creation reads nothing")
+            return .finished(repoPath: nil)
+        }
+        #expect(creation.completionTask == nil)
         #expect(creation.bootstrapCompletion == nil)
     }
 
