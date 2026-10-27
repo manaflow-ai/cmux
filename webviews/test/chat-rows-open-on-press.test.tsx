@@ -260,7 +260,7 @@ test("Enter and Escape still operate on a focused selected chat row", async () =
     await release(allChatsRow(title), { metaKey: true });
   }
   const escape = new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Escape" });
-  allChatsRow("Retry uploads").dispatchEvent(escape);
+  await act(async () => allChatsRow("Retry uploads").dispatchEvent(escape));
   expect(escape.defaultPrevented).toBe(true);
   expect(host.querySelectorAll(".nt-all-row[data-selected]")).toHaveLength(0);
 });
