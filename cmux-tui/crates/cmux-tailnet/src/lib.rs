@@ -1,13 +1,3 @@
-//! This cmux install as its own device on the user's tailnet.
-//!
-//! The node is Tailscale's own tsnet, linked as libtailscale (BSD-3-Clause),
-//! so a machine needs no Tailscale app: the node signs in once (a browser
-//! link, or a one-time auth key for headless hosts), keeps its login in
-//! `state_dir`, and gets a MagicDNS name such as
-//! `cmux-studio.<tailnet>.ts.net`.
-//!
-//! What this crate gives the rest of cmux:
-//! - [`Node`]: start, sign-in state as events ([`Node::watch`], no polling),
 //!   TCP listen and dial on the tailnet, and WhoIs for a peer address;
 //! - [`Access`]: who may connect (default: the node's owner only), checked
 //!   on the WhoIs answer before any application byte is read.
