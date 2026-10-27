@@ -38,6 +38,7 @@ struct TraceRuntimeContractTests {
     func sharedByteValues() {
         let roles: [(TraceRuntime.Role, UInt16)] = [
             (.app, 1), (.daemon, 2), (.holder, 3), (.terminalHost, 4), (.acpmux, 5), (.chromiumHost, 6), (.cli, 7),
+            (.agentHost, 8), (.appHost, 9), (.browserHost, 10),
         ]
         for (role, raw) in roles { #expect(role.rawValue == raw, "\(role)") }
         #expect(TraceRuntime.Role.allCases.count == roles.count)
