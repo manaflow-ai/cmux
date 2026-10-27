@@ -36,8 +36,10 @@ struct CloudCodexBrokerTests {
     @Test func scheduledRenewalFansOutToRegisteredTargets() async throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let fake = root.appendingPathComponent("broker.sh")
-        try #"""#!/bin/sh
+        try #"""
+#!/bin/sh
 count=0
 while IFS= read -r line; do
   id=$(printf '%s' "$line" | sed -E 's/.*"id":([0-9]+).*/\1/')
@@ -67,8 +69,10 @@ done
     @Test func deliversAccessOnlyGrantAndRestoresPriorModeOnRevoke() async throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let fake = root.appendingPathComponent("broker.sh")
-        try #"""#!/bin/sh
+        try #"""
+#!/bin/sh
 while IFS= read -r line; do
   id=$(printf '%s' "$line" | sed -E 's/.*"id":([0-9]+).*/\1/')
   if printf '%s' "$line" | grep -q '"method":"access"'; then

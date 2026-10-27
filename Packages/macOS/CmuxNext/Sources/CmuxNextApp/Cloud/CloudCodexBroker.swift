@@ -199,6 +199,8 @@ public actor CloudCodexBroker {
     private var loadedPreviousMode: Set<String> = []
     private var targets: [String: CloudCodexBrokerTarget] = [:]
     private var targetGenerations: [String: Int] = [:]
+    private var targetLocks: Set<String> = []
+    private var targetWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var refreshTask: Task<Void, Never>?
     private var refreshInFlight: Task<CloudCodexAccessGrant, Error>?
 
@@ -300,8 +302,10 @@ public actor CloudCodexBroker {
         try await validate(target: target, confirmed: true, requireLive: false)
         targets.removeValue(forKey: target.machineID)
         targetGenerations[target.machineID, default: 0] += 1
-        // A paused VM must not be woken merely to revoke. Its bridge will reject
-        // the old file on its next start; a live VM is erased immediately below.
+        await lockTarget(target.machineID)
+        defer { unlockTarget(target.machineID) }
+        // Stop renewal without waking a paused VM. Its last access token remains
+        // usable until provider expiry; file removal requires an online VM.
         guard (try? await target.isLive()) == true else {
             loadedPreviousMode.remove(target.machineID)
             previousModeByMachine.removeValue(forKey: target.machineID)
@@ -371,6 +375,8 @@ public actor CloudCodexBroker {
     }
 
     private func deliver(_ grant: CloudCodexAccessGrant, target: CloudCodexBrokerTarget) async throws {
+        await lockTarget(target.machineID)
+        defer { unlockTarget(target.machineID) }
         guard targets[target.machineID] != nil else { throw CloudCodexBrokerError.cancelled }
         let generation = targetGenerations[target.machineID, default: 0]
         let object: [String: Any] = [
@@ -417,6 +423,22 @@ public actor CloudCodexBroker {
             try? await target.removeFile(stageAccess)
             try? await target.removeFile(stageMode)
             throw CloudCodexBrokerError.remoteDeliveryFailed
+        }
+    }
+
+    private func lockTarget(_ machineID: String) async {
+        if targetLocks.insert(machineID).inserted { return }
+        await withCheckedContinuation { targetWaiters[machineID, default: []].append($0) }
+    }
+
+    private func unlockTarget(_ machineID: String) {
+        if var waiters = targetWaiters[machineID], !waiters.isEmpty {
+            let first = waiters.removeFirst()
+            targetWaiters[machineID] = waiters
+            first.resume()
+        } else {
+            targetLocks.remove(machineID)
+            targetWaiters.removeValue(forKey: machineID)
         }
     }
 
