@@ -6,6 +6,29 @@ public import Foundation
 /// before the `chief:<home id>` host existed record this Mac's host; this keeps them working
 /// with no record rewrite and no search of other daemons.
 public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
+    private actor ChiefSessionOwnershipCache {
+        let socket: String?
+        let home: URL?
+        let parentTag: String
+        var listing: [String: Any]?
+
+        init(socket: String?, home: URL?, parentTag: String) {
+            self.socket = socket
+            self.home = home
+            self.parentTag = parentTag
+        }
+
+        func owns(_ session: String) async -> Bool {
+            if let listing { return AcpmuxChiefSessionRouter.owns(listing, session: session, parentTag: parentTag) }
+            if let socket, FileManager.default.fileExists(atPath: socket),
+               let response = try? await AcpmuxStatusClient.sessions(socketPath: socket, deadline: .seconds(2)) {
+                listing = response.value
+                return AcpmuxChiefSessionRouter.owns(response.value, session: session, parentTag: parentTag)
+            }
+            return AcpmuxChiefSessionRouter.keeps(session: session, home: home)
+        }
+    }
+
     private let local: any AgentPaneHostProviding
     private let chief: any AgentPaneHostProviding
     private let chiefOwns: @Sendable (String) async -> Bool
@@ -28,12 +51,9 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
                 chiefEnvironment environment: AcpmuxEnvironment?, sessionsHome: URL? = nil, parentTag: String) {
         let socket = environment?.socketPath
         let kept = sessionsHome ?? environment?.home
+        let cache = ChiefSessionOwnershipCache(socket: socket, home: kept, parentTag: parentTag)
         self.init(local: local, chief: chief) { session in
-            if let socket, FileManager.default.fileExists(atPath: socket),
-               let listing = try? await AcpmuxStatusClient.sessions(socketPath: socket, deadline: .seconds(2)) {
-                return Self.owns(listing.value, session: session, parentTag: parentTag)
-            }
-            return Self.keeps(session: session, home: kept)
+            await cache.owns(session)
         }
     }
 
@@ -92,9 +112,13 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
 
     /// Each session warms in the acpmux that owns it (the chief's or this Mac's).
     public func warm(sessionIds: [String]) async throws {
+        var localSessions: [String] = []
+        var chiefSessions: [String] = []
         for session in sessionIds {
-            try await host(for: session).warm(sessionIds: [session])
+            if await chiefOwns(session) { chiefSessions.append(session) } else { localSessions.append(session) }
         }
+        if !localSessions.isEmpty { try await local.warm(sessionIds: localSessions) }
+        if !chiefSessions.isEmpty { try await chief.warm(sessionIds: chiefSessions) }
     }
 
     /// The folder of `sessionId` from the host that owns it (the chief's or

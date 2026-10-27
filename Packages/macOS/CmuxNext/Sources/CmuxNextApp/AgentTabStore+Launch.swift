@@ -122,7 +122,13 @@ extension AgentTabStore {
         launchResumeTask = Task { [weak self] in
             for await live in ObservationStream({ store.liveTabListRevision }) where live != nil {
                 guard !Task.isCancelled else { return }
-                if await self?.resumeChatsAtLaunch() == true { return }
+                for retry in 0..<3 {
+                    if await self?.resumeChatsAtLaunch() == true { return }
+                    guard !Task.isCancelled, retry < 2 else { return }
+                    // wakeup-allow: bounded launch recovery backoff for a daemon handoff; this
+                    // task is off the main thread and cancellation stops the retry before quit.
+                    try? await Task.sleep(for: .seconds(1 << retry))
+                }
             }
         }
     }
