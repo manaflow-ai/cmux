@@ -196,8 +196,8 @@ extension CloudHandlers {
                     windows.claim(workspaceID: id, in: state, select: false)
                 }
             },
-            // A person, the CLI or Chief asked for a machine cmux Pro would allow: the
-            // person sees one offer; Upgrade opens the refusal's checkout, else pricing.
+            // The person asked for a machine cmux Pro would allow: one offer; Upgrade opens the
+            // refusal's checkout, else pricing. The CLI or Chief gets the plan instead (`startedByPerson`).
             planRequired: { refusal in
                 // The dialog sells Pro only; a refusal that needs Max shows as the creation's failure,
                 // and a CLI or Chief caller gets its plan (`cloud.plan.required`) to offer a checkout.
@@ -212,7 +212,8 @@ extension CloudHandlers {
                     }
                 }
                 if shown { cloud.proOfferOpen = true }
-            }
+            },
+            startedByPerson: startedByPerson
         )
     }
 

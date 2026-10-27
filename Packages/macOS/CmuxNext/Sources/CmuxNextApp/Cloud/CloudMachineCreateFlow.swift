@@ -65,7 +65,8 @@ struct CloudMachineCreateFlow {
         case stillPending(request: String)
         /// A pending answer without its request id (a protocol break).
         case noApprovalRequest
-        /// The plan cannot create a machine; the upgrade card (for `reason`) was shown and nothing was created.
+        /// The plan cannot create a machine; nothing was created. A person's create showed the upgrade card
+        /// (for `reason`); an agent's shows none and reports the refusal.
         case upgradeRequired(CloudUpgradeReason)
     }
 

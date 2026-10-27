@@ -185,6 +185,9 @@ struct CloudCreationFlow {
     let show: @MainActor (String, CloudMachineCreation) -> Void
     /// A refusal a paid plan lifts (``CloudMachineCreation/proRefusal(_:)``): offers that plan.
     var planRequired: @MainActor (CloudMachineCreation.ProRefusal) -> Void = { _ in }
+    /// Whether a person's own gesture started the create: only then does a refusal reach
+    /// `planRequired` (an agent's or the CLI's create fails with the plan, which the caller offers).
+    var startedByPerson = false
 
     /// Starts a creation and, when a window asked, shows it there at once
     /// (before any await): the click focuses the new work, not the old one.
@@ -214,7 +217,7 @@ struct CloudCreationFlow {
     }
 
     private func run(_ creation: CloudMachineCreation) {
-        let create = create, open = open, show = show, creations = creations, planRequired = planRequired
+        let create = create, open = open, show = show, creations = creations, planRequired = planRequired, startedByPerson = startedByPerson
         // task-owner: the creation's one run; cancelled by retry, dismiss or machine removal
         creation.task = Task { @MainActor in
             do {
@@ -244,7 +247,7 @@ struct CloudCreationFlow {
             } catch {
                 guard !Task.isCancelled else { return }
                 creation.fail(error)
-                if let refusal = creation.planRefusal { planRequired(refusal) }
+                if let refusal = creation.planRefusal, startedByPerson { planRequired(refusal) }
             }
         }
     }
