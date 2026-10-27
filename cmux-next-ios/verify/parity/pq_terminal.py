@@ -68,8 +68,9 @@ def link(j, label):
     time.sleep(1.2)
     pq.shot(f"link-{label}-long-press")
     menu = [e.label for e in j.sim.find(kind="MenuItem")] + [e.label for e in j.sim.find(kind="Button") if e.label in ("Open Link", "Open in Safari", "Copy")]
-    # A tap elsewhere ends the selection (as iOS text does), then the tap on the link.
-    j.sim.tap(200, 150)
+    # A tap on empty rows ends the selection (as iOS text does; never the menu), then the
+    # tap on the link.
+    j.sim.tap(200, 500)
     time.sleep(1.0)
     tabs_before = len(t.ws_tabs(t.mac_workspace(name=name)))
     tapped = j.sim.tap(tap_x, y + h / 2)
@@ -87,10 +88,11 @@ def link(j, label):
         check(browser_tab() is None, "a browser tab opened on the base app")
         return {"menu": menu, "tabs_before": tabs_before, "tabs_after": tabs_after, "opened": False}
     tab, took = t.until(browser_tab, timeout=30, what="the Mac's browser tab at the link")
+    listed = time.time() - tapped
     pane_of = {tab_["surface"]: pane for pane, tab_ in t.ws_tabs(t.mac_workspace(name=name))}
     time.sleep(4)
     pq.shot(f"link-{label}-after-tap")
-    return {"menu": menu, "opened_s": round(time.time() - tapped, 1), "url": tab.get("url"),
+    return {"menu": menu, "mac_listed_s": round(listed, 1), "url": tab.get("url"),
             "same_pane_as_terminal": pane_of.get(tab["surface"]) == pane_of.get(surface),
             "tabs_before": tabs_before, "tabs_after": len(pane_of)}
 
@@ -112,7 +114,7 @@ def find(j, label):
     row = j.sim.find(label="Find…", kind="Button")
     if label == "before":
         check(not row, "the base app has Find…")
-        j.sim.tap(200, 150)
+        j.sim.tap(200, 500)
         return {"page_menu": items, "find": False}
     check(row, f"no Find… in the page menu: {items[:24]}")
     j.sim.tap_el(row[0])
