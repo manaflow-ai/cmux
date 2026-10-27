@@ -1019,8 +1019,9 @@ def rerun_intended(api: GitHub, run: Mapping[str, Any], attempt: int, sleep: Cal
     attempt and no CANCEL_SETTLED: it cancelled the run to re-run it and stopped before it was done (cancelled,
     killed, out of time); "" otherwise.
 
-    Only the rescue jobs that ran when the run was cancelled are read: started before the run finished, and
-    ended no earlier than CANCEL_WAIT_SECONDS before it (the longest a cancel takes to settle). Fails closed:
+    Only the rescue jobs that ended no earlier than CANCEL_WAIT_SECONDS (the longest a cancel takes to settle)
+    before the run finished are read: those that ran when it was cancelled, and every later one, so a successor
+    that already resumed the re-run (its CANCEL_SETTLED) stops the next from resuming it again. Fails closed:
     a mark read nowhere, or a log that cannot be read, leaves the run cancelled."""
     finished = parse_time(run.get("updated_at"))
     if finished is None:
@@ -1028,7 +1029,7 @@ def rerun_intended(api: GitHub, run: Mapping[str, Any], attempt: int, sleep: Cal
     wanted = (int(run.get("id") or 0), attempt)
     state = ""
     try:
-        for job_id in read(lambda: api.rescue_jobs(finished - dt.timedelta(seconds=CANCEL_WAIT_SECONDS), finished),
+        for job_id in read(lambda: api.rescue_jobs(finished - dt.timedelta(seconds=CANCEL_WAIT_SECONDS)),
                            sleep, log):
             marks = read(lambda: api.job_marks(job_id), sleep, log)
             if marks is None:
@@ -1742,9 +1743,9 @@ class GitHub:
                 break
         return found
 
-    def rescue_jobs(self, earliest_end: dt.datetime, latest_start: dt.datetime) -> list[int]:
-        """The job ids of the finished ci-owned-pool-rescue.yml runs that started by `latest_start` and ended
-        at or after `earliest_end`, newest first (a sweeper or a single watch).
+    def rescue_jobs(self, earliest_end: dt.datetime) -> list[int]:
+        """The job ids of the finished ci-owned-pool-rescue.yml runs that ended at or after `earliest_end`,
+        newest first (a sweeper or a single watch).
 
         Listed by creation, which precedes the start by the run's wait in the sweeper's concurrency group: at most
         the one sweeper ahead of it (it never cancels in progress, so one waits), RESCUE_JOB_LIFETIME_SECONDS."""
@@ -1763,7 +1764,7 @@ class GitHub:
             if not isinstance(run, Mapping) or run.get("conclusion") == "skipped":
                 continue
             began, ended = parse_time(run.get("run_started_at")), parse_time(run.get("updated_at"))
-            if began is None or ended is None or began > latest_start or ended < earliest_end:
+            if began is None or ended is None or ended < earliest_end:
                 continue
             jobs = self.request("GET", f"/actions/runs/{int(run['id'])}/jobs?per_page=20")
             found += [int(job["id"]) for job in (jobs or {}).get("jobs") or []

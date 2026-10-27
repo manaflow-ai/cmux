@@ -1382,7 +1382,7 @@ class CancelledAPI(FakeAPI):
             raise self.note
         return [{"annotation_level": "failure", "message": self.note}] if self.note else []
 
-    def rescue_jobs(self, earliest_end, latest_start):
+    def rescue_jobs(self, earliest_end):
         self.calls.append("rescue-jobs")
         return [7001]
 
@@ -1609,11 +1609,14 @@ class StrandedCancel(unittest.TestCase):
         def request(method, path, **_):
             asked.append(path)
             if path.startswith("/actions/workflows/"):
-                return runs
-            return {"jobs": [{"id": 11, "conclusion": "cancelled"}]}
+                return runs if "&page=1&" in path else {}
+            return {"jobs": [{"id": int(path.split("/")[3]) * 10 + 1, "conclusion": "cancelled"}]}
         api.request = request
-        self.assertEqual(api.rescue_jobs(START - dt.timedelta(seconds=1200), START), [11])
-        self.assertEqual(asked[1:], ["/actions/runs/1/jobs?per_page=20"])
+        # Run 1 was alive at the cancel; run 4 started later (a successor that may have settled it); run 2 ended
+        # before the cancel and run 3 was skipped.
+        self.assertEqual(api.rescue_jobs(START - dt.timedelta(seconds=1200)), [11, 41])
+        self.assertEqual([path for path in asked if not path.startswith("/actions/workflows/")],
+                         ["/actions/runs/1/jobs?per_page=20", "/actions/runs/4/jobs?per_page=20"])
         # A five-hour sweeper that rescued near its end is in the window, even one that first waited behind another.
         since = (START - dt.timedelta(seconds=1200 + 2 * rescue.RESCUE_JOB_LIFETIME_SECONDS)).strftime("%Y-%m-%dT%H:%M:%SZ")
         self.assertIn(f"created=%3E%3D{since}", asked[0])
@@ -1632,10 +1635,11 @@ class StrandedCancel(unittest.TestCase):
             asked.append(path)
             if path.startswith("/actions/workflows/"):
                 since = rescue.urllib.parse.unquote(path.split("created=")[1])[2:]
-                return runs if created >= dt.datetime.fromisoformat(since.replace("Z", "+00:00")) else {}
+                return runs if "&page=1&" in path and \
+                    created >= dt.datetime.fromisoformat(since.replace("Z", "+00:00")) else {}
             return {"jobs": [{"id": 11, "conclusion": "cancelled"}]}
         api.request = request
-        self.assertEqual(api.rescue_jobs(end - dt.timedelta(seconds=rescue.CANCEL_WAIT_SECONDS), end), [11])
+        self.assertEqual(api.rescue_jobs(end - dt.timedelta(seconds=rescue.CANCEL_WAIT_SECONDS)), [11])
 
     def test_the_rescue_run_listing_reads_past_a_short_page(self):
         api = rescue.GitHub("t", "manaflow-ai/cmux")
@@ -1651,19 +1655,7 @@ class StrandedCancel(unittest.TestCase):
                 return {"workflow_runs": found.get(page, [])}
             return {"jobs": [{"id": 77, "conclusion": "cancelled"}]}
         api.request = request
-        self.assertEqual(api.rescue_jobs(START, START), [77])
-        self.assertEqual(pages, [1, 2, 3])
-
-    def request(method, path, **_):
-            if path.startswith("/actions/workflows/"):
-                page = int(path.split("&page=")[1].split("&")[0])
-                pages.append(page)
-                count = 100 if page < 3 else 1
-                return {"workflow_runs": [{"id": page * 1000 + index, "conclusion": "skipped"}
-                                          for index in range(count)]}
-            return {"jobs": []}
-        api.request = request
-        api.rescue_jobs(START, START)
+        self.assertEqual(api.rescue_jobs(START), [77])
         self.assertEqual(pages, [1, 2, 3])
 
     def test_a_rescue_that_stops_between_its_cancel_and_settling_is_the_only_mark_left(self):
@@ -1765,6 +1757,19 @@ class StrandedCancel(unittest.TestCase):
         cancelled.job_marks = lambda job_id: None
         clock.sleep(60)
         self.assertFalse(rescue.rerun_intended(cancelled, cancelled.run(RUN_ID), 1, clock.sleep, lambda _: None))
+
+    def test_a_successor_that_resumed_the_re_run_stops_the_next_one(self):
+        # The stopped sweeper logged SENT; the next (started after the run finished) resumed it and logged SETTLED.
+        clock = Clock()
+        api = CancelledAPI(clock, cancelled=True)
+        clock.sleep(60)
+        logs = {8002: f"{rescue.CANCEL_SETTLED} run {RUN_ID} attempt 1",
+                7001: f"{rescue.CANCEL_SENT} run {RUN_ID} attempt 1"}
+        api.rescue_jobs = lambda earliest_end: [8002, 7001]  # newest first
+        api.job_marks = lambda job_id: rescue.cancel_marks([logs[job_id]])
+        self.assertEqual(rescue.rerun_intended(api, api.run(RUN_ID), 1, clock.sleep, lambda _: None), "")
+        api.rescue_jobs = lambda earliest_end: [7001]
+        self.assertEqual(rescue.rerun_intended(api, api.run(RUN_ID), 1, clock.sleep, lambda _: None), "failed")
 
 
 class BlacksmithStall(unittest.TestCase):
