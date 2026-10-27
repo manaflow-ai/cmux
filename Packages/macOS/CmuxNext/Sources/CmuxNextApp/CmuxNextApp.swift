@@ -165,7 +165,8 @@ public struct CmuxNextApp {
         // and services make any: their owners in many packages make them with no tap (p04-input-013).
         WindowOverlayHost.appInputTap = inputTap
         TooltipPresenter.shared.inputTap = inputTap
-        let order = LaunchOrder(fence: fence, board: mainBoard, input: inputTap) { DebugTimings.markLaunch($0) }
+        let order = LaunchOrder(fence: fence, board: mainBoard, input: inputTap,
+                                budgetPlacement: features.isEnabled(.mainBudgetTurn) ? .afterCommit : .inTick) { DebugTimings.markLaunch($0) }
         DaemonLauncher.captureLoginEnvironment(after: order.startup) // at once only with nothing remembered (p08-startup-034)
         #if DEBUG || CMUX_BENCH_HOOKS
         globalJobs?.freeze(after: order.startup)
