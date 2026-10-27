@@ -231,6 +231,8 @@ impl Hub {
     ) -> Result<EventPage> {
         let before = before.unwrap_or(u64::MAX);
         let bounded = max_bytes.is_some();
+        // An ask in the log reads as acpmux shows it now (`Hub::display_logged`).
+        let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         let mut page = EventPage::default();
         let mut bytes = 0usize;
         // Whether the page is full before `rec`: by count, or by size once it holds a record.
@@ -251,6 +253,8 @@ impl Hub {
                 if !filter.matches(&rec) {
                     return true;
                 }
+                let mut rec = rec;
+                self.display_logged(session.as_deref(), &mut rec);
                 let (rec, rec_bytes) = fit(rec, bounded);
                 if full(rec_bytes, found) {
                     page.has_more = true;
@@ -268,6 +272,8 @@ impl Hub {
             if !filter.matches(&rec) {
                 return true;
             }
+            let mut rec = rec;
+            self.display_logged(session.as_deref(), &mut rec);
             let (rec, rec_bytes) = fit(rec, bounded);
             if full(rec_bytes, found.len()) {
                 page.has_more = true;

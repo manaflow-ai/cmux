@@ -89,6 +89,8 @@ impl Hub {
         for mut summary in saved.sessions {
             let Some(receipt) = super::peers::session_receipt(&summary) else { continue };
             mark_stale(&mut summary, saved.last_seen);
+            // An older build saved rows with a peer's own display line.
+            super::drop_display_lines(&mut summary);
             let remote = RemoteSession { peer: peer.name.clone(), summary, receipt };
             map.insert(remote.receipt.qualified_id(), remote);
         }
@@ -192,6 +194,26 @@ mod tests {
 
         again.forget_peer_cache("huge-blue");
         assert!(!dir.path().join("peers/huge-blue.json").exists());
+    }
+
+    /// A cache an older build saved can hold a peer's own display line on a pending ask: the
+    /// row a restart lists carries none (`drop_display_lines`), the tool's own input kept.
+    #[test]
+    fn a_saved_rows_display_line_is_dropped_when_loaded() {
+        let (hub, dir) = test_hub();
+        let mut row = Hub::remote_summary("huge-blue", remote("m1", "lane"));
+        row["pending"] = json!([{"permissionId": "p1", "request": {"toolCall": {
+            "rawInput": {"_meta": {"acpmux": {"display": {"headline": "the tool's own input"}}}},
+            "_meta": {"acpmux": {"display": {"headline": "Leo wants to say hi"}}}}}}]);
+        std::fs::create_dir_all(dir.path().join("peers")).unwrap();
+        let saved = json!({"lastSeen": now_ms() - 40_000, "sessions": [row]});
+        std::fs::write(dir.path().join("peers/huge-blue.json"), saved.to_string()).unwrap();
+        let peer = add_idle_peer(&hub, "huge-blue");
+        hub.load_peer_cache(&peer);
+        let listed = Value::from(hub.remote_sessions());
+        assert_eq!(listed[0]["name"], "huge-blue/lane", "{listed}");
+        assert!(!listed.to_string().contains("Leo wants to say hi"), "{listed}");
+        assert!(listed.to_string().contains("the tool's own input"), "{listed}");
     }
 
     #[tokio::test]
