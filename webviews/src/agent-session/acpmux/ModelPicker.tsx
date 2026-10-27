@@ -272,12 +272,9 @@ function railByHarness(
     seen.add(family.id);
     const folded = profiles[family.id] ?? [];
     const named = folded.map((profile) => ({ ...profile, name: launchName(family.name, profile.name, profile.id) }));
-    const names = named.map((profile) => {
-      const suffix = launchSuffix(profile.id) ?? readableLaunchId(profile.id);
-      return suffix && named.some((other) => other.id !== profile.id && other.name === profile.name)
-        ? { ...profile, name: `${profile.name} (${suffix})` }
-        : profile;
-    });
+    // Resolve branded suffixes first: `claude-work` becomes Work (work), leaving a profile
+    // whose ID is just `work` free to keep Work. Raw IDs distinguish any names still repeated.
+    const names = distinguishLaunchNames(distinguishLaunchNames(named, launchSuffix), readableLaunchId);
     const currentName =
       names.find((profile) => profile.id === family.id)?.name ?? launchName(family.name, family.name, family.id);
     const alternate = launchSuffix(family.id) && family.id !== running;
@@ -298,6 +295,18 @@ function railByHarness(
         return [{ id: profile.id, name: profile.name, mark: family.mark, models: [], more: [], launch: true }];
       }),
     ];
+  });
+}
+
+function distinguishLaunchNames(
+  profiles: readonly PickerProfile[],
+  suffixFor: (id: string) => string | undefined,
+): PickerProfile[] {
+  return profiles.map((profile) => {
+    const suffix = suffixFor(profile.id);
+    return suffix && profiles.some((other) => other.id !== profile.id && other.name === profile.name)
+      ? { ...profile, name: `${profile.name} (${suffix})` }
+      : profile;
   });
 }
 
