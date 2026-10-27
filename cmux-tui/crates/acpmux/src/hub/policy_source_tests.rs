@@ -84,6 +84,14 @@ fn answers(hub: &Arc<Hub>, id: &str) -> PermissionPolicy {
     hub.policy_for(&hub.resolve(id).unwrap(), PermissionPolicy::Ask)
 }
 
+/// [`answers`] for each of `ids`.
+fn policies<'a, const N: usize>(
+    hub: &Arc<Hub>,
+    ids: [&'a str; N],
+) -> [(&'a str, PermissionPolicy); N] {
+    ids.map(|id| (id, answers(hub, id)))
+}
+
 fn saved(dir: &std::path::Path) -> Vec<SessionMeta> {
     let mut cfg = crate::config::Config::default();
     cfg.store.mode = crate::config::StoreMode::Local;
@@ -200,12 +208,17 @@ async fn a_vm_host_era_ambiguous_or_inherited_grant_asks_after_the_upgrade() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
     legacy_store(dir.path());
     let hub = hub_at(dir.path());
-    for id in [VM_HOST_ERA, AMBIGUOUS, HANDOFF, FORK_OF_HANDOFF] {
-        assert_eq!(answers(&hub, id), PermissionPolicy::Ask, "{id}");
-    }
-    for id in [LOCAL, FORK_OF_LOCAL] {
-        assert_eq!(answers(&hub, id), PermissionPolicy::ApproveAll, "{id}: started here");
-    }
+    let ask = PermissionPolicy::Ask;
+    assert_eq!(
+        policies(&hub, [VM_HOST_ERA, AMBIGUOUS, HANDOFF, FORK_OF_HANDOFF]),
+        [(VM_HOST_ERA, ask), (AMBIGUOUS, ask), (HANDOFF, ask), (FORK_OF_HANDOFF, ask)]
+    );
+    let all = PermissionPolicy::ApproveAll;
+    assert_eq!(
+        policies(&hub, [LOCAL, FORK_OF_LOCAL]),
+        [(LOCAL, all), (FORK_OF_LOCAL, all)],
+        "here"
+    );
     // Saved, so the client lists them as asking and a restart reads ask.
     let metas = saved(dir.path());
     let policy = |id: &str| {
