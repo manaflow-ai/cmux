@@ -101,8 +101,11 @@ final class TipUpdateCheck {
               !updater.flow.installRequested, !updater.isSheetPresented(), !updater.isOffManagedChannel else { return false }
         switch updater.flow.phase {
         case .hidden, .note: return true
-        // A found update nobody is looking at (not the person's own check's card).
-        case .available: return !updater.flow.userAsked
+        // A found update waiting on its ask reads on, unless it is the person's own check's card
+        // on screen right now (hidden by its Hide, it reads on like any other).
+        case .available:
+            if case .available? = updater.card { return false }
+            return true
         case .checking, .downloading, .ready, .installing: return false
         }
     }

@@ -212,6 +212,24 @@ import CmuxNextWakeupsTestSupport
         #expect(h.checks.count == 1, "newer build 500 was never checked for behind a hidden found update")
     }
 
+    /// The person's own check found it and they hid its card: nothing shows, so the reads go on and
+    /// a newer build replaces it. While the card shows, the fast check leaves it alone.
+    @Test func aNewerBuildReplacesAFoundUpdateThePersonHid() async throws {
+        let h = Self.make(Self.nightly, downloadAutomatically: false, xml: Self.nightlyFeed(minutesAgo: 2, deltas: false))
+        var dismissed = 0
+        h.updater.availableBuild = { "300" }
+        h.updater.dismissAvailable = { dismissed += 1 }
+        h.updater.send(.checkRequested)
+        h.updater.debugIndicatorPhase = .checking
+        h.updater.debugIndicatorPhase = .available(version: "3.0.0")
+        #expect(h.updater.card == .available(version: "3.0.0"))
+        #expect(!h.updater.tipCheck.timer.isScheduled, "the fast check ran under the person's own found card")
+        h.updater.closeUpdateCard(.hideVersion)
+        #expect(h.updater.tipCheck.timer.isScheduled, "a found update the person hid stopped the fast check")
+        try await tick(h, fetches: 1, interval: TipUpdateCheck.nightlyInterval)
+        #expect(dismissed == 1 && h.checks.count == 1, "newer build 500 was never checked for behind the hidden card")
+    }
+
     /// Nothing reads the feed before the settings load: `updates.checkAutomatically` may be off.
     @Test func noFastCheckBeforeTheSettingsLoad() {
         let updater = UpdaterService(identity: Self.nightly, policy: ManagedUpdatePolicy { false },
