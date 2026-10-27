@@ -121,15 +121,6 @@ struct ChatDockLinkSplitMotionTests {
             root.syncWithModel()
         }
 
-        /// The production pane placement callback's layout operation, used as the destination of
-        /// AgentPaneView.openURL in the native navigation seam test.
-        func openBeside(_ url: URL, _ modifiers: NSEvent.ModifierFlags) {
-            _ = url
-            _ = modifiers
-            model.handOffContent(of: ChatDockLinkSplitMotionTests.anchor)
-            show(ChatDockLinkSplitMotionTests.docked)
-        }
-
         func host(_ pane: PaneID) -> PaneHostView? { root.context.hosts[pane] }
         var screen: ScreenContentView? { root.screenViews["s"] }
         func step() { _ = root.advanceFrame(ChatDockLinkSplitMotionTests.dt) }
@@ -475,32 +466,25 @@ struct ChatDockLinkSplitMotionTests {
 
     @Test func aRightChatOpensAtItsFullSizeFromTheRightEdge() async throws { try await openRightSplit(.chat) }
 
-    /// The app's native navigation seam consumes a clicked URL, cancels the page navigation, and
-    /// applies the beside layout once. This builds the production AgentPaneView/PageWebView host,
-    /// invokes the callbacks installed by `attachPage`, and observes the resulting layout state.
-    @Test func aClickedAgentLinkCancelsThePageAndMovesTheChatOnce() async throws {
+    /// The production page callbacks cancel an external link and dispatch it through the
+    /// initializer-installed `AgentPaneView.openURL`. Pane placement and motion are covered by
+    /// the real-app capture; this test only exercises the navigation seam and its installed route.
+    @Test func aClickedAgentLinkUsesTheInstalledNavigationAndOpenURLCallbacks() async throws {
         let screen = Screen(.chat)
         defer { screen.close() }
         let chat = try #require(screen.provider.chat)
         let deadline = Date().addingTimeInterval(10)
-        while chat.page == nil, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        while chat.chromiumPage == nil, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
         let page = try #require(chat.page, "the production AgentPaneView did not attach PageWebView")
-        let host = try #require(screen.host(Self.anchor))
-        let livePage = page.focusView
-        var frameChanges = [host.frame]
-        let frameObservation = host.observe(\.frame, options: [.new]) { _, change in
-            guard let frame = change.newValue, frameChanges.last != frame else { return }
-            frameChanges.append(frame)
-        }
-        defer { frameObservation.invalidate() }
 
-        // AgentPaneView's initializer installs this production closure. Route the shared
-        // LinkRouter into the same pane-placement operation used by this production layout; the
-        // test never replaces chat.openURL or supplies a navigation callback of its own.
+        // AgentPaneView's initializer installs openURL to call LinkRouter with the source view.
+        // Observe that production route without replacing it or manufacturing pane placement.
         let router = LinkRouter.shared
         let savedRouting = router.routing
         let savedSourceTab = router.sourceTab
         let savedOpenInCmux = router.openInCmux
+        var openedURL: URL?
+        var openedSource: String?
         defer {
             router.routing = savedRouting
             router.sourceTab = savedSourceTab
@@ -508,7 +492,10 @@ struct ChatDockLinkSplitMotionTests {
         }
         router.routing = { .fallback }
         router.sourceTab = { view in view === chat || view.isDescendant(of: chat) ? Self.anchor.rawValue : nil }
-        router.openInCmux = { [weak screen] url, _, _ in screen?.openBeside(url, []) }
+        router.openInCmux = { url, _, source in
+            openedURL = url
+            openedSource = source
+        }
         let url = URL(string: "https://example.com/native-pane")!
 
         chat.model.transport.gestures.record(click: true)
@@ -516,12 +503,14 @@ struct ChatDockLinkSplitMotionTests {
         #expect(policy == .openExternal, "the installed PageWebView host did not route the clicked external link")
         page.onOpenExternal?(url)
 
-        #expect(page.focusView === livePage, "the native link path replaced the live chat view")
-        #expect(screen.model.screens.first?.layout.contains(Self.dock) == true,
-                "the installed AgentPaneView callback did not apply the beside layout")
-        #expect(screen.model.screens.first?.layout.columns.contains { $0.dock?.role == .agentChat } == true,
-                "the chat was not docked by the production placement callback")
-        #expect(frameChanges.count == 2, "the chat host moved more than once: \(frameChanges)")
+        #expect(openedURL == url, "the installed AgentPaneView.openURL did not reach LinkRouter")
+        #expect(openedSource == Self.anchor.rawValue,
+                "the installed AgentPaneView.openURL lost the clicked pane source")
+        #expect(AgentPaneNavigation.handle(
+            url: url, source: chat.source, userClicked: true, mainFrame: true,
+            modifiers: [], gestures: chat.model.transport.gestures,
+            open: chat.openURL
+        ) == .cancel, "a clicked external link must cancel the page navigation")
     }
 
     private func openRightSplit(_ kind: Content) async throws {
