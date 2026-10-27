@@ -217,7 +217,7 @@ done
         func logout() { scope = nil }
     }
 
-    @Test(arguments: [0, 1, 2, 3, 4, 5, 6]) func deliversAccessOnlyGrantAndRestoresPriorModeOnRevoke(interruption: Int) async throws {
+    @Test(arguments: [0, 1, 2, 3, 4, 5, 6, 7]) func deliversAccessOnlyGrantAndRestoresPriorModeOnRevoke(interruption: Int) async throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -251,6 +251,7 @@ done
             if interruption == 1 || interruption == 2 { await gate.pause() }
             await recorder.commit((a, b, c, d))
             if interruption == 5 { throw CloudCodexBrokerError.remoteDeliveryFailed }
+            if interruption == 7 { await recorder.failRestore(true); await account.logout() }
         }, removeFile: { path in try await recorder.remove(path) }, isLive: {
             if interruption == 4 { return await recorder.liveUntilDelivery() }
             return true
@@ -258,6 +259,15 @@ done
         if interruption == 4 {
             await #expect(throws: CloudCodexBrokerError.targetOffline) { try await broker.transfer(target: target, confirmed: true) }
             #expect(await recorder.removals == 0)
+            return
+        }
+        if interruption == 7 {
+            await #expect(throws: CloudCodexBrokerError.remoteDeliveryFailed) { try await broker.transfer(target: target, confirmed: true) }
+            #expect(await recorder.read(CloudCodexBroker.accessPath) == nil)
+            #expect(await recorder.read(CloudCodexBroker.modePath) == Data("own\n".utf8))
+            await recorder.failRestore(false)
+            try await broker.revoke(target: target)
+            #expect(await recorder.read(CloudCodexBroker.modePath) == Data("team\n".utf8))
             return
         }
         if interruption == 5 {
