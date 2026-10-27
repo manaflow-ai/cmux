@@ -2771,10 +2771,10 @@ async fn a_report_of_an_agent_mdm_ended_leaves_the_next_agent_alone() {
     let mut rpc = daemon.rpc().await;
     let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
     assert_eq!(pushed["applied"], true, "{pushed}");
-    let first_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
     let later = json!({"sessionId": session,
                        "prompt": [{"type": "text", "text": "set-mode-after: 100 full-access"}]});
     rpc.call("session/prompt", later).await;
+    let first_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
     tokio::time::sleep(Duration::from_millis(400)).await;
     // The next prompt ends the agent that reported full access and starts another.
     let next = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
