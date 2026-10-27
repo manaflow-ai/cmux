@@ -85,6 +85,12 @@ extension UpdateController {
         setInstallDidNotStartError(diagnostic: "install clicked with no staged update (state=\(model.state))")
     }
 
+    /// The automatic install the app meant to quit for was taken over (a click, a cancel, the
+    /// session's end) while it waited: its held reply goes, so nothing installs it later.
+    public func dropQuitInstall() {
+        driver.quitInstall = nil
+    }
+
     /// The automatic install the app quit for did not end it (the quit was refused, or the helper
     /// that reopens the app could not start): the update is staged again and waits for a click
     /// (``UpdateActionDelegate/updaterQuitsForAutomaticInstall(build:)``). No-op otherwise.

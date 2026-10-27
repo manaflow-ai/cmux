@@ -29,6 +29,8 @@ final class CloudMachineCreation: Identifiable {
     private(set) var readyAfter: Duration?
     /// How the requested bootstrap started (``CloudMachineRequest/script``); nil without one.
     private(set) var bootstrap: CloudMachineBootstrap.Outcome?
+    /// How the requested machine config's apply started (``CloudMachineRequest/machineConfig``).
+    private(set) var machineConfig: CloudMachineBootstrap.Outcome?
     /// The flow's work for this creation; cancelled on dismiss and retry.
     @ObservationIgnored var task: Task<Void, Never>?
     /// What `cloud new-machine` asked for (size, idle pause); a Retry asks for the same, with
@@ -78,6 +80,10 @@ final class CloudMachineCreation: Identifiable {
 
     func noteBootstrap(_ outcome: CloudMachineBootstrap.Outcome) {
         bootstrap = outcome
+    }
+
+    func noteMachineConfig(_ outcome: CloudMachineBootstrap.Outcome) {
+        machineConfig = outcome
     }
 
     func fail(_ error: any Error) {
