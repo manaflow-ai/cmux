@@ -15,8 +15,8 @@ extension CloudMachineRepoTests {
         CloudExecResult(exitCode: 0, stdout: "cmux-wait \(lock) \(now)\n" + (status.map { $0 + "\n" } ?? ""), stderr: "")
     }
 
-    static func status(_ state: String, _ code: String = "null", repo: String = "null", at: Int = 990) -> String {
-        #"{"state":"\#(state)","exit_code":\#(code),"script_sha256":"a","start_sha256":"b","repo":\#(repo),"at":\#(at)}"#
+    static func status(_ state: String, _ code: String = "null", repo: String = "null", at: Int = 990, late: Bool = false) -> String {
+        #"{"state":"\#(state)","exit_code":\#(code),"script_sha256":"a","start_sha256":"b","repo":\#(repo),"at":\#(at)\#(late ? #","late":true"# : "")}"#
     }
 
     static func repoStatus(_ status: String) -> String {
@@ -70,7 +70,8 @@ extension CloudMachineRepoTests {
         #expect(script == .scriptFailed(exitCode: 7))
         #expect(CloudMachineBootstrap.completion(script) == .failed(reason: CloudStrings.bootstrapScriptFailed(7, log: CloudMachineBootstrap.logPath)))
         #expect(CloudStrings.bootstrapScriptFailed(7, log: "L").contains("7"))
-        #expect(await run(withRepo, [.success(Self.answer(Self.status("failed", "75")))]).0 == .runnerNeverCame, "the runner came a minute late")
+        #expect(await run(withRepo, [.success(Self.answer(Self.status("failed", "75", late: true)))]).0 == .runnerNeverCame, "the runner came a minute late")
+        #expect(await run(scriptOnly, [.success(Self.answer(Self.status("failed", "75")))]).0 == .scriptFailed(exitCode: 75), "a script's own exit 75")
         #expect(await run(withRepo, [.success(Self.answer(Self.status("starting", at: 1000), now: 1100))]).0 == .runnerNeverCame)
         #expect(await run(withRepo, [.success(Self.answer(nil))]).0 == .runnerNeverCame, "no status at all")
         #expect(await run(withRepo, [.success(Self.answer(Self.status("running")))]).0 == .stopped, "`running` read under a free lock")

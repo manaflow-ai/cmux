@@ -190,7 +190,7 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
         flock 8
         status() {
           repo=$(cat "$d/repo-status.json" 2>/dev/null || echo null)
-          printf '{"state":"%s","exit_code":%s,"script_sha256":"%s","start_sha256":"%s","repo":%s,"at":%s}\n' "$1" "$2" "$sum" "$key" "$repo" "$(date +%s)" >"$d/status.json.tmp" &&
+          printf '{"state":"%s","exit_code":%s,"script_sha256":"%s","start_sha256":"%s","repo":%s,"at":%s%s}\n' "$1" "$2" "$sum" "$key" "$repo" "$(date +%s)" "${3:-}" >"$d/status.json.tmp" &&
             mv -f "$d/status.json.tmp" "$d/status.json"
         }
         # A runner that comes a minute or more after its start's `starting` does not run: a machine-config apply
@@ -199,7 +199,7 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
         at=$(sed -n 's/^{"state":"starting".*"at":\([0-9]*\)}$/\1/p' "$d/status.json" 2>/dev/null)
         if [ -n "$at" ] && [ $(( $(date +%s) - at )) -ge 60 ]; then
           printf '== cmux bootstrap %s: its runner came %ss after the start; start it again\n' "$key" "$(( $(date +%s) - at ))" >>"$d/bootstrap.log"
-          status failed 75; exit 75
+          status failed 75 ',"late":true'; exit 75
         fi
         # Not its locks: a daemon the repo step or the script leaves running must not keep them held after this runner ends.
         repo_step() { "$d/repo" >>"$d/bootstrap.log" 2>&1 </dev/null 8>&- 9>&-; }

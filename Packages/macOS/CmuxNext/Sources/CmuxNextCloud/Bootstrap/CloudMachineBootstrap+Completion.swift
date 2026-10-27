@@ -116,8 +116,9 @@ extension CloudMachineBootstrap {
         case "failed":
             if repoStatus == "failed" { return .ended(.repoFailed(repo: name)) }
             if repoStatus == "needs_github", code == CloudMachineRepo.needsGitHubExit { return .ended(.needsGitHub(repo: name)) }
-            // The runner's own refusal when it came a minute after its start (`status failed 75`, before any repo step).
-            if code == 75, cloned == nil { return .ended(.runnerNeverCame) }
+            // The runner's own refusal when it came a minute after its start (`"late":true`); a script's own
+            // exit 75 is a script failure.
+            if status["late"] as? Bool == true { return .ended(.runnerNeverCame) }
             return .ended(.scriptFailed(exitCode: code ?? -1))
         case "running":
             // Read under a free `alive`: the runner that wrote `running` is gone. Without an `alive` the read
