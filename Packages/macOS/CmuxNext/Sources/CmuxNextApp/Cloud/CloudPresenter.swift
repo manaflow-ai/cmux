@@ -108,6 +108,15 @@ enum CloudPresenter {
         guard let window = services.windows.active?.window else { return false }
         let answer = await CmuxDialogCenter.shared.present(spec, in: .window(window))
         guard answer.button == "transfer", !answer.isDismissal else { return false }
+        // The confirmation and provider login are asynchronous. Revalidate the tab and account
+        // after the gesture so a chat switch or account change cannot install credentials for the
+        // stale request that opened the dialog.
+        guard services.cloud.auth.user?.id == userID,
+              services.cloud.auth.teamID == teamID,
+              tab.agentSession?.session == request.sessionID,
+              let (currentTab, _) = services.locateTab(chat),
+              currentTab === tab,
+              (try? services.machines.agentDaemon(forTab: currentTab)) === daemon else { return false }
 
         let transfer = CloudCredentialTransfer(
             provider: provider, machineID: session.machineID, teamID: teamID,
@@ -129,6 +138,7 @@ enum CloudPresenter {
             }
             guard services.cloud.auth.user?.id == userID, services.cloud.auth.teamID == teamID,
                   let (currentTab, _) = services.locateTab(chat),
+                  currentTab.agentSession?.session == request.sessionID,
                   currentTab === tab,
                   (try? services.machines.agentDaemon(forTab: currentTab)) === daemon else { return false }
             let pinned = services.cloud.api.pinningTeam(teamID)
