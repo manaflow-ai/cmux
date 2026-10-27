@@ -75,6 +75,7 @@ class FakeAPI:
                  attempt_after_cancel=1, finished=lambda seconds: False, rerun_jobs=None, conclusion=None,
                  workflow=None, snapshot=None):
         self.clock, self.jobs_at, self.marker = clock, jobs, marker
+        rescue.SETTLED_HERE.clear()  # each fake API stands for a fresh rescue process
         # The janitor's pool snapshot (pool_snapshot()), as a function of elapsed seconds; by default every
         # Blacksmith label is free, so a queue rescue moves at its configured budget.
         self.snapshot = snapshot or (lambda seconds: {"generated_at": stamp(seconds), "pools": {}})
@@ -1576,6 +1577,24 @@ class StrandedCancel(unittest.TestCase):
         clock.advance(60)
         self.assertEqual(self.follow(api, clock), f"stopped: the run was cancelled by @{CMUX_BOT}; left cancelled")
         self.assertEqual(mutations(api), [])
+
+    def test_a_sweeper_never_resumes_an_attempt_it_settled_itself(self):
+        # The sweeper resumed R1's stopped re-run, the re-run POST failed (503) and it logged SETTLED: its own log is
+        # not read while it runs, so a later watch in it of the same attempt must not read R1's SENT alone.
+        clock = Clock()
+        api = CancelledAPI(clock, cancelled=True, rescue_log=[f"{rescue.CANCEL_SENT} run {RUN_ID} attempt 1"])
+        clock.advance(60)
+
+        def refused(run_id, attempt):
+            raise urllib.error.HTTPError("u", 503, "unavailable", None, io.BytesIO(b""))
+        api.rerun_failed = refused
+        with unittest.mock.patch.object(rescue, "SETTLED_HERE", set()):
+            with self.assertRaises(Exception):
+                self.follow(api, clock)
+            self.assertIn((RUN_ID, 1), rescue.SETTLED_HERE)
+            api.calls.clear()
+            self.assertEqual(self.follow(api, clock), f"stopped: the run was cancelled by @{CMUX_BOT}; left cancelled")
+            self.assertEqual(mutations(api), [])
 
     def test_a_janitor_cancel_by_the_same_bot_stays_cancelled(self):
         # The queue janitor cancels as cmux-bot too (a superseded DEV run that never started, an orphan): no rescue

@@ -972,6 +972,7 @@ class AnnotationsCapped(Exception):
 # in the rescue job's own log, which outlives the job: a run with CANCEL_SENT and no CANCEL_SETTLED is one whose
 # rescue job stopped in between (cancelled, killed, out of time), and a successor re-runs it (rerun_intended()).
 # The queue janitor cancels as cmux-bot too, so the actor alone cannot say whose cancel it was.
+_SETTLED_LOCK = threading.Lock()
 CANCEL_SENT = "owned-pool rescue: cancel sent, re-run to follow:"
 CANCEL_SETTLED = "owned-pool rescue: cancel settled:"
 CANCEL_MARK = re.compile(r"owned-pool rescue: (cancel sent, re-run to follow|cancel settled): run (\d+) attempt (\d+)"
@@ -1037,6 +1038,9 @@ def rerun_intended(api: GitHub, run: Mapping[str, Any], attempt: int, sleep: Cal
     if finished is None:
         return ""
     wanted = (int(run.get("id") or 0), attempt)
+    with _SETTLED_LOCK:
+        if wanted in SETTLED_HERE:
+            return ""  # this sweeper settled it already (its own log is read only once it ends)
     state = ""
     try:
         for job_id in read(lambda: api.rescue_jobs(finished - dt.timedelta(seconds=CANCEL_WAIT_SECONDS), wanted[0]),
@@ -2912,12 +2916,24 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
                                   keep_main=keep_main)
     except Exception:
         # An error ends this rescue for good (gave_up()); the run's attempt is as GitHub has it, not a stopped job's.
-        log(f"{CANCEL_SETTLED} run {target.run_id} attempt {target.attempt}")
+        settled_here(api, target, log)
         raise
     # Not on a KeyboardInterrupt or SystemExit (GitHub cancelling the rescue job, its timeout): that job stopped here,
     # and CANCEL_SENT alone tells its successor so.
-    log(f"{CANCEL_SETTLED} run {target.run_id} attempt {target.attempt}")
+    settled_here(api, target, log)
     return result
+
+
+# The (run id, attempt) pairs this process logged CANCEL_SETTLED for. Its own log is unreadable until its job
+# ends (rescue_jobs() skips the reader's own run), so a later watch in the same sweeper reads this instead.
+SETTLED_HERE: set[tuple[int, int]] = set()
+
+
+def settled_here(api: Any, target: Target, log: Callable[[str], None]) -> None:
+    """Logs CANCEL_SETTLED for the target's attempt and remembers it for this process."""
+    with _SETTLED_LOCK:
+        SETTLED_HERE.add((target.run_id, target.attempt))
+    log(f"{CANCEL_SETTLED} run {target.run_id} attempt {target.attempt}")
 
 
 def resume_rerun(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
@@ -2927,9 +2943,9 @@ def resume_rerun(api: GitHub, target: Target, *, now: Callable[[], dt.datetime],
         result = settle_and_rerun(api, target, now=now, sleep=sleep, log=log, failed_only=not every_job,
                                   keep_main=False)
     except Exception:
-        log(f"{CANCEL_SETTLED} run {target.run_id} attempt {target.attempt}")
+        settled_here(api, target, log)
         raise
-    log(f"{CANCEL_SETTLED} run {target.run_id} attempt {target.attempt}")
+    settled_here(api, target, log)
     return result
 
 
