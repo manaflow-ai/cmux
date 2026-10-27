@@ -20,13 +20,18 @@ let package = Package(
         .library(name: "CmuxVNCDemoServer", targets: ["CmuxVNCDemoServer"]),
     ],
     dependencies: [
+        // OnceContinuation, the continuation that resumes exactly once (p10-stability-089), and for the
+        // demo server's start (p10-stability-171).
+        .package(path: "../CmuxSafeConcurrency"),
         // Test-only: the seeded fuzz suites (p10-stability-023).
         .package(path: "../CmuxFuzzSupport"),
     ],
     targets: [
-        .target(name: "CmuxVNC", swiftSettings: swiftSettings, linkerSettings: [.linkedLibrary("z")]),
-        .target(name: "CmuxVNCDemoServer", dependencies: ["CmuxVNC"], swiftSettings: swiftSettings,
-                linkerSettings: [.linkedLibrary("z")]),
+        .target(name: "CmuxVNC", dependencies: [.product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
+                swiftSettings: swiftSettings, linkerSettings: [.linkedLibrary("z")]),
+        .target(name: "CmuxVNCDemoServer", dependencies: [
+            "CmuxVNC", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
+        ], swiftSettings: swiftSettings, linkerSettings: [.linkedLibrary("z")]),
         .testTarget(name: "CmuxVNCTests", dependencies: [
             "CmuxVNC", "CmuxVNCDemoServer", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
         ], swiftSettings: swiftSettings),

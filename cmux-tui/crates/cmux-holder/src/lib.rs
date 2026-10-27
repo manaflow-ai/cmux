@@ -271,6 +271,12 @@ pub fn serve(args: &[String]) -> io::Result<()> {
     if let Some(idle_exit) = idle_exit {
         holder.set_idle_exit(idle_exit);
     }
+    // Each pass of the loop is a hang scope; a holder whose watcher cannot
+    // start serves unwatched.
+    match holder::HangWatch::start() {
+        Ok(watch) => holder.set_hang_watch(watch),
+        Err(error) => eprintln!("cmux-holder: no hang watch: {error}"),
+    }
     // Before `ready`, so a daemon that sees it finds the loop at its class.
     run_at_echo_qos();
     let mut stdout = io::stdout().lock();

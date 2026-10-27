@@ -145,7 +145,8 @@ public final class HomeNativeTranscriptView: NSView {
         self.me = me
         // Debug Settings > Home > Rich tables, before the transcript maps its first messages.
         MessagesLabHomeView.richTables = HomeTunables.richTables.value
-        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams)
+        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(),
+                                         frames: HomeFrameTicks(), diagrams: diagrams)
         // Reduce Motion changes still or restart the loops already running (the transcript observes nothing itself).
         HomeReduceMotion.follow(transcript)
         // The running indicator's look (Debug Settings > Home), read at each of its ticks.
