@@ -72,10 +72,12 @@ impl MemorySettings {
 
 /// `~` and `~/...` against `home`.
 pub fn expand_tilde(path: &str, home: &Path) -> PathBuf {
-    match path.strip_prefix('~') {
-        Some("") => home.to_owned(),
-        Some(rest) if rest.starts_with('/') => home.join(&rest[1..]),
-        _ => PathBuf::from(path),
+    if path == "~" {
+        return home.to_owned();
+    }
+    match path.strip_prefix("~/") {
+        Some(rest) => home.join(rest),
+        None => PathBuf::from(path),
     }
 }
 
@@ -110,54 +112,48 @@ pub fn value(doc: &Value, key: &str) -> Option<Value> {
 /// strings. A copy of acpmux's `strip_jsonc`, so this crate takes no new
 /// dependency for one settings read.
 pub fn strip_jsonc(text: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
     let mut out = String::with_capacity(text.len());
-    let (mut i, mut in_string) = (0, false);
-    while i < chars.len() {
-        let c = chars[i];
+    let mut chars = text.chars().peekable();
+    let mut in_string = false;
+    while let Some(c) = chars.next() {
         if in_string {
             out.push(c);
-            if c == '\\' && i + 1 < chars.len() {
-                out.push(chars[i + 1]);
-                i += 1;
+            if c == '\\' {
+                out.extend(chars.next());
             } else if c == '"' {
                 in_string = false;
             }
         } else if c == '"' {
             in_string = true;
             out.push(c);
-        } else if c == '/' && chars.get(i + 1) == Some(&'/') {
-            while i < chars.len() && chars[i] != '\n' {
-                i += 1;
+        } else if c == '/' && chars.peek() == Some(&'/') {
+            // To the end of the line; the newline stays.
+            while chars.next_if(|n| *n != '\n').is_some() {}
+        } else if c == '/' && chars.peek() == Some(&'*') {
+            chars.next();
+            let mut last = None;
+            for n in chars.by_ref() {
+                if last == Some('*') && n == '/' {
+                    break;
+                }
+                last = Some(n);
             }
-            continue;
-        } else if c == '/' && chars.get(i + 1) == Some(&'*') {
-            i += 2;
-            while i < chars.len() && !(chars[i] == '*' && chars.get(i + 1) == Some(&'/')) {
-                i += 1;
-            }
-            i += 2;
-            continue;
         } else {
             out.push(c);
         }
-        i += 1;
     }
     drop_trailing_commas(&out)
 }
 
 fn drop_trailing_commas(text: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
     let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
     let mut in_string = false;
-    let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
+    while let Some(c) = chars.next() {
         if in_string {
             out.push(c);
-            if c == '\\' && i + 1 < chars.len() {
-                out.push(chars[i + 1]);
-                i += 1;
+            if c == '\\' {
+                out.extend(chars.next());
             } else if c == '"' {
                 in_string = false;
             }
@@ -165,14 +161,13 @@ fn drop_trailing_commas(text: &str) -> String {
             in_string = true;
             out.push(c);
         } else if c == ',' {
-            let next = chars[i + 1..].iter().find(|c| !c.is_whitespace());
+            let next = chars.as_str().chars().find(|c| !c.is_whitespace());
             if !matches!(next, Some('}' | ']')) {
                 out.push(c);
             }
         } else {
             out.push(c);
         }
-        i += 1;
     }
     out
 }

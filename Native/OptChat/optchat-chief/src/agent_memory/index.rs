@@ -377,7 +377,8 @@ impl Index {
                 manifest.sources.push(entry.source.clone());
                 manifest.notes_at = mtime_ns(&self.sources.notes);
                 Self::write_manifest(&self.root, &manifest)?;
-                Ok(format!("saved {} as entry #{}", entry.source, ids[0]))
+                let id = ids.first().ok_or("the index added no entry")?;
+                Ok(format!("saved {} as entry #{id}", entry.source))
             })
         } else {
             Err("the index was out of date".into())

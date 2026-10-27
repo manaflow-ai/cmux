@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 
 use crate::agent_memory::notes::looks_secret;
 use crate::browse::Imported;
+use crate::panic_free::JsonFields;
 use crate::paths::Paths;
 
 /// One thing to bring over.
@@ -148,9 +149,9 @@ pub fn keys_of_export_lines<'a>(lines: impl Iterator<Item = &'a str>) -> HashSet
         .filter_map(|l| serde_json::from_str::<Value>(l).ok())
         .filter_map(|v| {
             Some(item_key(
-                v["kind"].as_str()?,
-                v["date"].as_str()?,
-                v["text"].as_str()?,
+                v.field("kind").as_str()?,
+                v.field("date").as_str()?,
+                v.field("text").as_str()?,
             ))
         })
         .collect()
@@ -229,9 +230,9 @@ pub fn items_from_chief(db: &Path) -> Result<Vec<Item>, String> {
         .filter_map(|l| serde_json::from_str::<Value>(l).ok())
         .filter_map(|v| {
             Some(item(
-                v["kind"].as_str()?,
-                v["text"].as_str()?,
-                v["date"].as_str()?,
+                v.field("kind").as_str()?,
+                v.field("text").as_str()?,
+                v.field("date").as_str()?,
                 "chief",
             ))
         })
@@ -298,13 +299,15 @@ pub fn items_from_export_json(json_text: &str, source: &str) -> Result<Vec<Item>
         } else if let Some(map) = conv["mapping"].as_object() {
             for node in map.values() {
                 let m = &node["message"];
-                let role = m["author"]["role"].as_str().unwrap_or("");
+                let role = m.field("author").field("role").as_str().unwrap_or("");
                 let kind = match role {
                     "user" => "user",
                     "assistant" => "ai",
                     _ => continue,
                 };
-                let text: String = m["content"]["parts"]
+                let text: String = m
+                    .field("content")
+                    .field("parts")
                     .as_array()
                     .map(|p| {
                         p.iter()
@@ -403,41 +406,42 @@ pub fn cloud_append(
 ) -> Result<Appended, String> {
     let mut total = Appended::default();
     let mut sent = 0usize;
-    let mut i = 0;
-    while i < items.len() {
+    let mut items = items.iter().peekable();
+    while items.peek().is_some() {
         if max_items.is_some_and(|m| sent >= m) {
             break;
         }
         let mut batch = Vec::new();
         let mut bytes = 0;
-        while i < items.len() && batch.len() < BATCH_ITEMS {
-            let it = &items[i];
-            if !batch.is_empty() && bytes + it.text.len() > BATCH_BYTES {
-                break;
-            }
+        while batch.len() < BATCH_ITEMS
+            && let Some(it) =
+                items.next_if(|it| batch.is_empty() || bytes + it.text.len() <= BATCH_BYTES)
+        {
             bytes += it.text.len();
             batch.push(json!({"key": it.key, "kind": it.kind, "text": it.text, "date": it.date, "source": it.source}));
-            i += 1;
         }
         sent += batch.len();
         let body = json!({"mode": "append", "dry_run": dry_run, "items": batch});
         let mut tries = 0;
         let value = loop {
             let (status, value) = api.put_memory(chief, conversation, &body)?;
-            if value["ok"] == true {
+            if *value.field("ok") == true {
                 break value;
             }
             tries += 1;
-            if value["error"]["code"] == "brain_busy" && tries < 30 {
+            if *value.field("error").field("code") == "brain_busy" && tries < 30 {
                 std::thread::sleep(std::time::Duration::from_secs(10));
                 continue;
             }
-            return Err(format!("memory append: HTTP {status} {}", value["error"]));
+            return Err(format!(
+                "memory append: HTTP {status} {}",
+                value.field("error")
+            ));
         };
-        let v = &value["value"];
-        total.added += v["added"].as_u64().unwrap_or(0) as usize;
-        total.duplicate += v["duplicate"].as_u64().unwrap_or(0) as usize;
-        total.rejected += v["rejected"].as_u64().unwrap_or(0) as usize;
+        let v = value.field("value");
+        total.added += v.field("added").as_u64().unwrap_or(0) as usize;
+        total.duplicate += v.field("duplicate").as_u64().unwrap_or(0) as usize;
+        total.rejected += v.field("rejected").as_u64().unwrap_or(0) as usize;
     }
     Ok(total)
 }

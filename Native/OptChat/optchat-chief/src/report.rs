@@ -15,6 +15,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value, json};
 
+use crate::panic_free::JsonFields;
+
 /// Parsed arguments.
 #[derive(Debug, Default, PartialEq)]
 pub struct Args {
@@ -47,18 +49,17 @@ pub fn duration_ms(text: &str) -> Result<u64, String> {
 pub fn parse_args(verb: &str, args: &[String]) -> Result<Args, String> {
     let mut since = if verb == "stats" { "24h" } else { "1h" }.to_owned();
     let mut out = Args::default();
-    let mut i = 0;
-    while i < args.len() {
-        let (key, inline) = match args[i].split_once('=') {
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        let (key, inline) = match word.split_once('=') {
             Some((k, v)) => (k.to_owned(), Some(v.to_owned())),
-            None => (args[i].clone(), None),
+            None => (word.clone(), None),
         };
         let mut value = || -> Result<String, String> {
             if let Some(v) = &inline {
                 return Ok(v.clone());
             }
-            i += 1;
-            args.get(i).cloned().ok_or(format!("{key} needs a value"))
+            words.next().cloned().ok_or(format!("{key} needs a value"))
         };
         match key.as_str() {
             "--json" => out.json = true,
@@ -68,7 +69,6 @@ pub fn parse_args(verb: &str, args: &[String]) -> Result<Args, String> {
             "--dir" => out.dir = Some(PathBuf::from(value()?)),
             other => return Err(format!("unknown argument {other}")),
         }
-        i += 1;
     }
     let now = chrono::Local::now().timestamp_millis().max(0) as u64;
     out.since_ms = now.saturating_sub(duration_ms(&since)?);
@@ -269,8 +269,10 @@ pub fn timeline(events: &[Value]) -> String {
                     .map(|p| {
                         format!(
                             "{}:{}",
-                            &p["hash"].as_str().unwrap_or("")
-                                [..8.min(p["hash"].as_str().unwrap_or("").len())],
+                            crate::panic_free::head_within(
+                                p.field("hash").as_str().unwrap_or(""),
+                                8
+                            ),
                             n(p, "bytes")
                         )
                     })
@@ -289,8 +291,10 @@ pub fn timeline(events: &[Value]) -> String {
                     n(v, "lines"),
                     n(e, "settle_ms"),
                     pieces.join(" "),
-                    &e["system"]["hash"].as_str().unwrap_or("")
-                        [..8.min(e["system"]["hash"].as_str().unwrap_or("").len())]
+                    crate::panic_free::head_within(
+                        e.field("system").field("hash").as_str().unwrap_or(""),
+                        8
+                    )
                 )
             }
             "request" => format!(
@@ -648,7 +652,8 @@ pub fn stats(events: &[Value]) -> Value {
 
 /// The `q` quantile of sorted `v`.
 fn quantile(v: &[u64], q: f64) -> Option<u64> {
-    (!v.is_empty()).then(|| v[((v.len() - 1) as f64 * q).round() as usize])
+    let last = v.len().checked_sub(1)?;
+    v.get((last as f64 * q).round() as usize).copied()
 }
 
 fn sum_line(s: &Value) -> String {
@@ -692,16 +697,21 @@ pub fn stats_text(s: &Value, dir: &Path) -> String {
     let mut out = format!("trace: {}\n\nTURNS {}\n", dir.display(), n(t, "count"));
     out.push_str(&format!(
         "  latency ms: p50 {} p90 {} max {}\n",
-        t["latency_ms"]["p50"], t["latency_ms"]["p90"], t["latency_ms"]["max"]
+        t.field("latency_ms").field("p50"),
+        t.field("latency_ms").field("p90"),
+        t.field("latency_ms").field("max")
     ));
     out.push_str(&format!(
         "  session start ms: p50 {} p90 {}; time to first token ms: p50 {} p90 {}\n",
-        t["start_ms"]["p50"], t["start_ms"]["p90"], t["ttft_ms"]["p50"], t["ttft_ms"]["p90"]
+        t.field("start_ms").field("p50"),
+        t.field("start_ms").field("p90"),
+        t.field("ttft_ms").field("p50"),
+        t.field("ttft_ms").field("p90")
     ));
     out.push_str(&format!("  all requests: {}\n", sum_line(&t["totals"])));
     out.push_str(&format!(
         "  first request of each turn (reads what earlier turns cached): {}\n",
-        tokens(&t["first_request"]["usage"])
+        tokens(t.field("first_request").field("usage"))
     ));
     out.push_str(&format!(
         "  view prefix unchanged since the previous turn (mean): {}\n",

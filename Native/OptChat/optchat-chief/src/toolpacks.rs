@@ -24,6 +24,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use crate::panic_free::{JsonFields, RecoverPoison};
+
 /// The packs cmux ships, as `(name, pack.toml, SKILL.md)`, by name.
 pub const BUILTIN: [(&str, &str, &str); 4] = [
     (
@@ -211,8 +213,7 @@ pub struct Share {
 }
 
 fn word_ok(s: &str, extra: &[u8]) -> bool {
-    !s.is_empty()
-        && s.as_bytes()[0].is_ascii_alphanumeric()
+    s.bytes().next().is_some_and(|b| b.is_ascii_alphanumeric())
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || extra.contains(&b))
 }
@@ -238,8 +239,7 @@ pub fn parse(text: &str) -> Result<Pack, String> {
         if let Some(e) = i.env.iter().find(|e| {
             !e.bytes()
                 .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
-                || e.is_empty()
-                || e.as_bytes()[0].is_ascii_digit()
+                || e.bytes().next().is_none_or(|b| b.is_ascii_digit())
         }) {
             return Err(format!("inject.env {e:?}: [A-Z0-9_] only"));
         }
@@ -503,12 +503,15 @@ pub fn claude_servers(packs: &[Pack], bin: &Path) -> Vec<(String, Value)> {
             } else {
                 let mut v = json!({"type": "http", "url": m.url});
                 if m.bearer.is_some() {
-                    v["headersHelper"] = json!(format!(
-                        "{} pack mcp-headers {} {}",
-                        crate::session_dir::shell_quote(&chief),
-                        p.name,
-                        m.name
-                    ));
+                    v.insert(
+                        "headersHelper",
+                        json!(format!(
+                            "{} pack mcp-headers {} {}",
+                            crate::session_dir::shell_quote(&chief),
+                            p.name,
+                            m.name
+                        )),
+                    );
                 }
                 v
             };
@@ -629,14 +632,16 @@ pub fn serve_mcp(mux_home: &Path, pack: &str, server: &str) -> Result<i32, Strin
         for line in std::io::stdin().lock().lines() {
             let Ok(line) = line else { break };
             let msg: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
-            match msg["method"].as_str() {
-                Some("tools/list") => lists2.lock().unwrap().push(msg["id"].clone()),
+            match msg.field("method").as_str() {
+                Some("tools/list") => lists2.lock().recover_poison().push(msg.field("id").clone()),
                 Some("tools/call")
-                    if !allowed.iter().any(|t| msg["params"]["name"] == json!(t)) =>
+                    if !allowed
+                        .iter()
+                        .any(|t| *msg.field("params").field("name") == json!(t)) =>
                 {
-                    let e = json!({"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601,
-                        "message": format!("tool {} is not allowed by its pack", msg["params"]["name"])}});
-                    let mut o = out2.lock().unwrap();
+                    let e = json!({"jsonrpc": "2.0", "id": msg.field("id"), "error": {"code": -32601,
+                        "message": format!("tool {} is not allowed by its pack", msg.field("params").field("name"))}});
+                    let mut o = out2.lock().recover_poison();
                     let _ = writeln!(o, "{e}");
                     let _ = o.flush();
                     continue;
@@ -655,17 +660,23 @@ pub fn serve_mcp(mux_home: &Path, pack: &str, server: &str) -> Result<i32, Strin
         let Ok(line) = line else { break };
         let mut msg: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
         let listed = {
-            let mut l = lists.lock().unwrap();
-            let at = l.iter().position(|id| *id == msg["id"] && !id.is_null());
+            let mut l = lists.lock().recover_poison();
+            let at = l
+                .iter()
+                .position(|id| id == msg.field("id") && !id.is_null());
             at.map(|i| l.remove(i)).is_some()
         };
-        let text = if listed && let Some(tools) = msg["result"]["tools"].as_array_mut() {
+        let text = if listed
+            && let Some(tools) = msg
+                .pointer_mut("/result/tools")
+                .and_then(Value::as_array_mut)
+        {
             tools.retain(|t| m.tools.iter().any(|a| t["name"] == json!(a)));
             msg.to_string()
         } else {
             line
         };
-        let mut o = out.lock().unwrap();
+        let mut o = out.lock().recover_poison();
         let _ = writeln!(o, "{text}");
         let _ = o.flush();
     }
@@ -793,7 +804,7 @@ pub struct FileStore {
 impl Store for FileStore {
     fn get(&self) -> Option<String> {
         let v: Value = serde_json::from_slice(&std::fs::read(&self.path).ok()?).ok()?;
-        v["token"]
+        v.field("token")
             .as_str()
             .filter(|t| self.pack.token_ok(t))
             .map(str::to_owned)
@@ -848,8 +859,10 @@ pub fn expiry_ms(header: &str) -> Option<u64> {
     let (date, time, zone) = (parts.next()?, parts.next()?, parts.next()?);
     let offset = match zone {
         "UTC" => "+00:00".to_owned(),
-        z if z.len() == 5 => format!("{}:{}", &z[..3], &z[3..]),
-        _ => return None,
+        z => match z.split_at_checked(3) {
+            Some((hours, minutes)) if z.len() == 5 => format!("{hours}:{minutes}"),
+            _ => return None,
+        },
     };
     chrono::DateTime::parse_from_rfc3339(&format!("{date}T{time}{offset}"))
         .ok()
@@ -926,7 +939,8 @@ fn who_is(pack: &Pack, token: &str) -> Result<Value, String> {
 fn read_status(home: &Path, pack: &Pack) -> Value {
     std::fs::read(status_path(home, &pack.name))
         .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .filter(Value::is_object)
         .unwrap_or_else(|| json!({}))
 }
 
@@ -942,8 +956,8 @@ fn keep(home: &Path, pack: &Pack, kind: &str, token: &str) -> Result<Value, Stri
     let who = who_is(pack, token)?;
     store(home, pack).set(token)?;
     let now = now_ms();
-    let v = json!({"kind": kind, "login": who["login"], "scopes": who["scopes"],
-        "expires_at": who["expires_at"], "set_at": now, "checked_at": now});
+    let v = json!({"kind": kind, "login": who.field("login"), "scopes": who.field("scopes"),
+        "expires_at": who.field("expires_at"), "set_at": now, "checked_at": now});
     write_status(home, pack, &v)?;
     Ok(status(home, pack))
 }
@@ -968,20 +982,21 @@ pub fn status(home: &Path, pack: &Pack) -> Value {
     let mut s = read_status(home, pack);
     let own = pack.auth.is_some() && store(home, pack).get().is_some();
     if own && s.get("kind").is_some() {
-        s["signed_in"] = json!(true);
-        s["own"] = json!(true);
+        s.insert("signed_in", json!(true));
+        s.insert("own", json!(true));
     } else {
         let pending = s.get("pending").cloned();
         s = match shared_login(pack) {
             Some(w) => json!({"signed_in": true, "own": false, "kind": "mac",
-                "login": w["login"], "scopes": w["scopes"], "expires_at": w["expires_at"]}),
+                "login": w.field("login"), "scopes": w.field("scopes"), "expires_at": w.field("expires_at")}),
             None => json!({"signed_in": false, "own": false}),
         };
         if let Some(p) = pending {
-            s["pending"] = p;
+            s.insert("pending", p);
         }
     }
-    if s["pending"]["expires_at"]
+    if s.field("pending")
+        .field("expires_at")
         .as_u64()
         .is_some_and(|t| t <= now_ms())
     {
@@ -1020,10 +1035,10 @@ fn poll(pack: &Pack, device_code: &str, interval: &mut u64) -> Result<Option<Str
         Err(ureq::Error::Status(_, r)) => r.into_json().unwrap_or(Value::Null),
         Err(_) => return Ok(None),
     };
-    if let Some(t) = body["access_token"].as_str() {
+    if let Some(t) = body.field("access_token").as_str() {
         return Ok(Some(t.to_owned()));
     }
-    match body["error"].as_str() {
+    match body.field("error").as_str() {
         Some("authorization_pending") | None => Ok(None),
         Some("slow_down") => {
             *interval += 5;
@@ -1055,18 +1070,22 @@ fn request_code(pack: &Pack) -> Result<DeviceCode, String> {
         .map_err(|e| format!("{} did not start a device sign-in: {e}", pack.title))?
         .into_json()
         .map_err(|e| e.to_string())?;
-    let (Some(device), Some(code)) = (r["device_code"].as_str(), r["user_code"].as_str()) else {
+    let (Some(device), Some(code)) = (
+        r.field("device_code").as_str(),
+        r.field("user_code").as_str(),
+    ) else {
         return Err(format!("{}'s answer has no device code", pack.title));
     };
     Ok(DeviceCode {
         device: device.to_owned(),
         user_code: code.to_owned(),
-        uri: r["verification_uri"]
+        uri: r
+            .field("verification_uri")
             .as_str()
             .unwrap_or(&d.verification_uri)
             .to_owned(),
-        expires_at: now_ms() + r["expires_in"].as_u64().unwrap_or(900) * 1000,
-        interval: r["interval"].as_u64().unwrap_or(5),
+        expires_at: now_ms() + r.field("expires_in").as_u64().unwrap_or(900) * 1000,
+        interval: r.field("interval").as_u64().unwrap_or(5),
     })
 }
 
@@ -1113,8 +1132,8 @@ fn write_pending(
     pid: u32,
 ) -> Result<(), String> {
     let mut s = read_status(home, pack);
-    s["pending"] = json!({"user_code": c.user_code, "verification_uri": c.uri, "expires_at": c.expires_at,
-        "started_at": started_at, "until": started_at + window_ms(pack), "renewals": renewals, "pid": pid});
+    s.insert("pending", json!({"user_code": c.user_code, "verification_uri": c.uri, "expires_at": c.expires_at,
+        "started_at": started_at, "until": started_at + window_ms(pack), "renewals": renewals, "pid": pid}));
     if let Some(o) = s.as_object_mut() {
         o.remove("last_error");
     }
@@ -1159,9 +1178,12 @@ fn login(home: &Path, pack: &Pack) -> Result<Value, String> {
         .map_err(|e| e.to_string())?;
     write_pending(home, pack, &c, started_at, 0, child.id())?;
     let mut out = status(home, pack);
-    out["card"] = json!(card(pack, &c.user_code, &c.uri));
+    out.insert("card", json!(card(pack, &c.user_code, &c.uri)));
     // When to wake (the Chief's `sleep` tool) to post the next code.
-    out["wake_in"] = json!((c.expires_at.saturating_sub(now_ms()) / 1000 + 5).max(30));
+    out.insert(
+        "wake_in",
+        json!((c.expires_at.saturating_sub(now_ms()) / 1000 + 5).max(30)),
+    );
     Ok(out)
 }
 
@@ -1240,7 +1262,7 @@ fn logout(home: &Path, pack: &Pack) -> Result<Value, String> {
     let mut s = status(home, pack);
     let auth = pack.auth.as_ref();
     let fall = fallback_words(pack);
-    s["note"] = json!(match (was["kind"].as_str(), auth) {
+    let note = json!(match (was.field("kind").as_str(), auth) {
         (
             Some("device"),
             Some(Auth {
@@ -1273,6 +1295,7 @@ fn logout(home: &Path, pack: &Pack) -> Result<Value, String> {
             None => format!("The Chief has no {} login.", pack.title),
         },
     });
+    s.insert("note", note);
     Ok(s)
 }
 
@@ -1395,7 +1418,8 @@ fn check(home: &Path, pack: &Pack) -> Result<Value, String> {
 }
 
 /// The install command for this machine, as argv.
-fn install_cmd(pack: &Pack) -> Option<Vec<String>> {
+/// The installer for the pack's CLI here: its program and arguments.
+fn install_cmd(pack: &Pack) -> Option<(&'static str, Vec<String>)> {
     let t = &pack.tool;
     let on_path = |p: &str| {
         Command::new("sh")
@@ -1406,26 +1430,23 @@ fn install_cmd(pack: &Pack) -> Option<Vec<String>> {
     };
     let ok = |s: &String| word_ok(s, b"@/._-");
     if let Some(b) = t.brew.as_ref().filter(|b| ok(b) && on_path("brew")) {
-        return Some(vec!["brew".into(), "install".into(), b.clone()]);
+        return Some(("brew", vec!["install".into(), b.clone()]));
     }
     if let Some(n) = t.npm.as_ref().filter(|n| ok(n) && on_path("npm")) {
-        return Some(vec!["npm".into(), "install".into(), "-g".into(), n.clone()]);
+        return Some(("npm", vec!["install".into(), "-g".into(), n.clone()]));
     }
     if let Some(a) = t.apt.as_ref().filter(|a| ok(a) && on_path("apt-get")) {
-        return Some(vec![
-            "sudo".into(),
-            "apt-get".into(),
-            "install".into(),
-            "-y".into(),
-            a.clone(),
-        ]);
+        return Some((
+            "sudo",
+            vec!["apt-get".into(), "install".into(), "-y".into(), a.clone()],
+        ));
     }
     None
 }
 
 fn install_hint(pack: &Pack) -> Value {
     match install_cmd(pack) {
-        Some(c) => json!(c.join(" ")),
+        Some((program, args)) => json!(format!("{program} {}", args.join(" "))),
         None => json!(pack.tool.url),
     }
 }
@@ -1526,7 +1547,7 @@ pub fn run(flags: &crate::cli::Flags, home: &Path, as_json: bool) -> Result<Stri
             let end = now_ms() + limit * 1000;
             loop {
                 let s = status(home, pack);
-                if s["own"] == json!(true) || s.get("pending").is_none() || now_ms() >= end {
+                if *s.field("own") == json!(true) || s.get("pending").is_none() || now_ms() >= end {
                     break s;
                 }
                 std::thread::sleep(Duration::from_secs(3));
@@ -1563,31 +1584,31 @@ pub fn run(flags: &crate::cli::Flags, home: &Path, as_json: bool) -> Result<Stri
                 format!(
                     "{}: {}\n{}{}",
                     pack.name,
-                    if c["ok"] == json!(true) {
+                    if *c.field("ok") == json!(true) {
                         "ok"
                     } else {
                         "failed"
                     },
-                    c["out"].as_str().unwrap_or(""),
-                    c["err"].as_str().unwrap_or("")
+                    c.field("out").as_str().unwrap_or(""),
+                    c.field("err").as_str().unwrap_or("")
                 )
                 .trim_end()
                 .to_owned()
             });
         }
         "install" => {
-            let argv = install_cmd(pack).ok_or_else(|| {
+            let (program, args) = install_cmd(pack).ok_or_else(|| {
                 format!(
                     "no installer for {} here; see {}",
                     pack.tool.bin,
                     pack.tool.url.as_deref().unwrap_or("its site")
                 )
             })?;
-            let st = Command::new(&argv[0])
-                .args(&argv[1..])
+            let st = Command::new(program)
+                .args(&args)
                 .status()
                 .map_err(|e| e.to_string())?;
-            json!({"pack": pack.name, "ran": argv.join(" "), "ok": st.success()})
+            json!({"pack": pack.name, "ran": format!("{program} {}", args.join(" ")), "ok": st.success()})
         }
         "poll" => {
             let num = |k: &str| flags.value(k).and_then(|v| v.parse::<u64>().ok());
@@ -1627,8 +1648,9 @@ pub fn wrappers(packs: &[Pack]) -> Vec<(String, String)> {
     for p in packs {
         let Some(i) = &p.inject else { continue };
         let bin = &p.tool.bin;
-        if !i.env.is_empty() && !out.iter().any(|(n, _)| n == bin) {
-            let first = &i.env[0];
+        if let Some(first) = i.env.first()
+            && !out.iter().any(|(n, _)| n == bin)
+        {
             let mut text = format!(
                 "#!/bin/sh\n# optchat-chief: {bin} with this Chief's own {} login when it has one\n# (tool pack {}, toolpacks.rs; `chief pack status {}`), else as it is.\n{DROP_SELF}",
                 p.title, p.name, p.name

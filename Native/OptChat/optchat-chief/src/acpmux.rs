@@ -11,6 +11,7 @@ use std::time::Duration;
 use cmux_chief::acp::{AcpmuxEvent, SessionSummary};
 use serde_json::{Value, json};
 
+use crate::panic_free::JsonFields;
 use crate::rpc::{Notification, RpcClient, RpcError};
 
 /// A new acpmux session.
@@ -409,20 +410,26 @@ impl Acpmux {
                 "description": "optchat-chief: an isolated Claude Code configuration",
             });
             if !builtins {
-                set["env"] = json!(preset.env);
+                set.insert("env", json!(preset.env));
             }
             // Always say both: acpmux merges a set into the preset it saved,
             // and the last host's Claude args or system prompt (an engine
             // switch on the same daemon) would stay and refuse a codex set.
-            set["args"] = if preset.args.is_empty() {
-                Value::Null
-            } else {
-                json!(preset.args)
-            };
-            set["systemPrompt"] = preset
-                .system_prompt
-                .as_ref()
-                .map_or(Value::Null, |text| json!(text));
+            set.insert(
+                "args",
+                if preset.args.is_empty() {
+                    Value::Null
+                } else {
+                    json!(preset.args)
+                },
+            );
+            set.insert(
+                "systemPrompt",
+                preset
+                    .system_prompt
+                    .as_ref()
+                    .map_or(Value::Null, |text| json!(text)),
+            );
             let result = loop {
                 let result =
                     client.request("_acpmux/presets", json!({"name": preset.name, "set": set}));
@@ -668,10 +675,11 @@ pub fn without_isolation_args(args: &[Value]) -> Option<Vec<Value>> {
 /// acpmux from before the local source refuses it); None when it has none.
 pub fn project_sources_only(args: &[Value]) -> Option<Vec<Value>> {
     let at = args.windows(2).position(|w| {
-        w[0].as_str() == Some("--setting-sources") && w[1].as_str() == Some("project,local")
+        matches!(w, [flag, sources] if flag.as_str() == Some("--setting-sources")
+            && sources.as_str() == Some("project,local"))
     })?;
     let mut kept = args.to_vec();
-    kept[at + 1] = Value::String("project".into());
+    *kept.get_mut(at + 1)? = Value::String("project".into());
     Some(kept)
 }
 
@@ -833,22 +841,22 @@ pub const FAST_MODE_OPTION: &str = "fast-mode";
 pub fn session_meta(spec: &SessionSpec, preset: Option<&str>) -> Value {
     let mut meta = json!({"name": spec.name, "harness": spec.harness});
     if spec.peer.is_none() || matches!(spec.policy.as_str(), "ask" | "deny-all") {
-        meta["policy"] = json!(spec.policy);
+        meta.insert("policy", json!(spec.policy));
     }
     if let Some(model) = &spec.model {
-        meta["model"] = json!(model);
+        meta.insert("model", json!(model));
     }
     if let Some(effort) = &spec.effort {
-        meta["effort"] = json!(effort);
+        meta.insert("effort", json!(effort));
     }
     if let Some(preset) = preset {
-        meta["preset"] = json!(preset);
+        meta.insert("preset", json!(preset));
     }
     if !spec.env.is_empty() {
-        meta["env"] = json!(spec.env);
+        meta.insert("env", json!(spec.env));
     }
     if let Some(peer) = &spec.peer {
-        meta["peer"] = json!(peer);
+        meta.insert("peer", json!(peer));
     }
     meta
 }
@@ -1049,7 +1057,7 @@ impl AgentPort for Acpmux {
                 "_acpmux/queue_remove",
                 json!({"sessionId": session, "promptId": prompt_id}),
             )
-            .map(|v| v["removed"].as_bool().unwrap_or(false))
+            .map(|v| v.field("removed").as_bool().unwrap_or(false))
             .map_err(|e| format!("queue_remove: {e}"))
     }
 
@@ -1075,7 +1083,8 @@ impl AgentPort for Acpmux {
             .client()?
             .request("_acpmux/models", json!({}))
             .map_err(|e| format!("models: {e}"))?;
-        Ok(catalog["harnesses"]
+        Ok(catalog
+            .field("harnesses")
             .as_array()
             .into_iter()
             .flatten()
@@ -1092,7 +1101,7 @@ impl AgentPort for Acpmux {
                 // flags stay acpmux's.
                 for key in PICKER_FIELDS {
                     if let Some(value) = m.get(*key).filter(|v| !v.is_null()) {
-                        offered[*key] = value.clone();
+                        offered.insert(key, value.clone());
                     }
                 }
                 Some(offered)
@@ -1124,7 +1133,7 @@ impl AgentPort for Acpmux {
     ) -> Result<(), String> {
         let mut params = json!({"sessionId": session, "permissionId": permission});
         if let Some(option) = option {
-            params["optionId"] = json!(option);
+            params.insert("optionId", json!(option));
         }
         self.client()?
             .request("_acpmux/permission_respond", params)
@@ -1176,7 +1185,7 @@ impl AgentPort for Acpmux {
         };
         let mut params = json!({"harness": harness, "cwd": cwd});
         if let Some(preset) = preset {
-            params["preset"] = json!(preset);
+            params.insert("preset", json!(preset));
         }
         self.client()?
             .request("_acpmux/prewarm", params)

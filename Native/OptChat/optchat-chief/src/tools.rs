@@ -13,6 +13,8 @@ use std::time::Duration;
 use optchat_host::OptChat;
 use serde_json::{Value, json};
 
+use crate::panic_free::JsonFields;
+
 /// What the tools read.
 pub trait Memory: Send + Sync {
     fn zoom(&self, id: u64, n: u64) -> String;
@@ -226,13 +228,13 @@ impl SendCall {
     fn to_json(&self) -> Value {
         let mut v = json!({"tool": "send"});
         if let Some(t) = &self.text {
-            v["text"] = json!(t);
+            v.insert("text", json!(t));
         }
         if !self.attachments.is_empty() {
-            v["attachments"] = json!(self.attachments);
+            v.insert("attachments", json!(self.attachments));
         }
         if let Some(id) = self.reply_to {
-            v["reply_to"] = json!(id);
+            v.insert("reply_to", json!(id));
         }
         v
     }
@@ -283,10 +285,10 @@ impl SleepCall {
     fn to_json(&self) -> Value {
         let mut v = json!({"tool": "sleep", "seconds": self.seconds});
         if let Some(n) = &self.note {
-            v["note"] = json!(n);
+            v.insert("note", json!(n));
         }
         if let Some(u) = &self.until {
-            v["until"] = json!(u);
+            v.insert("until", json!(u));
         }
         v
     }
@@ -340,7 +342,9 @@ pub fn subagent_of_session(name: &str) -> Option<String> {
     rest.split('-')
         .skip(1)
         .find(|part| {
-            part.len() > 1 && part.starts_with('a') && part[1..].chars().all(|c| c.is_ascii_digit())
+            part.strip_prefix('a').is_some_and(|digits| {
+                !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit())
+            })
         })
         .map(str::to_owned)
 }
@@ -370,7 +374,7 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
         ("spawn", ["--cwd", dir, tasks @ ..]) if !tasks.is_empty() => {
             Call::parse("spawn", &serde_json::json!({"tasks": tasks, "cwd": dir}))
         }
-        ("spawn", tasks) if !tasks.is_empty() && tasks[0] != "--cwd" => {
+        ("spawn", tasks @ [first, ..]) if *first != "--cwd" => {
             Call::parse("spawn", &serde_json::json!({"tasks": tasks}))
         }
         ("react", [id, reaction]) => Call::parse(
@@ -385,7 +389,7 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
             "send",
             &serde_json::json!({"reply_to": id, "text": text.join(" ")}),
         ),
-        ("send", text) if !text.is_empty() && text[0] != "--reply-to" => {
+        ("send", text @ [first, ..]) if *first != "--reply-to" => {
             Call::parse("send", &serde_json::json!({"text": text.join(" ")}))
         }
         ("stop", []) => Call::parse("stop", &serde_json::json!({})),
@@ -397,7 +401,7 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
         ("sleep", [seconds, note @ ..]) => {
             let mut v = serde_json::json!({"seconds": seconds});
             if !note.is_empty() {
-                v["note"] = serde_json::json!(note.join(" "));
+                v.insert("note", serde_json::json!(note.join(" ")));
             }
             Call::parse("sleep", &v)
         }
@@ -431,7 +435,7 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
         ("control", [action, id, message @ ..]) => {
             let mut v = serde_json::json!({"action": action, "id": id});
             if !message.is_empty() {
-                v["message"] = serde_json::json!(message.join(" "));
+                v.insert("message", serde_json::json!(message.join(" ")));
             }
             Call::parse("control", &v)
         }
@@ -577,19 +581,19 @@ impl ControlCall {
     fn to_json(&self) -> Value {
         let mut v = json!({"tool": "control", "action": self.action});
         if let Some(id) = &self.id {
-            v["id"] = json!(id);
+            v.insert("id", json!(id));
         }
         if let Some(m) = &self.message {
-            v["message"] = json!(m);
+            v.insert("message", json!(m));
         }
         if let Some(o) = &self.option {
-            v["option"] = json!(o);
+            v.insert("option", json!(o));
         }
         if let Some(n) = self.n {
-            v["n"] = json!(n);
+            v.insert("n", json!(n));
         }
         if let Some(p) = &self.peer {
-            v["peer"] = json!(p);
+            v.insert("peer", json!(p));
         }
         v
     }
@@ -920,13 +924,13 @@ impl Call {
             } => {
                 let mut v = json!({"tool": "spawn", "tasks": tasks});
                 if let Some(place) = place {
-                    v["place"] = json!(place);
+                    v.insert("place", json!(place));
                 }
                 if let Some(cwd) = cwd {
-                    v["cwd"] = json!(cwd);
+                    v.insert("cwd", json!(cwd));
                 }
                 if let Some(effort) = effort {
-                    v["effort"] = json!(effort);
+                    v.insert("effort", json!(effort));
                 }
                 v
             }
@@ -938,10 +942,10 @@ impl Call {
             } => {
                 let mut v = json!({"tool": "tell", "id": id, "message": message});
                 if let Some(key) = key {
-                    v["key"] = json!(key);
+                    v.insert("key", json!(key));
                 }
                 if *queue {
-                    v["queue"] = json!(true);
+                    v.insert("queue", json!(true));
                 }
                 v
             }
@@ -952,7 +956,7 @@ impl Call {
             Call::Transcript { n, before } => {
                 let mut v = json!({"tool": "transcript", "n": n});
                 if let Some(before) = before {
-                    v["before"] = json!(before);
+                    v.insert("before", json!(before));
                 }
                 v
             }
@@ -971,7 +975,7 @@ impl Call {
                     "kind": request.kind,
                 });
                 if let Some(agent) = agent {
-                    v["agent"] = json!(agent);
+                    v.insert("agent", json!(agent));
                 }
                 v
             }
@@ -980,7 +984,7 @@ impl Call {
                 if !v.is_object() {
                     v = json!({});
                 }
-                v["tool"] = json!("profile");
+                v.insert("tool", json!("profile"));
                 v
             }
             Call::Chiefs { args, turn_key } => {
@@ -988,9 +992,9 @@ impl Call {
                 if !v.is_object() {
                     v = json!({});
                 }
-                v["tool"] = json!("chiefs");
+                v.insert("tool", json!("chiefs"));
                 if let Some(key) = turn_key {
-                    v["turn_key"] = json!(key);
+                    v.insert("turn_key", json!(key));
                 }
                 v
             }
@@ -1517,7 +1521,7 @@ pub fn ask_as(path: &Path, call: Call, subagent: bool) -> Result<String, String>
     let call = with_caller(call, name.as_deref());
     let mut request = call.to_json();
     if subagent {
-        request["from"] = json!("subagent");
+        request.insert("from", json!("subagent"));
     }
     ask_json(path, &request)
 }

@@ -21,6 +21,7 @@ use crate::daemon::{self, LinkConfig};
 use crate::lock::{HostLock, LockError};
 use crate::log::log;
 use crate::native::{HttpModel, Native, NativeConfig};
+use crate::panic_free::RecoverPoison;
 use crate::paths::{Paths, mux_home};
 use crate::session_dir::{self, SessionSetup};
 use crate::state::StateFile;
@@ -1239,7 +1240,7 @@ fn start(
     let settings_tx = Mutex::new(tx.clone());
     let control: crate::tools::Control = Arc::new(move |request: crate::tools::ControlRequest| {
         use crate::tools::ControlRequest;
-        let tx = settings_tx.lock().expect("settings tx").clone();
+        let tx = settings_tx.lock().recover_poison().clone();
         let stopping = |_| "the host is stopping".to_owned();
         let wait = Duration::from_secs(30);
         let late = |_| "the host did not answer".to_owned();
@@ -1468,7 +1469,7 @@ fn start(
         peers.spawn_inbox(
             Box::new(move |text| {
                 tx.lock()
-                    .expect("peer chiefs tx")
+                    .recover_poison()
                     .send(Input::PeerChiefNote { text })
                     .is_ok()
             }),

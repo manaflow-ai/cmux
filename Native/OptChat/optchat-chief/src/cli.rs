@@ -12,22 +12,19 @@ pub struct Flags {
 impl Flags {
     pub fn parse(args: &[String]) -> Flags {
         let mut flags = Flags::default();
-        let mut i = 0;
-        while i < args.len() {
-            let arg = &args[i];
+        let mut args = args.iter();
+        while let Some(arg) = args.next() {
             if let Some(rest) = arg.strip_prefix("--") {
                 if let Some((key, value)) = rest.split_once('=') {
                     flags.values.insert(key.to_owned(), value.to_owned());
-                } else if i + 1 < args.len() {
-                    flags.values.insert(rest.to_owned(), args[i + 1].clone());
-                    i += 1;
+                } else if let Some(value) = args.next() {
+                    flags.values.insert(rest.to_owned(), value.clone());
                 } else {
                     flags.words.push(arg.clone());
                 }
             } else {
                 flags.words.push(arg.clone());
             }
-            i += 1;
         }
         flags
     }

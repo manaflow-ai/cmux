@@ -122,14 +122,14 @@ impl Brain {
     /// its text (which stays as the fallback), or it stays text; the hold
     /// ends. A reply already sent keeps what it sent.
     pub(super) fn previews_fetched(&mut self, key: &str, parts: Option<Vec<Part>>) {
-        let Some(at) =
-            self.state.outbox.iter().position(|e| {
-                e.idempotency_key == key && !e.attempted && e.previews_until.is_some()
-            })
+        let Some(entry) = self
+            .state
+            .outbox
+            .iter_mut()
+            .find(|e| e.idempotency_key == key && !e.attempted && e.previews_until.is_some())
         else {
             return;
         };
-        let entry = &mut self.state.outbox[at];
         match parts {
             Some(parts) => {
                 if let Op::MessageSend { parts: sent, .. } = &mut entry.op {

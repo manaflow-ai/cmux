@@ -22,6 +22,8 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+use crate::panic_free::JsonFields;
+
 /// The app action that opens a session's chat in a new workspace.
 pub const OPEN_ACTION: &str = "agent.openSessionWorkspace";
 /// Characters of a workspace title.
@@ -138,22 +140,18 @@ fn strip_preamble(s: &str) -> String {
     let s = s
         .trim()
         .trim_start_matches(['"', '\'', '“', '`', '-', '*', ' ']);
-    let lower = s.to_lowercase();
     let preamble = ["the user", "user", "redo of", "follow-up to", "context"]
         .iter()
         .any(|p| {
-            lower.starts_with(p)
-                && lower[p.len()..]
-                    .chars()
-                    .next()
-                    .is_none_or(|c| !c.is_alphanumeric())
+            strip_prefix_ignore_case(s, p)
+                .is_some_and(|rest| rest.chars().next().is_none_or(|c| !c.is_alphanumeric()))
         });
     if preamble {
         return after_mark(s, &[':', ',', '.']).to_owned();
     }
     for product in ["cmux-next", "cmux next"] {
-        if lower.starts_with(product) {
-            let rest = s[product.len()..].trim_start();
+        if let Some(rest) = strip_prefix_ignore_case(s, product) {
+            let rest = rest.trim_start();
             if rest.starts_with('(') {
                 return after_mark(rest, &[')'])
                     .trim_start_matches([',', '.', ':', ';'])
@@ -171,20 +169,27 @@ fn strip_preamble(s: &str) -> String {
     s.to_owned()
 }
 
+/// `s` after an ASCII `prefix` matched without regard to case.
+fn strip_prefix_ignore_case<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
+    let (head, rest) = s.split_at_checked(prefix.len())?;
+    head.eq_ignore_ascii_case(prefix).then_some(rest)
+}
+
 /// What follows the first of `marks` outside parentheses; empty when none.
 fn after_mark<'a>(s: &'a str, marks: &[char]) -> &'a str {
     let closing = marks.contains(&')');
     let mut depth = 0i32;
-    for (i, c) in s.char_indices() {
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
         if !closing {
             match c {
-                '(' => depth += 1,
-                ')' => depth -= 1,
+                '(' => depth = depth.saturating_add(1),
+                ')' => depth = depth.saturating_sub(1),
                 _ => {}
             }
         }
         if depth <= 0 && marks.contains(&c) {
-            return s[i + c.len_utf8()..].trim();
+            return chars.as_str().trim();
         }
     }
     ""
@@ -193,15 +198,15 @@ fn after_mark<'a>(s: &'a str, marks: &[char]) -> &'a str {
 /// The first clause of `s`: up to a sentence end, a colon, a quote, a
 /// parenthesis or an embedded "User" preamble.
 fn cut_clause(s: &str) -> String {
-    let mut end = s.len();
-    for mark in [
+    let clause = [
         ". ", ": ", "; ", " — ", " - ", "? ", "! ", " (", "\"", " User", " user (", " user:",
-    ] {
-        if let Some(i) = s.find(mark).filter(|&i| i > 0) {
-            end = end.min(i);
-        }
-    }
-    s[..end]
+    ]
+    .iter()
+    .filter_map(|mark| s.split_once(mark).map(|(head, _)| head))
+    .filter(|head| !head.is_empty())
+    .min_by_key(|head| head.len())
+    .unwrap_or(s);
+    clause
         .trim()
         .trim_end_matches(['.', ',', ':', ';', '"', '\''])
         .trim()
@@ -225,20 +230,18 @@ fn clip(s: &str) -> String {
             .chars()
             .nth(TITLE_CHARS - 1)
             .is_some_and(char::is_whitespace);
-        let cut = if whole {
-            head.len()
-        } else {
-            head.rfind(' ')
-                .filter(|&i| i >= TITLE_CHARS / 2)
-                .unwrap_or(head.len())
+        let kept = match head.rsplit_once(' ') {
+            Some((words, _)) if !whole && words.len() >= TITLE_CHARS / 2 => words,
+            _ => head.as_str(),
         };
-        format!("{}…", head[..cut].trim_end_matches([',', ';', ':', ' ']))
+        format!("{}…", kept.trim_end_matches([',', ';', ':', ' ']))
     };
-    if let Some(c) = out.chars().next()
+    let mut chars = out.chars();
+    if let Some(c) = chars.next()
         && c.is_lowercase()
         && !out.starts_with("cmux")
     {
-        out = c.to_uppercase().collect::<String>() + &out[c.len_utf8()..];
+        out = c.to_uppercase().chain(chars).collect();
     }
     out
 }
@@ -426,16 +429,21 @@ pub fn new_key() -> String {
             .map_or(0, |d| d.as_nanos());
         bytes = (nanos ^ (u128::from(std::process::id()) << 64)).to_le_bytes();
     }
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    uuid_v4(bytes)
+}
+
+/// `random` as an RFC 4122 version 4 UUID (`xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`).
+pub(crate) fn uuid_v4(mut random: [u8; 16]) -> String {
+    random[6] = (random[6] & 0x0f) | 0x40;
+    random[8] = (random[8] & 0x3f) | 0x80;
+    let n = u128::from_be_bytes(random);
     format!(
-        "{}-{}-{}-{}-{}",
-        &hex[0..8],
-        &hex[8..12],
-        &hex[12..16],
-        &hex[16..20],
-        &hex[20..32]
+        "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
+        n >> 96,
+        (n >> 80) & 0xffff,
+        (n >> 64) & 0xffff,
+        (n >> 48) & 0xffff,
+        n & 0xffff_ffff_ffff
     )
 }
 
@@ -555,96 +563,181 @@ pub fn link_subagents(
     parent: &str,
     session_of: impl Fn(&str) -> Option<String>,
 ) -> String {
-    let b = text.as_bytes();
-    let mut out = String::with_capacity(text.len());
-    let (mut i, mut copied) = (0, 0);
-    let mut fence = false;
-    let word = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
     let link_of = |id: &str| session_of(id).and_then(|s| subagent_link(parent, id, &s));
-    while i < b.len() {
-        let line_start = i == 0 || b[i - 1] == b'\n';
-        if line_start && text[i..].starts_with("```") {
+    let mut out = String::with_capacity(text.len());
+    let mut behind = Behind::default();
+    let keep = |out: &mut String, behind: &mut Behind, piece: &str| {
+        out.push_str(piece);
+        behind.push(piece);
+    };
+    let mut fence = false;
+    let mut rest = text;
+    while !rest.is_empty() {
+        if behind.line_start()
+            && let Some(after) = rest.strip_prefix("```")
+        {
             fence = !fence;
-            i += 3;
+            keep(&mut out, &mut behind, "```");
+            rest = after;
             continue;
         }
+        let mut chars = rest.chars();
+        let Some(c) = chars.next() else { break };
+        let after = chars.as_str();
+        let mut one = [0u8; 4];
+        let first: &str = c.encode_utf8(&mut one);
         if fence {
-            i += 1;
+            keep(&mut out, &mut behind, first);
+            rest = after;
             continue;
         }
-        match b[i] {
-            b'`' => {
-                // An inline code span: to its closing backtick on this line.
-                let end = text[i + 1..]
-                    .find(['`', '\n'])
-                    .map_or(b.len(), |e| i + 1 + e);
-                i = if end < b.len() && b[end] == b'`' {
-                    end + 1
-                } else {
-                    i + 1
-                };
-            }
-            b'[' => {
-                let close = text[i + 1..].find([']', '\n']).map(|e| i + 1 + e);
-                match close {
-                    Some(c) if b[c] == b']' && b.get(c + 1) == Some(&b'(') => {
-                        // An existing link: skip it whole.
-                        i = text[c..].find(')').map_or(c + 1, |e| c + e + 1);
-                    }
-                    Some(c) if b[c] == b']' => {
-                        let id = &text[i + 1..c];
-                        if is_id(id)
-                            && let Some(link) = link_of(id)
-                        {
-                            out.push_str(&text[copied..i]);
-                            out.push_str(&link);
-                            copied = c + 1;
-                        }
-                        i = c + 1;
-                    }
-                    _ => i += 1,
-                }
-            }
-            b'a' if i == 0
-                || emphasis_before(b, i)
-                || !(word(b[i - 1])
-                    || matches!(b[i - 1], b'/' | b'.' | b'-' | b':' | b'#' | b'@')) =>
+        match c {
+            // An inline code span: to its closing backtick on this line.
+            '`' => match after
+                .split_once('`')
+                .filter(|(code, _)| !code.contains('\n'))
             {
-                let end = i + 1 + b[i + 1..].iter().take_while(|c| c.is_ascii_digit()).count();
-                let id = &text[i..end];
-                let bounded = end > i + 1
-                    && (emphasis_after(b, end)
-                        || !(end < b.len()
-                            && (word(b[end])
-                                || (b[end] == b'.' && b.get(end + 1).is_some_and(|c| word(*c))))));
-                if bounded
-                    && is_id(id)
-                    && let Some(link) = link_of(id)
-                {
-                    out.push_str(&text[copied..i]);
-                    out.push_str(&link);
-                    copied = end;
+                Some((code, tail)) => {
+                    for piece in ["`", code, "`"] {
+                        keep(&mut out, &mut behind, piece);
+                    }
+                    rest = tail;
                 }
-                i = end;
+                None => {
+                    keep(&mut out, &mut behind, "`");
+                    rest = after;
+                }
+            },
+            '[' => match after
+                .split_once(']')
+                .filter(|(label, _)| !label.contains('\n'))
+            {
+                // An existing link: skip it whole.
+                Some((label, tail)) if tail.starts_with('(') => {
+                    for piece in ["[", label, "]"] {
+                        keep(&mut out, &mut behind, piece);
+                    }
+                    rest = match tail.split_once(')') {
+                        Some((target, after_link)) => {
+                            keep(&mut out, &mut behind, target);
+                            keep(&mut out, &mut behind, ")");
+                            after_link
+                        }
+                        None => tail,
+                    };
+                }
+                Some((label, tail)) => {
+                    match is_id(label).then(|| link_of(label)).flatten() {
+                        Some(link) => {
+                            out.push_str(&link);
+                            behind.push("[");
+                            behind.push(label);
+                            behind.push("]");
+                        }
+                        None => {
+                            for piece in ["[", label, "]"] {
+                                keep(&mut out, &mut behind, piece);
+                            }
+                        }
+                    }
+                    rest = tail;
+                }
+                None => {
+                    keep(&mut out, &mut behind, "[");
+                    rest = after;
+                }
+            },
+            'a' if behind.emphasis_open()
+                || behind.last().is_none_or(|p| {
+                    !(word(p) || matches!(p, '/' | '.' | '-' | ':' | '#' | '@'))
+                }) =>
+            {
+                let tail = after.trim_start_matches(|d: char| d.is_ascii_digit());
+                let digits: String = after.chars().take_while(char::is_ascii_digit).collect();
+                let id = format!("a{digits}");
+                let bounded = !digits.is_empty() && (emphasis_close(tail) || !continues_word(tail));
+                match (bounded && is_id(&id)).then(|| link_of(&id)).flatten() {
+                    Some(link) => {
+                        out.push_str(&link);
+                        behind.push(&id);
+                    }
+                    None => keep(&mut out, &mut behind, &id),
+                }
+                rest = tail;
             }
-            _ => i += 1,
+            _ => {
+                keep(&mut out, &mut behind, first);
+                rest = after;
+            }
         }
     }
-    out.push_str(&text[copied..]);
     out
 }
 
-/// Whether `b[..i]` ends with a `_`/`__` emphasis opener (`_a1_`, `__a1__`), not snake_case
-/// (`foo_a1`): the underscores follow the start, a space or punctuation.
-fn emphasis_before(b: &[u8], i: usize) -> bool {
-    let run = b[..i].iter().rev().take_while(|c| **c == b'_').count();
-    (1..=3).contains(&run) && (run == i || !b[i - run - 1].is_ascii_alphanumeric())
+/// A Markdown word character for `link_subagents`: an id inside a longer token stays as written.
+fn word(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_'
 }
 
-/// Whether `b[end..]` starts with a `_`/`__` emphasis closer (`_a1_`), not snake_case (`a1_x`).
-fn emphasis_after(b: &[u8], end: usize) -> bool {
-    let run = b[end..].iter().take_while(|c| **c == b'_').count();
-    (1..=3).contains(&run) && b.get(end + run).is_none_or(|c| !c.is_ascii_alphanumeric())
+/// Whether `tail`, the text right after an id, continues its token (`a1b`, `a1.txt`).
+fn continues_word(tail: &str) -> bool {
+    let mut next = tail.chars();
+    match next.next() {
+        None => false,
+        Some('.') => next.next().is_some_and(word),
+        Some(c) => word(c),
+    }
+}
+
+/// Whether `tail` starts with a `_`/`__` emphasis closer (`_a1_`), not snake_case (`a1_x`).
+fn emphasis_close(tail: &str) -> bool {
+    let after = tail.trim_start_matches('_');
+    let run = tail.len().saturating_sub(after.len());
+    (1..=3).contains(&run)
+        && after
+            .chars()
+            .next()
+            .is_none_or(|c| !c.is_ascii_alphanumeric())
+}
+
+/// The text `link_subagents` has passed (as written, not the links it wrote for it): its last
+/// character and the run of underscores it ends with.
+#[derive(Default)]
+struct Behind {
+    underscores: usize,
+    last_other: Option<char>,
+}
+
+impl Behind {
+    fn push(&mut self, piece: &str) {
+        for c in piece.chars() {
+            if c == '_' {
+                self.underscores = self.underscores.saturating_add(1);
+            } else {
+                self.underscores = 0;
+                self.last_other = Some(c);
+            }
+        }
+    }
+
+    fn last(&self) -> Option<char> {
+        if self.underscores > 0 {
+            Some('_')
+        } else {
+            self.last_other
+        }
+    }
+
+    fn line_start(&self) -> bool {
+        self.last().is_none_or(|c| c == '\n')
+    }
+
+    /// Whether the text ends with a `_`/`__` emphasis opener (`_a1_`, `__a1__`), not snake_case
+    /// (`foo_a1`): the underscores follow the start, a space or punctuation.
+    fn emphasis_open(&self) -> bool {
+        (1..=3).contains(&self.underscores)
+            && self.last_other.is_none_or(|c| !c.is_ascii_alphanumeric())
+    }
 }
 
 /// A subagent id: `a` and 1 to 6 digits, no leading zero.
@@ -662,19 +755,27 @@ pub fn chief_host(home: &Path) -> String {
 
 /// `open_request` whose tab names Chief home `home` as its session's host.
 pub fn open_request_for(home: &Path, session: &str, name: &str, key: &str, cwd: &Path) -> Value {
-    let mut request = open_request(session, name, key, cwd);
-    request["params"]["args"]["host"] = json!(chief_host(home));
-    request
+    open_request_on(session, name, key, cwd, Some(&chief_host(home)))
 }
 
 /// The `action.run` request that opens `session` in workspace `key`.
 pub fn open_request(session: &str, name: &str, key: &str, cwd: &Path) -> Value {
+    open_request_on(session, name, key, cwd, None)
+}
+
+/// `open_request`, its tab naming `host` as its session's host when given.
+fn open_request_on(session: &str, name: &str, key: &str, cwd: &Path, host: Option<&str>) -> Value {
+    let mut args =
+        json!({"session": session, "name": name, "key": key, "cwd": cwd.display().to_string()});
+    if let Some(host) = host {
+        args.insert("host", json!(host));
+    }
     json!({
         "id": 1,
         "method": "action.run",
         "params": {
             "action": OPEN_ACTION,
-            "args": {"session": session, "name": name, "key": key, "cwd": cwd.display().to_string()},
+            "args": args,
             "wait": true,
             // A script's run: it never takes focus or switches workspaces.
             "origin": "script",
@@ -809,7 +910,7 @@ fn group_workspace(
         .list_workspace_groups(ListWorkspaceGroupsRequest {})
         .ok()
         .and_then(|listed| {
-            listed["groups"].as_array()?.iter().find_map(|g| {
+            listed.field("groups").as_array()?.iter().find_map(|g| {
                 let named = g["name"].as_str()?.trim().eq_ignore_ascii_case(name.trim());
                 named.then(|| g["id"].as_str().map(str::to_owned)).flatten()
             })
@@ -865,7 +966,7 @@ pub fn resource_call(
         "params": params,
     });
     if let Some(key) = idempotency_key {
-        request["idempotency_key"] = json!(key);
+        request.insert("idempotency_key", json!(key));
     }
     let mut line = request.to_string().into_bytes();
     line.push(b'\n');
@@ -875,14 +976,16 @@ pub fn resource_call(
         let Ok(value) = serde_json::from_str::<Value>(&answer) else {
             continue;
         };
-        if value["id"] != json!(id) {
+        if *value.field("id") != json!(id) {
             continue;
         }
-        return match value["ok"].as_bool() {
-            Some(true) => Ok(value["result"].clone()),
-            _ => Err(value["error"]["message"]
+        return match value.field("ok").as_bool() {
+            Some(true) => Ok(value.field("result").clone()),
+            _ => Err(value
+                .field("error")
+                .field("message")
                 .as_str()
-                .map_or_else(|| value["error"].to_string(), str::to_owned)),
+                .map_or_else(|| value.field("error").to_string(), str::to_owned)),
         };
     }
     Err("the session daemon closed the connection".to_owned())
@@ -906,7 +1009,7 @@ pub fn place_in_personal_group(daemon: &Path, key: &str, name: &str) -> Result<(
         Some(id) => id,
         None => {
             let mut params = here();
-            params["name"] = json!(name);
+            params.insert("name", json!(name));
             let made = resource_call(
                 daemon,
                 "workspace_group.create",
@@ -914,9 +1017,10 @@ pub fn place_in_personal_group(daemon: &Path, key: &str, name: &str) -> Result<(
                 Some(&format!("optchat-subagent-group-create-{key}")),
             )?;
             // A mutation answers `{value: <the group>, revision, …}`.
-            made["value"]["id"]
+            made.field("value")
+                .field("id")
                 .as_str()
-                .or_else(|| made["id"].as_str())
+                .or_else(|| made.field("id").as_str())
                 .ok_or("workspace_group.create named no group")?
                 .to_owned()
         }
@@ -925,8 +1029,8 @@ pub fn place_in_personal_group(daemon: &Path, key: &str, name: &str) -> Result<(
         .ok_or("the session does not list the new workspace")?
         .id;
     let mut params = here();
-    params["workspace"] = json!(workspace);
-    params["group"] = json!(group);
+    params.insert("workspace", json!(workspace));
+    params.insert("group", json!(group));
     resource_call(
         daemon,
         "workspace.place",
@@ -1135,7 +1239,9 @@ fn locate_by_key(daemon: &Path, key: &str) -> Option<WorkspaceRef> {
     request.insert("cmd".into(), json!("list-workspaces"));
     let tree = client.request_raw(request).ok();
     client.close();
-    let id = tree?["data"]["workspaces"]
+    let id = tree?
+        .field("data")
+        .field("workspaces")
         .as_array()?
         .iter()
         .find(|w| w["key"].as_str() == Some(key))?["resource_id"]
@@ -1232,8 +1338,12 @@ impl LineClient {
     /// One request; Ok carries its `data`.
     fn call(&mut self, mut request: Value) -> Result<Value, String> {
         self.next += 1;
-        request["id"] = json!(self.next);
-        let what = request["cmd"].as_str().unwrap_or("request").to_owned();
+        request.insert("id", json!(self.next));
+        let what = request
+            .field("cmd")
+            .as_str()
+            .unwrap_or("request")
+            .to_owned();
         let mut line = request.to_string().into_bytes();
         line.push(b'\n');
         self.writer.write_all(&line).map_err(|e| e.to_string())?;
@@ -1250,16 +1360,18 @@ impl LineClient {
             let Ok(value) = serde_json::from_str::<Value>(&answer) else {
                 continue;
             };
-            if value["id"] != json!(self.next) {
+            if *value.field("id") != json!(self.next) {
                 continue;
             }
-            return match value["ok"].as_bool() {
-                Some(true) => Ok(value["data"].clone()),
+            return match value.field("ok").as_bool() {
+                Some(true) => Ok(value.field("data").clone()),
                 _ => Err(format!(
                     "{what}: {}",
-                    value["error"]["message"]
+                    value
+                        .field("error")
+                        .field("message")
                         .as_str()
-                        .map_or_else(|| value["error"].to_string(), str::to_owned)
+                        .map_or_else(|| value.field("error").to_string(), str::to_owned)
                 )),
             };
         }
@@ -1285,8 +1397,8 @@ fn tree_tabs(ws: &Value) -> Vec<Value> {
 /// itself `user@host:dir`): such a workspace stays where it is until its command ends.
 fn busy_terminal(ws: &Value) -> Option<String> {
     tree_tabs(ws).into_iter().find_map(|t| {
-        let live = t["kind"] == "pty" && t["dead"] != json!(true);
-        let title = t["title"].as_str().unwrap_or("").to_owned();
+        let live = *t.field("kind") == "pty" && *t.field("dead") != json!(true);
+        let title = t.field("title").as_str().unwrap_or("").to_owned();
         let idle = title
             .split_once(':')
             .is_some_and(|(who, _)| who.contains('@'));
@@ -1302,8 +1414,9 @@ fn busy_terminal(ws: &Value) -> Option<String> {
 /// app hid it in the Chief's own section, so this is the name the user saw).
 fn shown_name(name: &str) -> String {
     let rest = name.strip_prefix('a').and_then(|r| {
-        let digits = r.bytes().take_while(u8::is_ascii_digit).count();
-        (1..=6).contains(&digits).then(|| &r[digits..])
+        let task = r.trim_start_matches(|c: char| c.is_ascii_digit());
+        let digits = r.len().saturating_sub(task.len());
+        (1..=6).contains(&digits).then_some(task)
     });
     match rest.and_then(|r| r.strip_prefix(" · ")) {
         Some(task) if !task.trim().is_empty() => task.to_owned(),
@@ -1327,13 +1440,16 @@ pub fn adopt_owner_workspaces(owner: &Path, app: &Path) -> Result<usize, String>
     let mut from = LineClient::connect(owner)?;
     let mut to = LineClient::connect(app)?;
     let tree = from.workspaces()?;
-    let group_names: std::collections::HashMap<String, String> = tree["groups"]
+    let group_names: std::collections::HashMap<String, String> = tree
+        .field("groups")
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(|g| Some((g["id"].as_str()?.to_owned(), g["name"].as_str()?.to_owned())))
         .collect();
-    let held: std::collections::HashSet<String> = to.workspaces()?["workspaces"]
+    let held: std::collections::HashSet<String> = to
+        .workspaces()?
+        .field("workspaces")
         .as_array()
         .into_iter()
         .flatten()
@@ -1341,7 +1457,11 @@ pub fn adopt_owner_workspaces(owner: &Path, app: &Path) -> Result<usize, String>
         .collect();
     let mut moved = 0;
     // Bottom first: the user's session lists each new workspace first, so the order holds.
-    let workspaces: Vec<Value> = tree["workspaces"].as_array().cloned().unwrap_or_default();
+    let workspaces: Vec<Value> = tree
+        .field("workspaces")
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
     for ws in workspaces.iter().rev() {
         let Some(key) = ws["key"].as_str() else {
             continue;
@@ -1402,7 +1522,7 @@ fn copy_workspace(
     let name = shown_name(ws["name"].as_str().unwrap_or(""));
     let made = to.call(json!({"cmd": "create-workspace", "key": key, "name": name,
         "mutation_id": format!("optchat-adopt-ws-{key}"), "origin": MUTATION_ORIGIN}))?;
-    let workspace = made["workspace"].clone();
+    let workspace = made.field("workspace").clone();
     let mut pane: Option<Value> = None;
     for (i, tab) in tree_tabs(ws).iter().enumerate() {
         let conversation = &tab["conversation"];
@@ -1416,8 +1536,8 @@ fn copy_workspace(
             let mut request = json!({"cmd": "new-conversation-tab",
                 "mutation_id": format!("optchat-adopt-tab-{key}-{i}"), "origin": MUTATION_ORIGIN});
             match &pane {
-                Some(p) => request["pane"] = p.clone(),
-                None => request["workspace"] = workspace.clone(),
+                Some(p) => request.insert("pane", p.clone()),
+                None => request.insert("workspace", workspace.clone()),
             }
             if let Some(session) = conversation["agent_session"].as_object() {
                 let session: serde_json::Map<String, Value> = session
@@ -1425,11 +1545,11 @@ fn copy_workspace(
                     .filter(|(_, v)| !v.is_null())
                     .map(|(k, v)| (k.clone(), v.clone()))
                     .collect();
-                request["agent_session"] = Value::Object(session);
+                request.insert("agent_session", Value::Object(session));
             } else {
                 for field in ["page", "route", "conversation"] {
                     if !conversation[field].is_null() {
-                        request[field] = conversation[field].clone();
+                        request.insert(field, conversation[field].clone());
                     }
                 }
             }
@@ -1444,7 +1564,7 @@ fn copy_workspace(
                 "engine": tab["browser_engine"].as_str().unwrap_or("cef"), "activate": false,
                 "idempotency_key": format!("optchat-adopt-page-{key}-{i}")});
             if let Some(profile) = tab["browser_profile_id"].as_str() {
-                request["profile_id"] = json!(profile);
+                request.insert("profile_id", json!(profile));
             }
             // Best effort: a page is not a chat.
             if let Err(e) = to.call(request) {
@@ -1461,10 +1581,16 @@ fn copy_workspace(
 /// The first pane of workspace `key` in the session `to` reads.
 fn pane_of(to: &mut LineClient, key: &str) -> Option<Value> {
     let tree = to.workspaces().ok()?;
-    let ws = tree["workspaces"]
+    let ws = tree
+        .field("workspaces")
         .as_array()?
         .iter()
         .find(|w| w["key"] == key)?
         .clone();
-    ws["screens"][0]["panes"][0].get("id").cloned()
+    ws.field("screens")
+        .item(0)
+        .field("panes")
+        .item(0)
+        .get("id")
+        .cloned()
 }

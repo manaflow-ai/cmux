@@ -12,6 +12,8 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+use crate::panic_free::JsonFields;
+
 /// The fleet controller (the `cmux-ci` client's default).
 pub const FLEET_CONTROLLER: &str = "http://100.89.225.106:18765";
 
@@ -49,7 +51,9 @@ pub fn ssh_hosts(config: &str) -> Vec<Value> {
             "match" => current.clear(),
             "hostname" | "user" => {
                 for &i in &current {
-                    out[i][key.as_str()] = json!(value);
+                    if let Some(entry) = out.get_mut(i) {
+                        entry.insert(key.as_str(), json!(value));
+                    }
                 }
             }
             _ => {}
@@ -108,7 +112,8 @@ fn tailnet() -> Value {
             .map(|d| d.trim_end_matches('.').to_owned())
             .unwrap_or_default()
     };
-    let peers: Vec<Value> = v["Peer"]
+    let peers: Vec<Value> = v
+        .field("Peer")
         .as_object()
         .map(|m| {
             m.values()
@@ -116,7 +121,7 @@ fn tailnet() -> Value {
                 .collect()
         })
         .unwrap_or_default();
-    json!({"available": true, "self": name(&v["Self"]), "peers": peers})
+    json!({"available": true, "self": name(v.field("Self")), "peers": peers})
 }
 
 /// What this machine's Chief reaches, by name only.
@@ -193,7 +198,8 @@ pub fn probe(home: &Path) -> Result<Value, String> {
         )
     })?;
     let reach: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-    let names: Vec<String> = reach["ssh_hosts"]
+    let names: Vec<String> = reach
+        .field("ssh_hosts")
         .as_array()
         .map(|a| {
             a.iter()
@@ -213,12 +219,14 @@ pub fn probe(home: &Path) -> Result<Value, String> {
         }
     }
     let here = tailnet();
-    let fleet = reach["fleet"]["controller"]
+    let fleet = reach
+        .field("fleet")
+        .field("controller")
         .as_str()
         .unwrap_or(FLEET_CONTROLLER)
         .to_owned();
     let fleet_ok = http_ok(&format!("{fleet}/status"));
-    let route = reach["model_route"].as_str().map(str::to_owned);
+    let route = reach.field("model_route").as_str().map(str::to_owned);
     let route_ok = route.as_deref().map(http_ok);
     let mut blockers = Vec::new();
     if !ssh_down.is_empty() {
@@ -227,7 +235,7 @@ pub fn probe(home: &Path) -> Result<Value, String> {
             ssh_down.len()
         ));
     }
-    if here["available"] != true {
+    if *here.field("available") != true {
         blockers.push("this machine is not on the tailnet (tailscale status failed)".into());
     }
     if !fleet_ok {
@@ -241,12 +249,12 @@ pub fn probe(home: &Path) -> Result<Value, String> {
             route.clone().unwrap_or_default()
         ));
     }
-    if reach["credentials"]["gh_login"] == true {
+    if *reach.field("credentials").field("gh_login") == true {
         blockers.push("GitHub login: `gh auth login` on this machine (never copied)".into());
     }
     Ok(json!({
         "ssh": {"reachable": ssh_up, "unreachable": ssh_down},
-        "tailnet": {"here": here["available"], "self": here["self"]},
+        "tailnet": {"here": here.field("available"), "self": here.field("self")},
         "fleet": {"controller": fleet, "reachable": fleet_ok},
         "model_route": {"url": route, "reachable": route_ok},
         "blockers": blockers,

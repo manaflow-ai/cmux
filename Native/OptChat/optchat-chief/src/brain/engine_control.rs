@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 
 use super::{Brain, EngineRequest, Phase, ReactionFields};
 use crate::engine::{EngineChoice, resolve};
+use crate::panic_free::JsonFields;
 
 /// The efforts acpmux maps onto a harness (`default` clears the field).
 pub const EFFORTS: &[&str] = &["minimal", "low", "medium", "high", "xhigh", "max"];
@@ -258,7 +259,7 @@ fn turn_summary(end: &Value) -> Value {
         "tool_errors": end["tool_errors"],
         "cost_usd": end["cost_usd"],
         "usage": end["usage"],
-        "reply": end["reply"]["prefix"],
-        "error": end["error"]["prefix"],
+        "reply": end.field("reply").field("prefix"),
+        "error": end.field("error").field("prefix"),
     })
 }

@@ -58,8 +58,9 @@ pub fn keys(seed: &str, blocks: &[Value]) -> Vec<u64> {
     };
     let mut h = std::collections::hash_map::DefaultHasher::new();
     seed.hash(&mut h);
-    blocks[..=last]
+    blocks
         .iter()
+        .take(last + 1)
         .map(|b| {
             // The text alone: the mark's own shape does not change the prefix.
             b.get("text")

@@ -856,7 +856,9 @@ fn find_grown_dm(
             break;
         }
         asked.push(request);
-        let (title, person, chief_name) = asked.last().unwrap();
+        let Some((title, person, chief_name)) = asked.last() else {
+            break;
+        };
         match create_keyed(client, key, title, person, chief, chief_name) {
             // A conversation the Chief has left is not its DM.
             Ok(found) if found.participants.iter().any(|p| p.id == chief) => {

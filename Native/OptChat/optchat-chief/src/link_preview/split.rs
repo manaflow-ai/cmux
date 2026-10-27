@@ -91,9 +91,12 @@ fn split_with(text: &str, budget: usize, allow: &dyn Fn(&str) -> bool) -> (Vec<P
     let flush = |pending: &mut Vec<&str>, parts: &mut Vec<Part>| {
         let start = pending.iter().position(|l| !is_blank(l));
         let end = pending.iter().rposition(|l| !is_blank(l));
-        if let (Some(start), Some(end)) = (start, end) {
+        if let Some(lines) = start
+            .zip(end)
+            .and_then(|(start, end)| pending.get(start..=end))
+        {
             parts.push(Part::Text {
-                text: pending[start..=end].join("\n"),
+                text: lines.join("\n"),
                 runs: None,
             });
         }

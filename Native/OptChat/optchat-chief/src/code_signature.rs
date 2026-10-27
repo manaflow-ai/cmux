@@ -69,7 +69,7 @@ pub fn verify(signature: &KernelSignature, ours: &Signer) -> Result<(), String> 
         return Err("its CodeDirectory is not SHA-256".into());
     }
     let hash = sha2::Sha256::digest(directory);
-    if hash[..20] != signature.cdhash {
+    if hash.first_chunk::<20>() != Some(&signature.cdhash) {
         return Err("its signature blob is not the code the kernel runs (cdhash)".into());
     }
     let identifier = c_string_at(directory, be32(directory, 20)?)?;
@@ -126,19 +126,23 @@ fn parse(blob: &[u8]) -> Result<(&[u8], &[u8]), String> {
 }
 
 fn be32(bytes: &[u8], at: usize) -> Result<usize, String> {
-    let b = bytes.get(at..at + 4).ok_or("the signature is truncated")?;
-    Ok(u32::from_be_bytes([b[0], b[1], b[2], b[3]]) as usize)
+    let b = bytes
+        .get(at..)
+        .and_then(<[u8]>::first_chunk::<4>)
+        .ok_or("the signature is truncated")?;
+    Ok(u32::from_be_bytes(*b) as usize)
 }
 
 fn c_string_at(bytes: &[u8], at: usize) -> Result<String, String> {
     let rest = bytes
         .get(at..)
         .ok_or("a string runs past the CodeDirectory")?;
-    let end = rest
-        .iter()
-        .position(|&b| b == 0)
+    let mut pieces = rest.split(|&b| b == 0);
+    let text = pieces
+        .next()
+        .filter(|_| pieces.next().is_some())
         .ok_or("an unterminated string in the CodeDirectory")?;
-    String::from_utf8(rest[..end].to_vec()).map_err(|_| "a string that is not UTF-8".into())
+    String::from_utf8(text.to_vec()).map_err(|_| "a string that is not UTF-8".into())
 }
 
 #[cfg(target_os = "macos")]

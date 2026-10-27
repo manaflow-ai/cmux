@@ -21,6 +21,8 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::panic_free::JsonFields;
+
 /// The checkpoint format this build writes and reads.
 pub const FORMAT: &str = "cmux-chief-checkpoint/1";
 /// Written on the source after a move: the host refuses to start.
@@ -231,8 +233,8 @@ fn hostname() -> String {
     if rc != 0 {
         return "unknown".into();
     }
-    let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
-    String::from_utf8_lossy(&buf[..end]).into_owned()
+    let name = buf.split(|b| *b == 0).next().unwrap_or_default();
+    String::from_utf8_lossy(name).into_owned()
 }
 
 fn sha256_file(path: &Path) -> Result<(String, u64), String> {
@@ -249,7 +251,10 @@ fn sha256_file(path: &Path) -> Result<(String, u64), String> {
             break;
         }
         size += n as u64;
-        hasher.update(&buf[..n]);
+        hasher.update(
+            buf.get(..n)
+                .ok_or_else(|| format!("reading {}: a read past its buffer", path.display()))?,
+        );
     }
     Ok((hex(&hasher.finalize()), size))
 }
@@ -886,7 +891,7 @@ fn remote_mover(host: &str, wanted: &str) -> Result<String, String> {
         )
         .ok()
         .and_then(|out| serde_json::from_str::<serde_json::Value>(out.trim()).ok())
-        .is_some_and(|v| v["format"] == FORMAT)
+        .is_some_and(|v| *v.field("format") == FORMAT)
     };
     if knows(wanted) {
         return Ok(wanted.to_owned());
@@ -1108,18 +1113,20 @@ pub fn move_chief(options: &MoveOptions) -> MoveReport {
             let out = ssh(host, &script, None)?;
             let probe: serde_json::Value = serde_json::from_str(out.trim())
                 .map_err(|e| format!("probe answer {out:?}: {e}"))?;
-            if probe["format"] != FORMAT {
+            if *probe.field("format") != FORMAT {
                 return Err(format!(
                     "target optchat-chief reads {}, not {FORMAT}",
-                    probe["format"]
+                    probe.field("format")
                 ));
             }
-            if probe["empty"] != true {
-                return Err(format!("target home {} is not empty", probe["home"]));
+            if *probe.field("empty") != true {
+                return Err(format!("target home {} is not empty", probe.field("home")));
             }
             let detail = format!(
                 "{} ({} {}, {bin})",
-                probe["home"], probe["os"], probe["arch"]
+                probe.field("home"),
+                probe.field("os"),
+                probe.field("arch")
             );
             Ok((bin, detail))
         }
@@ -1251,6 +1258,10 @@ pub fn move_chief(options: &MoveOptions) -> MoveReport {
                     format!("restored {} files into {host}:{}", r.files, r.home),
                 ))
             }
+            #[allow(
+                clippy::unreachable,
+                reason = "INVARIANT: a Cloud target returned from the transfer above"
+            )]
             Target::Cloud(_) => unreachable!("handled above"),
         }
     });
@@ -1278,8 +1289,8 @@ pub fn move_chief(options: &MoveOptions) -> MoveReport {
             let out = ssh(host, &script, None)?;
             let v: serde_json::Value = serde_json::from_str(out.trim())
                 .map_err(|e| format!("verify answer {out:?}: {e}"))?;
-            if v["memory"]["messages"] != manifest.memory.messages
-                || v["conversations"]["messages"] != manifest.conversations.messages
+            if *v.field("memory").field("messages") != manifest.memory.messages
+                || *v.field("conversations").field("messages") != manifest.conversations.messages
             {
                 return Err(format!("target reads different counts: {v}"));
             }
@@ -1579,22 +1590,19 @@ fn parse(args: &[String]) -> Args {
         values: BTreeMap::new(),
         switches: Vec::new(),
     };
-    let mut i = 0;
-    while i < args.len() {
-        let a = &args[i];
+    let mut args = args.iter();
+    while let Some(a) = args.next() {
         if let Some(key) = a.strip_prefix("--") {
             if SWITCHES.contains(&key) {
                 out.switches.push(key.into());
             } else if let Some((k, v)) = key.split_once('=') {
                 out.values.insert(k.into(), v.into());
-            } else if i + 1 < args.len() {
-                out.values.insert(key.into(), args[i + 1].clone());
-                i += 1;
+            } else if let Some(value) = args.next() {
+                out.values.insert(key.into(), value.clone());
             }
         } else {
             out.words.push(a.clone());
         }
-        i += 1;
     }
     out
 }

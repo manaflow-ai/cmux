@@ -52,8 +52,10 @@ fn main() -> std::process::ExitCode {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     // Agent memory parses its own arguments: note text keeps every word,
     // including the Chief's own flags below.
-    if args.first().is_some_and(|a| a == "agent-memory") {
-        return match optchat_chief::agent_memory::run(&args[1..]) {
+    if let [command, rest @ ..] = args.as_slice()
+        && command == "agent-memory"
+    {
+        return match optchat_chief::agent_memory::run(rest) {
             Ok(out) => {
                 if !out.is_empty() {
                     println!("{out}");
@@ -67,8 +69,10 @@ fn main() -> std::process::ExitCode {
         };
     }
     // `move` parses its own switches (`--stop-host`, `--dry-run`, ...).
-    if args.first().is_some_and(|a| a == "move") {
-        let code = optchat_chief::migrate::cli(&args[1..]);
+    if let [command, rest @ ..] = args.as_slice()
+        && command == "move"
+    {
+        let code = optchat_chief::migrate::cli(rest);
         return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
     }
     // `pack mcp|mcp-headers PACK SERVER`: a pack's MCP server (stdout is the
@@ -84,7 +88,7 @@ fn main() -> std::process::ExitCode {
             flags.words.get(3).cloned().unwrap_or_default(),
         );
         let home = home(&flags);
-        let out = if args[1] == "mcp" {
+        let out = if args.get(1).is_some_and(|a| a == "mcp") {
             optchat_chief::toolpacks::serve_mcp(&home, &pack, &server)
         } else {
             optchat_chief::toolpacks::mcp_headers(&home, &pack, &server).map(|h| {
@@ -126,8 +130,10 @@ fn main() -> std::process::ExitCode {
         };
     }
     // `peer-chiefs` parses its own switches (`--config`, `--key`, ...).
-    if args.first().is_some_and(|a| a == "peer-chiefs") {
-        return match optchat_chief::peer_chiefs::cli(&args[1..]) {
+    if let [command, rest @ ..] = args.as_slice()
+        && command == "peer-chiefs"
+    {
+        return match optchat_chief::peer_chiefs::cli(rest) {
             Ok(out) => {
                 println!("{out}");
                 std::process::ExitCode::SUCCESS
@@ -151,6 +157,8 @@ fn main() -> std::process::ExitCode {
         args.retain(|a| a != "--json");
         flags = Flags::parse(&args);
     }
+    // The arguments after the first (the verb may follow options).
+    let after_first = args.get(1..).unwrap_or_default();
     let code = match flags.words.first().map(String::as_str) {
         Some("host") => optchat_chief::host::run(&flags, started_ms),
         Some("mcp") => {
@@ -204,7 +212,7 @@ fn main() -> std::process::ExitCode {
                 }
             }
         }
-        Some(verb @ ("trace" | "stats")) => match optchat_chief::report::run(verb, &args[1..]) {
+        Some(verb @ ("trace" | "stats")) => match optchat_chief::report::run(verb, after_first) {
             Ok(out) => {
                 print!("{out}");
                 0
@@ -214,7 +222,7 @@ fn main() -> std::process::ExitCode {
                 1
             }
         },
-        Some("usage") => match optchat_chief::usage::run(&args[1..]) {
+        Some("usage") => match optchat_chief::usage::run(after_first) {
             Ok(out) => {
                 print!("{out}");
                 0

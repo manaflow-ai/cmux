@@ -33,6 +33,8 @@ use serde_json::{Value, json};
 
 pub use turns::{TurnPrompt, turn_prompt};
 
+use crate::panic_free::JsonFields;
+
 /// What the inspector reads.
 pub struct Inspector {
     pub chat: Arc<OptChat>,
@@ -181,7 +183,7 @@ impl Inspector {
             .iter()
             .rev()
             .find(|e| e.get("error").is_some_and(|x| !x.is_null()))
-            .map(|e| json!({"ts": e["ts"], "ev": e["ev"], "error": e["error"]["prefix"], "node": e.get("node"), "turn": e.get("turn")}));
+            .map(|e| json!({"ts": e.field("ts"), "ev": e.field("ev"), "error": e.field("error").field("prefix"), "node": e.get("node"), "turn": e.get("turn")}));
         let top = 63u32.saturating_sub(s.messages.leading_zeros());
         json!({
             "messages": s.messages,
@@ -218,7 +220,11 @@ impl Inspector {
         let events = self.recent();
         let all = turns::summaries(&events);
         let more = all.len() > limit;
-        let page: Vec<Value> = all[all.len().saturating_sub(limit)..].to_vec();
+        let page: Vec<Value> = all
+            .iter()
+            .skip(all.len().saturating_sub(limit))
+            .cloned()
+            .collect();
         Ok(json!({"turns": page, "more": more, "days": RECENT_DAYS}))
     }
 
@@ -233,16 +239,16 @@ impl Inspector {
         let events = crate::report::for_turn(&self.trace.events(&self.traces, 0), key);
         // A turn Claude Code refused the marker on ran again without it.
         if events.iter().any(|e| e["ev"] == "turn.unmarked") {
-            start["layout"]["marker"] = json!(false);
+            start.insert_path(&["layout", "marker"], json!(false));
         }
         // A turn whose route refused the 1-hour TTL ran again at 5 minutes.
         if events.iter().any(|e| e["ev"] == "turn.ttl_refused") {
-            start["layout"]["ttl"] = json!("5m");
+            start.insert_path(&["layout", "ttl"], json!("5m"));
         }
         let prompt = turn_prompt(&self.chat, &start, &self.system_text);
         let mut out = turns::prompt_json(&prompt, &start);
         self.decorate(&mut out, &prompt);
-        out["events"] = json!(events);
+        out.insert("events", json!(events));
         Ok(out)
     }
 

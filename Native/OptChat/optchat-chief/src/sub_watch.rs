@@ -493,12 +493,12 @@ pub fn wait_on(command: &str) -> Option<WaitOn> {
         .collect();
     let after = |pat: &[&str]| -> Option<String> {
         words.windows(pat.len() + 1).find_map(|w| {
-            (w[..pat.len()]
-                .iter()
+            let (id, head) = w.split_last()?;
+            head.iter()
                 .zip(pat)
-                .all(|(a, b)| a == b || a.ends_with(&format!("/{b}"))))
-            .then(|| w[pat.len()].to_owned())
-            .filter(|id| !id.starts_with('-'))
+                .all(|(a, b)| a == b || a.ends_with(&format!("/{b}")))
+                .then(|| (*id).to_owned())
+                .filter(|id| !id.starts_with('-'))
         })
     };
     if let Some(id) = after(&["cmux-ci", "wait"]) {

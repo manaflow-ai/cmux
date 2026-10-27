@@ -20,6 +20,8 @@ use crate::state::{Batch, ChildRef, ChildStatus, HostState, Item, PendingTurn};
 use crate::turn::{self, Interrupt, TurnOutcome, TurnStart};
 use optchat_host::{Appended, NewMessage};
 
+use crate::panic_free::JsonFields;
+
 /// The notice for the first stuck view line (its node fails with a request
 /// error on every try); None when no line is stuck.
 /// A line held only by an exhausted route (a capacity error) is a quiet
@@ -630,7 +632,7 @@ impl Brain {
             serde_json::json!({"kind": "blocks"})
         };
         // The delta by its log range and cuts: the inspector renders it again.
-        layout["delta"] = serde_json::json!({
+        layout.insert("delta", serde_json::json!({
             "front": input.frozen.front,
             "new_from": first_new,
             "end": delta_end,
@@ -642,23 +644,26 @@ impl Brain {
             "bytes": input.delta.iter().map(String::len).sum::<usize>(),
             "rendered": input.rerendered,
             "prev_end_block": prev_end,
-        });
+        }));
         if !resumes.is_empty() {
-            layout["resumes"] = serde_json::json!(resumes);
+            layout.insert("resumes", serde_json::json!(resumes));
         }
-        layout["images"] = serde_json::json!(image_count);
+        layout.insert("images", serde_json::json!(image_count));
         if let Some(line) = &at_work {
-            layout["at_work"] = serde_json::json!(line);
+            layout.insert("at_work", serde_json::json!(line));
         }
         if let Some(block) = &home {
-            layout["home_workspace"] = serde_json::json!(block);
+            layout.insert("home_workspace", serde_json::json!(block));
         }
         if keep {
-            layout["kept"] = serde_json::json!({
-                "reuse": reuse.as_ref().map(|r| r.kept.session.clone()),
-                "retire": retire,
-                "from": kept.as_ref().map(|k| k.seen_end),
-            });
+            layout.insert(
+                "kept",
+                serde_json::json!({
+                    "reuse": reuse.as_ref().map(|r| r.kept.session.clone()),
+                    "retire": retire,
+                    "from": kept.as_ref().map(|k| k.seen_end),
+                }),
+            );
         }
         self.trace_start(
             &key,

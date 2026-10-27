@@ -70,7 +70,7 @@ pub(super) fn recover(chat: &OptChat, state: &mut HostState, acpmux: bool) -> Ve
         } else {
             (messages.saturating_sub(*at) as usize).min(items.len())
         };
-        for (j, item) in items[..logged].iter().enumerate() {
+        for (j, item) in items.iter().take(logged).enumerate() {
             // A logged resume note is a cut turn's too: it resumes again.
             human |= resumes_after_cut(item);
             remote |= item.remote;

@@ -178,7 +178,11 @@ pub fn split_groups(text: &str) -> Vec<&str> {
     starts.push(text.len());
     starts
         .windows(2)
-        .map(|w| text[w[0]..w[1]].trim_end_matches('\n'))
+        .filter_map(|w| match *w {
+            [start, end] => text.get(start..end),
+            _ => None,
+        })
+        .map(|g| g.trim_end_matches('\n'))
         .filter(|g| !g.trim().is_empty())
         .collect()
 }

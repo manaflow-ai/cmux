@@ -24,6 +24,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
+use crate::panic_free::JsonFields;
+
 /// The block's tag.
 pub const TAG: &str = "cmux-home-workspace";
 /// The largest block, in bytes; what does not fit is counted at the end.
@@ -236,7 +238,7 @@ impl Home {
             |value: &Value, key: &str| value.get(key).and_then(Value::as_bool).unwrap_or(false);
         let workspace = list("workspaces")
             .into_iter()
-            .find(|w| w["extra"]["kind"] == "home")?;
+            .find(|w| *w.field("extra").field("kind") == "home")?;
         let workspace_id = text(&workspace, "id");
         let screens: Vec<Value> = list("screens")
             .into_iter()
@@ -258,7 +260,12 @@ impl Home {
         // Panes in the order the layout draws them; the dock column's panes apart.
         let mut order = Vec::new();
         let mut dock = Vec::new();
-        walk(&screen["layout"]["root"], false, &mut order, &mut dock);
+        walk(
+            screen.field("layout").field("root"),
+            false,
+            &mut order,
+            &mut dock,
+        );
         let panes: Vec<Value> = list("panes")
             .into_iter()
             .filter(|p| p["screen_id"] == screen_id.as_str())
@@ -475,8 +482,9 @@ fn tail(screen: &str) -> String {
         .filter(|l| !l.is_empty())
         .collect();
     let start = lines.len().saturating_sub(TAIL_LINES);
-    lines[start..]
+    lines
         .iter()
+        .skip(start)
         .map(|l| clip(l, LINE_CHARS))
         .collect::<Vec<_>>()
         .join("\n")

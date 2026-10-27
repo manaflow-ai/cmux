@@ -24,6 +24,8 @@ use index::Index;
 use settings::MemorySettings;
 use sources::Sources;
 
+use crate::panic_free::JsonFields;
+
 pub const USAGE: &str = "optchat-chief agent-memory search [--json] [--limit N] [--local] WORDS...   entries holding every word
 optchat-chief agent-memory get ID [--json] [--local]          one entry in full
 optchat-chief agent-memory remember [--local] TEXT...         save a dated note (lesson, host fact, decision)
@@ -153,7 +155,7 @@ pub fn run(args: &[String]) -> Result<String, String> {
                         .transpose()?;
                     let mut a = json!({"query": words.join(" ")});
                     if let Some(limit) = limit {
-                        a["limit"] = json!(limit);
+                        a.insert("limit", json!(limit));
                     }
                     ("memory_search", a)
                 }
@@ -206,11 +208,20 @@ fn tool_text(server: &mut mcp::Server, tool: &str, arguments: Value) -> Result<S
     let message = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
         "params": {"name": tool, "arguments": arguments}});
     let answer = server.handle(&message).ok_or("no answer")?;
-    let result = &answer["result"];
-    let text = result["content"][0]["text"]
+    let result = &answer.field("result");
+    let text = result
+        .field("content")
+        .item(0)
+        .field("text")
         .as_str()
         .map(str::to_owned)
-        .or_else(|| answer["error"]["message"].as_str().map(str::to_owned))
+        .or_else(|| {
+            answer
+                .field("error")
+                .field("message")
+                .as_str()
+                .map(str::to_owned)
+        })
         .unwrap_or_else(|| answer.to_string());
     if result["isError"] == json!(true) || answer.get("error").is_some() {
         Err(text)
@@ -234,7 +245,7 @@ fn json_call(
         // The owner's own `--json`, through its MCP server: a JSON text the
         // server returns for the hidden `format: json` argument.
         let mut args = arguments.clone();
-        args["format"] = json!("json");
+        args.insert("format", json!("json"));
         let mut relay = relay::Relay::new(
             route.clone(),
             settings.owner_args.clone(),
@@ -250,10 +261,14 @@ fn json_call(
                         .as_str()
                         .map_or_else(|| error.to_string(), str::to_owned));
                 }
-                let text = answer["result"]["content"][0]["text"]
+                let text = answer
+                    .field("result")
+                    .field("content")
+                    .item(0)
+                    .field("text")
                     .as_str()
                     .unwrap_or("");
-                if answer["result"]["isError"] == json!(true) {
+                if *answer.field("result").field("isError") == json!(true) {
                     return Err(text.to_owned());
                 }
                 return Ok(text.to_owned());

@@ -133,15 +133,13 @@ pub fn verdict(answer: Result<&str, &str>) -> Verdict {
             .trim()
             .trim_matches(|c: char| c == '*' || c == '`' || c == '"');
         for (word, wake) in [("WAKE", true), ("SKIP", false)] {
-            let Some(head) = line.get(..word.len()) else {
+            let Some((head, rest)) = line.split_at_checked(word.len()) else {
                 continue;
             };
             if !head.eq_ignore_ascii_case(word) {
                 continue;
             }
-            let reason = line[word.len()..]
-                .trim_start_matches([':', '-', ' ', '—'])
-                .trim();
+            let reason = rest.trim_start_matches([':', '-', ' ', '—']).trim();
             let reason = if reason.is_empty() {
                 "no reason given".to_owned()
             } else {

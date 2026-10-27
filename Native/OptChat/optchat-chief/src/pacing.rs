@@ -20,15 +20,14 @@ pub const MAX_BACKOFF: Duration = Duration::from_secs(60);
 /// entry with a reply target or a non-text part is never merged.
 pub fn coalesce(entries: &mut Vec<OutboxEntry>) {
     let mut i = 0;
-    while i + 1 < entries.len() {
-        let mergeable = !entries[i].attempted
-            && !entries[i + 1].attempted
-            && entries[i].conversation == entries[i + 1].conversation
+    while let (Some(first), Some(second)) = (entries.get(i), entries.get(i + 1)) {
+        let mergeable = !first.attempted
+            && !second.attempted
+            && first.conversation == second.conversation
             // A message in a voice and a turn's reply stay two messages (voice.rs).
-            && crate::voice::of(&entries[i].idempotency_key)
-                == crate::voice::of(&entries[i + 1].idempotency_key)
-            && plain_text(&entries[i].op).is_some()
-            && plain_text(&entries[i + 1].op).is_some();
+            && crate::voice::of(&first.idempotency_key) == crate::voice::of(&second.idempotency_key)
+            && plain_text(&first.op).is_some()
+            && plain_text(&second.op).is_some();
         if !mergeable {
             i += 1;
             continue;
@@ -43,12 +42,12 @@ pub fn coalesce(entries: &mut Vec<OutboxEntry>) {
             } => (answers, answers_pending),
             _ => (Vec::new(), Vec::new()),
         };
-        if let Op::MessageSend {
+        if let Some(Op::MessageSend {
             parts,
             answers,
             answers_pending,
             ..
-        } = &mut entries[i].op
+        }) = entries.get_mut(i).map(|entry| &mut entry.op)
         {
             if let Some(Part::Text { text, .. }) = parts.first_mut() {
                 text.push_str("\n\n");

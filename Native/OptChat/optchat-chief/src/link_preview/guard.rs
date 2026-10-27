@@ -216,7 +216,8 @@ fn is_public_v4(a: Ipv4Addr) -> bool {
 
 fn is_public_v6(a: Ipv6Addr) -> bool {
     let b = a.octets();
-    let v4 = |at: usize| Ipv4Addr::new(b[at], b[at + 1], b[at + 2], b[at + 3]);
+    // The IPv4 address in the last 32 bits (mapped, compatible, NAT64).
+    let last_v4 = Ipv4Addr::new(b[12], b[13], b[14], b[15]);
     if b.iter().all(|&x| x == 0) {
         return false; // ::
     }
@@ -224,10 +225,10 @@ fn is_public_v6(a: Ipv6Addr) -> bool {
         return false; // ::1
     }
     if b[..10].iter().all(|&x| x == 0) && b[10] == 0xff && b[11] == 0xff {
-        return is_public_v4(v4(12)); // ::ffff:a.b.c.d
+        return is_public_v4(last_v4); // ::ffff:a.b.c.d
     }
     if b[..12].iter().all(|&x| x == 0) {
-        return is_public_v4(v4(12)); // ::a.b.c.d (compatible)
+        return is_public_v4(last_v4); // ::a.b.c.d (compatible)
     }
     if b[..8].iter().all(|&x| x == 0) && b[8] == 0xff && b[9] == 0xff && b[10] == 0 && b[11] == 0 {
         return false; // ::ffff:0:0/96 IPv4-translated (SIIT)
@@ -239,7 +240,7 @@ fn is_public_v6(a: Ipv6Addr) -> bool {
         return false; // 2001::/32 Teredo
     }
     if b[..4] == [0x00, 0x64, 0xff, 0x9b] && b[4..12].iter().all(|&x| x == 0) {
-        return is_public_v4(v4(12)); // NAT64 64:ff9b::/96
+        return is_public_v4(last_v4); // NAT64 64:ff9b::/96
     }
     if b[0] == 0xfe && (b[1] & 0xc0) == 0x80 {
         return false; // fe80::/10 link-local
@@ -260,7 +261,7 @@ fn is_public_v6(a: Ipv6Addr) -> bool {
         return false; // 100::/64 discard
     }
     if b[0] == 0x20 && b[1] == 0x02 {
-        return is_public_v4(v4(2)); // 6to4 2002::/16 embeds v4
+        return is_public_v4(Ipv4Addr::new(b[2], b[3], b[4], b[5])); // 6to4 2002::/16 embeds v4
     }
     true
 }
@@ -334,16 +335,18 @@ pub fn read_html(
         if Instant::now() >= deadline {
             return Err(Refusal::Timeout);
         }
-        let want = chunk.len().min(limit - out.len());
-        let n = match reader.read(&mut chunk[..want]) {
+        let want = (limit - out.len()) as u64;
+        let n = match (&mut *reader).take(want).read(&mut chunk) {
             Ok(0) => break,
             Ok(n) => n,
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(e) => return Err(Refusal::Network(e.to_string())),
         };
         let from = out.len().saturating_sub(7);
-        out.extend_from_slice(&chunk[..n]);
-        if let Some(at) = find_ascii_ci(&out[from..], b"</head>") {
+        out.extend_from_slice(read_part(&chunk, n)?);
+        if let Some((_, recent)) = out.split_at_checked(from)
+            && let Some(at) = find_ascii_ci(recent, b"</head>")
+        {
             out.truncate(from + at + 7);
             break;
         }
@@ -372,8 +375,15 @@ pub fn read_capped(
         if out.len() + n > limit {
             return Err(Refusal::TooLarge);
         }
-        out.extend_from_slice(&chunk[..n]);
+        out.extend_from_slice(read_part(&chunk, n)?);
     }
+}
+
+/// The `n` bytes a `read` into `chunk` returned.
+fn read_part(chunk: &[u8], n: usize) -> Result<&[u8], Refusal> {
+    chunk
+        .get(..n)
+        .ok_or_else(|| Refusal::Network("a read returned more than its buffer".into()))
 }
 
 fn find_ascii_ci(haystack: &[u8], needle: &[u8]) -> Option<usize> {

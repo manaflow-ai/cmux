@@ -102,7 +102,8 @@ impl Shell {
                     match stdout.read(&mut buf) {
                         Ok(0) | Err(_) => break,
                         Ok(n) => {
-                            if output.send(Event::Chunk(buf[..n].to_vec())).is_err() {
+                            let Some(read) = buf.get(..n) else { break };
+                            if output.send(Event::Chunk(read.to_vec())).is_err() {
                                 break;
                             }
                         }
@@ -139,7 +140,7 @@ impl Shell {
             match rx.recv_timeout(wait) {
                 Ok(Event::Chunk(bytes)) => {
                     let room = KEEP.saturating_sub(kept.len()).min(bytes.len());
-                    kept.extend_from_slice(&bytes[..room]);
+                    kept.extend(bytes.iter().take(room));
                     dropped += bytes.len() - room;
                 }
                 Ok(Event::Eof) => eof = true,

@@ -279,7 +279,7 @@ pub fn pair(
             path.display()
         ));
     }
-    file.ensure_wg();
+    file.ensure_wg()?;
     file.save(path)?;
 
     if file.install.is_none() {
@@ -365,13 +365,11 @@ fn find_chief(
     let mut lease: Option<Lease> = None;
     let mut delay = opts.poll;
     loop {
-        if lease
-            .as_ref()
-            .is_none_or(|l| l.expires_at <= now_ms() + 60_000)
-        {
-            lease = Some(tokens.mint(None)?);
-        }
-        let token = &lease.as_ref().expect("minted above").access_token;
+        let token = match lease.take() {
+            Some(held) if held.expires_at > now_ms() + 60_000 => lease.insert(held),
+            _ => lease.insert(tokens.mint(None)?),
+        };
+        let token = &token.access_token;
         let list = auth::read(&*http, &file.api_base_url, token, "chief.list", json!({}))?;
         if let Some(chief) = placed_chief(&list, install, false) {
             return Ok(chief);

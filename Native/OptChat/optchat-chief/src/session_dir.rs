@@ -28,6 +28,7 @@ use std::path::Path;
 
 use serde_json::{Value, json};
 
+use crate::panic_free::JsonFields;
 use crate::paths::Paths;
 use crate::prompt::{Tools, chief_system_text, system_text};
 
@@ -362,7 +363,8 @@ pub fn cmux_tool_names(env: &BTreeMap<String, String>) -> Result<CmuxToolList, S
     }
     let value: Value = serde_json::from_slice(&bytes)
         .map_err(|e| format!("cmux --json mcp tools printed no JSON: {e}"))?;
-    let names = value["tools"]
+    let names = value
+        .field("tools")
         .as_array()
         .map(|tools| {
             tools
@@ -373,7 +375,7 @@ pub fn cmux_tool_names(env: &BTreeMap<String, String>) -> Result<CmuxToolList, S
         .ok_or_else(|| "cmux --json mcp tools listed no tools".to_owned())?;
     Ok(CmuxToolList {
         names,
-        app_actions: value["app_actions"] == true,
+        app_actions: *value.field("app_actions") == true,
         note,
     })
 }
@@ -611,13 +613,16 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
         .collect();
     let mut settings = settings_json(setup, paths, &deny);
     for (key, value) in TURN_SETTINGS_ENV {
-        settings["env"][key] = json!(value);
+        settings.insert_path(&["env", key], json!(value));
     }
     // git asks the tool packs' credential helpers for their hosts (toolpacks.rs).
     for (key, value) in crate::toolpacks::git_env(&packs, &paths.bin) {
-        settings["env"][key] = json!(value);
+        settings.insert_path(&["env", key.as_str()], json!(value));
     }
-    settings["permissions"]["allow"] = json!(crate::approval::turn_allowed_tools());
+    settings.insert_path(
+        &["permissions", "allow"],
+        json!(crate::approval::turn_allowed_tools()),
+    );
     let settings = pretty(&settings)?;
     write_private(
         &paths.session.join(".claude").join("settings.json"),
@@ -798,10 +803,13 @@ pub fn set_session_cache(
             .filter(Value::is_object)
             .unwrap_or_else(|| json!({}));
         if let Some(late) = &late {
-            if !value["permissions"]["deny"].is_array() {
-                value["permissions"]["deny"] = json!([]);
+            if !value.field("permissions").field("deny").is_array() {
+                value.insert_path(&["permissions", "deny"], json!([]));
             }
-            if let Some(deny) = value["permissions"]["deny"].as_array_mut() {
+            if let Some(deny) = value
+                .pointer_mut("/permissions/deny")
+                .and_then(Value::as_array_mut)
+            {
                 for rule in late {
                     if !deny.iter().any(|d| d == rule) {
                         deny.push(json!(rule));
@@ -809,25 +817,25 @@ pub fn set_session_cache(
                 }
             }
         }
-        value["promptCacheTtl"] = json!(ttl.as_str());
+        value.insert("promptCacheTtl", json!(ttl.as_str()));
         // At 5 minutes also FORCE_PROMPT_CACHING_5M, which wins over every
         // other source of Claude Code's TTL (a subscription login marks 1h).
-        if !value["env"].is_object() {
-            value["env"] = json!({});
+        if !value.field("env").is_object() {
+            value.insert("env", json!({}));
         }
         match ttl {
             crate::prompt::CacheTtl::FiveMinutes => {
-                value["env"]["FORCE_PROMPT_CACHING_5M"] = json!("1");
+                value.insert_path(&["env", "FORCE_PROMPT_CACHING_5M"], json!("1"));
             }
             crate::prompt::CacheTtl::OneHour => {
-                if let Some(env) = value["env"].as_object_mut() {
+                if let Some(env) = value.get_mut("env").and_then(Value::as_object_mut) {
                     env.remove("FORCE_PROMPT_CACHING_5M");
                 }
             }
         }
         if ours {
-            value["env"]["DISABLE_PROMPT_CACHING"] = json!("1");
-        } else if let Some(env) = value["env"].as_object_mut() {
+            value.insert_path(&["env", "DISABLE_PROMPT_CACHING"], json!("1"));
+        } else if let Some(env) = value.get_mut("env").and_then(Value::as_object_mut) {
             env.remove("DISABLE_PROMPT_CACHING");
         }
         let text = format!(

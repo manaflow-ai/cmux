@@ -44,6 +44,7 @@ use optchat_host::{OptChat, cap_tool_result};
 use serde_json::{Value, json};
 
 use crate::fold::{Usage, stop_error};
+use crate::panic_free::JsonFields;
 use crate::prompt::{DATE_DESCRIPTION, ZOOM_DESCRIPTION};
 use crate::tools::Call;
 use crate::turn::{TurnOutcome, TurnStart, usage_line};
@@ -170,7 +171,7 @@ impl Native {
                 }
                 let mut block = block.clone();
                 if last_view.is_some_and(|v| v > 0 && i + 1 == v) {
-                    block["cache_control"] = ttl.cache_control();
+                    block.insert("cache_control", ttl.cache_control());
                 }
                 block
             })
@@ -193,10 +194,10 @@ impl Native {
             "cache_control": self.cache_ttl.cache_control(),
         });
         if let Some(effort) = &self.config.effort {
-            body["output_config"] = json!({"effort": effort});
+            body.insert("output_config", json!({"effort": effort}));
         }
         if self.config.server_fallback {
-            body["fallbacks"] = json!("default");
+            body.insert("fallbacks", json!("default"));
         }
         body
     }
@@ -315,7 +316,9 @@ impl Native {
                     usage,
                     ..crate::fold::Request::default()
                 });
-                crate::trace::requests(&self.trace, &scope, &requests[requests.len() - 1..]);
+                if let Some(last) = requests.last() {
+                    crate::trace::requests(&self.trace, &scope, std::slice::from_ref(last));
+                }
                 first_usage.get_or_insert(usage);
                 totals.input += usage.input;
                 totals.cache_read += usage.cache_read;
@@ -391,7 +394,7 @@ impl Native {
                         );
                         let mut result = json!({"type": "tool_result", "tool_use_id": block["id"], "content": text});
                         if is_error {
-                            result["is_error"] = json!(true);
+                            result.insert("is_error", json!(true));
                         }
                         results.push(result);
                     }

@@ -17,6 +17,7 @@ use serde_json::{Value, json};
 use super::children::{ended_replies, report_of};
 use super::{Brain, Queued, Source};
 use crate::fold::TurnFold;
+use crate::panic_free::JsonFields;
 use crate::state::{SpawnRecord, SpawnRef, SubRecord, SubStatus};
 use crate::subagents::{PROMPT_PREFIX, SpawnPlan};
 
@@ -518,7 +519,7 @@ impl Brain {
                 crate::subagents::SIZES.join(", ")
             ));
         }
-        let per_agent = peers.len() == 1 && peers[0] == crate::subagents::PER_AGENT;
+        let per_agent = matches!(peers, [only] if only == crate::subagents::PER_AGENT);
         if tasks.is_empty() {
             return Err("spawn needs at least one task".into());
         }
@@ -529,9 +530,9 @@ impl Brain {
         // ones (counting this spawn's), ties to the first listed.
         let mut load: Vec<usize> = peers.iter().map(|p| self.live_on(p)).collect();
         let mut pick = || -> Option<String> {
-            let k = (0..peers.len()).min_by_key(|&k| (load[k], k))?;
-            load[k] += 1;
-            Some(peers[k].clone())
+            let (count, peer) = load.iter_mut().zip(peers.iter()).min_by_key(|(n, _)| **n)?;
+            *count += 1;
+            Some(peer.clone())
         };
         let chosen: Vec<Option<String>> = if per_agent {
             Vec::new()
@@ -726,9 +727,9 @@ impl Brain {
 
     pub(super) fn sub_answer(&mut self, id: &str, answer: &Result<Value, String>) {
         let mut fields = crate::subagents::answer_fields(answer);
-        fields["id"] = json!(id);
+        fields.insert("id", json!(id));
         if let Some((spawn, _)) = self.state.sub(id) {
-            fields["spawn"] = json!(spawn);
+            fields.insert("spawn", json!(spawn));
         }
         self.trace.emit("subagent.answer", fields);
         // A prompt the harness failed ends the run with a failure report,
@@ -1484,9 +1485,9 @@ impl Brain {
             let queued = self.queue.iter().position(|q| {
                 matches!(&q.source, Source::Spawn(r) if r.spawn == spawn && r.subs.iter().any(|(s, _)| *s == id))
             });
-            match queued {
-                Some(k) => {
-                    self.queue[k] = Queued {
+            match queued.and_then(|k| self.queue.get_mut(k)) {
+                Some(slot) => {
+                    *slot = Queued {
                         text,
                         source,
                         images: Vec::new(),
@@ -1606,7 +1607,10 @@ impl Brain {
         }
         if hold {
             let (status, paused, waiting) = {
-                let sub = self.state.sub_mut(id).expect("checked above");
+                let sub = self
+                    .state
+                    .sub_mut(id)
+                    .ok_or_else(|| format!("tell: no subagent {id}"))?;
                 sub.inbox.push(crate::state::InboxMessage {
                     text: message.to_owned(),
                     at_ms: now_ms(),
@@ -2188,7 +2192,11 @@ impl Brain {
     /// running turn and every subagent at work or queued stop; the answer
     /// names them for the undo toast's list and its Restart.
     pub(super) fn stop_all(&mut self) -> Value {
-        let turn = self.owner_stop()["stopped"].as_bool().unwrap_or(false);
+        let turn = self
+            .owner_stop()
+            .field("stopped")
+            .as_bool()
+            .unwrap_or(false);
         let StopPick {
             stopped,
             starting,
@@ -2205,7 +2213,7 @@ impl Brain {
         // never in `subagents` (so Restart never touches it).
         let mut answer = json!({"stopped": turn, "subagents": stopped, "errors": errors});
         if let Some(note) = starting_note(&starting) {
-            answer["note"] = json!(note);
+            answer.insert("note", json!(note));
         }
         answer
     }

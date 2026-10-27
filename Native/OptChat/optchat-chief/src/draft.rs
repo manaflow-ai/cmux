@@ -105,19 +105,20 @@ impl Drafter {
         if text.len() <= self.sent {
             return;
         }
-        let delta = &text[self.sent..];
         let stale = self
             .last_fresh
             .is_none_or(|t| now.duration_since(t) >= FRESH_EVERY);
-        let fresh = new || stale || delta.len() > MAX_DELTA;
-        let (text_out, truncated) = if fresh {
-            let start = text.len().saturating_sub(MAX_FRESH);
-            let start = (start..=text.len())
-                .find(|i| text.is_char_boundary(*i))
-                .unwrap_or(text.len());
-            (text[start..].to_owned(), start > 0)
-        } else {
-            (delta.to_owned(), false)
+        // A text that no longer extends what was sent goes fresh too.
+        let delta = text
+            .get(self.sent..)
+            .filter(|delta| !(new || stale) && delta.len() <= MAX_DELTA);
+        let fresh = delta.is_none();
+        let (text_out, truncated) = match delta {
+            Some(delta) => (delta.to_owned(), false),
+            None => {
+                let tail = crate::panic_free::tail_within(text, MAX_FRESH);
+                (tail.to_owned(), tail.len() < text.len())
+            }
         };
         if fresh {
             self.last_fresh = Some(now);

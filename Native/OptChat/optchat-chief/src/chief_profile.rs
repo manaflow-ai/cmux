@@ -637,14 +637,15 @@ impl ProfileClient {
             self.chief,
             std::process::id()
         );
-        let mut frame = json!({"protocol": "cmux.protocol/2", "type": "request", "id": unique,
-                               "operation": operation, "params": params});
+        let mut frame = serde_json::Map::new();
+        frame.insert("protocol".into(), json!("cmux.protocol/2"));
+        frame.insert("type".into(), json!("request"));
+        frame.insert("id".into(), json!(unique));
+        frame.insert("operation".into(), json!(operation));
+        frame.insert("params".into(), json!(params));
         if mutation {
-            frame["idempotency_key"] = json!(key.unwrap_or(unique));
+            frame.insert("idempotency_key".into(), json!(key.unwrap_or(unique)));
         }
-        let Value::Object(frame) = frame else {
-            unreachable!("a JSON object")
-        };
         let response = client.request_raw(frame)?;
         client.close();
         Ok(response.get("result").cloned().unwrap_or(Value::Null))
@@ -1052,7 +1053,22 @@ fn read_picture(path: &str) -> Result<(&'static str, Vec<u8>), String> {
         "image/jpeg"
     } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
         "image/gif"
-    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+    } else if let [
+        b'R',
+        b'I',
+        b'F',
+        b'F',
+        _,
+        _,
+        _,
+        _,
+        b'W',
+        b'E',
+        b'B',
+        b'P',
+        ..,
+    ] = bytes[..]
+    {
         "image/webp"
     } else {
         return Err(BAD_IMAGE.to_owned());

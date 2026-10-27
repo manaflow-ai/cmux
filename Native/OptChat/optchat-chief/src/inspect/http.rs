@@ -262,20 +262,21 @@ pub fn parse_query(query: &str) -> Vec<(String, String)> {
 }
 
 fn decode(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).ok();
-            if let Some(b) = hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
-                out.push(b);
-                i += 3;
-                continue;
-            }
+    let mut out = Vec::with_capacity(text.len());
+    let mut rest = text.as_bytes();
+    while let Some((&first, tail)) = rest.split_first() {
+        if first == b'%'
+            && let Some((hex, after)) = tail.split_first_chunk::<2>()
+            && let Some(b) = std::str::from_utf8(hex)
+                .ok()
+                .and_then(|h| u8::from_str_radix(h, 16).ok())
+        {
+            out.push(b);
+            rest = after;
+            continue;
         }
-        out.push(bytes[i]);
-        i += 1;
+        out.push(first);
+        rest = tail;
     }
     String::from_utf8_lossy(&out).into_owned()
 }

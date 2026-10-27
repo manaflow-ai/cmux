@@ -12,6 +12,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
+use crate::panic_free::JsonFields;
+
 /// Most bytes of a step's text and of a tool's output (the owner's limit).
 pub const MAX_TEXT: usize = 32 * 1024;
 /// Most bytes of a tool's input as JSON.
@@ -205,7 +207,12 @@ impl RunSteps {
             if upto <= streamed.sent.len() {
                 continue;
             }
-            let delta = &text[streamed.sent.len()..upto];
+            let Some((head, delta)) = text
+                .get(..upto)
+                .and_then(|head| Some((head, head.strip_prefix(streamed.sent.as_str())?)))
+            else {
+                continue;
+            };
             let chunks = split_chars(delta, MAX_DELTA_CHARS);
             let count = chunks.len();
             for (index, chunk) in chunks.into_iter().enumerate() {
@@ -218,13 +225,13 @@ impl RunSteps {
                     "text": chunk,
                 });
                 if !step.open && index + 1 == count {
-                    frame["final"] = json!(true);
+                    frame.insert("final", json!(true));
                     streamed.ended = true;
                 }
                 streamed.seq += 1;
                 out.push(frame);
             }
-            streamed.sent = text[..upto].to_owned();
+            streamed.sent = head.to_owned();
         }
         if std::mem::take(&mut self.activity_dirty)
             && let Some((line, since)) = &self.activity
@@ -446,7 +453,7 @@ impl LiveStreams {
         let Some(step) = frame
             .get("step")
             .and_then(Value::as_str)
-            .filter(|_| frame["type"] == "step.delta")
+            .filter(|_| *frame.field("type") == "step.delta")
             .map(str::to_owned)
         else {
             return publish(frame);
@@ -455,7 +462,7 @@ impl LiveStreams {
         self.steps.retain(|(of, _), _| of == run);
         let key = (run.to_owned(), step);
         let stream = self.steps.entry(key.clone()).or_default();
-        let piece = frame["text"].as_str().unwrap_or_default().to_owned();
+        let piece = frame.field("text").as_str().unwrap_or_default().to_owned();
         stream.text.push_str(&piece);
         if stream.text.len() > MAX_STREAM_BYTES {
             let mut cut = stream.text.len() - MAX_STREAM_BYTES;
@@ -472,13 +479,13 @@ impl LiveStreams {
             let mut result = Ok(());
             for (index, chunk) in chunks.into_iter().enumerate() {
                 let mut again = frame.clone();
-                again["seq"] = json!(index);
-                again["text"] = json!(chunk);
+                again.insert("seq", json!(index));
+                again.insert("text", json!(chunk));
                 if let Some(object) = again.as_object_mut() {
                     object.remove("final");
                 }
                 if last && index + 1 == count {
-                    again["final"] = json!(true);
+                    again.insert("final", json!(true));
                 }
                 if let Err(e) = publish(again) {
                     result = Err(e);
@@ -491,7 +498,7 @@ impl LiveStreams {
             }
             result
         } else {
-            frame["seq"] = json!(stream.next);
+            frame.insert("seq", json!(stream.next));
             let result = publish(frame);
             match result {
                 Ok(()) => stream.next += 1,
@@ -515,8 +522,11 @@ fn split_chars(text: &str, max: usize) -> Vec<&str> {
             .char_indices()
             .nth(max)
             .map_or(rest.len(), |(at, _)| at);
-        out.push(&rest[..end]);
-        rest = &rest[end..];
+        let Some((piece, after)) = rest.split_at_checked(end) else {
+            break;
+        };
+        out.push(piece);
+        rest = after;
     }
     out
 }
@@ -670,6 +680,10 @@ fn control_line(input: Option<&Value>) -> String {
     }
 }
 
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: the line before the expect makes `tool` an object"
+)]
 fn tool_of(step: &mut Map<String, Value>) -> &mut Map<String, Value> {
     let tool = step.entry("tool").or_insert_with(|| json!({}));
     if !tool.is_object() {
@@ -871,7 +885,7 @@ fn file_entry<'a>(
     if !files.is_array() {
         *files = json!([]);
     }
-    let files = files.as_array_mut().expect("files is an array");
+    let files = files.as_array_mut()?;
     let index = match files
         .iter()
         .position(|f| f.get("path").and_then(Value::as_str) == Some(path.as_str()))
@@ -883,7 +897,7 @@ fn file_entry<'a>(
             files.len() - 1
         }
     };
-    files[index].as_object_mut()
+    files.get_mut(index)?.as_object_mut()
 }
 
 /// Lines added and removed from `old` to `new`, by line multiset (a
@@ -906,26 +920,12 @@ fn line_counts(old: &str, new: &str) -> (u64, u64) {
 
 /// The first `max` bytes of `text` at a character boundary.
 pub fn cut_head(text: &str, max: usize) -> String {
-    if text.len() <= max {
-        return text.to_owned();
-    }
-    let mut cut = max;
-    while !text.is_char_boundary(cut) {
-        cut -= 1;
-    }
-    text[..cut].to_owned()
+    crate::panic_free::head_within(text, max).to_owned()
 }
 
 /// The last `max` bytes of `text` at a character boundary.
 fn cut_tail(text: &str, max: usize) -> String {
-    if text.len() <= max {
-        return text.to_owned();
-    }
-    let mut cut = text.len() - max;
-    while !text.is_char_boundary(cut) {
-        cut += 1;
-    }
-    text[cut..].to_owned()
+    crate::panic_free::tail_within(text, max).to_owned()
 }
 
 /// `text` when it fits, else its head and tail around a marker.

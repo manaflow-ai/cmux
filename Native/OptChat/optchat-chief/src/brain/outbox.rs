@@ -68,8 +68,8 @@ impl Brain {
                 self.outbox_timer = Some(Instant::now() + Duration::from_millis(at - now + 50));
                 return;
             }
-            if !attempted {
-                self.state.outbox[0].attempted = true;
+            if !attempted && let Some(head) = self.state.outbox.first_mut() {
+                head.attempted = true;
                 self.save();
             }
             let Some(daemon) = self.daemon.as_mut() else {
@@ -95,7 +95,9 @@ impl Brain {
                 }
                 Err(OpError::Rejected(reason)) if reason.contains("agent_rate") => {
                     // Never dropped (G11): the same key again after a growing backoff.
-                    let head = &mut self.state.outbox[0];
+                    let Some(head) = self.state.outbox.first_mut() else {
+                        return;
+                    };
                     head.rate_retried = true;
                     head.rate_attempts += 1;
                     let wait = pacing::backoff(self.settings.agent_gap, head.rate_attempts);
@@ -117,12 +119,19 @@ impl Brain {
                     ))
                 }
                 Err(OpError::Rejected(reason))
-                    if self.state.outbox[0].plain_text.is_some() && has_cards(&op) =>
+                    if self
+                        .state
+                        .outbox
+                        .first()
+                        .is_some_and(|h| h.plain_text.is_some())
+                        && has_cards(&op) =>
                 {
                     // The owner refused the link cards (an older or stricter
                     // owner): the reply goes as its original text, unchanged,
                     // under a new key, since the refused key is spent.
-                    let head = &mut self.state.outbox[0];
+                    let Some(head) = self.state.outbox.first_mut() else {
+                        continue;
+                    };
                     let text = head.plain_text.take().unwrap_or_default();
                     let fallback = super::reply_entry(
                         head.conversation.clone(),
@@ -142,8 +151,12 @@ impl Brain {
                     // The owner refused the reply's thread: the same reply
                     // goes at the top level under a new key (the refused key
                     // is spent), never dropped.
-                    let top = super::replies::unthreaded(&op, &reason).expect("checked above");
-                    let head = &mut self.state.outbox[0];
+                    let (Some(top), Some(head)) = (
+                        super::replies::unthreaded(&op, &reason),
+                        self.state.outbox.first_mut(),
+                    ) else {
+                        continue;
+                    };
                     let new_key = format!("{key}:top");
                     head.idempotency_key = new_key.clone();
                     head.attempted = false;

@@ -1006,11 +1006,8 @@ pub fn capacity_retry_after(error: &str) -> Option<Duration> {
     if !capacity {
         return None;
     }
-    let seconds = lower.find("retry after ").and_then(|at| {
-        let digits: String = lower[at + 12..]
-            .chars()
-            .take_while(char::is_ascii_digit)
-            .collect();
+    let seconds = lower.split_once("retry after ").and_then(|(_, after)| {
+        let digits: String = after.chars().take_while(char::is_ascii_digit).collect();
         digits.parse::<u64>().ok()
     });
     Some(seconds.map_or(CAPACITY_DEFAULT_WAIT, Duration::from_secs))

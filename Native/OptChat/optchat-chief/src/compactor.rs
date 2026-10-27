@@ -44,6 +44,7 @@ use serde_json::{Value, json};
 
 use crate::acpmux::{AgentPort, Family, Preset, SessionSpec, TurnSignal};
 use crate::fold::{TurnFold, Usage, answer_usage};
+use crate::panic_free::JsonFields;
 use crate::paths::{Paths, home_id};
 
 /// The permission policy of every compactor session: a node needs no tool.
@@ -280,9 +281,10 @@ struct SlotState {
     warming: usize,
     /// Nodes blocked in `acquire`.
     waiting: usize,
-    /// Tickets of the nodes waiting in `acquire`, oldest first: the chat's
-    /// own nodes (foreground) and imported ones (background).
-    queues: [std::collections::VecDeque<u64>; 2],
+    /// Tickets of the chat's own nodes waiting in `acquire`, oldest first.
+    foreground: std::collections::VecDeque<u64>,
+    /// Tickets of the imported nodes waiting in `acquire`, oldest first.
+    background: std::collections::VecDeque<u64>,
     next_ticket: u64,
     /// Slots given to foreground nodes in a row while a background node
     /// waited (`BACKGROUND_EVERY`).
@@ -294,25 +296,40 @@ struct SlotState {
 const BACKGROUND_EVERY: usize = 4;
 
 impl SlotState {
-    /// Whether ticket `t` of queue `q` (0 foreground, 1 background) is the
-    /// one to take the next session: the oldest of its queue; foreground
-    /// first, except every `BACKGROUND_EVERY`-th hand-out while a
-    /// background node waits.
-    fn turn(&self, q: usize, t: u64) -> bool {
-        if self.queues[q].front() != Some(&t) {
-            return false;
-        }
-        let background_due = !self.queues[1].is_empty() && self.foreground_run >= BACKGROUND_EVERY;
-        match q {
-            0 => !background_due,
-            _ => self.queues[0].is_empty() || background_due,
+    /// The waiting tickets of the background or the foreground queue.
+    fn queue(&mut self, background: bool) -> &mut std::collections::VecDeque<u64> {
+        if background {
+            &mut self.background
+        } else {
+            &mut self.foreground
         }
     }
 
-    /// Ticket `t` of queue `q` took a session.
-    fn took(&mut self, q: usize) {
-        self.queues[q].pop_front();
-        self.foreground_run = if q == 0 && !self.queues[1].is_empty() {
+    /// Whether ticket `t` of the background or the foreground queue is the
+    /// one to take the next session: the oldest of its queue; foreground
+    /// first, except every `BACKGROUND_EVERY`-th hand-out while a
+    /// background node waits.
+    fn turn(&self, background: bool, t: u64) -> bool {
+        let queue = if background {
+            &self.background
+        } else {
+            &self.foreground
+        };
+        if queue.front() != Some(&t) {
+            return false;
+        }
+        let background_due = !self.background.is_empty() && self.foreground_run >= BACKGROUND_EVERY;
+        if background {
+            self.foreground.is_empty() || background_due
+        } else {
+            !background_due
+        }
+    }
+
+    /// The oldest ticket of the background or the foreground queue took a session.
+    fn took(&mut self, background: bool) {
+        self.queue(background).pop_front();
+        self.foreground_run = if !background && !self.background.is_empty() {
             self.foreground_run + 1
         } else {
             0
@@ -377,20 +394,20 @@ impl Slots {
     /// foreground work; every `BACKGROUND_EVERY`-th hand-out goes to a
     /// waiting import, so it never starves.
     fn acquire(&self, key: Option<u64>, foreground: bool) -> Acquired {
-        let q = usize::from(!foreground);
+        let background = !foreground;
         let mut st = self.lock();
         let t = st.next_ticket;
         st.next_ticket += 1;
-        st.queues[q].push_back(t);
+        st.queue(background).push_back(t);
         st.waiting += 1;
         let got = loop {
-            if st.active < st.max_active && st.turn(q, t) {
+            if st.active < st.max_active && st.turn(background, t) {
                 let got = if let Some(key) = key
                     && let Some(k) = st.warm.iter().position(|w| w.key == key)
                 {
                     Some(Acquired::Warm(st.warm.remove(k)))
-                } else if let Some(k) = st.free.iter().position(|f| *f) {
-                    st.free[k] = false;
+                } else if let Some((k, free)) = st.free.iter_mut().enumerate().find(|(_, f)| **f) {
+                    *free = false;
                     Some(Acquired::Slot(k))
                 } else {
                     st.warm
@@ -399,7 +416,7 @@ impl Slots {
                         .map(|k| Acquired::Stale(st.warm.remove(k)))
                 };
                 if let Some(got) = got {
-                    st.took(q);
+                    st.took(background);
                     st.active += 1;
                     break got;
                 }
@@ -1012,17 +1029,17 @@ impl AcpmuxCompactor {
         };
         let slot_wait = asked.elapsed();
         let got = Instant::now();
-        let (id, slot, cwd, preset) = match acquired {
-            Acquired::Warm(w) => (w.id, w.slot, w.cwd, w.preset),
-            other => {
-                let slot = match other {
-                    Acquired::Stale(w) => {
-                        self.end_warm(&w);
-                        w.slot
-                    }
-                    Acquired::Slot(k) => k,
-                    Acquired::Warm(_) => unreachable!(),
-                };
+        let slot = match acquired {
+            Acquired::Warm(w) => Err(w),
+            Acquired::Stale(w) => {
+                self.end_warm(&w);
+                Ok(w.slot)
+            }
+            Acquired::Slot(k) => Ok(k),
+        };
+        let (id, slot, cwd, preset) = match slot {
+            Err(w) => (w.id, w.slot, w.cwd, w.preset),
+            Ok(slot) => {
                 let name = self.session_name(node);
                 match self.start(slot, &name, system, &admitted, ttl, ours, model.clone()) {
                     Ok((id, cwd, preset)) => (id, slot, cwd, preset),
@@ -1924,19 +1941,27 @@ pub fn is_refusal_error(message: &str) -> bool {
 pub fn strip_preamble(text: &str) -> String {
     let text = text.trim();
     let lines: Vec<&str> = text.lines().collect();
-    let mut start = 0;
-    while start + 1 < lines.len() {
-        let line = lines[start].trim();
-        if line.is_empty() || (line.ends_with(':') && line.len() < 100 && !line.contains(": ")) {
-            start += 1;
-        } else {
-            break;
-        }
-    }
+    let lead_in = |line: &&&str| -> bool {
+        let line = line.trim();
+        line.is_empty() || (line.ends_with(':') && line.len() < 100 && !line.contains(": "))
+    };
+    // The last line always stays.
+    let start = lines
+        .iter()
+        .take(lines.len().saturating_sub(1))
+        .take_while(lead_in)
+        .count();
     if start == 0 {
         return text.to_owned();
     }
-    lines[start..].join("\n").trim().to_owned()
+    lines
+        .iter()
+        .skip(start)
+        .copied()
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_owned()
 }
 
 /// The name Claude Code gives the project directory of `cwd` under its
@@ -2100,7 +2125,7 @@ pub fn compactor_settings_with(ttl: CacheTtl, ours: bool) -> Value {
         env.insert("DISABLE_PROMPT_CACHING".into(), json!("1"));
     }
     if !env.is_empty() {
-        value["env"] = Value::Object(env);
+        value.insert("env", Value::Object(env));
     }
     value
 }
@@ -2133,7 +2158,7 @@ fn write_settings_for(
         if let Some(own) = settings.get("env").and_then(Value::as_object) {
             env.extend(own.clone());
         }
-        settings["env"] = Value::Object(env);
+        settings.insert("env", Value::Object(env));
     }
     // It may hold the user's settings env (an API token): the user's alone.
     crate::session_dir::write_private(

@@ -191,26 +191,30 @@ fn main() {
         Ok(mut child) => {
             let pgid = child.id() as i32;
             let prompt = s("prompt");
-            let mut stdin = child.stdin.take().expect("piped stdin");
+            #[allow(
+                clippy::expect_used,
+                reason = "INVARIANT: cmd set stdin, stdout and stderr to Stdio::piped()"
+            )]
+            let (mut stdin, mut err_pipe, stdout) = (
+                child.stdin.take().expect("piped stdin"),
+                child.stderr.take().expect("piped stderr"),
+                child.stdout.take().expect("piped stdout"),
+            );
             thread::spawn(move || {
                 let _ = stdin.write_all(prompt.as_bytes());
             });
-            let stderr_tail = Arc::new(Mutex::new(String::new()));
-            let mut err_pipe = child.stderr.take().expect("piped stderr");
-            let tail = stderr_tail.clone();
             let err_reader = thread::spawn(move || {
+                let mut tail = String::new();
                 let mut buf = [0u8; 4096];
                 while let Ok(n) = err_pipe.read(&mut buf) {
-                    if n == 0 {
+                    let Some(read) = buf.get(..n).filter(|r| !r.is_empty()) else {
                         break;
-                    }
-                    let mut t = tail.lock().unwrap();
-                    t.push_str(&String::from_utf8_lossy(&buf[..n]));
-                    let keep = tail_chars(&t, 2000).to_owned();
-                    *t = keep;
+                    };
+                    tail.push_str(&String::from_utf8_lossy(read));
+                    tail = tail_chars(&tail, 2000).to_owned();
                 }
+                tail
             });
-            let stdout = child.stdout.take().expect("piped stdout");
             // The time limit, and the group kill 3 s after runuser exits (a process Claude Code
             // left behind may hold its output open).
             let (exited_tx, exited_rx) = channel::<Option<std::process::ExitStatus>>();
@@ -246,8 +250,9 @@ fn main() {
             }
             let status = exited_rx.recv().ok().flatten();
             drop(waiter);
-            let _ = err_reader.join();
-            let stderr = stderr_tail.lock().unwrap().clone();
+            let stderr = err_reader
+                .join()
+                .unwrap_or_else(|_| "the stderr reader stopped".to_owned());
             (
                 status.and_then(|s| s.code()),
                 status.and_then(|s| s.signal()),
@@ -561,12 +566,15 @@ fn read_request(conn: &mut TcpStream, limit: impl Fn(&str) -> usize) -> std::io:
                 let _ = reader.read_line(&mut end);
                 break Some(body);
             }
-            if body.len() + n > max {
+            if body.len().checked_add(n).is_none_or(|total| total > max) {
                 break None;
             }
-            let mut chunk = vec![0u8; n + 2];
-            reader.read_exact(&mut chunk)?;
-            body.extend_from_slice(&chunk[..n]);
+            let read = (&mut reader).take(n as u64).read_to_end(&mut body)?;
+            if read != n {
+                return Err(std::io::ErrorKind::UnexpectedEof.into());
+            }
+            let mut crlf = [0u8; 2];
+            reader.read_exact(&mut crlf)?;
         }
     } else if length > max {
         None
@@ -642,7 +650,7 @@ fn handle(
         );
     }
     if req.method == "GET" {
-        let s = state.lock().unwrap();
+        let s = lock(state);
         return reply(
             &mut conn,
             200,
@@ -658,7 +666,7 @@ fn handle(
     let Ok(patch) = serde_json::from_slice::<Value>(&body) else {
         return reply(&mut conn, 400, &json!({"error": "the change must be JSON"}));
     };
-    let _one = changing.lock().unwrap();
+    let _one = lock(changing);
     let (status, body) = change_net(worker, state, patch);
     reply(&mut conn, status, &body)
 }
@@ -709,13 +717,22 @@ fn change_net(worker: &Worker, state: &Mutex<NetState>, patch: Value) -> (u16, V
             json!({"error": format!("saved for the next turns, but not applied now: {err}"), "net": net}),
         );
     }
-    let mut s = state.lock().unwrap();
+    let mut s = lock(state);
     s.net = net.clone();
-    let mut out = json!({"net": net, "provider": s.provider});
-    if !err.is_empty() {
-        out["warnings"] = json!(err);
-    }
+    let out = if err.is_empty() {
+        json!({"net": net, "provider": s.provider})
+    } else {
+        json!({"net": net, "provider": s.provider, "warnings": err})
+    };
     (200, out)
+}
+
+/// The holders of the runner's locks only assign whole fields, so a lock a
+/// panicking thread poisoned still guards consistent state.
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Runs the Worker's network script as root (`bash -s`); applied when it
@@ -730,6 +747,10 @@ fn apply_net(script: &str) -> (bool, String) {
     let Ok(mut child) = child else {
         return (false, "bash did not start".into());
     };
+    #[allow(
+        clippy::expect_used,
+        reason = "INVARIANT: bash was spawned with Stdio::piped() stdin"
+    )]
     let mut stdin = child.stdin.take().expect("piped stdin");
     let script = script.to_owned();
     let writer = thread::spawn(move || {

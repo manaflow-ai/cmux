@@ -228,19 +228,19 @@ pub fn looks_secret(text: &str) -> bool {
     ];
     for (prefixes, class, min) in rules {
         for prefix in prefixes {
-            let mut from = 0;
-            while let Some(at) = text[from..].find(prefix) {
-                let begin = from + at;
-                let start = begin + prefix.len();
+            for (begin, _) in text.match_indices(prefix) {
+                let Some((before, found)) = text.split_at_checked(begin) else {
+                    continue;
+                };
+                let after = found.strip_prefix(prefix).unwrap_or(found);
                 // A key starts a word ("risk-averse" holds no `sk-` key).
-                let starts_word = text[..begin].chars().next_back().is_none_or(|c| !token(c));
-                let run: String = text[start..].chars().take_while(|c| class(*c)).collect();
+                let starts_word = before.chars().next_back().is_none_or(|c| !token(c));
+                let run: String = after.chars().take_while(|c| class(*c)).collect();
                 // Generated keys mix in digits; prose after `sk-` does not.
                 let keyish = *prefix != "sk-" || run.chars().any(|c| c.is_ascii_digit());
                 if starts_word && keyish && run.chars().count() >= min {
                     return true;
                 }
-                from = start;
             }
         }
     }
@@ -254,8 +254,7 @@ fn hostname() -> Option<String> {
     if rc != 0 {
         return None;
     }
-    let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
-    let name = String::from_utf8_lossy(&buf[..end]);
+    let name = buf.split(|b| *b == 0).next().map(String::from_utf8_lossy)?;
     let short = name.split('.').next().unwrap_or("").to_owned();
     (!short.is_empty()).then_some(short)
 }

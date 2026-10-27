@@ -7,6 +7,8 @@ use serde_json::{Value, json};
 use super::turns::parse_name;
 use super::{Answer, Inspector, bad, not_found, parse_or};
 
+use crate::panic_free::JsonFields;
+
 /// Characters of a node's text in a level listing.
 const PREVIEW: usize = 160;
 
@@ -38,26 +40,35 @@ impl Inspector {
             return Err(not_found(format!("No line {name}.")));
         }
         let mut out = self.node_brief(node);
-        out["end"] = json!(node.end());
-        out["date_first"] = json!(self.chat.date(node.start()));
-        out["date_last"] = json!(self.chat.date(node.end() - 1));
-        out["parent"] = json!(
-            (node.parent().checked_end().is_some_and(|e| e <= t)).then(|| node.parent().name())
+        out.insert("end", json!(node.end()));
+        out.insert("date_first", json!(self.chat.date(node.start())));
+        out.insert("date_last", json!(self.chat.date(node.end() - 1)));
+        out.insert(
+            "parent",
+            json!(
+                (node.parent().checked_end().is_some_and(|e| e <= t)).then(|| node.parent().name())
+            ),
         );
-        out["in_view"] = json!(self.chat.render_view().parts.contains(&node));
-        out["zoom"] = json!({
-            "call": format!("zoom({}, {})", node.start(), node.n()),
-            "answer": self.chat.zoom(node.start(), node.n()).unwrap_or_else(|e| e.to_string()),
-        });
+        out.insert(
+            "in_view",
+            json!(self.chat.render_view().parts.contains(&node)),
+        );
+        out.insert(
+            "zoom",
+            json!({
+                "call": format!("zoom({}, {})", node.start(), node.n()),
+                "answer": self.chat.zoom(node.start(), node.n()).unwrap_or_else(|e| e.to_string()),
+            }),
+        );
         match node.children() {
             Some((a, b)) => {
-                out["children"] = json!([self.node_brief(a), self.node_brief(b)]);
+                out.insert("children", json!([self.node_brief(a), self.node_brief(b)]));
             }
             None => {
                 let message = self.chat.message(node.start()).map(|(kind, text)| {
                     json!({"id": node.start(), "kind": kind.as_str(), "text": text, "bytes": text.len()})
                 });
-                out["message"] = json!(message);
+                out.insert("message", json!(message));
             }
         }
         Ok(out)
@@ -79,9 +90,9 @@ impl Inspector {
             .map(|i| {
                 let node = NodeId::new(l, i);
                 let mut brief = self.node_brief(node);
-                if let Some(text) = brief["text"].as_str() {
+                if let Some(text) = brief.field("text").as_str() {
                     let preview: String = text.chars().take(PREVIEW).collect();
-                    brief["text"] = json!(preview.replace('\n', " "));
+                    brief.insert("text", json!(preview.replace('\n', " ")));
                 }
                 brief
             })

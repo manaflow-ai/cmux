@@ -29,6 +29,8 @@ use serde_json::{Value, json};
 use super::turns::parse_name;
 use super::{Answer, bad, not_found};
 
+use crate::panic_free::JsonFields;
+
 /// The text a deleted message, note or summary line keeps.
 pub const TOMBSTONE: &str = "(deleted by the user)";
 /// Largest message text an edit takes.
@@ -313,7 +315,10 @@ impl Editor {
         let Some(k) = book.changes.iter().position(|c| c.id == id) else {
             return Err(not_found(format!("No change {id}.")));
         };
-        if book.changes[k].undone {
+        let Some([change, after @ ..]) = book.changes.get(k..) else {
+            return Err(not_found(format!("No change {id}.")));
+        };
+        if change.undone {
             return Err(bad(format!("change {id} is already undone")));
         }
         if book.running.is_some_and(|(c, _)| c == id) {
@@ -322,9 +327,9 @@ impl Editor {
                 "its summaries are being rebuilt; try again in a moment".into(),
             ));
         }
-        let change = book.changes[k].clone();
+        let change = change.clone();
         // Rows a later live change wrote (its target or its rebuilt lines).
-        let later: BTreeSet<Target> = book.changes[k + 1..]
+        let later: BTreeSet<Target> = after
             .iter()
             .filter(|c| !c.undone)
             .flat_map(|c| {
@@ -360,8 +365,11 @@ impl Editor {
             self.write(*target, old)?;
         }
         book.queue.retain(|(c, _)| *c != id);
-        book.changes[k].undone = true;
-        Ok(book.changes[k].json())
+        let Some(undone) = book.changes.get_mut(k) else {
+            return Err(not_found(format!("No change {id}.")));
+        };
+        undone.undone = true;
+        Ok(undone.json())
     }
 
     fn write(&self, target: Target, text: &str) -> Result<(), (u16, String)> {
@@ -432,14 +440,15 @@ fn read_journal(path: &Path) -> Vec<Change> {
         let Ok(rec) = serde_json::from_str::<Value>(line) else {
             continue;
         };
-        let id = rec["id"].as_u64().unwrap_or(0);
-        let s = |k: &str| rec[k].as_str().unwrap_or("").to_owned();
-        match rec["rec"].as_str() {
+        let id = rec.field("id").as_u64().unwrap_or(0);
+        let s = |k: &str| rec.field(k).as_str().unwrap_or("").to_owned();
+        match rec.field("rec").as_str() {
             Some("change") => {
-                let Some(target) = Target::parse(&rec["target"]) else {
+                let Some(target) = Target::parse(rec.field("target")) else {
                     continue;
                 };
-                let stale = rec["stale"]
+                let stale = rec
+                    .field("stale")
                     .as_array()
                     .into_iter()
                     .flatten()
@@ -458,7 +467,7 @@ fn read_journal(path: &Path) -> Vec<Change> {
                 });
             }
             Some("rebuild") => {
-                let node = rec["node"].as_str().and_then(parse_name);
+                let node = rec.field("node").as_str().and_then(parse_name);
                 if let (Some(node), Some(c)) = (node, changes.iter_mut().find(|c| c.id == id)) {
                     c.rebuilt.insert(node, (s("old"), s("new")));
                 }

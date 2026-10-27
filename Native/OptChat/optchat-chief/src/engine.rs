@@ -315,7 +315,7 @@ pub fn run(flags: &crate::cli::Flags) -> Result<String, String> {
             save(&file, &choice).map_err(|e| format!("{}: {e}", file.display()))?;
             Ok(format!(
                 "engine set: {}\nTurns use it from the next turn; the compactor fields apply at the next host start.\n",
-                serde_json::to_string(&choice).expect("json")
+                serde_json::to_string(&choice).map_err(|e| e.to_string())?
             ))
         }
         Some("show") | None => {
@@ -323,7 +323,7 @@ pub fn run(flags: &crate::cli::Flags) -> Result<String, String> {
             let mut out = format!(
                 "engine ({}): {}\n",
                 file.display(),
-                serde_json::to_string(&choice).expect("json")
+                serde_json::to_string(&choice).map_err(|e| e.to_string())?
             );
             // The CLI each role runs, as the host resolved it at its start.
             match load_resolved(&home) {

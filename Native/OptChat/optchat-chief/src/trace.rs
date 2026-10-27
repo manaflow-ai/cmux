@@ -24,6 +24,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::{Map, Value, json};
 
 use crate::fold::Usage;
+use crate::panic_free::JsonFields;
 
 /// Characters of a text kept in the trace (its prefix).
 pub const PREFIX: usize = 40;
@@ -101,7 +102,7 @@ impl Trace {
             "prefix": prefix(text),
         });
         if self.full() {
-            v["text"] = json!(text);
+            v.insert("text", json!(text));
         }
         v
     }

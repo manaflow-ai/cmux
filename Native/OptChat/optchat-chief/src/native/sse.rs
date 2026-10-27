@@ -31,7 +31,9 @@ impl Assembler {
                     self.blocks.push(Value::Null);
                     self.partial.push(String::new());
                 }
-                self.blocks[i] = data.get("content_block").cloned().unwrap_or(Value::Null);
+                if let Some(block) = self.blocks.get_mut(i) {
+                    *block = data.get("content_block").cloned().unwrap_or(Value::Null);
+                }
             }
             "content_block_delta" => {
                 let i = index(data);
@@ -45,7 +47,11 @@ impl Assembler {
                     "signature_delta" => {
                         block["signature"] = Value::String(text("signature").into())
                     }
-                    "input_json_delta" => self.partial[i].push_str(text("partial_json")),
+                    "input_json_delta" => {
+                        if let Some(partial) = self.partial.get_mut(i) {
+                            partial.push_str(text("partial_json"));
+                        }
+                    }
                     "citations_delta" => {
                         if let Some(citation) = delta.get("citation") {
                             match block.get_mut("citations") {

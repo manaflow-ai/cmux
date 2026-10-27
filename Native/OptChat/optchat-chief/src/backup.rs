@@ -283,24 +283,24 @@ const SHAPES: &[Shape] = &[
 
 /// The first secret shape in `text`, if any (the built-in scan).
 pub fn find_secret(text: &str) -> Option<&'static str> {
-    let bytes = text.as_bytes();
     if text.contains("-----BEGIN") && text.contains("PRIVATE KEY-----") {
         return Some("private-key");
     }
     for shape in SHAPES {
-        let mut from = 0;
-        while let Some(k) = text[from..].find(shape.prefix) {
-            let start = from + k;
-            let before = start.checked_sub(1).map(|p| bytes[p]);
-            let after = start + shape.prefix.len();
-            let run = bytes[after..]
-                .iter()
-                .take_while(|b| (shape.chars)(**b))
-                .count();
-            if before.is_none_or(|b| !b.is_ascii_alphanumeric()) && run >= shape.min {
+        for (start, _) in text.match_indices(shape.prefix) {
+            let Some((before, found)) = text.split_at_checked(start) else {
+                continue;
+            };
+            let after = found.strip_prefix(shape.prefix).unwrap_or(found);
+            let run = after.bytes().take_while(|b| (shape.chars)(*b)).count();
+            if before
+                .bytes()
+                .next_back()
+                .is_none_or(|b| !b.is_ascii_alphanumeric())
+                && run >= shape.min
+            {
                 return Some(shape.rule);
             }
-            from = after;
         }
     }
     None

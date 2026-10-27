@@ -18,6 +18,8 @@ use super::index::{Hit, Index};
 use super::notes::{NOTE_LIMIT, Provenance};
 use super::relay::Relay;
 
+use crate::panic_free::JsonFields;
+
 const PROTOCOL: &str = "2025-06-18";
 const KNOWN: [&str; 4] = ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"];
 /// Where a relayed `memory_remember` carries its caller (`params._meta`).
@@ -143,7 +145,10 @@ impl Server {
         };
         let mut relayed = message.clone();
         if name == "memory_remember" {
-            relayed["params"]["_meta"][PROVENANCE_META] = Provenance::here().to_json();
+            relayed.insert_path(
+                &["params", "_meta", PROVENANCE_META],
+                Provenance::here().to_json(),
+            );
         }
         match owner.call(&relayed) {
             Ok(answer) => answer,

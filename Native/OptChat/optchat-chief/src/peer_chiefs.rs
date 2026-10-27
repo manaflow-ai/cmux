@@ -31,6 +31,8 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+use crate::panic_free::{JsonFields, RecoverPoison};
+
 /// The id prefix that names a peer Chief in `tell` and `chiefs`.
 pub const PREFIX: &str = "chief:";
 /// The longest one hub read waits for a new message (the hub caps it at 25 s).
@@ -341,19 +343,19 @@ impl PeerChiefs {
             return Err(format!("tell: the message is over {MAX_TEXT} bytes"));
         }
         if let Some(key) = key
-            && self.sent.lock().expect("sent keys").contains(key)
+            && self.sent.lock().recover_poison().contains(key)
         {
             return Ok(format!("already sent to {} with key {key}", peer.label));
         }
         let mut body = json!({"text": message});
         if let Some(key) = key {
-            body["key"] = json!(key);
+            body.insert("key", json!(key));
         }
         let posted = self
             .hub
             .post(&format!("agent:{}", peer.name), &body, &self.inbox())?;
         if let Some(key) = key {
-            self.sent.lock().expect("sent keys").insert(key.to_owned());
+            self.sent.lock().recover_poison().insert(key.to_owned());
         }
         let seq = posted.get("seq").and_then(Value::as_u64).unwrap_or(0);
         Ok(format!(
@@ -487,7 +489,8 @@ impl PeerChiefs {
         log: Arc<dyn Fn(&str) + Send + Sync>,
     ) {
         let me = Arc::clone(self);
-        std::thread::Builder::new()
+        let failed = Arc::clone(&log);
+        let spawned = std::thread::Builder::new()
             .name("peer-chiefs".into())
             .spawn(move || {
                 log(&format!(
@@ -523,8 +526,10 @@ impl PeerChiefs {
                         return;
                     }
                 }
-            })
-            .expect("spawn peer chiefs");
+            });
+        if let Err(e) = spawned {
+            failed(&format!("peer chiefs: cannot start the inbox thread: {e}"));
+        }
     }
 }
 
@@ -660,7 +665,7 @@ fn bridge_cli(
             .map_or(0, |d| d.as_millis() as u64)
     };
     let forward = |from: &str, text: &str, key: &str| -> Forwarded {
-        let mut held = lease.lock().expect("lease");
+        let mut held = lease.lock().recover_poison();
         if held.as_ref().is_none_or(|l| l.expires_at <= now() + 60_000) {
             match tokens.mint(None) {
                 Ok(l) => *held = Some(l),
@@ -720,36 +725,20 @@ pub fn cli(args: &[String]) -> Result<String, String> {
     let mut config: Option<PathBuf> = None;
     let (mut key, mut after, mut wait) = (None, "0".to_owned(), 0_u64);
     let (mut install, mut chief, mut once, mut list) = (None, None, false, false);
-    let mut i = 0;
-    while i < args.len() {
-        let next = |i: usize| {
-            args.get(i + 1)
-                .cloned()
-                .ok_or(format!("{} needs a value", args[i]))
-        };
-        match args[i].as_str() {
-            "--config" => config = Some(PathBuf::from(next(i)?)),
-            "--key" => key = Some(next(i)?),
-            "--after" => after = next(i)?,
-            "--wait" => wait = next(i)?.parse().map_err(|_| "--wait takes seconds")?,
-            "--install" => install = Some(PathBuf::from(next(i)?)),
-            "--chief" => chief = Some(next(i)?),
-            "--once" | "--list" => {
-                if args[i] == "--once" {
-                    once = true;
-                } else {
-                    list = true;
-                }
-                i += 1;
-                continue;
-            }
-            _ => {
-                rest.push(args[i].clone());
-                i += 1;
-                continue;
-            }
+    let mut words = args.iter();
+    while let Some(arg) = words.next() {
+        let mut next = || words.next().cloned().ok_or(format!("{arg} needs a value"));
+        match arg.as_str() {
+            "--config" => config = Some(PathBuf::from(next()?)),
+            "--key" => key = Some(next()?),
+            "--after" => after = next()?,
+            "--wait" => wait = next()?.parse().map_err(|_| "--wait takes seconds")?,
+            "--install" => install = Some(PathBuf::from(next()?)),
+            "--chief" => chief = Some(next()?),
+            "--once" => once = true,
+            "--list" => list = true,
+            _ => rest.push(arg.clone()),
         }
-        i += 2;
     }
     let path = config.unwrap_or_else(|| Config::path(&crate::paths::mux_home().join("optchat")));
     if rest.first().is_some_and(|w| w == "bridge") {

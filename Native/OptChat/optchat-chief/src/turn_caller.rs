@@ -156,7 +156,7 @@ fn agent_session_name(pid: i32, agent_parent: &Path) -> Option<String> {
 fn parent_pid(pid: i32) -> Option<i32> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     // `pid (comm) state ppid ...`; comm may hold spaces and parentheses.
-    let after = &stat[stat.rfind(')')? + 1..];
+    let (_, after) = stat.rsplit_once(')')?;
     after.split_whitespace().nth(1)?.parse().ok()
 }
 

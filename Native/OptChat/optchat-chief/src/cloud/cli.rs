@@ -84,7 +84,7 @@ pub fn run_with(flags: &Flags, http: Arc<dyn Http>) -> Result<String, String> {
                 "wrote {}\ninstall.register params:\n{}",
                 path.display(),
                 serde_json::to_string_pretty(&file.register_params("Chief brain", &host_name()))
-                    .unwrap()
+                    .map_err(|e| e.to_string())?
             ))
         }
         Some("register") => {

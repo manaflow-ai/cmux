@@ -11,6 +11,8 @@ use std::sync::Mutex;
 
 use serde_json::Value;
 
+use crate::panic_free::JsonFields;
+
 #[derive(Default)]
 struct FileEvents {
     /// Bytes parsed so far (always at a line end).
@@ -56,11 +58,12 @@ fn refresh(path: &Path, cached: &mut FileEvents) {
     let Some(last) = tail.iter().rposition(|b| *b == b'\n') else {
         return;
     };
+    tail.truncate(last + 1);
     let mut offset = cached.len;
-    for line in tail[..=last].split_inclusive(|b| *b == b'\n') {
+    for line in tail.split_inclusive(|b| *b == b'\n') {
         if let Ok(mut event) = serde_json::from_slice::<Value>(line) {
-            if event["ev"] == "turn.start"
-                && let Some(key) = event["turn"].as_str()
+            if *event.field("ev") == "turn.start"
+                && let Some(key) = event.field("turn").as_str()
             {
                 cached.starts.insert(key.to_owned(), (offset, line.len()));
                 if let Some(view) = event.get_mut("view").and_then(Value::as_object_mut) {

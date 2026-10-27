@@ -428,9 +428,9 @@ impl Brain {
             session_id: id.clone(),
             floor: next_floor,
         };
-        match queued {
-            Some(k) => {
-                self.queue[k] = super::Queued {
+        match queued.and_then(|k| self.queue.get_mut(k)) {
+            Some(slot) => {
+                *slot = super::Queued {
                     text,
                     source,
                     images: Vec::new(),

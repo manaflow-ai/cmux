@@ -51,6 +51,7 @@ pub mod migrate_cloud;
 pub mod migrate_reach;
 pub mod native;
 pub mod pacing;
+mod panic_free;
 pub mod paths;
 pub mod peer_chiefs;
 pub mod persist;

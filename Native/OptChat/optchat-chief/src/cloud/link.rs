@@ -52,7 +52,8 @@ pub fn spawn_cloud_link(
     sink: Sink,
     log: Log,
 ) {
-    std::thread::Builder::new()
+    let fatal = sink.clone();
+    let spawned = std::thread::Builder::new()
         .name("cloud-link".into())
         .spawn(move || {
             let mut delay = Duration::from_millis(500);
@@ -72,8 +73,12 @@ pub fn spawn_cloud_link(
                 std::thread::sleep(delay);
                 delay = (delay * 2).min(Duration::from_secs(30));
             }
-        })
-        .expect("spawn cloud link");
+        });
+    if let Err(e) = spawned {
+        fatal(DaemonEvent::Fatal(format!(
+            "cannot start the cloud link thread: {e}"
+        )));
+    }
 }
 
 fn retry(e: impl std::fmt::Display) -> Ended {

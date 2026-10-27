@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 use crate::acpmux::{SessionSpec, sessions};
 use crate::brain::parent_tag;
 use crate::cli::{Flags, env};
+use crate::panic_free::JsonFields;
 use crate::rpc::{Notification, RpcClient};
 
 pub const USAGE: &str =
@@ -350,9 +351,10 @@ pub fn retired(words: &[String]) -> Option<&'static str> {
 
 /// Runs one `agents` verb; Ok carries what to print.
 pub fn run(flags: &Flags) -> Result<String, String> {
-    let words = &flags.words[1..];
-    let verb = words.first().map(String::as_str).unwrap_or("");
-    let args = &words[words.len().min(1)..];
+    let words = flags.words.get(1..).unwrap_or_default();
+    let (verb, args) = words
+        .split_first()
+        .map_or(("", words), |(verb, args)| (verb.as_str(), args));
     match verb {
         "spawn" => Err(SPAWN_RETIRED.into()),
         "list" => {
@@ -379,8 +381,10 @@ pub fn run(flags: &Flags) -> Result<String, String> {
             })
         }
         "prompt" => {
-            let name = args.first().ok_or(USAGE)?;
-            let text = args[1..].join(" ");
+            let [name, words @ ..] = args else {
+                return Err(USAGE.into());
+            };
+            let text = words.join(" ");
             if text.trim().is_empty() {
                 return Err(USAGE.into());
             }
@@ -432,7 +436,7 @@ pub fn run(flags: &Flags) -> Result<String, String> {
             };
             let mut params = json!({"sessionId": target.session_id, "permissionId": permission});
             if let Some(option) = &option {
-                params["optionId"] = json!(option);
+                params.insert("optionId", json!(option));
             }
             client
                 .request("_acpmux/permission_respond", params)

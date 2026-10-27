@@ -61,7 +61,9 @@ const TASK_HEAD: &str = "Your task:";
 /// The task part of one text that holds the view and the task.
 fn task_of(text: &str) -> &str {
     match text.rfind(TASK_HEAD) {
-        Some(k) if text.starts_with("<chat>") => &text[k..],
+        Some(k) if text.starts_with("<chat>") => {
+            text.split_at_checked(k).map_or(text, |(_, task)| task)
+        }
         _ => text,
     }
 }

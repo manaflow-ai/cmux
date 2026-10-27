@@ -75,9 +75,8 @@ pub fn run(input: &Value, cwd: &Path) -> Result<String, String> {
             {
                 fixed_last = Some(format!("{last}\n"));
             }
-            if let Some(last) = &fixed_last {
-                let n = lines.len();
-                lines[n - 1] = last;
+            if let (Some(last), Some(slot)) = (&fixed_last, lines.last_mut()) {
+                *slot = last;
             }
             lines.insert(line, &piece);
             std::fs::write(&path, lines.concat())

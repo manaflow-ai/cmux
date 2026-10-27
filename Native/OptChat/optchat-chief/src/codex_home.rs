@@ -296,17 +296,7 @@ pub fn chief_installation_id(base: &Path) -> io::Result<String> {
         use std::io::Read;
         std::fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
     }
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-    let id = format!(
-        "{}-{}-{}-{}-{}",
-        &hex[0..8],
-        &hex[8..12],
-        &hex[12..16],
-        &hex[16..20],
-        &hex[20..32]
-    );
+    let id = crate::workspaces::uuid_v4(bytes);
     crate::session_dir::write_if_changed(&path, id.as_bytes())?;
     Ok(id)
 }

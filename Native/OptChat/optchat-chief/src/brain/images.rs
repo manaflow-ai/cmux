@@ -79,7 +79,7 @@ impl TurnImage {
 
 /// The first 12 hex characters of a hash.
 pub fn short(hash: &str) -> &str {
-    &hash[..hash.len().min(12)]
+    crate::panic_free::head_within(hash, 12)
 }
 
 /// The image parts of `message`, read from the owner (see [`read_image`]).

@@ -11,6 +11,7 @@ use optchat_host::OptChat;
 use serde_json::{Value, json};
 
 use super::Inspector;
+use crate::panic_free::JsonFields;
 use crate::prompt::{CMUX_INSTRUCTIONS, base_prompt};
 use crate::trace::hash;
 
@@ -83,7 +84,7 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
     let messages_match = !ids.is_empty()
         && messages.len() == traced.len()
         && messages.iter().zip(&traced).all(|(m, h)| hash(&m.2) == *h);
-    let images = start["layout"]["images"].as_u64().unwrap_or(0);
+    let images = start.field("layout").field("images").as_u64().unwrap_or(0);
     if images > 0 && note.is_none() {
         note = Some(format!(
             "This turn also sent {images} image block(s) after its delta; they are not shown."
@@ -96,19 +97,21 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
         );
     }
     // The turn's subagents-at-work line and its Home workspace block went before its messages.
-    let at_work = start["layout"]["at_work"].as_str();
-    let home = start["layout"]["home_workspace"].as_str();
+    let at_work = start.field("layout").field("at_work").as_str();
+    let home = start.field("layout").field("home_workspace").as_str();
     let tail = at_work
         .into_iter()
         .chain(home)
         .chain(messages.iter().map(|m| m.2.as_str()))
         .collect::<Vec<_>>()
         .join("\n\n");
-    let layout = start["layout"]["kind"]
+    let layout = start
+        .field("layout")
+        .field("kind")
         .as_str()
         .map(str::to_owned)
         .unwrap_or_else(|| {
-            if start["system"]["with_view_head"] == true {
+            if *start.field("system").field("with_view_head") == true {
                 "cached".to_owned()
             } else {
                 "blocks".to_owned()
@@ -116,35 +119,39 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
         });
     // Spec 5a turns: the frozen view (its unbuilt parts as the
     // placeholder), the delta (its log range), then the per-turn tail.
-    let frozen_input = start["layout"]["delta"].as_object().and_then(|d| {
-        let n = |k: &str| d.get(k).and_then(Value::as_u64).unwrap_or(0);
-        let names = |k: &str| -> Vec<String> {
-            d.get(k)
-                .and_then(Value::as_array)
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|v| v.as_str().map(str::to_owned))
-                        .collect()
-                })
-                .unwrap_or_default()
-        };
-        let frozen = optchat_core::Frozen {
-            parts: parts.clone(),
-            front: n("front"),
-            unbuilt: crate::state::parse_nodes(&names("unbuilt"))?,
-            cuts: d
-                .get("cuts")
-                .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(Value::as_u64).collect())
-                .unwrap_or_default(),
-            starts: d
-                .get("starts")
-                .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(Value::as_u64).collect())
-                .unwrap_or_default(),
-        };
-        Some(chat.turn_input_at(&frozen, n("new_from"), n("end")))
-    });
+    let frozen_input = start
+        .field("layout")
+        .field("delta")
+        .as_object()
+        .and_then(|d| {
+            let n = |k: &str| d.get(k).and_then(Value::as_u64).unwrap_or(0);
+            let names = |k: &str| -> Vec<String> {
+                d.get(k)
+                    .and_then(Value::as_array)
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(str::to_owned))
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            };
+            let frozen = optchat_core::Frozen {
+                parts: parts.clone(),
+                front: n("front"),
+                unbuilt: crate::state::parse_nodes(&names("unbuilt"))?,
+                cuts: d
+                    .get("cuts")
+                    .and_then(Value::as_array)
+                    .map(|a| a.iter().filter_map(Value::as_u64).collect())
+                    .unwrap_or_default(),
+                starts: d
+                    .get("starts")
+                    .and_then(Value::as_array)
+                    .map(|a| a.iter().filter_map(Value::as_u64).collect())
+                    .unwrap_or_default(),
+            };
+            Some(chat.turn_input_at(&frozen, n("new_from"), n("end")))
+        });
     let (view, view_matches) = match &frozen_input {
         Some((text, _)) => (
             Some(text.clone()),
@@ -159,7 +166,9 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
             .into_iter()
             .chain(home)
             .chain(
-                start["layout"]["resumes"]
+                start
+                    .field("layout")
+                    .field("resumes")
                     .as_array()
                     .into_iter()
                     .flatten()
@@ -169,8 +178,14 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
             .join("\n\n")
     };
     let (system, blocks) = if let Some(delta) = &delta {
-        let marker = start["layout"]["marker"].as_bool().unwrap_or(false);
-        let ttl = start["layout"]["ttl"]
+        let marker = start
+            .field("layout")
+            .field("marker")
+            .as_bool()
+            .unwrap_or(false);
+        let ttl = start
+            .field("layout")
+            .field("ttl")
             .as_str()
             .and_then(crate::prompt::CacheTtl::parse)
             .unwrap_or(crate::prompt::CacheTtl::FiveMinutes);
@@ -179,7 +194,10 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
                 system_text,
                 view_text,
                 delta,
-                start["layout"]["delta"]["prev_end_block"]
+                start
+                    .field("layout")
+                    .field("delta")
+                    .field("prev_end_block")
                     .as_u64()
                     .map(|b| b as usize),
                 &[],
@@ -194,14 +212,20 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
             )
         }
     } else if layout == "cached" {
-        let marker = start["layout"]["marker"].as_bool().unwrap_or(true);
+        let marker = start
+            .field("layout")
+            .field("marker")
+            .as_bool()
+            .unwrap_or(true);
         // The traced mark and TTL; a trace from before them: the last whole
         // block at 5 minutes.
-        let ttl = start["layout"]["ttl"]
+        let ttl = start
+            .field("layout")
+            .field("ttl")
             .as_str()
             .and_then(crate::prompt::CacheTtl::parse)
             .unwrap_or(crate::prompt::CacheTtl::FiveMinutes);
-        let mark = match start["layout"]["mark"].as_u64() {
+        let mark = match start.field("layout").field("mark").as_u64() {
             Some(piece) => Some(crate::prompt::Mark {
                 piece: piece as usize,
                 ttl,
@@ -213,7 +237,7 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
             view_text,
             &tail,
             mark.filter(|_| marker),
-            start["layout"]["head_mark"] == true,
+            *start.field("layout").field("head_mark") == true,
         );
         (l.system, l.blocks)
     } else {
@@ -223,7 +247,8 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
             crate::prompt::turn_blocks(view_text, &texts),
         )
     };
-    let system_matches = Some(hash(&system).as_str()) == start["system"]["hash"].as_str();
+    let system_matches =
+        Some(hash(&system).as_str()) == start.field("system").field("hash").as_str();
     if view.is_some() && !system_matches && note.is_none() {
         note = Some("The system prompt this host has now differs from the one the turn got (a different build, or AGENTS.md changed since).".to_owned());
     }
@@ -351,7 +376,7 @@ pub(crate) fn prompt_json(prompt: &TurnPrompt, start: &Value) -> Value {
             "bytes": v.len(),
             "marks": optchat_core::cache_marks(v),
             "grid": optchat_core::block_cuts(v),
-            "unchanged_prefix_bytes": start["view"]["unchanged_prefix_bytes"],
+            "unchanged_prefix_bytes": start.field("view").field("unchanged_prefix_bytes"),
             "parts": prompt.parts.iter().map(|p| p.name()).collect::<Vec<_>>(),
         })),
         "messages": prompt.messages.iter().map(|(id, kind, text)| json!({"id": id, "kind": kind, "text": text})).collect::<Vec<_>>(),
@@ -420,10 +445,10 @@ pub fn summaries(events: &[Value]) -> Vec<Value> {
                     "model": e["model"],
                     "effort": e["effort"],
                     "settle_ms": e["settle_ms"],
-                    "view_bytes": e["view"]["bytes"],
-                    "view_lines": e["view"]["lines"],
-                    "unchanged_prefix_bytes": e["view"]["unchanged_prefix_bytes"],
-                    "parts_recorded": e["view"]["parts_recorded"].as_bool().unwrap_or(false),
+                    "view_bytes": e.field("view").field("bytes"),
+                    "view_lines": e.field("view").field("lines"),
+                    "unchanged_prefix_bytes": e.field("view").field("unchanged_prefix_bytes"),
+                    "parts_recorded": e.field("view").field("parts_recorded").as_bool().unwrap_or(false),
                     "sources": e["sources"],
                     "messages": e["messages"].as_array().map_or(0, Vec::len),
                     "nodes_before": nodes_since_turn,
@@ -439,10 +464,13 @@ pub fn summaries(events: &[Value]) -> Vec<Value> {
                 rows.push(row);
             }
             "turn.end" => {
-                let Some(&k) = key.as_ref().and_then(|k| index.get(k)) else {
+                let Some((k, r)) = key
+                    .as_ref()
+                    .and_then(|k| index.get(k))
+                    .and_then(|&k| Some((k, rows.get_mut(k)?)))
+                else {
                     continue;
                 };
-                let r = &mut rows[k];
                 for f in [
                     "ms",
                     "status",
@@ -455,26 +483,34 @@ pub fn summaries(events: &[Value]) -> Vec<Value> {
                     "harness_kind",
                     "harness_profile",
                 ] {
-                    r[f] = e[f].clone();
+                    r.insert(f, e.field(f).clone());
                 }
-                r["error"] = e["error"]["prefix"].clone();
-                r["hit_rate"] = json!(crate::report::hit_rate(&e["first_usage"]));
+                r.insert("error", e.field("error").field("prefix").clone());
+                r.insert(
+                    "hit_rate",
+                    json!(crate::report::hit_rate(e.field("first_usage"))),
+                );
                 if open == Some(k) {
                     open = None;
                 }
             }
             "tool" => {
-                let Some(&k) = key.as_ref().and_then(|k| index.get(k)) else {
+                let Some(names) = key
+                    .as_ref()
+                    .and_then(|k| index.get(k))
+                    .and_then(|&k| rows.get_mut(k))
+                    .and_then(|row| row.field_mut("tool_names"))
+                else {
                     continue;
                 };
-                let name = e["name"].as_str().unwrap_or("?").to_owned();
-                let names = &mut rows[k]["tool_names"];
-                names[&name] = json!(names[&name].as_u64().unwrap_or(0) + 1);
+                let name = e.field("name").as_str().unwrap_or("?").to_owned();
+                let count = names.field(&name).as_u64().unwrap_or(0) + 1;
+                names.insert(&name, json!(count));
             }
-            "node" => match open {
-                Some(k) => {
-                    rows[k]["nodes_during"] =
-                        json!(rows[k]["nodes_during"].as_u64().unwrap_or(0) + 1);
+            "node" => match open.and_then(|k| rows.get_mut(k)) {
+                Some(row) => {
+                    let count = row.field("nodes_during").as_u64().unwrap_or(0) + 1;
+                    row.insert("nodes_during", json!(count));
                 }
                 None => {
                     nodes_since_turn += 1;

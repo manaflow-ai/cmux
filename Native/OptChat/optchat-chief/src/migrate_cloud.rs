@@ -22,6 +22,8 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use crate::panic_free::JsonFields;
+
 /// The local Chief's own id in its owner (cmux_chief::rules::AGENT_MUX).
 const LOCAL_CHIEF: &str = "agent_mux";
 /// The local person's id in its owner.
@@ -118,8 +120,8 @@ impl Api {
     fn op(&self, name: &str, params: Value, key: &str) -> Result<Value, String> {
         let body = json!({"op": name, "params": params, "origin": "user", "idempotency_key": key});
         let (status, value) = self.call("POST", "/v1/ops", Some(&body))?;
-        if value["ok"] == true {
-            return Ok(value["value"].clone());
+        if *value.field("ok") == true {
+            return Ok(value.field("value").clone());
         }
         Err(format!("{name}: HTTP {status} {}", error_text(&value)))
     }
@@ -131,8 +133,11 @@ impl Api {
             Some(&json!({"op": name, "params": params})),
         )?;
         // A read answers `{value}` (no `ok` field); an error has `ok: false`.
-        if (200..300).contains(&status) && value["ok"] != false && !value["value"].is_null() {
-            return Ok(value["value"].clone());
+        if (200..300).contains(&status)
+            && *value.field("ok") != false
+            && !value.field("value").is_null()
+        {
+            return Ok(value.field("value").clone());
         }
         Err(format!("{name}: HTTP {status} {}", error_text(&value)))
     }
@@ -162,7 +167,11 @@ impl Api {
         if status == 404 {
             return Err("this service runs no Cloud Chief brains (404 on the brain route)".into());
         }
-        Ok(value["value"]["config"]["enabled"].as_bool())
+        Ok(value
+            .field("value")
+            .field("config")
+            .field("enabled")
+            .as_bool())
     }
 
     fn set_brain(&self, chief: &str, enabled: bool) -> Result<(), String> {
@@ -171,7 +180,7 @@ impl Api {
             &format!("/v1/chiefs/{chief}/brain"),
             Some(&json!({"enabled": enabled})),
         )?;
-        if (200..300).contains(&status) && value["ok"] != false {
+        if (200..300).contains(&status) && *value.field("ok") != false {
             return Ok(());
         }
         Err(format!(
@@ -201,8 +210,8 @@ impl Api {
             &format!("/v1/chiefs/{chief}/memory?conversation={conversation}"),
             None,
         )?;
-        if value["ok"] == true {
-            return Ok(value["value"].clone());
+        if *value.field("ok") == true {
+            return Ok(value.field("value").clone());
         }
         Err(format!(
             "memory state: HTTP {status} {}",
@@ -241,7 +250,11 @@ pub fn chief_main_conversation(chief: &str) -> String {
         bits += 8;
         while bits >= 5 && out.len() < 26 {
             bits -= 5;
-            out.push(char::from(CROCKFORD[((buffer >> bits) & 31) as usize]));
+            out.extend(
+                CROCKFORD
+                    .get(((buffer >> bits) & 31) as usize)
+                    .map(|&c| char::from(c)),
+            );
         }
         buffer &= (1 << bits) - 1;
     }
@@ -341,11 +354,13 @@ pub fn import_messages(local: &[Value], user: &str, chief: &str) -> Vec<Value> {
             .collect();
         let id = if local_id.starts_with("msg_")
             && local_id.len() <= 44
-            && local_id[4..].chars().all(|c| c.is_ascii_alphanumeric())
+            && local_id
+                .strip_prefix("msg_")
+                .is_some_and(|rest| rest.chars().all(|c| c.is_ascii_alphanumeric()))
         {
             local_id.clone()
         } else {
-            format!("msg_{}", &plain[..plain.len().min(40)])
+            format!("msg_{}", crate::panic_free::head_within(&plain, 40))
         };
         if id.len() <= 4 || used.contains(&id) || kept.contains_key(&local_id) {
             continue;
@@ -371,8 +386,8 @@ pub fn import_messages(local: &[Value], user: &str, chief: &str) -> Vec<Value> {
                 if parts.len() >= 16 {
                     break;
                 }
-                let keep = match part["type"].as_str() {
-                    Some("text") => part["text"].as_str().is_some_and(|t| !t.is_empty()),
+                let keep = match part.field("type").as_str() {
+                    Some("text") => part.field("text").as_str().is_some_and(|t| !t.is_empty()),
                     Some("work") => true,
                     _ => false,
                 };
@@ -400,12 +415,12 @@ pub fn import_messages(local: &[Value], user: &str, chief: &str) -> Vec<Value> {
             "parts": parts, "created_at": created,
         });
         if let Some(r) = retracted {
-            next["retracted_at"] = json!(r.max(created.clone()));
+            next.insert("retracted_at", json!(r.max(created.clone())));
         } else if let Some(e) = message["edited_at"].as_str().and_then(valid_stamp) {
-            next["edited_at"] = json!(e.max(created.clone()));
+            next.insert("edited_at", json!(e.max(created.clone())));
         }
         if let Some((new_id, true)) = message["thread_root"].as_str().and_then(|r| kept.get(r)) {
-            next["thread_root"] = json!(new_id);
+            next.insert("thread_root", json!(new_id));
         }
         let is_root = next.get("thread_root").is_none();
         kept.insert(local_id, (id.clone(), is_root));
@@ -447,7 +462,7 @@ pub fn memory_lines(memory_db: &Path) -> Result<(Vec<String>, Vec<String>), Stri
     let key = |l: &String, a: &str| {
         serde_json::from_str::<Value>(l)
             .ok()
-            .and_then(|v| v[a].as_u64())
+            .and_then(|v| v.field(a).as_u64())
             .unwrap_or(0)
     };
     main.sort_by_key(|l| key(l, "i"));
@@ -475,21 +490,24 @@ pub fn move_to_cloud(
     name: &str,
     make_default: bool,
 ) -> Result<CloudMoved, String> {
-    let short = &checkpoint_sha[..checkpoint_sha.len().min(16)];
+    let short = crate::panic_free::head_within(checkpoint_sha, 16);
     let made = api.op(
         "chief.create",
         json!({"display_name": name, "is_default": make_default}),
         &format!("chief-move-{short}"),
     )?;
-    let chief = made["id"]
+    let chief = made
+        .field("id")
         .as_str()
         .ok_or("chief.create answered no id")?
         .to_owned();
-    let user = made["owner_user"]
+    let user = made
+        .field("owner_user")
         .as_str()
         .ok_or("chief.create answered no owner")?
         .to_owned();
-    let conversation = made["main_conversation"]
+    let conversation = made
+        .field("main_conversation")
         .as_str()
         .map(str::to_owned)
         .unwrap_or_else(|| chief_main_conversation(&chief));
@@ -511,18 +529,26 @@ pub fn move_to_cloud(
         let mut last_seq = 0u64;
         let mut index = 0;
         let mut first = true;
-        while index < messages.len() {
-            let mut batch = Vec::new();
+        let mut rest = messages.as_slice();
+        while !rest.is_empty() {
             let mut bytes = 0;
-            while index < messages.len() && batch.len() < HISTORY_BATCH {
-                let size = messages[index].to_string().len();
-                if !batch.is_empty() && bytes + size > HISTORY_BYTES {
-                    break;
-                }
-                bytes += size;
-                batch.push(messages[index].clone());
-                index += 1;
-            }
+            let fits = rest
+                .iter()
+                .take(HISTORY_BATCH)
+                .enumerate()
+                .take_while(|(k, message)| {
+                    let size = message.to_string().len();
+                    let fits = *k == 0 || bytes + size <= HISTORY_BYTES;
+                    bytes += size;
+                    fits
+                })
+                .count();
+            let Some((batch, after)) = rest.split_at_checked(fits) else {
+                break;
+            };
+            rest = after;
+            index += batch.len();
+            let batch = batch.to_vec();
             let params = if first {
                 json!({"id": conversation, "fill": true,
                        "source": {"kind": "mac", "host": manifest.source.host, "local_id": short},
@@ -532,7 +558,8 @@ pub fn move_to_cloud(
             };
             let key = format!("chief-move-{short}-history-{index}");
             let value = api.op("conversation.import", params, &key)?;
-            last_seq = value["last_seq"]
+            last_seq = value
+                .field("last_seq")
                 .as_u64()
                 .unwrap_or(last_seq + batch.len() as u64);
             first = false;
@@ -547,25 +574,22 @@ pub fn move_to_cloud(
     // Memory.
     let (main, tree) = memory_lines(&ckpt.join("files/optchat/memory.sqlite3"))?;
     let state = api.memory(&chief, &conversation)?;
-    let mut count = state["count"].as_u64().unwrap_or(0) as usize;
+    let mut count = state.field("count").as_u64().unwrap_or(0) as usize;
     let mut tree_sent = 0usize;
-    if state["state"].as_str() != Some("done") {
+    if state.field("state").as_str() != Some("done") {
         loop {
             let mut body_main = Vec::new();
             let mut body_tree = Vec::new();
             let mut bytes = 0;
-            while count + body_main.len() < main.len() && body_main.len() < MEMORY_LINES {
-                let line = &main[count + body_main.len()];
+            for line in main.iter().skip(count).take(MEMORY_LINES) {
                 if !body_main.is_empty() && bytes + line.len() > MEMORY_BYTES {
                     break;
                 }
                 bytes += line.len() + 1;
                 body_main.push(Value::String(line.clone()));
             }
-            while tree_sent + body_tree.len() < tree.len()
-                && body_main.len() + body_tree.len() < MEMORY_LINES
-            {
-                let line = &tree[tree_sent + body_tree.len()];
+            let tree_room = MEMORY_LINES.saturating_sub(body_main.len());
+            for line in tree.iter().skip(tree_sent).take(tree_room) {
                 if bytes + line.len() > MEMORY_BYTES
                     && !(body_main.is_empty() && body_tree.is_empty())
                 {
@@ -583,7 +607,7 @@ pub fn move_to_cloud(
                 &format!("/v1/chiefs/{chief}/memory?conversation={conversation}"),
                 Some(&body),
             )?;
-            if value["ok"] != true {
+            if *value.field("ok") != true {
                 return Err(format!("memory copy: HTTP {status} {}", error_text(&value)));
             }
             count += sent_main;
@@ -595,7 +619,7 @@ pub fn move_to_cloud(
     }
     api.set_brain(&chief, true)?;
     let state = api.memory(&chief, &conversation)?;
-    let memory_messages = state["count"].as_u64().unwrap_or(0);
+    let memory_messages = state.field("count").as_u64().unwrap_or(0);
     if memory_messages != main.len() as u64 {
         return Err(format!(
             "the cloud memory holds {memory_messages} messages, the checkpoint {}",
@@ -608,7 +632,7 @@ pub fn move_to_cloud(
         conversation,
         history_imported: imported,
         memory_messages,
-        memory_state: state["state"].as_str().unwrap_or("").to_owned(),
+        memory_state: state.field("state").as_str().unwrap_or("").to_owned(),
     })
 }
 
@@ -628,7 +652,7 @@ pub fn first_turn(
         )
         .ok()
         .and_then(|v| {
-            v["messages"]
+            v.field("messages")
                 .as_array()
                 .and_then(|m| m.last())
                 .and_then(|m| m["seq"].as_u64())
@@ -651,7 +675,7 @@ pub fn first_turn(
         ) else {
             continue;
         };
-        if let Some(reply) = history["messages"].as_array().and_then(|m| {
+        if let Some(reply) = history.field("messages").as_array().and_then(|m| {
             m.iter()
                 .find(|x| x["seq"].as_u64().unwrap_or(0) > before + 1 && x["author"] == chief)
         }) {

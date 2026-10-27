@@ -47,9 +47,9 @@ const MANAGED: &str = "cmux-managed: true";
 /// None when it has no front matter or lacks either.
 pub fn front_matter(text: &str) -> Option<(String, String)> {
     let rest = text.strip_prefix("---")?;
-    let end = rest.find("\n---")?;
+    let (matter, _) = rest.split_once("\n---")?;
     let (mut name, mut description) = (None, None);
-    for line in rest[..end].lines() {
+    for line in matter.lines() {
         if let Some(v) = line.strip_prefix("name:") {
             name = Some(v.trim().trim_matches('"').to_owned());
         } else if let Some(v) = line.strip_prefix("description:") {

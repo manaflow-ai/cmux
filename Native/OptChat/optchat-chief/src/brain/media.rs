@@ -83,33 +83,37 @@ pub(super) fn local_path(target: &str, home: Option<&Path>) -> Option<PathBuf> {
 /// The files a reply names that can be sent: each once, in reply order.
 pub fn media_refs(reply: &str, home: Option<&Path>) -> Vec<MediaRef> {
     let mut refs: Vec<MediaRef> = Vec::new();
-    let bytes = reply.as_bytes();
     let mut at = 0;
-    while let Some(found) = reply[at..].find("](") {
+    while let Some(found) = reply.get(at..).and_then(|rest| rest.find("](")) {
         let close_label = at + found;
         let target_start = close_label + 2;
         at = target_start;
-        let Some(open_label) = reply[..close_label].rfind('[') else {
+        let (Some(head), Some(target_text)) = (reply.get(..close_label), reply.get(target_start..))
+        else {
+            break;
+        };
+        let Some((before_label, label)) = head.rsplit_once('[') else {
             continue;
         };
-        if reply[open_label..close_label].contains('\n') {
+        if label.contains('\n') {
             continue;
         }
-        let target_end = if reply[target_start..].starts_with('<') {
-            reply[target_start..]
-                .find(">)")
-                .map(|e| target_start + e + 1)
+        let target_len = if target_text.starts_with('<') {
+            target_text.find(">)").map(|e| e + 1)
         } else {
-            reply[target_start..]
+            target_text
                 .find([')', '\n'])
-                .map(|e| target_start + e)
-                .filter(|&e| bytes[e] == b')')
+                .filter(|&e| target_text.as_bytes().get(e) == Some(&b')'))
         };
-        let Some(target_end) = target_end else {
+        let Some(target_len) = target_len else {
             continue;
         };
+        let target_end = target_start + target_len;
         at = target_end + 1;
-        let Some(path) = local_path(&reply[target_start..target_end], home) else {
+        let Some(path) = target_text
+            .get(..target_len)
+            .and_then(|t| local_path(t, home))
+        else {
             continue;
         };
         let Some(mime_type) = media_type(&path) else {
@@ -120,11 +124,12 @@ pub fn media_refs(reply: &str, home: Option<&Path>) -> Vec<MediaRef> {
         if !sendable || refs.iter().any(|r| r.path == path) {
             continue;
         }
-        let image = open_label > 0 && bytes[open_label - 1] == b'!';
+        // The `!` of `![label](target)` starts the image syntax.
+        let image_start = before_label.strip_suffix('!').map(str::len);
         refs.push(MediaRef {
             path,
             mime_type,
-            image_syntax: image.then(|| (open_label - 1)..(target_end + 1)),
+            image_syntax: image_start.map(|start| start..(target_end + 1)),
         });
     }
     refs
@@ -144,11 +149,11 @@ pub fn without_images(reply: &str, sent: &[&MediaRef]) -> String {
         let mut cut = false;
         let mut from = start;
         for range in ranges.iter().filter(|r| r.start >= start && r.end <= end) {
-            kept.push_str(&reply[from..range.start]);
+            kept.push_str(reply.get(from..range.start).unwrap_or_default());
             from = range.end;
             cut = true;
         }
-        kept.push_str(&reply[from..end]);
+        kept.push_str(reply.get(from..end).unwrap_or_default());
         if !(cut && kept.trim().is_empty()) {
             lines.push(if cut {
                 kept.trim_end().to_owned()

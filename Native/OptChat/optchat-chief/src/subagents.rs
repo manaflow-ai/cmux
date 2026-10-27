@@ -141,10 +141,10 @@ pub fn is_transient_start_failure(error: &str) -> bool {
     if TRANSIENT_START_FAILURES.iter().any(|t| error.contains(t)) {
         return true;
     }
-    let Some(at) = error.find(PROCESS_CLOSED) else {
+    let Some((_, reason)) = error.split_once(PROCESS_CLOSED) else {
         return false;
     };
-    let reason = error[at + PROCESS_CLOSED.len()..].trim();
+    let reason = reason.trim();
     if reason.is_empty() {
         return true;
     }
@@ -272,8 +272,8 @@ pub fn cloud_repo(cwd: Option<&str>) -> Option<String> {
         .split('/')
         .filter(|p| !p.is_empty() && *p != "~" && *p != ".")
         .collect();
-    if let Some(k) = parts.iter().position(|p| p.ends_with("-worktrees")) {
-        return Some(parts[k].trim_end_matches("-worktrees").to_owned());
+    if let Some(repo) = parts.iter().find(|p| p.ends_with("-worktrees")) {
+        return Some(repo.trim_end_matches("-worktrees").to_owned());
     }
     parts.last().map(|p| (*p).to_owned())
 }
@@ -729,8 +729,10 @@ impl Spawner {
         let mut tries = 0;
         let session = loop {
             match self.agents.new_session(&spec) {
-                Err(e) if is_transient_start_failure(&e) && tries < START_RETRY_PAUSES.len() => {
-                    let pause = START_RETRY_PAUSES[tries];
+                Err(e)
+                    if is_transient_start_failure(&e)
+                        && let Some(&pause) = START_RETRY_PAUSES.get(tries) =>
+                {
                     tries += 1;
                     (self.log)(&format!(
                         "subagent {id}: {e}; starting it again in {} s (try {})",
@@ -1513,7 +1515,7 @@ impl Orchestrator for Spawner {
                 format!(
                     "Started {} on the cloud VM {} (acpmux peer), in {}.{here}",
                     started.join(", "),
-                    on[0],
+                    on.join(", "),
                     dir.display()
                 )
             }

@@ -313,17 +313,10 @@ impl TurnStream {
 
 /// The last `n` characters of `s`.
 pub fn tail_chars(s: &str, n: usize) -> &str {
-    let count = s.chars().count();
-    if count <= n {
-        return s;
-    }
-    let skip = count - n;
-    let at = s
-        .char_indices()
-        .nth(skip)
-        .map(|(i, _)| i)
-        .unwrap_or(s.len());
-    &s[at..]
+    let skip = s.chars().count().saturating_sub(n);
+    let mut rest = s.chars();
+    rest.by_ref().take(skip).for_each(drop);
+    rest.as_str()
 }
 
 #[cfg(test)]

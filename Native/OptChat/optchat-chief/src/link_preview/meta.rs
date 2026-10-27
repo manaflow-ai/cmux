@@ -78,15 +78,16 @@ pub fn strip_site(title: &str, site: Option<&str>) -> String {
 /// quoting), entities decoded; the first value of a name wins.
 pub fn meta_tags(html: &str) -> HashMap<String, String> {
     let mut out = HashMap::new();
+    // ASCII lowercasing keeps every byte offset, so `lower` finds places in `html`.
     let lower = html.to_ascii_lowercase();
     let mut at = 0;
-    while let Some(found) = lower[at..].find("<meta") {
+    while let Some(found) = lower.get(at..).and_then(|rest| rest.find("<meta")) {
         let start = at + found + 5;
-        let Some(len) = lower[start..].find('>') else {
+        let Some((inside, _)) = html.get(start..).and_then(|rest| rest.split_once('>')) else {
             break;
         };
-        let attrs = attributes(&html[start..start + len]);
-        at = start + len + 1;
+        let attrs = attributes(inside);
+        at = start + inside.len() + 1;
         let name = attrs
             .get("property")
             .or_else(|| attrs.get("name"))
@@ -105,50 +106,31 @@ pub fn meta_tags(html: &str) -> HashMap<String, String> {
 /// `key='value'`, keys lowercased.
 fn attributes(tag: &str) -> HashMap<String, String> {
     let mut out = HashMap::new();
-    let chars: Vec<char> = tag.chars().collect();
-    let mut i = 0;
-    while i < chars.len() {
-        while i < chars.len() && (chars[i].is_whitespace() || chars[i] == '/') {
-            i += 1;
+    let mut chars = tag.chars().peekable();
+    while chars.peek().is_some() {
+        while chars.next_if(|c| c.is_whitespace() || *c == '/').is_some() {}
+        let mut key = String::new();
+        while let Some(c) = chars.next_if(|c| !c.is_whitespace() && *c != '=' && *c != '/') {
+            key.push(c);
         }
-        let key_start = i;
-        while i < chars.len() && !chars[i].is_whitespace() && chars[i] != '=' && chars[i] != '/' {
-            i += 1;
-        }
-        let key: String = chars[key_start..i]
-            .iter()
-            .collect::<String>()
-            .to_ascii_lowercase();
-        while i < chars.len() && chars[i].is_whitespace() {
-            i += 1;
-        }
-        if i < chars.len() && chars[i] == '=' {
-            i += 1;
-            while i < chars.len() && chars[i].is_whitespace() {
-                i += 1;
+        let key = key.to_ascii_lowercase();
+        while chars.next_if(|c| c.is_whitespace()).is_some() {}
+        if chars.next_if_eq(&'=').is_some() {
+            while chars.next_if(|c| c.is_whitespace()).is_some() {}
+            let mut value = String::new();
+            match chars.next_if(|c| *c == '"' || *c == '\'') {
+                Some(quote) => value.extend(chars.by_ref().take_while(|c| *c != quote)),
+                None => {
+                    while let Some(c) = chars.next_if(|c| !c.is_whitespace()) {
+                        value.push(c);
+                    }
+                }
             }
-            let value: String = if i < chars.len() && (chars[i] == '"' || chars[i] == '\'') {
-                let quote = chars[i];
-                i += 1;
-                let value_start = i;
-                while i < chars.len() && chars[i] != quote {
-                    i += 1;
-                }
-                let value = chars[value_start..i].iter().collect();
-                i += 1;
-                value
-            } else {
-                let value_start = i;
-                while i < chars.len() && !chars[i].is_whitespace() {
-                    i += 1;
-                }
-                chars[value_start..i].iter().collect()
-            };
             if !key.is_empty() {
                 out.entry(key).or_insert(value);
             }
         } else if key.is_empty() {
-            i += 1;
+            chars.next();
         }
     }
     out
@@ -156,11 +138,10 @@ fn attributes(tag: &str) -> HashMap<String, String> {
 
 /// The text of the first `<title>`, entities decoded; None when empty.
 pub fn title_tag(html: &str) -> Option<String> {
-    let lower = html.to_ascii_lowercase();
-    let open = lower.find("<title")?;
-    let start = open + lower[open..].find('>')? + 1;
-    let end = start + lower[start..].find("</title")?;
-    let title = decode(&html[start..end]).trim().to_owned();
+    let open = html.to_ascii_lowercase().find("<title")?;
+    let (_, inside) = html.get(open..)?.split_once('>')?;
+    let end = inside.to_ascii_lowercase().find("</title")?;
+    let title = decode(inside.get(..end)?).trim().to_owned();
     (!title.is_empty()).then_some(title)
 }
 
@@ -171,14 +152,10 @@ fn decode(text: &str) -> String {
     }
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
-    while let Some(at) = rest.find('&') {
-        out.push_str(&rest[..at]);
-        rest = &rest[at..];
-        let entity = rest[1..]
-            .find(';')
-            .filter(|&n| n <= 10)
-            .map(|n| &rest[1..=n]);
-        let decoded = entity.and_then(|e| match e {
+    while let Some((before, after_amp)) = rest.split_once('&') {
+        out.push_str(before);
+        let entity = after_amp.split_once(';').filter(|(e, _)| e.len() <= 10);
+        let decoded = entity.and_then(|(e, _)| match e {
             "amp" => Some('&'),
             "quot" => Some('"'),
             "apos" => Some('\''),
@@ -196,13 +173,13 @@ fn decode(text: &str) -> String {
             }
         });
         match (entity, decoded) {
-            (Some(e), Some(c)) => {
+            (Some((_, after_entity)), Some(c)) => {
                 out.push(c);
-                rest = &rest[e.len() + 2..];
+                rest = after_entity;
             }
             _ => {
                 out.push('&');
-                rest = &rest[1..];
+                rest = after_amp;
             }
         }
     }

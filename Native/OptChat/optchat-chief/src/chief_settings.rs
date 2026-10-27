@@ -11,6 +11,7 @@ use std::path::Path;
 
 use serde_json::{Value, json};
 
+use crate::panic_free::JsonFields;
 use crate::prompt::CacheTtl;
 
 /// The settings this host knows.
@@ -103,16 +104,30 @@ impl ChiefSettings {
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or(Value::Null);
         ChiefSettings {
-            cache_ttl: value["cache"]["ttl"].as_str().and_then(CacheTtl::parse),
-            reply_threads: value["replies"]["thread"]
+            cache_ttl: value
+                .field("cache")
+                .field("ttl")
+                .as_str()
+                .and_then(CacheTtl::parse),
+            reply_threads: value
+                .field("replies")
+                .field("thread")
                 .as_str()
                 .and_then(ReplyThreads::parse)
                 .unwrap_or_default(),
-            show_after_report: value["show"]["afterReport"].as_bool().unwrap_or(true),
-            cloud_auto_pause_idle_secs: value["cloud"]["autoPauseIdleSeconds"]
+            show_after_report: value
+                .field("show")
+                .field("afterReport")
+                .as_bool()
+                .unwrap_or(true),
+            cloud_auto_pause_idle_secs: value
+                .field("cloud")
+                .field("autoPauseIdleSeconds")
                 .as_u64()
                 .unwrap_or(60),
-            cloud_delete_after_paused_days: value["cloud"]["deleteAfterPausedDays"]
+            cloud_delete_after_paused_days: value
+                .field("cloud")
+                .field("deleteAfterPausedDays")
                 .as_u64()
                 .unwrap_or(7),
         }
@@ -121,14 +136,17 @@ impl ChiefSettings {
     pub fn to_json(self) -> Value {
         let mut value = json!({});
         if let Some(ttl) = self.cache_ttl {
-            value["cache"] = json!({"ttl": ttl.as_str()});
+            value.insert("cache", json!({"ttl": ttl.as_str()}));
         }
-        value["replies"] = json!({"thread": self.reply_threads.as_str()});
-        value["show"] = json!({"afterReport": self.show_after_report});
-        value["cloud"] = json!({
-            "autoPauseIdleSeconds": self.cloud_auto_pause_idle_secs,
-            "deleteAfterPausedDays": self.cloud_delete_after_paused_days,
-        });
+        value.insert("replies", json!({"thread": self.reply_threads.as_str()}));
+        value.insert("show", json!({"afterReport": self.show_after_report}));
+        value.insert(
+            "cloud",
+            json!({
+                "autoPauseIdleSeconds": self.cloud_auto_pause_idle_secs,
+                "deleteAfterPausedDays": self.cloud_delete_after_paused_days,
+            }),
+        );
         value
     }
 

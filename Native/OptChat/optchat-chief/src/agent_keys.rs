@@ -18,6 +18,8 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+use crate::panic_free::JsonFields;
+
 /// The issuer file under the home directory.
 pub const ISSUER_FILE: &str = ".config/cmux/agent-issuer.json";
 
@@ -86,11 +88,12 @@ impl Issuer {
     /// `ttlSeconds` (default 14400), `maxVms` (5), `maxUsdPerHour` (2).
     pub fn parse(text: &str) -> Result<Issuer, String> {
         let v: Value = serde_json::from_str(text).map_err(|e| format!("not JSON: {e}"))?;
-        let key = v["key"].as_str().unwrap_or_default().to_owned();
+        let key = v.field("key").as_str().unwrap_or_default().to_owned();
         if !key.starts_with("cmuxvm_sk_") {
             return Err("key must be a cmux VM API key (cmuxvm_sk_...)".into());
         }
-        let api_url = v["apiUrl"]
+        let api_url = v
+            .field("apiUrl")
             .as_str()
             .unwrap_or("https://vm.cmux.dev")
             .trim_end_matches('/')
@@ -101,10 +104,10 @@ impl Issuer {
         Ok(Issuer {
             api_url,
             key,
-            team: v["teamId"].as_str().map(str::to_owned),
-            ttl_seconds: v["ttlSeconds"].as_u64().unwrap_or(4 * 3600),
-            max_vms: v["maxVms"].as_u64().map_or(5, |n| n as u32),
-            max_usd_per_hour: v["maxUsdPerHour"].as_f64().unwrap_or(2.0),
+            team: v.field("teamId").as_str().map(str::to_owned),
+            ttl_seconds: v.field("ttlSeconds").as_u64().unwrap_or(4 * 3600),
+            max_vms: v.field("maxVms").as_u64().map_or(5, |n| n as u32),
+            max_usd_per_hour: v.field("maxUsdPerHour").as_f64().unwrap_or(2.0),
         })
     }
 
@@ -160,7 +163,7 @@ fn refusal(e: ureq::Error) -> String {
             let message = response
                 .into_json::<Value>()
                 .ok()
-                .and_then(|v| v["message"].as_str().map(str::to_owned))
+                .and_then(|v| v.field("message").as_str().map(str::to_owned))
                 .unwrap_or_default();
             format!("HTTP {code} {message}").trim().to_owned()
         }

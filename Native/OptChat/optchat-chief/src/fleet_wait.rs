@@ -4,6 +4,8 @@
 //! the fleet controller, and when the job ends it resumes the VM and tells the
 //! subagent the result.
 
+use crate::panic_free::JsonFields;
+
 /// What a cloud subagent's first message says about fleet waits.
 pub const NOTE: &str = "Waiting on a fleet job: never block on `cmux-ci wait` for a job that runs longer than a minute. Submit it, then end your turn with a line `fleet-wait: JOB_ID` (one line per job) and nothing else to do: your VM pauses while the job runs, and the Chief host wakes you with `fleet job JOB_ID finished: STATE` when it ends. Then read its result (`cmux-ci status JOB_ID`, `cmux-ci log JOB_ID`) and go on.";
 
@@ -63,7 +65,7 @@ impl FleetJobs for CommandFleet {
         }
         let v: serde_json::Value = serde_json::from_slice(&out.stdout)
             .map_err(|e| format!("cmux-ci status {job}: {e}"))?;
-        v["state"]
+        v.field("state")
             .as_str()
             .map(str::to_owned)
             .ok_or_else(|| format!("cmux-ci status {job}: no state"))

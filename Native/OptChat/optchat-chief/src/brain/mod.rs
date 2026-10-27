@@ -1787,13 +1787,10 @@ fn answer_entry(
     answers_pending: Vec<String>,
 ) -> OutboxEntry {
     let text = if text.len() > REPLY_BYTES {
-        let mut cut = REPLY_BYTES;
-        while !text.is_char_boundary(cut) {
-            cut -= 1;
-        }
+        let head = crate::panic_free::head_within(text, REPLY_BYTES);
         format!(
-            "{}\n\n[reply cut: {cut} of {} bytes shown]",
-            &text[..cut],
+            "{head}\n\n[reply cut: {} of {} bytes shown]",
+            head.len(),
             text.len()
         )
     } else {

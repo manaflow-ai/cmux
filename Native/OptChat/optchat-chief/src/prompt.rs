@@ -4,6 +4,8 @@
 
 use serde_json::{Value, json};
 
+use crate::panic_free::JsonFields;
+
 /// The agent's name in the prompts (section 7.2: rename the agent).
 pub const AGENT: &str = "Chief";
 
@@ -815,8 +817,10 @@ pub fn cached_layout_marked(
     let pieces = optchat_core::block_pieces(context);
     let whole = pieces.len() - 1;
     let mut blocks: Vec<Value> = pieces.into_iter().map(text).collect();
-    if let Some(mark) = mark.filter(|m| m.piece < whole) {
-        blocks[mark.piece]["cache_control"] = mark.ttl.cache_control();
+    if let Some(mark) = mark.filter(|m| m.piece < whole)
+        && let Some(block) = blocks.get_mut(mark.piece)
+    {
+        block.insert("cache_control", mark.ttl.cache_control());
     }
     blocks.push(text(tail));
     CachedPrompt {
@@ -965,7 +969,9 @@ pub fn input_layout(
     };
     if let Some(ttl) = ttl {
         for i in [first, view_end, delta_end] {
-            blocks[i]["cache_control"] = ttl.cache_control();
+            if let Some(block) = blocks.get_mut(i) {
+                block.insert("cache_control", ttl.cache_control());
+            }
         }
     }
     blocks.extend(images.iter().cloned());

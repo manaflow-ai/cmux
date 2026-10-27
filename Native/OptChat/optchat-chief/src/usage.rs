@@ -26,6 +26,8 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::panic_free::JsonFields;
+
 /// The ledger line format.
 pub const VERSION: u32 = 1;
 /// Months kept by default (`OPTCHAT_USAGE_KEEP_MONTHS`), the current one included.
@@ -366,7 +368,7 @@ fn month_files(dir: &Path) -> Vec<(String, PathBuf)> {
             let month = name.strip_suffix(".jsonl")?;
             let b = month.as_bytes();
             (b.len() == 7
-                && b[4] == b'-'
+                && b.get(4) == Some(&b'-')
                 && b.iter()
                     .enumerate()
                     .all(|(i, c)| i == 4 || c.is_ascii_digit()))
@@ -817,7 +819,7 @@ fn percentile(values: &mut [u64], p: f64) -> Option<u64> {
     }
     values.sort_unstable();
     let rank = (p * values.len() as f64).ceil() as usize;
-    Some(values[rank.clamp(1, values.len()) - 1])
+    values.get(rank.clamp(1, values.len()) - 1).copied()
 }
 
 /// The breakdown key and label of `line` of `chief`.
@@ -875,8 +877,11 @@ pub fn summarize(chiefs: &[(Chief, Vec<Line>)], q: &Query) -> Value {
                 continue;
             }
             totals.add(line);
-            if let Some(i) = index.get(&q.bucket.start(line.ts as i64, off)) {
-                series[*i].add(line);
+            if let Some(agg) = index
+                .get(&q.bucket.start(line.ts as i64, off))
+                .and_then(|&i| series.get_mut(i))
+            {
+                agg.add(line);
             }
             let (key, label) = group(q.by, chief, line);
             groups
@@ -918,13 +923,13 @@ pub fn summarize(chiefs: &[(Chief, Vec<Line>)], q: &Query) -> Value {
         "totals": totals.json(),
         "series": starts.iter().zip(series.iter_mut()).map(|(t, a)| {
             let mut point = a.json();
-            point["t"] = json!(t);
+            point.insert("t", json!(t));
             point
         }).collect::<Vec<_>>(),
         "by": by.into_iter().map(|(key, label, mut a)| {
             let mut row = a.json();
-            row["key"] = json!(key);
-            row["label"] = json!(label);
+            row.insert("key", json!(key));
+            row.insert("label", json!(label));
             row
         }).collect::<Vec<_>>(),
         "top": top.into_iter().map(|(c, l)| json!({
@@ -995,18 +1000,17 @@ fn parse(args: &[String]) -> Result<Args, String> {
         homes: Vec::new(),
         chiefs: false,
     };
-    let mut i = 0;
-    while i < words.len() {
-        let (key, inline) = match words[i].split_once('=') {
+    let mut words = words.iter();
+    while let Some(word) = words.next() {
+        let (key, inline) = match word.split_once('=') {
             Some((k, v)) => (k.to_owned(), Some(v.to_owned())),
-            None => (words[i].clone(), None),
+            None => (word.clone(), None),
         };
         let mut value = || -> Result<String, String> {
             if let Some(v) = &inline {
                 return Ok(v.clone());
             }
-            i += 1;
-            words.get(i).cloned().ok_or(format!("{key} needs a value"))
+            words.next().cloned().ok_or(format!("{key} needs a value"))
         };
         match key.as_str() {
             "--json" => out.json = true,
@@ -1034,7 +1038,6 @@ fn parse(args: &[String]) -> Result<Args, String> {
             "--mux-home" => out.homes.push(PathBuf::from(value()?)),
             other => return Err(format!("unknown argument {other}")),
         }
-        i += 1;
     }
     let now = now_ms();
     out.until_ms = if until == "0" || until == "now" {
@@ -1168,13 +1171,13 @@ fn text(s: &Value, by: By) -> String {
             out.push_str(&format!(
                 "  {} {:>10}  {} {} {} {}\n",
                 clock(u(&row, "ts")),
-                usd(row["usd"].as_f64().unwrap_or(0.0)),
-                row["kind"].as_str().unwrap_or("?"),
-                row["agent"]
+                usd(row.field("usd").as_f64().unwrap_or(0.0)),
+                row.field("kind").as_str().unwrap_or("?"),
+                row.field("agent")
                     .as_str()
-                    .unwrap_or(row["key"].as_str().unwrap_or("")),
-                row["model"].as_str().unwrap_or("-"),
-                row["link"].as_str().unwrap_or(""),
+                    .unwrap_or(row.field("key").as_str().unwrap_or("")),
+                row.field("model").as_str().unwrap_or("-"),
+                row.field("link").as_str().unwrap_or(""),
             ));
         }
     }

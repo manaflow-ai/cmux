@@ -20,6 +20,8 @@ use ring::signature::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::panic_free::JsonFields;
+
 /// `$BRAIN/cloud/install.json` (0600): the private key, the public JWK, and
 /// what registration and `cloud chief` filled in.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -60,19 +62,25 @@ impl InstallFile {
             .map_err(|_| "generating a P-256 key failed".to_owned())?;
         let pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref(), &rng)
             .map_err(|_| "reading the new key failed".to_owned())?;
-        let point = pair.public_key().as_ref();
-        if point.len() != 65 || point[0] != 4 {
+        // An uncompressed SEC1 point: 0x04, then x and y (32 bytes each).
+        let coordinates = match pair.public_key().as_ref() {
+            [4, coordinates @ ..] => coordinates
+                .split_first_chunk::<32>()
+                .filter(|(_, y)| y.len() == 32),
+            _ => None,
+        };
+        let Some((x, y)) = coordinates else {
             return Err("unexpected public key encoding".into());
-        }
+        };
         Ok(InstallFile {
             api_base_url: api_base_url.trim_end_matches('/').to_owned(),
             pkcs8: B64.encode(pkcs8.as_ref()),
-            public_jwk: json!({"kty": "EC", "crv": "P-256", "x": B64.encode(&point[1..33]), "y": B64.encode(&point[33..65])}),
+            public_jwk: json!({"kty": "EC", "crv": "P-256", "x": B64.encode(x), "y": B64.encode(y)}),
             install: None,
             user: None,
             chief: None,
             conversation: None,
-            wg_private: Some(new_wg_private()),
+            wg_private: Some(new_wg_private()?),
             host: None,
             team: None,
         })
@@ -91,10 +99,11 @@ impl InstallFile {
     }
 
     /// Adds a WireGuard key to a file enrolled before pairing existed.
-    pub fn ensure_wg(&mut self) {
+    pub fn ensure_wg(&mut self) -> Result<(), String> {
         if self.wg_public().is_none() {
-            self.wg_private = Some(new_wg_private());
+            self.wg_private = Some(new_wg_private()?);
         }
+        Ok(())
     }
 
     pub fn load(path: &Path) -> Result<InstallFile, String> {
@@ -152,14 +161,14 @@ impl InstallFile {
     }
 }
 
-fn new_wg_private() -> String {
+fn new_wg_private() -> Result<String, String> {
     use base64::engine::general_purpose::STANDARD;
     use ring::rand::SecureRandom as _;
     let mut raw = [0u8; 32];
     SystemRandom::new()
         .fill(&mut raw)
-        .expect("the system random source works");
-    STANDARD.encode(x25519_dalek::StaticSecret::from(raw).to_bytes())
+        .map_err(|_| "the system random source failed".to_owned())?;
+    Ok(STANDARD.encode(x25519_dalek::StaticSecret::from(raw).to_bytes()))
 }
 
 /// What the install signs: `message_prefix` (`cmux-auth-v1\n<env>\n<install>\n`) + nonce.
@@ -285,7 +294,7 @@ impl TokenSource for InstallTokens {
         let mut body =
             json!({"user": user, "install": install, "nonce": nonce, "signature": signature});
         if let Some(agent) = agent {
-            body["agent"] = json!(agent);
+            body.insert("agent", json!(agent));
         }
         let token = self
             .http

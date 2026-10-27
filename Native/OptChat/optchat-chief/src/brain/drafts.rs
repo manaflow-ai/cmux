@@ -4,6 +4,8 @@
 
 use super::Brain;
 
+use crate::panic_free::JsonFields;
+
 impl Brain {
     /// A draft of the running turn's reply goes to its conversation.
     pub(super) fn turn_draft(&mut self, draft: &crate::draft::Draft) {
@@ -60,8 +62,8 @@ impl Brain {
             && let Some(daemon) = self.daemon.as_mut()
         {
             for mut frame in update.live {
-                frame["conversation"] = serde_json::json!(conversation);
-                frame["run"] = serde_json::json!(update.turn);
+                frame.insert("conversation", serde_json::json!(conversation));
+                frame.insert("run", serde_json::json!(update.turn));
                 let sent = self.live_streams.send(&update.turn, frame, |frame| {
                     daemon.live_publish(&conversation, frame)
                 });
