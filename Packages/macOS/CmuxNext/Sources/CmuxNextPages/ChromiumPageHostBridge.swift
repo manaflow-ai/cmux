@@ -170,20 +170,29 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         }
         guard let seq = message.seq else { return }
         noteReached()
-        if let uploadHandler, let method = (message.body as? [String: Any])?["method"] as? String,
-           method == "uploads.begin", let params = (message.body as? [String: Any])?["params"] as? [String: Any] {
-            guard let descriptor, PageHostTrust.isTrusted(request, page: descriptor) else {
-                let reply: [String: Any] = ["ok": false, "error": ["code": "page.untrusted", "userMessage": "The page is not trusted", "retryable": false]]
-                let expression = ChromiumPageHostWire.resolveExpression(seq: seq, reply: reply)
-                _ = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "contextId": context, "silent": true])
-                answered += 1
-                return
+        if let uploadHandler, let body = message.body as? [String: Any],
+           body["t"] as? String == "call", body["op"] as? String == "cmux.agent.uploads.begin",
+           let callID = body["id"] as? NSNumber {
+            let result: [String: Any]?
+            if let descriptor, PageHostTrust.isTrusted(request, page: descriptor) {
+                let params = body["params"] as? [String: Any] ?? [:]
+                let reader = ChromiumUploadBlobReader(page: page, context: context, token: params["token"] as? String ?? "")
+                let chunks = AsyncThrowingStream<Data, any Error>(unfolding: { try await reader.next() })
+                result = await uploadHandler(page, context, params, chunks)
+                await reader.close()
+            } else {
+                result = ["ok": false, "error": ["code": "page.untrusted", "userMessage": "The page is not trusted", "retryable": false]]
             }
-            let reader = ChromiumUploadBlobReader(page: page, context: context, token: params["token"] as? String ?? "")
-            let chunks = AsyncThrowingStream<Data, any Error>(unfolding: { try await reader.next() })
-            let reply = await uploadHandler(page, context, params, chunks)
-            await reader.close()
             guard self.handler != nil else { return }
+            let reply: [String: Any]
+            if result?["ok"] as? Bool == true {
+                reply = ["t": "ok", "id": callID, "value": result?["value"] ?? NSNull()]
+            } else {
+                let error = result?["error"] as? [String: Any] ?? [:]
+                reply = ["t": "err", "id": callID, "code": error["code"] ?? "upload_failed",
+                         "message": error["userMessage"] ?? "The upload could not be completed",
+                         "retryable": error["retryable"] ?? false]
+            }
             let expression = ChromiumPageHostWire.resolveExpression(seq: seq, reply: reply)
             _ = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "contextId": context, "silent": true])
             answered += 1
