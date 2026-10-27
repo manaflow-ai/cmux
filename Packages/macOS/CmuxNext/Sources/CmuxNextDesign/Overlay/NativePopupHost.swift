@@ -86,7 +86,7 @@ public final class NativePopupHost {
         if opening, !panel.isVisible { panel.alphaValue = 0 }
         if makeKey { panel.makeKeyAndOrderFront(nil) } else { panel.orderFront(nil) }
         if opening {
-            if entrance { panel.openPopup(pivot: panel.popupPivot(toward: anchor)) } else { panel.showPopupAtOnce() }
+            if entrance { panel.openPopup(pivot: panel.popupPivot(toward: anchor), entrance: true) } else { panel.showPopupAtOnce() }
         }
         watch(window)
         return (frame, side)
