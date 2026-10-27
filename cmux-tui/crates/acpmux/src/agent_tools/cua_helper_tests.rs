@@ -106,7 +106,7 @@ fn dev_without_a_bundled_helper_gets_a_signed_installed_cua_server() {
         true
     }))
     .expect("DEV needs the installed client even when it was not known at daemon spawn");
-    assert_eq!(checked, [helper.clone()]);
+    assert_eq!(checked, std::slice::from_ref(&helper));
     assert_eq!(server.command, helper.join(super::HELPER_BINARY));
     assert_eq!(server.args, ["mcp", "--socket", "/tag/cua.sock"]);
     assert!(server.env.contains(&("CMUX_CUA_SOCKET_AUTH_TOKEN".into(), "agent-token".into())));
