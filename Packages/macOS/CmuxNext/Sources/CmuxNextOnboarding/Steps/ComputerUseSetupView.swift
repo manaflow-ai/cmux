@@ -26,8 +26,6 @@ final class ComputerUseSetupView: NSView {
                                                        target: self, action: #selector(restartPressed))
     private var panel: HelperDragPanel?
     private var panelPane: ComputerUsePermissionPane?
-    /// The window's close: AppKit does not move the view out of a closing window.
-    private var closing: MainActorObservation?
     private var iconURL: URL??
     private var iconCheck: Task<Void, Never>?
     private var seenComebacks: Int
@@ -38,6 +36,9 @@ final class ComputerUseSetupView: NSView {
         self.context = context
         seenComebacks = model.comebacks
         super.init(frame: NSRect(origin: .zero, size: Self.size))
+        // Closing the window stops the step (windowWillClose, OnboardingModel.leave) but does not move
+        // this view out of it: the panel goes now, not on a later render this view may not live to run.
+        model.onStop = { [weak self] in self?.hidePanel() }
         icon.imageScaling = .scaleProportionallyUpOrDown
         let heading = OnboardingLabel.make(OnboardingStrings.computerUseHeading,
                                            font: Typography.system(size: TypeScale.heading, weight: TypeScale.emphasis), lines: 2)
@@ -180,8 +181,6 @@ final class ComputerUseSetupView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         hidePanel()
-        // Closing the window takes the panel with it (a close does not move this view out of it).
-        closing = window.map { MainActorObservation(NSWindow.willCloseNotification, object: $0) { [weak self] in self?.hidePanel() } }
         if window != nil { render() }
     }
 

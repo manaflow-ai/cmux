@@ -22,6 +22,8 @@ public final class ComputerUseStepModel {
     public private(set) var comebacks = 0
     @ObservationIgnored let source: (any ComputerUsePermissionSource)?
     @ObservationIgnored private(set) var task: Task<Void, Never>?
+    /// Called by ``stop()`` (the window closed or the step left): the view takes its drag panel down at once.
+    @ObservationIgnored var onStop: (@MainActor () -> Void)?
 
     init(source: (any ComputerUsePermissionSource)?) {
         self.source = source
@@ -54,6 +56,7 @@ public final class ComputerUseStepModel {
         task?.cancel()
         task = nil
         helping = nil
+        onStop?()
     }
 
     /// The first grant still missing, in row order: the row whose Allow is
