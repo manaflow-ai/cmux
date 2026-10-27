@@ -1,20 +1,26 @@
 // One opened fence's live source. Opening may inspect history; a streamed delta reads only its
 // indexed row and at most the bounded set of historical versions, never the whole transcript.
 import { type Artifact } from "./artifactPreview";
+import { ArtifactWrittenLive } from "./artifactWrittenLive";
 import { artifactForIdentity, artifactVersions, type ArtifactSourceRow } from "./artifactVersions";
 
 const VERSION_LIMIT = 64;
 
 export class ArtifactLiveSource {
-  private index: number;
-  private length: number;
+  private index = -1;
+  private length = 0;
   private accepted: Artifact;
-  private versions: Artifact[];
-  private liveIndex: number;
-  private rowId: string;
+  private versions: Artifact[] = [];
+  private liveIndex = 0;
+  private rowId = "";
+  private written?: ArtifactWrittenLive;
 
   constructor(opened: Artifact, rows: readonly ArtifactSourceRow[]) {
     this.accepted = opened;
+    if (opened.path) {
+      this.written = new ArtifactWrittenLive(opened, rows);
+      return;
+    }
     this.rowId = opened.identity?.split("\u0000")[0] ?? "";
     this.index = rows.findIndex((row) => row.id === this.rowId);
     this.length = rows.length;
@@ -32,6 +38,7 @@ export class ArtifactLiveSource {
   }
 
   read(rows: readonly ArtifactSourceRow[], after = this.accepted.revision ?? -Infinity) {
+    if (this.written) return this.written.read(rows);
     if (rows[this.index]?.id !== this.rowId) {
       // A backward page moves existing rows by exactly the number added above them. New rows
       // appended below leave the old position unchanged; neither case scans loaded history.
@@ -46,5 +53,8 @@ export class ArtifactLiveSource {
       this.versions = this.versions.map((version, index) => (index === this.liveIndex ? this.accepted : version));
     }
     return { artifact: this.accepted, versions: this.versions };
+  }
+  dispose() {
+    this.written?.dispose();
   }
 }

@@ -29,6 +29,8 @@ const replacements: Record<string, unknown> = {
   getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+  addEventListener: dom.window.addEventListener.bind(dom.window),
+  removeEventListener: dom.window.removeEventListener.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
 };
 // The code card's highlighter (@pierre/diffs) defines its elements, which read DOM constructors, on import.
@@ -50,7 +52,9 @@ afterAll(() => {
 });
 
 const button = (label: string) =>
-  [...host.querySelectorAll("button")].find((element) => element.getAttribute("aria-label") === label);
+  [...host.querySelectorAll("button")].find(
+    (element) => element.getAttribute("aria-label") === label || element.textContent?.trim() === label,
+  );
 
 test("an HTML, SVG or Markdown fence opens in the side panel; other code has no Open", async () => {
   const { createRoot } = await import("react-dom/client");
@@ -393,6 +397,47 @@ test("an open plain fence carries its identity through the final code card", asy
     expect.objectContaining({ identity: "assistant-live\u00000", revision: 1 }),
     expect.objectContaining({ identity: "assistant-live\u00000", revision: 2 }),
   ]);
+});
+
+test("Run follows one live artifact but passive markup cannot gain script consent", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");
+  const previousLocation = scope.location;
+  scope.location = { protocol: "cmux-agent:" };
+  const version = (code: string, revision: number) => ({
+    kind: "html" as const,
+    lang: "html",
+    code,
+    identity: "live-run\u00000",
+    revision,
+  });
+  const one = version("<script>/* first live revision */</script>", 1);
+  const two = version("<script>/* second live revision */</script>", 2);
+  try {
+    act(() => root?.unmount());
+    root = createRoot(host);
+    const draw = (artifact: typeof one) =>
+      act(() => root!.render(<ArtifactPanel artifact={artifact} versions={[artifact]} onClose={() => {}} />));
+    draw(one);
+    expect(button("Run")).toBeDefined();
+    act(() => button("Run")!.click());
+    const firstFrame = host.querySelector("iframe");
+    draw(two);
+    expect(button("Run")).toBeUndefined();
+    expect(host.querySelector("iframe")).not.toBe(firstFrame);
+    act(() => root!.unmount());
+    root = createRoot(host);
+    draw(version("<p>Passive markup</p>", 1));
+    expect(host.querySelector("iframe")).not.toBeNull();
+    draw(version("<script>/* newly introduced code */</script>", 2));
+    expect(button("Run")).toBeDefined();
+    expect(host.querySelector("iframe")).toBeNull();
+  } finally {
+    act(() => root?.unmount());
+    root = undefined;
+    if (previousLocation === undefined) delete scope.location;
+    else scope.location = previousLocation;
+  }
 });
 
 test("the panel names the document, copies when saving fails, and hands focus back on close", async () => {

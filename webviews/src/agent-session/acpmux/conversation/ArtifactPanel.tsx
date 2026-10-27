@@ -217,9 +217,13 @@ export function ArtifactPanel({
             <Markdown>{artifact.code}</Markdown>
           </div>
         ) : (
-          // Each version is its own frame: a frame draws the first document it is sent, and a
-          // version with script waits for Run again.
-          <ArtifactFrame key={artifact.code} html={previewHtml(artifact)} title={title} jsx={jsx} />
+          // A live document keeps its explicit Run choice; historical versions are separate.
+          <ArtifactFrame
+            key={artifact.identity ?? artifact.code}
+            html={previewHtml(artifact)}
+            title={title}
+            jsx={jsx}
+          />
         )}
       </div>
     </aside>
@@ -232,7 +236,8 @@ const runsScript = (code: string) => /<script\b|\son[a-z]+\s*=|javascript:/i.tes
 
 function ArtifactFrame({ html, title, jsx }: { html: string; title: string; jsx: boolean }) {
   const t = useT();
-  const [running, setRunning] = useState(() => ranRenders.has(html) || (!jsx && !runsScript(html)));
+  const [allowed, setAllowed] = useState(() => ranRenders.has(html));
+  const running = allowed || (!jsx && !runsScript(html));
   if (!running)
     return (
       <div className="acpmux-artifact-run">
@@ -241,14 +246,18 @@ function ArtifactFrame({ html, title, jsx }: { html: string; title: string; jsx:
           className="acpmux-review-changes"
           onClick={() => {
             ranRenders.add(html);
-            setRunning(true);
+            setAllowed(true);
           }}
         >
           {t("render.run")}
         </button>
       </div>
     );
-  return jsx ? <JsxFrame code={html} title={title} /> : <RunningFrame html={html} title={title} />;
+  return jsx ? (
+    <JsxFrame key={html} code={html} title={title} />
+  ) : (
+    <RunningFrame key={html} html={html} title={title} />
+  );
 }
 
 function JsxFrame({ code, title }: { code: string; title: string }) {

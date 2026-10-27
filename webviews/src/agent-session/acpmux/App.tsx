@@ -322,7 +322,6 @@ import { RenderToolCard, canRender } from "./conversation/RenderCard";
 import { ArtifactPanel, useArtifactCoversPane, type SaveDocument } from "./conversation/ArtifactPanel";
 import { branchesFromKey, branchesKey, forkAnchor, messageBranches } from "./conversation/branches";
 import { ArtifactContext, type Artifact } from "./conversation/artifactPreview";
-import { writtenArtifacts } from "./conversation/writtenArtifacts";
 import { artifactVersions } from "./conversation/artifactVersions";
 import { ArtifactLiveSource } from "./conversation/artifactLive";
 import { RenderPages, renderPages, renderVersions } from "./conversation/renderCall";
@@ -4484,9 +4483,14 @@ function AcpmuxPane() {
   const artifactRowsRef = useRef(snapshot.rows);
   artifactRowsRef.current = snapshot.rows;
   const artifactLive = useRef<ArtifactLiveSource | undefined>(undefined);
-  if (!artifact) artifactLive.current = undefined;
+  if (!artifact) {
+    artifactLive.current?.dispose();
+    artifactLive.current = undefined;
+  }
+  useEffect(() => () => artifactLive.current?.dispose(), []);
   const liveDocument = useMemo(
-    () => (artifact?.identity && artifactRows ? artifactLive.current?.read(artifactRows) : undefined),
+    () =>
+      (artifact?.identity || artifact?.path) && artifactRows ? artifactLive.current?.read(artifactRows) : undefined,
     [artifact, artifactRows],
   );
   const liveArtifact = liveDocument?.artifact ?? artifact;
@@ -4506,7 +4510,9 @@ function AcpmuxPane() {
   );
   const openArtifact = useCallback(
     (next: Artifact) => {
-      artifactLive.current = next.identity ? new ArtifactLiveSource(next, artifactRowsRef.current) : undefined;
+      artifactLive.current?.dispose();
+      artifactLive.current =
+        next.identity || next.path ? new ArtifactLiveSource(next, artifactRowsRef.current) : undefined;
       setArtifact((current) => ({ ...next, sessionId: artifactSession, opened: (current?.opened ?? 0) + 1 }));
     },
     [artifactSession],

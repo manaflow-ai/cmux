@@ -69,6 +69,43 @@ const live = (finish = false) => ({
   },
 });
 
+const writtenLive = {
+  note: "A completed rewrite of the same canonical file refreshes its open preview.",
+  snapshot: chat([
+    user("Write a status page", 2),
+    activity(
+      [
+        tool("Write", "edit", "completed", {
+          diffs: [{ path: "/project/status.html", newText: "<h1>Status</h1><p>Preparing release</p>" }],
+        }),
+      ],
+      1,
+      { id: "live-write", version: 1 },
+    ),
+  ]),
+  play: async (ctx: PlayContext) => {
+    await open(ctx);
+    const page = ctx.document.defaultView as Window;
+    page.cmuxAcpmuxBridge?.receive(
+      chat([
+        user("Write a status page", 2),
+        activity(
+          [
+            tool("Write", "edit", "completed", {
+              diffs: [{ path: "/project/status.html", newText: "<h1>Status</h1><p>Release ready</p>" }],
+            }),
+          ],
+          0,
+          { id: "live-write", version: 2 },
+        ),
+      ]),
+    );
+    await ctx.waitFor(() =>
+      [...ctx.document.querySelectorAll(".cv-codeblock")].some((node) => node.textContent?.includes("Release ready")),
+    );
+  },
+};
+
 const counters = [1, 2, 3].map(
   (version) => `<title>Counter</title>
 <h1>Counter</h1><p>Revision ${version}: add ${version} per click.</p>
@@ -103,6 +140,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/writtenArtifacts.tsx",
   ],
   variants: {
+    "live-write": writtenLive,
     "live-stream": live(),
     "live-finished": live(true),
     "live-history": {
