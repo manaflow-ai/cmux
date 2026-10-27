@@ -1,10 +1,8 @@
+#if canImport(ImageIO)
 public import CoreGraphics
-public import Foundation
 public import ImageIO
-#if DEBUG || CMUX_BLOCKING_CHECKS
-// cpuIntensiveCall is inlinable and calls pthread_main_np(), so Darwin is a public import here.
-public import Darwin
 #endif
+public import Foundation
 
 // The size-gated seams for long CPU work (``BlockingKind/cpuIntensive``). Chrome keeps this work off its UI thread:
 // `AssertLongCPUWorkAllowed()` (base/threading/thread_restrictions.h) fails there, and large JSON and image decodes
@@ -61,7 +59,7 @@ func checkedCPUIntensiveCall<Result, Failure: Error>(
     size: () -> Int, limit: Int, fileID: StaticString, line: UInt, _ body: () throws(Failure) -> Result
 ) throws(Failure) -> Result {
     #if DEBUG || CMUX_BLOCKING_CHECKS
-    guard pthread_main_np() != 0, size() > limit else { return try body() }
+    guard blockingOnMainThread(), size() > limit else { return try body() }
     return try BlockingViolationTable.mainThreadBlockingCall(.cpuIntensive, fileID: fileID, line: line, body)
     #else
     return try body()
@@ -156,6 +154,7 @@ extension PropertyListSerialization {
     }
 }
 
+#if canImport(ImageIO)
 /// The bytes the image at `index` of `source` decodes to, 4 per pixel, from its header (no pixel is decoded), or
 /// `encoded` when that is larger or the header names no size.
 ///
@@ -263,7 +262,10 @@ public func blockingImageEncode(
     }
 }
 
+#endif
+
 extension Data {
+    #if canImport(Darwin)
     /// Compresses the bytes, like `NSData.compressed(using:)`, as a checked CPU call: on the main thread, more than
     /// ``BlockingKind/cpuIntensiveCompressionBytes`` bytes is a site.
     ///
@@ -307,6 +309,8 @@ extension Data {
             try (self as NSData).decompressed(using: algorithm) as Data
         }
     }
+
+    #endif
 
     /// The decompressed size the gate counts: `expected` (at least `compressed`), or
     /// ``BlockingKind/cpuIntensiveCompressionRatio`` times `compressed`, `Int.max` when that overflows.

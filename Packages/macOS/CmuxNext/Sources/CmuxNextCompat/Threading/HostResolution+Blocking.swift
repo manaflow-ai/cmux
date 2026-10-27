@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 public import Darwin
+#else
+public import Glibc
+#endif
 
 /// Resolves a host name, like `getaddrinfo`, as a checked blocking call
 /// (``blockingCall(_:fileID:line:_:)``): it waits for mDNSResponder and the network. Chrome calls

@@ -1,5 +1,4 @@
 @testable import CmuxNextCompat
-import Darwin
 import Foundation
 import Testing
 
@@ -144,7 +143,9 @@ struct BlockingCheckTests {
         #expect(sites.map(\.count) == [3, 1, 1, 1])
         #expect(sites.allSatisfy { $0.location.hasPrefix("CmuxNextCompatTests/BlockingCheckTests.swift:") })
         #expect(recorder.violations.map(\.kind) == [.fileIO, .fileIO, .syncWait, .socketRead])
+        #if canImport(MachO)  // Linux reports carry no frames (BlockingFrameResolver)
         #expect(recorder.violations.allSatisfy { !$0.frames.isEmpty && $0.frames.count <= 8 })
+        #endif
     }
 
     /// A main-actor caller that starts a process is recorded, by either spawn seam; the same spawn off the
@@ -216,6 +217,9 @@ struct BlockingCheckTests {
         #expect(recorder.violations.count == 1)
     }
 
+    // These run the main run loop again inside a main-actor job: macOS only. On Linux the main queue's jobs run
+    // off the main thread (dispatch_main), and nothing runs the main run loop.
+    #if canImport(Darwin)
     /// `waitUntilExit` runs the main run loop while it waits; the work that loop runs is not the allowed
     /// wait, so it is still checked. A nested run of the main run loop would also run other tests' main-actor
     /// work in this process, so the case runs alone in a child process and reports through its exit code.
@@ -302,6 +306,7 @@ struct BlockingCheckTests {
             exit(!ranNested ? 3 : sites.count == 1 && sites.first?.kind == .fileIO && sites.first?.count == 1 ? 0 : 4)
         }
     }
+    #endif
 
     @MainActor @Test func offTheMainThreadNothingIsRecorded() async {
         let (table, recorder) = Self.recordingTable()

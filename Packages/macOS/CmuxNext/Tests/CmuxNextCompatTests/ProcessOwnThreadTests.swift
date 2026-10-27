@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 import CmuxNextCompat
 import Darwin
 import Foundation
@@ -103,3 +104,4 @@ struct ProcessOwnThreadTests {
         #expect(seen == SpawnThread(isMain: false, name: "test.own-thread.missing", qos: QOS_CLASS_UTILITY.rawValue))
     }
 }
+#endif

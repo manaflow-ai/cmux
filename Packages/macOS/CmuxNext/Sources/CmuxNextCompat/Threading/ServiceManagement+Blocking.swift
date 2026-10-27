@@ -1,3 +1,4 @@
+#if canImport(ServiceManagement)
 public import ServiceManagement
 
 /// The service's registration state, like `SMAppService.status`, as a checked blocking call
@@ -39,3 +40,4 @@ public func blockingSMAppServiceRegister(_ service: SMAppService, fileID: Static
 public func blockingSMAppServiceUnregister(_ service: SMAppService, fileID: StaticString = #fileID, line: UInt = #line) throws {
     try blockingCall(.ipcReply, fileID: fileID, line: line) { try service.unregister() }
 }
+#endif

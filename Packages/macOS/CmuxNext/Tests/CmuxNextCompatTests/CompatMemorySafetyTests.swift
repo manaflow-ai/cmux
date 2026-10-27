@@ -1,5 +1,4 @@
 @testable import CmuxNextCompat
-import Darwin
 import Foundation
 import Testing
 
@@ -28,6 +27,7 @@ import Testing
     }
 
     #if DEBUG
+    #if canImport(MachO)
     // MARK: ImageOffsetResolver (checked load-command walk)
 
     @Test func aFunctionResolvesToItsImageWithTheImagesUUID() throws {
@@ -46,7 +46,7 @@ import Testing
         #expect(none == nil)
     }
 
-    // MARK: BlockingPendingCall (stack in its fields)
+    // MARK: BlockingPendingCall (stack in its fields; Linux keeps none, see BlockingPlatformTests)
 
     @Test func aCapturedStackKeepsAtMostItsDepthOfFrames() {
         var call = BlockingPendingCall(kind: .fileIO, site: 0, fileID: #fileID, line: #line)
@@ -56,6 +56,8 @@ import Testing
         #expect(call.stack.count <= BlockingPendingCall.depth)
         #expect(call.stack.allSatisfy { $0 != 0 })
     }
+
+    #endif
 
     // MARK: BlockingPendingRing and the word tables
 

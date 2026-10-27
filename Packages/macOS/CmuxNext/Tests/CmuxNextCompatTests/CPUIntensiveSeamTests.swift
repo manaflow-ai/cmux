@@ -1,3 +1,4 @@
+#if canImport(ImageIO)
 @testable import CmuxNextCompat
 import CoreGraphics
 import Darwin
@@ -432,3 +433,4 @@ private nonisolated enum CPUFixture {
         return encoded as Data
     }
 }
+#endif

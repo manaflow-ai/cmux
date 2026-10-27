@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 public import Darwin
 
 // Checked seams over kernel and directory queries (``blockingCall(_:fileID:line:_:)``, Chrome's
@@ -174,3 +175,4 @@ public func blockingGetpwnam(_ name: UnsafePointer<CChar>,
     // why they are valid for it.
     return unsafe blockingCall(.systemQuery, fileID: fileID, line: line) { () -> UnsafeMutablePointer<passwd>? in unsafe getpwnam(name) }
 }
+#endif

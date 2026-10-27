@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 import CmuxNextCompat
 import Darwin
 import Testing
@@ -86,3 +87,4 @@ nonisolated enum ProcessRoleChild {
         if ProcessRole.darwinBackground()?.internalFlag != false { exit(9) }
     }
 }
+#endif

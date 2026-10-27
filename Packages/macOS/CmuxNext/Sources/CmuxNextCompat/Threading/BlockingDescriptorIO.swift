@@ -1,6 +1,10 @@
+#if canImport(Darwin)
 public import Darwin
+#else
+public import Glibc
+#endif
 
-/// Reads from a file descriptor, like `Darwin.read`, as a checked blocking call
+/// Reads from a file descriptor, like `read(2)`, as a checked blocking call
 /// (``blockingCall(_:fileID:line:_:)``): a socket or pipe read waits for the peer.
 ///
 /// - Parameters:
@@ -14,10 +18,10 @@ public import Darwin
 public func blockingRead(_ descriptor: Int32, _ buffer: UnsafeMutableRawPointer?, _ count: Int, fileID: StaticString = #fileID, line: UInt = #line) -> Int {
     // SAFETY: forwards the caller's pointers to read unchanged, only for the call; the caller's own `unsafe` states why
     // they are valid for it.
-    return blockingCall(.socketRead, fileID: fileID, line: line) { unsafe Darwin.read(descriptor, buffer, count) }
+    return blockingCall(.socketRead, fileID: fileID, line: line) { unsafe read(descriptor, buffer, count) }
 }
 
-/// Receives from a socket, like `Darwin.recv`, as a checked blocking call
+/// Receives from a socket, like `recv(2)`, as a checked blocking call
 /// (``blockingCall(_:fileID:line:_:)``).
 ///
 /// - Parameters:
@@ -32,10 +36,10 @@ public func blockingRead(_ descriptor: Int32, _ buffer: UnsafeMutableRawPointer?
 public func blockingRecv(_ descriptor: Int32, _ buffer: UnsafeMutableRawPointer?, _ count: Int, _ flags: Int32, fileID: StaticString = #fileID, line: UInt = #line) -> Int {
     // SAFETY: forwards the caller's pointers to recv unchanged, only for the call; the caller's own `unsafe` states why
     // they are valid for it.
-    return blockingCall(.socketRead, fileID: fileID, line: line) { unsafe Darwin.recv(descriptor, buffer, count, flags) }
+    return blockingCall(.socketRead, fileID: fileID, line: line) { unsafe recv(descriptor, buffer, count, flags) }
 }
 
-/// Writes to a file descriptor, like `Darwin.write`, as a checked blocking call
+/// Writes to a file descriptor, like `write(2)`, as a checked blocking call
 /// (``blockingCall(_:fileID:line:_:)``): a socket or pipe write waits while the peer's
 /// buffer is full.
 ///
@@ -51,10 +55,10 @@ public func blockingWrite(_ descriptor: Int32, _ buffer: UnsafeRawPointer?, _ co
                           fileID: StaticString = #fileID, line: UInt = #line) -> Int {
     // SAFETY: forwards the caller's pointers to write unchanged, only for the call; the caller's own `unsafe` states
     // why they are valid for it.
-    return blockingCall(.socketWrite, fileID: fileID, line: line) { unsafe Darwin.write(descriptor, buffer, count) }
+    return blockingCall(.socketWrite, fileID: fileID, line: line) { unsafe write(descriptor, buffer, count) }
 }
 
-/// Sends on a socket, like `Darwin.send`, as a checked blocking call
+/// Sends on a socket, like `send(2)`, as a checked blocking call
 /// (``blockingCall(_:fileID:line:_:)``).
 ///
 /// - Parameters:
@@ -70,5 +74,5 @@ public func blockingSend(_ descriptor: Int32, _ buffer: UnsafeRawPointer?, _ cou
                          fileID: StaticString = #fileID, line: UInt = #line) -> Int {
     // SAFETY: forwards the caller's pointers to send unchanged, only for the call; the caller's own `unsafe` states why
     // they are valid for it.
-    return blockingCall(.socketWrite, fileID: fileID, line: line) { unsafe Darwin.send(descriptor, buffer, count, flags) }
+    return blockingCall(.socketWrite, fileID: fileID, line: line) { unsafe send(descriptor, buffer, count, flags) }
 }

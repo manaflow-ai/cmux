@@ -1,3 +1,4 @@
+#if canImport(CoreGraphics)
 public import CoreGraphics
 internal import Darwin
 
@@ -75,3 +76,4 @@ public func blockingWindowListCreateImageFromArray(_ screenBounds: CGRect, _ win
         return unsafe create(screenBounds, array, imageOption.rawValue)?.takeRetainedValue()
     }
 }
+#endif

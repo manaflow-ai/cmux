@@ -1,5 +1,4 @@
 @testable import CmuxNextCompat
-import Darwin
 import Dispatch
 import Foundation
 import Testing
@@ -33,7 +32,13 @@ struct BlockingPoolContextTests {
     ])
     func aQueueLabelIsAPoolByItsPrefixOrSuffix(label: String, isPool: Bool) {
         #if DEBUG || CMUX_BLOCKING_CHECKS
-        #expect(label.withCString { BlockingContext.isPoolLabel($0) } == isPool)
+        // Linux libdispatch gives a thread no queue runs the overcommit root label, so that one is dedicated there.
+        #if canImport(Darwin)
+        let expected = isPool
+        #else
+        let expected = isPool && !label.hasSuffix(".overcommit")
+        #endif
+        #expect(label.withCString { BlockingContext.isPoolLabel($0) } == expected)
         #endif
     }
 
@@ -63,7 +68,9 @@ struct BlockingPoolContextTests {
     @Test func aNamedThreadIsDedicated() async {
         let context = await withCheckedContinuation { (done: CheckedContinuation<BlockingContext, Never>) in
             let thread = Thread {
+                #if canImport(Darwin)
                 pthread_setname_np("com.cmuxterm.tests.pool-context-thread")
+                #endif
                 done.resume(returning: BlockingContext.current())
             }
             thread.start()
@@ -71,6 +78,7 @@ struct BlockingPoolContextTests {
         #expect(context == .dedicated)
     }
 
+    #if canImport(Darwin)
     /// The first check on a named thread marks it dedicated, so later checks are one thread-specific read and
     /// never read the name again; a pool worker keeps that it has no name.
     @Test func theFirstCheckKeepsTheThreadsNameInItsFlags() async {
@@ -93,6 +101,7 @@ struct BlockingPoolContextTests {
         #expect(worker.1)
         #expect(worker.2 == nil)
     }
+    #endif
 
     /// A mark wins over the label while its scope runs, and the inner scope wins until it returns.
     @Test func aMarkWinsOverThePoolLabelForItsScope() async {
@@ -240,6 +249,7 @@ struct BlockingPoolContextTests {
     }
 
     #if DEBUG
+    #if canImport(MachO)
     /// A pool violation keeps as many caller frames as a main one: both walk the stack in the frame that
     /// records the site, with no closure or lock frame above it, so the frames of the shared caller sit at the
     /// same depth in both (Debug, where nothing is inlined).
@@ -258,6 +268,7 @@ struct BlockingPoolContextTests {
         #expect(!shared.isEmpty)
         #expect(shared.allSatisfy { main.firstIndex(of: $0) == pool.firstIndex(of: $0) })
     }
+    #endif
     #endif
 
     // MARK: where blocking is allowed (acceptance: 0 sites)

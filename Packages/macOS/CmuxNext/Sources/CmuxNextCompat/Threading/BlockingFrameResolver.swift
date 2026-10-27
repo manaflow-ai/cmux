@@ -2,6 +2,7 @@
 /// Turns return addresses into ``BlockingFrame``s (image UUID + offset) through the shared
 /// ``ImageOffsetResolver``. Runs on the drain queue only (`dladdr` takes dyld's lock).
 struct BlockingFrameResolver {
+    #if canImport(MachO)
     private var images = ImageOffsetResolver()
 
     /// The frames of `addresses`; an address outside a loaded image with a UUID is left out.
@@ -11,5 +12,11 @@ struct BlockingFrameResolver {
             return BlockingFrame(imageUUID: uuid, offset: UInt64(frame.offset))
         }
     }
+    #else
+    /// No frames: ``ImageOffsetResolver`` reads Mach-O images, so a Linux report names its site without a stack.
+    mutating func frames(_ addresses: [UInt]) -> [BlockingFrame] {
+        []
+    }
+    #endif
 }
 #endif

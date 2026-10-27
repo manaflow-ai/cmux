@@ -1,3 +1,4 @@
+#if canImport(Security)
 import Foundation
 import Security
 
@@ -44,3 +45,4 @@ public nonisolated final class SigningTeamInstall: Sendable {
         return team?.isEmpty == false ? team : nil
     }
 }
+#endif

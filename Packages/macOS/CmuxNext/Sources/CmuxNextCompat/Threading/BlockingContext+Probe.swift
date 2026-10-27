@@ -21,8 +21,8 @@ extension BlockingContext {
     ///
     /// - Returns: The label.
     package static func callingQueueLabel() -> String {
-        // SAFETY: dispatch_queue_get_label(NULL) returns the current queue's NUL-terminated label, which the queue
-        // owns while this thread runs on it; String(cString:) copies it before the call returns.
-        unsafe String(cString: __dispatch_queue_get_label(nil))
+        // SAFETY: the current queue's NUL-terminated label, which the queue owns while this thread runs on it;
+        // String(cString:) copies it before the call returns.
+        unsafe currentDispatchQueueLabel().map { unsafe String(cString: $0) } ?? ""
     }
 }

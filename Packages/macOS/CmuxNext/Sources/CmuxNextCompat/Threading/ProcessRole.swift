@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 public import Darwin
+#else
+public import Glibc
+#endif
 
 /// A Mach task role a cmux process asks for: the Swift twin of `cmux_threads::process_role`
 /// (cmux-tui/crates/cmux-threads/src/process_role.rs), for the Chromium host side.
@@ -55,6 +59,7 @@ public enum ProcessRole: Sendable, Equatable {
         try Self.setDarwinBackground(self == .backgroundSuppressed, pid: id_t(pid))
     }
 
+    #if canImport(Darwin)
     /// This process's `task_role_t` (`TASK_CATEGORY_POLICY`): 1 foreground, 2 background, nil when the read failed.
     public static func currentTaskRole() -> Int32? {
         var role: integer_t = 0
@@ -65,6 +70,12 @@ public enum ProcessRole: Sendable, Equatable {
         )
         return result == KERN_SUCCESS && count == 1 ? role : nil
     }
+    #else
+    /// This process's task role: nil on Linux, which has no Mach task roles.
+    public static func currentTaskRole() -> Int32? {
+        nil
+    }
+    #endif
 
     /// The two `PRIO_DARWIN_BG` flags of a process.
     public struct DarwinBackground: Sendable, Equatable {
@@ -83,6 +94,7 @@ public enum ProcessRole: Sendable, Equatable {
         public var isSuppressed: Bool { internalFlag || externalFlag }
     }
 
+    #if canImport(Darwin)
     /// The `PRIO_DARWIN_BG` flags of `pid` (this process by default), from `proc_pidinfo(PROC_PIDTBSDINFO)`;
     /// nil when the read failed.
     public static func darwinBackground(pid: pid_t = getpid()) -> DarwinBackground? {
@@ -133,6 +145,19 @@ public enum ProcessRole: Sendable, Equatable {
     // sys/proc_info.h `pbi_flags` (XNU `proc_get_darwinbgstate`).
     private static let darwinBackgroundFlag: UInt32 = 0x8000 // PROC_FLAG_DARWINBG
     private static let externalDarwinBackgroundFlag: UInt32 = 0x10000 // PROC_FLAG_EXT_DARWINBG
+    #else
+    // Linux has no Mach task role and no `PRIO_DARWIN_BG`: as in the non-Apple `sys` of `cmux_threads::process_role`,
+    // a change succeeds and does nothing and a read is nil.
+
+    /// This process's `PRIO_DARWIN_BG` flags: nil on Linux, which has none.
+    public static func darwinBackground(pid: pid_t = getpid()) -> DarwinBackground? {
+        nil
+    }
+
+    private func setPolicies() throws(ProcessRoleError) {}
+
+    private static func setDarwinBackground(_ on: Bool, pid: id_t) throws(ProcessRoleError) {}
+    #endif
 }
 
 /// Why a ``ProcessRole`` change failed; the process keeps the parts applied before the failing call.

@@ -1,6 +1,5 @@
 #if CMUX_BLOCKING_CHECKS && !DEBUG
 @testable import CmuxNextCompat
-import Darwin
 import Foundation
 import Testing
 

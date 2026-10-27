@@ -1,5 +1,9 @@
 #if DEBUG || CMUX_BLOCKING_CHECKS
+#if canImport(Darwin)
 internal import Darwin
+#else
+internal import Glibc
+#endif
 
 /// A new blocking call site on its way from the main thread to the drain queue: a fixed-size value
 /// (no reference, no allocation) that a ``BlockingPendingRing`` slot holds.
@@ -25,8 +29,10 @@ struct BlockingPendingCall {
         self.line = line
     }
 
-    /// Keeps the calling thread's stack, innermost first, without this function's own frame.
+    /// Keeps the calling thread's stack, innermost first, without this function's own frame. On Linux it keeps none:
+    /// ``BlockingFrameResolver`` resolves no frame there.
     mutating func captureStack() {
+        #if canImport(MachO)
         var count = 0
         // SAFETY: a scratch buffer of depth + 1 frames that lives only for the closure; backtrace writes at most
         // buffer.count of them and returns how many, and only indices under that count (clamped to the buffer) are
@@ -40,6 +46,7 @@ struct BlockingPendingCall {
             }
         }
         addressCount = count
+        #endif
     }
 
     /// The kept return addresses, innermost first.

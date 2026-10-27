@@ -1,3 +1,4 @@
+#if canImport(ImageIO)
 public import CoreGraphics
 public import Foundation
 public import ImageIO
@@ -117,3 +118,4 @@ public struct CheckedImageSource {
         }
     }
 }
+#endif

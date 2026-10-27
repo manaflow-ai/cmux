@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 public import AppKit
 public import UniformTypeIdentifiers
 
@@ -90,3 +91,4 @@ extension NSWorkspace {
         return blockingCall(.systemCall, fileID: fileID, line: line) { icon(for: contentType) }
     }
 }
+#endif

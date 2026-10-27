@@ -1,5 +1,4 @@
 @testable import CmuxNextCompat
-import Darwin
 import Foundation
 import Testing
 
@@ -112,6 +111,7 @@ struct BlockingWallTimeTests {
         #expect(clock.reads == 2)
     }
 
+    #if canImport(Darwin)
     /// A timed call that runs the main run loop again (`waitUntilExit`, a modal panel, `RunLoop.run(until:)`)
     /// keeps the whole interval; a checked call the nested run makes counts at its site without time, so the
     /// interval is not counted twice. Alone in a child process (a nested run would run other tests' main-actor
@@ -142,6 +142,7 @@ struct BlockingWallTimeTests {
             exit(sites[1].totalNanos == 0 ? 0 : 6)
         }
     }
+    #endif
 
     // MARK: windows (reset)
 

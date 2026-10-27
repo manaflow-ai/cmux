@@ -17,6 +17,13 @@ struct BlockingRunLoopNesting {
     var held: [BlockingAllowance?] = []
     private var observer: CFRunLoopObserver?
 
+    /// The common modes: `CFRunLoopMode.commonModes` on macOS, the same `kCFRunLoopCommonModes` in corelibs.
+    #if canImport(Darwin)
+    private static var commonModes: CFRunLoopMode { .commonModes }
+    #else
+    private static var commonModes: CFRunLoopMode? { kCFRunLoopCommonModes }
+    #endif
+
     /// A scope opens; `onNested(true)` runs when the run loop enters a nested run, `onNested(false)` when it
     /// returns from one. An inner scope (already open) adds nothing.
     mutating func enter(onNested: @escaping (Bool) -> Void) {
@@ -34,7 +41,7 @@ struct BlockingRunLoopNesting {
                 onNested(false)
             }
         }
-        if let observer { CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes) }
+        if let observer { CFRunLoopAddObserver(CFRunLoopGetMain(), observer, Self.commonModes) }
         self.observer = observer
     }
 
@@ -42,7 +49,7 @@ struct BlockingRunLoopNesting {
     mutating func leave(wasOpen: Bool) {
         guard !wasOpen, isOpen else { return }
         if let observer {
-            CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
+            CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, Self.commonModes)
             CFRunLoopObserverInvalidate(observer)
         }
         observer = nil

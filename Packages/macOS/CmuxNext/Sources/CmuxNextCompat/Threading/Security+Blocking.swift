@@ -1,3 +1,4 @@
+#if canImport(Security)
 public import Security
 
 /// Finds keychain items, like `SecItemCopyMatching`, as a checked blocking call
@@ -195,3 +196,4 @@ public func blockingAuthorizationCopyRights(
     // `unsafe` states why they are valid for it.
     return blockingCall(.systemCall, fileID: fileID, line: line) { unsafe AuthorizationCopyRights(authorization, rights, environment, flags, authorizedRights) }
 }
+#endif

@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 import AppKit
 @testable import CmuxNextCompat
 import CoreGraphics
@@ -192,3 +193,4 @@ private nonisolated enum ImageFixture {
         return encoded as Data
     }
 }
+#endif

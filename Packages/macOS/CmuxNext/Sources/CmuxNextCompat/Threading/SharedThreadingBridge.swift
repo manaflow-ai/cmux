@@ -1,7 +1,11 @@
 // Public: SharedMayBlockRunner hands the shared packages CmuxThreading's runner.
 public import CmuxThreading
 #if DEBUG || CMUX_BLOCKING_CHECKS
+#if canImport(Darwin)
 internal import Darwin
+#else
+internal import Glibc
+#endif
 #endif
 
 /// The app's blocking detector as CmuxThreading's ``CmuxThreading/BlockingCallHook``: a shared package's
@@ -28,7 +32,7 @@ struct SharedThreadingBridge: CmuxThreading.BlockingCallHook {
 
     func lockWaitWillBegin() -> UInt64? {
         #if DEBUG || CMUX_BLOCKING_CHECKS
-        guard pthread_main_np() != 0 else { return nil }
+        guard blockingOnMainThread() else { return nil }
         return BlockingViolationTable.active.uptimeNanos()
         #else
         return nil

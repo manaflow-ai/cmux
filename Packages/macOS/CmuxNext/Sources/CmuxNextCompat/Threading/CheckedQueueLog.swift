@@ -1,6 +1,8 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import Dispatch
+#if canImport(os)
 internal import os
+#endif
 
 /// The queues one call site made through `DispatchQueue.checked` for one row (or one undeclared label).
 public struct CheckedQueueRecord: Sendable, Equatable {

@@ -1,8 +1,3 @@
-#if DEBUG || CMUX_BLOCKING_CHECKS
-// The inlinable checks below call pthread_main_np(), so Darwin is a public import here.
-public import Darwin
-#endif
-
 /// Runs `body`, a call that blocks, as a checked blocking call: in builds with the detector (Debug, bench, and
 /// Nightly to come), `body` on the main thread outside ``allowBlocking(_:_:)`` or on a shared pool thread
 /// (``BlockingContext/pool``: the Swift cooperative pool, a GCD root queue) is a violation, and while a
@@ -67,7 +62,7 @@ func checkedBlockingCall<Result, Failure: Error>(
     _ kind: BlockingKind, fileID: StaticString, line: UInt, _ body: () throws(Failure) -> Result
 ) throws(Failure) -> Result {
     #if DEBUG || CMUX_BLOCKING_CHECKS
-    guard pthread_main_np() != 0 else {
+    guard blockingOnMainThread() else {
         guard let context = BlockingContext.offMainViolation(kind) else { return try body() }
         return try BlockingViolationTable.offMainBlockingCall(kind, in: context, fileID: fileID, line: line, body)
     }
@@ -92,7 +87,7 @@ func checkedBlockingCall<Result, Failure: Error>(
 @inlinable @inline(__always)
 public func assertBlockingAllowed(_ kind: BlockingKind, fileID: StaticString = #fileID, line: UInt = #line) {
     #if DEBUG || CMUX_BLOCKING_CHECKS
-    if pthread_main_np() != 0 {
+    if blockingOnMainThread() {
         BlockingViolationTable.mainThreadBlocked(kind, fileID: fileID, line: line)
     } else if let context = BlockingContext.offMainViolation(kind) {
         BlockingViolationTable.offMainBlocked(kind, in: context, fileID: fileID, line: line)
@@ -111,7 +106,7 @@ public func assertBlockingAllowed(_ kind: BlockingKind, fileID: StaticString = #
 @inlinable @inline(__always)
 public func recordAwaitedLowPriorityWork(fileID: StaticString, line: UInt) {
     #if DEBUG || CMUX_BLOCKING_CHECKS
-    if pthread_main_np() != 0 {
+    if blockingOnMainThread() {
         BlockingViolationTable.mainThreadBlocked(.priorityInversion, fileID: fileID, line: line)
     }
     #endif
@@ -140,7 +135,7 @@ public func allowBlocking<Result, Failure: Error>(
     _ reason: BlockingAllowance, _ body: () throws(Failure) -> Result
 ) throws(Failure) -> Result {
     #if DEBUG || CMUX_BLOCKING_CHECKS
-    guard pthread_main_np() != 0 else { return try BlockingContext.run(as: .dedicated, body) }
+    guard blockingOnMainThread() else { return try BlockingContext.run(as: .dedicated, body) }
     let table = BlockingViolationTable.active
     let token = table.enterAllowance(reason)
     defer { table.leaveAllowance(token) }

@@ -1,13 +1,17 @@
 #if DEBUG || CMUX_BLOCKING_CHECKS
 internal import Atomics
 internal import CoreFoundation
+#if canImport(Darwin)
 internal import Darwin
+#else
+internal import Glibc
+#endif
 internal import Dispatch
 internal import Foundation
 internal import class CmuxSafeConcurrency.OnceContinuation
 internal import enum CmuxSafeConcurrency.OnceContinuationError
 internal import func CmuxSafeConcurrency.withOnceContinuation
-#if DEBUG
+#if DEBUG && canImport(os)
 internal import os
 #endif
 
@@ -112,7 +116,7 @@ final class BlockingViolationTable: Sendable {
     ///   - startsDrain: False holds the drain until ``startDrain()`` (tests fill the ring).
     init(environment: [String: String] = ProcessInfo.processInfo.environment, mode: BlockingMode? = nil,
          poolMode: BlockingMode? = nil, lockWaitLimitNanos: UInt64 = BlockingKind.lockWaitLimitNanos,
-         uptimeNanos: @escaping @Sendable () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) },
+         uptimeNanos: @escaping @Sendable () -> UInt64 = BlockingViolationTable.systemUptimeNanos,
          startsDrain: Bool = true) {
         #if DEBUG
         self.mode = mode ?? BlockingMode.resolved(environment: environment)

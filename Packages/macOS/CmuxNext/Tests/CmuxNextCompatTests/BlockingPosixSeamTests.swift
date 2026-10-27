@@ -1,3 +1,4 @@
+#if canImport(ImageIO)
 @testable import CmuxNextCompat
 import CoreGraphics
 import Darwin
@@ -229,4 +230,5 @@ private nonisolated func callEachPosixSeamOnNamedQueue(_ table: BlockingViolatio
         }
     }
 }
+#endif
 #endif

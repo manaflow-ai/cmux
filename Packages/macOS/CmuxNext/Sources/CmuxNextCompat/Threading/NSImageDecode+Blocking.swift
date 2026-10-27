@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 public import AppKit
 public import Foundation
 public import ImageIO
@@ -57,3 +58,4 @@ func encodedImagePixelBytes(_ data: Data) -> Int {
     guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return data.count }
     return decodedImageBytes(source, at: 0, encoded: data.count)
 }
+#endif

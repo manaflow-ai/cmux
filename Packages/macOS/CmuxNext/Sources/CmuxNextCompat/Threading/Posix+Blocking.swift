@@ -1,10 +1,15 @@
+#if canImport(Darwin)
 public import Darwin
+#else
+public import Glibc
+#endif
 
 // Checked seams over the POSIX file calls (``blockingCall(_:fileID:line:_:)``, Chrome's
 // `base::ScopedBlockingCall` in base/files/file_posix.cc and base/files/file_util_posix.cc). Each passes
 // its caller's `#fileID` and `#line`, which name the call site, and returns what the call returns.
 // Descriptor reads and writes of a socket or pipe are `blockingRead` / `blockingWrite` (BlockingDescriptorIO).
-// `flock` and `stat` are called unqualified with a typed closure: `Darwin.flock` and `Darwin.stat` name the structs.
+// The calls are unqualified, so they reach Darwin on macOS and Glibc on Linux. `flock` and `stat` take a typed closure:
+// those names are also structs.
 
 /// Opens a file, like `open(2)`, as a checked blocking call (kind ``BlockingKind/fileIO``).
 ///
@@ -20,7 +25,7 @@ public func blockingOpen(_ path: UnsafePointer<CChar>, _ flags: Int32, _ mode: m
                          fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
     // SAFETY: forwards the caller's pointers to open unchanged, only for the call; the caller's own `unsafe` states why
     // they are valid for it.
-    return blockingCall(.fileIO, fileID: fileID, line: line) { unsafe Darwin.open(path, flags, mode) }
+    return blockingCall(.fileIO, fileID: fileID, line: line) { unsafe open(path, flags, mode) }
 }
 
 /// Reads at an offset, like `pread(2)`, as a checked blocking call (kind ``BlockingKind/fileIO``).
@@ -38,7 +43,7 @@ public func blockingPread(_ descriptor: Int32, _ buffer: UnsafeMutableRawPointer
                           fileID: StaticString = #fileID, line: UInt = #line) -> Int {
     // SAFETY: forwards the caller's pointers to pread unchanged, only for the call; the caller's own `unsafe` states
     // why they are valid for it.
-    return blockingCall(.fileIO, fileID: fileID, line: line) { unsafe Darwin.pread(descriptor, buffer, count, offset) }
+    return blockingCall(.fileIO, fileID: fileID, line: line) { unsafe pread(descriptor, buffer, count, offset) }
 }
 
 /// Writes at an offset, like `pwrite(2)`, as a checked blocking call (kind ``BlockingKind/fileIO``).
@@ -56,7 +61,7 @@ public func blockingPwrite(_ descriptor: Int32, _ buffer: UnsafeRawPointer?, _ c
                            fileID: StaticString = #fileID, line: UInt = #line) -> Int {
     // SAFETY: forwards the caller's pointers to pwrite unchanged, only for the call; the caller's own `unsafe` states
     // why they are valid for it.
-    return blockingCall(.fileIO, fileID: fileID, line: line) { unsafe Darwin.pwrite(descriptor, buffer, count, offset) }
+    return blockingCall(.fileIO, fileID: fileID, line: line) { unsafe pwrite(descriptor, buffer, count, offset) }
 }
 
 /// Flushes a file to the disk, like `fsync(2)`, as a checked blocking call (kind ``BlockingKind/fileIO``).
@@ -68,7 +73,7 @@ public func blockingPwrite(_ descriptor: Int32, _ buffer: UnsafeRawPointer?, _ c
 /// - Returns: What `fsync(2)` returns.
 @inlinable
 public func blockingFsync(_ descriptor: Int32, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.fileIO, fileID: fileID, line: line) { Darwin.fsync(descriptor) }
+    return blockingCall(.fileIO, fileID: fileID, line: line) { fsync(descriptor) }
 }
 
 /// Takes or drops an advisory lock, like `flock(2)`, as a checked blocking call (kind ``BlockingKind/fileIO``,
@@ -96,7 +101,7 @@ public func blockingFlock(_ descriptor: Int32, _ operation: Int32, fileID: Stati
 /// - Returns: What `ftruncate(2)` returns.
 @inlinable
 public func blockingFtruncate(_ descriptor: Int32, _ length: off_t, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.fileIO, fileID: fileID, line: line) { Darwin.ftruncate(descriptor, length) }
+    return blockingCall(.fileIO, fileID: fileID, line: line) { ftruncate(descriptor, length) }
 }
 
 /// Renames a file, like `rename(2)`, as a checked blocking call (kind ``BlockingKind/fsMetadata``).
@@ -112,7 +117,7 @@ public func blockingRename(_ from: UnsafePointer<CChar>, _ to: UnsafePointer<CCh
                            fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
     // SAFETY: forwards the caller's pointers to rename unchanged, only for the call; the caller's own `unsafe` states
     // why they are valid for it.
-    return blockingCall(.fsMetadata, fileID: fileID, line: line) { unsafe Darwin.rename(from, to) }
+    return blockingCall(.fsMetadata, fileID: fileID, line: line) { unsafe rename(from, to) }
 }
 
 /// Removes a file, like `unlink(2)`, as a checked blocking call (kind ``BlockingKind/fsMetadata``).
@@ -126,7 +131,7 @@ public func blockingRename(_ from: UnsafePointer<CChar>, _ to: UnsafePointer<CCh
 public func blockingUnlink(_ path: UnsafePointer<CChar>, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
     // SAFETY: forwards the caller's pointers to unlink unchanged, only for the call; the caller's own `unsafe` states
     // why they are valid for it.
-    return blockingCall(.fsMetadata, fileID: fileID, line: line) { unsafe Darwin.unlink(path) }
+    return blockingCall(.fsMetadata, fileID: fileID, line: line) { unsafe unlink(path) }
 }
 
 /// Reads a file's status, like `stat(2)`, as a checked blocking call (kind ``BlockingKind/fsMetadata``).
@@ -158,7 +163,7 @@ public func blockingLstat(_ path: UnsafePointer<CChar>, _ info: UnsafeMutablePoi
                           fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
     // SAFETY: forwards the caller's pointers to lstat unchanged, only for the call; the caller's own `unsafe` states
     // why they are valid for it.
-    return blockingCall(.fsMetadata, fileID: fileID, line: line) { unsafe Darwin.lstat(path, info) }
+    return blockingCall(.fsMetadata, fileID: fileID, line: line) { unsafe lstat(path, info) }
 }
 
 /// Resolves a path, like `realpath(3)`, as a checked blocking call (kind ``BlockingKind/fsMetadata``): it
@@ -175,7 +180,7 @@ public func blockingRealpath(_ path: UnsafePointer<CChar>, _ resolved: UnsafeMut
                              fileID: StaticString = #fileID, line: UInt = #line) -> UnsafeMutablePointer<CChar>? {
     // SAFETY: forwards the caller's pointers to realpath unchanged, only for the call; the caller's own `unsafe` states
     // why they are valid for it.
-    return unsafe blockingCall(.fsMetadata, fileID: fileID, line: line) { () -> UnsafeMutablePointer<CChar>? in unsafe Darwin.realpath(path, resolved) }
+    return unsafe blockingCall(.fsMetadata, fileID: fileID, line: line) { () -> UnsafeMutablePointer<CChar>? in unsafe realpath(path, resolved) }
 }
 
 /// Checks access to a file, like `access(2)`, as a checked blocking call (kind ``BlockingKind/fsMetadata``).
@@ -190,7 +195,7 @@ public func blockingRealpath(_ path: UnsafePointer<CChar>, _ resolved: UnsafeMut
 public func blockingAccess(_ path: UnsafePointer<CChar>, _ mode: Int32, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
     // SAFETY: forwards the caller's pointers to access unchanged, only for the call; the caller's own `unsafe` states
     // why they are valid for it.
-    return blockingCall(.fsMetadata, fileID: fileID, line: line) { unsafe Darwin.access(path, mode) }
+    return blockingCall(.fsMetadata, fileID: fileID, line: line) { unsafe access(path, mode) }
 }
 
 /// Changes a file's mode, like `chmod(2)`, as a checked blocking call (kind ``BlockingKind/fsMetadata``).
@@ -205,7 +210,7 @@ public func blockingAccess(_ path: UnsafePointer<CChar>, _ mode: Int32, fileID: 
 public func blockingChmod(_ path: UnsafePointer<CChar>, _ mode: mode_t, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
     // SAFETY: forwards the caller's pointers to chmod unchanged, only for the call; the caller's own `unsafe` states
     // why they are valid for it.
-    return blockingCall(.fsMetadata, fileID: fileID, line: line) { unsafe Darwin.chmod(path, mode) }
+    return blockingCall(.fsMetadata, fileID: fileID, line: line) { unsafe chmod(path, mode) }
 }
 
 /// Makes a directory, like `mkdir(2)`, as a checked blocking call (kind ``BlockingKind/fsMetadata``).
@@ -220,7 +225,7 @@ public func blockingChmod(_ path: UnsafePointer<CChar>, _ mode: mode_t, fileID: 
 public func blockingMkdir(_ path: UnsafePointer<CChar>, _ mode: mode_t, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
     // SAFETY: forwards the caller's pointers to mkdir unchanged, only for the call; the caller's own `unsafe` states
     // why they are valid for it.
-    return blockingCall(.fsMetadata, fileID: fileID, line: line) { unsafe Darwin.mkdir(path, mode) }
+    return blockingCall(.fsMetadata, fileID: fileID, line: line) { unsafe mkdir(path, mode) }
 }
 
 /// Removes an empty directory, like `rmdir(2)`, as a checked blocking call (kind ``BlockingKind/fsMetadata``).
@@ -234,7 +239,7 @@ public func blockingMkdir(_ path: UnsafePointer<CChar>, _ mode: mode_t, fileID: 
 public func blockingRmdir(_ path: UnsafePointer<CChar>, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
     // SAFETY: forwards the caller's pointers to rmdir unchanged, only for the call; the caller's own `unsafe` states
     // why they are valid for it.
-    return blockingCall(.fsMetadata, fileID: fileID, line: line) { unsafe Darwin.rmdir(path) }
+    return blockingCall(.fsMetadata, fileID: fileID, line: line) { unsafe rmdir(path) }
 }
 
 /// Waits for a child, like `waitpid(2)`, as a checked blocking call (kind ``BlockingKind/processReap``).
@@ -252,7 +257,7 @@ public func blockingWaitpid(_ pid: pid_t, _ status: UnsafeMutablePointer<Int32>?
                             fileID: StaticString = #fileID, line: UInt = #line) -> pid_t {
     // SAFETY: forwards the caller's pointers to waitpid unchanged, only for the call; the caller's own `unsafe` states
     // why they are valid for it.
-    return blockingCall(.processReap, fileID: fileID, line: line) { unsafe Darwin.waitpid(pid, status, options) }
+    return blockingCall(.processReap, fileID: fileID, line: line) { unsafe waitpid(pid, status, options) }
 }
 
 /// Waits for a child's state change, like `waitid(2)`, as a checked blocking call (kind
@@ -271,5 +276,5 @@ public func blockingWaitid(_ type: idtype_t, _ id: id_t, _ info: UnsafeMutablePo
                            fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
     // SAFETY: forwards the caller's pointers to waitid unchanged, only for the call; the caller's own `unsafe` states
     // why they are valid for it.
-    return blockingCall(.processReap, fileID: fileID, line: line) { unsafe Darwin.waitid(type, id, info, options) }
+    return blockingCall(.processReap, fileID: fileID, line: line) { unsafe waitid(type, id, info, options) }
 }

@@ -72,8 +72,12 @@ private nonisolated func readRoot() {
     _ = FileManager.checked.fileExists(atPath: "/")
 }
 
+/// A semaphore made at 0 and signaled once, so one wait returns at once and leaves it at the value it was made
+/// with: libdispatch stops the process when a semaphore is freed below its initial value.
 private nonisolated func signaledSemaphore() -> DispatchSemaphore {
-    DispatchSemaphore(value: 1)
+    let semaphore = DispatchSemaphore(value: 0)
+    semaphore.signal()
+    return semaphore
 }
 
 /// Records each violation's kind and the label of the queue it ran on.
@@ -84,7 +88,7 @@ private nonisolated final class QueueRecordingSink: BlockingViolationSink {
     var queues: [String] { seen.withLock { $0.map(\.1) } }
 
     func record(_ violation: BlockingViolation) {
-        let label = String(cString: __dispatch_queue_get_label(nil))
+        let label = BlockingContext.callingQueueLabel()
         seen.withLock { $0.append((violation.kind, label)) }
     }
 }

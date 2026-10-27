@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 import AppKit
 import ApplicationServices
 @testable import CmuxNextCompat
@@ -166,4 +167,5 @@ private nonisolated func callEachSystemSeamOnNamedQueue(_ table: BlockingViolati
         }
     }
 }
+#endif
 #endif

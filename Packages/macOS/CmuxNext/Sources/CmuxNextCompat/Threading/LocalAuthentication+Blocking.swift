@@ -1,3 +1,4 @@
+#if canImport(LocalAuthentication)
 public import Foundation
 public import LocalAuthentication
 
@@ -19,3 +20,4 @@ extension LAContext {
         return blockingCall(.systemCall, fileID: fileID, line: line) { canEvaluatePolicy(policy, error: error) }
     }
 }
+#endif

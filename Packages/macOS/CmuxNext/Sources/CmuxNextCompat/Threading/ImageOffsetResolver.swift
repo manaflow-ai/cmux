@@ -1,3 +1,4 @@
+#if canImport(MachO)
 #if DEBUG || CMUX_BLOCKING_CHECKS || CMUX_BENCH_HOOKS
 internal import Darwin
 package import Foundation
@@ -98,4 +99,5 @@ package struct ImageOffsetResolver: Sendable {
         return nil
     }
 }
+#endif
 #endif

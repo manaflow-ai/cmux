@@ -83,7 +83,7 @@ struct LockWaitObserver: MutexWaitObserver {
     let line: UInt
 
     func waitWillBegin() -> Wait? {
-        let onMain = pthread_main_np() != 0
+        let onMain = blockingOnMainThread()
         guard let context = onMain ? BlockingContext.main : BlockingContext.laneLockWaitViolation() else { return nil }
         let table = BlockingViolationTable.active
         return Wait(table: table, start: table.uptimeNanos(), context: context)

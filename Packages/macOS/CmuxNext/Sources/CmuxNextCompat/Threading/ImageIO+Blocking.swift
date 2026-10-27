@@ -1,3 +1,4 @@
+#if canImport(ImageIO)
 public import CoreFoundation
 public import ImageIO
 
@@ -108,3 +109,4 @@ public func blockingImageDestinationFinalize(_ destination: CGImageDestination,
                                              fileID: StaticString = #fileID, line: UInt = #line) -> Bool {
     return blockingCall(.fileIO, fileID: fileID, line: line) { CGImageDestinationFinalize(destination) }
 }
+#endif

@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 @testable import CmuxNextCompat
 import Darwin
 import Dispatch
@@ -209,3 +210,4 @@ private nonisolated func reap(_ pid: pid_t) -> Int32 {
     while waitpid(pid, &status, 0) < 0, errno == EINTR {}
     return (status >> 8) & 0xFF
 }
+#endif

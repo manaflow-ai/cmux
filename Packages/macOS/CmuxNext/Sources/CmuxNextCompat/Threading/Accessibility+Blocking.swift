@@ -1,3 +1,4 @@
+#if canImport(ApplicationServices)
 public import ApplicationServices
 
 /// Reads an attribute, like `AXUIElementCopyAttributeValue`, as a checked blocking call
@@ -49,3 +50,4 @@ public func blockingAXPerformAction(_ element: AXUIElement, _ action: CFString,
                                     fileID: StaticString = #fileID, line: UInt = #line) -> AXError {
     return blockingCall(.systemCall, fileID: fileID, line: line) { AXUIElementPerformAction(element, action) }
 }
+#endif

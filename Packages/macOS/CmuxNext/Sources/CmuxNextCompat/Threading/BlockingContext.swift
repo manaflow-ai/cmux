@@ -1,5 +1,9 @@
 #if DEBUG || CMUX_BLOCKING_CHECKS
+#if canImport(Darwin)
 internal import Darwin
+#else
+internal import Glibc
+#endif
 internal import Dispatch
 #endif
 
@@ -128,7 +132,7 @@ public enum BlockingContext: String, Sendable, CaseIterable {
 extension BlockingContext {
     /// The context of the calling thread.
     static func current() -> BlockingContext {
-        pthread_main_np() != 0 ? .main : offMainThread()
+        blockingOnMainThread() ? .main : offMainThread()
     }
 
     /// The context in which a `kind` blocking call on the calling thread, which is not the main thread, is a
@@ -160,14 +164,15 @@ extension BlockingContext {
 
     /// The context of a thread that is not the main thread. A marked thread (a lane, an allowance, a named
     /// thread after its first check) is one thread-specific read; an unmarked one adds the label read and one
-    /// prefix compare. A root label on a thread not yet checked reads the thread name once.
+    /// prefix compare. A root label on a thread not yet checked reads the thread name once (macOS; on Linux the
+    /// label alone tells a thread from a pool worker, see ``isPoolLabel(_:)``).
     static func offMainThread() -> BlockingContext {
         let flags = BlockingThreadFlags.load()
         if let mark = flags.mark { return mark.context }
-        // SAFETY: dispatch_queue_get_label(NULL) returns the current queue's label, a NUL-terminated string the queue
-        // owns while this thread runs on it (an empty one when the queue has none); isPoolLabel reads it only during
-        // the call.
-        guard unsafe isPoolLabel(__dispatch_queue_get_label(nil)) else { return .dedicated }
+        // SAFETY: the current queue's label is a NUL-terminated string the queue owns while this thread runs on it
+        // (an empty one when the queue has none); isPoolLabel reads it only during the call.
+        guard let label = unsafe currentDispatchQueueLabel(), unsafe isPoolLabel(label) else { return .dedicated }
+        #if canImport(Darwin)
         if flags.isUnnamed { return .pool }
         guard isNamedThread() else {
             BlockingThreadFlags.store(flags.withUnnamed())
@@ -175,8 +180,12 @@ extension BlockingContext {
         }
         BlockingThreadFlags.store(flags.marked(.dedicated))
         return .dedicated
+        #else
+        return .pool
+        #endif
     }
 
+    #if canImport(Darwin)
     /// Whether a dispatch queue label names a shared pool: a GCD root queue, the cooperative pool's included
     /// (`com.apple.root.`; `strncmp` stops at the label's end, so a shorter label is no match).
     static func isPoolLabel(_ label: UnsafePointer<CChar>) -> Bool {
@@ -198,6 +207,22 @@ extension BlockingContext {
             return unsafe pthread_getname_np(pthread_self(), base, buffer.count) == 0 && base.pointee != 0
         }
     }
+    #else
+    /// Whether a dispatch queue label names a shared pool on Linux: a GCD root queue (`com.apple.root.`) other than
+    /// an overcommit one, or the concurrent queue Swift's global executor runs jobs on. Linux libdispatch gives a
+    /// thread no queue runs (a `Thread`, a raw pthread) the overcommit default root label, and Foundation does not
+    /// name a `Thread` there, so that label is a dedicated thread.
+    static func isPoolLabel(_ label: UnsafePointer<CChar>) -> Bool {
+        let root = "com.apple.root.", overcommit = ".overcommit"
+        // SAFETY: the caller lends `label`, NUL-terminated, for this call, and the literals are NUL-terminated C strings
+        // for each call; strlen, strcmp and strncmp stop at the NULs, and the tail compare starts inside `label`
+        // (length >= overcommit's).
+        if unsafe strcmp(label, "Swift global concurrent queue") == 0 { return true }
+        guard unsafe strncmp(label, root, root.utf8.count) == 0 else { return false }
+        let length = unsafe strlen(label)
+        return unsafe length < overcommit.utf8.count || strcmp(label + (length - overcommit.utf8.count), overcommit) != 0
+    }
+    #endif
 }
 
 /// The calling thread's detector state in one thread-specific word: its ``BlockingContext/Mark`` (low two

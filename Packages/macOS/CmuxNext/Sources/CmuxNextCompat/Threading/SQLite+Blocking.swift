@@ -1,3 +1,4 @@
+#if canImport(SQLite3)
 public import SQLite3
 
 // Checked seams over the SQLite calls that touch the database file (``blockingCall(_:fileID:line:_:)``,
@@ -122,3 +123,4 @@ public func blockingSQLiteBackupStep(_ backup: OpaquePointer?, _ pages: Int32,
     // `unsafe` states why they are valid for it.
     return blockingCall(.sqlite, fileID: fileID, line: line) { unsafe sqlite3_backup_step(backup, pages) }
 }
+#endif

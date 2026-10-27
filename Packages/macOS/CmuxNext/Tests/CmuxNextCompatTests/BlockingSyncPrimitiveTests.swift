@@ -1,5 +1,4 @@
 @testable import CmuxNextCompat
-import Darwin
 import Dispatch
 import Foundation
 import Testing
@@ -137,7 +136,9 @@ struct BlockingSyncPrimitiveTests {
         let table = BlockingViolationTable(mode: .record, poolMode: .record)
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             let thread = Thread {
+                #if canImport(Darwin)
                 pthread_setname_np("com.cmuxterm.tests.sync-primitive-thread")
+                #endif
                 BlockingViolationTable.$scoped.withValue(table) { _ = laneSemaphoreWait() }
                 done.resume()
             }

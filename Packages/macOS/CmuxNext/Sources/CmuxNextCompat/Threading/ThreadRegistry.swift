@@ -35,9 +35,10 @@ extension DispatchQueue {
         return DispatchQueue(label: label, qos: qos, attributes: attributes, autoreleaseFrequency: autoreleaseFrequency, target: target)
     }
 
+    #if canImport(Darwin)
     /// Makes a serial queue like `DispatchSerialQueue(label:qos:autoreleaseFrequency:target:)`, checked and recorded
     /// as ``checked(label:qos:attributes:autoreleaseFrequency:target:fileID:line:)`` does: the shape an actor's
-    /// custom executor needs (`asUnownedSerialExecutor()`).
+    /// custom executor needs (`asUnownedSerialExecutor()`). Linux Dispatch has no `DispatchSerialQueue`.
     ///
     /// ```swift
     /// private nonisolated let queue = DispatchQueue.checkedSerial(label: "cmux.remote-view.render", qos: .userInteractive)
@@ -62,6 +63,7 @@ extension DispatchQueue {
         recordChecked(label: label, qos: qos, target: target, fileID: fileID, line: line)
         return DispatchSerialQueue(label: label, qos: qos, autoreleaseFrequency: autoreleaseFrequency, target: target)
     }
+    #endif
 
     private static func recordChecked(label: String, qos: DispatchQoS, target: DispatchQueue?, fileID: StaticString, line: UInt) {
         #if DEBUG || CMUX_BENCH_HOOKS
