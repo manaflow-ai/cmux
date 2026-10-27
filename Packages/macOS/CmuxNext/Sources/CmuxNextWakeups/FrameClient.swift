@@ -51,6 +51,10 @@ public struct FrameTick: Sendable {
 /// `RenderWidgetHostViewMac::WasOccluded` hides the widget
 /// (content/browser/renderer_host/render_widget_host_view_mac.mm), and a hidden `cc::Scheduler`
 /// stops wanting BeginFrames (`SchedulerStateMachine::BeginFrameNeeded`, cc/scheduler/scheduler_state_machine.cc).
+///
+/// An ambient client (``FrameRate/isAmbient``) parks the same way while its clock's
+/// ``DisplayClock/power`` caps frames (Low Power Mode, a serious or critical thermal state), and
+/// joins again when the cap lifts.
 @MainActor
 public final class FrameClient {
     public let owner: String
@@ -81,10 +85,18 @@ public final class FrameClient {
     /// made on the first activation and kept for the client's life, so a one-shot client activated
     /// every frame does no subscription work. An idle client ignores them.
     private var visibilityWatch: VisibilitySubscription?
+    /// The changes of its clock's ``DisplayClock/power``: made on an ambient client's first activation
+    /// and kept for its life, as ``visibilityWatch`` is; nil for every other rate.
+    private var powerWatch: PowerStateSubscription?
     public private(set) var isActive = false
 
-    /// Whether an active client is off its scheduler because nobody sees its ``visibleOnly`` node.
-    public var isParked: Bool { isActive && !isSeen }
+    /// Whether an active client is off its scheduler because nobody sees its ``visibleOnly`` node or
+    /// because the power cap pauses it (``isPowerPaused``).
+    public var isParked: Bool { isActive && !mayTick }
+
+    /// Whether an active ambient client is off its scheduler because its clock's
+    /// ``DisplayClock/power`` caps frames.
+    public var isPowerPaused: Bool { isActive && pausedForPower }
 
     /// `onFrame` returns true to keep ticking. The client ticks on the
     /// scheduler `resolve` returns when it activates, at `rate` or faster, and only while
@@ -161,24 +173,38 @@ public final class FrameClient {
         guard !isActive else { return }
         isActive = true
         watchVisibility()
+        watchPower()
         if let startup, !startup.admits(workClass) { return waitForStartup(startup) }
-        guard isSeen else { return }
+        guard mayTick else { return }
         attach()
     }
 
     /// Whether someone sees what it draws: its ``visibleOnly`` node wants frames, or it has none.
     private var isSeen: Bool { visibleOnly?.wantsFrames ?? true }
 
+    /// Whether the power cap pauses it: an ambient rate while its clock caps frames.
+    private var pausedForPower: Bool { powerWatch.map { $0.power.pauses(rate) } ?? false }
+
+    /// Whether it may be on its scheduler: seen, and not paused by the power cap.
+    private var mayTick: Bool { isSeen && !pausedForPower }
+
     private func watchVisibility() {
         guard let visibleOnly, visibilityWatch == nil else { return }
-        visibilityWatch = visibleOnly.subscribeRendering(owner: owner) { [weak self] _ in self?.visibilityDidChange() }
+        visibilityWatch = visibleOnly.subscribeRendering(owner: owner) { [weak self] _ in self?.gateDidChange() }
     }
 
-    /// Its node flipped or a capture vote came or went: an unseen client leaves its scheduler (whose
-    /// link drops with its last client), a seen one joins its window's scheduler again.
-    private func visibilityDidChange() {
+    /// Follows its clock's power state; only an ambient rate pauses, so no other client subscribes.
+    private func watchPower() {
+        guard rate.isAmbient, powerWatch == nil else { return }
+        powerWatch = resolve().displayClock.subscribePower(owner: owner) { [weak self] _ in self?.gateDidChange() }
+    }
+
+    /// Its node flipped, a capture vote came or went, or the power cap changed: a client that may not
+    /// tick leaves its scheduler (whose link drops with its last client), one that may joins its
+    /// window's scheduler again.
+    private func gateDidChange() {
         guard isActive, !waitingForStartup else { return }
-        if isSeen {
+        if mayTick {
             if scheduler == nil { attach() }
         } else if let scheduler {
             self.scheduler = nil
@@ -198,7 +224,7 @@ public final class FrameClient {
         startup.whenReached(workClass.startupOpening) { [weak self] in
             guard let self else { return }
             waitingForStartup = false
-            if isActive, scheduler == nil, isSeen { attach() }
+            if isActive, scheduler == nil, mayTick { attach() }
         }
     }
 

@@ -918,9 +918,12 @@ final class AppServices {
         // The video wallpaper's release and coverage deadlines, and the session notices every video holds for.
         videos.follow(deadlines: mainDeadlines, session: workspaceEvents)
         daemon.follow(mainWork.energy, on: mainWork)
+        // Power frame caps (p03-rendering-117): the app's display clock follows Low Power Mode and the thermal state.
+        let powerClock = features.isEnabled(.powerFrameCaps) ? mainWork.frames.displayClock : nil
         energyLink = energyMonitor.follow { [weak self] inputs in
             keepAwake.setOnBattery(inputs.onBattery)
             videos.setEnergy(lowPowerMode: inputs.lowPowerMode, thermal: inputs.thermal)
+            powerClock?.power = PowerState(lowPowerMode: inputs.lowPowerMode, thermal: inputs.thermal)
             self?.energy.driver.update(inputs: inputs)
         }
     }

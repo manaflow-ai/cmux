@@ -56,10 +56,14 @@ extension FrameScheduler {
     }
 
     /// The rate it asks of its display's link (nil while idle): ``frameRate`` with an ambient rate
-    /// capped at ``ambientCap`` under the saver, and, while its clock does not follow client rates
+    /// capped at ``ambientCap`` under the saver, a ``FrameRate/ui`` rate at 60 Hz while its clock's
+    /// ``DisplayClock/power`` caps frames, and, while its clock does not follow client rates
     /// (``DisplayClock/followsClientRates``), every other rate at ``FrameRate/motion``.
     public var linkRate: FrameRate? {
-        frameRate.map { $0.onLink(followingClasses: displayClock.followsClientRates, ambientCap: ambientCap) }
+        frameRate.map {
+            $0.onLink(followingClasses: displayClock.followsClientRates, ambientCap: ambientCap,
+                      powerCaps: displayClock.power.capsFrames)
+        }
     }
 
     /// Follows `energy` from now on: its ambient clients ask for at most the policy's
@@ -127,12 +131,14 @@ extension FrameRate {
     }
 
     /// The rate a link runs at for a client at this rate. Under Energy Saver (`ambientCap` set) an
-    /// ambient rate runs at its own rate, at most `ambientCap`; any other rate runs at itself while
+    /// ambient rate runs at its own rate, at most `ambientCap`; while `powerCaps`
+    /// (``PowerState/capsFrames``) every rate but ``motion`` runs at itself (``ui`` at 60 Hz; an ambient
+    /// client pauses then, so it is never asked); any other rate runs at itself while
     /// `followingClasses` (``DisplayClock/followsClientRates``), else at ``motion``. A lower rate never
     /// maps above a higher one, so the link rate of a scheduler's highest client is the highest of its
     /// clients' link rates.
-    func onLink(followingClasses: Bool, ambientCap: Int?) -> FrameRate {
+    func onLink(followingClasses: Bool, ambientCap: Int?, powerCaps: Bool = false) -> FrameRate {
         if isAmbient, let ambientCap { return hertz > Float(ambientCap) ? .slow(ambientCap) : self }
-        return followingClasses ? self : .motion
+        return followingClasses || powerCaps ? self : .motion
     }
 }

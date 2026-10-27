@@ -111,6 +111,19 @@ public final class DisplayClock {
         }
     }
 
+    /// What the Mac's power and heat allow (the injected ``PowerState`` seam, feature `powerFrameCaps`).
+    /// A change tells its subscribers first (``subscribePower(owner:_:)``: paused clients leave), then
+    /// every display's rate applies at once.
+    public var power: PowerState {
+        didSet {
+            guard power != oldValue else { return }
+            notifyPowerSubscribers()
+            for display in displays.values { applyRate(display, .setting) }
+        }
+    }
+    /// The subscriptions to ``power`` changes, held weakly (PowerState.swift).
+    var powerSubscriptions: [WeakPowerSubscription] = []
+
     /// - Parameters:
     ///   - hub: The vsync hub whose display threads hold the links (``hub``); nil: main-run-loop links.
     ///   - makeLink: Makes a display's link; nil: `hub`'s main link of that display, or without a hub a
@@ -122,14 +135,16 @@ public final class DisplayClock {
     ///   - ledger: Where stalls and deadlines are recorded.
     ///   - mediaTime: Stands in for `CACurrentMediaTime`, the timebase of frame timestamps.
     ///   - followsClientRates: The links run at their clients' rates (``followsClientRates``).
+    ///   - power: What the Mac's power and heat allow (``power``).
     ///   - presents: The frame trace points of its ticks (``presents``); nil: one on the app's trace runtime.
     public init(hub: VSyncHub? = nil, makeLink: LinkFactory? = nil, displayOf: DisplayResolver? = nil,
                 isVisible: VisibilityResolver? = nil, clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
                 mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
-                followsClientRates: Bool = false, presents: FramePresentEstimate? = nil) {
+                followsClientRates: Bool = false, power: PowerState = .nominal, presents: FramePresentEstimate? = nil) {
         self.presents = presents ?? FramePresentEstimate()
         unbudgetedLinks = UnbudgetedFrameLinks()
         self.followsClientRates = followsClientRates
+        self.power = power
         self.hub = hub
         self.makeLink = makeLink
         self.displayOf = displayOf ?? { window in DisplayClock.systemDisplay(window) }
@@ -279,12 +294,12 @@ public final class DisplayClock {
         case clients
         /// A link frame (or a tick standing in for one): the only trigger that counts toward lowering.
         case frame
-        /// ``followsClientRates`` changed: the new rate applies at once.
+        /// ``followsClientRates`` or ``power`` changed: the new rate applies at once.
         case setting
     }
 
     /// Asks `display`'s link for the rate its subscribers need now: the highest ``FrameScheduler/linkRate``
-    /// (``FrameRate/motion`` unless ``followsClientRates`` or the saver caps an ambient client) of the
+    /// (``FrameRate/motion`` unless ``followsClientRates``, the ``power`` cap or the saver caps a client) of the
     /// subscribers a person can see, or of all of them while nobody can see any. Chrome's `FrameRateDecider` counts only
     /// the frame sinks that drew (components/viz/service/display/frame_rate_decider.cc); a window
     /// nobody can see ticks on the stall deadline, not the link. A higher rate applies at once, a
@@ -356,8 +371,10 @@ public final class DisplayClock {
         // Only windows nobody can see are left: the link stops, they tick on the stall deadline.
         if allHidden(display) { display.link?.isPaused = true }
         // A window that became visible or hidden changes which clients count; a lower rate (client
-        // rates, or a saver-capped ambient client) counts its frames here.
-        if followsClientRates || display.subscribers.contains(where: { $0.ambientCap != nil }) { applyRate(display, .frame) }
+        // rates, the power cap, or a saver-capped ambient client) counts its frames here.
+        if followsClientRates || power.capsFrames || display.subscribers.contains(where: { $0.ambientCap != nil }) {
+            applyRate(display, .frame)
+        }
         arm(display)
     }
 
