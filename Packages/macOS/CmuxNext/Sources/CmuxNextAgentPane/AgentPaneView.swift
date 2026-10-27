@@ -45,9 +45,10 @@ public final class AgentPaneView: NSView {
     let dictation: AgentPaneDictation
     /// Where the Dictation key and Edit ▸ Start Dictation go from this pane (AgentPaneView+DictationKey).
     var dictationKey = AgentPaneDictationKey()
-    var crashReloads = PageCrashReloads()
-    /// Shown instead of reloading once the page keeps crashing.
+    /// Shown when the page's web content ends (it never reloads by itself).
     var crashNotice: NSView?
+    /// The page crashed and the notice waits for the person's Reload (nothing rebuilds it meanwhile).
+    public var showsCrashNotice: Bool { crashNotice != nil }
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
     var otherInstallNotice: ChromeLabel?
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
@@ -177,8 +178,7 @@ public final class AgentPaneView: NSView {
             // The shared web theme (`window.cmuxTheme`, `--cmux-*`): the page
             // background is the one surface token, or clear over a see-through
             // window (plans/cmux-next/windows.md).
-            configuration.userContentController.addUserScript(
-                WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            WebTheme.installUserScripts(on: configuration.userContentController)
             if let script = AgentPaneTunables.documentScript {
                 configuration.userContentController.addUserScript(
                     WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))

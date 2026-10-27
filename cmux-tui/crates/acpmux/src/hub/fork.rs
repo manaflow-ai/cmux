@@ -221,6 +221,7 @@ impl Hub {
             name,
             harness: parent_meta.harness.clone(),
             harness_argv: parent_meta.harness_argv.clone(),
+            spawn_argv: None,
             family: parent_meta.family.clone(),
             preset: parent_meta.preset.clone(),
             model_request: parent_meta.model_request.clone(),
@@ -314,6 +315,7 @@ impl Hub {
             subsession_limits: Default::default(),
             // A fork is the person's branch of the chat, never a spawn (`lineage.rs`).
             lineage: None,
+            subagent_retry_open: false,
         };
         let new = self.make_session(meta);
         match made {

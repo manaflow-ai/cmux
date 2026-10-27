@@ -261,6 +261,8 @@ impl Hub {
             // Its log holds the source's move (`transfer_out`), not one of this daemon's.
             *session.moving.lock().unwrap_or_else(|e| e.into_inner()) = None;
         }
+        // The source's subagent retries stayed there (`subagent_retry.rs`).
+        self.settle_subagent_retries(&session);
         self.sessions.lock().unwrap().insert(meta.id.clone(), session.clone());
         // Indexed again once published: a lookup before that found no session and dropped it.
         self.child_tags.note(&session);
