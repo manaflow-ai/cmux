@@ -27,6 +27,8 @@ use std::sync::Arc;
 
 use serde_json::{Map, Value, json};
 
+use crate::panic_free::filled;
+
 pub const READ_ONLY_VERBS: [&str; 4] = ["read", "ls", "grep", "find"];
 pub const ACTION_VERBS: [&str; 6] = ["exec", "read", "write", "ls", "grep", "find"];
 
@@ -127,9 +129,7 @@ pub fn validate_request_path(value: &str) -> Result<(), String> {
         return Err("ambiguous leading path separators are not accepted".to_owned());
     }
     if cfg!(windows) {
-        let drive_relative = value.len() >= 2
-            && value.as_bytes()[1] == b':'
-            && value.as_bytes()[0].is_ascii_alphabetic()
+        let drive_relative = matches!(value.as_bytes(), [drive, b':', ..] if drive.is_ascii_alphabetic())
             && !Path::new(value).is_absolute();
         if drive_relative {
             return Err("drive-relative paths are not accepted".to_owned());
@@ -357,7 +357,7 @@ fn open_dir_no_symlinks(path: &Path, create_missing: bool) -> Result<std::fs::Fi
     use std::os::fd::FromRawFd as _;
     use std::os::unix::ffi::OsStrExt as _;
 
-    let root = std::ffi::CString::new("/").expect("root has no NUL");
+    let root = c"/";
     let root_fd =
         unsafe { libc::open(root.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC) };
     if root_fd < 0 {
@@ -430,11 +430,11 @@ fn open_beneath(
             _ => Err(HostError::Refusal("invalid descriptor-relative path".to_owned())),
         })
         .collect::<Result<Vec<_>, _>>()?;
-    if parts.is_empty() {
+    let Some((last, parents)) = parts.split_last() else {
         return anchor.try_clone().map_err(HostError::Io);
-    }
+    };
     let mut current = anchor.try_clone()?;
-    for name in &parts[..parts.len() - 1] {
+    for name in parents {
         let name = std::ffi::CString::new(name.as_bytes())
             .map_err(|_| HostError::Refusal("path contains an embedded NUL byte".to_owned()))?;
         let mut fd = unsafe {
@@ -467,7 +467,7 @@ fn open_beneath(
         }
         current = unsafe { std::fs::File::from_raw_fd(fd) };
     }
-    let name = std::ffi::CString::new(parts.last().expect("nonempty").as_bytes())
+    let name = std::ffi::CString::new(last.as_bytes())
         .map_err(|_| HostError::Refusal("path contains an embedded NUL byte".to_owned()))?;
     let fd = unsafe {
         libc::openat(
@@ -1284,7 +1284,7 @@ async fn run_spec(
                     Ok(0) | Err(_) => stdout_open = false,
                     Ok(count) => {
                         if output.len() < byte_cap {
-                            output.extend_from_slice(&stdout_buf[..count]);
+                            output.extend_from_slice(filled(&stdout_buf, count));
                         }
                     }
                 }
@@ -1299,7 +1299,7 @@ async fn run_spec(
                     Ok(0) | Err(_) => stderr_open = false,
                     Ok(count) => {
                         if output.len() < byte_cap {
-                            output.extend_from_slice(&stderr_buf[..count]);
+                            output.extend_from_slice(filled(&stderr_buf, count));
                         }
                     }
                 }
@@ -1468,8 +1468,8 @@ impl WindowsJob {
         let handle = unsafe { std::os::windows::io::OwnedHandle::from_raw_handle(raw_handle) };
         let mut information = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
         information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        let information_size = u32::try_from(size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
-            .expect("Windows job information fits in u32");
+        let information_size =
+            u32::try_from(size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>()).map_err(|_| ())?;
         if unsafe {
             SetInformationJobObject(
                 handle.as_raw_handle(),
@@ -1499,16 +1499,18 @@ impl WindowsJob {
     }
 }
 
-fn cap_lines(output: &str, truncated: bool, limit: Option<&Value>) -> (String, bool) {
+pub(crate) fn cap_lines(output: &str, truncated: bool, limit: Option<&Value>) -> (String, bool) {
     let Some(limit) = limit.and_then(Value::as_f64).filter(|v| v.is_finite()) else {
         return (output.to_owned(), truncated);
     };
     let cap = (limit.trunc() as i64).clamp(1, 5_000) as usize;
     let lines: Vec<&str> = output.split('\n').collect();
-    if lines.len() <= cap {
+    let Some((kept, dropped)) =
+        lines.split_at_checked(cap).filter(|(_, dropped)| !dropped.is_empty())
+    else {
         return (output.to_owned(), truncated);
-    }
-    (format!("{}\n…[{} more lines]", lines[..cap].join("\n"), lines.len() - cap), true)
+    };
+    (format!("{}\n…[{} more lines]", kept.join("\n"), dropped.len()), true)
 }
 
 // ---------------------------------------------------------------------------
@@ -1528,22 +1530,27 @@ pub struct ActionContext {
     pub process_cancellation: tokio_util::sync::CancellationToken,
 }
 
-fn frame_roots(frame: &Value) -> Result<Option<Vec<String>>, &'static str> {
+pub(crate) fn frame_roots(frame: &Value) -> Result<Option<Vec<String>>, &'static str> {
     let Some(value) = frame.get("allowedRoots") else { return Ok(None) };
     if value.is_null() {
         return Ok(None);
     }
     let roots = value.as_array().ok_or("allowedRoots must be an array")?;
-    if roots.len() > 32 || roots.iter().any(|root| !root.is_string() || root.as_str() == Some("")) {
+    if roots.len() > 32 {
         return Err("invalid allowedRoots");
     }
-    if roots.iter().any(|root| validate_request_path(root.as_str().unwrap()).is_err()) {
+    let roots = roots
+        .iter()
+        .map(Value::as_str)
+        .collect::<Option<Vec<&str>>>()
+        .ok_or("invalid allowedRoots")?;
+    if roots.iter().any(|root| root.is_empty() || validate_request_path(root).is_err()) {
         return Err("invalid allowedRoots");
     }
-    if roots.iter().map(|root| root.as_str().unwrap().len()).sum::<usize>() > 16 * 1024 {
+    if roots.iter().map(|root| root.len()).sum::<usize>() > 16 * 1024 {
         return Err("invalid allowedRoots");
     }
-    Ok(Some(roots.iter().map(|root| root.as_str().unwrap().to_owned()).collect()))
+    Ok(Some(roots.into_iter().map(str::to_owned).collect()))
 }
 
 fn ok_result(version: i64, action_id: &str, result: Value) -> Value {
@@ -1772,9 +1779,9 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
     }
     let mut env = context.env.clone();
     env.extend(runtime.environment.clone());
-    let first_roots = root_lists.iter().flatten().find(|roots| !roots.is_empty());
-    let workdir = match first_roots {
-        Some(roots) => expand_path(&roots[0], &home, &home).display().to_string(),
+    let first_root = root_lists.iter().flatten().find_map(|roots| roots.first());
+    let workdir = match first_root {
+        Some(root) => expand_path(root, &home, &home).display().to_string(),
         None => home.display().to_string(),
     };
     let path_scope = OwnedPathScope {

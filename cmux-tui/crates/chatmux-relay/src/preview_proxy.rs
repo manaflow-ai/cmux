@@ -332,8 +332,10 @@ impl PreviewRegistry {
             return Err(Refusal::failed(format!("invalid target port {target_port}")));
         }
         let mut proxies = self.proxies.lock().await;
-        let proxy_port = match proxies.get(&target_port) {
-            Some(runtime) if !runtime.task.is_finished() => runtime.port,
+        let (proxy_port, capability) = match proxies.get(&target_port) {
+            Some(runtime) if !runtime.task.is_finished() => {
+                (runtime.port, runtime.capability.clone())
+            }
             Some(_) => {
                 // The accept loop can terminate on a listener error. Do not
                 // hand out the stale port from a finished runtime.
@@ -345,9 +347,9 @@ impl PreviewRegistry {
                     Arc::clone(&self.public_host_suffixes),
                 )
                 .await?;
-                let port = runtime.port;
+                let opened = (runtime.port, runtime.capability.clone());
                 proxies.insert(target_port, runtime);
-                port
+                opened
             }
             None => {
                 let target = u16::try_from(target_port).unwrap_or_default();
@@ -357,7 +359,7 @@ impl PreviewRegistry {
                     Arc::clone(&self.public_host_suffixes),
                 )
                 .await?;
-                let port = runtime.port;
+                let opened = (runtime.port, runtime.capability.clone());
                 proxies.insert(target_port, runtime);
                 let mut order = self.order.lock().await;
                 order.retain(|port| *port != target_port);
@@ -370,7 +372,7 @@ impl PreviewRegistry {
                     evicted.task.abort();
                     let _ = (&mut evicted.task).await;
                 }
-                port
+                opened
             }
         };
         if proxies.contains_key(&target_port) {
@@ -381,10 +383,7 @@ impl PreviewRegistry {
         Ok(wire::WorkspaceResultBody::PreviewOpen(wire::PreviewOpenResult {
             op: wire::TagPreviewOpen::PreviewOpen,
             proxy_port: i64::from(proxy_port),
-            capability: proxies
-                .get(&target_port)
-                .map(|runtime| runtime.capability.clone())
-                .expect("preview runtime retained after open"),
+            capability,
         }))
     }
 
@@ -1075,24 +1074,20 @@ fn find_ascii_case_insensitive(haystack: &[u8], needle: &[u8]) -> Option<usize> 
 
 /// Inject the target.js script tag: before `</head>`, else right after the
 /// `<body ...>` opening tag, else prepended (pinned contract).
-fn inject_into_html(html: &[u8], capability: &str) -> Vec<u8> {
+pub(crate) fn inject_into_html(html: &[u8], capability: &str) -> Vec<u8> {
     let inject_tag =
         format!("<script src=\"/__chatmux__/target.js?capability={capability}\"></script>");
     let inject_tag = inject_tag.as_bytes();
     let mut out = Vec::with_capacity(html.len() + inject_tag.len());
-    if let Some(head_end) = find_ascii_case_insensitive(html, b"</head>") {
-        out.extend_from_slice(&html[..head_end]);
+    let insert_at = find_ascii_case_insensitive(html, b"</head>").or_else(|| {
+        let body_start = find_ascii_case_insensitive(html, b"<body")?;
+        let (_, body) = html.split_at_checked(body_start)?;
+        body.iter().position(|byte| *byte == b'>').map(|at| body_start + at + 1)
+    });
+    if let Some((before, after)) = insert_at.and_then(|at| html.split_at_checked(at)) {
+        out.extend_from_slice(before);
         out.extend_from_slice(inject_tag);
-        out.extend_from_slice(&html[head_end..]);
-        return out;
-    }
-    if let Some(body_start) = find_ascii_case_insensitive(html, b"<body")
-        && let Some(tag_close) =
-            html[body_start..].iter().position(|byte| *byte == b'>').map(|at| body_start + at + 1)
-    {
-        out.extend_from_slice(&html[..tag_close]);
-        out.extend_from_slice(inject_tag);
-        out.extend_from_slice(&html[tag_close..]);
+        out.extend_from_slice(after);
         return out;
     }
     out.extend_from_slice(inject_tag);

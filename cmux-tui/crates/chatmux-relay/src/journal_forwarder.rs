@@ -142,7 +142,10 @@ pub fn parse_journal_line(line: &str) -> Option<Value> {
 }
 
 #[cfg(unix)]
-async fn read_bounded_line<R>(reader: &mut R, max_bytes: usize) -> std::io::Result<Option<String>>
+pub(crate) async fn read_bounded_line<R>(
+    reader: &mut R,
+    max_bytes: usize,
+) -> std::io::Result<Option<String>>
 where
     R: tokio::io::AsyncBufRead + Unpin,
 {
@@ -161,17 +164,18 @@ where
                 })
             };
         }
-        let newline = buffer.iter().position(|byte| *byte == b'\n');
-        let take = newline.map_or(buffer.len(), |index| index + 1);
+        // Up to and including the first newline, else the whole buffer.
+        let chunk = buffer.split_inclusive(|byte| *byte == b'\n').next().unwrap_or_default();
+        let (take, newline) = (chunk.len(), chunk.ends_with(b"\n"));
         if bytes.len().saturating_add(take) > max_bytes {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "journal line exceeds the configured bound",
             ));
         }
-        bytes.extend_from_slice(&buffer[..take]);
+        bytes.extend_from_slice(chunk);
         reader.consume(take);
-        if newline.is_some() {
+        if newline {
             return String::from_utf8(bytes).map(Some).map_err(|_| {
                 std::io::Error::new(std::io::ErrorKind::InvalidData, "journal line is not UTF-8")
             });
@@ -235,9 +239,10 @@ pub fn split_batch(sessions: &[SessionBatch]) -> Option<(Vec<SessionBatch>, Vec<
         if room >= session.records.len() {
             first.push(session.clone());
             taken += session.records.len();
-        } else if room > 0 {
-            let head = session.records[..room].to_vec();
-            let tail = session.records[room..].to_vec();
+        } else if let Some((head, tail)) =
+            session.records.split_at_checked(room).filter(|_| room > 0)
+        {
+            let (head, tail) = (head.to_vec(), tail.to_vec());
             let cursor = head
                 .iter()
                 .rev()
@@ -847,7 +852,7 @@ async fn run_session(
             },
         });
         let mut request = request;
-        if request["params"]["cursor"].is_null() {
+        if request.pointer("/params/cursor").is_none_or(Value::is_null) {
             let Some(params) = request.get_mut("params").and_then(Value::as_object_mut) else {
                 return;
             };

@@ -129,7 +129,8 @@ fn read_and_shred(path: &Path) -> Result<String, ManagedEnrollmentError> {
         let zeros = [0_u8; 4096];
         while remaining > 0 {
             let chunk = remaining.min(zeros.len() as u64) as usize;
-            if write_file.write_all(&zeros[..chunk]).is_err() {
+            let Some(block) = zeros.get(..chunk) else { break };
+            if write_file.write_all(block).is_err() {
                 break;
             }
             remaining -= chunk as u64;

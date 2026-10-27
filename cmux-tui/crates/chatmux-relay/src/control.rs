@@ -45,6 +45,8 @@ mod unix {
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
+
+    use crate::panic_free::{RecoverPoison as _, filled};
     use std::time::Duration;
 
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -77,14 +79,13 @@ mod unix {
                 return;
             }
             // Resolve every pending request with "no reply".
-            self.pending.lock().expect("control pending lock").clear();
+            self.pending.lock().recover_poison().clear();
             // Both the writer and a paused reader wait on this state. Keep a
             // broadcast wakeup so either task can observe closure without
             // consuming the other's permit.
             self.closed_notify.notify_waiters();
             if !self.deliberate.load(Ordering::SeqCst)
-                && let Some(handler) =
-                    self.close_handler.lock().expect("control close lock").as_ref()
+                && let Some(handler) = self.close_handler.lock().recover_poison().as_ref()
             {
                 handler();
             }
@@ -256,14 +257,16 @@ mod unix {
                 Ok(0) | Err(_) => break,
                 Ok(count) => count,
             };
-            buffer.extend_from_slice(&chunk[..count]);
+            buffer.extend_from_slice(filled(&chunk, count));
             if buffer.len() > MAX_CONTROL_LINE_BYTES {
                 // A peer that withholds a newline must not grow relay memory.
                 break;
             }
             while let Some(newline) = buffer.iter().position(|byte| *byte == b'\n') {
                 let line: Vec<u8> = buffer.drain(..=newline).collect();
-                let Ok(text) = std::str::from_utf8(&line[..line.len() - 1]) else { continue };
+                // `drain(..=newline)` ends the line with its newline.
+                let body = line.strip_suffix(b"\n").unwrap_or(&line);
+                let Ok(text) = std::str::from_utf8(body) else { continue };
                 if text.trim().is_empty() {
                     continue;
                 }
@@ -273,14 +276,11 @@ mod unix {
                     continue;
                 }
                 let id = parsed.get("id").and_then(Value::as_u64);
-                let waiting = id.and_then(|id| {
-                    shared.pending.lock().expect("control pending lock").remove(&id)
-                });
+                let waiting = id.and_then(|id| shared.pending.lock().recover_poison().remove(&id));
                 if let Some(sender) = waiting {
                     let _ = sender.send(parsed);
                 } else if parsed.get("event").and_then(Value::as_str).is_some()
-                    && let Some(handler) =
-                        shared.event_handler.lock().expect("control event lock").as_ref()
+                    && let Some(handler) = shared.event_handler.lock().recover_poison().as_ref()
                 {
                     handler(&parsed);
                 }
@@ -330,7 +330,7 @@ mod unix {
                 let id = self.next_id.fetch_add(1, Ordering::SeqCst);
                 let (sender, receiver) = oneshot::channel();
                 {
-                    let mut pending = self.shared.pending.lock().expect("control pending lock");
+                    let mut pending = self.shared.pending.lock().recover_poison();
                     if pending.len() >= MAX_PENDING_REQUESTS {
                         return None;
                     }
@@ -339,19 +339,19 @@ mod unix {
                 let deadline = tokio::time::Instant::now() + Duration::from_millis(self.timeout_ms);
                 let (written, write_result) = oneshot::channel();
                 if !self.enqueue_line(id, &cmd, params, Some(written)) {
-                    self.shared.pending.lock().expect("control pending lock").remove(&id);
+                    self.shared.pending.lock().recover_poison().remove(&id);
                     return None;
                 }
                 let write_ok =
                     matches!(tokio::time::timeout_at(deadline, write_result).await, Ok(Ok(true)));
                 if !write_ok {
-                    self.shared.pending.lock().expect("control pending lock").remove(&id);
+                    self.shared.pending.lock().recover_poison().remove(&id);
                     return None;
                 }
                 if let Ok(Ok(value)) = tokio::time::timeout_at(deadline, receiver).await {
                     Some(value)
                 } else {
-                    self.shared.pending.lock().expect("control pending lock").remove(&id);
+                    self.shared.pending.lock().recover_poison().remove(&id);
                     None
                 }
             })
@@ -366,11 +366,11 @@ mod unix {
         }
 
         fn on_event(&self, handler: EventHandler) {
-            *self.shared.event_handler.lock().expect("control event lock") = Some(handler);
+            *self.shared.event_handler.lock().recover_poison() = Some(handler);
         }
 
         fn on_close(&self, handler: CloseHandler) {
-            *self.shared.close_handler.lock().expect("control close lock") = Some(handler);
+            *self.shared.close_handler.lock().recover_poison() = Some(handler);
         }
 
         fn pause(&self) {

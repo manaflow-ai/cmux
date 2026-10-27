@@ -38,6 +38,7 @@ use serde_json::{Value, json};
 
 use crate::actions::{expand_path, scrubbed_env, validate_request_path};
 use crate::control::ControlHandle;
+use crate::panic_free::RecoverPoison as _;
 use crate::relay_wire::RelayPtyErrorCode;
 
 pub const PTY_PROTOCOL_VERSION: u64 = 4;
@@ -163,8 +164,9 @@ fn scoped_cwd(
                         .map(|path| path.to_string_lossy().into_owned())
                         .unwrap_or_else(|| "~".to_owned())
                 }
-                (Some(local), None) => local.first().unwrap().clone(),
-                (None, Some(server)) => server.first().unwrap().clone(),
+                (Some(roots), None) | (None, Some(roots)) => {
+                    roots.first().cloned().unwrap_or_else(|| "~".to_owned())
+                }
                 (None, None) => "~".to_owned(),
             };
         &raw_owned
@@ -245,7 +247,7 @@ fn open_pinned_directory(path: &Path) -> Result<(File, Vec<DirectoryIdentity>), 
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     const ACCESS_MODE: libc::c_int = libc::O_RDONLY;
     let flags = ACCESS_MODE | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
-    let root = CString::new("/").expect("literal root path has no NUL");
+    let root = c"/";
     // SAFETY: `root` is a valid NUL-terminated path and `flags` requests a
     // directory descriptor with the platform-specific access mode above.
     let root_fd = unsafe { libc::open(root.as_ptr(), flags) };
@@ -286,22 +288,26 @@ fn clamp_dim(value: Option<&Value>) -> Option<u16> {
     if (1..=10_000).contains(&number) { u16::try_from(number).ok() } else { None }
 }
 
-fn parse_allowed_roots(frame: &Value) -> Result<Option<Vec<String>>, &'static str> {
+pub(crate) fn parse_allowed_roots(frame: &Value) -> Result<Option<Vec<String>>, &'static str> {
     let Some(value) = frame.get("allowedRoots") else { return Ok(None) };
     if value.is_null() {
         return Ok(None);
     }
     let roots = value.as_array().ok_or("allowedRoots must be an array")?;
-    if roots.len() > MAX_ALLOWED_ROOTS
-        || roots.iter().any(|root| !root.is_string() || root.as_str() == Some(""))
-    {
+    if roots.len() > MAX_ALLOWED_ROOTS {
         return Err("invalid allowedRoots");
     }
-    let total: usize = roots.iter().map(|root| root.as_str().unwrap().len()).sum();
+    let roots = roots
+        .iter()
+        .map(Value::as_str)
+        .collect::<Option<Vec<&str>>>()
+        .filter(|roots| !roots.contains(&""))
+        .ok_or("invalid allowedRoots")?;
+    let total: usize = roots.iter().map(|root| root.len()).sum();
     if total > MAX_ALLOWED_ROOT_BYTES {
         return Err("invalid allowedRoots");
     }
-    Ok(Some(roots.iter().map(|root| root.as_str().unwrap().to_owned()).collect()))
+    Ok(Some(roots.into_iter().map(str::to_owned).collect()))
 }
 
 // ---------------------------------------------------------------------------
@@ -479,7 +485,7 @@ struct ShellStartReservation {
 impl Drop for ShellStartReservation {
     fn drop(&mut self) {
         if self.active {
-            self.inner.shell_starting.lock().expect("shell starting lock").remove(&self.session);
+            self.inner.shell_starting.lock().recover_poison().remove(&self.session);
             self.notify.notify_waiters();
         }
     }
@@ -493,7 +499,7 @@ struct OpeningReservation {
 impl Drop for OpeningReservation {
     fn drop(&mut self) {
         if self.active {
-            self.inner.opening_ids.lock().expect("opening lock").remove(&self.id);
+            self.inner.opening_ids.lock().recover_poison().remove(&self.id);
         }
     }
 }
@@ -550,7 +556,7 @@ impl PtyManager {
 
     /// Handle one Worker -> relay PTY frame.
     pub async fn handle_frame(&self, frame: &Value, context: &FrameContext) {
-        self.inner.auth.lock().expect("auth lock").insert(
+        self.inner.auth.lock().recover_poison().insert(
             context.transport_id.clone(),
             AuthSnapshot {
                 trust: context.trust.clone(),
@@ -623,12 +629,12 @@ impl PtyManager {
     /// this after a pty_error reply to tell a fatal refusal (attachment gone,
     /// connection ends) from a non-fatal one (oversized input, stream lives).
     pub fn has_attachment(&self, pty_id: &str) -> bool {
-        self.inner.attachments.lock().expect("attach lock").contains_key(pty_id)
+        self.inner.attachments.lock().recover_poison().contains_key(pty_id)
     }
 
     /// Live attachment count (viewers, not sessions). Diagnostics and tests.
     pub fn attachment_count(&self) -> usize {
-        self.inner.attachments.lock().expect("attach lock").len()
+        self.inner.attachments.lock().recover_poison().len()
     }
 
     /// The relay socket dropped: release every attachment (sessions live on).
@@ -646,11 +652,11 @@ impl PtyManager {
     }
 
     fn detach_matching(&self, owns: impl Fn(Option<&str>) -> bool) {
-        self.inner.auth.lock().expect("auth lock").retain(|owner, _| !owns(owner.as_deref()));
+        self.inner.auth.lock().recover_poison().retain(|owner, _| !owns(owner.as_deref()));
         // Openings first: close() records cancellation for a reserved id, so
         // a late open cannot install an attachment after its transport died.
         let mut ids: Vec<String> = {
-            let opening = self.inner.opening_ids.lock().expect("opening lock");
+            let opening = self.inner.opening_ids.lock().recover_poison();
             opening
                 .iter()
                 .filter(|(_, owner)| owns(owner.as_deref()))
@@ -658,7 +664,7 @@ impl PtyManager {
                 .collect()
         };
         {
-            let attachments = self.inner.attachments.lock().expect("attach lock");
+            let attachments = self.inner.attachments.lock().recover_poison();
             ids.extend(
                 attachments
                     .iter()
@@ -706,11 +712,11 @@ impl Inner {
         }
         let fail = |code: &str, message: &str| send_pty_error(context, &pty_id, code, message);
         let reservation_result = {
-            let mut opening = self.opening_ids.lock().expect("opening lock");
-            let attached = self.attachments.lock().expect("attach lock").contains_key(&pty_id);
+            let mut opening = self.opening_ids.lock().recover_poison();
+            let attached = self.attachments.lock().recover_poison().contains_key(&pty_id);
             if attached || opening.contains_key(&pty_id) {
                 Err(("bad_request", "ptyId is already attached".to_owned()))
-            } else if self.attachments.lock().expect("attach lock").len() + opening.len()
+            } else if self.attachments.lock().recover_poison().len() + opening.len()
                 >= self.max_ptys
             {
                 Err((
@@ -873,9 +879,8 @@ impl Inner {
         // Keep the opening reservation held until the attachment is installed.
         // `close` takes this lock first, so it cannot observe a gap between
         // removing the opening marker and inserting the attachment.
-        let mut opening = self.opening_ids.lock().expect("opening lock");
-        let cancelled =
-            self.cancelled_openings.lock().expect("cancelled openings lock").remove(&pty_id);
+        let mut opening = self.opening_ids.lock().recover_poison();
+        let cancelled = self.cancelled_openings.lock().recover_poison().remove(&pty_id);
         if cancelled {
             opening.remove(&pty_id);
             drop(opening);
@@ -884,7 +889,7 @@ impl Inner {
             opened.control.kill();
             return;
         }
-        let previous = self.attachments.lock().expect("attach lock").insert(
+        let previous = self.attachments.lock().recover_poison().insert(
             pty_id.clone(),
             Attachment {
                 closing: opened.closing,
@@ -977,7 +982,7 @@ impl Inner {
         if self.authorize_snapshot(pty_id, &auth, context, "exit").is_none() {
             return;
         }
-        let mut attachments = self.attachments.lock().expect("attach lock");
+        let mut attachments = self.attachments.lock().recover_poison();
         match attachments.get(pty_id) {
             Some(attachment) if !attachment.closing.load(Ordering::SeqCst) => {}
             _ => return,
@@ -996,16 +1001,13 @@ impl Inner {
     fn close(&self, pty_id: &str) {
         // Match `open`'s lock order. If opening still owns the reservation,
         // record cancellation and let it dispose the newly opened PTY.
-        let opening = self.opening_ids.lock().expect("opening lock");
+        let opening = self.opening_ids.lock().recover_poison();
         if opening.contains_key(pty_id) {
-            self.cancelled_openings
-                .lock()
-                .expect("cancelled openings lock")
-                .insert(pty_id.to_owned());
+            self.cancelled_openings.lock().recover_poison().insert(pty_id.to_owned());
             return;
         }
         drop(opening);
-        let attachment = self.attachments.lock().expect("attach lock").remove(pty_id);
+        let attachment = self.attachments.lock().recover_poison().remove(pty_id);
         if let Some(attachment) = attachment {
             attachment.closing.store(true, Ordering::SeqCst);
             attachment.control.kill();
@@ -1017,10 +1019,10 @@ impl Inner {
     /// transport may not act on it. A `None` caller owns everything (legacy).
     fn transport_owns(&self, pty_id: &str, transport_id: Option<&str>) -> bool {
         let Some(transport_id) = transport_id else { return true };
-        if let Some(attachment) = self.attachments.lock().expect("attach lock").get(pty_id) {
+        if let Some(attachment) = self.attachments.lock().recover_poison().get(pty_id) {
             return attachment.transport_id.as_deref() == Some(transport_id);
         }
-        if let Some(owner) = self.opening_ids.lock().expect("opening lock").get(pty_id) {
+        if let Some(owner) = self.opening_ids.lock().recover_poison().get(pty_id) {
             return owner.as_deref() == Some(transport_id);
         }
         true
@@ -1033,7 +1035,7 @@ impl Inner {
 
     /// The latest trust and sink of the transport `context` belongs to.
     fn auth_for(&self, context: &FrameContext) -> Option<AuthSnapshot> {
-        self.auth.lock().expect("auth lock").get(&context.transport_id).cloned()
+        self.auth.lock().recover_poison().get(&context.transport_id).cloned()
     }
 
     fn authorize_snapshot(
@@ -1043,7 +1045,7 @@ impl Inner {
         context: &FrameContext,
         action: &str,
     ) -> Option<Attachment> {
-        let attachment = self.attachments.lock().expect("attach lock").get(pty_id)?.clone();
+        let attachment = self.attachments.lock().recover_poison().get(pty_id)?.clone();
         let owner = auth.owner_user_id.as_deref();
         let allowed = !auth.trust.is_empty()
             && (auth.trust != "observe"
@@ -1240,7 +1242,7 @@ impl Inner {
         let mut created = false;
         let shell_session = loop {
             if let Some(existing) =
-                self.shell_sessions.lock().expect("shell lock").get(session).cloned()
+                self.shell_sessions.lock().recover_poison().get(session).cloned()
             {
                 if context.local_roots.as_deref().is_some_and(|r| !r.is_empty())
                     || server_roots.is_some_and(|r| !r.is_empty())
@@ -1250,27 +1252,28 @@ impl Inner {
                 existing.control.resize(cols, rows);
                 break existing;
             }
-            let (notify, owner, waiter) = {
-                let mut starting = self.shell_starting.lock().expect("shell starting lock");
+            let (notify, waiter) = {
+                let mut starting = self.shell_starting.lock().recover_poison();
                 if let Some(notify) = starting.get(session) {
                     let notify = Arc::clone(notify);
                     // Register before releasing the map lock. The owner may
                     // finish immediately; creating this future later could
                     // miss `notify_waiters`.
                     let waiter = Arc::clone(&notify).notified_owned();
-                    (notify, false, Some(waiter))
+                    (notify, Some(waiter))
                 } else {
                     let notify = Arc::new(Notify::new());
                     starting.insert(session.to_owned(), Arc::clone(&notify));
-                    (notify, true, None)
+                    (notify, None)
                 }
             };
-            if !owner {
-                waiter.expect("shell waiter").await;
+            // Another open owns this session's start: wait for it, then retry.
+            if let Some(waiter) = waiter {
+                waiter.await;
                 continue;
             }
-            if self.shell_sessions.lock().expect("shell lock").len() >= self.max_ptys {
-                self.shell_starting.lock().expect("shell starting lock").remove(session);
+            if self.shell_sessions.lock().recover_poison().len() >= self.max_ptys {
+                self.shell_starting.lock().recover_poison().remove(session);
                 notify.notify_waiters();
                 return Err(format!("this relay caps persistent shells at {}", self.max_ptys));
             }
@@ -1317,7 +1320,7 @@ impl Inner {
                 let manager = Arc::clone(&self);
                 let on_session_data: DataSink = Arc::new(move |chunk: Bytes| {
                     let viewers_to_notify: Vec<Arc<dyn Fn(Bytes) + Send + Sync>> = {
-                        let mut inner = data_session.inner.lock().expect("shell inner lock");
+                        let mut inner = data_session.inner.lock().recover_poison();
                         inner.ring_size += chunk.len();
                         inner.ring.push_back(chunk.clone());
                         while inner.ring_size > scrollback_limit && inner.ring.len() > 1 {
@@ -1332,11 +1335,11 @@ impl Inner {
                 });
                 let on_session_exit: ExitSink = Arc::new(move |code: i64| {
                     let viewers = {
-                        let mut inner = exit_session.inner.lock().expect("shell inner lock");
+                        let mut inner = exit_session.inner.lock().recover_poison();
                         inner.alive = false;
                         std::mem::take(&mut inner.viewers)
                     };
-                    manager.shell_sessions.lock().expect("shell lock").remove(&session_name);
+                    manager.shell_sessions.lock().recover_poison().remove(&session_name);
                     for viewer in viewers {
                         (viewer.on_exit)(code);
                     }
@@ -1344,9 +1347,9 @@ impl Inner {
                 output.subscribe(on_session_data, on_session_exit);
                 self.shell_sessions
                     .lock()
-                    .expect("shell lock")
+                    .recover_poison()
                     .insert(session.to_owned(), Arc::clone(&shell_session));
-                self.shell_starting.lock().expect("shell starting lock").remove(session);
+                self.shell_starting.lock().recover_poison().remove(session);
                 reservation.active = false;
                 reservation.notify.notify_waiters();
                 created = true;
@@ -1371,7 +1374,7 @@ impl Inner {
         let start_session = Arc::clone(&shell_session);
         let start: Box<dyn FnOnce() + Send> = Box::new(move || {
             let (banner, replay, alive) = {
-                let inner = start_session.inner.lock().expect("shell inner lock");
+                let inner = start_session.inner.lock().recover_poison();
                 let banner = created.then(|| start_session.banner.clone()).flatten();
                 let replay = (!created && inner.ring_size > 0).then(|| {
                     inner.ring.iter().flat_map(|c| c.iter().copied()).collect::<Vec<u8>>()
@@ -1391,7 +1394,7 @@ impl Inner {
                 on_exit(0);
                 return;
             }
-            let mut inner = start_session.inner.lock().expect("shell inner lock");
+            let mut inner = start_session.inner.lock().recover_poison();
             if !released.load(Ordering::SeqCst) && inner.alive {
                 inner.viewers.push(ViewerSink { id: viewer_id, on_data, on_exit });
             }
@@ -1410,7 +1413,7 @@ struct ShellViewerControl {
 impl ShellViewerControl {
     fn release(&self) {
         self.released.store(true, Ordering::SeqCst);
-        let mut inner = self.session.inner.lock().expect("shell inner lock");
+        let mut inner = self.session.inner.lock().recover_poison();
         inner.viewers.retain(|viewer| viewer.id != self.viewer_id);
     }
 }
@@ -1506,7 +1509,7 @@ impl TerminalStream {
     fn drain(&self) {
         loop {
             let next = {
-                let mut state = self.state.lock().expect("terminal stream lock");
+                let mut state = self.state.lock().recover_poison();
                 if let Some(chunk) = state.backlog.pop_front() {
                     (Some(chunk), None, state.live_data.clone(), state.live_exit.clone())
                 } else if let Some(code) = state.pending_exit.take() {
@@ -1527,7 +1530,7 @@ impl TerminalStream {
 
     fn push_output(&self, chunk: Bytes) {
         let should_drain = {
-            let mut state = self.state.lock().expect("terminal stream lock");
+            let mut state = self.state.lock().recover_poison();
             // A raw attach cannot replay an unbounded pre-open stream.  Keep
             // the bytes already accepted, but terminate the stream explicitly
             // when the first complete chunk would exceed the cap.  Returning
@@ -1564,7 +1567,7 @@ impl TerminalStream {
 
     fn finish_exit(&self, code: i64) {
         let should_drain = {
-            let mut state = self.state.lock().expect("terminal stream lock");
+            let mut state = self.state.lock().recover_poison();
             if state.ended {
                 return;
             }
@@ -1583,7 +1586,7 @@ impl TerminalStream {
         on_exit: Arc<dyn Fn(i64) + Send + Sync>,
     ) {
         let should_drain = {
-            let mut state = self.state.lock().expect("terminal stream lock");
+            let mut state = self.state.lock().recover_poison();
             state.live_data = Some(Arc::clone(&on_data));
             state.live_exit = Some(Arc::clone(&on_exit));
             state.backlog_bytes = 0;
@@ -1757,20 +1760,19 @@ fn workspace_shape_valid(data: Option<&Value>) -> bool {
 }
 
 /// Compact cwd for picker subtitles: $HOME -> ~, keep the last two parts.
-fn shorten_cwd(cwd: &str, home: &str) -> String {
+pub(crate) fn shorten_cwd(cwd: &str, home: &str) -> String {
     if cwd.is_empty() {
         return String::new();
     }
-    let collapsed = if !home.is_empty() && cwd.starts_with(home) {
-        format!("~{}", &cwd[home.len()..])
-    } else {
-        cwd.to_owned()
+    let collapsed = match cwd.strip_prefix(home).filter(|_| !home.is_empty()) {
+        Some(rest) => format!("~{rest}"),
+        None => cwd.to_owned(),
     };
     let parts: Vec<&str> = collapsed.split('/').filter(|p| !p.is_empty()).collect();
-    if collapsed.starts_with('~') || parts.len() <= 2 {
-        return collapsed;
+    match parts.as_slice() {
+        [_, .., parent, leaf] if !collapsed.starts_with('~') => format!("…/{parent}/{leaf}"),
+        _ => collapsed,
     }
-    format!("…/{}", parts[parts.len() - 2..].join("/"))
 }
 
 impl Inner {
@@ -2008,12 +2010,12 @@ impl Inner {
             }
         }
         {
-            let shell_sessions = self.shell_sessions.lock().expect("shell lock");
+            let shell_sessions = self.shell_sessions.lock().recover_poison();
             for (name, session) in shell_sessions.iter() {
                 if surfaces.len() >= MAX_ENUM_SURFACES {
                     break;
                 }
-                let alive = session.inner.lock().expect("shell inner lock").alive;
+                let alive = session.inner.lock().recover_poison().alive;
                 if !alive || seen.contains(name) {
                     continue;
                 }

@@ -597,7 +597,7 @@ fn open_descriptor_dir(path: &Path, create_missing: bool) -> Result<std::fs::Fil
     use std::os::fd::{AsRawFd as _, FromRawFd as _};
     use std::os::unix::ffi::OsStrExt as _;
 
-    let root = std::ffi::CString::new("/").expect("root has no NUL");
+    let root = c"/";
     let root_fd =
         unsafe { libc::open(root.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC) };
     if root_fd < 0 {
@@ -687,14 +687,14 @@ fn descriptor_parent(
             _ => Err(Refusal::path_forbidden("invalid descriptor-relative path")),
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let Some(last) = parts.last() else {
+    let Some((last, parents)) = parts.split_last() else {
         return Err(Refusal::path_forbidden("operation cannot target a directory root"));
     };
     let mut current = target
         .anchor
         .try_clone()
         .map_err(|error| Refusal::failed(format!("could not clone descriptor anchor: {error}")))?;
-    for name in &parts[..parts.len() - 1] {
+    for name in parents {
         let name = std::ffi::CString::new(name.as_bytes())
             .map_err(|_| Refusal::path_forbidden("path contains an embedded NUL byte"))?;
         let mut fd = unsafe {
@@ -1129,10 +1129,9 @@ fn run_read(scope: &Scope, op: &wire::FsReadOp) -> Result<wire::WorkspaceResultB
         Err(error) if truncated && error.error_len().is_none() && error.valid_up_to() > 0 => {
             // The byte cap cut a multi-byte character; trim to the last
             // whole character instead of downgrading the file to base64.
-            let valid = error.valid_up_to();
-            match std::str::from_utf8(&bytes[..valid]) {
-                Ok(text) => (text.to_owned(), wire::FsContentEncoding::Utf8),
-                Err(_) => (base64_encode(&bytes), wire::FsContentEncoding::Base64),
+            match bytes.get(..error.valid_up_to()).map(std::str::from_utf8) {
+                Some(Ok(text)) => (text.to_owned(), wire::FsContentEncoding::Utf8),
+                _ => (base64_encode(&bytes), wire::FsContentEncoding::Base64),
             }
         }
         Err(_) => (base64_encode(&bytes), wire::FsContentEncoding::Base64),
@@ -1325,7 +1324,19 @@ fn utf16_units(text: &str) -> usize {
     text.chars().map(char::len_utf16).sum()
 }
 
+/// The UTF-16 length of `text` before `byte_index` (a char boundary).
+pub(crate) fn utf16_units_before(text: &str, byte_index: usize) -> usize {
+    text.char_indices()
+        .take_while(|(index, _)| *index < byte_index)
+        .map(|(_, character)| character.len_utf16())
+        .sum()
+}
+
 /// Truncate to at most `max` UTF-16 code units on a char boundary.
+#[allow(
+    clippy::string_slice,
+    reason = "INVARIANT: byte_index comes from text.char_indices(), so it is a char boundary of text"
+)]
 pub(crate) fn cap_utf16(text: &str, max: usize) -> (&str, usize) {
     let mut units = 0;
     for (byte_index, character) in text.char_indices() {
@@ -1369,7 +1380,7 @@ fn run_search(scope: &Scope, op: &wire::FsSearchOp) -> Result<wire::WorkspaceRes
             let (capped, capped_units) = cap_utf16(line, SEARCH_MAX_TEXT_UNITS);
             let mut spans = Vec::new();
             for (byte_index, _) in line.match_indices(query) {
-                let start = utf16_units(&line[..byte_index]);
+                let start = utf16_units_before(line, byte_index);
                 let end = start + query_units;
                 // Spans that truncation pushed past the capped text are
                 // dropped rather than pointing outside `text`.
@@ -1464,9 +1475,34 @@ fn git_refusal(context: &str, stderr: &[u8]) -> Refusal {
 const GIT_DIFF_PREFIX_BYTES: usize = 10;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum BoundedGitDiffLine {
+pub(crate) enum BoundedGitDiffLine {
     Complete(String),
-    TooLong { prefix: [u8; GIT_DIFF_PREFIX_BYTES], length: u8 },
+    TooLong(GitDiffPrefix),
+}
+
+/// The first GIT_DIFF_PREFIX_BYTES bytes of a line, enough to classify it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct GitDiffPrefix {
+    bytes: [u8; GIT_DIFF_PREFIX_BYTES],
+    /// The bytes kept so far; only `retain` writes it, never past `bytes`.
+    length: usize,
+}
+
+impl GitDiffPrefix {
+    pub(crate) fn retain(&mut self, bytes: &[u8]) {
+        for (slot, byte) in self.bytes.iter_mut().skip(self.length).zip(bytes) {
+            *slot = *byte;
+            self.length += 1;
+        }
+    }
+
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "INVARIANT: retain stops at the array's end, so length <= GIT_DIFF_PREFIX_BYTES"
+    )]
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        &self.bytes[..self.length]
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1489,22 +1525,11 @@ fn classify_git_diff_line(bytes: &[u8]) -> GitDiffLineKind {
     }
 }
 
-fn retain_git_diff_prefix(
-    prefix: &mut [u8; GIT_DIFF_PREFIX_BYTES],
-    length: &mut usize,
-    bytes: &[u8],
-) {
-    let available = GIT_DIFF_PREFIX_BYTES.saturating_sub(*length);
-    let take = available.min(bytes.len());
-    prefix[*length..*length + take].copy_from_slice(&bytes[..take]);
-    *length += take;
-}
-
 /// Read one diff line without allowing a missing newline to grow the buffer
 /// without bound. `fill_buf` is cancellation-safe; consume every byte of an
 /// over-limit line without retaining it, so the caller can keep calculating
 /// the full diff stat while dropping the patch safely.
-async fn read_bounded_git_diff_line<R>(
+pub(crate) async fn read_bounded_git_diff_line<R>(
     reader: &mut R,
     line: &mut Vec<u8>,
     maximum: usize,
@@ -1516,16 +1541,12 @@ where
 
     line.clear();
     let mut too_long = false;
-    let mut prefix = [0_u8; GIT_DIFF_PREFIX_BYTES];
-    let mut prefix_length = 0_usize;
+    let mut prefix = GitDiffPrefix::default();
     loop {
         let buffer = reader.fill_buf().await?;
         if buffer.is_empty() {
             if too_long {
-                return Ok(Some(BoundedGitDiffLine::TooLong {
-                    prefix,
-                    length: prefix_length as u8,
-                }));
+                return Ok(Some(BoundedGitDiffLine::TooLong(prefix)));
             }
             return if line.is_empty() {
                 Ok(None)
@@ -1533,27 +1554,26 @@ where
                 decode_git_diff_line(line).map(|line| Some(BoundedGitDiffLine::Complete(line)))
             };
         }
-        let newline = buffer.iter().position(|byte| *byte == b'\n');
-        let take = newline.map_or(buffer.len(), |index| index + 1);
+        // Up to and including the first newline, else the whole buffer.
+        let chunk = buffer.split_inclusive(|byte| *byte == b'\n').next().unwrap_or_default();
+        let (take, newline) = (chunk.len(), chunk.ends_with(b"\n"));
+        prefix.retain(chunk);
         if too_long {
-            retain_git_diff_prefix(&mut prefix, &mut prefix_length, &buffer[..take]);
             reader.consume(take);
         } else if line.len().saturating_add(take) > maximum {
             // Consume this chunk, including a possible newline, and then
             // report a marker instead of returning an error. This keeps the
             // stream aligned for later lines and bounds retained memory.
-            retain_git_diff_prefix(&mut prefix, &mut prefix_length, &buffer[..take]);
             reader.consume(take);
             line.clear();
             too_long = true;
         } else {
-            retain_git_diff_prefix(&mut prefix, &mut prefix_length, &buffer[..take]);
-            line.extend_from_slice(&buffer[..take]);
+            line.extend_from_slice(chunk);
             reader.consume(take);
         }
-        if newline.is_some() {
+        if newline {
             return if too_long {
-                Ok(Some(BoundedGitDiffLine::TooLong { prefix, length: prefix_length as u8 }))
+                Ok(Some(BoundedGitDiffLine::TooLong(prefix)))
             } else {
                 decode_git_diff_line(line).map(|line| Some(BoundedGitDiffLine::Complete(line)))
             };
@@ -1609,7 +1629,7 @@ impl GitStderrDrain {
                     && retained.len() < GIT_STDERR_MAX_BYTES
                 {
                     let keep = (GIT_STDERR_MAX_BYTES - retained.len()).min(read);
-                    retained.extend_from_slice(&buffer[..keep]);
+                    retained.extend(buffer.iter().take(keep));
                 }
             }
             Ok(())
@@ -2065,26 +2085,25 @@ async fn run_git_diff_with_cancel_until(
                 }
             },
         };
-        if let BoundedGitDiffLine::TooLong { prefix, length } = line {
-            let prefix = &prefix[..usize::from(length)];
-            match classify_git_diff_line(prefix) {
-                GitDiffLineKind::File => files += 1,
-                GitDiffLineKind::Addition => additions += 1,
-                GitDiffLineKind::Deletion => deletions += 1,
-                GitDiffLineKind::Other => {}
+        let line = match line {
+            BoundedGitDiffLine::Complete(line) => line,
+            BoundedGitDiffLine::TooLong(prefix) => {
+                match classify_git_diff_line(prefix.as_bytes()) {
+                    GitDiffLineKind::File => files += 1,
+                    GitDiffLineKind::Addition => additions += 1,
+                    GitDiffLineKind::Deletion => deletions += 1,
+                    GitDiffLineKind::Other => {}
+                }
+                if !capped {
+                    // Drop the partial file: a caller must never see half a
+                    // file's hunks (parsePatchFiles input). Continue reading so
+                    // stats cover the complete Git output.
+                    patch.truncate(current_file_start);
+                    capped = true;
+                    truncated = true;
+                }
+                continue;
             }
-            if !capped {
-                // Drop the partial file: a caller must never see half a
-                // file's hunks (parsePatchFiles input). Continue reading so
-                // stats cover the complete Git output.
-                patch.truncate(current_file_start);
-                capped = true;
-                truncated = true;
-            }
-            continue;
-        }
-        let BoundedGitDiffLine::Complete(line) = line else {
-            unreachable!("handled all bounded diff line variants");
         };
         match classify_git_diff_line(line.as_bytes()) {
             GitDiffLineKind::File => {

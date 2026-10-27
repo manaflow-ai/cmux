@@ -15,6 +15,9 @@ pub mod error;
 pub mod fingerprint;
 pub mod journal_forwarder;
 pub mod pairing;
+#[cfg(test)]
+mod panic_deny_tests;
+mod panic_free;
 mod preview_access;
 pub mod preview_proxy;
 pub mod prompt;

@@ -74,8 +74,9 @@ fn hostname() -> String {
         let result =
             unsafe { libc::gethostname(buffer.as_mut_ptr().cast::<libc::c_char>(), buffer.len()) };
         if result == 0 {
-            let end = buffer.iter().position(|byte| *byte == 0).unwrap_or(buffer.len());
-            if let Ok(name) = std::str::from_utf8(&buffer[..end])
+            // The name ends at its NUL, or fills the buffer.
+            if let Some(name) = buffer.split(|byte| *byte == 0).next()
+                && let Ok(name) = std::str::from_utf8(name)
                 && !name.is_empty()
             {
                 return name.to_owned();
@@ -280,14 +281,21 @@ struct Runtime {
 async fn shutdown_signal() {
     #[cfg(unix)]
     {
-        let mut terminate =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                .expect("failed to install SIGTERM handler");
-        tokio::select! {
-            result = tokio::signal::ctrl_c() => {
-                let _ = result;
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut terminate) => {
+                tokio::select! {
+                    result = tokio::signal::ctrl_c() => {
+                        let _ = result;
+                    }
+                    _ = terminate.recv() => {}
+                }
             }
-            _ = terminate.recv() => {}
+            Err(error) => {
+                // SIGTERM keeps its default action (the process ends without
+                // the graceful drain); Ctrl-C still drains.
+                eprintln!("chatmux-relay: could not install the SIGTERM handler: {error}");
+                let _ = tokio::signal::ctrl_c().await;
+            }
         }
     }
 

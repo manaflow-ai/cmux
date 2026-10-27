@@ -79,9 +79,7 @@ where
     let args: Vec<String> = args.into_iter().map(Into::into).collect();
     let mut parsed = ParsedArgs::default();
     let mut index = 0;
-    while index < args.len() {
-        let argument = args[index].as_str();
-
+    while let Some(argument) = args.get(index).map(String::as_str) {
         if is_value_flag(argument) {
             let value = match args.get(index + 1).map(String::as_str) {
                 Some(value)

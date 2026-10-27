@@ -56,7 +56,9 @@ pub fn mint_pair_id() -> Result<String, RelayError> {
             if byte >= 216 {
                 continue;
             }
-            tail.push(char::from(alphabet[usize::from(byte % 36)]));
+            if let Some(&character) = alphabet.get(usize::from(byte % 36)) {
+                tail.push(char::from(character));
+            }
             if tail.len() == 24 {
                 break;
             }
@@ -161,8 +163,11 @@ pub async fn start_pairing(
     })
 }
 
-fn group_code(code: &str) -> String {
-    if code.len() >= 6 { format!("{} {}", &code[..3], &code[3..]) } else { code.to_owned() }
+pub(crate) fn group_code(code: &str) -> String {
+    match code.split_at_checked(3) {
+        Some((head, tail)) if code.len() >= 6 => format!("{head} {tail}"),
+        _ => code.to_owned(),
+    }
 }
 
 fn confirm_frame(approved: bool, short_code: &str) -> String {
