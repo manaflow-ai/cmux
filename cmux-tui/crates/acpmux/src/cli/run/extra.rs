@@ -582,6 +582,24 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     }
                     return Ok(());
                 }
+                PeerCmd::VmHost { name, state } => {
+                    // `vm-host on` names no peer: the state alone.
+                    let (name, state) = match (name, state) {
+                        (Some(n), None) if n == "on" || n == "off" => (None, Some(n)),
+                        other => other,
+                    };
+                    let mut p = json!({"on": state.as_deref().map(|s| s == "on")});
+                    if let Some(name) = &name {
+                        p["name"] = json!(name);
+                    }
+                    let v = client.request("_acpmux/vm_host", p).await?;
+                    if json_out {
+                        print_json(&v);
+                    } else {
+                        println!("{}", crate::cli::peer_status::vm_host_line(name.as_deref(), &v));
+                    }
+                    return Ok(());
+                }
                 PeerCmd::Rm { name } => {
                     client.request("_acpmux/peer_remove", json!({"name": name})).await?
                 }

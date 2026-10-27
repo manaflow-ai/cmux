@@ -54,6 +54,7 @@
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
   line-height: 18px;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* One line of dots: a run of many agents is cut at the card's edge, never a second line. */
 .acpmux-workflow-card .acpmux-workflow-card__dots {

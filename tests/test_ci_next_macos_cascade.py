@@ -305,17 +305,22 @@ class Place(unittest.TestCase):
         self.assertEqual(result.jobs, none_placed(**{SMALL: ("fast-tier",)}))
         self.assertEqual(result.retry_runner, "")
 
-    def test_a_dev_compile_spills_to_hosted_only_as_a_feeds_compile(self):
+    def test_a_feeds_run_never_takes_hosted(self):
+        """Leo, 2026-10-27: "THE GITHUB HOSTED MACS / ARE THE SLOWEST THINGS". #25798 sent a DEV daily's compile
+        to hosted macos-26 while Blacksmith was full; with hosted free it now keeps the owned label."""
         full = {LARGE: 5, SMALL: 10}
         seen = cascade.Seen(waits={LARGE: 0.0, SMALL: 0.0}, hosted=0)
         dev = env(CASCADE_RUNS=" cmux-scheme-compile ", FRESH_JOBS="cmux-scheme-compile")
-        self.assertEqual(cascade.place(dev, (), full, {LARGE: 0, SMALL: 0}, seen).jobs,
-                         none_placed(**{HOSTED: ("cmux-scheme-compile",)}))
-        # A PR's scheme compile keeps the owned label, and so does a DEV compile while hosted is full.
+        self.assertEqual(cascade.place(dev, (), full, {LARGE: 0, SMALL: 0}, seen).jobs, none_placed())
+        # A PR's scheme compile keeps the owned label too.
         self.assertEqual(cascade.place(env(CASCADE_RUNS=" cmux-scheme-compile "), (), full, {LARGE: 0, SMALL: 0},
                                        seen).jobs, none_placed())
-        busy = cascade.Seen(waits={LARGE: 0.0, SMALL: 0.0}, hosted=cascade.HOSTED_CAPACITY)
-        self.assertEqual(cascade.place(dev, (), full, {LARGE: 0, SMALL: 0}, busy).jobs, none_placed())
+        # A feed's run sends none of its other jobs to hosted either; a PR's run still does.
+        both = " fast-tier swift-canary cmux-scheme-compile "
+        self.assertEqual(cascade.place(env(CASCADE_RUNS=both, FRESH_JOBS="cmux-scheme-compile"), (), full,
+                                       {LARGE: 0, SMALL: 0}, seen).jobs, none_placed())
+        self.assertEqual(cascade.place(env(CASCADE_RUNS=both), (), full, {LARGE: 0, SMALL: 0}, seen).jobs,
+                         none_placed(**{HOSTED: ("fast-tier", "swift-canary")}))
         # A free Blacksmith slot still comes first.
         self.assertEqual(cascade.place(dev, (), {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0}, seen).jobs,
                          none_placed(**{LARGE: ("cmux-scheme-compile",)}))
@@ -337,12 +342,12 @@ class Place(unittest.TestCase):
         dev = env(CASCADE_RUNS=" cmux-scheme-compile ", FRESH_JOBS="cmux-scheme-compile")
         for live, waiting in ((None, None), ({LARGE: 0, SMALL: 0}, None)):
             with self.subTest(live=live, waiting=waiting):
-                # 2026-10-26 00:30Z: run 40425305537's DEV compile, sent to 6 vCPU this way, queued behind about 75
-                # jobs while hosted macos-26 was free. A DEV compile takes hosted instead.
+                # A DEV compile takes 6 vCPU too, never hosted macos-26 (Leo, 2026-10-27: hosted Macs are the
+                # slowest); a stalled 6 vCPU queue keeps it on the owned label (below).
                 result = cascade.place(dev, (), live, waiting)
-                self.assertEqual(result.jobs, none_placed(**{HOSTED: ("cmux-scheme-compile",)}))
+                self.assertEqual(result.jobs, none_placed(**{SMALL: ("cmux-scheme-compile",)}))
                 self.assertEqual(result.retry_runner, "")
-                self.assertIn(f"take `{HOSTED}`", result.why)
+                self.assertIn(f"take `{SMALL}`", result.why)
         push = env(CASCADE_RUNS=" fast-tier cmux-scheme-compile release-compile ", FRESH_JOBS="release-compile")
         self.assertEqual(cascade.place(push, (), None, None).jobs, none_placed(**{SMALL: ("release-compile",)}))
         # An idle mini is spent on the run's other jobs first; as many idle minis as jobs, and nothing moves.
@@ -357,6 +362,46 @@ class Place(unittest.TestCase):
                                            FRESH_JOBS="cmux-scheme-compile",
                                            CASCADE_RUNS=" cmux-scheme-compile "), (), None, None).jobs,
                          none_placed())
+
+    def test_a_feeds_compile_counts_a_label_stalled_fifteen_minutes_as_full(self):
+        """2026-10-27 01:11Z: 92 jobs queued on 6 vCPU (oldest 148 min) and 27 on 12 vCPU (oldest 165 min, no
+        runner online). A feed's compile treats a label whose oldest job waited FRESH_STALL_MINUTES as full."""
+        minutes = float(cascade.FRESH_STALL_MINUTES)
+        stuck = cascade.Seen(waits={LARGE: 0.0, SMALL: minutes}, hosted=0)
+        moving = cascade.Seen(waits={LARGE: 0.0, SMALL: minutes - 1}, hosted=0)
+        self.assertEqual(cascade.fresh_stalled(stuck.waits), (SMALL,))
+        self.assertEqual(cascade.fresh_stalled(moving.waits), ())
+        # Below STALL_MINUTES, with a runner online: every other job still takes the slot.
+        live, waiting = {LARGE: 0, SMALL: 4}, {LARGE: 0, SMALL: 1}
+        self.assertEqual(cascade.stalled(live, waiting, stuck.waits), ())
+        self.assertEqual(cascade.place(env(CASCADE_RUNS=" fast-tier "), (), live, waiting, stuck).jobs,
+                         none_placed(**{SMALL: ("fast-tier",)}))
+        # A DEV daily's compile and a push's Release compile both stay on the owned label, never hosted.
+        dev = env(CASCADE_RUNS=" cmux-scheme-compile ", FRESH_JOBS="cmux-scheme-compile")
+        self.assertEqual(cascade.place(dev, (), live, waiting, stuck).jobs, none_placed())
+        self.assertEqual(cascade.place(dev, (), live, waiting, moving).jobs,
+                         none_placed(**{SMALL: ("cmux-scheme-compile",)}))
+        push = env(CASCADE_RUNS=" release-compile ", FRESH_JOBS="release-compile")
+        self.assertEqual(cascade.place(push, (), live, waiting, stuck).jobs, none_placed())
+        self.assertEqual(cascade.place(push, (), live, waiting, moving).jobs,
+                         none_placed(**{SMALL: ("release-compile",)}))
+        # Runner groups unread: the last resort skips a stalled 6 vCPU queue the snapshot saw.
+        result = cascade.place(push, (), None, None, stuck)
+        self.assertEqual(result.jobs, none_placed())
+        self.assertIn("no job leaves the minis' queue", result.why)
+        self.assertEqual(cascade.place(push, (), None, None, moving).jobs, none_placed(**{SMALL: ("release-compile",)}))
+        self.assertEqual(cascade.place(dev, (), None, None, stuck).jobs, none_placed())
+        # The overflow of a run with a feed's compile skips the fresh-stalled label; other runs' overflow does not.
+        free = {LARGE: 0, SMALL: 2}, {LARGE: 0, SMALL: 1}
+        self.assertEqual(cascade.place(push, ("release-compile",), *free, stuck).retry_runner, "")
+        self.assertEqual(cascade.place(env(CASCADE_RUNS=" fast-tier "), ("fast-tier",), *free, stuck).retry_runner,
+                         SMALL)
+        self.assertEqual(cascade.place(push, (), live, waiting, stuck).fresh_stall, (SMALL,))
+        self.assertEqual(cascade.place(push, (), None, None, stuck).fresh_stall, (SMALL,))
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            cascade.write(cascade.place(push, (), live, waiting, stuck), {"GITHUB_OUTPUT": str(output)})
+            self.assertIn(f"fresh_stalled= {SMALL} \n", output.read_text(encoding="utf-8"))
 
     def test_queued_freshness_work_keeps_a_blacksmith_label_for_feed_compiles(self):
         """2026-10-26: nightly-next's build-sign-notarize-nightly queued on blacksmith-6vcpu-macos-26 from 19:38Z
@@ -427,8 +472,10 @@ class Place(unittest.TestCase):
                               cascade.Seen(waits={LARGE: 5.0, SMALL: 0.0}, hosted=0, age=2.0)))
         # A refused runner read (the route token's 403s, 2026-10-26 22:47Z) is not replaced by the snapshot,
         # which counts only this repository's share of the organization's pool.
+        # Its waits are still read, so a feed's compile can skip a stalled queue (fresh_stalled()).
         with mock.patch.object(cascade.Api, "in_flight", side_effect=OSError("HTTP Error 403: Forbidden")):
-            self.assertEqual(cascade.read(live_env, pool, now=NOW, log=lambda _: None), (None, None, None))
+            self.assertEqual(cascade.read(live_env, pool, now=NOW, log=lambda _: None),
+                             (None, None, cascade.Seen(waits={LARGE: 5.0, SMALL: 0.0}, hosted=0, age=2.0)))
         # cmux-bot's token (ROUTE_TOKEN_FALLBACK) reads again when the routing App's read is refused.
         tokens = []
 
@@ -672,20 +719,18 @@ class Stall(unittest.TestCase):
     def test_only_the_hosted_jobs_read_the_hosted_route_and_get_more_time(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         readers = {name for name, job in jobs.items() if "outputs.hosted_runner" in str(job.get("runs-on", ""))}
-        self.assertEqual(readers, {"fast-tier", "swift-canary", *cascade.HOSTED_FRESH_JOBS})
-        # Their runs-on, and swift-canary's and the scheme compile's CMUX_NEXT_RUNNER copies: no other job reads
-        # the hosted label.
-        self.assertEqual(WORKFLOW.read_text(encoding="utf-8").count("needs.macos-placement.outputs.hosted_runner"), 5)
+        self.assertEqual(readers, set(cascade.HOSTED_JOBS))
+        # Their runs-on and swift-canary's CMUX_NEXT_RUNNER copy: no other job reads the hosted label.
+        self.assertEqual(WORKFLOW.read_text(encoding="utf-8").count("needs.macos-placement.outputs.hosted_runner"), 3)
         for name in readers:
             with self.subTest(job=name):
                 timeout = jobs[name]["timeout-minutes"]
                 hosted = {"needs": {"macos-placement": {"outputs": {"hosted_jobs": f" {name} "}}}}
-                cold, warm = (90, 60) if name in cascade.HOSTED_FRESH_JOBS else (45, 20)
-                self.assertEqual(evaluate(timeout, hosted), cold)
+                self.assertEqual(evaluate(timeout, hosted), 45)
                 self.assertEqual(evaluate(timeout, {"needs": {"macos-placement": {"outputs": {"hosted_jobs": ""}}}}),
-                                 warm)
-                if name in cascade.HOSTED_FRESH_JOBS:
-                    self.assertEqual(jobs[name]["env"]["CMUX_NEXT_RUNNER"], jobs[name]["runs-on"])
+                                 20)
+        # The feeds' compiles have no hosted route and no hosted timeout.
+        self.assertEqual(jobs["cmux-scheme-compile"]["timeout-minutes"], 60)
 
     def test_the_placement_writes_the_hosted_route(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -696,6 +741,38 @@ class Stall(unittest.TestCase):
         self.assertEqual(lines["hosted_jobs"], " fast-tier swift-canary ")
         self.assertEqual(lines["hosted_runner"], HOSTED)
         self.assertEqual((lines["blacksmith_12_jobs"], lines["blacksmith_6_jobs"]), ("", ""))
+
+
+class FeedNeverHosted(unittest.TestCase):
+    """Leo, 2026-10-27: "THE GITHUB HOSTED MACS / ARE THE SLOWEST THINGS". No DEV, nightly or promote path
+    resolves to hosted macos-26: a run with FRESH_JOBS places nothing there, whatever Blacksmith's state."""
+
+    def test_no_feed_run_places_a_job_on_hosted(self):
+        runs = " fast-tier swift-canary cmux-scheme-compile release-compile "
+        waits = (0.0, float(cascade.FRESH_STALL_MINUTES), float(cascade.STALL_MINUTES) + 60)
+        counts = (None, ({LARGE: 0, SMALL: 0}, None), ({LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0}),
+                  ({LARGE: 5, SMALL: 10}, {LARGE: 0, SMALL: 0}), ({LARGE: 0, SMALL: 0}, {LARGE: 9, SMALL: 40}))
+        for fresh in ("cmux-scheme-compile", "release-compile"):
+            for count in counts:
+                live, waiting = count if count is not None else (None, None)
+                for large, small in ((a, b) for a in waits for b in waits):
+                    for owned in ((), ("fast-tier",)):
+                        seen = cascade.Seen(waits={LARGE: large, SMALL: small}, hosted=0)
+                        with self.subTest(fresh=fresh, live=live, waiting=waiting, waits=(large, small), owned=owned):
+                            placed = cascade.place(env(CASCADE_RUNS=runs, FRESH_JOBS=fresh), owned, live, waiting,
+                                                   seen)
+                            self.assertEqual(placed.jobs.get(HOSTED, ()), ())
+                            self.assertFalse(set(placed.jobs.get(HOSTED, ())) & set(cascade.CASCADE_JOBS))
+
+    def test_no_feed_compile_reads_the_hosted_route(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        for name in ("cmux-scheme-compile", "release-compile"):
+            with self.subTest(job=name):
+                self.assertNotIn(name, cascade.HOSTED_JOBS)
+                self.assertNotIn("hosted_runner", str(jobs[name]["runs-on"]))
+                self.assertNotIn("hosted_jobs", str(jobs[name]["runs-on"]))
+                self.assertNotIn("hosted", str(jobs[name].get("env", {}).get("CMUX_NEXT_RUNNER", "")))
+                self.assertNotIn("hosted_jobs", str(jobs[name].get("timeout-minutes", "")))
 
 
 class Rerun(unittest.TestCase):
@@ -860,6 +937,17 @@ class Rerun(unittest.TestCase):
         context["github"].update(event_name="push", ref="refs/heads/feat-cmux-next", event={})
         context["needs"]["release-compile-fast"] = {"result": "skipped", "outputs": {"verdict": ""}}
         self.assertEqual(evaluate(jobs["release-compile"]["runs-on"], context), SMALL)
+        # 6 vCPU fresh-stalled (next_macos_cascade.fresh_stalled()): the re-run takes the owned label instead.
+        # (A feat-cmux-next push's re-run lists no release-compile on a Blacksmith label, as above.)
+        context["needs"]["macos-placement"]["outputs"].update(fresh_stalled=f" {SMALL} ", blacksmith_12_jobs="")
+        for key in ("runs-on", "CMUX_NEXT_RUNNER"):
+            expression = jobs["release-compile"]["runs-on"] if key == "runs-on" else jobs["release-compile"]["env"][key]
+            self.assertEqual(evaluate(expression, context), SIDE, key)
+        # The same with the fleet fast check failed with no verdict, and a carried (older) placement keeps 6 vCPU.
+        context["needs"]["release-compile-fast"] = {"result": "failure", "outputs": {"verdict": ""}}
+        self.assertEqual(evaluate(jobs["release-compile"]["runs-on"], context), SIDE)
+        context["needs"]["macos-placement"]["outputs"]["placed_attempt"] = "1"
+        self.assertEqual(evaluate(jobs["release-compile"]["runs-on"], context), SMALL)
 
     def test_a_feat_push_rerun_counts_no_idle_mini_for_release_compile(self):
         # Review of #25707: JOBS lists release-compile first, so an idle mini counted for it left the
@@ -875,8 +963,8 @@ class Rerun(unittest.TestCase):
         self.assertEqual(push["blacksmith_6_jobs"], "")
 
     def test_the_rescues_dev_compile_leaves_the_queue_when_counts_are_unread(self):
-        # #25739/#25798 send a DEV daily's compile to hosted macos-26 when attempt 1 cannot read the counts; the rescue's
-        # attempt 2 is placed afresh, so it reads FRESH_JOBS too, and a person's re-run does not.
+        # #25739 sends a DEV daily's compile to the last resort (6 vCPU, never hosted) when attempt 1 cannot read the
+        # counts; the rescue's attempt 2 is placed afresh, so it reads FRESH_JOBS too, and a person's re-run does not.
         place = next(step for step in self.placement_job()["steps"] if step.get("id") == "place")
         fresh = place["env"]["FRESH_JOBS"]
         context = github_context("workflow_dispatch", ref="refs/heads/feat-cmux-next")
@@ -889,25 +977,26 @@ class Rerun(unittest.TestCase):
                 self.assertEqual(evaluate(fresh, context), expected)
         values = self.rerun(JOBS="cmux-scheme-compile", FRESH_JOBS="cmux-scheme-compile")
         placed = cascade.place(values, (), None, None)
-        self.assertEqual(placed.jobs[HOSTED], ("cmux-scheme-compile",))
+        self.assertEqual(placed.jobs[SMALL], ("cmux-scheme-compile",))
+        self.assertEqual(placed.jobs[HOSTED], ())
         # The workflow's own JOBS, through main(): idle_placement() names the first JOBS (here skipped ones)
         # once per idle mini, so `owned` is the idle-mini count. With no idle mini the compile takes the last
-        # resort (hosted); with one, it stays on the side label, where that mini takes it.
+        # resort (6 vCPU); with one, it stays on the side label, where that mini takes it.
         jobs = self.placement_job()["steps"]
         jobs = next(step for step in jobs if step.get("id") == "place")["env"]["JOBS"]
         self.assertTrue(jobs.startswith("fast-tier swift-canary cmux-scheme-compile"))
         idle = {"name": "side-mini", "status": "online", "busy": False,
                 "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-26.6", SIDE)]}
-        for runners, hosted, owned in (([], " cmux-scheme-compile ", ""),
-                                      ([idle], "", " fast-tier "),
-                                      ([idle, dict(idle, name="side-mini-2")], "", " fast-tier swift-canary ")):
+        for runners, small, owned in (([], " cmux-scheme-compile ", ""),
+                                     ([idle], "", " fast-tier "),
+                                     ([idle, dict(idle, name="side-mini-2")], "", " fast-tier swift-canary ")):
             with self.subTest(idle=len(runners)):
                 lines = self.rerun_outputs(runners, None, None, JOBS=jobs, CASCADE_RUNS=" cmux-scheme-compile ",
                                            FRESH_JOBS="cmux-scheme-compile", GITHUB_EVENT_NAME="workflow_dispatch",
                                            GITHUB_REF="refs/heads/feat-cmux-next")
                 self.assertEqual(lines["owned_jobs"], owned)
-                self.assertEqual(lines["hosted_jobs"], hosted)
-                self.assertEqual(lines["blacksmith_6_jobs"], "")
+                self.assertEqual(lines["hosted_jobs"], "")
+                self.assertEqual(lines["blacksmith_6_jobs"], small)
 
     def test_an_older_trusted_placement_writes_nothing_on_the_rerun(self):
         # Review of #25707: the steps check out the base's script. One that predates rerun_main() would
@@ -1038,7 +1127,7 @@ class Wiring(unittest.TestCase):
         for name in CASCADED:
             runs_on = self.jobs[name]["runs-on"]
             with self.subTest(job=name):
-                spilled = HOSTED if name in cascade.HOSTED_JOBS + cascade.HOSTED_FRESH_JOBS else SIDE
+                spilled = HOSTED if name in cascade.HOSTED_JOBS else SIDE
                 self.assertEqual(evaluate(runs_on, self.context(hosted=f" x {name} ")), spilled)
                 self.assertEqual(evaluate(runs_on, self.context(hosted=f" {name}-x ")), SIDE)
                 self.assertEqual(evaluate(runs_on, self.context("2", BOT, hosted=f" {name} ")), spilled)
