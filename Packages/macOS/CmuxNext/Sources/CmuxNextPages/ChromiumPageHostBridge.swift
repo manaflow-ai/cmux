@@ -125,6 +125,7 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     public func rebind() {
         guard let page else { return }
         // task-owner: one idempotent call on a page that may already be gone
+        // main-hop-allow: devTools is the page's main-actor async DevTools call (its IPC runs in Chromium); the task only sends it, and nobody reads its answer
         Task { _ = try? await page.devTools("Runtime.addBinding", params: ["name": Self.bindingName]) }
     }
 
@@ -162,6 +163,7 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         guard !draining else { return }
         draining = true
         // task-owner: the bridge's script FIFO; it ends when the queue is empty or the page is gone
+        // main-hop-allow: the drain awaits the page's main-actor async DevTools evaluate per batch, in FIFO order; its main parts only take the next batch
         Task { [weak self] in await self?.drain() }
     }
 
@@ -226,6 +228,7 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         let payload = call.payload
         let context = call.contextID
         // task-owner: one binding call; its sender is asked once, and its replies go back to that context
+        // main-hop-allow: the sender query is the page's main-actor async DevTools evaluate (its IPC runs in Chromium); the task only awaits it and then delivers in this actor's order
         Task { [weak self] in await self?.askSender(payload, context: context) }
         return true
     }
