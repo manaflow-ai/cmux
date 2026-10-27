@@ -30,19 +30,24 @@ public nonisolated struct FeatureOverrides: Sendable, Equatable {
     public var remote: [String: Bool]
     /// The field-trial arms (step 5): ``FieldTrials/values``, already filtered by channel and build.
     public var fieldTrial: [String: Bool]
+    /// The features this build turns on by default (step 6, over the channel default): a dogfood build's switch set,
+    /// ``FeatureDogfoodSet/buildDefaults(forTag:)``. Empty in every other build.
+    public var buildDefaults: Set<String>
 
     public init(
         policyDisabled: Set<String> = [],
         environmentDisabled: Set<String> = [],
         environmentEnabled: Set<String> = [],
         remote: [String: Bool] = [:],
-        fieldTrial: [String: Bool] = [:]
+        fieldTrial: [String: Bool] = [:],
+        buildDefaults: Set<String> = []
     ) {
         self.policyDisabled = policyDisabled
         self.environmentDisabled = environmentDisabled
         self.environmentEnabled = environmentEnabled
         self.remote = remote
         self.fieldTrial = fieldTrial
+        self.buildDefaults = buildDefaults
     }
 
     /// Reads both environment lists from `environment` (the launch
@@ -51,14 +56,16 @@ public nonisolated struct FeatureOverrides: Sendable, Equatable {
         policyDisabled: Set<String> = [],
         environment: [String: String],
         remote: [String: Bool] = [:],
-        fieldTrial: [String: Bool] = [:]
+        fieldTrial: [String: Bool] = [:],
+        buildDefaults: Set<String> = []
     ) {
         self.init(
             policyDisabled: policyDisabled,
             environmentDisabled: Self.names(in: environment[Self.disableVariable]),
             environmentEnabled: Self.names(in: environment[Self.enableVariable]),
             remote: remote,
-            fieldTrial: fieldTrial
+            fieldTrial: fieldTrial,
+            buildDefaults: buildDefaults
         )
     }
 
@@ -82,5 +89,6 @@ public nonisolated struct FeatureOverrides: Sendable, Equatable {
             .union(environmentEnabled)
             .union(remote.keys)
             .union(fieldTrial.keys)
+            .union(buildDefaults)
     }
 }

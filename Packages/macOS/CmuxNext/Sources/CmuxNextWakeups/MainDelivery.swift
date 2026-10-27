@@ -74,10 +74,21 @@ public struct MainDelivery: Sendable {
         } else if let route {
             route.scheduler.postFromAnyThread(route.workClass, owner: route.owner, file: file, line: line, work)
         } else {
-            // The unclassed form: the main queue's next turn, on no board.
+            // The unclassed form: the main queue's next turn, on no board (timed by the main-job
+            // census when one is armed; a classed post is timed by MainRunLoopBlock.perform).
+            let work = Self.censused(work)
             // main-proof: DispatchQueue.main runs its blocks on the main thread
             DispatchQueue.main.async { MainActor.assumeIsolated(work) }
         }
+    }
+
+    /// `work`, timed by the launch's main-job census when one is armed (Debug and bench builds; p08-startup-080).
+    private static func censused(_ work: @escaping @MainActor @Sendable () -> Void) -> @MainActor @Sendable () -> Void {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        return MainJobRing.installed()?.timed(work) ?? work
+        #else
+        return work
+        #endif
     }
 
     /// Where a delivery's work goes.
