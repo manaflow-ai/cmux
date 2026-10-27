@@ -457,11 +457,28 @@ class ExpectationStore:
         return rules
 
 
-def load_expectations(root: Path, *, platform: str, arm: Optional[str], product: str, build: str) -> Optional[ExpectationStore]:
+def expectation_arm(arm: Optional[str], registry: Mapping[str, Mapping[str, Any]]) -> Optional[str]:
+    """The run's value in the expectations' arm tag group. A --switch run is on its arm. A run that sets no arm
+    (None or default) runs every switch at its registry `default`: switches land at default old and flip to new
+    only before their old path is deleted (refactor-switches/README.md), so that run is [ old ] while no default
+    is new, [ new ] once every default is, and on no arm while they differ. launch-config mixes planned arms."""
+    if arm in ARMS:
+        return arm
+    if arm not in (None, "default"):
+        return None
+    defaults = {entry.get("default", "old") for entry in registry.values()}
+    if not defaults:
+        return "old"
+    return defaults.pop() if len(defaults) == 1 and defaults <= set(ARMS) else None
+
+
+def load_expectations(root: Path, *, platform: str, arm: Optional[str], product: str, build: str,
+                      registry: Optional[Mapping[str, Mapping[str, Any]]] = None) -> Optional[ExpectationStore]:
     module = load_sibling("expectations")
     if module is None:
         return None
-    return ExpectationStore.load(module, root, platform=platform, arm=arm, product=product, build=build)
+    run_arm = expectation_arm(arm, load_switch_registry() if registry is None else registry)
+    return ExpectationStore.load(module, root, platform=platform, arm=run_arm, product=product, build=build)
 
 
 # ---------------------------------------------------------------------------------------

@@ -3,7 +3,7 @@ import Foundation
 import Testing
 
 /// ``CEFPagePush`` and ``CEFForkFeatures/pagePush`` (p13-webui-079): a push reaches the shim's
-/// `cmux_shim_tab_page_push` only with fork API 38 and the export, and never before the browser exists.
+/// `cmux_shim_tab_page_push` only with fork API 39 and the export, and never before the browser exists.
 @MainActor
 struct CEFPagePushTests {
     @Test func theGateNeedsTheForkAPIAndTheExport() {
@@ -81,7 +81,7 @@ struct CEFPagePushTests {
 
 /// The shim's page pushes, in order; every other function does nothing.
 private nonisolated enum PushSpy {
-    nonisolated(unsafe) static var forkAPI: Int32 = 38
+    nonisolated(unsafe) static var forkAPI: Int32 = 39
     nonisolated(unsafe) static var pushes: [String] = []
 
     static func reset(forkAPI api: Int32) {

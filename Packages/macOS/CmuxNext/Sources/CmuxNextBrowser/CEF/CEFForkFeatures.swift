@@ -20,10 +20,17 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     /// the fork lines (36 is p03-rendering-044's attached views) and of the numbers the app claims.
     static let tabVisibilityForkAPI: Int32 = 37
 
+    /// The first fork API with `cmux_browser_capture` (p13-webui-077): a page's surface copy with no DevTools agent.
+    /// Max + 1 of the numbers the app claims (37 is ``tabVisibilityForkAPI``); the fork train (p13-webui-086)
+    /// confirms it with its pin.
+    static let surfaceCopyForkAPI: Int32 = 38
+    /// The first fork API with `cmux_shim_tab_send_mouse_move` (`CefBrowserHost::SendMouseMoveEvent`): the same fork
+    /// line as the surface copy (p13-webui-077 adds both), numbered by the train with it.
+    static let mouseMoveForkAPI: Int32 = surfaceCopyForkAPI
     /// The first fork API with `cmux_tab_page_push` and `cmuxPageListen` (p13-webui-079, manaflow-ai/cef
     /// `cp/p13-webui-079` on `cp/p06-scheduler-212`): a string to a cmux-page document's receiver, with no script.
-    /// Max + 1 of the fork lines and of the numbers the app claims.
-    static let pagePushForkAPI: Int32 = 38
+    /// Max + 1 of the fork lines and of the numbers the app claims (38 is ``surfaceCopyForkAPI``).
+    static let pagePushForkAPI: Int32 = 39
 
     /// `cmux_shim_fork_api_version()`; 0 for stock CEF or no shim.
     var forkAPIVersion: Int32
@@ -31,6 +38,10 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     var shimHasRendererPaths: Bool
     /// The shim exports `cmux_shim_tab_set_visibility` (`CEFShimLibrary.tabSetVisibility`).
     var shimHasTabVisibility = false
+    /// The shim exports `cmux_shim_tab_copy_surface` (`CEFShimLibrary.tabCopySurface`).
+    var shimHasSurfaceCopy = false
+    /// The shim exports `cmux_shim_tab_send_mouse_move` (`CEFShimLibrary.tabSendMouseMove`).
+    var shimHasMouseMove = false
     /// The shim exports `cmux_shim_tab_page_push` (`CEFShimLibrary.tabPagePush`).
     var shimHasPagePush = false
 
@@ -51,6 +62,15 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     /// view decide alone, as before.
     var tabVisibility: Bool { shimHasTabVisibility && forkAPIVersion >= Self.tabVisibilityForkAPI }
 
+    /// Chromium copies a page's surface and encodes it on its thread pool (``CEFTab/copySurface(maxPixelSize:)``), as
+    /// Chrome copies a tab thumbnail (`RenderWidgetHostView::CopyFromSurface`): a picture attaches no DevTools agent,
+    /// so the renderer stays shareable. Below this API a picture needs `Page.captureScreenshot`.
+    var surfaceCopy: Bool { shimHasSurfaceCopy && forkAPIVersion >= Self.surfaceCopyForkAPI }
+
+    /// A mouse move with no button reaches the page as the person's own (``CEFTab/sendMouseMove(x:y:)``), with no
+    /// DevTools agent, as the native click does. Below this API a scripted hover needs DevTools input.
+    var mouseMove: Bool { shimHasMouseMove && forkAPIVersion >= Self.mouseMoveForkAPI }
+
     /// A cmux page can get its host events and replies as data (``CEFPagePush``): the page registers a
     /// receiver with `cmuxPageListen` and each push calls it with a string, as Chrome's WebUI pages get Mojo
     /// messages instead of a script per call. Below this API, or with an older shim, every delivery is a script.
@@ -61,6 +81,7 @@ extension CEFForkFeatures {
     /// The features of a loaded shim.
     init(_ shim: CEFShimLibrary) {
         self.init(forkAPIVersion: shim.forkAPIVersion(), shimHasRendererPaths: shim.hasRendererPaths,
-                  shimHasTabVisibility: shim.tabSetVisibility != nil, shimHasPagePush: shim.tabPagePush != nil)
+                  shimHasTabVisibility: shim.tabSetVisibility != nil, shimHasSurfaceCopy: shim.tabCopySurface != nil,
+                  shimHasMouseMove: shim.tabSendMouseMove != nil, shimHasPagePush: shim.tabPagePush != nil)
     }
 }

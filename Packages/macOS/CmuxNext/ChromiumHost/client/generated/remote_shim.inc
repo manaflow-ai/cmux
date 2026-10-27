@@ -209,16 +209,18 @@ enum Op : uint16_t {
   kOpBrowserImeCommitText = 197,  // optional
   kOpBrowserImeFinishComposing = 198,  // optional
   kOpBrowserImeCancelComposition = 199,  // optional
+  kOpTabCopySurface = 200,  // optional
+  kOpTabSendMouseMove = 201,  // optional
 };
-inline constexpr uint16_t kOpCount = 199;
+inline constexpr uint16_t kOpCount = 201;
 inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 60;
-inline constexpr char kShimAbiID[] = "01dfbb8f0698077a5b4abab9ace20b89f3ae6fc4bf8d210356ec2c2dea1cff17";
+inline constexpr char kShimAbiID[] = "c39517bb107d4316d161583c8ca6d9050de7656d7325fbe7d6434bbaff886bde";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "09e09f2345c7f71a62d32709ebb2ab0f2ec3272355c1a213153c1644a8ddd0df";
+inline constexpr char kWireID[] = "7171d3b4927f9d48cbcc9b01ef35713890ab293298d2b4e5b0f1ae6135b6614f";
 // Exports the header does not declare yet (fork API symbols): the client sends one only to
 // a host whose HELLO lists its symbol.
 struct OptionalExport {
@@ -241,6 +243,8 @@ inline constexpr OptionalExport kOptionalExports[] = {
     {kOpBrowserImeCommitText, "cmux_shim_browser_ime_commit_text"},
     {kOpBrowserImeFinishComposing, "cmux_shim_browser_ime_finish_composing"},
     {kOpBrowserImeCancelComposition, "cmux_shim_browser_ime_cancel_composition"},
+    {kOpTabCopySurface, "cmux_shim_tab_copy_surface"},
+    {kOpTabSendMouseMove, "cmux_shim_tab_send_mouse_move"},
 };
 }  // namespace cmux_remote
 
@@ -1926,6 +1930,29 @@ CMUX_SHIM_EXPORT void cmux_shim_browser_ime_cancel_composition(int arg_browser_i
   TlvWriter op_w;
   op_w.I32(arg_browser_id);
   (void)Post(kOpBrowserImeCancelComposition, 0, op_w);
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_tab_copy_surface(int arg_browser_id, int arg_reply, int arg_max_width, int arg_max_height, int arg_format, int arg_jpeg_quality) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_reply);
+  op_w.I32(arg_max_width);
+  op_w.I32(arg_max_height);
+  op_w.I32(arg_format);
+  op_w.I32(arg_jpeg_quality);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostForReply(kOpTabCopySurface, op_token, op_w);
+  return op_sent ? 1 : 0;
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_tab_send_mouse_move(int arg_browser_id, double arg_x, double arg_y, int arg_modifiers) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.F64(arg_x);
+  op_w.F64(arg_y);
+  op_w.I32(arg_modifiers);
+  (void)Post(kOpTabSendMouseMove, 0, op_w);
+  return 1;
 }
 
 }  // extern "C"

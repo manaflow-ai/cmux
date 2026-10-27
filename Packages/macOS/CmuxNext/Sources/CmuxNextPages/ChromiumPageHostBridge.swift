@@ -13,7 +13,7 @@ import os
 ///   sender's own context for `location.href` and `window === window.top` (both unforgeable), and
 ///   ``PageHostTrust`` checks them as for WebKit.
 /// - Replies go back into the sender's context only (`__cmuxPageHostResolve(seq, reply)`).
-/// - With the page push channel (``PageChromiumPage/pushesToPage``, fork API 38) the router's
+/// - With the page push channel (``PageChromiumPage/pushesToPage``, fork API 39) the router's
 ///   envelopes (``push(envelopes:)``) and the replies go to the page as strings
 ///   (``PageChromiumPage/push(_:)``) that the page script's receiver parses, the way Chrome's WebUI
 ///   pages get Mojo messages instead of `WebUI::CallJavascriptFunction` scripts
@@ -141,8 +141,8 @@ public final class ChromiumPageHostBridge: PageHostPushing {
                 outgoing.removeAll()
                 return
             }
-            if let text = outgoing[0].pushText {
-                outgoing.removeFirst()
+            if let text = outgoing.first?.pushText {
+                outgoing.removeSubrange(..<1)
                 page.push(text)
                 continue
             }
@@ -163,7 +163,7 @@ public final class ChromiumPageHostBridge: PageHostPushing {
             if !batch.isEmpty, bytes > Self.maximumBatchBytes { break }
             batch.append(script)
         }
-        outgoing.removeFirst(batch.count)
+        outgoing.removeSubrange(..<batch.count)
         return batch
     }
 
@@ -299,7 +299,7 @@ public final class ChromiumPageHostBridge: PageHostPushing {
 
     /// The page script's half of the page push channel, inside ``pageScript(handlers:)`` where
     /// `resolve` settles a reply. Where the fork defines `cmuxPageListen` (the main frame of a
-    /// cmux-page document, fork API 38) it registers the document's one receiver. A push is JSON:
+    /// cmux-page document, fork API 39) it registers the document's one receiver. A push is JSON:
     /// an array is one run of envelopes for the page's receiver (pageClient.ts registers it with
     /// ``listenName``; until it does, the runs wait here, at most ``maximumHeldPushes``), and
     /// `{"r": seq, "d": doc, "v": reply}` is a reply, settled only when `doc` is this document's token.

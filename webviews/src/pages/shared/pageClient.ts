@@ -10,6 +10,7 @@ import { holdPaintForClaim } from "./paintGate";
 import { PARKED_NAME, pageLifecycleFor } from "./pageLifecycle";
 import { installNativeMenu, NATIVE_MENU_OP } from "../../ui/nativeMenu";
 import { serveOracleState } from "../../protocol/oracle-state";
+import { watchPageEdits } from "./pageEdits";
 
 export interface PageError extends Error {
   code: string;
@@ -125,29 +126,72 @@ export const KEEP_ALIVE_OP = "cmux.page.keepAlive";
  */
 export type PageKeepReason = "user_edits" | "form_interaction" | "before_unload" | "draft" | "capture";
 
+/** The reasons that say the page holds edits; `editsSaved()` ends them for every holder. */
+const EDIT_REASONS: readonly PageKeepReason[] = ["user_edits", "form_interaction"];
+
 /**
- * The page's keep reasons as it last told the host: `set` sends `cmux.page.keepAlive` only when a
- * reason starts or ends, so a store may call it on every state change (no IPC per keystroke). A
- * host without the op (an older app) answers `unknown_op`, which is ignored.
+ * The page's keep reasons as it last told the host, one per document (`pageKeepAliveFor`). Each part
+ * of the page that sets a reason holds it as its own `holder` (a store, a composer, the automatic
+ * edits of pageEdits.ts); the reason holds while one holder does. `set` sends `cmux.page.keepAlive`
+ * only when a reason starts or ends, so a holder may call it on every state change (no IPC per
+ * keystroke). A host without the op (an older app) answers `unknown_op`, which is ignored.
  */
 export class PageKeepAlive {
-  private readonly held = new Set<PageKeepReason>();
+  private readonly holders = new Map<PageKeepReason, Set<object>>();
 
   constructor(private readonly client: PageClient | null) {}
 
   /** Whether the page last said `reason` holds. */
   has(reason: PageKeepReason): boolean {
-    return this.held.has(reason);
+    return this.holders.has(reason);
   }
 
-  set(reason: PageKeepReason, on: boolean): void {
-    if (this.held.has(reason) === on) return;
-    if (on) this.held.add(reason);
-    else this.held.delete(reason);
+  /** `holder` (by default this object) holds `reason` from now on, or no longer does. */
+  set(reason: PageKeepReason, on: boolean, holder: object = this): void {
+    const holders = this.holders.get(reason);
+    if (on) {
+      if (holders) holders.add(holder);
+      else {
+        this.holders.set(reason, new Set([holder]));
+        this.send(reason, true);
+      }
+      return;
+    }
+    if (!holders?.delete(holder) || holders.size > 0) return;
+    this.end(reason);
+  }
+
+  /**
+   * The page's edits are saved (on disk, applied or sent): `user_edits` and `form_interaction` end
+   * for every holder, the automatic ones included. A `cmux.page.edits.saved` event the page
+   * dispatches (pageEdits.ts) ends them here too.
+   */
+  editsSaved(): void {
+    for (const reason of EDIT_REASONS) this.end(reason);
+  }
+
+  private end(reason: PageKeepReason): void {
+    if (this.holders.delete(reason)) this.send(reason, false);
+  }
+
+  private send(reason: PageKeepReason, on: boolean): void {
     this.client?.call<unknown>(KEEP_ALIVE_OP, { reason, on }).catch((error: unknown) => {
       if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op")) console.warn("cmux keepAlive", error);
     });
   }
+}
+
+const keepAlives = new WeakMap<PageClient, PageKeepAlive>();
+
+/** The one `PageKeepAlive` of `client`'s document; null gives one that sends nothing. */
+export function pageKeepAliveFor(client: PageClient | null): PageKeepAlive {
+  if (!client) return new PageKeepAlive(null);
+  let keep = keepAlives.get(client);
+  if (!keep) {
+    keep = new PageKeepAlive(client);
+    keepAlives.set(client, keep);
+  }
+  return keep;
 }
 
 /**
@@ -469,6 +513,9 @@ export function createPageClient(fallback?: () => PageClient): PageClient | null
     installNativeMenu((request) => client.call(NATIVE_MENU_OP, request));
     // The refactor oracle's page state, in developer builds only (protocol/oracle-state.ts).
     serveOracleState(client);
+    // Edits and form input keep the hidden page from being discarded, for every page with no page
+    // code (pageEdits.ts).
+    if (typeof document !== "undefined") watchPageEdits(document, window, pageKeepAliveFor(client));
     return client;
   }
   return fallback ? fallback() : null;

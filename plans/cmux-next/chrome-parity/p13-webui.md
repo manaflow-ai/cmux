@@ -1060,7 +1060,8 @@ selection; the domains call awaits the cached value. Acceptance: no font or dire
 (injected source asserts); same values. Test: SettingsPage filter; open bench Settings cold; debug.hangs 0.
 
 **077 Fork surface copy and native click.** Change: `cmux_shim_tab_copy_surface(browser, max_w, max_h, callback)`
-(CopyFromSurface, encode on the thread pool) and the API 29 native click for debug input. If PL-cef-layer's
+(CopyFromSurface, encode on the thread pool), `cmux_shim_tab_send_mouse_move(browser, x, y, modifiers)`
+(SendMouseMoveEvent with no button, for 078's debug hover) and the API 29 native click for debug input. If PL-cef-layer's
 `cmux_browser_capture` exists in the train, reuse it and add nothing. Acceptance: after a copy, the renderer has no
 DevTools agent and is still shareable. Test: fork browser test.
 
@@ -1069,17 +1070,34 @@ DevTools agent and is still shareable. Test: fork browser test.
 to tabEvaluate, copySurface or the native click; DevTools kept only for fork < 29. Acceptance: MQ3 only in the
 fallback branch; 0 devTools() calls for snapshot, menu copy, evaluate and debug click (fake). Test:
 PageWebViewChromiumTests, EngineNeutralTests; pages10 DevTools sessions 0 (train).
+As built: `PageChromiumPage` gains `copiesSurface`, `sendClick(at:)` and `copySelection()`; the three
+`Page.captureScreenshot` sites share `PageWebView.chromiumPictureData`, whose DevTools branch runs only when the page
+cannot copy its surface. The copy is `cmux_shim_tab_copy_surface` (optional export, fork API 38, answered by
+`CMUX_SHIM_REPLY`; webui-DESIGN.md "Binding"), so its fallback covers forks below 38, not only below 29. MQ3 went
+from 17 to 11 hits. Of 078's sites three stay, each in the fallback branch of a fork without the path: the picture
+fallback, the debug press fallback (below 29), and the debug hover's `mouseMoved` (below 38: the native move is
+`cmux_shim_tab_send_mouse_move`, a `post` optional export with `fork_api` 38 that 077's fork line adds). The other
+eight are 013's bridge and setup sites (5), 014's `devToolsEvaluate` fallback and the `.devTools` event case
+(declared and matched). The press and the hover report the path that ran in `delivered` (`native` or `devtools`).
+A surface copy keeps alpha, so `snapshotKeepsClearAreas` is true for a page that copies. Its answer stays base64 on
+the main actor and is decoded on the `.cpu` lane (the hide picture through `PageSnapshotEncoder.unpack`). Test:
+PageChromiumDevToolsFreeTests, PageChromiumWindowImageTests.aLargeSurfaceCopyIsDecodedOnTheCPULane,
+PageDiscardTests.theAppEncoderUnpacksASurfaceCopyOnTheCPULane, CEFRendererPathsTests
+(aTabOnForkAPI38CopiesItsSurfaceWithNoDevToolsCall, aForkBeforeTheSurfaceCopyAnswersNoPictureAtOnce,
+aTabMovesTheMouseNativelyFromForkAPI38, aPerformedScriptLeavesWithNoWaiter). The copy and the menu's Copy start no
+task: the copy's answer comes in a synchronous turn (`CEFSurfaceCopies`), and Copy is sent with no waiter
+(`CEFTab.perform`).
 
 **079 Push channel.** Files: fork include/cef_cmux.h, libcef/renderer/, ChromiumPageHostBridge.swift, pageClient.ts.
 Change: a fork export posts a string to the page's registered receiver; router batches and replies use it.
 Acceptance: 0 evaluate calls for deliveries; events queue until the receiver registers; code lands only with a
 gain beyond noise in renderer CPU per 1,000 events or p99 delivery at 10 Hz x 10 pages. Test: fork test, bridge
 suite, delivery bench with and without the flag.
-As built: fork API 38, manaflow-ai/cef `cp/p13-webui-079` (37353c1b, on `cp/p06-scheduler-212`; not built yet).
+As built: fork API 39, manaflow-ai/cef `cp/p13-webui-079` (37353c1b, on `cp/p06-scheduler-212`; not built yet). 077 took 38 first, so the fork line takes 39 in the train (086).
 `cmux_tab_page_push(browser, text, length)` sends over the main frame's `cef::mojom::RenderFrame` pipe, so pushes
 keep their order with the frame's scripts; the renderer defines `cmuxPageListen` only in the main world of a
 cmux-page main frame and keeps pushes until the receiver registers or a frozen page runs again. The shim export
-`cmux_shim_tab_page_push` is a host-mode post; `CEFForkFeatures.pagePush` needs it and API 38. Default-off feature
+`cmux_shim_tab_page_push` is a host-mode post; `CEFForkFeatures.pagePush` needs it and API 39. Default-off feature
 `pagePushChannel`: the bridge's FIFO (`ChromiumPageHostBridge`) carries scripts and pushes in order, a run of
 envelopes is its JSON array (`PageRouter.receiveManyData`) and a main-frame reply is `{"r":seq,"d":doc,"v":reply}` (`doc`: the sending document's token, since every
 document counts seq from 1; another document's receiver ignores the reply); the

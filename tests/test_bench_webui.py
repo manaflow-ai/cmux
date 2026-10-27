@@ -816,7 +816,7 @@ class PushTests(unittest.TestCase):
 
     def test_the_on_arm_counts_data_deliveries_and_no_scripts(self):
         clock = FakeClock()
-        app = PushApp(clock, form="data", fork_api=38)
+        app = PushApp(clock, form="data", fork_api=39)
         _, got = self.run_push(app, clock, features=("pagePushChannel",))
         pings = sum(1 for method, params in app.calls if method == "debug.page" and params.get("action") == "ping")
         self.assertEqual(pings, 2 * 10 * 10)  # 2 s at 10 Hz to ten pages
@@ -828,14 +828,14 @@ class PushTests(unittest.TestCase):
 
     def test_the_off_arm_scores_no_script_bound(self):
         clock = FakeClock()
-        _, got = self.run_push(PushApp(clock, form="script", fork_api=38), clock)
+        _, got = self.run_push(PushApp(clock, form="script", fork_api=39), clock)
         self.assertEqual(got["push.script_deliveries.off"]["status"], "info")
         self.assertGreater(got["push.script_deliveries.off"]["value"], 0)
         self.assertEqual(got["push.data_deliveries.off"]["value"], 0)
 
     def test_renderer_cpu_is_per_thousand_deliveries_of_page_renderers_only(self):
         clock = FakeClock()
-        app = PushApp(clock, form="data", fork_api=38)
+        app = PushApp(clock, form="data", fork_api=39)
         instance = FakeInstance(clock)
         renderer_pids = []
 
@@ -859,7 +859,7 @@ class PushTests(unittest.TestCase):
 
     def test_a_census_without_counts_leaves_the_delivery_rows_unscored(self):
         clock = FakeClock()
-        _, got = self.run_push(PushApp(clock, counts=False, form="data", fork_api=38), clock, features=("pagePushChannel",))
+        _, got = self.run_push(PushApp(clock, counts=False, form="data", fork_api=39), clock, features=("pagePushChannel",))
         self.assertEqual(got["push.script_deliveries.on"]["status"], "unscored")
 
     def test_the_run_turns_page_freezing_off(self):

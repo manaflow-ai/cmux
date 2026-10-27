@@ -45,7 +45,7 @@ Modes (each prints `WEBUI-ROW` lines, one per row, and writes OUT/webui-<mode>.j
             darwinbg) within --priority-wait s.
   delivery  D3's delivery rows alone: events and native pushes to frozen pages over --measure s while
             `debug.webui publish` drives one stream per page at 10 Hz and the appearance toggles every second.
-  push      Task 079's A/B (the page push channel, feature `pagePushChannel`, fork API 38): the ten pages open,
+  push      Task 079's A/B (the page push channel, feature `pagePushChannel`, fork API 39): the ten pages open,
             and over --measure s each gets --push-hz host calls a second (`debug.page ping`, answered
             `unknown_op`). Rows: the call's round trip (p50 to p99, the delivery into the page plus the same reply
             path in both arms), page renderer CPU per 1,000 deliveries, and the deliveries the census counted as
@@ -107,7 +107,7 @@ HIDDEN_WAKEUPS_PER_S = 0.2  # MQ5's bound for a hidden page's renderer and the G
 BACKGROUND_PRI = 4  # `ps -o pri` of a darwinbg task: Chrome backgrounds a hidden renderer so (base/process/process_mac.cc)
 GROUP_CAP = 3  # crash budget per group in 600 s (section 3.C)
 PUSH_FEATURE = "pagePushChannel"  # task 079's default-off feature
-PUSH_FORK_API = 38  # CEFForkFeatures.pagePushForkAPI
+PUSH_FORK_API = 39  # CEFForkFeatures.pagePushForkAPI
 LATENCY_STEP = 0.005  # s between polls of a timed wait (bench-pages.py polls at 10 ms); setup waits poll at 50 ms
 # s after a Cmd-W's start that count as its turn and frames for engine page closes; PageRetirer.delay (500 ms) is later.
 CLOSE_TURN_WINDOW = 0.25

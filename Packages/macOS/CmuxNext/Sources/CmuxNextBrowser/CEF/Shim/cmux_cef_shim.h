@@ -1283,7 +1283,7 @@ CMUX_SHIM_EXPORT int cmux_shim_ext_load_later_supported(void);
 // cmux_shim_initialize. Returns 1 when the load started, 0 for an
 // off-the-record key, an empty path or a fork without the call (no reply).
 CMUX_SHIM_EXPORT int cmux_shim_ext_load_command_line(const char* profile_cache_path, int reply, const char* path);
-// The page push channel (fork API 38, cmux_tab_page_push; p13-webui-079): `text` (UTF-8) to the
+// The page push channel (fork API 39, cmux_tab_page_push; p13-webui-079): `text` (UTF-8) to the
 // receiver the browser's cmux-page document registered with cmuxPageListen, as data: no script runs
 // for it and nothing answers. Pushes keep their order with each other and with the frame's scripts,
 // and the renderer keeps them until the receiver registers or a frozen page runs again. Returns 1
