@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextFocusUI
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextTerminal
@@ -117,11 +118,18 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
 
     /// What the click carried: Cmd-Option (`browserProfile.openLink` without a profile: the
     /// palette lists them; a plain Cmd-click uses the workspace's profile), Shift-Command (the
-    /// browser the link setting does not pick) and the clicked tab. Read now: the click is the
-    /// current event only during the delegate call.
+    /// browser the link setting does not pick) and the clicked tab. Read the event currently
+    /// being dispatched, rather than `NSApp.currentEvent`, which is the last event AppKit
+    /// dequeued and can be stale by the time Ghostty asks the delegate to open the link.
     private func linkRequest(_ session: TerminalSession) -> (option: Bool, other: Bool, tab: ActionTargetRef?) {
-        let flags = NSApp.currentEvent?.modifierFlags ?? []
+        let flags = Self.linkModifiers(for: services?.inputDispatch)
         return (flags.contains(.option), LinkRouter.isOtherTarget(flags), services.flatMap { target(of: session, in: $0) })
+    }
+
+    /// The modifiers for the terminal click being handled. Keeping this lookup separate makes
+    /// the stale-`NSApp.currentEvent` failure mode testable without opening a real browser.
+    static func linkModifiers(for inputDispatch: InputDispatchContext?) -> NSEvent.ModifierFlags {
+        inputDispatch?.event?.modifierFlags ?? []
     }
 
     /// Cmd-Option asks for cmux (a profile), so only the external rules and host list route it out;
