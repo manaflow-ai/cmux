@@ -356,6 +356,27 @@ export default agentPaneEntry({
     "ui/VirtualList.tsx#VirtualList",
   ],
   variants: withAllChats({
+    "start-refused": {
+      note: "A refused new chat keeps the typed prompt and SSH machine, with the host's reason inline.",
+      ready: newTab({ template: "minimal", pageWidgets: [] }),
+      snapshot: noChat([], { peers: ["devbox"], peerKinds: { devbox: "ssh" } }),
+      native: { "chat.new": { nativeError: { code: "agent.start_failed", userMessage: "devbox: agent unavailable" } } },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        await ctx.click({ selector: '.nt-location .acpmux-location-picker[data-kind="computer"] button' });
+        await ctx.click({ role: "menuitem", name: /devbox/ });
+        await ctx.type("Inspect the failed build and suggest a fix.", { selector: ".nt-field" });
+        await ctx.press("Enter");
+        await ctx.waitFor(() => galleryNativeCalls(ctx.document).some((call) => call.method === "chat.new"));
+        // Also ends on the unpatched base, so the comparison records its lost draft rather than
+        // waiting for a reason that the old action swallowed.
+        await ctx.waitFor(
+          () =>
+            !ctx.document.querySelector(".nt-field") ||
+            !!ctx.document.querySelector('[role="alert"]')?.textContent?.includes("agent unavailable"),
+        );
+      },
+    },
     empty: {
       note: "No chats yet. A harness is installed, so the chip names its model and nothing on the page offers Add harness.",
       ready: newTab(),

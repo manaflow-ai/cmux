@@ -18,7 +18,10 @@ const image: ComposerAttachment = {
 function actions() {
   const sent: [string, unknown][] = [];
   const screen = newTabScreenActions({
-    callNative: async (method, params) => void sent.push([method, params]),
+    callNative: async (method, params) => {
+      sent.push([method, params]);
+      return method === "chat.new" ? "session-1" : undefined;
+    },
     chatCwd: "/Users/you/src/app",
     leave: noop,
     selectSession: noop,
@@ -50,11 +53,11 @@ test("a prompt with no attachments sends only its text, and an empty one sends n
   expect(empty.sent.some(([method]) => method === "chat.send")).toBe(false);
 });
 
-test("keeps the New Tab visible until its folder is accepted", () => {
+test("keeps the New Tab visible until its folder and chat start are accepted", async () => {
   let leaves = 0;
   let acceptFolder: ((folder: string) => void) | undefined;
   const screen = newTabScreenActions({
-    callNative: async () => undefined,
+    callNative: async () => "session-1",
     cwd: "/Users/you/src/app",
     chatCwd: "/Users/you/src/app",
     leave: () => {
@@ -68,9 +71,11 @@ test("keeps the New Tab visible until its folder is accepted", () => {
     runShell: noop,
   });
 
-  screen.onAsk("claude", "start in the picked folder", "/Users/you/src/other");
+  const starting = screen.onAsk("claude", "start in the picked folder", "/Users/you/src/other");
   expect(leaves).toBe(0);
   expect(acceptFolder).toBeDefined();
   acceptFolder!("/Users/you/src/other");
+  expect(leaves).toBe(0);
+  await starting;
   expect(leaves).toBe(1);
 });

@@ -12,6 +12,7 @@ import { OnNewTab } from "../newTabComposer";
 import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel } from "../sessionList";
 import { WorktreeFailure } from "../startFolder";
+import { errorMessage } from "../transportErrors";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunModeRows } from "../sandboxRun";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
@@ -111,7 +112,7 @@ export type NewTabScreenActions = {
     noProject?: boolean,
     attachments?: ComposerAttachment[],
     saved?: { peer?: string },
-  ): void;
+  ): unknown;
   onOpen(url: string): void;
   onSearch(text: string): void;
   /// Enter in shell mode (`!` first): the page becomes a chat in its folder that runs `command`.
@@ -467,6 +468,27 @@ export function NewTabScreen(props: Props) {
   /// A Sandboxed send refused here (attachments, an agent a sandbox can't run): said over the box,
   /// and the prompt stays.
   const [sandboxRefusal, setSandboxRefusal] = useState<string>();
+  const [startError, setStartError] = useState<string>();
+  const asking = useRef(false);
+  const requestChat = (...args: Parameters<NewTabScreenActions["onAsk"]>) => {
+    if (asking.current) return;
+    asking.current = true;
+    setStartError(undefined);
+    const failed = (error: unknown) => {
+      setStartError(errorMessage(error) || t("switch.unknownError"));
+      created.current = false;
+    };
+    try {
+      Promise.resolve(props.onAsk(...args))
+        .catch(failed)
+        .finally(() => {
+          asking.current = false;
+        });
+    } catch (error) {
+      failed(error);
+      asking.current = false;
+    }
+  };
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
     if (props.runMode?.mode === "sandboxed" && props.onSandbox) {
@@ -476,7 +498,7 @@ export function NewTabScreen(props: Props) {
     }
     if (environment) return askInEnvironment(environment, agent, prompt, model);
     if (machine)
-      return props.onAsk(
+      return requestChat(
         agent,
         prompt,
         machine.folder,
@@ -487,8 +509,8 @@ export function NewTabScreen(props: Props) {
           peer: machine.peer,
         },
       );
-    if (attachments.length > 0) return props.onAsk(agent, prompt, cwd, model, none || undefined, attachments);
-    return none ? props.onAsk(agent, prompt, cwd, model, true) : props.onAsk(agent, prompt, cwd, model);
+    if (attachments.length > 0) return requestChat(agent, prompt, cwd, model, none || undefined, attachments);
+    return none ? requestChat(agent, prompt, cwd, model, true) : requestChat(agent, prompt, cwd, model);
   };
   // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
   const remembered = useLastPick(chatFolder);
@@ -1063,9 +1085,9 @@ export function NewTabScreen(props: Props) {
   function askInEnvironment(picked: SavedEnvironment, agent: string, prompt: string, model?: string) {
     const extra = attachments.length > 0 ? attachments : undefined;
     if (picked.kind === "ssh")
-      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, { peer: picked.host });
+      return requestChat(agent, prompt, picked.folder, model, undefined, extra, { peer: picked.host });
     if (!picked.worktree || !picked.folder || !props.onNewWorktree)
-      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, {});
+      return requestChat(agent, prompt, picked.folder, model, undefined, extra, {});
     if (worktreePending.current) return;
     worktreePending.current = true;
     setWorktreeError(undefined);
@@ -1078,7 +1100,7 @@ export function NewTabScreen(props: Props) {
       (folder) => {
         if (!folder) return unstarted();
         worktreePending.current = false;
-        props.onAsk(agent, prompt, folder, model, undefined, extra, {});
+        requestChat(agent, prompt, folder, model, undefined, extra, {});
       },
       (error: unknown) => {
         unstarted();
@@ -1326,6 +1348,11 @@ export function NewTabScreen(props: Props) {
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
           composer location strip; newtab/screen.css). */}
       <div ref={setComposer} className="nt-composer" data-composer-look={look === "codex" ? "codex" : undefined}>
+        {startError && (
+          <p role="alert" className="acpmux-switch-notice">
+            {startError}
+          </p>
+        )}
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
         {sandboxRefusal && props.runMode?.mode === "sandboxed" && (
           <output className="acpmux-switch-notice">
