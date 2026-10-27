@@ -25,6 +25,8 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock};
 
 use cmux_tui_cdp::{CDP_EVENT_QUEUE_CAPACITY, CdpEvent};
 
+use crate::panic_free::RecoverPoison;
+
 /// Threads in the process-wide lane pool. Two, so a handler that waits on a
 /// mux lock does not hold every surface's events behind it.
 pub(super) const EVENT_POOL_THREADS: usize = 2;
@@ -80,7 +82,7 @@ impl SurfaceRoute {
 
     /// Returns true when the route must be removed from the runtime maps.
     pub(super) fn deliver(self: &Arc<Self>, event: CdpEvent) -> bool {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state.closed || state.ended {
             return true;
         }
@@ -123,7 +125,7 @@ impl SurfaceRoute {
     }
 
     pub(super) fn close(self: &Arc<Self>, reason: String) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state.closed {
             return;
         }
@@ -135,8 +137,8 @@ impl SurfaceRoute {
     /// on the shared pool.
     pub(super) fn attach_handler(self: &Arc<Self>, handler: LaneHandler) -> anyhow::Result<()> {
         start_event_pool()?;
-        *self.handler.lock().unwrap() = Some(handler);
-        let mut state = self.state.lock().unwrap();
+        *self.handler.lock().recover_poison() = Some(handler);
+        let mut state = self.state.lock().recover_poison();
         state.has_handler = true;
         self.schedule_locked(&mut state);
         Ok(())
@@ -165,13 +167,13 @@ impl SurfaceRoute {
     /// One pool turn: serves up to [`EVENTS_PER_TURN`] events. Returns true
     /// when the lane has more and goes back in the ready queue.
     fn serve_turn(&self) -> bool {
-        let Some(mut handler) = self.handler.lock().unwrap().take() else {
-            self.state.lock().unwrap().scheduled = false;
+        let Some(mut handler) = self.handler.lock().recover_poison().take() else {
+            self.state.lock().recover_poison().scheduled = false;
             return false;
         };
         for _ in 0..EVENTS_PER_TURN {
             let event = {
-                let mut state = self.state.lock().unwrap();
+                let mut state = self.state.lock().recover_poison();
                 match self.pop_event(&mut state) {
                     Some(event) => event,
                     None => {
@@ -183,7 +185,7 @@ impl SurfaceRoute {
                         } else {
                             // Back before the state unlocks: the next
                             // delivery schedules a lane that has its handler.
-                            *self.handler.lock().unwrap() = Some(handler);
+                            *self.handler.lock().recover_poison() = Some(handler);
                         }
                         return false;
                     }
@@ -193,7 +195,7 @@ impl SurfaceRoute {
             record_serving_thread();
             let flow = catch_unwind(AssertUnwindSafe(|| handler(event))).unwrap_or(LaneFlow::End);
             if flow == LaneFlow::End {
-                let mut state = self.state.lock().unwrap();
+                let mut state = self.state.lock().recover_poison();
                 state.scheduled = false;
                 self.end_locked(&mut state);
                 drop(state);
@@ -201,8 +203,8 @@ impl SurfaceRoute {
                 return false;
             }
         }
-        let mut state = self.state.lock().unwrap();
-        *self.handler.lock().unwrap() = Some(handler);
+        let mut state = self.state.lock().recover_poison();
+        *self.handler.lock().recover_poison() = Some(handler);
         if state.events.is_empty() {
             state.scheduled = false;
             false
@@ -222,12 +224,12 @@ impl SurfaceRoute {
 
     #[cfg(test)]
     pub(super) fn is_closed(&self) -> bool {
-        self.state.lock().unwrap().closed
+        self.state.lock().recover_poison().closed
     }
 
     #[cfg(test)]
     pub(super) fn try_recv(&self) -> Option<CdpEvent> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         self.pop_event(&mut state)
     }
 
@@ -235,7 +237,7 @@ impl SurfaceRoute {
     /// the lane itself); `None` once it is closed and drained.
     #[cfg(test)]
     pub(super) fn recv(&self) -> Option<CdpEvent> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         debug_assert!(!state.has_handler, "recv reads only a lane no handler serves");
         loop {
             if let Some(event) = self.pop_event(&mut state) {
@@ -244,16 +246,16 @@ impl SurfaceRoute {
             if state.closed {
                 return None;
             }
-            state = self.changed.wait(state).unwrap();
+            state = self.changed.wait(state).recover_poison();
         }
     }
 
     /// Waits until the lane's handler ended (a test observes a whole lane).
     #[cfg(test)]
     pub(super) fn wait_ended(&self, timeout: std::time::Duration) -> bool {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         let (state, _) =
-            self.changed.wait_timeout_while(state, timeout, |state| !state.ended).unwrap();
+            self.changed.wait_timeout_while(state, timeout, |state| !state.ended).recover_poison();
         state.ended
     }
 }
@@ -284,19 +286,19 @@ static EVENT_POOL_STARTED: OnceLock<Result<(), String>> = OnceLock::new();
 
 impl EventPool {
     fn push(&self, route: Arc<SurfaceRoute>) {
-        self.ready.lock().unwrap().push_back(route);
+        self.ready.lock().recover_poison().push_back(route);
         self.wake.notify_one();
     }
 
     fn run(&self) {
         loop {
             let route = {
-                let mut ready = self.ready.lock().unwrap();
+                let mut ready = self.ready.lock().recover_poison();
                 loop {
                     if let Some(route) = ready.pop_front() {
                         break route;
                     }
-                    ready = self.wake.wait(ready).unwrap();
+                    ready = self.wake.wait(ready).recover_poison();
                 }
             };
             if route.serve_turn() {
@@ -329,11 +331,11 @@ static SERVING_THREADS: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 #[cfg(test)]
 fn record_serving_thread() {
     let name = std::thread::current().name().unwrap_or("<unnamed>").to_string();
-    SERVING_THREADS.lock().unwrap().get_or_insert_with(HashSet::new).insert(name);
+    SERVING_THREADS.lock().recover_poison().get_or_insert_with(HashSet::new).insert(name);
 }
 
 /// Names of every thread that ran a lane handler in this test process.
 #[cfg(test)]
 pub(super) fn serving_threads() -> HashSet<String> {
-    SERVING_THREADS.lock().unwrap().clone().unwrap_or_default()
+    SERVING_THREADS.lock().recover_poison().clone().unwrap_or_default()
 }

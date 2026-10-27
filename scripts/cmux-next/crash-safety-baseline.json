@@ -38,7 +38,7 @@
    "cmux-remote": 4,
    "cmux-terminal-client": 30,
    "cmux-tui": 429,
-   "cmux-tui-core": 1149,
+   "cmux-tui-core": 1143,
    "cmux-tui-image-paste": 22,
    "cmux-tui-platform": 17,
    "cmux-tui-remote-access": 5,
