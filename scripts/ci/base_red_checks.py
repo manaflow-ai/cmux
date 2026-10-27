@@ -16,6 +16,8 @@ import urllib.parse
 import urllib.request
 
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+# The job-logs endpoint starts every line with its time, "2026-10-27T22:43:14.6689782Z ".
+STAMP = re.compile(r"^\d{4}-\d\d-\d\dT[0-9:.]+Z ")
 RED_LINE = re.compile(r"^- (.+?) \((?:failure|cancelled|timed_out|not run)\)$")
 JOB_ID = re.compile(r"/job/(\d+)(?:$|[/?#])")
 CHECKS_JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
@@ -24,10 +26,22 @@ CHECKS_JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
 def failed_names(text: str) -> set[str]:
     out = set()
     for line in ANSI.sub("", text).splitlines():
-        match = RED_LINE.match(line.strip())
+        match = RED_LINE.match(STAMP.sub("", line).strip())
         if match:
             out.add(match.group(1))
     return out
+
+
+class DropAuthOnRedirect(urllib.request.HTTPRedirectHandler):
+    # The job-logs endpoint answers 302 to a signed blob URL on another host.
+    # urllib carries the Authorization header along, and the blob store refuses
+    # the request with 401 (push run 40596227506), so a token never leaves the
+    # API host.
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None and urllib.parse.urlsplit(newurl).netloc != urllib.parse.urlsplit(req.full_url).netloc:
+            new.remove_header("Authorization")
+        return new
 
 
 def api(base: str, token: str, path: str):
@@ -36,7 +50,7 @@ def api(base: str, token: str, path: str):
         headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
                  "X-GitHub-Api-Version": "2022-11-28"},
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
+    with urllib.request.build_opener(DropAuthOnRedirect).open(request, timeout=30) as response:
         return response.read()
 
 
