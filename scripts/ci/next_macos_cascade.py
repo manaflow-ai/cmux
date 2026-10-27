@@ -243,6 +243,10 @@ class Seen:
     waits: Mapping[str, float]
     hosted: int
     age: float = 0.0  # the snapshot's age in minutes, already in `waits`
+    # Each label's queued freshness work: the janitor's `reserved_queued`, the jobs of nightly.yml and
+    # release.yml runs (queue_janitor.RESERVED_POOL_WORKFLOW) queued for it. No PR job takes a label's
+    # slot while it is above 0 (place()).
+    reserved: Mapping[str, int] = dataclasses.field(default_factory=dict)
 
 
 def _fresh(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> tuple[float, Mapping[str, Any]] | None:
@@ -293,7 +297,8 @@ def seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
     # macOS labels joined with commas, so a hosted pool is one whose labels are all macos-*.
     hosted = sum(_field(pools, pool, "queued") + _field(pools, pool, "running") for pool in pools
                  if all(part.startswith("macos-") for part in str(pool).split(",")))
-    return Seen(waits=waits, hosted=hosted, age=age)
+    reserved = {label: _field(pools, label, "reserved_queued") for label in LABELS}
+    return Seen(waits=waits, hosted=hosted, age=age, reserved={k: v for k, v in reserved.items() if v})
 
 
 def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[str, float],
@@ -307,11 +312,12 @@ def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[
 
 
 def cascade(jobs: Sequence[str], live: Mapping[str, int], waiting: Mapping[str, int], *,
-            stall: Sequence[str] = (), hosted_free: int = 0,
+            stall: Sequence[str] = (), hosted_free: int = 0, reserved: Sequence[str] = (),
             fresh: Sequence[str] = ()) -> dict[str, tuple[str, ...]]:
     """Give `jobs`, in order, the free slots of LARGE, then SMALL (unless stalled), then HOSTED for HOSTED_JOBS.
 
     A Blacksmith slot is free while its label is under CAPACITY and the shared pool fits the job (fits()).
+    A `reserved` label (freshness work queued for it) gives its slots only to `fresh` jobs.
     """
     free = {label: 0 if label in stall else CAPACITY[label] - live.get(label, 0) - waiting.get(label, 0)
             for label in LABELS}
@@ -321,7 +327,8 @@ def cascade(jobs: Sequence[str], live: Mapping[str, int], waiting: Mapping[str, 
     for job in jobs:
         targets = (*LABELS, HOSTED) if job in HOSTED_JOBS or job in fresh and job in HOSTED_FRESH_JOBS else LABELS
         label = next((label for label in targets
-                      if free[label] > 0 and (label == HOSTED or fits(label, room, queue))), None)
+                      if free[label] > 0 and (label == HOSTED or fits(label, room, queue))
+                      and (label not in reserved or job in fresh)), None)
         if label is None:
             continue
         placed[label].append(job)
@@ -410,18 +417,27 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     # 40298786351: fast-tier and the scheme compile took 6 vCPU's two). Every side job takes the same
     # label and races for its idle minis, so the count of jobs those minis take is all that is known:
     # it is spent on the run's other jobs first, and a FIRST_JOBS job has a slot whenever one is free.
-    first = set((env.get("FIRST_JOBS") or "").split())
+    # FRESH_JOBS (the compiles a feed's freshness waits on: a DEV daily's Release compile) lead the same way.
+    # Across runs they need no reservation: a slot is free only while its label is under CAPACITY counting
+    # its queued jobs too (cascade()), so a freshness compile already queued for a Blacksmith label holds
+    # its place, and no PR compile placed later takes a slot ahead of it.
+    first = set((env.get("FIRST_JOBS") or "").split()) | set((env.get("FRESH_JOBS") or "").split())
     rest = [job for job in side if job not in first]
     leading = [job for job in side if job in first]
     candidates = ((promoted if promote_busy else []) + leading[max(0, len(owned) - len(rest)):]
                   + rest[len(owned):])
     hosted_free = HOSTED_CAPACITY - seen.hosted if seen is not None else 0
-    placed = cascade(candidates, live, waiting, stall=stall, hosted_free=hosted_free,
-                     fresh=tuple((env.get("FRESH_JOBS") or "").split()))
+    # Freshness first across runs too: while a nightly's build or signing job is queued for a Blacksmith
+    # label (2026-10-26: nightly-next's build-sign-notarize-nightly from 19:38Z behind 68 PR jobs on
+    # blacksmith-6vcpu-macos-26), no PR job of this run takes a slot there, and neither does its overflow.
+    reserved = tuple(label for label in LABELS if seen is not None and seen.reserved.get(label, 0) > 0)
+    fresh = tuple((env.get("FRESH_JOBS") or "").split())
+    placed = cascade(candidates, live, waiting, stall=stall, hosted_free=hosted_free, reserved=reserved,
+                     fresh=fresh)
     # The overflow label counts the slots this run's own jobs just took: they fit, so they start, and hold
     # the pool's vCPUs as jobs in flight do.
     retry = retry_label({**live, **{label: live.get(label, 0) + len(placed.get(label, ())) for label in LABELS}},
-                        waiting, stall)
+                        waiting, (*stall, *reserved))
     # A re-run's jobs that no Blacksmith label listed take the overflow label before the owned side label
     # (cmux-next.yml's runs-on), so while an idle mini would take one of them the overflow stays owned.
     rerun_owned = bot_rerun(env) and len(owned) > 0
@@ -441,6 +457,9 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     why = f"Blacksmith: {load}; {pool_text}. " + (moved or "No free Blacksmith slot")
     if seen is not None:
         why += f"; `{HOSTED}` had {seen.hosted} of {HOSTED_CAPACITY} jobs"
+    if reserved:
+        why += (f"; freshness work is queued for {', '.join(f'`{label}`' for label in reserved)}, "
+                "so only a feed's compile takes it")
     if left:
         why += f"; {', '.join(left)} stay queued on the owned label"
     if bot_rerun(env):
