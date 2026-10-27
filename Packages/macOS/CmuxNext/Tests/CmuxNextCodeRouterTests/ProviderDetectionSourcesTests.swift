@@ -95,6 +95,8 @@ struct ProviderDetectionSourcesTests {
 
     @Test(arguments: ["", "short", "contains\nnewline"])
     func malformedAPIKeyIsUnknownBeforeTheFirstPrompt(key: String) {
+        // An empty environment value is still a configured source: it must be
+        // reported as malformed, rather than disappearing as "missing".
         let detection = Self.detector(env: ["OPENAI_API_KEY": key]).detectLocal(.openAI)
         #expect(detection.status == .unknown)
         #expect(detection.sources == [.environment("OPENAI_API_KEY")])
