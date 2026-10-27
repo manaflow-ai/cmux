@@ -5,7 +5,7 @@
 // page test runs both on every subject of a real span and compares.
 
 /** Conventional types that never reach a person. */
-const INTERNAL_TYPES = new Set([
+export const INTERNAL_TYPES = new Set([
   "ci",
   "test",
   "tests",
@@ -23,8 +23,10 @@ const INTERNAL_TYPES = new Set([
   "bench",
   "gallery",
 ]);
-/** Scopes of fix/feat commits that are about the pipeline or plumbing, not the app. */
-const INTERNAL_SCOPES = new Set([
+/** Scopes of fix/feat commits that are about the pipeline or plumbing, not the app; the release
+    notes and the feed too (nightly 4037632091801 read "Fixed: validate release headings within their
+    day", #25533). */
+export const INTERNAL_SCOPES = new Set([
   "ci",
   "nightly",
   "fleet",
@@ -53,17 +55,20 @@ const INTERNAL_SCOPES = new Set([
   "deps",
   "cmux-git",
   "cmux-tui-core",
+  "release-notes",
+  "appcast",
 ]);
 /** Subject words that mark internal work even without a type. */
-const INTERNAL_WORDS = new RegExp(
+export const INTERNAL_WORDS = new RegExp(
   String.raw`\b(red|unit tests?|tests?|godfile|crash ratchet|baseline|index_subscript|int_conversion|lint|repin|re-pin|pin|` +
-    String.raw`canary|fleet|review findings|move-only|ci|testbox|bisect|fixture|snapshot tests?|tree key|r2|ffi pin|budget|` +
+    String.raw`canary|fleet|review findings|move-only|ci|testbox|bisect|fixtures?|snapshot tests?|tree key|r2|ffi pin|budget|` +
     String.raw`isolated|wiring|socket|daemon|capabilit\w*|struct|type|owner|protocol|schema|sdk|refactor|smoke|acpmux|optchat-chief|` +
     String.raw`e2e|gallery|release notes?|publish\w*|pipeline|workflow|telemetry|crash reporting|exception reporting|benchmark|` +
     String.raw`frame budget|osc \d+|terminal host|seed|record\w*|nightly|headless|ffi|rust|regenerate|decode|renderer|texture|` +
     String.raw`machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|` +
     String.raw`boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|` +
-    String.raw`consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?|byte limit)\b`,
+    String.raw`consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?|byte limit|` +
+    String.raw`fits the validator|validates? release headings|release[- ]notary|notes check)\b`,
   "i",
 );
 /** Product names whose casing is not code ("MacOS": a title capitalized before LEADING_BRAND). */
