@@ -1761,8 +1761,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // consumers: CmuxNextSettings depends on CmuxNextDesign, which subscribes to the tap).
         .target(
             name: "CmuxNextInputDiagnostics",
-            // Wakeups: the input-turn hop recorder (MainJobGateDiagnostics) answers action `hops`.
-            dependencies: ["CmuxNextInput", "CmuxNextInputCore", "CmuxNextControl", "CmuxNextSettings", "CmuxNextWakeups"],
+            // Wakeups: the input-turn hop recorder (MainJobGateDiagnostics) answers action `hops`. Compat: the
+            // dirty-view recorder's run-loop observers and stack resolver (action `dirty`).
+            dependencies: ["CmuxNextCompat", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextControl", "CmuxNextSettings",
+                           "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
