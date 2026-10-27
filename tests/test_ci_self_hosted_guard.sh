@@ -1220,10 +1220,12 @@ check_tmux_terminal_nightly_isolation() {
 }
 
 check_no_github_hosted_runners() {
-  # Nightly workflows (*nightly*.yml, *notarization*.yml) may name these
-  # GitHub-hosted images: they never route to Blacksmith (user decision
-  # 2026-10-19, tests/test_ci_nightly_off_blacksmith.py).
-  local nightly_hosted="(^|[^A-Za-z0-9_-])'?(ubuntu-24[.]04(-arm)?|macos-(15|26)|windows-2025)'?([^A-Za-z0-9_.-]|$)"
+  # Nightly workflows (*nightly*.yml, *notarization*.yml) may still name these
+  # GitHub-hosted Linux and Windows images. Never a GitHub-hosted Mac: nightly
+  # macOS jobs take the owned minis or Blacksmith (Leo, 2026-10-27: "THE GITHUB
+  # HOSTED MACS / ARE THE SLOWEST THINGS / THEY PREVIOUSLY WREN'T EVEN UNDER
+  # CONSIDERATINO").
+  local nightly_hosted="(^|[^A-Za-z0-9_-])'?(ubuntu-24[.]04(-arm)?|windows-2025)'?([^A-Za-z0-9_.-]|$)"
   # A GitHub billing block or a GitHub-hosted outage must never stop CI, so no
   # job in manaflow-ai may select a GitHub-hosted runner (ubuntu-*, macos-*,
   # windows-*). Jobs run on Blacksmith labels, the CI_TRUSTED_RUNNER selector
@@ -1264,9 +1266,6 @@ check_no_github_hosted_runners() {
     # Registry provenance and trusted publishing accept only GitHub-hosted runners.
     "coderouter-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a GitHub-hosted runner"
     "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
-    # Dispatch-only Intel compatibility leg; Blacksmith has no Intel macOS image.
-    # GitHub retired macos-14, so it is no longer an exception (#17068).
-    "ci-macos-compat.yml:          - os: macos-15-intel"
   )
   local probe
   for probe in 'runs-on: ubuntu-24.04' 'runs-on: ubuntu-latest # github-hosted-required: x' \
@@ -1289,14 +1288,21 @@ check_no_github_hosted_runners() {
     fi
   done
 
+  # A nightly workflow may not name a GitHub-hosted Mac, not even as a fallback.
+  for probe in 'runs-on: macos-26' "runs-on: \${{ vars.X || 'macos-15' }}"; do
+    if ! printf '%s\n' "$probe" | sed -E "s/$nightly_hosted//g; s/$fork_branch//g" | grep -Eq "$hosted"; then
+      echo "FAIL: GitHub-hosted runner guard self-test let a nightly workflow keep a GitHub-hosted Mac: $probe"
+      exit 1
+    fi
+  done
+
   local line file content stripped exception allowed failed=0
   while IFS= read -r line; do
     file="${line%%:*}"
     content="${line#*:*:}"
     [[ "$content" =~ ^[[:space:]]*# ]] && continue
-    # Nightly workflows never run on Blacksmith (user decision 2026-10-19,
-    # tests/test_ci_nightly_off_blacksmith.py): compiles stay on the trusted
-    # minis, everything else takes an ephemeral GitHub-hosted image.
+    # Nightly workflows may name hosted Linux and Windows images; their macOS
+    # jobs take the trusted minis or Blacksmith (tests/test_ci_nightly_off_blacksmith.py).
     if [[ "$(basename "$file")" == *nightly*.yml || "$(basename "$file")" == *notarization*.yml ]]; then
       content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
     fi
@@ -2051,11 +2057,9 @@ check_background_macos_lane() {
   # branch and the exact compatibility-leg exceptions below.
   local lane_expr="vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15'"
   local hosted_mac='(^|[^A-Za-z0-9_-])macos-(latest|[0-9]+)(-(intel|large|xlarge|arm64))?([^A-Za-z0-9_-]|$)'
-  # The Intel compatibility leg needs a hosted image that no paid provider
-  # offers. Exact lines only. macos-14 is retired (#17068).
-  local -a hosted_exceptions=(
-    "ci-macos-compat.yml:          - os: macos-15-intel"
-  )
+  # No exceptions: no job runs on a GitHub-hosted Mac
+  # (tests/test_ci_no_github_hosted_macos.py). Exact lines only if one returns.
+  local -a hosted_exceptions=()
   local failed=0 probe
 
   # Self-test: bare or other-variable hosted labels are caught; the lane
@@ -2090,7 +2094,7 @@ check_background_macos_lane() {
     [[ "$rel" == *nightly*.yml || "$rel" == *notarization*.yml ]] && continue
     printf '%s\n' "$content" | strip_background_lane_expr | grep -Eq "$hosted_mac" || continue
     allowed=0
-    for exception in "${hosted_exceptions[@]}"; do
+    for exception in ${hosted_exceptions[@]+"${hosted_exceptions[@]}"}; do
       if [[ "$rel:$content" == "$exception" ]]; then allowed=1; break; fi
     done
     [[ "$allowed" -eq 1 ]] && continue

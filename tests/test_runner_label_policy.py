@@ -108,10 +108,12 @@ class ApprovedLabelsPass(unittest.TestCase):
             "blacksmith-4vcpu-ubuntu-2404",
             "warp-macos-15-arm64-6x",
             "ubuntu-24.04-arm",
-            "macos-15",
         ):
             with self.subTest(label=label):
                 self.assertIsNone(forbidden_reason(label))
+        # A GitHub-hosted Mac is never a runner variable's value
+        # (tests/test_ci_no_github_hosted_macos.py).
+        self.assertIsNotNone(forbidden_reason("macos-15"))
 
     def test_an_unset_variable_is_not_drift(self) -> None:
         self.assertIsNone(forbidden_reason(""))
