@@ -7,8 +7,9 @@ import Testing
 /// `/api/vm` replies as every response type, the API Worker's `{ok, value}` replies (owner routes and hands),
 /// the user wire's hand frames, the link helpers' JSON lines, the app server's link events and connect
 /// answers, install token claims and the move retries kept in defaults. Garbage, truncated and deeply nested
-/// input. Chrome fuzzes the same kind of boundary where its browser reads a service's JSON
-/// (services/data_decoder/public/cpp/json_sanitizer_fuzzer.cc, base/json/json_reader_fuzzer.cc).
+/// input (`deepNestingIsRefusedOrParsed`: up to 2,000 levels in each walked field). Chrome fuzzes the same kind
+/// of boundary where its browser reads a service's JSON (services/data_decoder/public/cpp/json_sanitizer_fuzzer.cc,
+/// base/json/json_reader_fuzzer.cc).
 ///
 /// The properties:
 /// - no reply traps, whatever JSON type a field or the whole `value` has;
@@ -92,6 +93,21 @@ struct CloudReplyFuzzTests {
         let mutator = FuzzMutator(dictionary: CloudReplyFuzzCases.jsonTokens, maximumEdits: 6, maximumCount: 1 << 14)
         try run.forEachInput(try run.corpus(seeds: CloudReplyFuzzCases.workerSeeds), mutator: mutator) { data in
             for status in CloudReplyFuzzCases.statuses { try CloudReplyFuzzCases.workerReply(data, status: status) }
+        }
+    }
+
+    /// Nesting at and past the JSON parsers' bound in every field a decoder walks (machines, capabilities,
+    /// entries, the Worker `value`, an approval's argv and paths, link events): refused or parsed by each
+    /// property, never a stack overflow or a trap.
+    @Test(.timeLimit(.minutes(CloudReplyFuzzTests.timeLimitMinutes)), arguments: [1, 64, 255, 256, 511, 512, 513, 2_000])
+    func deepNestingIsRefusedOrParsed(depth: Int) throws {
+        for data in CloudReplyFuzzCases.deepReplies(depth: depth) {
+            for status in CloudReplyFuzzCases.statuses {
+                try CloudReplyFuzzCases.apiReply(data, status: status)
+                try CloudReplyFuzzCases.workerReply(data, status: status)
+            }
+            try CloudReplyFuzzCases.handFrame(data)
+            try CloudReplyFuzzCases.linkLine(data)
         }
     }
 
@@ -251,6 +267,45 @@ enum CloudReplyFuzzCases {
         }
         record.noise(&rng)
         return rng.oneIn(10) ? FuzzJSON.random(&rng, depth: 2) : record.json
+    }
+
+    /// `inner` inside `depth` arrays.
+    static func nestedArrays(_ depth: Int, _ inner: String = "0") -> String {
+        String(repeating: "[", count: depth) + inner + String(repeating: "]", count: depth)
+    }
+
+    /// `inner` inside `depth` objects, each with one key `x`.
+    static func nestedObjects(_ depth: Int, _ inner: String = "0") -> String {
+        String(repeating: #"{"x":"#, count: depth) + inner + String(repeating: "}", count: depth)
+    }
+
+    /// Replies whose walked fields are nested `depth` deep, alone and mixed (an array of objects of arrays).
+    static func deepReplies(depth: Int) -> [Data] {
+        let arrays = nestedArrays(depth)
+        let objects = nestedObjects(depth)
+        var mixed = "0"
+        for level in 0..<depth { mixed = level.isMultiple(of: 2) ? "[\(mixed)]" : #"{"x":\#(mixed)}"# }
+        let hand = "hand_abcdefghijklmnopqrst"
+        let approval = "0123abcd-0123-abcd-0123-0123456789ab"
+        let texts = [
+            arrays, objects, mixed,
+            #"{"vms":\#(arrays),"limits":\#(objects)}"#,
+            #"{"vms":[{"id":"vm_a","capabilities":\#(arrays),"address":\#(objects),"size":\#(mixed)}]}"#,
+            #"{"id":"vm_a","status":"running","capabilities":\#(objects),"size":\#(arrays)}"#,
+            #"{"entries":\#(arrays)}"#, #"{"rules":[\#(mixed)]}"#, #"[{"hand":"\#(hand)","name":\#(arrays)}]"#,
+            #"{"error":\#(objects),"message":"m","ui":\#(objects)}"#,
+            #"{"ok":true,"value":\#(arrays)}"#, #"{"ok":true,"value":\#(objects)}"#,
+            #"{"ok":true,"value":{"personInstance":\#(mixed)}}"#, #"{"ok":true,"value":[{"hand":"\#(hand)","online":\#(arrays)}]}"#,
+            #"{"ok":false,"error":{"code":\#(objects),"message":"m"}}"#,
+            #"{"t":"hand-approval-pending","hand":"\#(hand)","id":"\#(approval)","at":1,"summary":{"action":"exec","argv":\#(arrays)}}"#,
+            #"{"t":"hand-approval-pending","hand":"\#(hand)","id":"\#(approval)","summary":{"paths":[\#(mixed)]}}"#,
+            #"{"t":"hand-approval-pending","hand":"\#(hand)","id":"\#(approval)","summary":\#(objects)}"#,
+            #"{"t":"snapshot","hands":\#(arrays)}"#,
+            #"{"event":"hub-ready","socket":"/tmp/cmux/hub.sock","routes":\#(arrays)}"#,
+            #"{"event":"connection-snapshot","local_socket":"/tmp/l.sock","connection":\#(objects)}"#,
+            #"{"app":"cmux/cloud","name":"cmux.cloud.link.changed","data":{"machine":"vm_a","state":"up","reason":\#(mixed)}}"#,
+        ]
+        return texts.map { Data($0.utf8) }
     }
 
     // MARK: Properties

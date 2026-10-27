@@ -7,7 +7,8 @@ import Testing
 /// Seeded fuzz of what the update feeds send (plans/cmux-next/chrome-parity/p10-stability.md, task 180): the
 /// Sparkle appcast, the signed web update pointer and its key file, What's New documents, release notes, the
 /// announcements feed, the pulled-build list, and the small JSON the updater reads from the CLI. Garbage,
-/// truncated and deeply nested input. Chrome fuzzes its update client's parsers the same way
+/// truncated and deeply nested input (`hostileAppcastsAreBounded` for XML, `deepJSONNestingIsRefusedOrDecoded`
+/// for JSON: up to 2,000 levels in each walked field). Chrome fuzzes its update client's parsers the same way
 /// (components/update_client/protocol_parser_json_fuzzer.cc) and checks the signature before it reads a
 /// field (components/update_client/update_checker.cc, CUP).
 ///
@@ -114,6 +115,23 @@ struct AppcastFuzzTests {
         let signer = try AppcastFuzzCases.Signer()
         try FuzzRun("Appcast.payload", seed: 0xA9C0_0180_0006, iterations: 4_000).forEach { rng in
             try AppcastFuzzCases.signedPayload(&rng, signer: signer)
+        }
+    }
+
+    /// Nesting at and past the JSON parsers' bound in every field the JSON decoders walk (What's New entries and
+    /// media, release notes, announcements, the pulled list, keys, a pointer envelope and a signed payload):
+    /// refused or decoded by each property, never a stack overflow or a trap.
+    @Test(.timeLimit(.minutes(AppcastFuzzTests.timeLimitMinutes)), arguments: [1, 64, 255, 256, 511, 512, 513, 2_000])
+    func deepJSONNestingIsRefusedOrDecoded(depth: Int) throws {
+        let signer = try AppcastFuzzCases.Signer()
+        for data in AppcastFuzzCases.deepDocuments(depth: depth) {
+            try AppcastFuzzCases.whatsNew(data)
+            try AppcastFuzzCases.feedJSON(data)
+            try AppcastFuzzCases.envelope(data, signer: signer)
+        }
+        for payload in AppcastFuzzCases.deepPayloads(depth: depth) {
+            let pointer = signer.pointer(try signer.envelope(bytes: payload))
+            try FuzzRun.check(pointer == nil, "a signed payload nested \(depth) deep was taken: \(String(describing: pointer))")
         }
     }
 
@@ -235,7 +253,11 @@ enum AppcastFuzzCases {
 
         /// An envelope around `payload`, signed by the trusted key.
         func envelope(_ payload: FuzzJSON) throws -> Data {
-            let bytes = try payload.data()
+            try envelope(bytes: try payload.data())
+        }
+
+        /// An envelope around the payload bytes `bytes`, signed by the trusted key.
+        func envelope(bytes: Data) throws -> Data {
             let signature = try key.signature(for: bytes)
             return try FuzzJSON.object([
                 "schema": .int(1), "payload": .string(bytes.base64EncodedString()),
@@ -264,6 +286,47 @@ enum AppcastFuzzCases {
             "outputs": .string(String(repeating: "ef", count: 32)), "abi": .int(3), "commit": .string(String(repeating: "a1", count: 20)),
             "committed_at": .int(1_760_000_000), "published_at": .int(1_760_000_100),
         ])
+    }
+
+    /// A JSON value nested `depth` deep: in arrays, in objects keyed `x`, and in both by turns.
+    static func deepValues(depth: Int) -> [String] {
+        var mixed = "0"
+        for level in 0..<depth { mixed = level.isMultiple(of: 2) ? "[\(mixed)]" : #"{"x":\#(mixed)}"# }
+        return [
+            String(repeating: "[", count: depth) + "0" + String(repeating: "]", count: depth),
+            String(repeating: #"{"x":"#, count: depth) + "0" + String(repeating: "}", count: depth),
+            mixed,
+        ]
+    }
+
+    /// Feed and CLI documents whose walked fields hold a value nested `depth` deep, and the value alone.
+    static func deepDocuments(depth: Int) -> [Data] {
+        let texts = deepValues(depth: depth).flatMap { (value: String) -> [String] in
+            [
+                value,
+                #"{"schemaVersion":1,"version":"1.2.3","headline":\#(value),"entries":\#(value)}"#,
+                #"{"schemaVersion":1,"version":"1.2.3","entries":[{"id":"a","category":"new","title":\#(value),"summary":{"en":"S"},"platforms":\#(value),"audience":"all","media":\#(value),"tryIt":\#(value)}]}"#,
+                #"{"version":1,"build":"1","shortVersion":"1.2.3","highlights":\#(value),"changes":\#(value),"summary":[\#(value)]}"#,
+                #"{"builds":\#(value)}"#, #"{"items":[{"id":"a","title":\#(value),"startsAt":\#(value)}]}"#, "[\(value)]",
+                #"{"addresses":\#(value)}"#, #"{"keys":\#(value)}"#, #"{"active":\#(value),"previous":\#(value),"floor":1}"#,
+                #"{"fromVersion":"1.2.2","changelog":\#(value)}"#, #"{"daemon":\#(value),"journal":1}"#,
+                #"{"schema":1,"payload":"e30","signatures":\#(value)}"#,
+                #"{"schema":\#(value),"payload":\#(value),"signatures":[{"key_id":\#(value),"sig":"AA"}]}"#,
+            ]
+        }
+        return texts.map { Data($0.utf8) }
+    }
+
+    /// Payloads, to be signed by the trusted key, whose fields hold a value nested `depth` deep.
+    static func deepPayloads(depth: Int) -> [Data] {
+        let texts = deepValues(depth: depth).flatMap { (value: String) -> [String] in
+            [
+                value,
+                #"{"schema":1,"channel":\#(value),"key":"\#(String(repeating: "cd", count: 32))","size":123}"#,
+                #"{"schema":\#(value),"channel":"\#(channel)","archive":\#(value),"sha256":"\#(digest)","abi":\#(value)}"#,
+            ]
+        }
+        return texts.map { Data($0.utf8) }
     }
 
     // MARK: Properties

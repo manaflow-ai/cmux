@@ -6,9 +6,9 @@ import Testing
 /// Seeded fuzz of what reaches sign-in from outside (plans/cmux-next/chrome-parity/p10-stability.md, task 180):
 /// auth callback URLs (any scheme, host, query and `stack_access` cookie), the unverified claims of an access
 /// token (its lifetime for the debug log, its email for the approval dialog), the account deletion API's
-/// replies and the file token store's `credentials.json`. Garbage, truncated and deeply nested input. Chrome
-/// fuzzes the same entry points: its URL parser (url/url_parse_fuzzer.cc, gurl_fuzzer.cc) and its JSON reader
-/// (base/json/json_reader_fuzzer.cc).
+/// replies and the file token store's `credentials.json`. Garbage, truncated and deeply nested input
+/// (`deepNestingIsRefusedOrRead`: up to 2,000 levels in each field read). Chrome fuzzes the same entry points:
+/// its URL parser (url/url_parse_fuzzer.cc, gurl_fuzzer.cc) and its JSON reader (base/json/json_reader_fuzzer.cc).
 ///
 /// The properties:
 /// - no input traps;
@@ -83,6 +83,36 @@ struct AuthRuntimeFuzzTests {
         }
     }
 
+    /// Nesting at and past the JSON parsers' bound in every field the auth decoders read (token claims, the
+    /// deletion reply's flags and error, `credentials.json`'s tokens): refused or read by each property, never a
+    /// stack overflow or a trap.
+    @Test(.timeLimit(.minutes(AuthRuntimeFuzzTests.timeLimitMinutes)), arguments: [1, 64, 255, 256, 511, 512, 513, 2_000])
+    func deepNestingIsRefusedOrRead(depth: Int) async throws {
+        let deep = AuthRuntimeFuzzCases.deepValues(depth: depth)
+        for value in deep {
+            for claims in [value, #"{"exp":1700003600,"iat":\#(value),"email":\#(value)}"#, #"{"exp":\#(value),"iat":0}"#] {
+                let token = AuthRuntimeFuzzCases.jwtText(claims)
+                try AuthRuntimeFuzzCases.token(token, claims: nil)
+                try AuthRuntimeFuzzCases.callback("cmux://auth-callback?stack_refresh=r&stack_access=" + token)
+            }
+            let bodies = [value, #"{"ok":true,"deletionPending":\#(value)}"#, #"{"ok":true,"cleanupIncomplete":\#(value)}"#,
+                          #"{"error":\#(value)}"#]
+            // 200, 202, 401 and 500, little endian, as `deletion` reads the status.
+            let statuses: [[UInt8]] = [[200, 0], [202, 0], [0x91, 1], [0xF4, 1]]
+            for status in statuses {
+                for body in bodies { try await AuthRuntimeFuzzCases.deletion(Data(status + Array(body.utf8))) }
+            }
+        }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("auth-deep-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        for value in deep {
+            for file in [value, #"{"accessToken":\#(value),"refreshToken":"r"}"#, #"{"accessToken":"a","refreshToken":\#(value)}"#] {
+                try await AuthRuntimeFuzzCases.credentials(Data(file.utf8), in: folder)
+            }
+        }
+    }
+
     /// Account deletion replies of any status and body.
     @Test(.timeLimit(.minutes(AuthRuntimeFuzzTests.timeLimitMinutes)))
     func deletionRepliesMapToTheirOutcome() async throws {
@@ -111,11 +141,28 @@ struct AuthRuntimeFuzzTests {
 struct AuthRuntimeDecodeTrapTests {
     /// An `exp` or `iat` no `Int` holds gives no lifetime. Before, `Int(exp - now)` trapped on it, in the debug
     /// log line every token refresh writes (`FileStackTokenStore.compareAndSet`), and the app ended.
-    @Test(arguments: ["1e300", "-1e300", "9223372036854775807", "1.8e19"])
+    /// Each `exp` stays past `Int`'s range after any present-day `now` is taken from it, so the log line's own
+    /// clock gives nil too.
+    @Test(arguments: ["1e300", "-1e300", "1e19", "1.8e19", "-1e19"])
     func anExpiryNoIntHoldsGivesNoLifetime(exp: String) {
         let token = AuthRuntimeFuzzCases.jwtText(#"{"exp":\#(exp),"iat":0}"#)
         #expect(AccessTokenLifetime(token, now: Date(timeIntervalSince1970: 0)) == nil)
         #expect(AccessTokenLifetime.logFields(token) == "accessExpiresInSec=nil")
+    }
+
+    /// `Int.max` as text reads as the double 2^63, one past what an `Int` holds: nil at `now` = 0. (At a
+    /// present-day `now`, 2^63 - now is a double an `Int` holds, so only the injected clock pins this edge.)
+    @Test func anExpiryAtIntMaxGivesNoLifetimeAtTheEpoch() {
+        let token = AuthRuntimeFuzzCases.jwtText(#"{"exp":9223372036854775807,"iat":0}"#)
+        #expect(AccessTokenLifetime(token, now: Date(timeIntervalSince1970: 0)) == nil)
+    }
+
+    /// At a present-day `now` the same `exp` gives a lifetime, but its length (`exp - iat` = 2^63) is nil.
+    @Test func anExpiryAtIntMaxGivesNoLifetimeLengthToday() throws {
+        let token = AuthRuntimeFuzzCases.jwtText(#"{"exp":9223372036854775807,"iat":0}"#)
+        let lifetime = try #require(AccessTokenLifetime(token, now: Date(timeIntervalSince1970: 1_750_000_000)))
+        #expect(lifetime.expiresInSeconds == Int(exactly: (Double(Int.max) - 1_750_000_000).rounded(.towardZero)))
+        #expect(lifetime.lifetimeSeconds == nil)
     }
 
     @Test func anIssueTimeNoIntHoldsGivesNoLifetimeLength() throws {
@@ -169,6 +216,17 @@ enum AuthRuntimeFuzzCases {
         #"{"accessToken":"a","refreshToken":"r"}"#, #"{"accessToken":null,"refreshToken":"r"}"#, #"{"accessToken":5}"#,
         #"{"refreshToken":""}"#, "[]", "", "{",
     ].map { Data($0.utf8) }
+
+    /// A JSON value nested `depth` deep: in arrays, in objects keyed `x`, and in both by turns.
+    static func deepValues(depth: Int) -> [String] {
+        var mixed = "0"
+        for level in 0..<depth { mixed = level.isMultiple(of: 2) ? "[\(mixed)]" : #"{"x":\#(mixed)}"# }
+        return [
+            String(repeating: "[", count: depth) + "0" + String(repeating: "]", count: depth),
+            String(repeating: #"{"x":"#, count: depth) + "0" + String(repeating: "}", count: depth),
+            mixed,
+        ]
+    }
 
     /// `object` as a token's payload segment: base64url without padding.
     static func jwtText(_ object: String) -> String {
