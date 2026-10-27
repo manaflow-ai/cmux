@@ -1287,7 +1287,7 @@ fn run_rename(scope: &Scope, op: &wire::FsRenameOp) -> Result<wire::WorkspaceRes
             ));
         }
         create_parent_dirs_no_symlink(&to)?;
-        std::fs::rename(&from, &to).map_err(|error| {
+        cmux_blocking::fs::rename(&from, &to).map_err(|error| {
             Refusal::failed(format!("could not rename {} -> {}: {error}", op.from_path, op.to_path))
         })?;
     }
@@ -1316,7 +1316,7 @@ pub(crate) fn run_delete(
         let meta = cmux_blocking::fs::symlink_metadata(&path)
             .map_err(|_| Refusal::not_found(format!("{} does not exist", op.path)))?;
         if meta.is_dir() {
-            let populated = std::fs::read_dir(&path)
+            let populated = cmux_blocking::fs::read_dir(&path)
                 .map_err(|error| Refusal::failed(format!("could not read {}: {error}", op.path)))?
                 .next()
                 .is_some();
@@ -1326,13 +1326,13 @@ pub(crate) fn run_delete(
                     format!("{} is a non-empty directory (pass recursive)", op.path),
                 ));
             }
-            std::fs::remove_dir_all(&path).map_err(|error| {
+            cmux_blocking::fs::remove_dir_all(&path).map_err(|error| {
                 Refusal::failed(format!("could not delete {}: {error}", op.path))
             })?;
         } else {
             // The canonical path (symlinks were resolved and re-scoped by
             // resolve(), like every other workspace op).
-            std::fs::remove_file(&path).map_err(|error| {
+            cmux_blocking::fs::remove_file(&path).map_err(|error| {
                 Refusal::failed(format!("could not delete {}: {error}", op.path))
             })?;
         }

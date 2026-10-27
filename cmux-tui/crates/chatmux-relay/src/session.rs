@@ -1297,3 +1297,28 @@ async fn relay_session(
     runtime.pty.detach_transport(&transport_id);
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The thread inside `cmux_blocking::runtime::block_on` runs every task
+    /// of a current_thread runtime: the config save (create_dir_all, open,
+    /// fsync, rename) runs on a blocking thread, never there.
+    #[test]
+    fn save_writes_the_config_off_the_runtime_driver() {
+        let directory =
+            std::env::temp_dir().join(format!("chatmux-session-save-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        let config_path = directory.join("config.json");
+        let config = Config { device_id: "device-1".to_owned(), ..Config::default() };
+        let runtime = cmux_blocking::runtime::current_thread().build().expect("runtime");
+        let stalled = cmux_blocking::counts().stalled;
+        cmux_blocking::runtime::block_on(&runtime, save(&config, &config_path));
+        assert_eq!(cmux_blocking::counts().stalled, stalled);
+        let body = std::fs::read(&config_path).expect("config written");
+        let written: Value = serde_json::from_slice(&body).expect("config is JSON");
+        assert_eq!(written["deviceId"], "device-1", "{written}");
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+}
