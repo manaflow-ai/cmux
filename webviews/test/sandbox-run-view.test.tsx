@@ -65,6 +65,19 @@ test("a succeeded receipt reads reply first, then status, time, cost, artifacts 
   expect([...at].sort((a, b) => a - b)).toEqual(at);
 });
 
+test("a timed-out receipt says so in the chat's words (never the server's), an unmeasured cost says not measured, and a pending destroy shows", () => {
+  const receipt = {
+    status: "failed",
+    timedOut: true,
+    cost: { estimateUsd: null },
+    cleanup: "pending",
+  };
+  const shown = text(renderToStaticMarkup(<SandboxRunView run={{ task: "go", state: "done", receipt }} />));
+  for (const part of [t("sandbox.failed"), t("sandbox.timedOut"), t("sandbox.costUnknown"), t("sandbox.vmPending")]) {
+    expect(shown).toContain(part);
+  }
+});
+
 test("a refusal is worded by its code; a failure that may hide a Run says so", async () => {
   const refused = await runSandbox(
     () => Promise.reject({ code: "run_sandbox_unavailable", message: "x" }),
@@ -89,4 +102,40 @@ test("a refusal is worded by its code; a failure that may hide a Run says so", a
     state: "failed",
     code: "bad_response",
   });
+});
+
+test("the page's own refusals (attachments, an agent a sandbox can't run) are worded", () => {
+  for (const [code, key] of [
+    ["attachments", "sandbox.error.attachments"],
+    ["agent", "sandbox.error.agent"],
+    ["timeout", "sandbox.error.timeout"],
+  ] as const) {
+    expect(text(renderToStaticMarkup(<SandboxRunView run={{ task: "go", state: "failed", code }} />))).toContain(
+      t(key),
+    );
+  }
+});
+
+test("Sandboxed picked but not runnable now is refused with a way to send as Persistent", async () => {
+  const { sandboxRetryable } = await import("../src/agent-session/acpmux/sandboxRun");
+  const run = { task: "go", state: "failed" as const, code: "unavailable_now" };
+  expect(sandboxRetryable(run)).toBe(true);
+  let persistent = 0;
+  const markup = renderToStaticMarkup(<SandboxRunView run={run} onPersistent={() => persistent++} />);
+  expect(text(markup)).toContain(t("sandbox.error.notNow"));
+  expect(text(markup)).toContain(t("sandbox.usePersistent"));
+  expect(text(renderToStaticMarkup(<SandboxRunView run={{ ...run, code: "labs_off" }} />))).toContain(
+    t("sandbox.error.labsOff"),
+  );
+  expect(persistent).toBe(0);
+});
+
+test("the host's one-send-per-tab refusals have their own words", async () => {
+  const { sandboxRetryable } = await import("../src/agent-session/acpmux/sandboxRun");
+  for (const code of ["sandbox_busy", "sandbox_spent"]) {
+    expect(sandboxRetryable({ task: "go", state: "failed", code })).toBe(true);
+    expect(text(renderToStaticMarkup(<SandboxRunView run={{ task: "go", state: "failed", code }} />))).toContain(
+      t("sandbox.error.spent"),
+    );
+  }
 });

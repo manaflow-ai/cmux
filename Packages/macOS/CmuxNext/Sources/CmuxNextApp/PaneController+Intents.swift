@@ -399,7 +399,8 @@ extension PaneController {
         case .newTabButton:
             // The engine menu predicts a Chromium tab (ChromiumWarmup).
             services.chromiumWarmup.chromiumLikely(.newTabMenu)
-            return registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: paneKey)).themeRows(in: view.themeScope.fullStrength)
+            return registry.makePaneCreationMenu(target: ActionTargetRef(kind: .pane, id: paneKey))
+                .themeRows(in: view.themeScope.fullStrength)
         }
     }
 }
