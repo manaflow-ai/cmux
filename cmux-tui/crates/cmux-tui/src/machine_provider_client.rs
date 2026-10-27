@@ -20,7 +20,7 @@ use std::sync::mpsc::{self, RecvTimeoutError, SyncSender, TrySendError};
 #[cfg(unix)]
 use std::sync::{Arc, Condvar, Mutex, Weak};
 #[cfg(unix)]
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[cfg(unix)]
 use cmux_tui_machine_protocol::{
@@ -204,6 +204,9 @@ pub(crate) struct ReceivedProviderEvent {
 struct ProviderEventQueueState {
     events: VecDeque<ReceivedProviderEvent>,
     disconnected: bool,
+    /// The receiver's owner closed it (ProviderEventCloser): waits end, and
+    /// later events are dropped without failing the provider connection.
+    closed: bool,
 }
 
 #[cfg(unix)]
@@ -222,6 +225,9 @@ impl ProviderEventQueue {
         let Ok(mut state) = self.state.lock() else {
             return Err(());
         };
+        if state.closed {
+            return Ok(());
+        }
         if state.disconnected {
             return Err(());
         }
@@ -298,6 +304,38 @@ impl ProviderEventQueue {
         }
         self.ready.notify_all();
     }
+
+    fn close(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.closed = true;
+        }
+        self.ready.notify_all();
+    }
+}
+
+/// Why [`ProviderEventReceiver::recv`] returned no event.
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProviderEventRecvError {
+    /// The provider connection ended or this subscriber overflowed.
+    Disconnected,
+    /// The receiver's owner closed it through a [`ProviderEventCloser`].
+    Closed,
+}
+
+/// Ends a [`ProviderEventReceiver`]'s wait from another thread, so its worker
+/// waits on events with no timeout and still stops at once.
+#[cfg(unix)]
+#[derive(Clone)]
+pub(crate) struct ProviderEventCloser {
+    queue: Arc<ProviderEventQueue>,
+}
+
+#[cfg(unix)]
+impl ProviderEventCloser {
+    pub(crate) fn close(&self) {
+        self.queue.close();
+    }
 }
 
 #[cfg(unix)]
@@ -307,20 +345,48 @@ pub(crate) struct ProviderEventReceiver {
 
 #[cfg(unix)]
 impl ProviderEventReceiver {
+    pub(crate) fn closer(&self) -> ProviderEventCloser {
+        ProviderEventCloser { queue: Arc::clone(&self.queue) }
+    }
+
+    /// Waits for the next event with no timeout; a disconnect or a
+    /// [`ProviderEventCloser::close`] ends the wait.
+    pub(crate) fn recv(&self) -> Result<ReceivedProviderEvent, ProviderEventRecvError> {
+        let mut state =
+            self.queue.state.lock().map_err(|_| ProviderEventRecvError::Disconnected)?;
+        loop {
+            if state.closed {
+                return Err(ProviderEventRecvError::Closed);
+            }
+            if let Some(event) = state.events.pop_front() {
+                return Ok(event);
+            }
+            if state.disconnected {
+                return Err(ProviderEventRecvError::Disconnected);
+            }
+            state =
+                self.queue.ready.wait(state).map_err(|_| ProviderEventRecvError::Disconnected)?;
+        }
+    }
+
+    #[cfg(test)]
     pub(crate) fn recv_timeout(
         &self,
         timeout: Duration,
     ) -> Result<ReceivedProviderEvent, RecvTimeoutError> {
-        let deadline = Instant::now() + timeout;
+        let deadline = std::time::Instant::now() + timeout;
         let mut state = self.queue.state.lock().map_err(|_| RecvTimeoutError::Disconnected)?;
         loop {
+            if state.closed {
+                return Err(RecvTimeoutError::Disconnected);
+            }
             if let Some(event) = state.events.pop_front() {
                 return Ok(event);
             }
             if state.disconnected {
                 return Err(RecvTimeoutError::Disconnected);
             }
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
                 return Err(RecvTimeoutError::Timeout);
             };
             let (next, timed_out) = self
@@ -2332,6 +2398,59 @@ mod tests {
         server.join().expect("join fake provider");
 
         assert!(saw_closure, "connection closure was dropped behind best-effort events");
+    }
+
+    #[test]
+    fn closing_the_receiver_wakes_an_untimed_recv() {
+        let queue = Arc::new(ProviderEventQueue::new());
+        let events = ProviderEventReceiver { queue: Arc::clone(&queue) };
+        let closer = events.closer();
+        let (waiting_tx, waiting_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
+        let waiter = thread::spawn(move || {
+            waiting_tx.send(()).unwrap();
+            done_tx.send(events.recv()).unwrap();
+        });
+        waiting_rx.recv().unwrap();
+        // The wait has no timeout: only the close can end it.
+        assert!(done_rx.recv_timeout(Duration::from_millis(50)).is_err());
+
+        closer.close();
+
+        assert_eq!(
+            done_rx.recv_timeout(Duration::from_secs(5)).expect("close ends the wait"),
+            Err(ProviderEventRecvError::Closed)
+        );
+        waiter.join().unwrap();
+        // A closed subscriber drops later events without failing the
+        // provider connection that publishes them.
+        assert_eq!(
+            queue.publish(received(ProviderEvent::Notice(ProviderNotice {
+                level: NoticeLevel::Info,
+                message: "after close".into(),
+            }))),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn recv_returns_queued_events_then_disconnected() {
+        let queue = Arc::new(ProviderEventQueue::new());
+        let events = ProviderEventReceiver { queue: Arc::clone(&queue) };
+        queue
+            .publish(received(ProviderEvent::ConnectionClosed(ConnectionClosedEvent {
+                connection_id: id("connection-1"),
+                machine_id: id("machine-1"),
+                reason: "gone".into(),
+            })))
+            .unwrap();
+        queue.disconnect();
+
+        assert!(matches!(
+            events.recv().map(|received| received.event),
+            Ok(ProviderEvent::ConnectionClosed(_))
+        ));
+        assert_eq!(events.recv(), Err(ProviderEventRecvError::Disconnected));
     }
 
     #[test]

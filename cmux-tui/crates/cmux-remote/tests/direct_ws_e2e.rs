@@ -216,6 +216,88 @@ async fn carrier_dial_is_accepted_only_by_a_trusted_listener() {
     untrusted.shutdown().await.unwrap();
 }
 
+/// A watcher of the connection snapshot (`cmux remote connect --headless
+/// --json`) waits on `wait_snapshot_change`: it stays asleep while nothing
+/// changes and wakes when the state does. It used to sample every 100 ms.
+#[tokio::test]
+async fn snapshot_watch_sleeps_until_the_connection_changes() {
+    use cmux_remote::daemon::{DirectWebSocketOptions, serve_direct_websocket_with_options};
+
+    let state = tempdir().unwrap();
+    let auth = AuthDatabase::load_or_create(state.path(), "snapshot-watch-test", false).unwrap();
+    let (daemon, mut accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+    let server = serve_direct_websocket_with_options(
+        daemon,
+        "127.0.0.1:0".parse().unwrap(),
+        65_535,
+        DirectWebSocketOptions { trusted_carrier: true, ..Default::default() },
+    )
+    .await
+    .unwrap();
+    let session = SessionId([83; 16]);
+    let endpoint = Url::parse(&format!("ws://{}/v1/link", server.local_addr())).unwrap();
+    let group = DirectWebSocketProvider::new(65_535)
+        .with_carrier_auth(true)
+        .connect(ConnectRequest {
+            endpoint,
+            session,
+            lane_policy: LanePolicy::Isolated,
+            routing: Default::default(),
+        })
+        .await
+        .unwrap();
+    let client = tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        ClientConnection::connect(
+            group,
+            ClientConnectionConfig {
+                identity: StaticIdentity::generate().unwrap(),
+                expected_daemon: None,
+                auth: ClientAuthMode::Carrier,
+                device_name: "snapshot-watch-client".into(),
+                session,
+                lane_policy: LanePolicy::Isolated,
+                limits: SessionLimits::default(),
+                reconnect: ReconnectPolicy::default(),
+            },
+        ),
+    )
+    .await
+    .expect("carrier dial timed out")
+    .expect("trusted listener refused a carrier dial");
+    let _daemon_client =
+        tokio::time::timeout(CONNECT_TIMEOUT, accepted.recv()).await.unwrap().unwrap();
+    let connected = client.snapshot().await;
+    assert_eq!(connected.state, ConnectionState::Connected);
+
+    // Nothing changes: the wait does not end.
+    assert!(
+        tokio::time::timeout(Duration::from_millis(300), client.wait_snapshot_change(&connected))
+            .await
+            .is_err(),
+        "the snapshot watch woke with no change"
+    );
+
+    // The connection closes: the wait ends, and the snapshot shows it.
+    let watcher = tokio::spawn({
+        let client = client.clone();
+        let connected = connected.clone();
+        async move { client.wait_snapshot_change(&connected).await }
+    });
+    client.close().await.unwrap();
+    tokio::time::timeout(CONNECT_TIMEOUT, watcher)
+        .await
+        .expect("closing the connection did not wake the snapshot watch")
+        .unwrap();
+    assert_eq!(client.snapshot().await.state, ConnectionState::Closed);
+    // A watch that starts after the change returns at once.
+    tokio::time::timeout(Duration::from_secs(1), client.wait_snapshot_change(&connected))
+        .await
+        .expect("a stale snapshot did not end the wait at once");
+
+    server.shutdown().await.unwrap();
+}
+
 /// Dials `server` once as `identity` with `auth` and returns the client.
 async fn dial_once(
     server: &cmux_remote::daemon::DirectWebSocketServer,

@@ -19,14 +19,14 @@ use crate::app::ordered_session::OrderedSession;
 use crate::localization;
 use crate::machine::{
     DurableNoticeDelivery, MachineActionResult, MachineController, MachineKey, MachineRequest,
-    MachineSession, MachineUiState, MachineUpdateStream, ManagedWorkspaceSessionMutation,
-    WorkspaceCreationPolicy, validate_machine_session,
+    MachineSession, MachineUiState, MachineUpdateStop, MachineUpdateStream,
+    ManagedWorkspaceSessionMutation, WorkspaceCreationPolicy, validate_machine_session,
 };
 use crate::pty_input::PtyInputSender;
 use crate::session::{Session, TreeView};
 
 pub(super) struct MachineUpdatePump {
-    pub(super) stop: Arc<AtomicBool>,
+    pub(super) stop: MachineUpdateStop,
     pub(super) cancellation: EventCancellation,
     pub(super) provider: Option<JoinHandle<()>>,
     pub(super) forwarder: Option<JoinHandle<()>>,
@@ -458,7 +458,7 @@ impl MachineUpdatePump {
         let forwarder = match std::thread::Builder::new()
             .name("machine-provider-events".into())
             .spawn(move || {
-                while !forwarder_stop.load(Ordering::Acquire) {
+                while !forwarder_stop.is_stopped() {
                     match updates.recv_timeout(Duration::from_millis(250)) {
                         Ok(update) => {
                             if send_bounded_cancelable(
@@ -481,7 +481,7 @@ impl MachineUpdatePump {
             }) {
             Ok(forwarder) => forwarder,
             Err(error) => {
-                stop.store(true, Ordering::Release);
+                stop.stop();
                 let _ = provider.join();
                 return Err(error.into());
             }
@@ -490,7 +490,7 @@ impl MachineUpdatePump {
     }
 
     pub(super) fn stop_and_join(&mut self) {
-        self.stop.store(true, Ordering::Release);
+        self.stop.stop();
         self.cancellation.cancel();
         if let Some(forwarder) = self.forwarder.take() {
             let _ = forwarder.join();

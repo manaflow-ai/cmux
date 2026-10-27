@@ -660,10 +660,49 @@ pub enum MachineUpdate {
     },
 }
 
+/// The stop of a [`MachineUpdateStream`]. [`MachineUpdateStop::stop`] sets
+/// the flag and runs the stream's waker, which ends the wait its worker blocks
+/// on, so the workers wait on events with no timeout and still stop at once
+/// (Chromium signals the event a thread waits on rather than having it poll:
+/// base/synchronization/waitable_event.h).
+///
+/// The default stop has no waker: for a stream whose workers end when their
+/// input channel closes.
+#[derive(Clone, Default)]
+pub struct MachineUpdateStop(Arc<MachineUpdateStopInner>);
+
+#[derive(Default)]
+struct MachineUpdateStopInner {
+    stopped: AtomicBool,
+    waker: Option<Box<dyn Fn() + Send + Sync>>,
+}
+
+impl MachineUpdateStop {
+    /// A stop that also runs `waker` once stopped; `waker` must end the wait
+    /// of the worker this stop ends.
+    pub(crate) fn waking(waker: impl Fn() + Send + Sync + 'static) -> Self {
+        Self(Arc::new(MachineUpdateStopInner {
+            stopped: AtomicBool::new(false),
+            waker: Some(Box::new(waker)),
+        }))
+    }
+
+    pub fn stop(&self) {
+        self.0.stopped.store(true, Ordering::Release);
+        if let Some(waker) = self.0.waker.as_ref() {
+            waker();
+        }
+    }
+
+    pub fn is_stopped(&self) -> bool {
+        self.0.stopped.load(Ordering::Acquire)
+    }
+}
+
 /// A cancelable stream of provider-owned presentation snapshots.
 pub struct MachineUpdateStream {
     receiver: Option<Receiver<MachineUpdate>>,
-    stop: Arc<AtomicBool>,
+    stop: MachineUpdateStop,
     worker: Option<JoinHandle<()>>,
     armed: bool,
 }
@@ -671,7 +710,7 @@ pub struct MachineUpdateStream {
 impl MachineUpdateStream {
     pub fn new(
         receiver: Receiver<MachineUpdate>,
-        stop: Arc<AtomicBool>,
+        stop: MachineUpdateStop,
         worker: JoinHandle<()>,
     ) -> Self {
         Self { receiver: Some(receiver), stop, worker: Some(worker), armed: true }
@@ -679,7 +718,7 @@ impl MachineUpdateStream {
 
     pub(crate) fn into_parts(
         mut self,
-    ) -> (Receiver<MachineUpdate>, Arc<AtomicBool>, JoinHandle<()>) {
+    ) -> (Receiver<MachineUpdate>, MachineUpdateStop, JoinHandle<()>) {
         self.armed = false;
         (
             self.receiver.take().expect("machine update receiver is present"),
@@ -688,7 +727,7 @@ impl MachineUpdateStream {
         )
     }
 
-    pub(crate) fn stop_handle(&self) -> Arc<AtomicBool> {
+    pub(crate) fn stop_handle(&self) -> MachineUpdateStop {
         self.stop.clone()
     }
 }
@@ -696,7 +735,7 @@ impl MachineUpdateStream {
 impl Drop for MachineUpdateStream {
     fn drop(&mut self) {
         if self.armed {
-            self.stop.store(true, Ordering::Release);
+            self.stop.stop();
             // Drop the receiver before joining so a worker blocked on a full
             // bounded channel observes cancellation instead of deadlocking.
             self.receiver.take();
@@ -1366,7 +1405,7 @@ mod tests {
         });
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         sender.send(MachineUpdate::Ui(Box::new(update.clone()))).unwrap();
-        let stop = Arc::new(AtomicBool::new(false));
+        let stop = MachineUpdateStop::default();
         let exited = Arc::new(AtomicBool::new(false));
         let worker_exited = exited.clone();
         let worker = std::thread::spawn(move || {
@@ -1378,7 +1417,7 @@ mod tests {
 
         drop(stream);
 
-        assert!(stop.load(Ordering::Acquire));
+        assert!(stop.is_stopped());
         assert!(exited.load(Ordering::Acquire));
     }
 }

@@ -18,7 +18,7 @@ use crate::machine::{
     DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineActionResult,
     MachineCapabilities, MachineConnectRoute, MachineController, MachineDescriptor, MachineKey,
     MachinePlatform, MachineRequest, MachineSnapshot, MachineStatus, MachineUiState, MachineUpdate,
-    MachineUpdateStream, ManagedMachineCapabilities, ManagedMachineDescriptor,
+    MachineUpdateStop, MachineUpdateStream, ManagedMachineCapabilities, ManagedMachineDescriptor,
     ManagedMachineStatus, ManagedWorkspaceCapabilities, ManagedWorkspaceDescriptor,
     ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus, ProviderActionDescriptor,
     ProviderActionFieldDescriptor, ProviderActionFieldKind, ProviderActionTarget,
@@ -28,7 +28,7 @@ use crate::machine::{
 #[cfg(test)]
 use crate::machine_provider_client::UnixProviderConnector;
 use crate::machine_provider_client::{
-    MachineProviderConnector, ProviderClient, ProviderClientError,
+    MachineProviderConnector, ProviderClient, ProviderClientError, ProviderEventRecvError,
 };
 use crate::machine_runtime::{
     MachineConnectFn, MachineConnection, MachineConnectionHub, MachineRuntime,
@@ -373,7 +373,7 @@ impl ProviderMachineController {
         let (sender, receiver) = mpsc::sync_channel(8);
         let worker =
             std::thread::Builder::new().name("machine-local-overlay".into()).spawn(move || {
-                while !provider_stop.load(Ordering::Acquire) {
+                while !provider_stop.is_stopped() {
                     match provider_receiver.recv() {
                         Ok(update) => {
                             let update = match update {
@@ -399,7 +399,7 @@ impl ProviderMachineController {
                         Err(mpsc::RecvError) => break,
                     }
                 }
-                provider_stop.store(true, Ordering::Release);
+                provider_stop.stop();
                 drop(provider_receiver);
                 let _ = provider_worker.join();
             })?;
@@ -1133,7 +1133,10 @@ impl ProviderMachineRuntime {
             client.supports_capability(protocol::DURABLE_NOTICES_CAPABILITY).unwrap_or(false);
         let mut connected_session =
             self.open.as_ref().map(|open| (open.connection_id.clone(), open.machine_id.clone()));
-        let stop = Arc::new(AtomicBool::new(false));
+        // The stop closes the events receiver, so the events worker waits on
+        // events with no timeout; its end then ends the refresh worker's wait.
+        let events_closer = events.closer();
+        let stop = MachineUpdateStop::waking(move || events_closer.close());
         let thread_stop = stop.clone();
         let (sender, receiver) = mpsc::sync_channel(PROVIDER_REFRESH_QUEUE_CAPACITY);
         let mut last_snapshot = self.snapshot.clone();
@@ -1157,7 +1160,7 @@ impl ProviderMachineRuntime {
                 let mut progress_cells: HashMap<String, Arc<Mutex<Option<String>>>> =
                     HashMap::new();
                 let mut progress_last_sent: HashMap<String, std::time::Instant> = HashMap::new();
-                while !refresh_stop.load(Ordering::Acquire) {
+                while !refresh_stop.is_stopped() {
                     if worker_refresh_overflowed.load(Ordering::Acquire) {
                         let mut ui = machine_ui_state(
                             &last_snapshot,
@@ -1471,8 +1474,8 @@ impl ProviderMachineRuntime {
         refresh_sender.send(ProviderRefreshSignal::Refresh(None))?;
         let worker = std::thread::Builder::new().name("machine-provider-events".into()).spawn(
             move || {
-                while !thread_stop.load(Ordering::Acquire) {
-                    match events.recv_timeout(Duration::from_millis(250)) {
+                while !thread_stop.is_stopped() {
+                    match events.recv() {
                         Ok(received) => {
                             let crate::machine_provider_client::ReceivedProviderEvent {
                                 event,
@@ -1533,8 +1536,8 @@ impl ProviderMachineRuntime {
                                 Err(mpsc::TrySendError::Disconnected(_)) => break,
                             }
                         }
-                        Err(mpsc::RecvTimeoutError::Timeout) => continue,
-                        Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        Err(ProviderEventRecvError::Closed) => break,
+                        Err(ProviderEventRecvError::Disconnected) => {
                             if let Err(mpsc::TrySendError::Full(_)) =
                                 refresh_sender.try_send(ProviderRefreshSignal::Disconnected)
                             {
@@ -5444,7 +5447,7 @@ mod tests {
         let updates = runtime.subscribe_ui_updates().unwrap();
         let (receiver, stop, worker) = updates.into_parts();
         let update = expect_ui_update(receiver.recv_timeout(Duration::from_secs(2)).unwrap());
-        stop.store(true, Ordering::Release);
+        stop.stop();
         drop(receiver);
         worker.join().unwrap();
         finish.send(()).unwrap();
@@ -5707,7 +5710,7 @@ mod tests {
         assert_eq!(notice.message, "Usage reached 80%");
 
         release_refresh.send(()).unwrap();
-        stop.store(true, Ordering::Release);
+        stop.stop();
         drop(receiver);
         worker.join().unwrap();
         drop(runtime);
@@ -5764,7 +5767,7 @@ mod tests {
 
         let received = receiver.recv_timeout(Duration::from_secs(2));
         release_refresh.send(()).unwrap();
-        stop.store(true, Ordering::Release);
+        stop.stop();
         drop(receiver);
         worker.join().unwrap();
         drop(runtime);
@@ -5816,7 +5819,7 @@ mod tests {
         };
         assert_eq!(notice.delivery.notice_id, "usage-80");
 
-        stop.store(true, Ordering::Release);
+        stop.stop();
         drop(receiver);
         // Close the provider stream first: the refresh worker may still wait
         // on a request this test's server never answers, and the stream's EOF
@@ -5914,7 +5917,7 @@ mod tests {
         }
         assert!(saw_durable && saw_refresh);
 
-        stop.store(true, Ordering::Release);
+        stop.stop();
         drop(receiver);
         worker.join().unwrap();
         finish.send(()).unwrap();
@@ -6221,7 +6224,7 @@ mod tests {
         assert!(!update.session_available);
         assert!(update.request.is_none());
 
-        stop.store(true, Ordering::Release);
+        stop.stop();
         drop(receiver);
         // Close the provider stream first: the refresh worker may still wait
         // on a request this test's server never answers, and the stream's EOF
@@ -6284,7 +6287,7 @@ mod tests {
         let updates = runtime.subscribe_ui_updates().unwrap();
         let (receiver, stop, worker) = updates.into_parts();
         let received = receiver.recv_timeout(Duration::from_secs(2));
-        stop.store(true, Ordering::Release);
+        stop.stop();
         drop(receiver);
         worker.join().unwrap();
         drop(runtime);
@@ -6357,7 +6360,7 @@ mod tests {
         let (receiver, stop, worker) = updates.into_parts();
         trigger.send(()).unwrap();
         let update = expect_ui_update(receiver.recv_timeout(Duration::from_secs(2)).unwrap());
-        stop.store(true, Ordering::Release);
+        stop.stop();
         drop(receiver);
         worker.join().unwrap();
         finish.send(()).unwrap();
@@ -6474,7 +6477,7 @@ mod tests {
         trigger.send(()).unwrap();
 
         let update = expect_ui_update(receiver.recv_timeout(Duration::from_secs(2)).unwrap());
-        stop.store(true, Ordering::Release);
+        stop.stop();
         drop(receiver);
         // Close the provider stream first: the refresh worker may still wait
         // on a request this test's server never answers, and the stream's EOF
@@ -6523,7 +6526,7 @@ mod tests {
             update.notice.as_deref(),
             Some(localization::catalog().sidebar.machine_provider_disconnected)
         );
-        stop.store(true, Ordering::Release);
+        stop.stop();
         drop(receiver);
         worker.join().unwrap();
 

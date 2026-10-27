@@ -3,7 +3,7 @@
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use super::{lock_within, try_lock};
+use super::{lock_within, lock_within_then, try_lock};
 
 #[test]
 fn lock_within_takes_a_free_lock_at_once() {
@@ -27,24 +27,27 @@ fn lock_within_wakes_when_the_holder_releases_the_lock() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join(".adopt-x.lock");
     let holder = try_lock(&path).unwrap().expect("the first lock is free");
-    let (release, released) = mpsc::channel::<()>();
-    let releaser = std::thread::spawn(move || {
-        let _ = released.recv();
-        drop(holder);
-    });
+    let (blocking, blocked) = mpsc::channel::<()>();
     let waiter_path = path.clone();
     let waiter = std::thread::spawn(move || {
         let started = Instant::now();
-        let locked = lock_within(&waiter_path, Duration::from_secs(30)).unwrap();
+        let locked = lock_within_then(&waiter_path, Duration::from_secs(30), || {
+            blocking.send(()).unwrap();
+        })
+        .unwrap();
         (locked.is_some(), started.elapsed())
     });
-    release.send(()).unwrap();
-    releaser.join().unwrap();
+    // The holder is dropped only once the waiter missed the fast try_lock
+    // and waits in the blocking flock.
+    blocked
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the waiter took the blocking branch while the lock was held");
+    drop(holder);
     let (locked, waited) = waiter.join().unwrap();
     assert!(locked, "the released lock is taken");
     assert!(
         waited < Duration::from_secs(10),
-        "the release ended the wait, not the limit: {waited:?}"
+        "the release ended the wait, not the 30 s limit: {waited:?}"
     );
     assert!(try_lock(&path).unwrap().is_some(), "the waiter dropped its lock with its result");
 }

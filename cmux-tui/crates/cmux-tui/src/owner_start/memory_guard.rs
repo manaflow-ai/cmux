@@ -10,6 +10,8 @@
 //! Doubling keeps a runaway process to a handful of events.
 
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use cmux_tui_core::Mux;
@@ -23,6 +25,8 @@ const DEFAULT_THRESHOLD_BYTES: u64 = 4 << 30;
 /// How often the owner samples its memory.
 const DEFAULT_INTERVAL: Duration = Duration::from_secs(300);
 const LOG_AREA: &str = "memory-guard";
+/// The thread that appends and sends the alerts.
+const REPORT_THREAD: &str = "memory-guard-report";
 #[cfg(debug_assertions)]
 const TEST_THRESHOLD_ENV: &str = "CMUX_TUI_TEST_MEMORY_THRESHOLD_BYTES";
 #[cfg(debug_assertions)]
@@ -115,6 +119,9 @@ pub(crate) struct MemoryGuardStart {
     forwarder: Option<Forwarder>,
 }
 
+/// A maintenance job: the clock calls it once per period.
+type Job = Box<dyn FnMut() + Send>;
+
 impl MemoryGuardStart {
     /// Samples the owner's memory every [`DEFAULT_INTERVAL`] as a job on
     /// `mux`'s maintenance clock (its 5-minute wall-clock grid, which the
@@ -123,40 +130,89 @@ impl MemoryGuardStart {
     pub(crate) fn start(self, mux: &Mux) {
         #[cfg(debug_assertions)]
         if let Some((threshold, interval)) = test_limits() {
-            let mut sample = sampler(self.log, self.forwarder, threshold);
-            let _ = cmux_threads::spawn(TEST_THREAD, cmux_threads::ThreadQos::Utility, move || {
-                loop {
-                    sample.run();
-                    // wakeup-allow: debug the tests' sampling interval (CMUX_TUI_TEST_MEMORY_INTERVAL_MS), debug builds only
-                    std::thread::sleep(interval);
-                }
-            });
+            let started = Reporter::start(self.log, self.forwarder)
+                .map(|(reporter, _)| Sampler::new(reporter, threshold))
+                .and_then(|mut sample| {
+                    cmux_threads::spawn(TEST_THREAD, cmux_threads::ThreadQos::Utility, move || {
+                        loop {
+                            sample.run();
+                            // wakeup-allow: debug the tests' sampling interval (CMUX_TUI_TEST_MEMORY_INTERVAL_MS), debug builds only
+                            std::thread::sleep(interval);
+                        }
+                    })
+                });
+            if let Err(error) = started {
+                crate::client_log::warn(LOG_AREA, &format!("cannot start: {error}"));
+            }
             return;
         }
-        let mut sample = sampler(self.log, self.forwarder, DEFAULT_THRESHOLD_BYTES);
-        let registered = mux.maintenance_clock().and_then(|clock| {
-            clock.register(SAMPLE_JOB, move || sample.run()).map_err(std::io::Error::other)
+        let started = self.start_on(DEFAULT_THRESHOLD_BYTES, |spec, job| {
+            mux.maintenance_clock()?.register(spec, job).map_err(std::io::Error::other)
         });
-        if let Err(error) = registered {
+        if let Err(error) = started {
             crate::client_log::warn(LOG_AREA, &format!("cannot start: {error}"));
         }
     }
+
+    /// Registers the sample job through `register` (the mux's maintenance
+    /// clock in production) and starts the reporter that writes and sends
+    /// its alerts. Returns the reporter's thread, which ends once the job is
+    /// dropped.
+    fn start_on(
+        self,
+        threshold: u64,
+        register: impl FnOnce(JobSpec, Job) -> std::io::Result<()>,
+    ) -> std::io::Result<JoinHandle<()>> {
+        let (reporter, thread) = Reporter::start(self.log, self.forwarder)?;
+        let mut sample = Sampler::new(reporter, threshold);
+        register(SAMPLE_JOB, Box::new(move || sample.run()))?;
+        Ok(thread)
+    }
 }
 
-/// One sample: the owner's memory, and the line and alert when it crossed
-/// the next threshold.
+/// The memory guard's alert writer. The sample job runs on the maintenance
+/// clock's one thread, so it only hands each alert line here; this thread
+/// appends the line and sends it to Sentry (a blocking upload), and blocks
+/// on its channel with no timeout between alerts.
+struct Reporter {
+    lines: mpsc::Sender<serde_json::Value>,
+}
+
+impl Reporter {
+    fn start(
+        log: PathBuf,
+        forwarder: Option<Forwarder>,
+    ) -> std::io::Result<(Self, JoinHandle<()>)> {
+        let (lines, received) = mpsc::channel::<serde_json::Value>();
+        let thread =
+            cmux_threads::spawn(REPORT_THREAD, cmux_threads::ThreadQos::Utility, move || {
+                for line in received {
+                    append(&log, &line);
+                    if let Some(forwarder) = &forwarder
+                        && let Err(error) = forwarder.forward(&log)
+                    {
+                        crate::client_log::warn(LOG_AREA, &format!("send failed: {error}"));
+                    }
+                }
+            })?;
+        Ok((Self { lines }, thread))
+    }
+}
+
+/// One sample: the owner's memory, and the alert line when it crossed the
+/// next threshold.
 struct Sampler {
-    log: PathBuf,
-    forwarder: Option<Forwarder>,
+    reporter: Reporter,
     guard: MemoryGuard,
     started: Instant,
 }
 
-fn sampler(log: PathBuf, forwarder: Option<Forwarder>, threshold: u64) -> Sampler {
-    Sampler { log, forwarder, guard: MemoryGuard::new(threshold), started: Instant::now() }
-}
-
 impl Sampler {
+    fn new(reporter: Reporter, threshold: u64) -> Self {
+        Self { reporter, guard: MemoryGuard::new(threshold), started: Instant::now() }
+    }
+
+    /// Never blocks: it runs on the maintenance clock's thread.
     fn run(&mut self) {
         let sample = cmux_tui_core::process_resources::Sampler::new().sample(std::process::id());
         let Some(crossed) = sample
@@ -172,12 +228,7 @@ impl Sampler {
             .unwrap_or_default();
         let line = record(memory, crossed, self.started.elapsed(), at_ms);
         crate::client_log::warn(LOG_AREA, line["message"].as_str().unwrap_or_default());
-        append(&self.log, &line);
-        if let Some(forwarder) = &self.forwarder
-            && let Err(error) = forwarder.forward(&self.log)
-        {
-            crate::client_log::warn(LOG_AREA, &format!("send failed: {error}"));
-        }
+        let _ = self.reporter.lines.send(line);
     }
 }
 
@@ -226,6 +277,40 @@ mod tests {
         assert_eq!(SAMPLE_JOB.period.as_secs() % 300, 0);
         let clock = MaintenanceClock::start(&EnergyMode::new(false)).unwrap();
         clock.register(SAMPLE_JOB, || {}).expect("not a durability job");
+    }
+
+    /// The production start: the guard registers its sample as the clock's
+    /// `memory_guard.sample` job, and each run the clock makes past the
+    /// threshold appends one alert line, written off the clock's thread.
+    #[test]
+    fn the_clock_job_appends_the_alert_off_the_clock_thread() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("owner-memory-main.jsonl");
+        let guard = MemoryGuardStart { log: log.clone(), forwarder: None };
+        let mut registered = None;
+        let reporter = guard
+            .start_on(1, |spec, job| {
+                registered = Some((spec, job));
+                Ok(())
+            })
+            .unwrap();
+        let (spec, mut job) = registered.expect("the guard registers its sample job");
+        assert_eq!(spec.name, SAMPLE_JOB.name);
+        assert_eq!(spec.period, DEFAULT_INTERVAL);
+
+        // The clock runs the job: past 1 byte, then not past the doubling.
+        job();
+        job();
+        // The clock drops its jobs when it stops; the reporter then ends.
+        drop(job);
+        reporter.join().unwrap();
+
+        let lines = std::fs::read_to_string(&log).unwrap();
+        let lines: Vec<serde_json::Value> =
+            lines.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert_eq!(lines[0]["kind"], "memory");
+        assert_eq!(lines[0]["threshold_bytes"], 1u64);
     }
 
     #[test]

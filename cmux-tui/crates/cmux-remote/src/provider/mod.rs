@@ -168,6 +168,12 @@ pub trait LinkGroup: Send + Sync {
     async fn transport_snapshot(&self) -> TransportSnapshot {
         TransportSnapshot::unknown()
     }
+    /// Resolves once this group's transport topology may differ from
+    /// `since` (a path change or a carrier replacement). A group whose
+    /// transport never changes never resolves, which is the default.
+    async fn transport_changed(&self, _since: &TransportSnapshot) {
+        std::future::pending::<()>().await;
+    }
     async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError>;
     async fn close(&self) -> Result<(), ProviderError>;
 }

@@ -40,6 +40,18 @@ impl TransportSnapshot {
     pub fn unknown() -> Self {
         Self { provider: "unknown".into(), route: String::new(), selected_path: None }
     }
+
+    /// The same provider, route and selected path, whatever the path's RTT:
+    /// RTT changes all the time and is not a change of topology.
+    pub fn same_topology(&self, other: &Self) -> bool {
+        self.provider == other.provider
+            && self.route == other.route
+            && match (&self.selected_path, &other.selected_path) {
+                (Some(left), Some(right)) => left.kind == right.kind && left.remote == right.remote,
+                (None, None) => true,
+                _ => false,
+            }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

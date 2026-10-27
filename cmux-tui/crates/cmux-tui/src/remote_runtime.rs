@@ -606,6 +606,12 @@ impl ClientRuntimeHandle {
         self.connection.snapshot().await
     }
 
+    /// Resolves once the connection snapshot may differ from `since`
+    /// (`ClientConnection::wait_snapshot_change`).
+    pub async fn wait_connection_change(&self, since: &ClientConnectionSnapshot) {
+        self.connection.wait_snapshot_change(since).await;
+    }
+
     pub fn is_finished(&self) -> bool {
         self.thread.as_ref().is_some_and(thread::JoinHandle::is_finished)
     }

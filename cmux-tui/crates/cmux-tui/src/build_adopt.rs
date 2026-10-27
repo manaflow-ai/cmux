@@ -129,6 +129,16 @@ pub(crate) fn wait_lock(path: &Path) -> std::io::Result<Option<File>> {
 /// its own thread so that `limit` bounds it: when the limit passes first,
 /// that thread drops the lock as soon as it gets it.
 pub(crate) fn lock_within(path: &Path, limit: Duration) -> std::io::Result<Option<File>> {
+    lock_within_then(path, limit, || {})
+}
+
+/// [`lock_within`]; `waiting` runs once the lock was held and the blocking
+/// wait has started (the tests' seam to release the holder only then).
+fn lock_within_then(
+    path: &Path,
+    limit: Duration,
+    waiting: impl FnOnce(),
+) -> std::io::Result<Option<File>> {
     if let Some(file) = try_lock(path)? {
         return Ok(Some(file));
     }
@@ -137,6 +147,7 @@ pub(crate) fn lock_within(path: &Path, limit: Duration) -> std::io::Result<Optio
     cmux_threads::spawn(LOCK_THREAD, cmux_threads::ThreadQos::Utility, move || {
         let _ = sender.send(file.lock().map(|()| file));
     })?;
+    waiting();
     // wakeup-allow: deadline the adoption's one bound on another holder; the lock's release ends the wait first
     match receiver.recv_timeout(limit) {
         Ok(locked) => locked.map(Some),

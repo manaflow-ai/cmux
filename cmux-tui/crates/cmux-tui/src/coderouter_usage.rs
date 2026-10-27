@@ -285,8 +285,10 @@ impl Drop for UsagePoller {
 /// Start polling when the process resolves a usage source (Cloud VMs carry
 /// coderouter identity in their model-plane env); otherwise `None`.
 /// The mux's maintenance clock asks for each refresh after the first, on its
-/// 5-minute wall-clock grid, phased by the VM id so that VMs do not all ask
-/// at once (Chrome's component updater spreads its checks the same way).
+/// 5-minute wall-clock grid; the poller then waits the VM's own [`spread`]
+/// inside that step before it fetches, so that the VMs do not all ask at the
+/// same grid instant (Chrome's component updater spreads its checks the
+/// same way: components/update_client/configurator.h).
 pub(crate) fn start_poller(mux: &Arc<Mux>) -> Option<UsagePoller> {
     let env_file = default_env_file_path();
     let contents = read_env_file(env_file.as_deref());
@@ -295,31 +297,42 @@ pub(crate) fn start_poller(mux: &Arc<Mux>) -> Option<UsagePoller> {
     let wake = Arc::clone(&refresh);
     let registered = mux.maintenance_clock().and_then(|clock| {
         clock
-            .register_placed(POLL_JOB, placement(&source), move || wake.notify_one())
+            .register_placed(POLL_JOB, placement(), move || wake.notify_one())
             .map_err(std::io::Error::other)
     });
     if let Err(error) = registered {
         crate::client_log::log("DEBUG", LOG_AREA, &format!("refresh job failed: {error}"));
         return None;
     }
-    start_poller_with_source(Arc::downgrade(mux), source, STARTUP_DELAY, refresh)
+    let spread = spread(&source);
+    start_poller_with_source(Arc::downgrade(mux), source, STARTUP_DELAY, refresh, spread)
 }
 
-/// The refresh's place on the grid: a phase from the VM id; the fetch 5 s
-/// after start counts as the run at registration.
-fn placement(source: &UsageSource) -> Placement {
-    let phase =
-        source.vm_id.bytes().fold(0_u64, |hash, byte| hash.wrapping_mul(31) ^ u64::from(byte));
-    Placement { phase, ran_at_registration: true }
+/// The refresh's place on the grid: the fetch 5 s after start counts as the
+/// run at registration. A phase cannot spread a job whose period is one grid
+/// step, so the VMs spread inside the step instead ([`spread`]).
+fn placement() -> Placement {
+    Placement { phase: 0, ran_at_registration: true }
 }
 
-/// Polls once `startup_delay` after the start, then once per `refresh`
-/// notification.
+/// How long after the clock's refresh this VM fetches: a stable offset in
+/// `[0, period)` from a hash of the VM id.
+fn spread(source: &UsageSource) -> Duration {
+    let hash = source.vm_id.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+    });
+    let period_ms = u64::try_from(POLL_JOB.period.as_millis()).unwrap_or(u64::MAX).max(1);
+    Duration::from_millis(hash % period_ms)
+}
+
+/// Polls once `startup_delay` after the start, then `spread` after each
+/// `refresh` notification.
 fn start_poller_with_source(
     mux: Weak<Mux>,
     source: UsageSource,
     startup_delay: Duration,
     refresh: Arc<Notify>,
+    spread: Duration,
 ) -> Option<UsagePoller> {
     let stop = Arc::new(Notify::new());
     let stop_for_thread = stop.clone();
@@ -335,7 +348,7 @@ fn start_poller_with_source(
                 return;
             }
         };
-        runtime.block_on(poll_loop(mux, source, stop_for_thread, startup_delay, refresh));
+        runtime.block_on(poll_loop(mux, source, stop_for_thread, startup_delay, refresh, spread));
     });
     match spawn {
         Ok(thread) => Some(UsagePoller { stop, thread: Some(thread) }),
@@ -352,6 +365,7 @@ async fn poll_loop(
     stop: Arc<Notify>,
     startup_delay: Duration,
     refresh: Arc<Notify>,
+    spread: Duration,
 ) {
     // reqwest's rustls-no-provider build needs the workspace's ring provider
     // installed once per process before the first TLS client exists.
@@ -392,6 +406,12 @@ async fn poll_loop(
             () = stop.notified() => return,
             () = refresh.notified() => {}
         }
+        tokio::select! {
+            biased;
+            () = stop.notified() => return,
+            // wakeup-allow: deadline this VM's one offset inside the clock's step, so the fleet does not fetch at one instant; a stop ends it first
+            () = tokio::time::sleep(spread) => {}
+        }
     }
 }
 
@@ -424,6 +444,25 @@ mod tests {
                    "totalTokens": 17, "apiEquivalentUsd": 1.234},
         "days": [{"day": "2026-09-01", "totalTokens": 17, "apiEquivalentUsd": 1.234}]
     }"#;
+
+    #[test]
+    fn vms_fetch_at_different_instants_inside_the_clock_step() {
+        let source = |vm_id: &str| UsageSource {
+            coderouter_url: "http://coderouter.invalid".into(),
+            vm_id: vm_id.into(),
+        };
+        let spreads: Vec<Duration> =
+            (0..64).map(|index| spread(&source(&format!("vm-{index:04}")))).collect();
+        assert!(spreads.iter().all(|spread| *spread < POLL_JOB.period));
+        // The same VM always takes the same instant.
+        assert_eq!(spread(&source("vm-0007")), spreads[7]);
+        assert_ne!(spread(&source("vm-a")), spread(&source("vm-b")));
+        // 64 VMs spread over the step, not bunched at its start.
+        let distinct: std::collections::BTreeSet<_> =
+            spreads.iter().map(|spread| spread.as_secs() / 30).collect();
+        assert!(distinct.len() >= 8, "64 VMs fell in {} of 10 30-second slots", distinct.len());
+        assert!(spreads.iter().any(|spread| *spread >= POLL_JOB.period / 2));
+    }
 
     #[test]
     fn env_exports_parse_quoted_and_bare_values() {
@@ -621,6 +660,7 @@ mod tests {
             source,
             Duration::from_millis(1),
             refresh.clone(),
+            Duration::from_millis(1),
         )
         .expect("poller starts");
 

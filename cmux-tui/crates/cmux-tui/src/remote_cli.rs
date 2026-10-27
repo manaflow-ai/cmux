@@ -610,12 +610,12 @@ fn connect_with_flags(
                         io::stdout().flush()?;
                         previous = Some(topology);
                     }
-                    // The connection publishes no change of its snapshot
-                    // (state, path), so it is sampled while the link runs.
+                    // The connection wakes this on a state, generation or
+                    // path change; it used to be sampled every 100 ms.
                     tokio::select! {
                         biased;
                         stopped = &mut stop => break stopped,
-                        _ = tokio::time::sleep(Duration::from_millis(100)) => {},
+                        () = connected.runtime.wait_connection_change(&snapshot) => {},
                     }
                 }
             })?;
@@ -2572,7 +2572,7 @@ fn run_remote_sidecar(args: &[String]) -> anyhow::Result<()> {
     let state_dir = flag_value(args, "--state-dir").map(PathBuf::from);
     let link_socket = flag_value(args, "--link-socket").map(PathBuf::from);
     let runtime = start_daemon_runtime(
-        mux_socket.clone(),
+        mux_socket,
         DaemonRuntimeOptions {
             session,
             state_dir,

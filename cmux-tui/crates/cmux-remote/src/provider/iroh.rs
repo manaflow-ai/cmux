@@ -14,6 +14,7 @@ use ::iroh::{
 };
 use async_trait::async_trait;
 use cmux_remote_protocol::MAX_WIRE_FRAME_BYTES;
+use futures_util::StreamExt;
 use tokio::sync::{Mutex, OnceCell, OwnedSemaphorePermit, Semaphore, mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
 
@@ -624,6 +625,7 @@ impl TransportProvider for IrohProvider {
         Ok(Arc::new(IrohLinkGroup {
             connection: Mutex::new(connection),
             transport: StdMutex::new(transport),
+            replaced: watch::channel(()).0,
             endpoint,
             node_addr,
             alpn: self.config.alpn.clone(),
@@ -935,6 +937,8 @@ enum IrohAcceptResult {
 struct IrohLinkGroup {
     connection: Mutex<::iroh::endpoint::Connection>,
     transport: StdMutex<TransportSnapshot>,
+    /// Marked each time `open` replaces `connection`.
+    replaced: watch::Sender<()>,
     endpoint: Endpoint,
     node_addr: NodeAddr,
     alpn: Vec<u8>,
@@ -1015,6 +1019,30 @@ impl LinkGroup for IrohLinkGroup {
         }
     }
 
+    /// Waits on the connection's path events (iroh's
+    /// `Connection::path_events`) and on a replacement of the connection,
+    /// so a watcher of the path is woken by the change instead of sampling.
+    async fn transport_changed(&self, since: &TransportSnapshot) {
+        let mut replaced = self.replaced.subscribe();
+        let connection = self.connection.lock().await.clone();
+        // Subscribe before the comparison so a change between the two is
+        // still an event.
+        let mut events = connection.path_events();
+        if !iroh_transport_snapshot(&self.description, &connection).same_topology(since) {
+            return;
+        }
+        tokio::select! {
+            _ = replaced.changed() => {}
+            event = events.next() => {
+                if event.is_none() {
+                    // The connection closed: only a replacement changes the
+                    // path now.
+                    let _ = replaced.changed().await;
+                }
+            }
+        }
+    }
+
     async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
         if self.closed.load(Ordering::Acquire) {
             return Err(ProviderError::Transport("Iroh connection group is closed".into()));
@@ -1047,6 +1075,7 @@ impl LinkGroup for IrohLinkGroup {
                     *connection = replacement;
                     *self.transport.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
                         iroh_transport_snapshot(&self.description, &connection);
+                    self.replaced.send_replace(());
                     connection.open_bi().await.map_err(|error| {
                         ProviderError::Transport(format!(
                             "could not open Iroh stream after reconnect: {error}"

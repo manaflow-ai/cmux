@@ -138,6 +138,9 @@ pub struct ClientConnection {
     session: Arc<RwLock<ReliableSession>>,
     generation: watch::Sender<u64>,
     diagnostics: StdMutex<ClientConnectionSnapshot>,
+    /// Marked after every change of `diagnostics` other than the transport
+    /// the group reports live (`wait_snapshot_change`).
+    diagnostics_changed: watch::Sender<()>,
     next_generation: AtomicU64,
     daemon_public_key: [u8; 32],
     reconnecting: Arc<Mutex<()>>,
@@ -263,6 +266,7 @@ impl ClientConnection {
             session: Arc::new(RwLock::new(session)),
             generation,
             diagnostics: StdMutex::new(diagnostics),
+            diagnostics_changed: watch::channel(()).0,
             next_generation: AtomicU64::new(1),
             daemon_public_key,
             reconnecting: Arc::new(Mutex::new(())),
@@ -331,6 +335,36 @@ impl ClientConnection {
         diagnostics.clone()
     }
 
+    /// Resolves once [`Self::snapshot`] may return something other than
+    /// `since` (RTT aside): a state, generation or lane change, or a path
+    /// change of the active group. A watcher waits on this instead of
+    /// sampling the snapshot.
+    pub async fn wait_snapshot_change(&self, since: &ClientConnectionSnapshot) {
+        let mut changed = self.diagnostics_changed.subscribe();
+        {
+            let diagnostics =
+                self.diagnostics.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let unchanged = diagnostics.session_id == since.session_id
+                && diagnostics.generation == since.generation
+                && diagnostics.state == since.state
+                && diagnostics.lane_bindings == since.lane_bindings
+                && diagnostics.physical_link_count == since.physical_link_count;
+            if !unchanged {
+                return;
+            }
+        }
+        // A reconnect holds the group while it replays and marks
+        // `diagnostics_changed` once it publishes.
+        let Ok(group) = self.group.try_read().map(|group| group.clone()) else {
+            let _ = changed.changed().await;
+            return;
+        };
+        tokio::select! {
+            _ = changed.changed() => {}
+            () = group.transport_changed(&since.transport) => {}
+        }
+    }
+
     fn set_diagnostics_state(&self, state: ConnectionState) {
         let mut diagnostics =
             self.diagnostics.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -340,6 +374,8 @@ impl ClientConnection {
         if state == ConnectionState::Closed || !self.closed.load(Ordering::Acquire) {
             diagnostics.state = state;
         }
+        drop(diagnostics);
+        self.diagnostics_changed.send_replace(());
     }
 
     fn diagnostics_state(&self) -> ConnectionState {
@@ -643,6 +679,7 @@ impl ClientConnection {
                 diagnostics.state = ConnectionState::Connected;
             }
         }
+        self.diagnostics_changed.send_replace(());
         drop(shutdown_gate);
         drop(active_session);
         drop(active_group);
