@@ -328,6 +328,15 @@ pub(super) fn deadline_cancel<'a>(
         Err(failed) if is_wait_transient(&failed.error) && !is_rate_limit(&failed.error) => {
             DeadlineCancel::Unanswered
         }
+        // No app to ask (discovery found none this time): nothing answered the cancel either.
+        Err(failed)
+            if matches!(
+                failed.error.get("code").and_then(Value::as_str),
+                Some("app.not_found" | "socket.no_app")
+            ) =>
+        {
+            DeadlineCancel::Unanswered
+        }
         Err(_) => DeadlineCancel::Refused,
     }
 }

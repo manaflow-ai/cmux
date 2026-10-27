@@ -272,7 +272,15 @@ fn the_deadline_cancel_says_what_happened() {
         assert_eq!(deadline_cancel_for(&failed(code)), DeadlineCancel::Refused, "{code}");
     }
     // No answer is exit 4: the run may still be running.
-    for code in ["timeout", "app.transport", "app.unreachable", "unavailable", "bad_response"] {
+    for code in [
+        "timeout",
+        "app.transport",
+        "app.unreachable",
+        "app.not_found",
+        "socket.no_app",
+        "unavailable",
+        "bad_response",
+    ] {
         assert_eq!(deadline_cancel_for(&failed(code)), DeadlineCancel::Unanswered, "{code}");
     }
     // A definite answer keeps its own code and exit: the run is not reported as still running.
