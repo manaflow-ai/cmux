@@ -143,7 +143,7 @@
       "ar": {"stringUnit": {"state": "translated","value": "تبقى بيانات اعتماد المزوّد الشخصية خارج الآلات الافتراضية المشتركة للفريق لأنها تشترك في مجلد رئيسي واحد."}},
       "bs": {"stringUnit": {"state": "translated","value": "Lične vjerodajnice provajdera ostaju izvan zajedničkih timskih virtuelnih mašina jer dijele početni direktorij."}},
       "da": {"stringUnit": {"state": "translated","value": "Personlige loginoplysninger til udbydere holdes væk fra delte team-VM'er, fordi de deler en hjemmemappe."}},
-      "de": {"stringUnit": {"state": "translated","value": "Persönliche Anbieter-Anmeldedaten bleiben auf VMs für gemeinsam genutzte Teams, da sie einen gemeinsamen Home-Ordner verwenden."}},
+      "de": {"stringUnit": {"state": "translated","value": "Persönliche Anbieter-Anmeldedaten werden nicht auf gemeinsam genutzte Team-VMs übertragen, da diese einen gemeinsamen Home-Ordner verwenden."}},
       "en": {"stringUnit": {"state": "translated","value": "Personal provider credentials stay off shared team VMs because they share a home folder."}},
       "es": {"stringUnit": {"state": "translated","value": "Las credenciales personales del proveedor no se transfieren a las VM compartidas del equipo porque comparten una carpeta de inicio."}},
       "fr": {"stringUnit": {"state": "translated","value": "Les identifiants personnels des fournisseurs ne sont pas transférés vers les VMs d’équipe partagées, car elles utilisent un dossier personnel commun."}},
