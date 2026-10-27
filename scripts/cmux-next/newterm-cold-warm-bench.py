@@ -245,6 +245,8 @@ def run_first_key(session, poster):
             if rest > 0 and index + 1 < opts.first_key_keys:
                 time.sleep(rest)
         time.sleep(opts.first_key_settle)  # the echoes land (a shell still starting echoes late)
+        typed = "".join(hid_input.LETTERS[i % 26] for i in range(opts.first_key_keys))
+        screen = focused_terminal_text()
         rows = probe_since(start)
         by_index = {int(r["index"]): r for r in rows if (r.get("index") or "").isdigit()}
         keys = []
@@ -254,20 +256,27 @@ def run_first_key(session, poster):
             if row is not None and row.get("complete") == "1" and row.get("contents_ms"):
                 entry["ms"] = float(row["contents_ms"])
             keys.append(entry)
+        last_line = next((line for line in reversed((screen.get("text") or "").splitlines()) if line.strip()), "")
         entry = {"trial": trial, "reply_ms": reply_ms, "reply": json.dumps(reply)[:160], "rows": len(rows), "base": base,
+                 "typed": typed, "screen_line": last_line[-120:], "attach": screen.get("attach"),
+                 "on_screen": typed in last_line, "on_screen_less_first": typed[1:] in last_line and typed not in last_line,
                  "row_indices": sorted(by_index), "keys": keys}
         if trial < 3:
             entry["focus"] = focus_brief()
         trials.append(entry)
         k = keys[0]
+        note(f"  ft{trial}: screen {'ALL' if entry['on_screen'] else ('LOST-FIRST' if entry['on_screen_less_first'] else 'OTHER')} {last_line[-40:]!r}")
         note(f"  ft{trial}: reply {reply_ms} ms; first key {k.get('ms')} ms (row {'complete' if k.get('ms') is not None else (k['row'] or {}).get('complete')}); "
              f"keys 1..: {[x.get('ms') for x in keys[1:]]}")
         action("terminal.sendText", {"text": "\x15"})
         action("closeTab")
         time.sleep(1.0)  # the close settles
+    screen_counts = {"all": sum(t["on_screen"] for t in trials), "lost_first": sum(t["on_screen_less_first"] for t in trials),
+                     "other": sum(not t["on_screen"] and not t["on_screen_less_first"] for t in trials)}
+    note(f"SCREEN {session['spec']}: {json.dumps(screen_counts)} of {len(trials)} tabs")
     first = [t["keys"][0].get("ms") for t in trials]
     got = [v for v in first if v is not None]
-    session["first_key_summary"] = {"first": dist(got), "missing": len(first) - len(got),
+    session["first_key_summary"] = {"screen": screen_counts, "first": dist(got), "missing": len(first) - len(got),
                                     "by_index": [dist([t["keys"][i].get("ms") for t in trials if t["keys"][i].get("ms") is not None])
                                                  for i in range(opts.first_key_keys)],
                                     "reply_ms": dist([t["reply_ms"] for t in trials])}
@@ -283,6 +292,26 @@ def run_first_key(session, poster):
         d = session["first_key_summary"]["first_" + column] or {}
         note(f"FIRSTKEY {session['spec']} key0 {column}: p50 {d.get('p50')} p95 {d.get('p95')} n {d.get('n')}")
     save()
+
+
+def focused_terminal_text():
+    """The focused terminal pane's viewport text and attach phase (debug.surfaces text:true)."""
+    reply = rpc("debug.surfaces", {"text": True}, timeout=20)
+    best = {}
+    def walk(node):
+        nonlocal best
+        if isinstance(node, dict):
+            if "text" in node and node.get("focused") is True and isinstance(node.get("text"), str):
+                best = {"text": node["text"], "attach": node.get("attach")}
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+    walk(reply)
+    if not best:
+        best = {"text": "", "attach": None, "raw": json.dumps(reply)[:400]}
+    return best
 
 
 def focus_brief():
