@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentActivity
+import CmuxNextApps
 @testable import CmuxNextAgentLanes
 @testable import CmuxNextApp
 import CmuxNextDesign
@@ -115,6 +116,8 @@ import Testing
         #expect(runs.compactMap { $0.target.map { SidebarTransientItem.chiefSubagentSession(LayoutItemID($0.id)) } }
             == ["id-optchat-sub-6b68ac4a-a2", "id-optchat-sub-6b68ac4a-a3"])
         #expect(runs.allSatisfy { $0.arguments.isEmpty })
+        let rowTools = HomeDockSwitchView.makeRowTools, sidebarItems = SettingsAppFeatures.sidebarItems
+        defer { HomeDockSwitchView.makeRowTools = rowTools; SettingsAppFeatures.sidebarItems = sidebarItems }
         var beside: [String] = [], workspaces: [String] = []
         chief.bind(into: registry, host: .init(conversation: { "chief" }, chiefHost: { "chief-host" },
             tab: { _, _ in "tab-in-another-workspace" }, reveal: { _ in Issue.record("must not reveal another workspace"); return true },

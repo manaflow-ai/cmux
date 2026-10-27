@@ -139,7 +139,8 @@ test("child-session row preserves Cmd-click and exposes identity", async () => {
   );
   const button = host.querySelector<HTMLButtonElement>("button")!;
   await act(async () => button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, metaKey: true })));
-  expect(calls).toEqual([{ sessionId: "child-1", workspace: true }]);
+  await act(async () => button.click());
+  expect(calls).toEqual([{ sessionId: "child-1", workspace: true }, { sessionId: "child-1" }]);
   expect(button.title).toContain("child-1");
 });
 
