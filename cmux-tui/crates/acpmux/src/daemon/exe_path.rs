@@ -160,14 +160,27 @@ pub fn allowed_by_env() -> bool {
     std::env::var(ALLOW_ENV).as_deref() == Ok("1")
 }
 
+/// `path` with links, `.` and `..` resolved: the path itself when it exists, else its folder's
+/// resolution and its name (a home not created yet), else as given. So `~/x/../.acpmux` is the
+/// default home and a linked `$TMPDIR` is the folder it names.
+fn resolved(path: &Path) -> std::path::PathBuf {
+    if let Ok(real) = std::fs::canonicalize(path) {
+        return real;
+    }
+    match (path.parent().and_then(|p| std::fs::canonicalize(p).ok()), path.file_name()) {
+        (Some(parent), Some(name)) => parent.join(name),
+        _ => path.to_path_buf(),
+    }
+}
+
 /// The verdict for this process's own executable and home.
 pub fn current(allow: bool) -> Verdict {
     let Ok(exe) = std::env::current_exe() else { return Verdict::Stable };
     verdict(
-        &exe,
-        &crate::config::home(),
-        &crate::config::default_home(),
-        &std::env::temp_dir(),
+        &resolved(&exe),
+        &resolved(&crate::config::home()),
+        &resolved(&crate::config::default_home()),
+        &resolved(&std::env::temp_dir()),
         allow || allowed_by_env(),
     )
 }
@@ -175,10 +188,8 @@ pub fn current(allow: bool) -> Verdict {
 /// Why this process's executable is not a stable install (`daemon status`'s
 /// `exeUnstable`), or None.
 pub fn current_unstable() -> Option<&'static str> {
-    std::env::current_exe()
-        .ok()
-        .and_then(|e| classify(&e, &std::env::temp_dir()))
-        .map(Unstable::word)
+    let exe = std::env::current_exe().ok()?;
+    classify(&resolved(&exe), &resolved(&std::env::temp_dir())).map(Unstable::word)
 }
 
 /// Before starting a daemon (a client's auto-start, `daemon start`, `daemon
@@ -286,6 +297,21 @@ mod tests {
         std::fs::create_dir_all(root.join("runner/_diag")).unwrap();
         let exe = root.join("runner/_work/cmux/target/release/acpmux");
         assert_eq!(classify(&exe, Path::new(TMP)), Some(Unstable::RunnerWork));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_home_spelled_with_dot_dot_or_through_a_link_is_resolved() {
+        let root = std::env::temp_dir().join(format!("acpmux-exe-resolve-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("home/x")).unwrap();
+        let real = resolved(&root.join("home"));
+        // A home not created yet, spelled with `..`, is the default home.
+        assert_eq!(resolved(&root.join("home/x/../.acpmux")), real.join(".acpmux"));
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(root.join("home"), root.join("link")).unwrap();
+            assert_eq!(resolved(&root.join("link/.acpmux")), real.join(".acpmux"));
+        }
         let _ = std::fs::remove_dir_all(&root);
     }
 

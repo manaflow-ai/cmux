@@ -503,6 +503,9 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             } catch {
                 throw failure(environment, .exited, detail: String(describing: error))
             }
+        } catch AcpmuxDaemonLauncher.Failure.refused(let why) {
+            logger.error("acpmux daemon refused to start: \(why, privacy: .public)")
+            throw failure(environment, .refused(why), detail: why)
         } catch is AgentPaneDeadlineExceeded {
             logger.error("acpmux launcher timed out log=\(environment.logPath, privacy: .public)")
             throw AgentPaneHostError.timedOut
