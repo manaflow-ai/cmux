@@ -34,7 +34,7 @@ import Testing
     func theToggleOffIsTheReportedStateWithSourceLocal(_ channel: Feature.Channel) throws {
         let store = Self.tunables(chromium: false)
         let features = Self.features(channel)
-        let report = FeatureFlagsPage.report(features, tunables: store)
+        let report = FeatureFlagsPage.report(features, tunables: store, daemon: nil)
         #expect(report.resolution(of: .agentChromium) == Feature.Resolution(isEnabled: false, source: .local))
         #expect(Self.runs(features, store) == false)
         let rows = try #require(report.json["features"]?.arrayValue)
@@ -47,7 +47,7 @@ import Testing
     @Test func theReportFollowsTheToggleAfterLaunch() {
         let store = Self.tunables()
         let features = Self.features(.dev)
-        let report = FeatureFlagsPage.report(features, tunables: store)
+        let report = FeatureFlagsPage.report(features, tunables: store, daemon: nil)
         for toggle in [true, false, nil] as [Bool?] {
             store.set(AgentPaneTunables.chromium.key, toggle.map(TunableValue.bool))
             let resolution = report.resolution(of: .agentChromium)
@@ -59,7 +59,7 @@ import Testing
     @Test func releaseReportsTheLaunchResolution() {
         let store = Self.tunables(chromium: false)
         let features = Self.features(.release)
-        let report = FeatureFlagsPage.report(features, tunables: store)
+        let report = FeatureFlagsPage.report(features, tunables: store, daemon: nil)
         #expect(report.resolution(of: .agentChromium) == features.resolution(of: .agentChromium))
         #expect(report.resolution(of: .agentChromium).isEnabled == Self.runs(features, store))
     }
@@ -68,14 +68,14 @@ import Testing
         let store = Self.tunables(chromium: true)
         for overrides in [FeatureOverrides(policyDisabled: [Self.name]), FeatureOverrides(environmentDisabled: [Self.name])] {
             let features = Self.features(.dev, overrides)
-            let report = FeatureFlagsPage.report(features, tunables: store)
+            let report = FeatureFlagsPage.report(features, tunables: store, daemon: nil)
             #expect(report.resolution(of: .agentChromium) == features.resolution(of: .agentChromium))
             #expect(report.resolution(of: .agentChromium).isEnabled == false)
             #expect(Self.runs(features, store) == false)
         }
         let enabled = Self.features(.dev, FeatureOverrides(environmentEnabled: [Self.name]))
         let offStore = Self.tunables(chromium: false)
-        let report = FeatureFlagsPage.report(enabled, tunables: offStore)
+        let report = FeatureFlagsPage.report(enabled, tunables: offStore, daemon: nil)
         #expect(report.resolution(of: .agentChromium) == Feature.Resolution(isEnabled: true, source: .environment))
         #expect(Self.runs(enabled, offStore))
     }

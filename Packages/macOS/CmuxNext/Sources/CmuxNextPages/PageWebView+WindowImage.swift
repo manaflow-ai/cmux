@@ -26,6 +26,7 @@ extension PageRegistry {
         let content = window.contentView.map { $0.convert($0.bounds, to: nil) } ?? .zero
         return self.pages().compactMap { page in
             guard page.chromiumSession != nil, page.window === window, !page.isParkedSpare, !page.showsDiscardSnapshot,
+                  // visibility-walk-allow: the window image composes what AppKit draws in the window now (a hit test of the window's views); the page has no node of its own
                   !page.isHiddenOrHasHiddenAncestor, !Self.isTransparent(page) else { return nil }
             let rect = page.convert(page.bounds, to: nil)
             return rect.width > 0 && rect.height > 0 && rect.intersects(content) ? (page, rect) : nil
