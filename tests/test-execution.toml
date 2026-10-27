@@ -990,6 +990,10 @@ path = "tests/test_nightly_artifact_alias.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_workflow_size.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cla_guard_metadata_routing.py"
 lane = "linux-guard"
 
