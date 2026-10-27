@@ -88,6 +88,32 @@ test("nested completion invalidates the parent summary revision", () => {
   expect(after.subagents).toEqual([{ id: "b", title: "Child", state: "done" }]);
 });
 
+test("mixed child activity and nested streams reuse summaries until completion", () => {
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "b", parent: "a" }] });
+  feed(fold, { sessionUpdate: "tool_call", toolCallId: "done", title: "Read", status: "completed" }, { subagent: "b" });
+  const parent = sessionSummary(fold.views().a!, "acme/app");
+  for (let index = 0; index < 50; index++) {
+    feed(
+      fold,
+      { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "thinking" } },
+      { subagent: "b" },
+    );
+    feed(
+      fold,
+      { sessionUpdate: "tool_call_update", toolCallId: "live", title: "Work", status: "in_progress" },
+      { subagent: "b" },
+    );
+    expect(sessionSummary(fold.views().a!, "acme/app")).toBe(parent);
+  }
+  const child = sessionSummary(fold.views().b!, "acme/app");
+  feed(fold, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "more" } }, { subagent: "b" });
+  expect(sessionSummary(fold.views().b!, "acme/app")).toBe(child);
+  feed(fold, { sessionUpdate: "subagent_state_update" }, { subagents: [{ id: "b", state: "completed" }] });
+  expect(sessionSummary(fold.views().a!, "acme/app").subagents[0]?.state).toBe("done");
+});
+
 describe("why a subagent stopped", () => {
   const spawn = (fold: SubagentFold, id: string, fields: Record<string, unknown> = {}) =>
     feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id, parent: null, name: id, ...fields }] });
