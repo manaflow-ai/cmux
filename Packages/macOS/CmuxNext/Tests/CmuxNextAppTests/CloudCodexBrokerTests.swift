@@ -292,6 +292,8 @@ done
         if interruption == 10 {
             await #expect(throws: CloudCodexBrokerError.remoteDeliveryFailed) { try await broker.transfer(target: target, confirmed: true) }
             #expect(await recorder.files.keys.contains { $0.contains(".access-") })
+            await #expect(throws: Recorder.Failure.denied) { try await broker.revoke(target: target) }
+            #expect(await recorder.files.keys.contains { $0.contains(".access-") })
             await recorder.failRemoval(false)
             try await broker.revoke(target: target)
             #expect(await recorder.files.keys.filter { $0.contains(".access-") || $0.contains(".codex-") }.isEmpty)
