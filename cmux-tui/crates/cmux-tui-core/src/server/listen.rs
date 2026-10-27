@@ -449,13 +449,26 @@ fn refuse_busy(mut stream: Box<dyn transport::Stream>) {
 /// (mojo/core/channel_posix.cc); 512 KiB drains in well under 1 ms.
 pub(super) const CONNECTION_SOCKET_BUFFER: usize = 512 * 1024;
 
-/// The send and receive buffer sizes the kernel reports after the ask.
-/// Linux reports twice the ask (its bookkeeping share) capped by
-/// `net.core.wmem_max` / `rmem_max`; macOS reports the ask.
+/// What getsockopt reports for a full grant of [`CONNECTION_SOCKET_BUFFER`]:
+/// Linux stores twice the ask (its bookkeeping share, `sk_setsockopt` in
+/// net/core/sock.c), macOS stores the ask.
+pub(super) fn full_grant() -> usize {
+    if cfg!(target_os = "linux") { 2 * CONNECTION_SOCKET_BUFFER } else { CONNECTION_SOCKET_BUFFER }
+}
+
+/// The send and receive buffer sizes the kernel reports after the ask. Linux
+/// caps the ask at `net.core.wmem_max` / `rmem_max` before it doubles it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct SocketBuffers {
     pub(super) send: usize,
     pub(super) receive: usize,
+}
+
+impl SocketBuffers {
+    /// Whether a system limit sized either buffer below a full grant.
+    fn is_short(&self) -> bool {
+        self.send < full_grant() || self.receive < full_grant()
+    }
 }
 
 /// Ask for [`CONNECTION_SOCKET_BUFFER`] each way on `stream` and return what
@@ -486,37 +499,37 @@ pub(super) fn size_connection_buffers(
     }
 }
 
-/// One accept loop's note of a socket the kernel sized below the ask: the
-/// first such connection is logged, later ones are not (each would repeat
-/// the same system limit).
+/// One accept loop's log of the buffers the kernel grants: the first sized
+/// connection's sizes are logged, with the system limit to raise when the
+/// grant is short; later ones are not (each would repeat the same sizes).
 #[derive(Default)]
-pub(super) struct ShortBufferLog {
+pub(super) struct SocketBufferLog {
     logged: bool,
 }
 
-impl ShortBufferLog {
+impl SocketBufferLog {
     /// The line to log for this connection's result, at most once per loop.
     pub(super) fn line(&mut self, result: &std::io::Result<SocketBuffers>) -> Option<String> {
         if self.logged {
             return None;
         }
-        let line = match result {
-            Ok(granted)
-                if granted.send >= CONNECTION_SOCKET_BUFFER
-                    && granted.receive >= CONNECTION_SOCKET_BUFFER =>
-            {
-                return None;
-            }
+        self.logged = true;
+        Some(match result {
+            Ok(granted) if granted.is_short() => format!(
+                "cmux-tui: control socket buffers are {} B send, {} B receive; a full grant of \
+                 the {CONNECTION_SOCKET_BUFFER} B ask reads {} B (system limit: Linux \
+                 net.core.wmem_max and rmem_max, macOS kern.ipc.maxsockbuf)",
+                granted.send,
+                granted.receive,
+                full_grant()
+            ),
             Ok(granted) => format!(
-                "cmux-tui: control socket buffers are {} B send, {} B receive, below the \
-                 {CONNECTION_SOCKET_BUFFER} B asked (system limit: Linux net.core.wmem_max \
-                 and rmem_max, macOS kern.ipc.maxsockbuf)",
+                "cmux-tui: control socket buffers are {} B send, {} B receive \
+                 ({CONNECTION_SOCKET_BUFFER} B asked)",
                 granted.send, granted.receive
             ),
             Err(error) => format!("cmux-tui: control socket buffers not sized: {error}"),
-        };
-        self.logged = true;
-        Some(line)
+        })
     }
 }
 
@@ -540,7 +553,7 @@ pub(super) fn spawn_accept_loop(
         // descriptors freed up. Space those retries; per-connection errors
         // need none because the next accept blocks.
         let mut backoff = crate::backoff::Backoff::new(ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX);
-        let mut short_buffers = ShortBufferLog::default();
+        let mut buffer_log = SocketBufferLog::default();
         loop {
             let stream = match listener.accept() {
                 Ok(stream) => {
@@ -561,7 +574,7 @@ pub(super) fn spawn_accept_loop(
                 break;
             }
             if let Some(result) = size_connection_buffers(stream.as_ref())
-                && let Some(line) = short_buffers.line(&result)
+                && let Some(line) = buffer_log.line(&result)
             {
                 eprintln!("{line}");
             }
@@ -617,25 +630,30 @@ mod refuse_busy_tests {
 #[cfg(all(test, unix))]
 mod socket_buffer_tests {
     use std::io::{Read as _, Write as _};
+    use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{Duration, Instant};
 
-    use super::{CONNECTION_SOCKET_BUFFER, ShortBufferLog, SocketBuffers, size_connection_buffers};
+    use super::{
+        CONNECTION_SOCKET_BUFFER, SocketBufferLog, SocketBuffers, bind_session_socket, full_grant,
+        size_connection_buffers,
+    };
     use crate::platform::transport;
 
-    /// The least the kernel may report for the ask: Linux doubles it and caps
-    /// the ask at `net.core.{w,r}mem_max`; macOS reports the ask.
+    /// The least the kernel may report for the ask: Linux caps the ask at
+    /// `net.core.{w,r}mem_max` and doubles it; macOS reports the ask.
     fn least_grant(limit: &str) -> usize {
         if cfg!(target_os = "linux") {
             let path = format!("/proc/sys/net/core/{limit}");
             let max: usize = std::fs::read_to_string(path).unwrap().trim().parse().unwrap();
-            CONNECTION_SOCKET_BUFFER.min(max) * 2
+            full_grant().min(max * 2)
         } else {
-            CONNECTION_SOCKET_BUFFER
+            full_grant()
         }
     }
 
-    #[test]
-    fn an_accepted_connection_gets_512_kib_buffers_each_way() {
+    /// A fresh directory for one test's socket.
+    fn socket_directory() -> PathBuf {
         static SEQUENCE: AtomicU64 = AtomicU64::new(0);
         let directory = std::env::temp_dir().join(format!(
             "cmux-sockbuf-{}-{}",
@@ -643,18 +661,31 @@ mod socket_buffer_tests {
             SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&directory).unwrap();
+        directory
+    }
+
+    /// getsockopt SO_SNDBUF and SO_RCVBUF on `stream`'s socket.
+    fn buffers_of(stream: &dyn transport::Stream) -> SocketBuffers {
+        let fd = stream.socket_fd().unwrap();
+        // SAFETY: `stream` owns `fd` for this borrow.
+        let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(fd) };
+        let socket = socket2::SockRef::from(&fd);
+        SocketBuffers {
+            send: socket.send_buffer_size().unwrap(),
+            receive: socket.recv_buffer_size().unwrap(),
+        }
+    }
+
+    #[test]
+    fn an_accepted_connection_gets_512_kib_buffers_each_way() {
+        let directory = socket_directory();
         let path = directory.join("s.sock");
         let listener = transport::listen(&path).unwrap();
         let mut client = transport::connect(&path).unwrap();
         let mut server = listener.accept().unwrap();
 
         let granted = size_connection_buffers(server.as_ref()).unwrap().unwrap();
-        let fd = server.socket_fd().unwrap();
-        // SAFETY: `server` owns `fd` for this borrow.
-        let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(fd) };
-        let socket = socket2::SockRef::from(&fd);
-        assert_eq!(granted.send, socket.send_buffer_size().unwrap(), "getsockopt SO_SNDBUF");
-        assert_eq!(granted.receive, socket.recv_buffer_size().unwrap(), "getsockopt SO_RCVBUF");
+        assert_eq!(granted, buffers_of(server.as_ref()), "getsockopt SO_SNDBUF / SO_RCVBUF");
         assert!(granted.send >= least_grant("wmem_max"), "SO_SNDBUF {}", granted.send);
         assert!(granted.receive >= least_grant("rmem_max"), "SO_RCVBUF {}", granted.receive);
 
@@ -664,6 +695,32 @@ mod socket_buffer_tests {
         client.read_exact(&mut reply).unwrap();
         assert_eq!(&reply, b"ping");
         drop(listener);
+        let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn the_daemon_accept_loop_sizes_every_connection_it_accepts() {
+        let directory = socket_directory();
+        let path = directory.join("s.sock");
+        let bound = bind_session_socket("sockbuf-test", Some(path.clone())).unwrap();
+        let server = bound.serve_restoring().unwrap();
+        let _client = transport::connect(&path).unwrap();
+
+        // The loop sizes a connection before it parks it, so a parked stream
+        // is sized.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let parked = loop {
+            if let Some(parked) = server.take_parked() {
+                break parked;
+            }
+            assert!(Instant::now() < deadline, "the accept loop parked no connection");
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        let granted = buffers_of(parked.as_ref());
+        assert!(granted.send >= least_grant("wmem_max"), "SO_SNDBUF {}", granted.send);
+        assert!(granted.receive >= least_grant("rmem_max"), "SO_RCVBUF {}", granted.receive);
+        drop(parked);
+        drop(server);
         let _ = std::fs::remove_dir_all(directory);
     }
 
@@ -687,10 +744,10 @@ mod socket_buffer_tests {
             fn try_clone_box(&self) -> std::io::Result<Box<dyn transport::Stream>> {
                 Ok(Box::new(NoSocket))
             }
-            fn set_read_timeout(&self, _: Option<std::time::Duration>) -> std::io::Result<()> {
+            fn set_read_timeout(&self, _: Option<Duration>) -> std::io::Result<()> {
                 Ok(())
             }
-            fn set_write_timeout(&self, _: Option<std::time::Duration>) -> std::io::Result<()> {
+            fn set_write_timeout(&self, _: Option<Duration>) -> std::io::Result<()> {
                 Ok(())
             }
             fn shutdown(&self, _: std::net::Shutdown) -> std::io::Result<()> {
@@ -701,21 +758,39 @@ mod socket_buffer_tests {
     }
 
     #[test]
-    fn a_short_grant_is_logged_once_per_accept_loop() {
-        let full =
-            SocketBuffers { send: CONNECTION_SOCKET_BUFFER, receive: CONNECTION_SOCKET_BUFFER };
+    fn the_granted_sizes_are_logged_once_per_accept_loop() {
+        let full = SocketBuffers { send: full_grant(), receive: full_grant() };
         let short = SocketBuffers { send: 212_992, receive: 425_984 };
-        let mut log = ShortBufferLog::default();
-        assert_eq!(log.line(&Ok(full)), None, "a full grant logs nothing");
-        let line = log.line(&Ok(short)).expect("the first short grant logs");
-        assert!(line.contains("212992 B send"), "{line}");
-        assert!(line.contains("425984 B receive"), "{line}");
-        assert_eq!(log.line(&Ok(short)), None, "the second short grant does not");
+        let mut log = SocketBufferLog::default();
+        let line = log.line(&Ok(full)).expect("the first full grant logs its sizes");
+        let size = full_grant();
+        assert!(line.contains(&format!("{size} B send, {size} B receive")), "{line}");
+        assert!(!line.contains("system limit"), "a full grant names no limit: {line}");
+        assert_eq!(log.line(&Ok(full)), None, "the second connection does not log");
+        assert_eq!(log.line(&Ok(short)), None, "nor does a later short grant");
         let error = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
         assert_eq!(log.line(&Err(error)), None, "nor does a later failure");
 
-        let mut log = ShortBufferLog::default();
+        let mut log = SocketBufferLog::default();
+        let line = log.line(&Ok(short)).expect("the first short grant logs");
+        assert!(line.contains("212992 B send, 425984 B receive"), "{line}");
+        assert!(line.contains("system limit"), "a short grant names the limit: {line}");
+        assert_eq!(log.line(&Ok(short)), None, "the second short grant does not");
+
+        let mut log = SocketBufferLog::default();
         let error = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
         assert!(log.line(&Err(error)).unwrap().contains("not sized"));
+    }
+
+    /// Linux caps the ask at wmem_max before it doubles it: with wmem_max at
+    /// 400000 getsockopt reads 800000, above the 512 KiB ask but short.
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn a_linux_grant_capped_between_the_ask_and_twice_it_is_short() {
+        let capped = SocketBuffers { send: 800_000, receive: full_grant() };
+        let line = SocketBufferLog::default().line(&Ok(capped)).unwrap();
+        assert!(line.contains("800000 B send"), "{line}");
+        assert!(line.contains("system limit"), "{line}");
+        assert!(line.contains(&format!("reads {} B", 2 * CONNECTION_SOCKET_BUFFER)), "{line}");
     }
 }
