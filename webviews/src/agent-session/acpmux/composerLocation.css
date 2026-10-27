@@ -78,6 +78,12 @@
   padding: 0 var(--acpmux-strip-pad, 4px);
   box-sizing: border-box;
 }
+/* A started chat's chooser can fail after its menu closes. Keep that recovery line below the
+   fixed-height scope row instead of letting it squeeze the folder and computer controls. */
+.acpmux-composer-context > .acpmux-folder-choice {
+  position: absolute;
+  inset: 100% 0 auto;
+}
 /* Folder and computer share the same small inter-control gap, told apart by their icons; no "·"
    floats between them against the folder's chevron. */
 .acpmux-composer-context > .acpmux-location-leading { display: flex; align-items: center; gap: var(--acpmux-location-gap, 6px); min-width: 0; flex: 1 1 0; }

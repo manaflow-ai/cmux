@@ -116,3 +116,29 @@ test("a chosen document uses the New Tab upload path and becomes sendable", asyn
     expect.objectContaining({ kind: "link", path: "/tmp/notes.txt", saved: true }),
   ]);
 });
+
+test("keeps the New Tab composer actionable when folder browse rejects", async () => {
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+        onBrowseProject={() => Promise.reject(new Error("Folder access was denied."))}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+      />,
+    );
+  });
+
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-location .acpmux-location-button")!.click());
+  const browse = document.querySelector<HTMLElement>("[data-choose]");
+  expect(browse).toBeTruthy();
+  await act(async () => browse!.click());
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Folder access was denied.");
+  expect(container.querySelectorAll(".acpmux-folder-choice-button")).toHaveLength(2);
+});

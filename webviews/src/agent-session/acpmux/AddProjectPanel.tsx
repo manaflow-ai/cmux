@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Dialog } from "../../ui/Dialog";
 import { KeyboardScope } from "../../ui/KeyboardScope";
+import { browseFailureMessage } from "./BrowseFailure";
 import { useT } from "./i18n";
 import {
   directoryName,
@@ -12,12 +13,13 @@ import {
 import "./addProject.css";
 
 type Step = "environment" | "source" | "directory";
+export type BrowseRequest = { deferPick?: boolean };
 export type AddProjectPanelProps = {
   host?: ProjectDirectoryHost;
   localName?: string;
   peers?: string[];
   /** Existing native folder chooser, used until a reviewed directory-list host operation exists. */
-  onBrowse?(): Promise<string | undefined> | string | undefined | void;
+  onBrowse?(request?: BrowseRequest): Promise<string | undefined> | string | undefined | void;
   onPick(path: string): void;
   onClose(): void;
 };
@@ -37,11 +39,19 @@ export function AddProjectPanel({
   const [requested, setRequested] = useState("~");
   const [directory, setDirectory] = useState<ProjectDirectory>();
   const [loading, setLoading] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
   const [error, setError] = useState<string>();
   const [revealError, setRevealError] = useState<string>();
   const [retry, setRetry] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   const request = useRef(0);
+  const browseRequest = useRef(0);
+  useEffect(
+    () => () => {
+      browseRequest.current += 1;
+    },
+    [],
+  );
   useEffect(() => {
     input.current?.focus();
   }, [step, directory?.path]);
@@ -74,6 +84,8 @@ export function AddProjectPanel({
   }, [host, requested, step, retry]);
 
   const back = () => {
+    browseRequest.current += 1;
+    setBrowsing(false);
     setStep(step === "directory" ? "source" : "environment");
     setQuery("");
     setError(undefined);
@@ -112,10 +124,23 @@ export function AddProjectPanel({
       setQuery("");
       return;
     }
-    void Promise.resolve(onBrowse?.()).then((path) => {
-      if (path) onPick(path);
-      else if (path === undefined) onClose();
-    });
+    if (browsing) return;
+    const id = ++browseRequest.current;
+    setBrowsing(true);
+    setError(undefined);
+    void Promise.resolve()
+      .then(() => onBrowse?.({ deferPick: true }))
+      .then((path) => {
+        if (browseRequest.current !== id) return;
+        if (path) onPick(path);
+        else if (path === undefined) onClose();
+      })
+      .catch((failure: unknown) => {
+        if (browseRequest.current === id) setError(browseFailureMessage(failure));
+      })
+      .finally(() => {
+        if (browseRequest.current === id) setBrowsing(false);
+      });
   };
   const select = (id: string) => {
     const choice = choices.find((item) => item.id === id);
@@ -207,13 +232,17 @@ export function AddProjectPanel({
           }}
           inline
         />
-        <output className="acpmux-add-project-status">
-          {loading ? (
+        <output className="acpmux-add-project-status" role={error || revealError ? "alert" : undefined}>
+          {loading || browsing ? (
             t("project.loading")
           ) : error ? (
             <>
               <span>{error}</span>
-              <button type="button" onClick={() => setRetry((value) => value + 1)}>
+              <button
+                type="button"
+                disabled={browsing}
+                onClick={() => (host.list ? setRetry((value) => value + 1) : chooseFolder())}
+              >
                 {t("project.retry")}
               </button>
             </>
