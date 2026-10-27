@@ -76,6 +76,7 @@
 
 use crate::no_panic::JsonExt;
 use crate::rpc::{RpcError, method};
+use cmux_blocking::BlockingKind;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -916,23 +917,25 @@ async fn peer_scratch(params: &Value) -> Result<String, RpcError> {
         .map(scratch_name)
         .filter(|n| !n.is_empty())
         .unwrap_or_else(|| format!("session-{}", uuid::Uuid::now_v7().simple()));
-    let dir = peer_scratch_root()?.join(name);
-    let made = {
-        let dir = dir.clone();
-        tokio::task::spawn_blocking(move || {
-            let mut builder = std::fs::DirBuilder::new();
-            builder.recursive(true);
-            #[cfg(unix)]
-            std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    fn failed(why: impl std::fmt::Display) -> RpcError {
+        RpcError::invalid_params(format!("the peer's scratch folder could not be made: {why}"))
+    }
+    let dir = cmux_blocking::spawn_blocking(move || -> Result<PathBuf, RpcError> {
+        let dir = peer_scratch_root()?.join(name);
+        let mut builder = std::fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+        cmux_blocking::scoped_blocking_call("fs::create_dir_with", BlockingKind::Fs, || {
             builder.create(&dir)
         })
-        .await
-    };
-    let failed = |why: String| {
-        RpcError::invalid_params(format!("the peer's scratch folder could not be made: {why}"))
-    };
-    made.map_err(|e| failed(e.to_string()))?.map_err(|e| failed(e.to_string()))?;
-    crate::config::private_state_dir(&dir).map_err(|e| failed(e.to_string()))?;
+        .map_err(failed)?;
+        crate::config::private_state_dir(&dir).map_err(failed)?;
+        Ok(dir)
+    })
+    .await
+    .map_err(failed)??;
     canonical_dir(&dir.to_string_lossy()).await.ok_or_else(|| folder_refused("cwd"))
 }
 
@@ -954,7 +957,12 @@ fn peer_scratch_root() -> Result<PathBuf, RpcError> {
         let mut builder = std::fs::DirBuilder::new();
         #[cfg(unix)]
         std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-        builder.create(&root).map_err(|e| format!("{}: {e}", root.display())).and_then(|_| {
+        #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+        let made =
+            cmux_blocking::scoped_blocking_call("fs::create_dir_with", BlockingKind::Fs, || {
+                builder.create(&root)
+            });
+        made.map_err(|e| format!("{}: {e}", root.display())).and_then(|_| {
             crate::config::private_state_dir(&root).map(|_| root).map_err(|e| e.to_string())
         })
     })
@@ -1017,7 +1025,7 @@ pub(crate) async fn fs_spelling(path: &str) -> Option<std::path::PathBuf> {
 fn stored_path(path: &Path) -> Option<std::path::PathBuf> {
     use std::os::fd::AsRawFd;
     use std::os::unix::ffi::OsStringExt;
-    let file = std::fs::File::open(path).ok()?;
+    let file = cmux_blocking::fs::open(path).ok()?;
     let mut buf = vec![0u8; libc::PATH_MAX as usize];
     // SAFETY: F_GETPATH writes at most PATH_MAX bytes into `buf`, which holds
     // PATH_MAX bytes, for a descriptor this function owns.

@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 public import Foundation
 
 /// What one flush did: whether it made a bridge call (``AgentPaneTransportPacer/delivered()``
@@ -31,10 +32,17 @@ public extension AgentPaneTransportPacer {
     func reset() {}
 }
 
-/// Flushes on the next main-loop turn, again while more is waiting.
+/// Flushes in the next main-thread task, again while more is waiting.
 @MainActor public final class AgentPaneNextTurnPacer: AgentPaneTransportPacer {
     private var scheduled = false
-    public init() {}
+    private let mainWork: MainWorkScheduler
+    private let owner: MainTaskOwner
+
+    /// - Parameter mainWork: The app's one main-thread scheduler: each flush is one `visible` task on it.
+    public init(mainWork: MainWorkScheduler) {
+        self.mainWork = mainWork
+        owner = mainWork.board.owner("agentPane.transport.nextTurnFlush")
+    }
 
     // The pacer has no actor-bound resources. Its lifetime can end when AppKit replaces a view
     // from a synchronous callback, so deallocation must not require a main-actor executor hop.
@@ -43,11 +51,10 @@ public extension AgentPaneTransportPacer {
     public func schedule(_ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush) {
         guard !scheduled else { return }
         scheduled = true
-        // task-owner: one next-turn flush; a capped flush schedules the next one itself
-        // Keep the pacer alive until its queued turn finishes. Replacing a pane's transport can
-        // release the old pacer from a synchronous AppKit callback while this task is still queued;
-        // a weak capture lets its isolated deinit run outside the main-actor executor.
-        Task { @MainActor [self] in
+        // One flush posted; a capped flush schedules the next one itself. The task keeps the pacer
+        // alive until it runs: replacing a pane's transport can release the old pacer from a
+        // synchronous AppKit callback while this task is still queued.
+        mainWork.post(.visible, owner: owner) { [self] in
             scheduled = false
             if flush().more { schedule(flush) }
         }

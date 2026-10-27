@@ -6,7 +6,7 @@ import Testing
 @MainActor
 struct AgentPaneTransportCloseTests {
     @Test func closeDeliversTerminalEventBeforeClearingSocket() async throws {
-        let provider = AgentPageProvider { _ in nil }
+        let provider = AgentPageProvider(mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
         var sawClose = false
         let subscription = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null,
                                                         context: PageCallContext(page: PageDescriptor.agent.id)) { event in
