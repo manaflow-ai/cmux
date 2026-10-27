@@ -57,8 +57,8 @@ extension TabContentCache {
     /// `Visibility::OCCLUDED`, the pages its panes show get a hidden clock but stay shown, and the
     /// discarder keeps each as its window's active tab (`kActiveTab`, discard_eligibility_policy.cc);
     /// the panes keep no neighbor tabs awake, so those sleep after the timeout. Hiding the shown
-    /// pages themselves at once is p07-memory-097's. Terminals are untouched: their drawing already
-    /// pauses (`WindowDrawPolicy`).
+    /// pages themselves at once is the fork's tab visibility (API 37) or, before it, the freeze of
+    /// `offScreenWindowPageFreeze` (p07-memory-097). Terminals pause their drawing (`WindowDrawPolicy`).
     func windowDidChangeOnScreen(_ window: ObjectIdentifier, offScreen: Bool) {
         guard offScreen ? offScreenWindows.insert(window).inserted : offScreenWindows.remove(window) != nil else { return }
         var panes: [ObjectIdentifier] = []

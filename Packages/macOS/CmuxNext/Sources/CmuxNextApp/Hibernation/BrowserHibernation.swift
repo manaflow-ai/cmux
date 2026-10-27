@@ -90,6 +90,9 @@ final class BrowserHibernation {
     /// Remote desktop and remote browser tabs (`BrowserStreamedPage`) hibernate to their last frame
     /// (feature `memoryDiscardRemoteTabs`, set by the App); off, they count as pages that cannot restore.
     var discardsStreamedPages = false
+    /// A page shown in an off-screen window that does not follow its tab's node freezes at once, hidden to the
+    /// engine first (feature `offScreenWindowPageFreeze`, set by the App; `Candidate.freezeCandidate`).
+    var freezesOffScreenShownPages = false
     var frozenGrowth = FrozenGrowthRule()
     let growthDeadline: MainDeadline
     /// Tab `key`'s opener group (its openers and the tabs they opened), itself included; injected by the App.
@@ -453,14 +456,17 @@ final class BrowserHibernation {
     func panesDidChangeScreen(_ panes: [ObjectIdentifier], shownPages: [String], offScreen: Bool) {
         guard !panes.isEmpty else { return }
         for pane in panes { neighbors.setOffScreen(offScreen, pane: pane) }
-        for key in shownPages { _ = markOffScreen(key, offScreen) }
+        // Back on screen, a shown page frozen there (``freezesOffScreenShownPages``) thaws in the window's turn.
+        for key in shownPages where markOffScreen(key, offScreen) && !offScreen { thaw(key) }
         refreshNeighbors(replans: false)
         replan()
     }
 
     /// Shown page `key` is in an off-screen window (a switch or a move there) or not.
     func pageDidChangeScreen(_ key: String, offScreen: Bool) {
-        if markOffScreen(key, offScreen) { replan() }
+        guard markOffScreen(key, offScreen) else { return }
+        if !offScreen { thaw(key) }
+        replan()
     }
 
     /// Starts or stops shown page `key`'s hidden clock with its window; true when that changed.
@@ -553,7 +559,10 @@ final class BrowserHibernation {
         } else {
             deadline.cancel()
         }
-        replanFreeze(candidates.filter { !$0.isNeighbor && !$0.isAgentDriving && !$0.isActiveTab })
+        replanFreeze(candidates.compactMap {
+            $0.freezeCandidate(freezesShownPages: freezesOffScreenShownPages, followsNode: tabVisibility.follows($0.key),
+                               freezeSeconds: setting.freezeSeconds)
+        })
         highEnergy?.wake()
     }
 
@@ -660,7 +669,8 @@ final class BrowserHibernation {
     private func freezeProbed(_ key: String, tab: any BrowserTab, generation: UInt64, probe: PageProbe) {
         freezeProbing.remove(key)
         guard let cache, cache.browsers[key]?.tab === tab, cache.lifecycle.record(key)?.generation == generation,
-              cache.lifecycle.phase(key) == .mountedHidden, hiddenAt[key] != nil, let page = freezer(tab) else { return }
+              cache.lifecycle.phase(key) == .mountedHidden || isShownOffScreen(key), hiddenAt[key] != nil,
+              let page = freezer(tab) else { return }
         // An agent called it, or it became a neighbor (or was hovered) while the probe ran.
         guard mayFreeze(key) else { return }
         let doubted = probeHistory.record(probe, for: key, step: .freeze)
@@ -679,10 +689,15 @@ final class BrowserHibernation {
         !isAgentDriven(key) && !activity.contains(key) && !awakeNeighbors.contains(key) && hoverLeft(key, now: now()) == nil
     }
 
+    /// Page `key` is shown in an off-screen window, and may freeze there (``freezesOffScreenShownPages``).
+    private func isShownOffScreen(_ key: String) -> Bool {
+        freezesOffScreenShownPages && offScreenShown.contains(key) && cache?.lifecycle.phase(key) == .mountedVisible
+    }
+
     private func freeze(_ key: String, _ page: any BrowserFreezing) {
         // The engine refuses a page it still counts visible: it stays awake and is asked again
         // after `freezeSeconds` (a hidden page's visibility reaches the engine within a frame).
-        guard page.setFrozen(true) else {
+        guard isShownOffScreen(key) ? page.freezeShownInOffScreenWindow() : page.setFrozen(true) else {
             freezeKeptAt[key] = now()
             cache?.trace(key, "freeze refused")
             replan()

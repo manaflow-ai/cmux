@@ -25,7 +25,8 @@ extension TerminalSurfaceView {
         var inputs = WindowDrawPolicy.inputs(for: self, suspended: isRenderingSuspended, forced: mirrorDemand > 0)
         if let window, WindowOcclusionFamily.installed(on: window)?.isOccluded == true { inputs.windowVisible = false }
         pause = inputs.pause
-        if let deadline = offScreenRelease.follow(offScreen: isShown && inputs.windowOffScreen) {
+        let shownOffScreen = isShown && inputs.windowOffScreen
+        if let deadline = offScreenRelease.follow(shownOffScreen: shownOffScreen, windowOnScreen: inputs.windowOnScreen) {
             deadline.schedule(after: WindowDrawPolicy.offScreenGPUReleaseDelay) { [weak self] in self?.offScreenDelayPassed() }
         }
         let releases = pause != nil && (releasesGPUWhilePaused || offScreenRelease.isDue)

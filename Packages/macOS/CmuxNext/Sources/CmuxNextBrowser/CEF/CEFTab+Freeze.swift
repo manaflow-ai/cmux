@@ -11,6 +11,10 @@ extension CEFTab: BrowserFreezing {
     @discardableResult
     public func setFrozen(_ frozen: Bool) -> Bool { nodeVisibility.setFrozen(frozen, of: self) }
 
+    /// The page its off-screen window shows: hidden to Chromium first when its node did not hide it
+    /// (``CEFTabNodeVisibility/freezeShown(of:)``).
+    public func freezeShownInOffScreenWindow() -> Bool { nodeVisibility.freezeShown(of: self) }
+
     /// The spare window's placeholder made with no renderer (`CEFPaneHost.placeholderHasNoRenderer`), as
     /// Chrome makes restored tabs (`chrome/browser/ui/browser_tabrestore.cc`, `kNoRendererProcess`):
     /// nothing runs in it, so it is never frozen.

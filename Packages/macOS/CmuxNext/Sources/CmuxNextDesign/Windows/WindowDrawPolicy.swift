@@ -60,6 +60,10 @@ public nonisolated struct SurfaceDrawInputs: Equatable, Sendable {
     /// hidden or the displays asleep), whatever else pauses the surface: what
     /// ``WindowDrawPolicy/offScreenGPUReleaseDelay`` counts from.
     public var windowOffScreen: Bool { inWindow && !windowVisible && !drawWhenOccluded }
+
+    /// In a window that is on screen: only this ends the release that
+    /// ``WindowDrawPolicy/offScreenGPUReleaseDelay`` starts.
+    public var windowOnScreen: Bool { inWindow && !windowOffScreen }
 }
 
 /// The one window-occlusion rule for every native drawing surface (Ghostty

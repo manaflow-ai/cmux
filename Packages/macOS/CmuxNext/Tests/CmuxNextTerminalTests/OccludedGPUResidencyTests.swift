@@ -175,6 +175,42 @@ import Testing
         #expect(deadline.delays.count == 2 && deadline.isPending)
     }
 
+    /// A scripted tab or workspace switch in a window that stayed off screen hides (or parks) its released
+    /// terminal: a surface in the keep-alive band (`releasesGPUWhilePaused` false) stays released, since nobody
+    /// sees it, and shown again in that window it stays released too. Only a window on screen makes it resident,
+    /// before Ghostty draws.
+    @Test func hidingAReleasedSurfaceInAnOffScreenWindowKeepsItReleased() throws {
+        let policy = PolicySnapshot()
+        defer { policy.restore() }
+        let rig = try makeRig()
+        defer { rig.close() }
+        let session = rig.sessions[0]
+        let deadline = try #require(rig.deadlines.first, "the switch made no deadline")
+        let residency = try #require(rig.residency)
+        #expect(!session.surfaceView.releasesGPUWhilePaused, "the surface is not in the keep-alive band")
+
+        rig.minimize(true)
+        deadline.elapse()
+        #expect(residency.calls == [.init(resident: false, drawing: false)])
+
+        session.view.isHidden = true
+        #expect(session.surfaceView.pause == .hidden)
+        #expect(residency.calls == [.init(resident: false, drawing: false)],
+                "a switch in a minimized window made a hidden surface resident: \(residency.calls)")
+        #expect(!deadline.isPending, "a hidden surface armed a deadline")
+
+        session.view.isHidden = false
+        #expect(session.surfaceView.pause == .windowOccluded)
+        #expect(residency.calls == [.init(resident: false, drawing: false)],
+                "shown again in the minimized window: \(residency.calls)")
+        #expect(!deadline.isPending, "a released surface armed a second deadline")
+
+        rig.minimize(false)
+        #expect(residency.calls == [.init(resident: false, drawing: false), .init(resident: true, drawing: false)],
+                "deminiaturized: the surface must be resident before Ghostty draws: \(residency.calls)")
+        #expect(session.surfaceView.lastOcclusionVisible == true)
+    }
+
     /// A window fully covered by an opaque cmux window (its occlusion family, p03-rendering-097) counts too.
     @Test func aWindowCoveredByTheAppsOwnWindowReleasesAfterTheDelay() throws {
         let policy = PolicySnapshot()

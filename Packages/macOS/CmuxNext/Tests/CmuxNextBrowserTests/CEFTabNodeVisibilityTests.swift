@@ -75,6 +75,37 @@ import Testing
         #expect(VisibilitySpy.calls == ["visibility 7 1 0", "visibility 7 3 0", "visibility 7 1 0"])
     }
 
+    /// p07-memory-097, `offScreenWindowPageFreeze`: below API 37 the shown page of an off-screen window follows no node,
+    /// so Chromium still counts it visible; it is hidden and frozen through DevTools, and the thaw goes out at once, so
+    /// an agent call after it reaches a live page. A second freeze sends nothing.
+    @Test func belowForkAPI37AShownPageInAnOffScreenWindowIsHiddenThenFrozen() throws {
+        let rig = try VisibilityRig(forkAPI: CEFForkFeatures.tabVisibilityForkAPI - 1)
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        #expect(tab.freezeShownInOffScreenWindow())
+        #expect(VisibilitySpy.calls == ["devtools 7 Page.setWebLifecycleState"])
+        #expect(tab.nodeVisibility.isPageFrozen)
+        #expect(tab.freezeShownInOffScreenWindow())
+        #expect(VisibilitySpy.calls.count == 1, "a frozen page was frozen again: \(VisibilitySpy.calls)")
+        #expect(tab.setFrozen(false))
+        #expect(VisibilitySpy.calls == ["devtools 7 Page.setWebLifecycleState", "freeze 7 0"])
+        #expect(!tab.nodeVisibility.isPageFrozen)
+    }
+
+    /// From API 37 the window node hid the tab: its off-screen freeze is the hidden page's, with no DevTools session.
+    @Test func aTabThatFollowsItsNodeFreezesItsOffScreenPageAsAHiddenOne() throws {
+        let rig = try VisibilityRig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        let window = VisibilityNode(root: "window", own: .visible)
+        let node = VisibilityNode("tab", own: .visible, parent: window)
+        tab.followVisibility(of: node, capture: BrowserPageCapture.votes(on:))
+        #expect(!tab.freezeShownInOffScreenWindow(), "a page Chromium counts visible was frozen")
+        window.set(.hidden)
+        #expect(tab.freezeShownInOffScreenWindow())
+        #expect(VisibilitySpy.calls == ["visibility 7 1 0", "visibility 7 3 0", "freeze 7 1"])
+    }
+
     /// A capture vote that does not stay hidden keeps a hidden tab painting (Chrome's visible capturer); its release
     /// gives the hidden page back. A captured page is not frozen.
     @Test func aCaptureVoteKeepsAHiddenTabPaintingAndAwake() throws {
