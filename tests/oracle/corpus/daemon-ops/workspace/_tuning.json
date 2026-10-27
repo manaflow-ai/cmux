@@ -1,0 +1,59 @@
+{
+  "$comment": "p15-oracle-209: workspace.run, so its case and the mcp suite's twin of it end in one state. p15-oracle-064 tunes the rest of the workspace family in this file.",
+  "operations": {
+    "workspace.run": {
+      "success": {
+        "params": {
+          "argv": [
+            "/bin/cat"
+          ]
+        },
+        "after": [
+          {
+            "id": "two-tabs",
+            "waitFor": {
+              "pointer": "/daemon/session/screens/0/layout/root/tab_ids",
+              "predicate": {
+                "op": "lengthEquals",
+                "value": 2
+              },
+              "maxMs": 5000
+            }
+          },
+          {
+            "id": "run-tab-focused",
+            "waitFor": {
+              "pointer": "/daemon/session/tabs/1/focused",
+              "equals": true,
+              "maxMs": 5000
+            }
+          },
+          {
+            "id": "running",
+            "waitFor": {
+              "pointer": "/daemon/session/terminals/1/lifecycle",
+              "equals": "running",
+              "maxMs": 5000
+            }
+          }
+        ],
+        "note": "the command (cat, which runs until the teardown ends it; a command that exits closes its tab, after the reply, so no checkpoint could hold it) runs in a new terminal tab of the workspace, which becomes the focused tab"
+      },
+      "error": {
+        "after": [
+          {
+            "id": "one-tab",
+            "waitFor": {
+              "pointer": "/daemon/session/screens/0/layout/root/tab_ids",
+              "predicate": {
+                "op": "lengthEquals",
+                "value": 1
+              },
+              "maxMs": 5000
+            }
+          }
+        ]
+      }
+    }
+  }
+}

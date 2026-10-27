@@ -1,4 +1,7 @@
 public import Dispatch
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Starts child processes off the main thread and off Swift's cooperative pool, in call order: Chrome's
 /// process launcher (content/browser/child_process_launcher_helper.cc, `GetProcessLauncherTaskRunner`: one
@@ -39,7 +42,7 @@ public final class ChildProcessLauncher: Sendable {
     /// - Throws: What `body` throws.
     public func run<T: Sendable, Failure: Error>(_ body: @escaping @Sendable () throws(Failure) -> T) async throws(Failure) -> T {
         let (queue, qos) = (queue, priority.qos)
-        let outcome = await withCheckedContinuation { (continuation: CheckedContinuation<Result<T, Failure>, Never>) in
+        let outcome = try? await withOnceContinuation { (continuation: OnceContinuation<Result<T, Failure>, OnceContinuationError>) in
             queue.async(execute: DispatchWorkItem(qos: qos, flags: .enforceQoS) {
                 do throws(Failure) {
                     continuation.resume(returning: .success(try body()))
@@ -48,6 +51,9 @@ public final class ChildProcessLauncher: Sendable {
                 }
             })
         }
+        // An abandoned continuation means the work item was dropped before it ran, so the spawn never
+        // happened: queue it again.
+        guard let outcome else { return try await run(body) }
         return try outcome.get()
     }
 

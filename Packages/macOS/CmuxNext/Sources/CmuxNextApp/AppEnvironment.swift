@@ -63,6 +63,11 @@ struct AppEnvironment: Sendable {
     /// One picture per window from the last quit (`WindowPictureStore`, feature `savedWindowPicture`). Only the real
     /// app process makes it; without it no window picture is written (tests that build `AppServices`).
     var windowPictures: WindowPictureStore?
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The launch's global-job census (`CMUX_NEXT_GLOBAL_JOB_CENSUS=1`, p08-startup-082): `debug.startup.global_jobs`
+    /// reads it. Only the real app process arms it.
+    var globalJobCensus: GlobalJobCensus?
+    #endif
     /// The Labs page's local feature choices and their file (``FeatureLocalOverrides``), read on a launch lane from
     /// `main` before the settings read, so `AppServices` resolves its features with them. DEV and NIGHTLY only; nil in
     /// Release and in tests that build `AppServices`.

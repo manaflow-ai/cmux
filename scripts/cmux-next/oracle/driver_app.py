@@ -943,6 +943,9 @@ class AppSession:
     """One app launch for up to --batch-limit cases (oracle.py's session). Launched at the first case, again when
     a case needs another launch (its viewport), and quit with its tag's daemons at close."""
 
+    # The case a launch runs; driver_mcp.py's fleet session runs one that keeps the mcp and cli receipts.
+    case_class: Callable[["AppSession", Mapping[str, Any], Mapping[str, Any]], CaseRun] = CaseRun
+
     def __init__(self, session_ctx: Mapping[str, Any], *, make_app: Optional[AppFactory] = None,
                  identity: Callable[[str], Tuple[str, Optional[str], str, str]] = app_identity,
                  canonicalizer: Optional[Tuple[Canonicalize, Dict[str, Any]]] = None,
@@ -1030,7 +1033,7 @@ class AppSession:
             return refused
         except (AppLaunchFailed, AppGone, socket.timeout) as error:
             return {"status": "Crash", "message": f"app launch: {error}", "checkpoints": [], "session_dirty": True}
-        return CaseRun(self, case, case_ctx).run()
+        return self.case_class(self, case, case_ctx).run()
 
     def daemon_facet(self, step: str) -> Any:
         socket_path = self.app.daemon_socket()

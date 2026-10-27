@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import CoreGraphics
 import Foundation
 import os
@@ -5,18 +6,26 @@ import os
 /// Checked indexing and integer conversion for the render core. Layout state
 /// can be stale (a row index from a previous model, a pixel size computed
 /// from a NaN width), and an out-of-range subscript or an `Int(x)` that does
-/// not fit traps the whole app. These accessors refuse or clamp instead, and
-/// log a fault once per call site, so a wrong index stays visible in the log
-/// without flooding it from a render loop.
+/// not fit traps the whole app. These accessors refuse or clamp instead and
+/// report the call site's first fault of the launch as an
+/// `Invariant.notFatalUntil` failure (p10-stability-099), so a wrong index
+/// reaches crash reporting and the log without flooding either from a render
+/// loop.
 enum CrashGuard {
     static let log = Logger(subsystem: "com.cmuxterm.home.render", category: "crash-guard")
-    private static let reported = OSAllocatedUnfairLock(initialState: Set<String>())
+    /// The invariant name every CrashGuard fault reports under; each call site is its own site.
+    static let invariantID: StaticString = "home-render-checked-access"
+    /// The first build in which a CrashGuard fault traps instead of clamping. Not scheduled yet: set it to a
+    /// real build once the reports of these sites stay at zero for a release cycle.
+    static let fatalFromBuild = UInt64.max
 
-    /// Logs `message` as a fault the first time `site` reports.
+    /// Reports `message` as the call site's first fault of the launch: to the
+    /// process's invariant sink, and as a fault line in the log.
     static func fault(_ message: @autoclosure () -> String, fileID: StaticString = #fileID, line: UInt = #line) {
+        guard Invariant.notFatalUntil(false, invariantID, build: fatalFromBuild, fileID: fileID, line: line) else {
+            return
+        }
         let site = "\(fileID):\(line)"
-        let first = reported.withLock { $0.insert(site).inserted }
-        guard first else { return }
         let text = message()
         log.fault("\(site, privacy: .public): \(text, privacy: .public)")
     }
