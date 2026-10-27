@@ -38,12 +38,13 @@ extension BrowserHibernation {
         wakeLog.start(key, engine: placeholder.engineKind, snapshot: snapshotImage(key) != nil)
         // The page was discarded (logged with its cause); restoring it loads it again.
         // The kind of request only: a URL is the person's browsing and stays out of the log.
+        let prewarm = prewarmCauses.removeValue(forKey: key)
         let reason = switch pendingWakes[key] {
         case .load?: "navigation"
         case .reload?: "reload"
         case .goBack?: "back"
         case .goForward?: "forward"
-        case nil: "shown or woken"
+        case nil: prewarm.map { "prewarm \($0)" } ?? "shown or woken"
         }
         logger.notice("restore \(key, privacy: .public): the discarded page reloads from its saved history (\(reason, privacy: .public))")
         var configuration = BrowserTabConfiguration(id: placeholder.id, profile: profile, zoom: placeholder.state.zoom)
