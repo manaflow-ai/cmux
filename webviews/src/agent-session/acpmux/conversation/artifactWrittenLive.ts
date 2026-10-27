@@ -1,7 +1,7 @@
 // Follow canonical file identity, never a title or a filesystem read. Only the existing detector
 // decides whether a completed tool recorded a complete document.
 import type { AcpmuxRow } from "../model";
-import { rowUpdates, type RowUpdate } from "../rowUpdates";
+import { rowUpdates, type RowUpdate, type RowUpdates } from "../rowUpdates";
 import type { Artifact } from "./artifactPreview";
 import type { ArtifactSourceRow } from "./artifactVersions";
 import { toolArtifacts } from "./artifactWrites";
@@ -13,12 +13,13 @@ export class ArtifactWrittenLive {
   private revision = 0;
   private toolId?: string;
   private unsubscribe?: () => void;
+  private producer?: RowUpdates;
   private recent = new WeakSet<ArtifactSourceRow>();
   private disposed = false;
 
   constructor(opened: Artifact, rows: readonly ArtifactSourceRow[]) {
     this.artifact = { ...opened, identity: `file:${opened.path}`, revision: 0 };
-    const producer = rowUpdates(rows);
+    const producer = (this.producer = rowUpdates(rows));
     for (const row of rows) {
       this.recent.add(row);
       const order = producer?.orderOf(row as AcpmuxRow) ?? row.at ?? 0;
@@ -58,7 +59,31 @@ export class ArtifactWrittenLive {
     }
   }
   read(rows: readonly ArtifactSourceRow[]) {
-    if (!this.unsubscribe && !this.disposed) {
+    if (this.disposed) return { artifact: this.artifact, versions: this.versions };
+    const producer = rowUpdates(rows);
+    if (producer && producer !== this.producer) {
+      // Reconnect can replace the client. Reconcile its current rows once, then subscribe to
+      // every publication; a cached snapshot or old client's late response cannot bind us back.
+      if (this.producer && producer.generation < this.producer.generation)
+        return { artifact: this.artifact, versions: this.versions };
+      this.unsubscribe?.();
+      this.producer = producer;
+      this.order = -Infinity;
+      this.toolId = undefined;
+      for (const row of rows)
+        for (const item of row.items ?? [])
+          if (item.tool)
+            this.changed({
+              id: row.id,
+              version: row.version,
+              order: producer.orderOf(row as AcpmuxRow),
+              tool: item.tool,
+            });
+      this.unsubscribe = producer.subscribe((updates) => {
+        for (const update of updates) this.changed(update);
+      });
+    }
+    if (!producer && !this.producer) {
       // Static/gallery snapshots have no producer. Inspect only their bounded tail; live clients
       // publish exact deltas, including updates to concurrent tools far above the visible tail.
       for (let index = Math.max(0, rows.length - 64); index < rows.length; index++) {

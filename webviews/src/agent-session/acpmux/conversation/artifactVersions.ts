@@ -30,11 +30,21 @@ export function artifactForIdentity(
   if (separator < 1) return undefined;
   const rowId = identity.slice(0, separator);
   const blockKey = identity.slice(separator + 1);
-  const index = Number(blockKey);
-  if (!Number.isSafeInteger(index) || index < 0) return undefined;
+  const path = blockKey.split(".");
+  const index = Number(path[0]);
+  if (!/^\d+$/.test(path[0]!) || !Number.isSafeInteger(index)) return undefined;
   const row = rows.find((candidate) => candidate.id === rowId && candidate.kind === "assistant");
   if (!row || row.version <= afterRevision || !row.text) return undefined;
-  const block = parseMarkdown(row.text)[index];
+  let block = parseMarkdown(row.text)[index];
+  for (let at = 1; block && at < path.length; at += 2) {
+    const branch = path[at]!;
+    const child = path[at + 1];
+    if (child === undefined || !/^\d+$/.test(child)) return undefined;
+    if (branch === "q" && block.type === "blockquote") block = block.children[Number(child)];
+    else if (/^i\d+$/.test(branch) && block.type === "list")
+      block = block.items[Number(branch.slice(1))]?.children[Number(child)];
+    else return undefined;
+  }
   if (!block || block.type !== "code") return undefined;
   const kind = artifactKind(block.lang, block.code);
   if (!kind) return undefined;

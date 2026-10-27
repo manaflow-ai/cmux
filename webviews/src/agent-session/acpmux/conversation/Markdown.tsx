@@ -826,7 +826,14 @@ function Block({
     case "blockquote":
       return (
         <blockquote className={`cv-quote${motion}`}>
-          <Blocks blocks={block.children} opts={opts} depth={depth} plain={code === "plain"} />
+          <Blocks
+            blocks={block.children}
+            opts={opts}
+            depth={depth}
+            plain={code === "plain"}
+            artifactIdentity={artifactIdentity ? `${artifactIdentity}.q` : undefined}
+            artifactRevision={artifactRevision}
+          />
         </blockquote>
       );
     case "list": {
@@ -848,7 +855,14 @@ function Block({
               </span>
               <ItemThumbs text={it.text} opts={opts} streaming={Boolean(tail) && i === block.items.length - 1} />
               {it.children.length > 0 && (
-                <Blocks blocks={it.children} opts={opts} depth={depth + 1} plain={code === "plain"} />
+                <Blocks
+                  blocks={it.children}
+                  opts={opts}
+                  depth={depth + 1}
+                  plain={code === "plain"}
+                  artifactIdentity={artifactIdentity ? `${artifactIdentity}.i${i}` : undefined}
+                  artifactRevision={artifactRevision}
+                />
               )}
             </li>
           ))}
@@ -931,17 +945,28 @@ function Blocks({
   opts,
   depth,
   plain = false,
+  artifactIdentity,
+  artifactRevision,
 }: {
   blocks: MdBlock[];
   opts: InlineOptions;
   depth: number;
   plain?: boolean;
+  artifactIdentity?: string;
+  artifactRevision?: number;
 }) {
   return (
     <>
       {blocks.map((b, i) => (
         <Fragment key={i}>
-          <Block block={b} opts={opts} depth={depth} code={plain ? "plain" : undefined} />
+          <Block
+            block={b}
+            opts={opts}
+            depth={depth}
+            code={plain ? "plain" : undefined}
+            artifactIdentity={artifactIdentity ? `${artifactIdentity}.${i}` : undefined}
+            artifactRevision={artifactRevision}
+          />
         </Fragment>
       ))}
     </>

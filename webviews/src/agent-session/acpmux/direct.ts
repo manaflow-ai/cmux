@@ -994,8 +994,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     } else if (this.current !== undefined) this.latest = Math.max(this.latest, this.current);
     if (this.ordered && !unchanged) this.keepOrdered(id, row, known);
     const result = super.set(id, row);
-    if (!unchanged && row.items !== previous?.items)
-      this.artifactUpdates.note(row, this.current ?? this.order.get(id) ?? row.at, previous, changedItem);
+    if (!unchanged) this.artifactUpdates.note(row, this.current ?? this.order.get(id) ?? row.at, previous, changedItem);
     return result;
   }
 

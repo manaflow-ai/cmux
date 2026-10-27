@@ -6,9 +6,11 @@ type Tool = NonNullable<AcpmuxActivity["tool"]>;
 export type RowUpdate = { id: string; version: number; order: number; tool: Tool; before?: Tool };
 type Listener = (changes: Iterable<RowUpdate>) => void;
 const sources = new WeakMap<object, RowUpdates>();
+let generation = 0;
 export const rowUpdates = (rows: object) => sources.get(rows);
 
 export class RowUpdates {
+  readonly generation = ++generation;
   private pending = new Map<string, Map<string, RowUpdate>>();
   private listeners = new Set<Listener>();
   private orders = new WeakMap<AcpmuxRow, number>();
@@ -20,7 +22,7 @@ export class RowUpdates {
   }
   note(row: AcpmuxRow, order: number, previous?: AcpmuxRow, changedItem?: number) {
     this.orders.set(row, order);
-    if (!this.listeners.size) return;
+    if (!this.listeners.size || row.items === previous?.items) return;
     const end = changedItem === undefined ? (row.items?.length ?? 0) : changedItem + 1;
     for (let index = changedItem ?? 0; index < end; index++) {
       const tool = row.items![index]!.tool;
