@@ -1068,6 +1068,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/harness/icon",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/harness/health",
       "params": true,
       "result": true
@@ -1283,6 +1289,12 @@
     {
       "kind": "request",
       "name": "_acpmux/peer_remove",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/peer_snapshot",
       "params": true,
       "result": true
     },
@@ -1528,6 +1540,12 @@
           "minimum": 0,
           "type": "integer"
         },
+        "pageThrough": {
+          "description": "How far the page holds: every record of the kinds asked from the page's first one up to it\nis in the page (a peer's copy of the chat, `hub/peer_snapshot.rs`, covers that far). The\nlog's last seq, read before the page, for the newest page; a page of older records\n(`beforeSeq`) or a forward one with more to read holds only to its own last record.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "presence": {
           "$ref": "#/types/PresenceNote",
           "description": "Who has the chat open now, this attachment included (`hub/presence.rs`)."
@@ -1540,6 +1558,7 @@
         "events",
         "hasMore",
         "lastSeq",
+        "pageThrough",
         "presence",
         "session"
       ],
@@ -1858,6 +1877,12 @@
     },
     "EventsResult": {
       "properties": {
+        "createdAt": {
+          "description": "The session the page is of (its `createdAt`): a session recreated under the same id while\nthe page was asked is another journal (`hub/peer_snapshot.rs`).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "events": {
           "items": {
             "$ref": "#/types/SessionEvent"
@@ -1871,12 +1896,20 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "pageThrough": {
+          "description": "How far the page holds: every record of the kinds asked after `afterSeq` up to it is in the\npage (`hub/peer_snapshot.rs`). The log's last seq, read before the page, when the page reads\nto its end; else (`beforeSeq`, or `hasMore`) the page's own last record.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
         }
       },
       "required": [
+        "createdAt",
         "events",
         "hasMore",
-        "lastSeq"
+        "lastSeq",
+        "pageThrough"
       ],
       "type": "object"
     },
