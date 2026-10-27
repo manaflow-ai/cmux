@@ -655,7 +655,14 @@ export function Composer({
         // The editor's value, not React's state: a keystroke whose effects have not run yet counts.
         const typed = field.current?.value() ?? textRef.current;
         const session = persistedSession.current;
-        if (session && hydratedSession.current === session && typed !== lastQueuedDraftText(session)) {
+        // A restore not yet committed (`restoringSession`) is acpmux's own draft: the editor still
+        // shows what it had before, so writing it would clear the draft being restored.
+        if (
+          session &&
+          hydratedSession.current === session &&
+          !restoringSession.current &&
+          typed !== lastQueuedDraftText(session)
+        ) {
           writePersistedDraft(session, typed);
         }
         const unsent = unsentDraft.current;
