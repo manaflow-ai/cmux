@@ -152,11 +152,14 @@ struct FeatureListTests {
         #expect(trialOnly.resolution(of: trial) == Feature.Resolution(isEnabled: true, source: .fieldTrial))
     }
 
-    @Test func fieldTrialArmsApplyOnlyOnNightly() {
+    /// The channel filter is the study's (``FieldTrials``, FieldTrialTests): a Release build gets an arm only from
+    /// a study that names `release`, so the list applies the arms it is given on every channel.
+    @Test func fieldTrialArmsApplyOnEveryChannelTheyAreGiven() {
         let overrides = FeatureOverrides(fieldTrial: ["labsThing": true])
-        #expect(FeatureList(registry: Self.registry, channel: .nightly, overrides: overrides).isEnabled(Self.labs))
-        #expect(!FeatureList(registry: Self.registry, channel: .dev, overrides: overrides).isEnabled(Self.labs))
-        #expect(!FeatureList(registry: Self.registry, channel: .release, overrides: overrides).isEnabled(Self.labs))
+        for channel in Feature.Channel.allCases {
+            let list = FeatureList(registry: Self.registry, channel: channel, overrides: overrides)
+            #expect(list.resolution(of: Self.labs) == Feature.Resolution(isEnabled: true, source: .fieldTrial))
+        }
     }
 
     @Test func theChannelDefaultIsUsedWithNoInput() {

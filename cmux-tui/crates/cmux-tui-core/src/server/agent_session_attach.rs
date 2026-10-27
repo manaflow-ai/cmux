@@ -8,10 +8,11 @@
 use crate::panic_free::JsonFields;
 use cmux_threads::checked::ipc_reply;
 use cmux_threads::checked::sync as waits;
+use cmux_threads::sync::{Mutex, RwLock};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use serde::Deserialize;

@@ -8,6 +8,7 @@ import Foundation
 import ImageIO
 import Observation
 import CmuxNextIcons
+import CmuxNextWakeups
 
 /// Stored icon assets (`image:` / `svg:sha256-<hex>`) as images to draw. Each asset is read from
 /// its owner once (`get-blob`), decoded off the main actor and kept; a reader observing
@@ -82,10 +83,22 @@ final class IconAssetImages {
     /// decode; never retried). A read whose transport failed (no connection yet, a timeout) is
     /// forgotten, so the next rebuild, such as the one a reconnect causes, reads it again.
     @ObservationIgnored private var requested: Set<String> = []
+    /// Where a read's arrival is posted (p06 recipe R-hop: the read and the decode run off main, the arrival is one
+    /// posted task). The composition root attaches the app's scheduler (``attach(mainWork:)``) before any view
+    /// draws; until then no read starts.
+    @ObservationIgnored private var mainWork: MainWorkScheduler?
 
-    /// - Parameter clock: Times how long a read decode stays in use (``inUse``); tests pass their own.
-    init(clock: any Clock<Duration> = ContinuousClock()) {
+    /// - Parameters:
+    ///   - clock: Times how long a read decode stays in use (``inUse``); tests pass their own.
+    ///   - mainWork: Where reads' arrivals are posted (nil: none start until ``attach(mainWork:)``).
+    init(clock: any Clock<Duration> = ContinuousClock(), mainWork: MainWorkScheduler? = nil) {
         elapsed = Self.elapsed(on: clock)
+        self.mainWork = mainWork
+    }
+
+    /// Posts every later read's arrival on `mainWork`, the app's main-thread scheduler.
+    func attach(mainWork: MainWorkScheduler) {
+        self.mainWork = mainWork
     }
 
     private static func elapsed<C: Clock<Duration>>(on clock: C) -> () -> Duration {
@@ -106,22 +119,47 @@ final class IconAssetImages {
             markUsed(slot)
             return image
         }
-        guard !requested.contains(icon), let source = source() else { return nil }
+        guard !requested.contains(icon), let mainWork, let source = source() else { return nil }
         requested.insert(icon)
-        Task { [weak self] in
-            let blob: (data: Data, mediaType: String)
-            do {
-                blob = try await source.read(icon)
-            } catch {
-                // The owner's answer (no such asset) stands; a failed transport is retried.
-                if case DaemonError.command? = error as? DaemonError { return }
-                self?.requested.remove(icon)
-                return
-            }
-            guard let image = await Self.decoded(blob.data, mediaType: blob.mediaType) else { return }
-            self?.store(image, for: icon)
+        let read = source.read
+        // task-owner: one read per asset; it ends with the decode, and the cache outlives it weakly
+        Task { @concurrent [weak self] in
+            let arrival = await Self.arrival(of: icon, read: read)
+            // `visible`: the sidebar and the strips redraw an icon no input of the person changed.
+            mainWork.postFromAnyThread(.visible, owner: "IconAssetImages.arrived") { [weak self] in self?.arrived(arrival, for: icon) }
         }
         return nil
+    }
+
+    /// What one read of an asset came back with.
+    private nonisolated enum Arrival: Sendable {
+        case image(SidebarFavicon)
+        /// The owner answered (no such asset) or the bytes do not decode: never read again.
+        case refused
+        /// The transport failed (no connection yet, a timeout): the next rebuild reads it again.
+        case retry
+    }
+
+    /// Reads `icon` with `read` and decodes it, both off main.
+    @concurrent private nonisolated static func arrival(of icon: String,
+                                                        read: @Sendable (String) async throws -> (data: Data, mediaType: String)) async -> Arrival {
+        let blob: (data: Data, mediaType: String)
+        do {
+            blob = try await read(icon)
+        } catch {
+            if case DaemonError.command? = error as? DaemonError { return .refused }
+            return .retry
+        }
+        return await decoded(blob.data, mediaType: blob.mediaType).map(Arrival.image) ?? .refused
+    }
+
+    /// A read's arrival on main: stores the image, or forgets the request so a later read tries again.
+    private func arrived(_ arrival: Arrival, for icon: String) {
+        switch arrival {
+        case .image(let image): store(image, for: icon)
+        case .retry: requested.remove(icon)
+        case .refused: break
+        }
     }
 
     /// Keeps `image` as asset `icon`'s and tells its readers, dropping the least recently used decodes past

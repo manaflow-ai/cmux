@@ -51,6 +51,7 @@ extension CEFEngine {
             throw CEFPagesTabError.notChromium
         }
         tab.pageThemeSurface = .internalPage
+        tab.agentRelay.servesCmuxPage = true
         return tab
     }
 

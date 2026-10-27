@@ -118,7 +118,9 @@ class OneRunTests(unittest.TestCase):
         first = self.run_once()
         second = self.run_once()
         self.assertEqual(self.seeds, ["t"], "the second run restores the same seeded session")
-        self.assertEqual(FakeLaunch.waits, [([bs.FINAL_MARK, bs.SIDEBAR_MARK], False)] * 2)
+        # Each run also waits for p08-startup-068's thread census, sent after the first frame.
+        self.assertEqual(FakeLaunch.waits,
+                         [([bs.FINAL_MARK, bs.SIDEBAR_MARK], False), (list(bs.THREAD_MARKS), False)] * 2)
         self.assertEqual(first["checkpoint"], {"layout": LAYOUT, **A, "matches": True})
         self.assertIn("checkpoint", second)
 

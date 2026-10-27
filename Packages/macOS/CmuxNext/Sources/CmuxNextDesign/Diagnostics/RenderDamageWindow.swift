@@ -84,6 +84,7 @@ public final class RenderDamageWindow {
         self.ghosttyOwners = ghosttyOwners
         self.windows = windows
         elapsed = Self.stopwatch(clock)
+        // timer-class-allow: a debug window's one 30 s backstop on the injected clock, made with AppControl before the app's deadline scheduler exists
         expiry = DemandTimer(owner: "debug.damage.expiry", clock: clock)
     }
 

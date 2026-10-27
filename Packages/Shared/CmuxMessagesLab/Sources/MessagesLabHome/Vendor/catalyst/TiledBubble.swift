@@ -81,10 +81,17 @@ enum TiledBubble {
 enum BubbleSlices {
     static let cap: CGFloat = 32, pad: CGFloat = 24, vpad: CGFloat = 8
     private static var cache: [String: CGImage] = [:]
+    /// cmux: the slices' pixel bytes (p07-memory-081), summed over the at most 65 held.
+    static var bytes: Int { cache.values.reduce(0) { $0 + $1.bytesPerRow * $1.height } }
+    /// cmux: frees every slice off main (the host's trim, p07-memory-081); a live tile keeps the outline it shows.
+    static func removeAll() {
+        Reclaimer.release(bitmaps: Array(cache.values))
+        cache.removeAll()
+    }
     static func image(bodyWidth: CGFloat, phase: CGFloat, outgoing: Bool, tail: Bool, scale: CGFloat) -> CGImage? { // nil when allocation fails
         let k = "\(bodyWidth)|\(phase)|\(outgoing)|\(tail)|\(scale)"
         if let i = cache[k] { return i }
-        if cache.count > 64 { cache.removeAll() }
+        if cache.count > 64 { removeAll() } // cmux: freed off main
         let w = (ceil((bodyWidth + 2 * pad + 1) * scale)) / scale
         let size = CGSize(width: w, height: 2 * cap + 2 * vpad)
         guard let img = WideBitmap.make(size: size, scale: scale, opaque: false, { ctx in
@@ -105,7 +112,7 @@ enum TiledStats {
 }
 
 /// Rendered tiles, LRU by bytes (main thread).
-final class TileCache {
+final class TileCache { // memory: consumer via MessagesLabMemoryConsumer (CmuxNextHome)
     static let shared = TileCache()
     struct Key: Hashable {
         var lineage: Int; var start: Int; var end: Int; var final: Bool; var column: CGFloat
@@ -114,11 +121,16 @@ final class TileCache {
         var slot: Slot { Slot(lineage: lineage, start: start, chunk: chunk) }
     }
     struct Slot: Hashable { var lineage: Int; var start: Int; var chunk: Int }
-    var budget: Int = {
+    /// cmux: `--tile-cache-mb` in bytes, the lab's bench flag: it keeps the cap over the host's share
+    /// (`setBudget(bytes:)`, p07-memory-081); a trim still frees.
+    static let labBudget: Int? = {
         let a = ProcessInfo.processInfo.arguments
-        let mb = a.firstIndex(of: "--tile-cache-mb").flatMap { a.dropFirst($0 + 1).first }.flatMap { Int.init($0) } ?? 48 // no index math
-        return min(max(mb, 1), 1 << 20) << 20 // a huge value cannot overflow the shift
+        let mb = a.firstIndex(of: "--tile-cache-mb").flatMap { a.dropFirst($0 + 1).first }.flatMap { Int.init($0) } // no index math
+        return mb.map { min(max($0, 1), 1 << 20) << 20 } // a huge value cannot overflow the shift
     }()
+    /// cmux: the cap until the host sizes the cache, without the flag (MessagesLab's 48 MB).
+    static let defaultBudget = 48 << 20
+    var budget: Int = TileCache.labBudget ?? TileCache.defaultBudget
     private var map: [Key: (CGImage, Int, Int)] = [:]
     private var tick = 0
     private(set) var bytes = 0
@@ -146,6 +158,23 @@ final class TileCache {
     }
     var count: Int { map.count }
     func removeAll() { Reclaimer.release(bitmaps: map.values.map(\.0)); map.removeAll(); bytes = 0 }
+    /// cmux: the host's cap (p07-memory-081); `--tile-cache-mb` keeps its own. Lowering it frees nothing: the next
+    /// put trims to it.
+    func setBudget(bytes: Int) { budget = TileCache.labBudget ?? max(0, bytes) }
+    /// cmux: frees the least recently drawn tiles until at most `fraction` of the bytes held now remain (0 frees every
+    /// one), off main (p07-memory-081). A live tile keeps the pixels its layer shows; its next layout draws it again.
+    func trim(toFraction fraction: Double) {
+        let target = bytes.trimTarget(fraction)
+        guard bytes > target else { return }
+        var freed: [CGImage] = []
+        for (key, e) in map.sorted(by: { $0.value.2 < $1.value.2 }) {
+            if bytes <= target { break }
+            map.removeValue(forKey: key) // dictionary write
+            bytes -= e.1
+            freed.append(e.0)
+        }
+        Reclaimer.release(bitmaps: freed)
+    }
     /// cmux: a hidden transcript released its rows (MessagesWindowView.releaseRows): the tiles of these long texts go
     /// (freed off main).
     func evict(lineages: Set<Int>) {

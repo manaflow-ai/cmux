@@ -1,8 +1,8 @@
-//! Capability bits (pty-holder.md section 2.1): TRACE_CONTROL and
-//! WRITE_FLOW, granted in WELCOME, wire version still 5.
+//! Capability bits (pty-holder.md section 2.1): TRACE_CONTROL, WRITE_FLOW
+//! and HANG_REPORT, granted in WELCOME, wire version still 5.
 //!
 //! The conformance corpus below is the byte-exact form of every exchange
-//! the two bits add. A holder whose tracer records answers the recorded
+//! the bits add (tests/hang_report.rs covers HANG_REPORT's grant). A holder whose tracer records answers the recorded
 //! HELLO with the recorded WELCOME, one without a tracer grants only
 //! WRITE_FLOW; a daemon that asks for nothing (an older build) is granted
 //! nothing, and a frame of a capability a link was not granted is an
@@ -65,6 +65,9 @@ const CORPUS_WRITE_FLOW: &str = "434d4858 0900 0400 07000000 0b000000 6c730d 2a0
 /// WRITE with FLAG_FLOW and no input: a flow mark for input written on the
 /// daemon's custody master.
 const CORPUS_FLOW_MARK: &str = "434d4858 0900 0400 07000000 08000000 2a00000000000000";
+/// HANG (HANG_REPORT): a `holder-loop` pass busy 153 ms past its 100 ms.
+const CORPUS_HANG: &str =
+    "434d4858 1800 0000 00000000 1b000000 6400000000000000 9900000000000000 686f6c6465722d6c6f6f70";
 
 #[test]
 fn the_corpus_is_what_this_build_encodes() {
@@ -97,8 +100,11 @@ fn the_corpus_is_what_this_build_encodes() {
     // than the trailer is malformed.
     assert_eq!(wire::split_write(0, &write).unwrap(), (&write[..], None));
     assert!(wire::split_write(wire::FLAG_FLOW, b"short").is_err());
+    let hang = wire::HangReport { deadline_ms: 100, busy_ms: 153, site: "holder-loop".into() };
+    assert_eq!(wire::encode(Kind::Hang, 0, &hang.encode()), hex(CORPUS_HANG));
     // The values are frozen.
     assert_eq!((capability::TRACE_CONTROL, capability::WRITE_FLOW), (1, 2));
+    assert_eq!((capability::HANG_REPORT, Kind::Hang as u16), (4, 24));
     assert_eq!((Kind::TraceStart as u16, Kind::TraceStop as u16, wire::FLAG_FLOW), (22, 23, 4));
     assert_eq!(wire::VERSION, 5, "capability bits need no new wire version");
 }

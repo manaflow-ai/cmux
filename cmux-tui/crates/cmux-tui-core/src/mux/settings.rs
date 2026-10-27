@@ -4,8 +4,9 @@
 //! every reload runs under the store lock and emits its changes before the
 //! lock is released, so events leave in revision order.
 
+use cmux_threads::sync::Mutex;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::sync::{Arc, OnceLock, Weak};
 
 use cmux_config::{Change, ConfigStore, ManagedReader, Op, Outcome, Refusal, State, Watcher};
 

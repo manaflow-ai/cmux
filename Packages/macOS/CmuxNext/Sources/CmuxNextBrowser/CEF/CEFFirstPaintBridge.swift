@@ -15,9 +15,9 @@ import CmuxNextWakeups
 /// is the flash this stands in for, moved later.
 ///
 /// So the boundary is `firstContentfulPaint`, Blink's own "the user can see
-/// page content now". Lifecycle events are a handful per navigation, and raw
-/// protocol events already reach every attached tab (`CEFMediaBridge.attach`
-/// turns on `mediaListens`, which keeps the shim's event watch on).
+/// page content now". Lifecycle events are a handful per navigation; the relay
+/// keeps the shim's event watch on for this bridge, page tabs included, which
+/// attach no media bridge (`CEFAgentRelay.browserAttached`).
 /// `CEFTab+Events` still settles at load end as the backstop, for a document
 /// that paints nothing at all (an empty body, a download) and for the tabs
 /// this bridge never attaches to.

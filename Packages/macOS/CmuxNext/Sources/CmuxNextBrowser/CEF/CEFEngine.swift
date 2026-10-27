@@ -413,7 +413,8 @@ public final class CEFEngine: BrowserEngine {
     private func adoptStores(in runtime: CEFRuntime = .shared) {
         runtime.adopt(stores: stores, signInCallbacks: signInCallbacks, waitDeadlines: waitDeadlines,
                       hostSupervisor: runtimeSource.hostSupervisor, hostWidgets: runtimeSource.showsHostWidgets, hostDrags: runtimeSource.takesHostDrags,
-                      hostResizeFence: runtimeSource.fencesHostResizes)
+                      hostResizeFence: runtimeSource.fencesHostResizes, hostPopupMenus: runtimeSource.drawsHostPopupMenus,
+                      hostSuggestions: runtimeSource.drawsHostSuggestions, hostFileDialogs: runtimeSource.hostFileDialogs)
         if let pagesProfileID { runtime.spareWindow.pagesProfile = pagesProfileID }
     }
 

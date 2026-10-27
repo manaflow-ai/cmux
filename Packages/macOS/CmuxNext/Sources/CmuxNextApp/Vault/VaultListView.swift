@@ -22,7 +22,7 @@ struct VaultListView: View {
                     .textFieldStyle(.roundedBorder)
                     .focusEffectDisabled()
                 Button {
-                    Task { await vault.reload() }
+                    vault.startReload()
                 } label: {
                     Image(systemName: "arrow.clockwise")
                 }
