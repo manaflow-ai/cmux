@@ -29,6 +29,8 @@ const replacements: Record<string, unknown> = {
   getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+  addEventListener: dom.window.addEventListener.bind(dom.window),
+  removeEventListener: dom.window.removeEventListener.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
 };
 // The code card's highlighter (@pierre/diffs) defines its elements, which read DOM constructors, on import.
@@ -50,7 +52,9 @@ afterAll(() => {
 });
 
 const button = (label: string) =>
-  [...host.querySelectorAll("button")].find((element) => element.getAttribute("aria-label") === label);
+  [...host.querySelectorAll("button")].find(
+    (element) => element.getAttribute("aria-label") === label || element.textContent?.trim() === label,
+  );
 
 test("an HTML, SVG or Markdown fence opens in the side panel; other code has no Open", async () => {
   const { createRoot } = await import("react-dom/client");
@@ -228,6 +232,36 @@ test("a document's versions are the chat's documents of its kind and title, olde
   expect(artifactVersions(replies, signup)).toEqual([signup]);
 });
 
+test("a live artifact follows its fence identity and rejects an older row revision", async () => {
+  const { artifactForIdentity, artifactIdentity } =
+    await import("../src/agent-session/acpmux/conversation/artifactVersions");
+  const identity = artifactIdentity("assistant-live", "0");
+  const latest = artifactForIdentity(
+    [
+      {
+        id: "assistant-live",
+        version: 7,
+        kind: "assistant",
+        text: "```html\n<title>Pricing</title><p>Latest</p>\n```",
+      },
+    ],
+    identity,
+    6,
+  );
+  expect(latest).toMatchObject({
+    identity,
+    revision: 7,
+    code: "<title>Pricing</title><p>Latest</p>",
+  });
+  expect(
+    artifactForIdentity(
+      [{ id: "assistant-live", version: 5, kind: "assistant", text: "```html\n<title>Pricing</title>\n```" }],
+      identity,
+      6,
+    ),
+  ).toBeUndefined();
+});
+
 test("the panel steps between a document's versions, starting on the one opened", async () => {
   const { createRoot } = await import("react-dom/client");
   const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");
@@ -268,6 +302,152 @@ test("the panel steps between a document's versions, starting on the one opened"
   expect(button("Next version")).toBeUndefined();
 });
 
+test("the open panel follows a newer live revision and ignores a stale one", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");
+  const version = (body: string, revision: number) => ({
+    kind: "markdown" as const,
+    lang: "md",
+    code: `# Notes\n\n${body}`,
+    identity: "assistant-live\u00000",
+    revision,
+  });
+  const first = version("First.", 1);
+  const second = version("Second.", 2);
+  act(() => root?.unmount());
+  root = createRoot(host);
+  act(() => root!.render(<ArtifactPanel artifact={first} versions={[first]} onClose={() => {}} />));
+  expect(host.querySelector(".acpmux-artifact-doc p")?.textContent).toBe("First.");
+  act(() => root!.render(<ArtifactPanel artifact={second} versions={[first, second]} onClose={() => {}} />));
+  expect(host.querySelector(".acpmux-artifact-doc p")?.textContent).toBe("Second.");
+  act(() => root!.render(<ArtifactPanel artifact={first} versions={[first, second]} onClose={() => {}} />));
+  expect(host.querySelector(".acpmux-artifact-doc p")?.textContent).toBe("Second.");
+});
+
+test("a live source holds its highest revision through stale snapshots and prepends without scanning rows", async () => {
+  const { ArtifactLiveSource } = await import("../src/agent-session/acpmux/conversation/artifactLive");
+  const { artifactIdentity } = await import("../src/agent-session/acpmux/conversation/artifactVersions");
+  const text = (body: string) => `\x60\x60\x60markdown\n# Notes\n\n${body}\n\x60\x60\x60`;
+  const before = Array.from({ length: 2000 }, (_, index) => ({ id: `old-${index}`, version: 1, kind: "user" }));
+  const live = { id: "live", version: 1, kind: "assistant", text: text("First.") };
+  const source = new ArtifactLiveSource(
+    {
+      kind: "markdown",
+      lang: "markdown",
+      code: "# Notes\n\nFirst.",
+      identity: artifactIdentity(live.id, "0"),
+      revision: 1,
+    },
+    [...before, live],
+  );
+  let reads = 0;
+  const snapshot = (version: number, body: string, prepend = false) =>
+    new Proxy(
+      [
+        ...(prepend ? [{ id: "prepended", kind: "user", version: 1 }] : []),
+        ...before,
+        { ...live, version, text: text(body) },
+      ],
+      {
+        get(target, key, receiver) {
+          if (typeof key === "string" && /^\d+$/.test(key)) reads++;
+          return Reflect.get(target, key, receiver);
+        },
+      },
+    );
+  expect(source.read(snapshot(7, "Newest.")).artifact.code).toContain("Newest.");
+  expect(source.read(snapshot(6, "Stale.")).artifact.code).toContain("Newest.");
+  expect(source.read(snapshot(8, "After page.", true)).artifact.code).toContain("After page.");
+  expect(reads).toBeLessThan(12);
+});
+
+test("a selected historical version does not follow a live rewrite", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");
+  const old = { kind: "markdown" as const, lang: "md", code: "# Notes\n\nHistorical." };
+  const live = { ...old, code: "# Notes\n\nCurrent.", identity: "live\u00000", revision: 1 };
+  act(() => root?.unmount());
+  root = createRoot(host);
+  act(() => root!.render(<ArtifactPanel artifact={live} versions={[old, live]} onClose={() => {}} />));
+  act(() => button("Previous version")!.click());
+  const next = { ...live, code: "# Notes\n\nUpdated.", revision: 2 };
+  act(() => root!.render(<ArtifactPanel artifact={next} versions={[old, next]} onClose={() => {}} />));
+  expect(host.querySelector(".acpmux-artifact-doc p")?.textContent).toBe("Historical.");
+  // The bounded live history can evict it; the single explicitly chosen version stays held.
+  act(() => root!.render(<ArtifactPanel artifact={next} versions={[next]} onClose={() => {}} />));
+  expect(host.querySelector(".acpmux-artifact-doc p")?.textContent).toBe("Historical.");
+  act(() => button("Next version")!.click());
+  expect(host.querySelector(".acpmux-artifact-doc p")?.textContent).toBe("Updated.");
+});
+
+test("an open plain fence carries its identity through the final code card", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
+  const { ArtifactContext } = await import("../src/agent-session/acpmux/conversation/artifactPreview");
+  const opened: unknown[] = [];
+  act(() => root?.unmount());
+  root = createRoot(host);
+  const draw = (streaming: boolean, revision: number) =>
+    act(() =>
+      root!.render(
+        <ArtifactContext.Provider value={(artifact) => opened.push(artifact)}>
+          <Markdown streaming={streaming} artifactIdentity="assistant-live" artifactRevision={revision} plainCode>
+            {`\x60\x60\x60markdown\n# Notes\n\nLive.${streaming ? "" : "\n\x60\x60\x60"}`}
+          </Markdown>
+        </ArtifactContext.Provider>,
+      ),
+    );
+  draw(true, 1);
+  act(() => button("Open preview")!.click());
+  draw(false, 2);
+  act(() => button("Open preview")!.click());
+  expect(opened).toEqual([
+    expect.objectContaining({ identity: "assistant-live\u00000", revision: 1 }),
+    expect.objectContaining({ identity: "assistant-live\u00000", revision: 2 }),
+  ]);
+});
+
+test("Run follows one live artifact but passive markup cannot gain script consent", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");
+  const previousLocation = scope.location;
+  scope.location = new URL("cmux-agent://pane/index.html");
+  const version = (code: string, revision: number) => ({
+    kind: "html" as const,
+    lang: "html",
+    code,
+    identity: "live-run\u00000",
+    revision,
+  });
+  const one = version("<script>/* first live revision */</script>", 1);
+  const two = version("<script>/* second live revision */</script>", 2);
+  try {
+    act(() => root?.unmount());
+    root = createRoot(host);
+    const draw = (artifact: typeof one) =>
+      act(() => root!.render(<ArtifactPanel artifact={artifact} versions={[artifact]} onClose={() => {}} />));
+    draw(one);
+    expect(button("Run")).toBeDefined();
+    act(() => button("Run")!.click());
+    const firstFrame = host.querySelector("iframe");
+    draw(two);
+    expect(button("Run")).toBeUndefined();
+    expect(host.querySelector("iframe")).not.toBe(firstFrame);
+    act(() => root!.unmount());
+    root = createRoot(host);
+    draw(version("<p>Passive markup</p>", 1));
+    expect(host.querySelector("iframe")).not.toBeNull();
+    draw(version("<script>/* newly introduced code */</script>", 2));
+    expect(button("Run")).toBeDefined();
+    expect(host.querySelector("iframe")).toBeNull();
+  } finally {
+    act(() => root?.unmount());
+    root = undefined;
+    if (previousLocation === undefined) delete scope.location;
+    else scope.location = previousLocation;
+  }
+});
+
 test("the panel names the document, copies when saving fails, and hands focus back on close", async () => {
   const { createRoot } = await import("react-dom/client");
   const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");
@@ -306,4 +486,56 @@ test("the panel names the document, copies when saving fails, and hands focus ba
   root = undefined;
   expect(window.document.activeElement).toBe(opener);
   opener.remove();
+});
+
+test("the unavailable highlighter keeps a fence's live source identity", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { HighlightedCode } = await import("../src/agent-session/acpmux/conversation/HighlightedCode");
+  const { ArtifactContext } = await import("../src/agent-session/acpmux/conversation/artifactPreview");
+  const opened: unknown[] = [];
+  act(() => root?.unmount());
+  root = createRoot(host);
+  act(() =>
+    root!.render(
+      <ArtifactContext.Provider value={(artifact) => opened.push(artifact)}>
+        <HighlightedCode lang="markdown" code="# Notes" artifactIdentity={"reply\u00000"} artifactRevision={4} />
+      </ArtifactContext.Provider>,
+    ),
+  );
+  act(() => button("Open preview")!.click());
+  expect(opened).toEqual([expect.objectContaining({ identity: "reply\u00000", revision: 4 })]);
+});
+
+test("nested quoted and list fences keep recursive identities that resolve the matching source", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
+  const { ArtifactContext } = await import("../src/agent-session/acpmux/conversation/artifactPreview");
+  const { artifactForIdentity } = await import("../src/agent-session/acpmux/conversation/artifactVersions");
+  const sources = [
+    "> ```markdown\n> # Notes\n>\n> First\n> ```\n",
+    "- Document\n\n  ```markdown\n  # Notes\n\n  First\n  ```\n",
+  ];
+  for (const text of sources) {
+    const opened: { identity?: string }[] = [];
+    act(() => root?.unmount());
+    root = createRoot(host);
+    act(() =>
+      root!.render(
+        <ArtifactContext.Provider value={(artifact) => opened.push(artifact)}>
+          <Markdown artifactIdentity="nested" artifactRevision={2} plainCode>
+            {text}
+          </Markdown>
+        </ArtifactContext.Provider>,
+      ),
+    );
+    act(() => button("Open preview")!.click());
+    const identity = opened[0]?.identity;
+    expect(identity).toBeDefined();
+    expect(
+      artifactForIdentity(
+        [{ id: "nested", version: 3, kind: "assistant", text: text.replace("First", "Second") }],
+        identity!,
+      )?.code,
+    ).toContain("Second");
+  }
 });
