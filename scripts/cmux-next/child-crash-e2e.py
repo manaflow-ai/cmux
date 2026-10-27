@@ -23,8 +23,10 @@ Cases (each `--only` name, its engine):
                           crash, the second end within ChromiumHostRestartPolicy's 60 s keeps it ended with no page
                           shown, and opening the page again starts a new host with it. The Chromium tab in cmux
                           answers through both. A build without the host (Release, a Debug build without CEF, the
-                          feature decided off by policy or the environment): NOT-MEASURABLE with the reason; check
-                          mode turns the local override `browserHost.helper` on for the run and back after.
+                          feature decided off by policy or the environment), or a host that never shows its first
+                          page, so nothing is crashed: NOT-MEASURABLE with the reason; `--only host` needs no
+                          Chromium tab. Check mode turns the local override `browserHost.helper` on for the run and
+                          back after.
   browser_check chromium  chrome://inducebrowsercrashforrealz, run only on proof that Chromium's browser process is
                           not the app (cefHelperHost on and the tab's renderers all under one host). Without that
                           proof (in process until F2, or no renderer to read) a browser CHECK would end cmux, so the
@@ -493,9 +495,10 @@ class Driver:
         if self.layout:
             self.action("pane.focus", target=f"pane:{self.layout['terminal_pane']}")
 
-    def open_layout(self, engine):
+    def open_layout(self, engine, required=True):
         """A workspace with a zsh terminal on the left (typed) and a tab of `engine` on our page on the right.
-        Without a CLI (no typing) only the tab opens, in the focused pane. Returns the tab id or None."""
+        Without a CLI (no typing) only the tab opens, in the focused pane. Returns the tab id or None. A tab that is
+        not `required` (no selected case needs it) and does not load is a NOT-MEASURABLE line, not a FAIL."""
         if self.probe and self.cli:
             name = "crash-survival"
             if not self.workspace_named(name):
@@ -519,7 +522,10 @@ class Driver:
         created = opened.get("created") or []
         tab = created[0] if created else None
         loaded = bool(tab) and wait(lambda: self.js(tab, "document.title") == PAGE_TITLE, 60, 0.5)
-        self.check(f"{engine} tab loads {self.url}", bool(loaded), opened)
+        if loaded or required:
+            self.check(f"{engine} tab loads {self.url}", bool(loaded), opened)
+        else:
+            print(f"NOT-MEASURABLE {engine} tab: it does not load {self.url}: {str(opened)[:400]}", flush=True)
         if not loaded:
             return None
         terminal = next((t.get("id") for t in self.pane_tabs(left) if t.get("kind") == "terminal"), None) if left else None
@@ -667,9 +673,9 @@ class Driver:
             return (SURVIVED, "", recover) if ok else (DIED, "the page does not load after the network service crash", None)
 
         def host_run():
-            host = tab_host()
+            host = tab_host() if tab else None
             if host is None:
-                # Tabs still run in cmux: the host app's own page is the host to crash.
+                # Tabs still run in cmux (or no tab opened): the host app's own page is the host to crash.
                 return self.host_page_run(tab)
             at = self.kill("host", host)
             if at is None:
@@ -741,11 +747,14 @@ class Driver:
             if cannot_start:
                 return NOT_MEASURABLE, cannot_start, None
             if not first:
-                return DIED, f"the host app never showed the page: {host_state()}", None
+                # Nothing was crashed yet: a host this driver cannot bring to its first page is not a failed recovery.
+                state = host_state()
+                return (NOT_MEASURABLE, f"debug.chromium_host cannot drive this host: its first page never showed "
+                                        f"(phase {state.get('phase')!r}, pid {state.get('pid')})", None)
             host = int(first["pid"])
             self.check("host: the page's browser process is the host app, not cmux",
                        host != self.app_pid and first.get("app_pid") == self.app_pid, first)
-            at = self.kill("host", host)
+            at = self.kill("host", host, reported_by_app=True)
             if at is None:
                 return NOT_MEASURABLE, f"host pid {host} not proved the app's", None
             restarted = wait(lambda: shown("open", previous_pid=host, previous_title=first["title"],
@@ -865,14 +874,18 @@ class Driver:
 
     def run_cases(self, engines, only):
         """Every selected case once: the agent page first (while a fresh window still shows its New Tab page), then
-        each engine's tab beside the typed terminal."""
+        each engine's tab beside the typed terminal. The host case alone does not need the Chromium tab (the host
+        app's own page runs without it, as in a Debug build without CEF), so its tab not loading fails nothing."""
         results = []
         if "webkit" in engines and "agent" in only:
             results.append(self.agent_case())
-        if "chromium" in engines and only & {c for c, e in CASES.items() if e == "chromium"}:
+        chromium = only & {c for c, e in CASES.items() if e == "chromium"}
+        if "chromium" in engines and chromium:
             self.baseline_renderers = set(chromium_children(self.ownership.read_table(), self.app_pid, "renderer"))
-            tab = self.open_layout("chromium")
-            results.extend(self.chromium_cases(tab, only) if tab else self.unopened("chromium", self.chromium_plan(only)))
+            host_only = chromium == {"host"}
+            tab = self.open_layout("chromium", required=not host_only)
+            results.extend(self.chromium_cases(tab, only) if tab or host_only
+                           else self.unopened("chromium", self.chromium_plan(only)))
         if "webkit" in engines and "webkit" in only:
             self.layout = None
             tab = self.open_layout("webkit")

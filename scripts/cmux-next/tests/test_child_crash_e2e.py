@@ -477,6 +477,59 @@ class Cases(unittest.TestCase):
         self.assertEqual(res.outcome, crash.DIED)
         self.assertIn("did not end the host", res.detail)
 
+    def test_host_page_case_is_not_measured_when_the_first_page_never_shows(self):
+        # The host runs but its session never gets a context (a host that does not speak the prototype's wire):
+        # nothing was crashed, so no recovery failed.
+        def host(params):
+            opened = params.get("op") == "open"
+            return {"phase": "running" if opened else "none", "enabled": True, "pid": 520 if opened else 0,
+                    "shown_context_id": 0, "title": "", "error": "", "app_pid": os.getpid()}
+        res, drv, killed = self.run_host_page(host)
+        killed.assert_not_called()
+        self.assertEqual(res.outcome, crash.NOT_MEASURABLE, res.detail)
+        self.assertIn("debug.chromium_host cannot drive this host", res.detail)
+        self.assertEqual(drv.failures, [])
+        self.assertEqual(drv.not_measured, {"host": res.detail})
+
+    def test_host_page_case_fails_in_check_mode_on_a_reported_pid_outside_the_app(self):
+        host = FakeHost()
+        host.next_pid = 700  # another app's process (PS), reported as the host
+        _, drv = self.host_page_driver(host)
+        drv.strict = True
+        with mock.patch.object(crash.os, "kill") as kill, mock.patch.object(crash, "alive", return_value=True), \
+                mock.patch.object(crash, "wait", side_effect=bounded_wait):
+            [res] = drv.chromium_cases("tab_1", {"host"})
+        kill.assert_not_called()
+        self.assertEqual(drv.failures, ["host: the pid the app reports is proved the app's"])
+        self.assertNotEqual(res.outcome, crash.SURVIVED)
+
+    def test_host_only_run_needs_no_chromium_tab(self):
+        # A Debug build without CEF: Chromium tabs do not open and the host app does not exist.
+        no_cef = lambda p: ({"error": "this build has no Chromium host app (Debug and bench builds with CEF only)"}
+                            if p.get("op") == "open" else {"phase": "none", "enabled": True})
+        app = FakeApp({"debug.chromium_host": no_cef, "action.run": {}})
+        drv = self.driver(app)
+        drv.host_on = drv.strict = True
+        with mock.patch.object(crash.os, "kill") as kill, mock.patch.object(crash, "alive", return_value=True), \
+                mock.patch.object(crash, "wait", side_effect=bounded_wait):
+            [res] = drv.run_cases(("chromium",), {"host"})
+        kill.assert_not_called()
+        self.assertEqual(res.outcome, crash.NOT_MEASURABLE)
+        self.assertIn("no Chromium host app", res.detail)
+        self.assertEqual(drv.failures, [])
+        self.assertEqual(drv.not_measured, {"host": res.detail})
+        self.assertEqual(crash.check_verdict(drv.not_measured).split(";")[0],
+                         "PASS every child process crash that ran is contained")
+
+    def test_a_tab_another_chromium_case_needs_still_fails_when_it_does_not_load(self):
+        app = FakeApp({"action.run": {}})
+        drv = self.driver(app)
+        drv.host_on = True
+        with mock.patch.object(crash.os, "kill"), mock.patch.object(crash, "alive", return_value=True), \
+                mock.patch.object(crash, "wait", side_effect=bounded_wait):
+            drv.run_cases(("chromium",), {"host", "renderer"})
+        self.assertEqual(drv.failures, ["chromium tab loads http://127.0.0.1:1/"])
+
     def test_host_page_case_says_why_a_build_without_the_host_is_not_measured(self):
         builds = {
             "debug.chromium_host": {"error": {"code": "method_not_found"}},  # Release
