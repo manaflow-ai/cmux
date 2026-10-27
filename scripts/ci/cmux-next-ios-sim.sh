@@ -21,6 +21,14 @@
 #           Each recording is replayed at the rate the program wrote it (capped
 #           at 50 Mbit/s), with screenshots during and after the flood.
 #   all     build, test and bench.
+#   pair-e2e
+#           build, plus a tagged DEBUG cmux NEXT Mac app built here
+#           (reload.sh), and pairing by its QR code end to end
+#           (cmux_next_pair_e2e.py): the Mac's Mobile Pairing link, opened on
+#           the iPhone, pairs it with no Allow prompt and no test seed. Screens
+#           of the Mac page, the phone's Settings > Devices (a base ref gives
+#           the "before") and its scanner with the camera off; the Mac's
+#           pairing log, hostd's log and paired-devices.json, keys redacted.
 #
 # Isolation: the step makes its own simulator device set under its checkout
 # (`simctl --set`), so it never lists, boots or deletes another simulator, and
@@ -36,7 +44,7 @@ cmux_next_require_fleet cmux-next-ios-sim.sh "xcodebuild and an iOS simulator" "
   "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg bench --artifact artifacts/ios-sim/evidence.zip"
 
 mode="${1:-build}"
-case "$mode" in build|test|bench|all) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, test, bench or all, got '$mode'" >&2; exit 2 ;; esac
+case "$mode" in build|test|bench|all|pair-e2e) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, test, bench, all or pair-e2e, got '$mode'" >&2; exit 2 ;; esac
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
@@ -62,6 +70,8 @@ cleanup() {
   fi
   # Attempted even when the simulator set's removal failed.
   if [[ -n "$xcodegen_dir" ]]; then rm -rf "$xcodegen_dir" || true; fi
+  # pair-e2e's Mac app build (its DerivedData, app included).
+  if [[ -n "${mac_dd:-}" ]]; then rm -rf "$mac_dd" || true; fi
 }
 trap cleanup EXIT
 
@@ -259,6 +269,30 @@ PY
   tail -n +1 "$summary" | tail -8
 fi
 
+# --- Pairing by QR code ----------------------------------------------------
+if [[ "$mode" == pair-e2e ]]; then
+  t0=$SECONDS
+  # A tag of this run only: its own bundle id, socket, settings and state.
+  mac_tag="iospair-$(git rev-parse --short=8 HEAD)-$$"
+  mac_dd="$work/mac-dd"
+  # A fleet build (CMUX_FLEET_BUILD_TAG) builds acpmux, optchat-chief and
+  # cmux-mobile-host on a cache miss and requires them in the bundle.
+  set +e
+  CMUX_FLEET_BUILD_TAG="$mac_tag" ./scripts/reload.sh --tag "$mac_tag" --derived-data "$mac_dd" \
+    --no-global-cli-links >"$work/mac-build.log" 2>&1
+  status=$?
+  set -e
+  cp "$work/mac-build.log" "$out/mac-build.log"
+  mac_app="$mac_dd/Build/Products/Debug/cmux DEV $mac_tag.app"
+  [[ $status -eq 0 && -d "$mac_app" ]] || { tail -60 "$work/mac-build.log"; echo "error: tagged cmux NEXT Mac app build failed" >&2; exit 1; }
+  note "- Mac app: $((SECONDS - t0)) s (reload.sh --tag $mac_tag, Debug)"
+  set +e
+  python3 -I scripts/ci/cmux_next_pair_e2e.py --mac-app "$mac_app" --ios-app "$app" --sims "$sims" \
+    --udid "$udid" --bundle-id "$bundle_id" --work "$work" --out "$out" --summary "$summary"
+  pair_status=$?
+  set -e
+fi
+
 simctl spawn "$udid" log show --last 10m --style compact --predicate 'process == "CmuxMobileApp"' > "$out/app-log.txt" 2>/dev/null || true
 cp "$work/build.log" "$out/build.log" 2>/dev/null || true
 # The app (so the same build runs on another Mac's simulator) and the recordings.
@@ -270,3 +304,4 @@ fi
 (cd "$out" && rm -f evidence.zip && zip -qr evidence.zip . -x evidence.zip)
 cat "$summary"
 if [[ "${test_status:-0}" -ne 0 ]]; then exit "$test_status"; fi
+if [[ "${pair_status:-0}" -ne 0 ]]; then exit "$pair_status"; fi
