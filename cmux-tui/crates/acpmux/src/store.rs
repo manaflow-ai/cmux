@@ -657,6 +657,19 @@ pub trait Store: Send + Sync {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Log lines parsed on this thread by `scan` and `scan_heads` (tests count them).
+    pub(crate) static PARSED_LINES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Parses one log line into its record.
+fn parse_record(line: &[u8]) -> serde_json::Result<EventRecord> {
+    #[cfg(test)]
+    PARSED_LINES.with(|n| n.set(n.get() + 1));
+    serde_json::from_slice(line)
+}
+
 pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
     Ok(match config.mode {
         StoreMode::Memory => Box::new(MemoryStore::default()),
@@ -1151,7 +1164,7 @@ impl Store for LocalStore {
                 if record_seq(&line).is_some_and(|seq| seq <= after) {
                     continue;
                 }
-                let Ok(rec) = serde_json::from_slice::<EventRecord>(&line) else { continue };
+                let Ok(rec) = parse_record(&line) else { continue };
                 if rec.seq > after && !visit(rec) {
                     return Ok(());
                 }

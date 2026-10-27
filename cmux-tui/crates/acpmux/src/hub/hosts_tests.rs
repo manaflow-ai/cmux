@@ -1,0 +1,162 @@
+//! Adopting a host after a restart reads its chat's log (`open_work`, `last_host_seq`, the
+//! remote env check, the process table). Those reads parse only the records they fold: a long
+//! log is mostly closed turns' agent output (big-red, 2026-10-27: 84 hosted chats, 30 GB of
+//! logs, a full core for minutes after each restart).
+
+use super::*;
+use crate::config::{Config, StoreMode};
+use crate::store::{EventRecord, PARSED_LINES};
+
+/// Sessions and closed turns per session the bench builds; each turn streams `UPDATES` tool
+/// updates of about 1.5 KB, as a coding agent's log does.
+const SESSIONS: usize = 4;
+const TURNS: u64 = 50;
+const UPDATES: u64 = 200;
+
+struct Log {
+    records: Vec<EventRecord>,
+    host_seq: u64,
+}
+
+impl Log {
+    fn push(&mut self, dir: &str, kind: &str, msg: Value, from_host: bool) {
+        let host_seq = from_host.then(|| {
+            self.host_seq += 1;
+            self.host_seq
+        });
+        let seq = self.records.len() as u64 + 1;
+        self.records.push(EventRecord {
+            seq,
+            at: 1_000 + seq,
+            dir: dir.into(),
+            kind: kind.into(),
+            msg,
+            host_seq,
+        });
+    }
+
+    fn update(&mut self, update: Value) {
+        let kind = update["sessionUpdate"].as_str().unwrap().to_owned();
+        let msg = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "own", "update": update}});
+        self.push("in", &kind, msg, true);
+    }
+
+    fn turn(&mut self, turn: u64, updates: u64) {
+        let id = format!("t{turn}");
+        self.push("mux", "turn_started", json!({"turnId": id, "promptId": format!("p{turn}"), "prompt": "go", "client": "cli"}), false);
+        self.push("out", "session/prompt", json!({"jsonrpc": "2.0", "id": turn, "method": "session/prompt", "params": {"sessionId": "own"}}), true);
+        let text = "x".repeat(1500);
+        for n in 0..updates {
+            let status = if n + 1 == updates { "completed" } else { "in_progress" };
+            self.update(json!({"sessionUpdate": "tool_call_update", "toolCallId": format!("c{turn}"), "status": status, "content": [{"type": "content", "content": {"type": "text", "text": text}}]}));
+        }
+    }
+
+    fn end_turn(&mut self, turn: u64) {
+        self.push("in", "response", json!({"jsonrpc": "2.0", "id": turn, "result": {"stopReason": "end_turn"}}), true);
+        self.push("mux", "turn_result", json!({"turnId": format!("t{turn}"), "status": "completed"}), false);
+    }
+
+    fn ask(&mut self, id: u64, answered: bool) {
+        self.push("in", "session/request_permission", json!({"jsonrpc": "2.0", "id": id, "method": "session/request_permission", "params": {"sessionId": "own", "options": [{"optionId": "always", "kind": "allow_always"}]}}), true);
+        self.push("mux", "permission_request", json!({"permissionId": format!("perm{id}"), "agentRequestId": id, "request": {"options": [{"optionId": "always", "kind": "allow_always"}]}}), false);
+        if answered {
+            self.push("mux", "permission_decision", json!({"permissionId": format!("perm{id}"), "outcome": {"outcome": "selected", "optionId": "always"}}), false);
+            self.push("out", "response", json!({"jsonrpc": "2.0", "id": id, "result": {}}), true);
+        }
+    }
+}
+
+/// A chat whose agent ran `TURNS` closed turns (an answered permission, a Codex legacy subagent
+/// and a background process among them) under one host, and is in a turn with a tool in flight,
+/// a steer, a subagent's update and an unanswered permission when the daemon stops.
+fn hosted_log() -> Log {
+    let mut log = Log { records: Vec::new(), host_seq: 0 };
+    log.push("mux", "host_started", json!({"incarnation": "old"}), false);
+    log.turn(9_000, 3);
+    log.end_turn(9_000);
+    log.push("mux", "host_started", json!({"incarnation": "inc"}), false);
+    for turn in 0..TURNS {
+        log.turn(turn, UPDATES);
+        if turn == 1 {
+            log.ask(5_000, true);
+            log.update(json!({"sessionUpdate": "tool_call", "toolCallId": "spawn", "status": "completed", "rawInput": {"prompt": "dig"}, "_meta": {"codex": {"collaboration": {"tool": "spawnAgent", "receiverThreadIds": ["sub"]}}}}));
+        }
+        if turn == 2 {
+            log.push("in", "background_task_update", json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "own", "update": {"sessionUpdate": "background_task_update", "toolCallId": "bg", "taskId": "bg", "state": "running", "command": "serve"}}}), true);
+        }
+        log.end_turn(turn);
+    }
+    log.turn(TURNS, 2);
+    log.update(json!({"sessionUpdate": "tool_call", "toolCallId": "open", "title": "Run tests", "status": "in_progress"}));
+    log.update(json!({"sessionUpdate": "tool_call", "toolCallId": "sub-call", "title": "Sub", "status": "in_progress", "_meta": {"acpmux": {"subagent": "sub"}}}));
+    log.push("out", "session/prompt", json!({"jsonrpc": "2.0", "id": 77, "method": "session/prompt", "params": {"sessionId": "own", "_meta": {"steer": true}}}), true);
+    log.push("in", "response", json!({"jsonrpc": "2.0", "id": 77, "result": {"stopReason": "steered"}}), true);
+    log.ask(6_000, false);
+    log.update(json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "working"}}));
+    log
+}
+
+/// A hub over `sessions` chats that each hold `log`, written after the hub loaded so its start
+/// settles nothing in them: the log is as the previous daemon left it.
+async fn hub_with(sessions: usize, log: &Log) -> (Arc<Hub>, std::path::PathBuf) {
+    let root = std::env::temp_dir().join(format!("acpmux-adopt-reads-{}", uuid::Uuid::now_v7()));
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    let store = crate::store::open(&cfg.store, &root).unwrap();
+    for n in 0..sessions {
+        let id = format!("chat{n}");
+        let meta = json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": id, "harness": "claude",
+            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2,
+        });
+        store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+    }
+    drop(store);
+    let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, &root).unwrap());
+    for n in 0..sessions {
+        let id = format!("chat{n}");
+        for record in &log.records {
+            hub.store.append(&id, record).unwrap();
+        }
+        hub.store.close_log(&id);
+    }
+    (hub, root)
+}
+
+/// The bench: the reads an adoption makes of `SESSIONS` hosted chats' logs, as lines parsed and
+/// time taken. Every line of every log was parsed four times; now only the folded ones are.
+#[tokio::test]
+async fn adoption_reads_parse_only_the_records_they_fold() {
+    let log = hosted_log();
+    let (hub, root) = hub_with(SESSIONS, &log).await;
+    let lines = (SESSIONS * log.records.len()) as u64;
+    let bytes: u64 = (0..SESSIONS)
+        .flat_map(|n| std::fs::read_dir(root.join("sessions").join(format!("chat{n}")).join("events")).unwrap())
+        .map(|e| e.unwrap().metadata().unwrap().len())
+        .sum();
+    let parsed_before = PARSED_LINES.with(std::cell::Cell::get);
+    let started = std::time::Instant::now();
+    let mut resumed = Vec::new();
+    for n in 0..SESSIONS {
+        let session = hub.resolve(&format!("chat{n}")).unwrap();
+        let _ = hub.remote_host_env_current(&session, "inc");
+        let after = hub.last_host_seq(&session, "inc");
+        let work = hub.open_work(&session, "inc");
+        hub.rebuild_processes(&session);
+        resumed.push((after, work.turn.map(|t| t.1), work.requests.len()));
+    }
+    let elapsed = started.elapsed();
+    let parsed = PARSED_LINES.with(std::cell::Cell::get) - parsed_before;
+    eprintln!(
+        "adoption reads: {SESSIONS} chats x {} records ({:.1} MB): parsed {parsed} lines in {} ms",
+        log.records.len(),
+        bytes as f64 / 1e6,
+        elapsed.as_millis()
+    );
+    let open = (log.host_seq, Some(format!("t{TURNS}")), 1);
+    assert!(resumed.iter().all(|r| *r == open), "{resumed:?}");
+    assert!(parsed * 20 < lines, "parsed {parsed} of {lines} log lines");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}

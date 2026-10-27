@@ -1097,3 +1097,7 @@ struct HostStartFailed {
     error: anyhow::Error,
     started: Option<agent_host::HostRecord>,
 }
+
+#[cfg(test)]
+#[path = "hosts_tests.rs"]
+mod hosts_tests;
