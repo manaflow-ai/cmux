@@ -64,7 +64,7 @@ while [[ \$# -gt 0 ]]; do
     *) url="\$1"; shift ;;
   esac
 done
-path="\${url#https://files.cmux.com/cmux-tui/}"
+path="\${url#https://files.cmux.com/cmux-tui/}"; path="\${path%%\?*}"
 [[ "\$path" != "\$url" && -f "$cdn/\$path" ]] || exit 22
 if [[ -n "\$out" ]]; then cp "$cdn/\$path" "\$out"; else cat "$cdn/\$path"; fi
 STUB
@@ -265,6 +265,10 @@ request --sha "$other" --release-compile-green
 printf '{"key": "%s", "result": "success"}\n' "$okey" > "$cdn/tree/$okey/daemon-tests.json"
 request --sha "$other" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$other" || fail "a tree with its daemon-tests marker must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+# A marker from before the runner-OS field was dropped still promotes.
+printf '{"key": "%s", "result": "success", "os": "Linux"}\n' "$okey" > "$cdn/tree/$okey/daemon-tests.json"
+request --sha "$other" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$other" || fail "a marker carrying the old os field must still promote (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 git_q -C "$src" checkout -q --detach "$head"
 
 # Candidates are bounded below by nightly-next, not by the tree's publisher
