@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextDesign
 public import CmuxNextInput
 public import CmuxNextResources
+public import CmuxNextWakeups
 import CmuxNextCompat
 import CmuxNextIcons
 import Observation
@@ -88,7 +89,13 @@ public final class SidebarView: NSView {
     public var spacesVisibility: SpacesVisibilityMode = .hover {
         didSet { if spacesVisibility != oldValue { profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed) } }
     }
-    var observation: Task<Void, Never>?
+    /// The list's draw (`render`), only while ``visibility`` renders (p06-scheduler.md rule 4).
+    var observation: VisibleObservation<ObservationTrigger<RenderState>>?
+    /// The list settings and the selection's reveal reach the model while the sidebar is hidden too (rule 3).
+    var listSettingsWatch: ServiceObservation<ListSettings>?
+    var selectionWatch: ServiceObservation<Set<WorkspaceID>>?
+    /// The sidebar's place in the visibility tree: its window's node, hidden with the sidebar (a collapsed panel).
+    let visibility = ViewVisibility("sidebar")
     /// The clip size the list was last fitted to from the clip's own resize push (`scrollGeometryDidChange`).
     var fittedClipSize: NSSize = .zero
     var lastState: RenderState?
@@ -129,8 +136,9 @@ public final class SidebarView: NSView {
     /// - Parameters:
     ///   - model: What the sidebar shows.
     ///   - design: The `sidebar.*` settings it draws from.
+    ///   - mainWork: The app's main-thread scheduler: the list draws through it while the sidebar shows.
     ///   - newRows: Told which rows each list reload lists (`create.workspace`); nil times nothing.
-    public init(model: SidebarModel, design: DesignSettings = .shared, newRows: SidebarNewRowTimer? = nil) {
+    public init(model: SidebarModel, design: DesignSettings = .shared, mainWork: MainWorkScheduler, newRows: SidebarNewRowTimer? = nil) {
         self.model = model
         self.design = design
         list = SidebarListView(model: model)
@@ -140,7 +148,7 @@ public final class SidebarView: NSView {
         buildHierarchy()
         newButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace")
         list.reload(animated: false)
-        observe()
+        observe(on: mainWork)
         // The chrome reveal follows the pointer and the sidebar's frame (cx-3wu5).
         chromeHover = PointerHover(self) { [weak self] hovering in self?.setChromeRevealed(hovering) }
     }
@@ -151,9 +159,24 @@ public final class SidebarView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             observation?.cancel()
+            listSettingsWatch?.cancel()
+            selectionWatch?.cancel()
         }
     }
     nonisolated override public var isFlipped: Bool { true }
+    // R-hide: AppKit's moves, hides and unhides only reach the node; its observation follows the node.
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        visibility.place(in: window)
+    }
+    override public func viewDidHide() {
+        super.viewDidHide()
+        visibility.node.set(.hidden)
+    }
+    override public func viewDidUnhide() {
+        super.viewDidUnhide()
+        visibility.node.set(.visible)
+    }
     // MARK: Public API
     /// An inline rename ended (commit or cancel). `byKeyboard` is true for
     /// Return, Escape or Tab; the host can return focus to its content.

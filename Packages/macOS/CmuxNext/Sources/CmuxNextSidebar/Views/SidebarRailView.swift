@@ -16,7 +16,10 @@ public final class SidebarRailView: NSView {
     /// The rail's hover card source; the pointer goes to it.
     weak var cards: SidebarRailHoverCards?
     private(set) weak var model: SidebarModel?
-    private var observation: Task<Void, Never>?
+    /// The marks, read only while the rail shows (p06-scheduler.md rule 4); nil until ``bind(_:on:)``.
+    private var observation: VisibleObservation<[[SidebarRailMark]]>?
+    /// The rail's place in the visibility tree: its window's node, hidden with the rail.
+    let visibility = ViewVisibility("sidebar.rail")
     private var trackingArea: NSTrackingArea?
     /// The ticks drawn now, in this view's (flipped) coordinates.
     private(set) var railLayout = SidebarRailLayout(groups: [], top: 0, available: 0)
@@ -54,20 +57,34 @@ public final class SidebarRailView: NSView {
         MainActor.assumeIsolated { observation?.cancel() }
     }
 
-    /// Draws `model`'s workspaces and follows them.
-    func bind(_ model: SidebarModel) {
+    /// Draws `model`'s workspaces and follows them through `mainWork` while the rail shows; a hidden
+    /// rail reads nothing and draws the marks once when it shows.
+    func bind(_ model: SidebarModel, on mainWork: MainWorkScheduler) {
         self.model = model
-        marks = Self.marks(model)
-        relayout()
         observation?.cancel()
-        // main-hop-allow: the carrier of the stream below; both go with it to a VisibleObservation on the rail's node.
-        observation = Task { [weak self] in // view-observation-allow: no MainWorkScheduler reaches the rail yet (the container binds it)
-            for await marks in ObservationStream({ Self.marks(model) }) {
-                guard let self, marks != self.marks else { continue }
-                self.marks = marks
-                self.relayout()
-            }
+        observation = VisibleObservation(visibility.node, owner: "SidebarRail.marks", on: mainWork) {
+            Self.marks(model)
+        } apply: { [weak self] marks in
+            guard let self else { return }
+            self.marks = marks
+            relayout()
         }
+    }
+
+    // R-hide: AppKit's moves, hides and unhides only reach the node; the marks' observation follows the node.
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        visibility.place(in: window)
+    }
+
+    override public func viewDidHide() {
+        super.viewDidHide()
+        visibility.node.set(.hidden)
+    }
+
+    override public func viewDidUnhide() {
+        super.viewDidUnhide()
+        visibility.node.set(.visible)
     }
 
     /// The marks of `model`, one array per group or run of loose workspaces.

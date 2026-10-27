@@ -18,6 +18,7 @@ import Testing
         _ = NSApplication.shared
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        _ = WindowVisibilitySource.of(window, read: { _ in .visible }) // never ordered in: the sidebar draws only while shown
         return (AppServices(environment: AppEnvironment.current([:])), window)
     }
 
