@@ -46,7 +46,7 @@ extension AppServices {
     var cloud: CloudService {
         if let cloudIfBuilt { return cloudIfBuilt }
         let cloud = CloudService(machines: machines, auth: cloudAuth, mainWork: mainWork, work: work, deadlines: mainDeadlines,
-                                 appEvents: appEvents, workspaceEvents: workspaceEvents)
+                                 appEvents: appEvents, workspaceEvents: workspaceEvents, deviceID: environment.cloudDeviceID)
         cloudIfBuilt = cloud
         cloud.applyPolicy(disabled: cloudPolicyDisabled)
         // An agent's request waits in the sidebar card; with the active window's sidebar hidden it takes the sheet, so it never waits unseen.
