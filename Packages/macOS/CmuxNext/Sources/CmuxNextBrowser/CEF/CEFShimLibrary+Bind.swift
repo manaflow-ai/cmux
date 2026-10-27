@@ -55,6 +55,12 @@ nonisolated extension CEFShimLibrary {
         browserSetEmbedderVisibility = r.optional("cmux_shim_browser_set_embedder_visibility")
         browserSetPageVisibility = try r("cmux_shim_browser_set_page_visibility")
         tabSetVisibility = r.optional("cmux_shim_tab_set_visibility")
+        let cTabPagePush: (@convention(c) (Int32, UnsafePointer<CChar>?) -> Int32)? = unsafe r.optional("cmux_shim_tab_page_push")
+        if let c = unsafe cTabPagePush {
+            tabPagePush = { a0, a1 in unsafe Self.withCString(a1) { s1 in unsafe c(a0, s1) } }
+        } else {
+            tabPagePush = nil
+        }
         browserSetPageDisplay = try r("cmux_shim_browser_set_page_display")
         unsafe initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")

@@ -836,7 +836,13 @@ pub struct Mux {
     /// Blocking work that request threads hand off (`cmux_threads::work`
     /// lanes: files, system, cpu), so a request answers from memory and a
     /// work item does the disk, process or IPC wait (p02-threads 220).
-    pub(crate) work: cmux_threads::work::Work,
+    pub(crate) work: Arc<cmux_threads::work::Work>,
+    /// Waits for the exits of the daemon's long-lived children (terminal
+    /// shells, terminal hosts, Chief brains, the journal plugin) on one
+    /// `mux-reaper` thread and completes each on `work`
+    /// (`cmux_threads::reaper`, p02-threads-237).
+    #[cfg(unix)]
+    pub(crate) reaper: Arc<cmux_threads::reaper::Reaper>,
     /// Each client's git requests, run on `work` one at a time in arrival
     /// order (git_ops/sequence.rs).
     pub(crate) git_sequences: crate::git_ops::Sequences,
