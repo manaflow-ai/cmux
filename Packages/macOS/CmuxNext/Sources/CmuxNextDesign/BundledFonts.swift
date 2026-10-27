@@ -113,11 +113,22 @@ public nonisolated struct BundledFonts: Sendable {
             + "format(\"woff2\");font-weight:100 900;font-style:normal;font-display:block}"
         return """
         (function () {
-          if (document.getElementById('cmux-ui-font')) return;
-          var style = document.createElement('style');
-          style.id = 'cmux-ui-font';
-          style.textContent = '\(rule)';
-          (document.head || document.documentElement).appendChild(style);
+          function install() {
+            if (document.getElementById('cmux-ui-font')) return;
+            var style = document.createElement('style');
+            style.id = 'cmux-ui-font';
+            style.textContent = '\(rule)';
+            (document.head || document.documentElement).appendChild(style);
+          }
+          if (document.documentElement) { install(); return; }
+          // Chromium runs new-document scripts before the parser makes <html>: install once it does.
+          if (!window.MutationObserver) return;
+          var rootWatch = new MutationObserver(function () {
+            if (!document.documentElement) return;
+            rootWatch.disconnect();
+            install();
+          });
+          rootWatch.observe(document, { childList: true });
         })();
         """
     }()
