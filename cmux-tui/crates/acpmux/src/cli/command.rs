@@ -213,7 +213,7 @@ pub enum Command {
         supersede: Option<String>,
         /// Send this file with the message (repeatable): an image reaches the agent and its
         /// transcript as an image, any other file as a link to its copy. Saved owner-only on the
-        /// session's machine, a peer's too. At most 8 MiB a file, 10 MiB and 16 files a message.
+        /// session's machine, a peer's too. Any size and number: large ones are uploaded first.
         #[arg(long, value_name = "FILE")]
         attach: Vec<PathBuf>,
     },
