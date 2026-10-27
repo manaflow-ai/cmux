@@ -2488,6 +2488,7 @@ fn run_server(
     // interactive client attaches. Install the non-terminal sink as soon as
     // the owner mux exists, before serving or adopting clients.
     app::install_mux_diagnostic_logger(&mux);
+    drop(mux.start_metrics_file(state_root.as_deref()));
     // The features each app's client hello is reconciled with, before the
     // first client: this owner outlives the app that started it.
     cmux_tui_core::server::install_daemon_features(

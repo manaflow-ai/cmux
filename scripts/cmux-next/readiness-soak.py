@@ -31,6 +31,24 @@ and each report there or in app.log is a crash event, found by its header line a
 analyzer does (clusterfuzz/src/clusterfuzz/stacktraces/constants.py SAN_ADDR_REGEX and friends). The app
 quits before the report, so a report written at quit or exit (LeakSanitizer's) counts.
 
+--blocking-checks soaks the Nightly configuration (p02-threads RUN-9 in plans/cmux-next/chrome-parity/p02-threads.md):
+a `scripts/reload.sh --config bench-checks` build, Release with -DCMUX_BLOCKING_CHECKS (the flag nightly.yml gives the
+nightly-next track) plus the bench hooks that answer `debug.blocking`. The soak refuses another build: the bundle's
+CMUXBuildConfiguration stamp must be bench-checks when it has one, `scripts/measure/blocking-checks.sh --app --expect
+nightly` must find the detector's symbols, and the first `debug.blocking` must say `compiled_in` and record mode (the app
+runs with CMUX_BLOCKING_TRAP=0 and CMUX_BLOCKING_TRAP_POOL=0, as a Nightly does). Every sample then reads `debug.blocking`,
+`debug.hangs` (count250, count100, thread_hang_count) and the daemon's `server-blocking` on its own socket; nothing is
+cleared, so each read covers the time since launch. Each new blocking site of the app or the daemon, and each call that
+overflowed a site table, is one `blocking` event (in a Nightly, each is one hang report or Sentry non-fatal: the
+BlockingReportSink of p02-threads-008, the daemon sites through p02-threads-233); each rise of count250 (a main-thread
+work gap of 250 ms or more, MainThreadWatchdog StallCounts) is one `stall-250` event with the stall records of 250 ms or
+more that `debug.hangs` still holds. Both fail the run, as does a source never read or not read after the loop. The app's
+quit (`work.shutdown()` before exit, RUN-7) must end with status 0 within 90 s; without --blocking-checks a quit that
+does not is a WARN line. report.json keeps the readout under `nightly`. RUN-9's soak, on a fleet mini:
+
+  scripts/reload.sh --tag soak-nightly --config bench-checks
+  scripts/cmux-next/readiness-soak.py --app APP --blocking-checks --stress --hours 1 --warmup 300 --idle 900 --settle 300
+
 --stress builds the STRESS session (perf-stress-session.py, WebKit for its Chromium pages under
 --app-config) in the app before the soak's own terminals, tabs and agents. Its busy terminals get a
 Ctrl-C when the quiet phase starts.
@@ -63,8 +81,8 @@ Host rules: an Aqua GUI session for this user; nothing else answering on the app
 socket. Use a copy of the app (the nightly runner unpacks cmux-next-dev into the scratch folder).
 
   scripts/cmux-next/readiness-soak.py --app PATH [--hours 24] [--agents 10] [--terminals 10]
-      [--browsers 4] [--sample 60] [--turn-every 300] [--app-config asan|tsan] [--stress] [--out DIR]
-      [--story readiness-soak]
+      [--browsers 4] [--sample 60] [--turn-every 300] [--app-config asan|tsan | --blocking-checks] [--stress]
+      [--out DIR] [--story readiness-soak]
 """
 from __future__ import annotations
 
@@ -91,7 +109,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import launch_journey_report as journey  # noqa: E402
 from bench_idle import Client, process_table, usage  # noqa: E402
-from bench_launch import BenchApp, bench_env, socket_candidates, tag_of  # noqa: E402
+from bench_launch import BUILD_CONFIG_KEY, BenchApp, bench_env, info_plist, socket_candidates, tag_of  # noqa: E402
 from bench_story import story_problem  # noqa: E402
 from daemon_teardown import daemon_status, request, terminal_hosts  # noqa: E402
 from tag_teardown import TagTeardown  # noqa: E402
@@ -115,6 +133,14 @@ TSAN_SUPPRESSIONS = os.path.join(HERE, "tsan-suppressions.txt")  # the reasoned 
 ZONES_EVERY_S = 600
 # One report each: ASan and LSan open with "==<pid>==ERROR: <tool>: <what>", TSan with
 # "WARNING: ThreadSanitizer: <what> (pid=<pid>)".
+# --blocking-checks: the Nightly configuration's reload.sh name, the app's record-mode environment (BlockingMode reads
+# both once at launch), the symbol check, and the story module whose debug.blocking and debug.hangs parsers it reuses.
+NIGHTLY_CONFIG = "bench-checks"
+NIGHTLY_ENV = {"CMUX_BLOCKING_TRAP": "0", "CMUX_BLOCKING_TRAP_POOL": "0"}
+BLOCKING_CHECKS = os.path.join(HERE, "../measure/blocking-checks.sh")
+BLOCKING_HANGS = os.path.join(HERE, "../perf-lab/stories/blocking_hangs.py")
+STALL_MS = 250  # MainThreadWatchdog StallCounts.edge250: the count250 edge
+QUIT_WAIT_S = 90  # how long the app's quit (work.shutdown() first) may take before BenchApp.stop ends it
 SANITIZER_HEADERS = (
     re.compile(r"^==(?P<pid>\d+)==ERROR: (?P<tool>AddressSanitizer|LeakSanitizer): (?P<what>.*)$", re.M),
     re.compile(r"^WARNING: (?P<tool>ThreadSanitizer): (?P<what>.*?)(?: \(pid=(?P<pid>\d+)\))?$", re.M),
@@ -391,6 +417,187 @@ def stress_shape_problems(module, summary, chromium_off):
     return None
 
 
+@functools.cache
+def blocking_hangs():
+    """scripts/perf-lab/stories/blocking_hangs.py as a module: its `debug.blocking` and `debug.hangs` parsers, their
+    errors and its daemon socket request."""
+    spec = importlib.util.spec_from_file_location("blocking_hangs", BLOCKING_HANGS)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # its dataclasses look their module up
+    spec.loader.exec_module(module)
+    return module
+
+
+def nightly_build_problem(app):
+    """Why `app` is not the Nightly configuration, or None: its CMUXBuildConfiguration stamp names another config, or
+    blocking-checks.sh --expect nightly finds no detector symbols in it (exit 1) or cannot read it (exit 2)."""
+    stamped = info_plist(app).get(BUILD_CONFIG_KEY)
+    if stamped is not None and stamped != NIGHTLY_CONFIG:
+        return (f"{app} was built with --config {stamped}: the Nightly configuration is --config {NIGHTLY_CONFIG} "
+                "(Release with -DCMUX_BLOCKING_CHECKS and the bench hooks)")
+    try:
+        done = run("bash", BLOCKING_CHECKS, "--app", app, "--expect", "nightly", timeout=600)
+    except subprocess.TimeoutExpired:
+        return "blocking-checks.sh --expect nightly did not finish within 600 s"
+    if done.returncode:
+        lines = (done.stderr.strip() or done.stdout.strip()).splitlines()[-2:]
+        return f"blocking-checks.sh --expect nightly exited {done.returncode}: {' | '.join(lines)}"
+    return None
+
+
+class NightlyReadout:
+    """--blocking-checks: what a Nightly would report, read since launch on the control sockets. `rpc(method, params)`
+    is the app's control method (its result, or {"error": ...}), `daemon(command)` the daemon's newline-JSON reply (None
+    when its socket does not answer), `event(kind, detail, **extra)` Soak.event. Nothing is cleared, so a failed read
+    loses nothing the next read sees; a count that goes back is a new process, counted from 0."""
+
+    def __init__(self, rpc, daemon, event):
+        self.rpc, self.daemon, self.event = rpc, daemon, event
+        self.bh = blocking_hangs()
+        self.errors = (OSError, ValueError, subprocess.SubprocessError, self.bh.NoDetector, self.bh.NotMeasurable,
+                       self.bh.LegError)
+        self.sites = {"app": {}, "daemon": {}}  # site key -> the site, with when it was first seen
+        self.overflow = {"app": 0, "daemon": 0}  # blocking calls no site table kept as a site
+        self.stalls = {"count250": 0, "count100": 0, "thread_hangs": 0}
+        self.last = {}  # (source, counter) -> the value of the last read
+        self.reads = {"app": 0, "daemon": 0}
+        self.failed = {"app": 0, "daemon": 0}
+        self.last_failure = {"app": None, "daemon": None}
+        self.last_read = {"app": None, "daemon": None}
+        self.final = None  # {source: read} of the read after the loop
+
+    def start(self):
+        """The first app read, at launch: SystemExit unless the app runs the detector, in record mode, and its
+        main-thread watchdog."""
+        try:
+            reply = self.read_app()
+        except self.errors as error:
+            raise SystemExit(f"readiness-soak: --blocking-checks: {error}")
+        modes = (reply.get("mode"), reply.get("pool_mode"))
+        if modes != ("record", "record"):
+            raise SystemExit(f"readiness-soak: --blocking-checks: the detector runs in mode {modes[0]}, pool mode "
+                             f"{modes[1]}: a Nightly records (CMUX_BLOCKING_TRAP=0, CMUX_BLOCKING_TRAP_POOL=0)")
+        self.reads["app"], self.last_read["app"] = 1, now_iso()
+
+    def poll(self, final=False):
+        """One read of the app and one of the daemon; {source: read}. A failed read is counted with its reason."""
+        done = {}
+        for source, read in (("app", self.read_app), ("daemon", self.read_daemon)):
+            try:
+                read()
+            except self.errors as error:
+                self.failed[source] += 1
+                self.last_failure[source] = f"{now_iso()} {type(error).__name__}: {str(error)[:300]}"
+                done[source] = False
+                continue
+            self.reads[source] += 1
+            self.last_read[source] = now_iso()
+            done[source] = True
+        if final:
+            self.final = done
+        return done
+
+    def grown(self, source, counter, value):
+        """How much `counter` grew since the last read: all of it on the first read or after it went back."""
+        before = self.last.get((source, counter))
+        self.last[(source, counter)] = value
+        return value - before if before is not None and value >= before else value
+
+    def note_site(self, source, key, detail, count, **fields):
+        known = self.sites[source].get(key)
+        if known is not None:
+            known["count"] = max(known["count"], count)  # the most calls one process life made
+            return
+        self.sites[source][key] = {"first_seen": now_iso(), "count": count, **fields}
+        self.event("blocking", f"{source} blocking site: {detail} ({count} call(s))", source=source, site=fields)
+
+    def note_overflow(self, source, value):
+        grown = self.grown(source, "overflow", value)
+        if grown:
+            self.overflow[source] += grown
+            self.event("blocking", f"{source}: {grown} blocking call(s) at sites its table does not hold (overflow)",
+                       source=source)
+
+    def read_app(self):
+        """`debug.blocking` and `debug.hangs`; returns the `debug.blocking` reply."""
+        bh = self.bh
+        reply = self.rpc("debug.blocking", {})
+        reading = bh.parse_blocking(reply)
+        hangs_reply = self.rpc("debug.hangs", {"limit": 0})
+        hangs = bh.parse_hangs(hangs_reply)
+        for site in reading.sites.values():
+            self.note_site("app", site.key, f"{site.context} {site.kind} at {site.location}", site.count,
+                           context=site.context, kind=site.kind, seam_kind=site.seam_kind, location=site.location)
+        self.note_overflow("app", bh._count(reply.get("overflow", 0), "debug.blocking overflow"))
+        self.stalls["count100"] += self.grown("app", "count100", bh._count(hangs_reply.get("count100", 0), "count100"))
+        if hangs.thread_hang_count is not None:
+            self.stalls["thread_hangs"] += self.grown("app", "thread_hangs", hangs.thread_hang_count)
+        stalls = self.grown("app", "count250", hangs.count250)
+        if stalls:
+            self.stalls["count250"] += stalls
+            self.event("stall-250", f"debug.hangs count250 +{stalls}: main-thread work gap(s) of {STALL_MS} ms or more "
+                                    f"({self.stalls['count250']} in the soak)", stalls=self.long_stalls())
+        return reply
+
+    def long_stalls(self):
+        """The stall records of STALL_MS or more that `debug.hangs` still holds (each with its main-thread stack)."""
+        try:
+            records = self.bh.parse_hangs(self.rpc("debug.hangs", {"limit": 16})).records
+        except self.errors:
+            return []
+        return [r for r in records
+                if r.get("kind", "stall") == "stall" and self.bh._number(r.get("duration_ms")) >= STALL_MS][-4:]
+
+    def read_daemon(self):
+        """The daemon's `server-blocking` (cmux-tui-core server_stats.rs): its sites and overflow."""
+        bh = self.bh
+        reply = self.daemon({"cmd": "server-blocking"})
+        if not isinstance(reply, dict) or reply.get("ok") is not True:
+            raise ValueError(f"server-blocking answered {json.dumps(reply)[:200]}")
+        data = reply.get("data") if isinstance(reply.get("data"), dict) else {}
+        if not isinstance(data.get("sites"), list):
+            raise ValueError("server-blocking has no sites list")
+        for item in data["sites"]:
+            if not isinstance(item, dict):
+                raise ValueError(f"a server-blocking site is not an object: {json.dumps(item)[:200]}")
+            kinds = tuple(str(kind) for kind in item.get("kinds") or ())
+            location = f"{item.get('file')}:{item.get('line')}:{item.get('column')}"
+            lane_sync = bool(item.get("lane_sync"))
+            self.note_site("daemon", (location, kinds, lane_sync),
+                           f"{'/'.join(kinds)}{' (lane sync)' if lane_sync else ''} at {location}",
+                           bh._count(item.get("count"), "a server-blocking site's count"),
+                           kinds=list(kinds), location=location, lane_sync=lane_sync)
+        self.note_overflow("daemon", bh._count(data.get("overflow", 0), "server-blocking overflow"))
+
+    def sample_fields(self):
+        """The readout's columns of a samples.jsonl row."""
+        return {"blocking_sites": sum(len(sites) for sites in self.sites.values()), "count250": self.stalls["count250"]}
+
+    def summary(self):
+        by_context = {}
+        for site in self.sites["app"].values():
+            by_context[site["context"]] = by_context.get(site["context"], 0) + 1
+
+        def source(name):
+            return {"sites": len(self.sites[name]), "overflow": self.overflow[name], "reads": self.reads[name],
+                    "failed_reads": self.failed[name], "last_read": self.last_read[name],
+                    "last_failure": self.last_failure[name], "site_list": list(self.sites[name].values())}
+        return {"config": NIGHTLY_CONFIG, "app": dict(source("app"), by_context=by_context), "daemon": source("daemon"),
+                **self.stalls, "final_read": self.final}
+
+    def problems(self):
+        """The readout's failures besides its events: a source never read, or not read after the loop."""
+        found = []
+        for name, what in (("app", "debug.blocking and debug.hangs"), ("daemon", "the daemon's server-blocking")):
+            why = f" (last failure: {self.last_failure[name]})" if self.last_failure[name] else ""
+            if not self.reads[name]:
+                found.append(f"--blocking-checks: {what} never read{why}")
+            elif self.final is not None and not self.final.get(name):
+                found.append(f"--blocking-checks: {what} not read after the last sample, so the end of the soak "
+                             f"is not counted{why}")
+        return found
+
+
 def wait(condition, seconds, step=1.0):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
@@ -430,6 +637,8 @@ class Soak:
         self.zombies_last = set()
         self.zones_checked = float("-inf")  # monotonic time of the last malloc zone read (check_chromium_off)
         self.stress = None
+        self.nightly = None  # NightlyReadout, made by launch() with --blocking-checks
+        self.daemon_socket = None  # the daemon's own socket (daemon_status), for its server-blocking
 
     def event(self, kind, detail, **extra):
         self.events.append({"at": now_iso(), "kind": kind, "detail": detail, **extra})
@@ -448,6 +657,11 @@ class Soak:
             raise SystemExit(f"readiness-soak: {self.app} is a {'/'.join(sorted(runtimes))} build: "
                              f"run it with --app-config {sorted(runtimes)[0]}")
         self.setup["app_config"] = mode or "plain"
+        if self.args.blocking_checks:
+            problem = nightly_build_problem(self.app)
+            if problem:
+                raise SystemExit(f"readiness-soak: --blocking-checks: {problem}")
+            self.setup["app_config"] = NIGHTLY_CONFIG
         if not self.args.same_tag:
             self.app = own_copy(self.app, self.work)
         self.tag, executable = bundle_tag(self.app)
@@ -542,8 +756,10 @@ class Soak:
 
     def launch_env(self):
         """What the soak adds to BenchApp's bench env: its own acpmux home, and agents that really start (the fake
-        agent through acpmux), so neither the agent launch deny nor the mock agent pane of the bench env."""
-        return {"ACPMUX_HOME": self.acpmux_home, "ACPMUX_AGENT_LAUNCH": None, "CMUX_NEXT_AGENT_PANE_MOCK": None}
+        agent through acpmux), so neither the agent launch deny nor the mock agent pane of the bench env. With
+        --blocking-checks the detector records, as a Nightly's does, whatever the host's environment says."""
+        env = {"ACPMUX_HOME": self.acpmux_home, "ACPMUX_AGENT_LAUNCH": None, "CMUX_NEXT_AGENT_PANE_MOCK": None}
+        return {**env, **NIGHTLY_ENV} if self.args.blocking_checks else env
 
     def launch(self):
         os.makedirs(self.acpmux_home)
@@ -565,6 +781,25 @@ class Soak:
         self.setup["identity"] = {k: identity.get(k) for k in ("pid", "build", "version", "bundle_identifier") if k in identity}
         self.app_pid = self.setup["identity"].get("pid")
         say(f"app up: {self.setup['identity']}")
+        if self.args.blocking_checks:
+            self.nightly = NightlyReadout(self.control_call, self.daemon_request, self.event)
+            self.nightly.start()
+
+    def control_call(self, method, params):
+        """One app control call on a connection of its own: the result, or {"error": ...}."""
+        reply = Client(self.socket, timeout=10).call(method, params)
+        return {"error": reply["error"]} if "error" in reply else reply.get("result")
+
+    def daemon_request(self, command):
+        """One request on the daemon's own socket; None when there is no daemon or it does not answer. The socket is
+        asked for again after a failure, since a restarted daemon may listen at another path."""
+        if not self.daemon_socket:
+            status = daemon_status(self.tui, self.tag)
+            self.daemon_socket = status.get("socket") if status else None
+        reply = blocking_hangs().daemon_request(self.daemon_socket, command) if self.daemon_socket else None
+        if reply is None:
+            self.daemon_socket = None
+        return reply
 
     def connect(self):
         for path in self.sockets:
@@ -608,6 +843,7 @@ class Soak:
         if not status:
             self.setup["terminals"] = "no running daemon"
             return
+        self.daemon_socket = status["socket"]
         made = 0
         for index in range(self.args.terminals):
             reply = request(status["socket"], {"id": 10 + index, "cmd": "run", "argv": ["/bin/sh", "-c", TERMINAL_WORK.format(stop=shlex.quote(self.quiet_file))],
@@ -881,6 +1117,8 @@ class Soak:
                 self.check_chromium_off(kinds)
             zombies = self.check_zombies(kinds, time.time() - self.started)
             ping_ms, snapshot_ms = self.check_control()
+            if self.nightly:
+                self.nightly.poll()
             statuses = self.acp.sessions()
             for session, entry in self.agents.items():
                 running = statuses.get(session) == "running"
@@ -898,11 +1136,14 @@ class Soak:
                                      for session, e in self.agents.items()),
                       "ping_ms": ping_ms, "snapshot_ms": snapshot_ms, "zombies": zombies,
                       "turns": sum(e["turns"] for e in self.agents.values()),
-                      "turns_done": sum(e["done"] for e in self.agents.values())}
+                      "turns_done": sum(e["done"] for e in self.agents.values()),
+                      **(self.nightly.sample_fields() if self.nightly else {})}
             self.samples.write(json.dumps(record) + "\n")
             self.samples.flush()
         self.check_sanitizer()
         self.check_chromium_off(self.kinds())
+        if self.nightly:
+            self.nightly.poll(final=True)  # the time since the last sample; the app's table ends with its quit
 
     # ---- report --------------------------------------------------------------------------
 
@@ -982,10 +1223,21 @@ class Soak:
                 value = (summary.get(kind) or {}).get("idle_cpu_percent")
                 if value is not None and value > limit:
                     (failures if self.args.idle_cpu_gate == "fail" else warnings).append(f"{kind} idle CPU {value}% over {limit}%")
-        for kind in ("crash", "hang", "control-error", "stuck-turn"):
+        for kind in ("crash", "hang", "control-error", "stuck-turn", "blocking", "stall-250"):
             count = sum(1 for e in self.events if e["kind"] == kind)
             if count:
                 failures.append(f"{count} {kind} event(s)")
+        nightly = self.nightly.summary() if self.nightly else None
+        if self.nightly:
+            failures += self.nightly.problems()
+        quit = self.setup.get("quit")
+        code = quit["returncode"] if quit else 0
+        if code != 0:
+            how = (f"did not exit within {QUIT_WAIT_S} s" if code is None
+                   else f"exited with signal {-code}" if code < 0 else f"exited with status {code}")
+            request = f"; the request itself got no reply: {quit['error']}" if quit.get("error") else ""
+            (failures if self.args.blocking_checks else warnings).append(
+                f"quit: the app {how} after its quit request (it awaits work.shutdown() before it exits{request})")
         if any(e["kind"] == "chromium-loaded" for e in self.events):
             failures.append(f"invalid {self.args.app_config} run: Chromium loaded (its PartitionAlloc zone hides "
                             "allocations from the sanitizer)")
@@ -1015,6 +1267,7 @@ class Soak:
                   "app": self.app, "summary": summary, "events": self.events, "zombies": zombies,
                   "sanitizer": {"mode": self.args.app_config, "logs": self.setup.get("sanitizer_logs"),
                                 "reports": self.sanitizer_count} if self.args.app_config else None,
+                  "nightly": nightly,
                   "snapshot_ms_p50": journey.percentile(pings, 0.5, digits=1),
                   "snapshot_ms_p95": journey.percentile(pings, 0.95, digits=1),
                   "snapshot_ms_p99": journey.percentile(pings, 0.99, digits=1),
@@ -1039,6 +1292,15 @@ class Soak:
             lines.append(f"App config {self.args.app_config} (Chromium off): {self.sanitizer_count} sanitizer report(s) "
                          f"in {self.setup.get('sanitizer_logs')}, malloc zones {self.setup.get('malloc_zones', 'never read')} "
                          f"(read at {self.setup.get('malloc_zones_at')}).")
+        if nightly:
+            app, daemon = nightly["app"], nightly["daemon"]
+            lines.append(f"Nightly config ({nightly['config']}): {app['sites']} app blocking site(s) {app['by_context']}, "
+                         f"{daemon['sites']} daemon site(s), overflow app {app['overflow']} / daemon {daemon['overflow']}; "
+                         f"debug.hangs count250 {nightly['count250']}, count100 {nightly['count100']}, thread hangs "
+                         f"{nightly['thread_hangs']}; reads app {app['reads']} ({app['failed_reads']} failed), daemon "
+                         f"{daemon['reads']} ({daemon['failed_reads']} failed).")
+        if quit:
+            lines.append(f"Quit: return code {quit['returncode']} after {quit['seconds']} s.")
         lines += ["",
                   "| Process | Mean CPU % | Max CPU % | Memory mid-run (MB) | Memory end (MB) | Wakeups/s | fds mid-run | fds end | Idle CPU % | Idle wakeups/s |",
                   "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
@@ -1098,15 +1360,27 @@ class Soak:
 
     def quit(self):
         """The app's own quit with end-everything, then BenchApp.stop for an app that is still up (debug.quit, then
-        TERM and KILL of the PID it started); the tag's daemons are the soak's TagTeardown's."""
+        TERM and KILL of the PID it started); the tag's daemons are the soak's TagTeardown's. setup's `quit` is how an
+        app still up at the end took its quit request: its return code (None: still running after QUIT_WAIT_S) and
+        the seconds it took. The app's exit is the answer to the request: it may close its socket before it replies,
+        or reply late at the end of STRESS, so a failed request is kept as context and the exit wait still runs."""
+        asked, failed = None, None
         try:
             self.write_config("end-everything")
             time.sleep(2)  # soak script: the app reloads cmux.json from its file watcher
-            Client(self.socket, timeout=10).call("action.run", {"action": "quit", "wait": False})
-            wait(lambda: self.bench.process.poll() is not None, 90)
+            asked = time.monotonic()
+            try:
+                Client(self.socket, timeout=10).call("action.run", {"action": "quit", "wait": False})
+            except (OSError, ValueError, KeyError) as error:
+                failed = f"{type(error).__name__}: {error}"
+                say(f"quit: the request got no reply ({failed}); waiting for the app to exit")
+            wait(lambda: self.bench.process.poll() is not None, QUIT_WAIT_S - (time.monotonic() - asked))
         except (OSError, ValueError, KeyError) as error:
             say(f"quit: {error}")
         finally:
+            if asked is not None and self.app_exit is None:
+                self.setup["quit"] = {"returncode": self.bench.process.poll(),
+                                      "seconds": round(time.monotonic() - asked, 1), "error": failed}
             self.bench.stop()
 
 
@@ -1142,6 +1416,9 @@ def parse_args(argv=None):
                         help="a zombie child warns (default, until a 24h report shows the real count) or fails")
     parser.add_argument("--app-config", choices=tuple(SANITIZER_RUNTIMES),
                         help="a sanitizer build of the app: Chromium off, its reports are crash events")
+    parser.add_argument("--blocking-checks", action="store_true",
+                        help="soak the Nightly configuration (a --config bench-checks build): each blocking site, "
+                             "count250 stall and unclean quit fails the run (p02-threads RUN-9)")
     parser.add_argument("--stress", action="store_true", help="build the STRESS session (perf-stress-session.py) first")
     parser.add_argument("--out", default=os.path.join(os.getcwd(), "readiness-soak"))
     parser.add_argument("--story", help="write a soak that ran its whole length as cmux-perf-result/v1 under this story")
@@ -1151,6 +1428,10 @@ def parse_args(argv=None):
     args = parser.parse_args(argv)
     if args.session and (args.session == "stress") != args.stress:
         parser.error(f"--session {args.session} does not match {'--stress' if args.stress else 'a soak without --stress'}")
+    if args.blocking_checks and args.app_config:
+        parser.error("--blocking-checks does not go with --app-config: a sanitizer build is not the Nightly configuration")
+    if args.blocking_checks and args.story:
+        parser.error(f"--story does not go with --blocking-checks: the soak story's lab config is bench, not {NIGHTLY_CONFIG}")
     if args.warmup + args.idle >= args.hours * 3600:
         parser.error("--warmup plus --idle must leave a load phase within --hours")  # else every load check is empty
     if args.story:

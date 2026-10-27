@@ -23,7 +23,15 @@ import UniformTypeIdentifiers
 final class FlightRecorder: NSObject {
     static let shared = FlightRecorder()
     // cmux: the app's policy (HomeFlightRecorder: DEV on, NIGHTLY opt-in, Release off), read live.
-    static var enabled: Bool { HomeFlightRecorder.isEnabled() && !ProcessInfo.processInfo.arguments.contains("--no-flight-recorder") }
+    static var enabled: Bool { HomeFlightRecorder.isEnabled() && !argumentOff }
+    nonisolated private static let argumentOff = ProcessInfo.processInfo.arguments.contains("--no-flight-recorder")
+    /// cmux: the policy this recorder reads, live (the app's for `shared`; tests pass their own). While it is
+    /// off the recorder makes no display link, schedules no capture burst and keeps no event (p14-energy-051).
+    private let isEnabled: @MainActor () -> Bool
+    init(isEnabled: @escaping @MainActor () -> Bool = { FlightRecorder.enabled }) {
+        self.isEnabled = isEnabled
+        super.init()
+    }
 
     /// Raw per-frame storage, preallocated (no strings, dictionaries or allocation per
     /// frame; formatting happens only in `dump`). Rows are interned key ids.
@@ -84,7 +92,7 @@ final class FlightRecorder: NSObject {
 
     /// An engine action (ChatController.dispatch and the wake timer call it).
     func action(_ a: Action) {
-        guard FlightRecorder.enabled, c != nil else { return }
+        guard isEnabled(), c != nil else { return }  // cmux: the recorder's policy
         let name: String
         switch a {
         case .send: name = "send"; lastSend = CACurrentMediaTime()
@@ -116,6 +124,7 @@ final class FlightRecorder: NSObject {
     }
 
     func event(_ s: String) {
+        guard isEnabled() else { return }  // cmux: off, the window observers keep nothing
         events.append((CACurrentMediaTime(), s))
         if events.count > 400 { events.removeFirst(events.count - 400) }
     }
@@ -125,10 +134,18 @@ final class FlightRecorder: NSObject {
 
     /// Something may animate: sample until it settles.
     func kick() {
-        guard FlightRecorder.enabled, link == nil, let c else { return }
+        guard isEnabled(), link == nil, let c else { return }  // cmux: the recorder's policy
+        // wakeup-allow: debug the recorder samples frames only while its policy is on (DEV, NIGHTLY opt-in) and something moves
         let l = c.host.displayLink(target: self, selector: #selector(tick(_:)))
         l.add(to: .main, forMode: .common)
         link = l
+    }
+
+    /// cmux: the link stops on its next frame once the policy is off, the pane has no transcript or
+    /// nothing is left to sample (`displayFrame`).
+    private func stopSampling() {
+        link?.invalidate()
+        link = nil
     }
 
     // MARK: Sampling
@@ -142,8 +159,11 @@ final class FlightRecorder: NSObject {
     /// while presented geometry is expensive (many cells, each with many additive springs
     /// during fast sends: presentation() applies them all). Target 0.3 ms per frame.
     private var stride = 1, skip = 0
-    @objc private func tick(_ l: CADisplayLink) {
-        guard let c, let v = c.demo else { return }
+    @objc private func tick(_ l: CADisplayLink) { displayFrame() }
+
+    /// cmux: one display frame of the link (tests call it): samples, or stops the link.
+    func displayFrame() {
+        guard isEnabled(), let c, let v = c.demo else { stopSampling(); return }
         let now = CACurrentMediaTime()
         if skip > 0 {
             skip -= 1
@@ -153,7 +173,7 @@ final class FlightRecorder: NSObject {
             if now - lastSend < 10 { modelCheck(v) }
             modelChecks += 1
             modelCheckMsMax = max(modelCheckMsMax, (CACurrentMediaTime() - m0) * 1000)
-            if !(v.isAnimating || now - lastSend < 10 || pendingFinding != nil) { l.invalidate(); link = nil }
+            if !(v.isAnimating || now - lastSend < 10 || pendingFinding != nil) { stopSampling() }
             return
         }
         defer {
@@ -182,7 +202,7 @@ final class FlightRecorder: NSObject {
             if slowTicks.count > 8 { slowTicks.removeFirst() }
         }
         let busy = v.isAnimating || now - lastSend < 10 || pendingFinding != nil
-        if !busy { l.invalidate(); link = nil }
+        if !busy { stopSampling() }
     }
 
     private func intern(_ key: String) -> Int32 {
@@ -454,7 +474,7 @@ final class FlightRecorder: NSObject {
     @objc func saveLastSeconds(_ sender: Any?) { dump(reason: "Save Last 10 Seconds", all: []) }
 
     func dump(reason: String, all: [String]) {
-        guard let c else { return }
+        guard isEnabled(), let c else { return }  // cmux: off, no files and no capture burst
         let f = DateFormatter()
         f.dateFormat = "yyyyMMdd-HHmmss.SSS"
         // cmux: ~/Library/Logs/<app>/ (HomeFlightRecorder.logFolder), not MessagesLab's folder.
@@ -511,6 +531,7 @@ final class FlightRecorder: NSObject {
         let q = DispatchQueue(label: "flight.burst", qos: .utility)
         let start = CACurrentMediaTime(), now = DispatchTime.now()
         for i in 0..<max(0, count) {
+            // wakeup-allow: debug 30 one-shot captures after a dump, only with the policy and window captures opted in
             q.asyncAfter(deadline: now + Double(i) / 60) {
                 let t = CACurrentMediaTime() - start
                 // cmux: LiveRecord is not vendored (HomeFlightRecorder.grab, .writeJPEG).
