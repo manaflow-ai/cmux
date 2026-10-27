@@ -11,7 +11,7 @@ enum TabMirror {
 
     /// A creation reply is not yet a usable placement target until its tree has the tab.
     @MainActor static func performWhenReached(_ key: String, in locate: @escaping Locate, perform: @MainActor () -> Void) async {
-        guard locate(key) != nil else { return }
+        guard await reaches(key, in: locate), !Task.isCancelled else { return }
         perform()
     }
 
