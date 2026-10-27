@@ -78,6 +78,69 @@ import Testing
         #expect(tab.pendingURL == Self.page, "the page waits for its new browser with the wrong URL")
     }
 
+    /// The order of the supervisor's two reports of one end: its end observers (``ChromiumHostSupervising/observeHostEnds(_:)``)
+    /// and its exit report (``ChromiumHostExitReporting/onHostEnded``).
+    nonisolated enum ReportOrder: CaseIterable, Sendable {
+        case observersFirst, exitReportFirst
+    }
+
+    /// Task 091: whichever report of the host's end comes first detaches the dead wire before anything resolves. A person's
+    /// close waiting on its try_close answer, with the page's beforeunload open, closes its tab (out of its pane), the
+    /// question's answer goes nowhere, and the crash log records the host once.
+    @Test(arguments: ReportOrder.allCases)
+    func aPersonsCloseTheEndAnswersClosesItsTabAndNothingReachesTheDeadWire(_ order: ReportOrder) async throws {
+        let (runtime, supervisor, wire) = try await Self.startedRuntime()
+        defer { wire.close() }
+        let tab = Self.tab(runtime, browser: 1)
+        let pane = tab.host
+        let closer = TabCloser()
+        tab.delegate = closer
+        // The tab holds its delegate weakly; the test's closer outlives it.
+        _ = Unmanaged.passRetained(closer)
+        #expect(tab.beginUserClose(), "the close did not wait for the page's answer")
+        tab.beforeUnloadAsked(token: 5, isReload: false)
+        #expect(tab.asksBeforeUnload)
+
+        switch order {
+        case .observersFirst:
+            supervisor.endObservers()
+            #expect(tab.isClosed, "the person's close waited for an answer the dead host cannot send")
+            supervisor.onHostEnded?(Self.killed)
+        case .exitReportFirst:
+            supervisor.onHostEnded?(Self.killed)
+            supervisor.endObservers()
+        }
+
+        #expect(tab.isClosed && closer.closes == 1)
+        #expect(!pane.tabs.contains { $0 === tab }, "the closed tab stayed in its pane, waiting for a BEFORE_CLOSE")
+        #expect(HostWire.state.withLock { $0.deadWireOps } == 0, "an answer or the close went to the dead host's wire")
+        #expect(HostWire.state.withLock { $0.detaches } == 1)
+        #expect(runtime.crashLog.records.map(\.processType) == ["chromium-host"])
+        #expect(runtime.state == .idle && runtime.shim == nil)
+    }
+
+    /// A host whose end only the observers report (a clean exit) still leaves no wire to send to and no wait.
+    @Test func anEndOnlyTheObserversReportDetachesTheWire() async throws {
+        let (runtime, supervisor, wire) = try await Self.startedRuntime()
+        defer { wire.close() }
+        _ = Self.tab(runtime, browser: 1)
+        let sent = runtime.sendAsync { $0.tryClose(1) }
+        guard case .later = sent else {
+            Issue.record("the op was not sent for a REPLY")
+            return
+        }
+        var settled: [Result<Int32, CEFHostReplyError>] = []
+        runtime.whenSettled(sent, label: "try close") { settled.append($0) }
+
+        supervisor.endObservers()
+
+        #expect(settled == [.failure(.hostGone)], "a reply awaited from the dead host waits for its deadline")
+        #expect(runtime.state == .idle && runtime.shim == nil)
+        #expect(runtime.awaitsHostRestart)
+        #expect(HostWire.state.withLock { $0.detaches } == 1)
+        #expect(runtime.crashLog.records.isEmpty, "a clean end was logged as a crash")
+    }
+
     /// p14-energy-045: an Energy Saver edge while no host runs reaches nobody, so the next host's ready sends the
     /// app's current state again (a host starts with the saver off and the remote shim keeps only the last
     /// state it was given), and `debug.energy`'s `applied` is that host's answer.
@@ -330,7 +393,16 @@ import Testing
                                       frameworkLocales: ["en.lproj"])
     }
 
-    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
+    private var observers: [@MainActor () -> Void] = []
+
+    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {
+        observers.append(ended)
+    }
+
+    /// Runs every end observer, as the supervisor does for any end of its host.
+    func endObservers() {
+        for observer in observers { observer() }
+    }
 
     func hostSaidHello() {}
 
@@ -350,6 +422,17 @@ import Testing
     #endif
 }
 
+/// Closes the tab when it asks to close, as the app's tab owner does.
+@MainActor private final class TabCloser: BrowserTabDelegate {
+    private(set) var closes = 0
+
+    func browserTab(_ tab: any BrowserTab, didRequest intent: BrowserTabIntent) {
+        guard case .close = intent else { return }
+        closes += 1
+        (tab as? CEFTab)?.close()
+    }
+}
+
 /// Whether each preparation of a start's inputs ran on the main thread.
 private nonisolated final class PreparingThreads: Sendable {
     let onMain = Mutex<[Bool]>([])
@@ -366,8 +449,8 @@ private nonisolated final class PreparingThreads: Sendable {
 
 /// The remote dylib: the ABI id; attach (records the wire, says hello at once); detach; the reply token;
 /// initialize (succeeds); the fork API version and `set_energy_saver` (recorded); `reload`, `load_url`,
-/// `close` and `create_window`, which count the ops sent while no wire is attached. Every other export
-/// does nothing and returns 0.
+/// `close`, `create_window`, `try_close` (sent for a REPLY: the next token) and `before_unload_reply`, which
+/// count the ops sent while no wire is attached. Every other export does nothing and returns 0.
 private nonisolated enum HostWire {
     private static let abiCString: StaticString = "host-exit-spy-abi"
     static let abi = "\(abiCString)"
@@ -425,6 +508,15 @@ private nonisolated enum HostWire {
             HostWire.op()
             return 0
         }
+        let tryClose: @convention(c) (Int32) -> Int32 = { _ in
+            HostWire.op()
+            HostWire.state.withLock { $0.token += 1 }
+            return 1
+        }
+        let beforeUnloadReply: @convention(c) (Int32, Int32) -> Int32 = { _, _ in
+            HostWire.op()
+            return 1
+        }
         let forkAPIVersion: @convention(c) () -> Int32 = { HostWire.state.withLock { $0.forkAPI } }
         let setEnergySaver: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32 = { enabled, _ in
             HostWire.state.withLock { $0.energySaver.append(enabled) }
@@ -443,6 +535,8 @@ private nonisolated enum HostWire {
         case "cmux_shim_reload", "cmux_shim_close": unsafeBitCast(browserOp, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_load_url": unsafeBitCast(loadURL, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_create_window": unsafeBitCast(createWindow, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_try_close": unsafeBitCast(tryClose, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_before_unload_reply": unsafeBitCast(beforeUnloadReply, to: UnsafeMutableRawPointer.self)
         default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
         }
     }
