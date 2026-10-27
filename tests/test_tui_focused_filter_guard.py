@@ -206,7 +206,7 @@ def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> No
     assert lint["strategy"]["matrix"]["include"] == [
         {
             "os": "linux",
-            "runner": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(vars.LINUX_RUNNER, '32vcpu') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}",
+            "runner": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(vars.LINUX_RUNNER, '32vcpu') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}",
         },
     ]
     # Same OS matrix; only lint honors a LINUX_RUNNER override.
