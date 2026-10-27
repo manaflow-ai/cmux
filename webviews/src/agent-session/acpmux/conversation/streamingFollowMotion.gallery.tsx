@@ -51,27 +51,36 @@ function StreamingFollowMotionGallery({ variant }: { variant: MotionVariant }) {
     }, 45);
   };
   return (
-    <div className={`streaming-follow-motion-gallery streaming-follow-motion-gallery--${variant}`}>
-      <button type="button" className="ui-button" data-testid="stream-follow-start" onClick={start}>
-        Start deterministic stream
-      </button>
-      <output data-testid="stream-follow-done" aria-live="polite">
-        {done ? "Stream settled" : "Ready"}
-      </output>
-      <div className="streaming-follow-motion-gallery__transcript">
-        <VirtualTranscript
-          rows={rows}
-          sessionId="stream-motion"
-          onToggleActivity={() => {}}
-          expanded={new Set()}
-          working={streaming}
-        />
+    <div
+      className={`acpmux-shell streaming-follow-motion-gallery streaming-follow-motion-gallery--${variant}`}
+      style={{ height: "100%" }}
+    >
+      <div className="acpmux-main" data-dock="float">
+        <div className="acpmux-stage">
+          <header className="acpmux-header">
+            <button type="button" className="ui-button" data-testid="stream-follow-start" onClick={start}>
+              Start deterministic stream
+            </button>
+            <output data-testid="stream-follow-done" aria-live="polite">
+              {done ? "Stream settled" : "Ready"}
+            </output>
+          </header>
+          <VirtualTranscript
+            rows={rows}
+            sessionId="stream-motion"
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+            working={streaming}
+          />
+        </div>
       </div>
     </div>
   );
 }
 
 const streamFollow: Play = async (ctx) => {
+  const scroller = ctx.find({ selector: ".acpmux-scroll" }) as HTMLElement;
+  if (scroller.clientHeight < 100) throw new Error("The comparison transcript must have a visible viewport");
   ctx.motion.start({ kind: "streaming-follow", target: ".acpmux-scroll", maxMs: 3_000 });
   await ctx.click({ testId: "stream-follow-start" });
   await ctx.waitFor(() => ctx.find({ testId: "stream-follow-done" }).textContent === "Stream settled", {

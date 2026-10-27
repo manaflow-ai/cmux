@@ -12,11 +12,11 @@ let renders = 0;
 let cleanups = 0;
 let poolWorks = true;
 const pool = { isWorkingPool: () => poolWorks };
-mock.module("../src/agent-session/acpmux/conversation/highlightPool", () => ({
+await mock.module("../src/agent-session/acpmux/conversation/highlightPool", () => ({
   paneHighlightPool: () => pool,
   onHighlightTimeout: () => () => {},
 }));
-mock.module("@pierre/diffs", () => ({
+await mock.module("@pierre/diffs", () => ({
   DIFFS_TAG_NAME: "diffs-container",
   registerCustomTheme: () => {},
   File: class {
