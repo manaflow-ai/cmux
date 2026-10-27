@@ -25,49 +25,46 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
     await vite?.close();
   });
 
-  for (const layout of ["above", "beside", "below"])
-    for (const width of [760, 320])
-      test(`${layout}, ${width}px: expanded chips clear Show more and the disclosure`, async () => {
-        const page = await browser.newPage({ viewport: { width, height: 420 } });
-        try {
-          const { port } = vite.httpServer!.address() as { port: number };
-          await page.goto(
-            `http://127.0.0.1:${port}${galleryFrame("agent-pane.pr-dock", { variant: `inline-${layout}-show-more`, width })}`,
+  for (const width of [760, 320])
+    test(`${width}px: PR pills share the action row and overflow never moves the transcript`, async () => {
+      const page = await browser.newPage({ viewport: { width, height: 420 } });
+      try {
+        const { port } = vite.httpServer!.address() as { port: number };
+        await page.goto(
+          `http://127.0.0.1:${port}${galleryFrame("agent-pane.pr-dock", { variant: "compact-count", width })}`,
+        );
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+        const dock = page.locator(".acpmux-pr-dock");
+        await dock.waitFor();
+        if (process.env.CMUX_PR_DOCK_CAPTURE)
+          await page.screenshot({ path: `${process.env.CMUX_PR_DOCK_CAPTURE}/closed-${width}.png` });
+        expect(await dock.evaluate((node) => !!node.closest(".cv-turn-actions"))).toBe(true);
+        expect(await dock.locator(".acpmux-pr-dock__bar").count()).toBeGreaterThan(0);
+        expect(await dock.locator(".acpmux-pr-dock__bar").count()).toBeLessThanOrEqual(2);
+        expect(await dock.locator(".acpmux-pr-dock__dismiss").count()).toBe(0);
+        const geometry = () =>
+          page.evaluate(() =>
+            [...document.querySelectorAll(".acpmux-row, .acpmux-composer")].map((node) => {
+              const box = node.getBoundingClientRect();
+              return { y: box.y, height: box.height };
+            }),
           );
-          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-          const chips = page.locator(".acpmux-pr-dock__chip");
-          await chips.first().waitFor();
-          // Real boxes, including the last row of the card immediately above the dock.
-          const geometry = await page.evaluate(() => {
-            const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
-            const card = box(".cv-received__show");
-            const row = box(".acpmux-pr-dock__compact");
-            const dock = box(".acpmux-pr-dock");
-            const overlaps = (a: DOMRect, b: DOMRect) =>
-              a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
-            return [...document.querySelectorAll(".acpmux-pr-dock__chip")].map((chip) => {
-              const rect = chip.getBoundingClientRect();
-              return {
-                card: overlaps(rect, card),
-                disclosure: overlaps(rect, row),
-                contained: rect.top >= dock.top && rect.bottom <= dock.bottom,
-              };
-            });
-          });
-          if (process.env.CMUX_PR_DOCK_CAPTURE)
-            await page.screenshot({ path: `${process.env.CMUX_PR_DOCK_CAPTURE}/${layout}-${width}.png` });
-          expect(geometry).toHaveLength(2);
-          for (const chip of geometry) expect(chip).toEqual({ card: false, disclosure: false, contained: true });
-          const disclosure = page.locator(".acpmux-pr-dock__disclosure");
-          expect(await disclosure.getAttribute("aria-expanded")).toBe("true");
-          const listId = await disclosure.getAttribute("aria-controls");
-          expect(await page.locator(`[id="${listId}"] .acpmux-pr-dock__chip`).count()).toBe(2);
-          await page.keyboard.press("Escape");
-          expect(await disclosure.getAttribute("aria-expanded")).toBe("false");
-          expect(await disclosure.evaluate((element) => element === document.activeElement)).toBe(true);
-          expect(await chips.count()).toBe(0);
-        } finally {
-          await page.close();
-        }
-      });
+        const before = await geometry();
+        const more = dock.locator(".acpmux-pr-dock__more");
+        await more.click();
+        await page.locator(".acpmux-pr-dock__popover").waitFor();
+        expect(await geometry()).toEqual(before);
+        expect(await page.locator(".acpmux-pr-dock__popover .acpmux-pr-dock__bar").count()).toBe(
+          4 - (await dock.locator(".acpmux-pr-dock__bar").count()),
+        );
+        if (process.env.CMUX_PR_DOCK_CAPTURE)
+          await page.screenshot({ path: `${process.env.CMUX_PR_DOCK_CAPTURE}/open-${width}.png` });
+        await page.keyboard.press("Escape");
+        expect(await more.getAttribute("aria-expanded")).toBe("false");
+        expect(await more.evaluate((node) => node === document.activeElement)).toBe(true);
+        expect(await geometry()).toEqual(before);
+      } finally {
+        await page.close();
+      }
+    });
 });
