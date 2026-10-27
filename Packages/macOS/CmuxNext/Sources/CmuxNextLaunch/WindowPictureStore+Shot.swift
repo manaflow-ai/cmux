@@ -78,7 +78,7 @@ extension WindowPictureStore {
             appearance: window.effectiveAppearance.name.rawValue, theme: facts.theme,
             sidebarWidth: sidebar.map { Double($0.frame.width) } ?? 0, build: facts.build, layout: facts.layout,
             regions: regions.sorted { ($0.kind.rawValue, $0.id) < ($1.kind.rawValue, $1.id) },
-            browserProfiles: facts.browserProfiles.map { $0.sorted { $0.uuidString < $1.uuidString } })
+            browserProfiles: facts.browserProfiles.map { profiles in profiles.sorted { $0.uuidString < $1.uuidString } })
         return Shot(eligibility: eligibility, base: base, size: root.bounds.size, layers: layers, fills: fills,
                     background: facts.background, meta: meta)
     }
