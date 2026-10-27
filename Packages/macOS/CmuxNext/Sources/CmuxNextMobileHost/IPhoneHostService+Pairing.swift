@@ -1,8 +1,8 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextDesign
-import CmuxNextMobile
-import Foundation
+public import CmuxNextMobile
+public import Foundation
 import os
 
 /// Phone pairing (cmux-next-ios verify/phone-approvals.md, audit B2): a phone reaches
