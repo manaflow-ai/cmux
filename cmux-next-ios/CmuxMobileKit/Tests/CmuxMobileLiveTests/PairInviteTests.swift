@@ -243,5 +243,48 @@ import Testing
         #expect(store.activeTeamID != "t9")
         #expect(UserDefaults.standard.string(forKey: key) == nil)
     }
+
+    /// A code from the other build on a listed computer (MacRoster lists one build per computer)
+    /// dials that build, though the listed one keeps the focus.
+    @Test func aCodeFromTheOtherBuildOnAComputerDialsThatBuild() async throws {
+        let userID = "user-a", teamID = "t-hidden-\(UUID().uuidString.prefix(8))"
+        let pick = "cmuxMobile.live.mac.\(teamID)"
+        defer { UserDefaults.standard.removeObject(forKey: pick) }
+        let machine = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        let macs = [
+            MacDevice(id: "m1", name: "cmux mini", isOnline: true, ownerUserID: userID, machineID: machine),
+            MacDevice(id: "m2", name: "cmux mini", isOnline: true, ownerUserID: userID, machineID: machine),
+        ]
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-mobile-invite-\(UUID().uuidString)")
+        let snapshots = LiveSnapshotStore(directory: directory)
+        snapshots.save(LiveSnapshot(
+            teamID: teamID, teamName: "One", macs: macs, linkedMacID: "m1",
+            workspaces: Dictionary(uniqueKeysWithValues: macs.map { ($0.id, .init(workspaces: [], savedAt: Date())) })
+        ), accountID: userID)
+        snapshots.flush()
+        let host = "svc-\(UUID().uuidString.prefix(8).lowercased()).cmuxMobile.test"
+        ServiceStub.install(host: host) { _ in nil }
+        let secrets = MemorySecretStore()
+        let dialer = PerMacDialer()
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let live = LiveCoordinator(
+            store: store,
+            api: LiveAPI(baseURL: URL(string: "https://\(host)")!, session: ServiceStub.session()) { _ in "token" },
+            identity: DeviceIdentity(link: UUID().uuidString, presence: UUID().uuidString),
+            userID: userID, deviceName: "iPhone", transport: .wireGuard, dialer: dialer,
+            feedStore: FeedStore(items: []),
+            keys: PhoneKeys(userID: userID, service: "test.invite.\(UUID())", store: secrets, enclave: false),
+            snapshots: snapshots, secrets: secrets,
+            readMarks: FeedReadMarks(url: directory.appending(path: "read.json"))
+        )
+        defer { live.stop() }
+        for _ in 0..<3000 where store.macConnection["m1"] != .connected { try? await Task.sleep(for: .milliseconds(1)) }
+        #expect(MacRoster(store.activeTeam?.macs ?? []).visible.map(\.id) == ["m1"])
+        #expect(dialer.dialCount("m2") == 0)
+        let invite = try #require(PairInvite(text: PairInviteTests.url(mac: "m2", team: teamID)))
+        #expect(live.accept(invite))
+        for _ in 0..<3000 where dialer.dialCount("m2") == 0 { try? await Task.sleep(for: .milliseconds(1)) }
+        #expect(dialer.dialCount("m2") > 0)
+    }
 }
 #endif

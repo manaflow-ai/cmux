@@ -55,7 +55,10 @@ extension LiveCoordinator {
         guard registeredTeamID == invite.team, store.activeTeam?.macs.contains(where: { $0.id == invite.mac }) == true,
               canLink(macID: invite.mac) else { return }
         if focusedMacID != invite.mac { retarget() }
-        guard focusedMacID == invite.mac, let session = sessions[invite.mac] else { return }
+        // Another build on a listed computer (MacRoster lists one per computer) is not focused,
+        // but is dialed while something names it (`touch`): the code names it.
+        if focusedMacID != invite.mac { touch(invite.mac) }
+        guard let session = sessions[invite.mac] else { return }
         switch session.pairingState {
         case .paired:
             // Allowed already: nothing left to approve.
