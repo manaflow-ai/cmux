@@ -55,6 +55,7 @@ public final class ComputerUseHelperV2 {
     /// Logs the helper's control lines after `ready` (``logControlLines(_:pid:)``).
     private var controlLog: Task<Void, Never>?
     private var generation = 0
+    private let restarts: ComputerUseHelperRestarts
 
     /// This app's signing team. Ad-hoc development builds have no team and
     /// retain the same-executable-path peer rule.
@@ -113,6 +114,7 @@ public final class ComputerUseHelperV2 {
         self.clock = clock
         self.readyTimeout = readyTimeout
         self.exitGrace = exitGrace
+        self.restarts = ComputerUseHelperRestarts(clock: clock)
     }
 
     var socketPath: String { directory + "/" + Self.socketFileName }
@@ -201,6 +203,7 @@ public final class ComputerUseHelperV2 {
         }
         child = spawned
         state = .running(spawned.pid)
+        restarts.watch(spawner.watchExit(of: spawned.pid) { [weak self, pid = spawned.pid] in self?.helperExited(pid) })
         helperV2Logger.notice("cmux Computer Use helper v2 ready pid=\(spawned.pid, privacy: .public) socket=\(readySocket ?? "", privacy: .public)")
         controlLog?.cancel()
         let lines = spawned.lines
@@ -229,6 +232,7 @@ public final class ComputerUseHelperV2 {
     /// Stops the helper: close its stdin (it exits on EOF), then SIGTERM this
     /// exact pid if it is still alive after `exitGrace`.
     func stop() async {
+        restarts.stopped()
         unlink(endpointPath)
         guard let child else {
             state = .off
@@ -249,12 +253,36 @@ public final class ComputerUseHelperV2 {
     /// closes the pipe anyway if this app dies).
     func terminateForQuit() {
         generation &+= 1
+        restarts.stopped()
         unlink(endpointPath)
         controlLog?.cancel()
         controlLog = nil
         child?.closeInput()
         child = nil
         state = .off
+    }
+
+    /// The helper exited and this app did not stop it (macOS "Quit & Reopen"
+    /// after a privacy grant, a crash): it is reaped and its endpoint goes, so
+    /// acpmux finds no dead socket, then it starts again within the budget.
+    private func helperExited(_ pid: pid_t) {
+        guard case .running(let running) = state, running == pid, let child, child.pid == pid else { return }
+        self.child = nil
+        controlLog?.cancel()
+        controlLog = nil
+        unlink(endpointPath)
+        child.closeInput()
+        // The exited child stays a zombie until reaped; a SIGTERM to it does nothing.
+        spawner.terminate(pid)
+        guard restarts.takeRestart() else { return unavailable("the helper exited again within a minute") }
+        helperV2Logger.notice("cmux Computer Use helper v2 pid=\(pid, privacy: .public) exited; starting it again")
+        state = .off
+        let expected = generation
+        // task-owner: one start; a later apply or quit moves `generation`, and then it does nothing.
+        Task { [weak self] in
+            guard let self, generation == expected else { return }
+            await apply(enabled: true)
+        }
     }
 
     private func unavailable(_ reason: String) {

@@ -39,4 +39,8 @@ final class WorkspaceHelperLauncher: ComputerUseHelperLaunching {
     func terminate(_ pid: pid_t) {
         NSRunningApplication(processIdentifier: pid)?.terminate()
     }
+
+    func watchExit(of pid: pid_t, onExit: @escaping @MainActor () -> Void) -> @MainActor () -> Void {
+        ComputerUseHelperExitWatch.watch(pid, onExit: onExit)
+    }
 }

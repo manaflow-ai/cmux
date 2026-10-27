@@ -90,4 +90,6 @@ private final class PendingHelperLauncher: ComputerUseHelperLaunching {
     }
 
     func terminate(_ pid: Int32) { terminated.append(pid) }
+
+    func watchExit(of pid: pid_t, onExit: @escaping @MainActor () -> Void) -> @MainActor () -> Void { {} }
 }

@@ -14,12 +14,13 @@ import Testing
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct ComputerUseHelperExitTests {
-    private func makeDaemon(_ launcher: ExitingHelperLauncher) -> (ComputerUseHelperDaemon, URL) {
+    private func makeDaemon(_ launcher: ExitingHelperLauncher,
+                            clock: any Clock<Duration> = ContinuousClock()) -> (ComputerUseHelperDaemon, URL) {
         let root = FileManager.default.temporaryDirectory.appending(path: "cua-exit-\(UUID().uuidString.prefix(8))")
         let daemon = ComputerUseHelperDaemon(identity: CuaHelperIdentity(isSigned: { _ in true }),
                                              candidates: { [root.appending(path: "missing/cmux Computer Use.app")] },
                                              launcher: launcher, socketPath: root.appending(path: "s/cua.sock").path,
-                                             stateDirectory: root.appending(path: "state"))
+                                             stateDirectory: root.appending(path: "state"), clock: clock)
         return (daemon, root)
     }
 
@@ -56,7 +57,7 @@ struct ComputerUseHelperExitTests {
         try #require(daemon.state == .running(604))
 
         launcher.exit(604)
-        #expect(daemon.state != .running(604) && daemon.state != .off, "a fourth exit within a minute stops the restarts")
+        #expect(daemon.state == .failed, "a fourth exit within a minute stops the restarts")
         #expect(daemon.configuration == nil)
         #expect(launcher.launched.count == 4)
 
@@ -91,6 +92,48 @@ struct ComputerUseHelperExitTests {
         #expect(launcher.launched == [601, 602, 603])
         #expect(launcher.terminated == [601, 602, 603])
         #expect(launcher.cancelled == [601, 602, 603], "each stop ends its exit watch")
+    }
+
+    @Test func restartsOlderThanAMinuteNoLongerCount() async throws {
+        let launcher = ExitingHelperLauncher()
+        let clock = ManualClock()
+        let (daemon, root) = makeDaemon(launcher, clock: clock)
+        defer { try? FileManager.default.removeItem(at: root) }
+        await daemon.apply(enabled: true)
+        for restart in 1...6 {
+            let pid = pid_t(600 + restart)
+            try #require(daemon.state == .running(pid))
+            // One exit every 30 seconds: at most two restarts fall within a minute.
+            clock.advance(by: .seconds(30))
+            launcher.exit(pid)
+            await launcher.waitForLaunches(restart + 1)
+            await daemon.apply(enabled: true)
+        }
+        #expect(daemon.state == .running(607))
+    }
+
+    /// The launchers' kernel watch, on a real child: an exit while watched,
+    /// then a pid that exited before its watch armed.
+    @Test func theKernelWatchReportsAnExit() async throws {
+        let child = Process()
+        child.executableURL = URL(fileURLWithPath: "/bin/cat")
+        let input = Pipe()
+        child.standardInput = input
+        let reaped = AsyncStream<Void>.makeStream()
+        child.terminationHandler = { _ in reaped.continuation.finish() }
+        try child.run()
+        var cancel: (@MainActor () -> Void)?
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            cancel = ComputerUseHelperExitWatch.watch(child.processIdentifier) { continuation.resume() }
+            // cat exits at the end of its input.
+            try? input.fileHandleForWriting.close()
+        }
+        cancel?()
+        for await _ in reaped.stream {}
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            cancel = ComputerUseHelperExitWatch.watch(child.processIdentifier) { continuation.resume() }
+        }
+        cancel?()
     }
 
     // MARK: Helper v2

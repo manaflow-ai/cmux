@@ -212,6 +212,20 @@ struct ComputerUseSetupTests {
         #expect(setup.permissions.screenRecording)
     }
 
+    /// The helper kept exiting (the daemon stopped restarting it): the setup
+    /// shows its failed state, where Restart Helper starts it again.
+    @Test func aHelperThatKeepsExitingShowsFailedWithRestart() async throws {
+        let box = InputBox()
+        box.value.helper = .failed
+        let setup = make(box, Reader())
+        setup.start()
+        #expect(setup.phase == .failed)
+        #expect(setup.stepPermissions.helperFailed)
+        let restart = try #require(setup.prepareRestart())
+        await restart()
+        #expect(box.restarts == 1)
+    }
+
     /// Reads that wait until the test answers them.
     @MainActor @Observable final class GatedReads {
         private(set) var waiting = false

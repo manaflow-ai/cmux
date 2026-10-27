@@ -19,6 +19,8 @@ private final class RecordingHelperLauncher: ComputerUseHelperLaunching {
     func terminate(_ pid: pid_t) {
         stopped.append(pid)
     }
+
+    func watchExit(of pid: pid_t, onExit: @escaping @MainActor () -> Void) -> @MainActor () -> Void { {} }
 }
 
 /// An agent's computer use server gets the helper's socket and agent token

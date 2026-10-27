@@ -37,7 +37,7 @@ final class ComputerUseSetup {
         case unavailable
         /// On, and the helper is starting (or has not answered yet).
         case starting
-        /// The helper did not answer within the read budget.
+        /// The helper did not answer within the read budget, or kept exiting.
         case failed
         /// The helper answered: `permissions` are its grants.
         case ready
@@ -89,6 +89,8 @@ final class ComputerUseSetup {
     @ObservationIgnored private var reading: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var resolvedFor: URL??
+    /// The helper whose answer `permissions` holds (a restarted helper has another pid).
+    @ObservationIgnored private var answeredBy: pid_t?
     /// The inputs `start()` applied, until the input stream's first value.
     @ObservationIgnored private var appliedAtStart: Inputs?
     /// Maximum reads per check while the helper has not answered.
@@ -253,13 +255,14 @@ final class ComputerUseSetup {
         guard inputs.enabled else { return settle(.off, running: nil) }
         switch inputs.helper {
         case .unavailable: settle(.unavailable, running: nil)
+        case .failed: settle(.failed, running: nil)
         // On, and ComputerUseHelperDaemon is starting the helper.
         case .off: settle(.starting, running: nil)
-        case .running:
+        case .running(let pid):
             guard let configuration = configuration() else { return settle(.starting, running: nil) }
-            // Until the helper answers, the grants are being read, not off.
-            if phase != .ready { phase = .starting }
-            readGrants(configuration, generation: generation)
+            // Until this helper answers, the grants are being read, not off.
+            if phase != .ready || answeredBy != pid { settle(.starting, running: nil) }
+            readGrants(configuration, pid: pid, generation: generation)
         }
     }
 
@@ -271,7 +274,7 @@ final class ComputerUseSetup {
         resolve(running: running)
     }
 
-    private func readGrants(_ configuration: AgentActivitySocketSource.Configuration, generation current: Int) {
+    private func readGrants(_ configuration: AgentActivitySocketSource.Configuration, pid: pid_t, generation current: Int) {
         let read = read
         let clock = clock
         // task-owner: one read (plus bounded retries while a started helper is not up yet); a newer apply cancels it.
@@ -284,6 +287,7 @@ final class ComputerUseSetup {
                 case .answered(let granted, let helper):
                     phase = .ready
                     permissions = granted
+                    answeredBy = pid
                     resolve(running: helper)
                     return
                 case .versionMismatch:

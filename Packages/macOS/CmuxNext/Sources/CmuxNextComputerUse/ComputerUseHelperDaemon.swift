@@ -15,6 +15,9 @@ protocol ComputerUseHelperLaunching: AnyObject {
     /// Launches a new instance of `app` (never activated); its pid, or nil.
     func launch(_ app: URL, arguments: [String], environment: [String: String]) async -> pid_t?
     func terminate(_ pid: pid_t)
+    /// Calls `onExit` once, on the main actor, when `pid` exits; the returned
+    /// closure cancels the watch (`ComputerUseHelperExitWatch`).
+    func watchExit(of pid: pid_t, onExit: @escaping @MainActor () -> Void) -> @MainActor () -> Void
 }
 
 /// The cmux Computer Use helper this app runs while Computer Use is on.
@@ -36,6 +39,8 @@ protocol ComputerUseHelperLaunching: AnyObject {
 /// launch left it reading a NULL or freed entry (SIGSEGV in
 /// ghostty_config_finalize). Off (the default, or DisabledFeatures) nothing
 /// starts, and the helper is stopped when Computer Use turns off and when the app quits.
+/// A helper that exits by itself (macOS "Quit & Reopen" after a privacy
+/// grant, a crash) starts again within a budget, then is `.failed`.
 /// `state` is observable: Computer Use Setup follows it.
 @MainActor
 @Observable
@@ -45,6 +50,9 @@ public final class ComputerUseHelperDaemon {
         /// On, but no Developer ID signed helper is installed (or it did not start).
         case unavailable
         case running(pid_t)
+        /// On, but the helper kept exiting by itself (`helperExited(_:)`).
+        /// Restart Helper, or Computer Use off and on, starts it again.
+        case failed
     }
 
     /// The app's helper. One per process.
@@ -67,6 +75,7 @@ public final class ComputerUseHelperDaemon {
     @ObservationIgnored private var quitting = false
     @ObservationIgnored private var transition: Task<Void, Never>?
     @ObservationIgnored private var observation: Task<Void, Never>?
+    @ObservationIgnored private let restarts: ComputerUseHelperRestarts
     /// The helper v2 (`computerUse.driver = "upstream"`).
     @ObservationIgnored public let upstream: ComputerUseHelperV2
 
@@ -77,8 +86,10 @@ public final class ComputerUseHelperDaemon {
          ownerPID: pid_t = getpid(),
          socketPath: String = ComputerUseHelperDaemon.defaultSocketPath(),
          stateDirectory: URL = ComputerUseHelperDaemon.defaultStateDirectory(),
+         clock: any Clock<Duration> = ContinuousClock(),
          upstream: ComputerUseHelperV2? = nil) {
         self.upstream = upstream ?? ComputerUseHelperV2()
+        self.restarts = ComputerUseHelperRestarts(clock: clock)
         self.identity = identity
         self.candidates = candidates
         self.launcher = launcher
@@ -212,7 +223,32 @@ public final class ComputerUseHelperDaemon {
         agentToken = agent
         hostToken = host
         state = .running(pid)
+        restarts.watch(launcher.watchExit(of: pid) { [weak self] in self?.helperExited(pid) })
         helperLogger.notice("cmux Computer Use helper started from \(helper.path, privacy: .public)")
+    }
+
+    /// The helper exited and this app did not stop it. Its tokens go as on a
+    /// stop, and the setup reads again (state leaves `.running`). While
+    /// Computer Use is on it starts again, so after "Quit & Reopen" the new
+    /// helper reads the new grant; an exit loop ends in `.failed`, where the
+    /// setup offers Restart Helper.
+    private func helperExited(_ pid: pid_t) {
+        guard case .running(let running) = state, running == pid else { return }
+        agentToken = nil
+        hostToken = nil
+        guard requestedEnabled, !quitting else {
+            state = .off
+            return
+        }
+        guard restarts.takeRestart() else {
+            helperLogger.error("cmux Computer Use helper pid=\(pid, privacy: .public) exited again within a minute; not starting it again")
+            state = .failed
+            return
+        }
+        helperLogger.notice("cmux Computer Use helper pid=\(pid, privacy: .public) exited; starting it again")
+        state = .off
+        // The start joins the settings transition, which owns its task.
+        _ = request(enabled: true)
     }
 
     /// Restarts the legacy helper. The caller checks the current setting and policy.
@@ -222,8 +258,10 @@ public final class ComputerUseHelperDaemon {
     }
 
     /// Stops the helper this app started (exact pid). The endpoint stays
-    /// published: a later start serves the same socket and agent token.
+    /// published: a later start serves the same socket and agent token. Its
+    /// exit watch ends first, so this exit starts nothing.
     func stop() {
+        restarts.stopped()
         if case .running(let pid) = state { launcher.terminate(pid) }
         state = .off
         agentToken = nil
