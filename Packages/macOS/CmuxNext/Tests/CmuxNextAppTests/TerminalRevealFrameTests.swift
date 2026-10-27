@@ -127,9 +127,9 @@ import Testing
     }
 
     /// #22282: Copilot sends OSC 11 while a restored surface is still in a background
-    /// workspace. The first display after that off-window parse must still present the
+    /// workspace. The first frame after that off-window parse must still present the
     /// terminal, rather than leaving only the host backdrop visible.
-    @Test func aBackgroundCreatedTerminalWithOsc11ShowsTextOnItsFirstDisplay() async throws {
+    @Test func aBackgroundCreatedTerminalWithOsc11ShowsTextFromItsFirstFrame() async throws {
         _ = NSApplication.shared
         let drew = WindowDrawPolicy.drawsWhenOccluded
         WindowDrawPolicy.drawsWhenOccluded = true
@@ -151,6 +151,10 @@ import Testing
             await Task.yield()
         }
         try #require(session.model.backgroundOverride != nil, "OSC 11 was not handled before reveal")
+        // The OSC action lands mid-chunk: wait until the rest of the chunk (the text) is parsed too,
+        // so the reveal below starts from a fully parsed off-window screen.
+        let lane = try #require(session.surfaceView.lane, "the surface has no output lane")
+        await lane.drained()
         #expect(session.surfaceView.window == nil, "the regression setup must parse off-window")
 
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 480, height: 240), styleMask: [.borderless],
@@ -164,14 +168,23 @@ import Testing
         window.orderFrontRegardless()
         session.view.layoutSubtreeIfNeeded()
 
+        // A never-shown surface has no frame to hold, so the pane shows nothing (`.none`) until the
+        // renderer's first frame. The bug left it there, or on an empty frame (`.blank`), for good:
+        // the first frame must come within the deadline, hold the text, and every later one too.
         var samples: [Shown] = []
-        let until = ContinuousClock.now.advanced(by: .milliseconds(700))
+        let firstBy = ContinuousClock.now.advanced(by: .seconds(2))
+        while ContinuousClock.now < firstBy, samples.last != .text {
+            samples.append(Self.onScreen(session))
+            try await Task.sleep(for: .milliseconds(4))
+        }
+        let until = ContinuousClock.now.advanced(by: .milliseconds(500))
         while ContinuousClock.now < until {
             samples.append(Self.onScreen(session))
             try await Task.sleep(for: .milliseconds(4))
         }
-        let first = samples.firstIndex(of: .text)
-        #expect(first == 0 && !samples.contains(where: { $0 != .text }), "OSC 11 reveal showed \(samples)")
+        let first = try #require(samples.firstIndex(of: .text), "OSC 11 reveal never showed text: \(samples)")
+        #expect(samples[..<first].allSatisfy { $0 == .none }, "OSC 11 reveal showed an empty frame first: \(samples)")
+        #expect(samples[first...].allSatisfy { $0 == .text }, "OSC 11 reveal lost its text: \(samples)")
         #expect(session.surfaceView.presentedFrame != nil, "OSC 11 reveal never presented an IOSurface")
     }
 }
